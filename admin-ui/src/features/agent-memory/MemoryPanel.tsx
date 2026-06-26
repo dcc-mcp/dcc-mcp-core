@@ -3,14 +3,6 @@ import { RiDeleteBinLine, RiRefreshLine } from '@remixicon/react';
 import { EmptyRow, MetricTile, PanelHeader, StatusLine, TimeValue } from '../../admin-ui-core';
 import type { MemoryFilters, MemoryRow, Translator } from '../../admin-types';
 import { Button } from '../../components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../components/ui/select';
 import { useForgetMemory, useMemoryQuery } from '../../hooks/queries';
 import './memory.css';
 
@@ -115,18 +107,16 @@ export function MemoryPanel({ active, t }: { active: boolean; t: Translator }) {
       />
 
       <div className="memory-filter-bar">
-        <Select value={layer} onValueChange={(value) => setLayer(value as LayerFilter)}>
-          <SelectTrigger className="admin-select-trigger" size="sm" aria-label={t('memory.filter.layer')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="admin-select-content" position="popper" align="start">
-            <SelectGroup>
-              {LAYERS.map((item) => (
-                <SelectItem key={item} value={item}>{t(`memory.filter.${item}` as any)}</SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        <select
+          className="filter-input memory-filter-input"
+          value={layer}
+          aria-label={t('memory.filter.layer')}
+          onChange={(event) => setLayer(event.target.value as LayerFilter)}
+        >
+          {LAYERS.map((item) => (
+            <option key={item} value={item}>{t(`memory.filter.${item}` as any)}</option>
+          ))}
+        </select>
         <input
           className="filter-input memory-filter-input"
           value={dccName}

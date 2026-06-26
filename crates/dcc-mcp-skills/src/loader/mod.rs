@@ -17,7 +17,7 @@ use std::path::Path;
 /// key at the frontmatter root causes [`parse_skill_md`] to reject the
 /// skill. All dcc-mcp-core extensions must be expressed under
 /// `metadata.dcc-mcp.*` (see issue #356).
-const AGENTSKILLS_SPEC_KEYS: &[&str] = &[
+pub(crate) const AGENTSKILLS_SPEC_KEYS: &[&str] = &[
     "name",
     "description",
     "license",
@@ -159,120 +159,7 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     // Merge depends from metadata/depends.md if present
     merge_depends_from_metadata(skill_dir, &mut meta);
 
-    Ok(meta)
-    Ok(meta)
-}
-
-/// Re-run the loader in diagnostic mode for a directory that was skipped by a
-/// scan. If the directory now parses successfully, return a generic stale
-/// diagnostic so callers can refresh their catalog state.
-#[must_use]
-pub fn diagnose_skipped_skill_dir(skill_dir: &Path) -> SkippedSkillDiagnostic {
-    match parse_skill_md_with_diagnostic(skill_dir) {
-        Ok(meta) => SkippedSkillDiagnostic::new(
-            skill_dir,
-            Some(meta.name.clone()),
-            "stale_skip_record",
-            "Skill now parses successfully but the catalog still has a skipped record.",
-            "Rediscover skills to refresh the catalog state.",
-        )
-        .with_filter_metadata((!meta.dcc.is_empty()).then_some(meta.dcc), meta.tags),
-        Err(diagnostic) => *diagnostic,
-    }
-}
-
-impl SkippedSkillDiagnostic {
-    fn with_frontmatter_filter_metadata(self, raw: &serde_yaml_ng::Value) -> Self {
-        let (dcc, tags) = frontmatter_filter_metadata(raw);
-        self.with_filter_metadata(dcc, tags)
-    }
-}
-
-fn raw_skill_name(raw: &serde_yaml_ng::Value, skill_dir: &Path) -> Option<String> {
-    raw.as_mapping()
-        .and_then(|map| map.get(serde_yaml_ng::Value::String("name".to_string())))
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .or_else(|| {
-            skill_dir
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-        })
-}
-
-fn frontmatter_filter_metadata(raw: &serde_yaml_ng::Value) -> (Option<String>, Vec<String>) {
-    let mut dcc = None;
-    let mut tags = Vec::new();
-
-    for (key, value) in collect_dcc_mcp_overrides(raw) {
-        match key.as_str() {
-            "dcc" if dcc.is_none() => {
-                dcc = value.as_str().map(str::to_string);
-            }
-            "tags" if tags.is_empty() => {
-                tags = parse_csv_or_list(&value);
-            }
-            _ => {}
-        }
-    }
-
-    let Some(map) = raw.as_mapping() else {
-        return (dcc, tags);
-    };
-    if dcc.is_none() {
-        dcc = map
-            .get(serde_yaml_ng::Value::String("dcc".to_string()))
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-    }
-    if tags.is_empty()
-        && let Some(value) = map.get(serde_yaml_ng::Value::String("tags".to_string()))
-    {
-        tags = parse_csv_or_list(value);
-    }
-
-    (dcc, tags)
-}
-
-fn non_spec_top_level_suggestion(offending: &[String]) -> String {
-    let mut replacements = Vec::new();
-    for key in offending {
-        let replacement = match key.as_str() {
-            "dcc" => "metadata.dcc-mcp.dcc",
-            "version" => "metadata.dcc-mcp.version",
-            "tags" => "metadata.dcc-mcp.tags",
-            "tools" => "metadata.dcc-mcp.tools: tools.yaml",
-            "groups" => "metadata.dcc-mcp.groups",
-            "prompts" => "metadata.dcc-mcp.prompts",
-            "resources" => "metadata.dcc-mcp.resources",
-            "depends" => "metadata.dcc-mcp.depends",
-            "layer" => "metadata.dcc-mcp.layer",
-            "stage" => "metadata.dcc-mcp.stage",
-            "search-hint" | "search_hint" => "metadata.dcc-mcp.search-hint",
-            "search-aliases" | "search_aliases" | "aliases" => "metadata.dcc-mcp.search-aliases",
-            "products" => "metadata.dcc-mcp.products",
-            "allow-implicit-invocation" | "allow_implicit_invocation" => {
-                "metadata.dcc-mcp.allow-implicit-invocation"
-            }
-            "external-deps" | "external_deps" => "metadata.dcc-mcp.external-deps",
-            "runtimes" | "runtime-deps" | "optional-runtimes" => "metadata.dcc-mcp.runtimes",
-            "recipes" => "metadata.dcc-mcp.recipes",
-            "branding" => "metadata.dcc-mcp.branding",
-            "links" => "metadata.dcc-mcp.links",
-            "example-prompts" | "example_prompts" => "metadata.dcc-mcp.example-prompts",
-            _ => "metadata.dcc-mcp.<key>",
-        };
-        replacements.push(format!("{key} -> {replacement}"));
-    }
-
-    if replacements.is_empty() {
-        "Move dcc-mcp-core extensions under metadata.dcc-mcp.*.".to_string()
-    } else {
-        format!(
-            "Move unsupported top-level key(s): {}. For version metadata, use metadata.dcc-mcp.version: \"1.0.0\".",
-            replacements.join(", ")
-        )
-    }
+    Some(meta)
 }
 
 // ── Issue #356: agentskills.io-compliant metadata.dcc-mcp.* support ──

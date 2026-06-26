@@ -77,6 +77,7 @@ pub fn validate_skill_dir(skill_dir: &Path) -> SkillValidationReport {
 
     let non_spec = detect_non_spec_top_level_fields(&raw_value);
     if !non_spec.is_empty() {
+        let migration_hint = non_spec_top_level_migration_hint(&non_spec);
         report.issues.push(SkillValidationIssue::error(
             IssueCategory::Frontmatter,
             format!(
@@ -84,8 +85,8 @@ pub fn validate_skill_dir(skill_dir: &Path) -> SkillValidationReport {
                  The loader rejects any key outside the agentskills.io 1.0 \
                  spec (name, description, license, compatibility, metadata, \
                  allowed-tools). Move dcc-mcp-core extensions under \
-                 metadata.dcc-mcp.*.",
-                non_spec
+                 metadata.dcc-mcp.*. {migration_hint}",
+                non_spec,
             ),
         ));
     }

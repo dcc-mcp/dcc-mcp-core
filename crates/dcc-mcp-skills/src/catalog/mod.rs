@@ -44,7 +44,7 @@ pub use persistence::{
     DriftRecord, FailedRecord, LoadReplayPolicy, LoadedSkillRecord, PersistedCatalogState,
     ReplayReport,
 };
-pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
+pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary, SkippedSkillDiagnostic};
 
 pub use execute::resolve_tool_script;
 use execute::{ScriptExecutorFn, execute_script};
@@ -140,6 +140,8 @@ pub struct SkillCatalog {
     pub(super) after_group_change_hook: RwLock<Option<Arc<AfterGroupChangeFn>>>,
     /// Tool groups currently active (`"<skill>:<group>"` keys).
     pub(super) active_groups: DashSet<String>,
+    /// Invalid/non-compliant skill dirs seen during discovery, keyed by best-effort skill name.
+    pub(super) skipped: DashMap<String, SkippedSkillDiagnostic>,
 }
 
 impl std::fmt::Debug for SkillCatalog {

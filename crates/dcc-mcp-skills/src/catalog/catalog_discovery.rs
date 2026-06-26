@@ -17,7 +17,193 @@ fn dependency_state_for(
     }
 }
 
+fn skipped_skill_diagnostic(skill_dir: &std::path::Path) -> SkippedSkillDiagnostic {
+    let fallback_name = skill_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "unknown".to_string());
+    let skill_md_path = skill_dir.join(crate::constants::SKILL_METADATA_FILE);
+    let Ok(content) = std::fs::read_to_string(&skill_md_path) else {
+        return SkippedSkillDiagnostic {
+            skill_name: fallback_name,
+            reason_code: "missing_or_unreadable_skill_md".to_string(),
+            message: "Skill directory was skipped because SKILL.md could not be read.".to_string(),
+            suggested_fix: "Add a readable SKILL.md file.".to_string(),
+            dcc: None,
+            tags: Vec::new(),
+        };
+    };
+    let Some(frontmatter) = loader::extract_frontmatter(&content) else {
+        return SkippedSkillDiagnostic {
+            skill_name: fallback_name,
+            reason_code: "missing_frontmatter".to_string(),
+            message: "Skill directory was skipped because SKILL.md has no YAML frontmatter."
+                .to_string(),
+            suggested_fix: "Add valid YAML frontmatter between --- delimiters.".to_string(),
+            dcc: None,
+            tags: Vec::new(),
+        };
+    };
+    let Ok(raw) = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(frontmatter) else {
+        return SkippedSkillDiagnostic {
+            skill_name: fallback_name,
+            reason_code: "invalid_frontmatter".to_string(),
+            message: "Skill directory was skipped because SKILL.md frontmatter is invalid YAML."
+                .to_string(),
+            suggested_fix: "Fix the SKILL.md YAML frontmatter.".to_string(),
+            dcc: None,
+            tags: Vec::new(),
+        };
+    };
+
+    let skill_name = raw
+        .as_mapping()
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("name".to_string())))
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .unwrap_or(fallback_name);
+    let offending = raw
+        .as_mapping()
+        .map(|map| {
+            let mut keys = map
+                .iter()
+                .filter_map(|(key, _)| key.as_str())
+                .filter(|key| !loader::AGENTSKILLS_SPEC_KEYS.contains(key))
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            keys.sort_unstable();
+            keys.dedup();
+            keys
+        })
+        .unwrap_or_default();
+
+    if !offending.is_empty() {
+        return SkippedSkillDiagnostic {
+            skill_name,
+            reason_code: "non_spec_top_level_keys".to_string(),
+            message: format!(
+                "Skill directory was skipped because SKILL.md has non-spec top-level key(s): {}.",
+                offending.join(", ")
+            ),
+            suggested_fix: non_spec_top_level_suggestion(&offending),
+            dcc: dcc_from_frontmatter(&raw),
+            tags: tags_from_frontmatter(&raw),
+        };
+    }
+
+    SkippedSkillDiagnostic {
+        skill_name,
+        reason_code: "invalid_skill_metadata".to_string(),
+        message: "Skill directory was skipped because SKILL.md metadata could not be loaded."
+            .to_string(),
+        suggested_fix: "Fix SKILL.md so it matches the agentskills.io metadata schema.".to_string(),
+        dcc: dcc_from_frontmatter(&raw),
+        tags: tags_from_frontmatter(&raw),
+    }
+}
+
+fn non_spec_top_level_suggestion(keys: &[String]) -> String {
+    let replacements = keys
+        .iter()
+        .map(|key| match key.as_str() {
+            "version" => "version -> metadata.dcc-mcp.version",
+            "dcc" => "dcc -> metadata.dcc-mcp.dcc",
+            "tags" => "tags -> metadata.dcc-mcp.tags",
+            "tools" => "tools -> metadata.dcc-mcp.tools: tools.yaml",
+            "depends" => "depends -> metadata.dcc-mcp.depends",
+            _ => "move it under metadata.dcc-mcp.*",
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "Move unsupported top-level key(s): {}. For version metadata, use metadata.dcc-mcp.version: \"1.0.0\".",
+        replacements.join(", ")
+    )
+}
+
+fn dcc_from_frontmatter(raw: &serde_yaml_ng::Value) -> Option<String> {
+    raw.as_mapping()
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("metadata".to_string())))
+        .and_then(|value| value.as_mapping())
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("dcc-mcp".to_string())))
+        .and_then(|value| value.as_mapping())
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("dcc".to_string())))
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
+fn tags_from_frontmatter(raw: &serde_yaml_ng::Value) -> Vec<String> {
+    raw.as_mapping()
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("metadata".to_string())))
+        .and_then(|value| value.as_mapping())
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("dcc-mcp".to_string())))
+        .and_then(|value| value.as_mapping())
+        .and_then(|map| map.get(serde_yaml_ng::Value::String("tags".to_string())))
+        .and_then(|value| value.as_sequence())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 impl SkillCatalog {
+    fn record_skipped_dirs(&self, skipped: &[String]) {
+        for dir in skipped {
+            let diagnostic = skipped_skill_diagnostic(std::path::Path::new(dir));
+            self.skipped
+                .insert(diagnostic.skill_name.clone(), diagnostic);
+        }
+    }
+
+    pub fn skipped_count(&self) -> usize {
+        self.skipped.len()
+    }
+
+    pub fn skipped_skill_diagnostics(
+        &self,
+        query: Option<&str>,
+        dcc_name: Option<&str>,
+    ) -> Vec<SkippedSkillDiagnostic> {
+        let needle = query.map(str::to_ascii_lowercase);
+        let dcc = dcc_name.map(str::to_ascii_lowercase);
+        let mut diagnostics = self
+            .skipped
+            .iter()
+            .filter_map(|entry| {
+                let diagnostic = entry.value();
+                if let Some(dcc) = &dcc
+                    && diagnostic
+                        .dcc
+                        .as_deref()
+                        .map(str::to_ascii_lowercase)
+                        .as_deref()
+                        != Some(dcc.as_str())
+                {
+                    return None;
+                }
+                if let Some(needle) = &needle {
+                    let haystack = format!(
+                        "{} {} {} {}",
+                        diagnostic.skill_name,
+                        diagnostic.reason_code,
+                        diagnostic.message,
+                        diagnostic.suggested_fix
+                    )
+                    .to_ascii_lowercase();
+                    if !haystack.contains(needle) {
+                        return None;
+                    }
+                }
+                Some(diagnostic.clone())
+            })
+            .collect::<Vec<_>>();
+        diagnostics.sort_by(|a, b| a.skill_name.cmp(&b.skill_name));
+        diagnostics
+    }
+
     pub(crate) fn refresh_dependency_states(&self) {
         let names: std::collections::HashSet<String> = self
             .entries
@@ -50,6 +236,7 @@ impl SkillCatalog {
             after_unload_hook: RwLock::new(None),
             after_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
+            skipped: DashMap::new(),
         }
     }
 
@@ -71,6 +258,7 @@ impl SkillCatalog {
             after_unload_hook: RwLock::new(None),
             after_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
+            skipped: DashMap::new(),
         }
     }
 
@@ -243,6 +431,7 @@ impl SkillCatalog {
         self.refresh_dependency_states();
 
         if !result.skipped.is_empty() {
+            self.record_skipped_dirs(&result.skipped);
             tracing::warn!(
                 count = result.skipped.len(),
                 skipped = ?result.skipped,
@@ -312,7 +501,9 @@ impl SkillCatalog {
         }
         self.refresh_dependency_states();
 
+        self.skipped.clear();
         if !result.skipped.is_empty() {
+            self.record_skipped_dirs(&result.skipped);
             tracing::warn!(
                 count = result.skipped.len(),
                 skipped = ?result.skipped,
@@ -372,6 +563,7 @@ impl SkillCatalog {
                 };
 
             if !result.skipped.is_empty() {
+                self.record_skipped_dirs(&result.skipped);
                 tracing::warn!(
                     scope = %scope,
                     count = result.skipped.len(),

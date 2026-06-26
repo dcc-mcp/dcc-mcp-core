@@ -264,7 +264,14 @@ impl SkillCatalog {
         let metadata = match self.entries.get(skill_name) {
             Some(entry) => entry.metadata.clone(),
             None => {
-                let err = format!("Skill '{skill_name}' not found in catalog");
+                let err = if let Some(diagnostic) = self.skipped.get(skill_name) {
+                    format!(
+                        "Skill '{skill_name}' not found in catalog; matching skill directory was skipped: {} Suggested fix: {}",
+                        diagnostic.message, diagnostic.suggested_fix
+                    )
+                } else {
+                    format!("Skill '{skill_name}' not found in catalog")
+                };
                 self.emit_skill_event(
                     "skill.validation_failed",
                     skill_name,

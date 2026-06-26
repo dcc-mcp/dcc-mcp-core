@@ -25,28 +25,6 @@ export const PANELS: PanelDefinition[] = [
   { id: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.insights' },
 ];
 
-export const NAVIGATION: NavigationDefinition[] = [
-  { id: 'setup', icon: 'setup', panel: 'setup', labelKey: 'navigation.panel.setup', groupKey: 'navigation.group.connectOperate' },
-  { id: 'instances', icon: 'instances', panel: 'instances', labelKey: 'navigation.panel.instances', groupKey: 'navigation.group.connectOperate' },
-  { id: 'health', icon: 'health', panel: 'health', labelKey: 'navigation.panel.health', groupKey: 'navigation.group.connectOperate' },
-  { id: 'debug', icon: 'debug', panel: 'debug', labelKey: 'navigation.panel.debug', groupKey: 'navigation.group.connectOperate' },
-  { id: 'skills', icon: 'skill-paths', panel: 'discover', discoverTab: 'skills', labelKey: 'navigation.panel.skills', groupKey: 'navigation.group.discoverExtend' },
-  { id: 'marketplace', icon: 'marketplace', panel: 'discover', discoverTab: 'marketplace', labelKey: 'navigation.panel.marketplace', groupKey: 'navigation.group.discoverExtend' },
-  { id: 'integrations', icon: 'integrations', panel: 'discover', discoverTab: 'integrations', labelKey: 'navigation.panel.integrations', groupKey: 'navigation.group.discoverExtend' },
-  { id: 'tools', icon: 'tools', panel: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.discoverExtend' },
-  { id: 'workflows', icon: 'workflows', panel: 'workflows', labelKey: 'navigation.panel.workflows', groupKey: 'navigation.group.workflows' },
-  { id: 'tasks', icon: 'tasks', panel: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workflows' },
-  { id: 'activity', icon: 'activity', panel: 'activity', labelKey: 'navigation.panel.activity', groupKey: 'navigation.group.workflows' },
-  { id: 'traces', icon: 'traces', panel: 'traces', tracesTab: 'traces', labelKey: 'navigation.panel.traces', groupKey: 'navigation.group.observe' },
-  { id: 'calls', icon: 'calls', panel: 'traces', tracesTab: 'calls', labelKey: 'navigation.panel.calls', groupKey: 'navigation.group.observe' },
-  { id: 'overview', icon: 'overview', panel: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.observe' },
-  { id: 'logs', icon: 'logs', panel: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observe' },
-  { id: 'analytics', icon: 'analytics', panel: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
-  { id: 'memory', icon: 'memory', panel: 'memory', labelKey: 'navigation.panel.memory', groupKey: 'navigation.group.insights' },
-  { id: 'governance', icon: 'governance', panel: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.governContracts' },
-  { id: 'openapi', icon: 'openapi', panel: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.governContracts' },
-];
-
 export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
 export const STATS_RANGE_IDS = new Set(['1h', '24h', '7d', 'all']);
 

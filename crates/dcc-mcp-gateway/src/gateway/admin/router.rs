@@ -23,9 +23,6 @@ use super::marketplace::{
     handle_marketplace_uninstall, handle_marketplace_update,
 };
 use super::memory::{handle_admin_memory, handle_admin_memory_forget};
-use super::skill_paths::{
-    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
-};
 use super::state::AdminState;
 
 /// Build the admin sub-router.

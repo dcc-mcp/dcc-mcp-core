@@ -319,33 +319,6 @@ export function useDeleteSkillPath() {
   });
 }
 
-export function useInstanceServerUpdate() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (body: { instanceId: string; apply?: boolean }) => {
-      const endpoint = `/instances/${encodeURIComponent(body.instanceId)}/update`;
-      const res = await fetch(`${API_BASE}/instances/${encodeURIComponent(body.instanceId)}/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apply: body.apply ?? true, binary: 'dcc-mcp-server' }),
-        signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
-      });
-      try {
-        return await adminJsonResponse<InstanceUpdatePayload>(res, endpoint);
-      } catch (err) {
-        if (err instanceof AdminApiError && isInstanceUpdatePayload(err.payload)) {
-          return err.payload;
-        }
-        throw err;
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: adminKeys.workers() });
-      queryClient.invalidateQueries({ queryKey: adminKeys.health() });
-    },
-  });
-}
-
 export function useForgetMemory() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -356,7 +329,9 @@ export function useForgetMemory() {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(ADMIN_FETCH_TIMEOUT_MS),
       });
-      await adminOkResponse(res, '/memory/forget');
+      if (!res.ok) {
+        throw new Error(`POST /memory/forget failed with HTTP ${res.status}`);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...adminKeys.all, 'memory'] });

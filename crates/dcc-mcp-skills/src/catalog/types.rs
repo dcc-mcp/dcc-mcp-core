@@ -88,6 +88,18 @@ pub struct SkillEntry {
     pub path_source: crate::catalog::scoring::SkillPathSource,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SkippedSkillDiagnostic {
+    pub skill_name: String,
+    pub reason_code: String,
+    pub message: String,
+    pub suggested_fix: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcc: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+}
+
 // ── Summary / Detail types ──
 
 /// Lightweight summary of a skill for search/list results.
