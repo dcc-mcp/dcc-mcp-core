@@ -76,3 +76,6 @@ dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
 [[bench]]
 name = "search_bench"
 harness = false
+
+[build-dependencies]
+dunce = "1.0"
