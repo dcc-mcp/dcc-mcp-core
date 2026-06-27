@@ -7,20 +7,29 @@ use super::analytics::{
     handle_admin_analytics_export, handle_admin_analytics_heatmap, handle_admin_analytics_overview,
     handle_admin_analytics_timeseries,
 };
+use super::general::{
+    handle_admin_activity, handle_admin_governance, handle_admin_traffic,
+    handle_admin_traffic_export, handle_admin_ui,
+};
 use super::handlers::{
-    handle_admin_activity, handle_admin_calls, handle_admin_debug_bundle,
-    handle_admin_deregistered, handle_admin_governance, handle_admin_health,
-    handle_admin_instances, handle_admin_issue_report, handle_admin_logs,
-    handle_admin_search_telemetry, handle_admin_skill_detail, handle_admin_skill_path_add,
-    handle_admin_skill_path_delete, handle_admin_skill_paths, handle_admin_skills,
-    handle_admin_stats, handle_admin_tasks, handle_admin_tools, handle_admin_trace_detail,
-    handle_admin_traces, handle_admin_traffic, handle_admin_traffic_export, handle_admin_ui,
-    handle_admin_workers, handle_admin_workflows, handle_v1_debug_trace_lookup,
+    handle_admin_calls, handle_admin_debug_bundle, handle_admin_deregistered, handle_admin_health,
+    handle_admin_instance_update, handle_admin_instances, handle_admin_issue_report,
+    handle_admin_logs, handle_admin_search_telemetry, handle_admin_skill_detail,
+    handle_admin_skills, handle_admin_stats, handle_admin_tasks, handle_admin_tools,
+    handle_admin_trace_detail, handle_admin_traces, handle_admin_workers, handle_admin_workflows,
+    handle_v1_debug_trace_lookup,
+};
+use super::integrations::{
+    handle_admin_integration_test, handle_admin_integration_update, handle_admin_integrations,
 };
 use super::marketplace::{
     handle_marketplace_add_source, handle_marketplace_catalog, handle_marketplace_install,
     handle_marketplace_installed, handle_marketplace_outdated, handle_marketplace_sources,
     handle_marketplace_uninstall, handle_marketplace_update,
+};
+use super::memory::{handle_admin_memory, handle_admin_memory_forget};
+use super::skill_paths::{
+    handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
 };
 use super::state::AdminState;
 
@@ -53,6 +62,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         .route("/", routing::get(handle_admin_ui))
         .route("/api/activity", routing::get(handle_admin_activity))
         .route("/api/instances", routing::get(handle_admin_instances))
+        .route(
+            "/api/instances/{instance_id}/update",
+            routing::post(handle_admin_instance_update),
+        )
         .route("/api/tools", routing::get(handle_admin_tools))
         .route("/api/skills", routing::get(handle_admin_skills))
         .route("/api/skill-detail", routing::get(handle_admin_skill_detail))
@@ -87,6 +100,11 @@ pub fn build_admin_router(state: AdminState) -> Router {
             routing::delete(handle_admin_skill_path_delete),
         )
         .route("/api/logs", routing::get(handle_admin_logs))
+        .route("/api/memory", routing::get(handle_admin_memory))
+        .route(
+            "/api/memory/forget",
+            routing::post(handle_admin_memory_forget),
+        )
         .route("/api/deregistered", routing::get(handle_admin_deregistered))
         .route("/api/stats", routing::get(handle_admin_stats))
         .route(
@@ -112,6 +130,14 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
+        .route(
+            "/api/integrations",
+            routing::get(handle_admin_integrations).put(handle_admin_integration_update),
+        )
+        .route(
+            "/api/integrations/test",
+            routing::post(handle_admin_integration_test),
+        )
         .route(
             "/api/marketplace/catalog",
             routing::get(handle_marketplace_catalog),
@@ -210,6 +236,10 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
         .route(
             "/v1/debug/search-telemetry",
             routing::get(handle_admin_search_telemetry),
+        )
+        .route(
+            "/v1/debug/integrations",
+            routing::get(handle_admin_integrations),
         )
         .route("/v1/debug/health", routing::get(handle_admin_health))
         .with_state(state)

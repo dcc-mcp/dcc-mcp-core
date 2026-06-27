@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -51,6 +52,16 @@ pub struct UpdateInfo {
 pub enum UpdateError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
+
+    #[error("Invalid gateway update response: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Gateway update check failed ({status}): {error}: {message}")]
+    Gateway {
+        status: u16,
+        error: String,
+        message: String,
+    },
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -107,6 +118,14 @@ pub struct Updater {
     client: reqwest::Client,
 }
 
+/// Raw JSON payload returned by the gateway update endpoint.
+#[derive(Debug, Clone)]
+pub struct GatewayUpdateJson {
+    pub status: u16,
+    pub success: bool,
+    pub body: Value,
+}
+
 impl Updater {
     /// Create a new updater instance.
     ///
@@ -135,12 +154,12 @@ impl Updater {
     /// Makes a `GET /v1/update/check?binary={binary_name}&current_version={ver}`
     /// request to the gateway.
     pub async fn check_update(&self) -> Result<UpdateInfo, UpdateError> {
-        let url = format!(
-            "{}/v1/update/check?binary={}&current_version={}",
-            self.gateway_url, self.binary_name, self.current_version
-        );
+        let payload = self.check_update_json().await?;
+        if !payload.success || payload.body.get("error").is_some() {
+            return Err(gateway_error(payload.status, &payload.body));
+        }
 
-        let resp: UpdateCheckResponse = self.client.get(&url).send().await?.json().await?;
+        let resp: UpdateCheckResponse = serde_json::from_value(payload.body)?;
 
         Ok(UpdateInfo {
             update_available: resp.update_available,
@@ -149,6 +168,39 @@ impl Updater {
             download_url: resp.download_url,
             sha256: resp.sha256,
             release_notes: resp.release_notes,
+        })
+    }
+
+    /// Query the gateway and preserve the raw JSON payload.
+    ///
+    /// This is useful for CLI `check` commands because gateway error responses
+    /// are intentionally structured JSON and should be printable by agents.
+    pub async fn check_update_json(&self) -> Result<GatewayUpdateJson, UpdateError> {
+        let url = format!(
+            "{}/v1/update/check?binary={}&current_version={}",
+            self.gateway_url, self.binary_name, self.current_version
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await?;
+        let status = response.status();
+        let mut body: Value = response.json().await?;
+
+        if let Value::Object(map) = &mut body {
+            map.entry("current_version")
+                .or_insert_with(|| Value::String(self.current_version.clone()));
+            map.entry("binary_name")
+                .or_insert_with(|| Value::String(self.binary_name.clone()));
+        }
+
+        Ok(GatewayUpdateJson {
+            status: status.as_u16(),
+            success: status.is_success(),
+            body,
         })
     }
 
@@ -170,6 +222,7 @@ impl Updater {
         let dest_path = staging_dir.join(format!("{}.download", self.binary_name));
 
         let response = self.client.get(download_url).send().await?;
+        let response = response.error_for_status()?;
         let bytes = response.bytes().await?;
 
         // Verify SHA-256 if provided
@@ -267,6 +320,24 @@ impl Updater {
     }
 }
 
+fn gateway_error(status: u16, body: &Value) -> UpdateError {
+    let error = body
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or("update_check_failed")
+        .to_string();
+    let message = body
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("Gateway update check failed.")
+        .to_string();
+    UpdateError::Gateway {
+        status,
+        error,
+        message,
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn staging_dir(binary_name: &str) -> Result<PathBuf, UpdateError> {
@@ -317,6 +388,8 @@ mod hex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[test]
     fn version_comparison() {
@@ -334,5 +407,50 @@ mod tests {
         let dir = staging_dir("dcc-mcp-cli").unwrap();
         assert!(dir.to_string_lossy().contains("dcc-mcp"));
         assert!(dir.to_string_lossy().contains("update"));
+    }
+
+    #[tokio::test]
+    async fn download_update_rejects_http_error_status() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\ncontent-type: text/html\r\ncontent-length: 15\r\n\r\n<html>no</html>",
+                )
+                .await
+                .unwrap();
+        });
+
+        let binary_name = format!(
+            "dcc-mcp-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let updater = Updater::new("http://127.0.0.1", &binary_name, "0.1.0");
+        let info = UpdateInfo {
+            update_available: true,
+            current_version: "0.1.0".into(),
+            latest_version: "0.2.0".into(),
+            download_url: Some(format!("http://{addr}/missing")),
+            sha256: None,
+            release_notes: None,
+        };
+
+        let err = updater.download_update(&info).await.unwrap_err();
+        assert!(matches!(err, UpdateError::Http(_)));
+        assert!(
+            !staging_dir(&binary_name)
+                .unwrap()
+                .join(format!("{binary_name}.download"))
+                .exists()
+        );
+        server.await.unwrap();
     }
 }

@@ -1,5 +1,14 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  RiCloseLine,
+  RiDownloadCloudLine,
+  RiEyeLine,
+  RiFileCopyLine,
+  RiPulseLine,
+  RiRefreshLine,
+} from '@remixicon/react';
 import { SkillMarkdownPreview } from './components/SkillMarkdownPreview';
+import { Button } from './components/ui/button';
 import { type MessageKey } from './i18n';
 import { formatTime, timestampTitle } from './time';
 import { CRITICAL_LATENCY_MS, recordOrNull, SLOW_LATENCY_MS, type ActivityEvent, type AdminLinks, type AgentContext, type AttributionFacet, type AttributionTrust, type CallRow, type GovernanceMiddlewareControl, type HealthPayload, type IdeTarget, type InstanceRow, type LatencySeverity, type OpenApiOperationRow, type OpenApiSource, type OpenApiSpec, type Panel, type SkillDetailInstance, type SkillDetailPayload, type SkillRow, type StatsPayload, type TaskRow, type TokenAccounting, type TokenBreakdownEntry, type TokenCarrier, type ToolRow, type TopEntry, type TraceDetailPayload, type TracePayload, type TraceRow, type TraceSpan, type TrafficCaptureStatus, type TrafficFrameEnvelope, type Translator, type WorkflowAgent, type WorkflowGraphNode, type WorkflowGraphStage, type WorkflowRow, type WorkflowSearchSignal, type WorkflowStep } from './admin-types';
@@ -14,7 +23,10 @@ import {
   IDE_SERVER_NAME,
   IDE_TARGETS,
   OPENAPI_METHODS,
+  AdminApiError,
   adminApiBase,
+  adminJsonResponse,
+  adminOkResponse,
   apiJson,
   backendAccessUrls,
   buildCodexConfig,
@@ -50,7 +62,10 @@ export {
   IDE_SERVER_NAME,
   IDE_TARGETS,
   OPENAPI_METHODS,
+  AdminApiError,
   adminApiBase,
+  adminJsonResponse,
+  adminOkResponse,
   apiJson,
   backendAccessUrls,
   buildCodexConfig,
@@ -81,11 +96,13 @@ export {
 // ══ navigation ────────────────────────────────────────────────────────────
 import {
   PANEL_ALIAS_MAP,
+  NAVIGATION,
   PANELS,
   PANEL_ID_SET,
   STATS_RANGE_IDS,
   adminPathBases,
   adminShellPath,
+  canonicalAdminPanelTarget,
   fullHrefForAdmin,
   gatewayDocsHref,
   gatewayOpenApiHref,
@@ -107,11 +124,13 @@ import {
 } from './navigation';
 export {
   PANEL_ALIAS_MAP,
+  NAVIGATION,
   PANELS,
   PANEL_ID_SET,
   STATS_RANGE_IDS,
   adminPathBases,
   adminShellPath,
+  canonicalAdminPanelTarget,
   fullHrefForAdmin,
   gatewayDocsHref,
   gatewayOpenApiHref,
@@ -295,6 +314,7 @@ export function TimeValue({ value, className }: { value: string | null | undefin
 }
 
 export function StatusLine({ text, error }: { text: string; error?: string }) {
+  if (!error && !text.trim()) return null;
   return <div className="status-bar">{error ? `Error: ${error}` : text}</div>;
 }
 
@@ -361,6 +381,7 @@ export function NavIcon({ panel }: { panel: Panel }) {
     openapi: ['M5 5h14v14H5z', 'M8 9h8', 'M8 13h5', 'M8 17h8'],
     'skill-paths': ['M5 12h14', 'M12 5v14', 'M7 7l10 10', 'M17 7L7 17'],
     analytics: ['M3 3v18h18', 'M7 16l4-8 4 4 4-6'],
+    memory: ['M5 7c0-2 14-2 14 0s-14 2-14 0', 'M5 7v10c0 2 14 2 14 0V7', 'M5 12c0 2 14 2 14 0'],
     marketplace: ['M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z', 'M3 6h18', 'M16 10a4 4 0 01-8 0'],
     integrations: ['M12 2L2 7l10 5 10-5-10-5z', 'M2 17l10 5 10-5', 'M2 12l10 5 10-5'],
     discover: ['M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z'],
@@ -463,10 +484,14 @@ export function SkillDetailPanel({
           </div>
         </div>
         <div className="table-actions">
-          <button className="refresh-btn" type="button" disabled={busy} onClick={onReload}>
+          <Button type="button" size="sm" disabled={busy} onClick={onReload}>
+            <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
             {busy ? t('common.status.loading') : t('action.reload')}
-          </button>
-          <button className="linkish" type="button" onClick={onClose}>{t('action.close')}</button>
+          </Button>
+          <Button variant="ghost" type="button" size="sm" onClick={onClose}>
+            <RiCloseLine data-icon="inline-start" aria-hidden="true" />
+            {t('action.close')}
+          </Button>
         </div>
       </div>
       {selected?.description ? <p className="skill-detail-description">{selected.description}</p> : null}
@@ -1433,17 +1458,19 @@ export function WorkflowStepCard({
         <WorkflowSearchChips signal={step.search} t={t} />
         <div className="workflow-step-actions">
           {requestId ? (
-            <button className="refresh-btn" type="button" title={requestId} onClick={() => onOpenTrace(requestId)}>
+            <Button variant="secondary" size="xs" type="button" title={requestId} onClick={() => onOpenTrace(requestId)}>
+              <RiPulseLine data-icon="inline-start" aria-hidden="true" />
               {t('action.trace')}
-            </button>
+            </Button>
           ) : null}
           {links?.debug_bundle_url ? <a className="link-chip" href={links.debug_bundle_url} target="_blank" rel="noopener noreferrer">{t('workflows.link.bundle')}</a> : null}
           {links?.issue_report_url ? <a className="link-chip" href={links.issue_report_url} target="_blank" rel="noopener noreferrer">{t('workflows.link.issueJson')}</a> : null}
           {links?.openapi_docs_url ? <a className="link-chip" href={links.openapi_docs_url} target="_blank" rel="noopener noreferrer">{t('workflows.link.docs')}</a> : null}
           {requestId ? (
-            <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(requestId)}>
+            <Button variant="outline" size="xs" type="button" onClick={() => onCopyIssueReport(requestId)}>
+              <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
               {t('workflows.action.copyJson')}
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -1489,7 +1516,10 @@ export function WorkflowGraphDetail({
             })}
           </div>
         </div>
-        <button className="refresh-btn" type="button" onClick={onClose}>{t('workflows.action.closeDetail')}</button>
+        <Button variant="ghost" size="sm" type="button" onClick={onClose}>
+          <RiCloseLine data-icon="inline-start" aria-hidden="true" />
+          {t('workflows.action.closeDetail')}
+        </Button>
       </div>
 
       <div className="workflow-detail-layout">
@@ -1603,18 +1633,21 @@ export function WorkflowCard({
       </div>
       <WorkflowStageStrip workflow={workflow} t={t} />
       <div className="workflow-card-actions">
-        <button className="refresh-btn" type="button" onClick={() => onInspect(workflow.workflow_id)}>
+        <Button variant="secondary" size="xs" type="button" onClick={() => onInspect(workflow.workflow_id)}>
+          <RiEyeLine data-icon="inline-start" aria-hidden="true" />
           {t('workflows.action.inspect')}
-        </button>
+        </Button>
         {requestId ? (
-          <button className="refresh-btn" type="button" title={requestId} onClick={() => onOpenTrace(requestId)}>
+          <Button variant="secondary" size="xs" type="button" title={requestId} onClick={() => onOpenTrace(requestId)}>
+            <RiPulseLine data-icon="inline-start" aria-hidden="true" />
             {t('action.trace')}
-          </button>
+          </Button>
         ) : null}
         {requestId ? (
-          <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(requestId)}>
+          <Button variant="outline" size="xs" type="button" onClick={() => onCopyIssueReport(requestId)}>
+            <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
             {t('workflows.action.copyJson')}
-          </button>
+          </Button>
         ) : null}
       </div>
     </article>
@@ -1660,18 +1693,22 @@ export function TraceDetailPanel({
           <h3 title={trace.request_id}>{compactId(trace.request_id)}</h3>
         </div>
         <div className="trace-copy-actions">
-          <button className="refresh-btn" type="button" onClick={() => onCopy(links.admin_trace_url ?? '', 'trace URL')}>
+          <Button variant="outline" size="xs" type="button" onClick={() => onCopy(links.admin_trace_url ?? '', 'trace URL')}>
+            <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
             {t('traces.action.copyUrl')}
-          </button>
-          <button className="refresh-btn" type="button" onClick={() => onCopy(buildAgentPacket(trace), 'agent packet')}>
+          </Button>
+          <Button variant="outline" size="xs" type="button" onClick={() => onCopy(buildAgentPacket(trace), 'agent packet')}>
+            <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
             {t('traces.action.copyAgentPacket')}
-          </button>
-          <button className="refresh-btn" type="button" onClick={() => onCopyIssueReport(trace.request_id)}>
+          </Button>
+          <Button variant="outline" size="xs" type="button" onClick={() => onCopyIssueReport(trace.request_id)}>
+            <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
             {t('traces.action.copyIssueJson')}
-          </button>
-          <button className="refresh-btn" type="button" onClick={() => onDownloadIssueReport(trace.request_id)}>
+          </Button>
+          <Button variant="outline" size="xs" type="button" onClick={() => onDownloadIssueReport(trace.request_id)}>
+            <RiDownloadCloudLine data-icon="inline-start" aria-hidden="true" />
             {t('traces.action.downloadJson')}
-          </button>
+          </Button>
         </div>
         <div className="trace-summary-grid">
           <span><strong>{t('traces.label.tool')}</strong>{trace.tool_slug ?? trace.method}</span>

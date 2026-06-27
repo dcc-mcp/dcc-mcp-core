@@ -156,7 +156,7 @@ fn build_translate_gateway_daemon_options(
         gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(30),
+            .unwrap_or(dcc_mcp_sidecar::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS),
     }
 }
 
@@ -217,11 +217,11 @@ pub struct TranslateArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_PORT", default_value = "59765")]
     pub gateway_remote_port: u16,
 
-    /// Disable the read-only Admin UI on the elected gateway.
+    /// Disable the Admin UI on the elected gateway.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
     pub no_admin: bool,
 
-    /// URL prefix for the read-only Admin UI.
+    /// URL prefix for the Admin UI.
     #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
     pub admin_path: String,
 

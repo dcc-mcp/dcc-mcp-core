@@ -1315,3 +1315,7 @@ pub async fn handle_v1_call_batch(
 #[cfg(test)]
 #[path = "rest_impl_tests.rs"]
 mod rest_impl_tests;
+
+#[cfg(test)]
+#[path = "rest_impl_batch_tests.rs"]
+mod rest_impl_batch_tests;

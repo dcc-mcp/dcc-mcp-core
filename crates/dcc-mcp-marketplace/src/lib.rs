@@ -11,6 +11,7 @@
 //!   and integrity verification (zip + SHA-256).
 //! - A unified [`MarketplaceError`] covering all known failure modes.
 
+pub mod add_repo;
 pub mod error;
 pub mod path;
 pub mod service;
@@ -18,6 +19,7 @@ pub mod source;
 pub mod types;
 
 // Re-export the public API for convenience.
+pub use add_repo::{install_from_repo, list_repo_skills, parse_repo_ref};
 pub use error::MarketplaceError;
 pub use path::{default_config_path, home_dir, marketplace_root, marketplace_root_or_default};
 pub use service::{MarketplaceService, default_sources_disabled, env_sources, path_component};
@@ -27,6 +29,6 @@ pub use types::{
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig,
     MarketplaceSourceOrigin, MarketplaceUninstallResult, MarketplaceUpdateResult,
-    OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, StoredMarketplaceSource,
-    entry_targets_dcc,
+    OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, RepoInstallResult, RepoSkillInfo,
+    RepoSkillList, StoredMarketplaceSource, entry_targets_dcc,
 };

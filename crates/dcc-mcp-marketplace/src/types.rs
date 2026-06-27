@@ -156,6 +156,38 @@ pub struct MarketplaceUpdateResult {
     pub reload_required: bool,
 }
 
+// ── add-repo (direct GitHub install) ──────────────────────────────────────────
+
+/// A single skill discovered in a GitHub repo via SKILL.md discovery.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RepoSkillInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub dcc: Option<String>,
+    pub subpath: Option<String>,
+}
+
+/// Result of listing skills from a repo.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RepoSkillList {
+    pub repo_url: String,
+    pub count: usize,
+    pub skills: Vec<RepoSkillInfo>,
+}
+
+/// Result of installing a skill directly from a GitHub repo.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RepoInstallResult {
+    pub installed: bool,
+    pub name: String,
+    pub dcc: String,
+    pub repo_url: String,
+    pub path: String,
+    pub skill_search_path: String,
+    pub skill_subpath: Option<String>,
+    pub description: Option<String>,
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /// Check whether `entry` targets the given DCC type (case-insensitive).

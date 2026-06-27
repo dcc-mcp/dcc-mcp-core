@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dcc_mcp_catalog::{self, CatalogEntry, CatalogInstall};
 use sha2::{Digest, Sha256};
 
+use crate::add_repo::collect_skill_dirs;
 use crate::error::MarketplaceError;
 use crate::source::{builtin_source, dedupe_sources, normalise_source};
 use crate::types::{
@@ -18,7 +19,8 @@ use crate::types::{
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig,
     MarketplaceSourceOrigin, MarketplaceUninstallResult, MarketplaceUpdateResult,
-    OutdatedMarketplacePackage, StoredMarketplaceSource, entry_targets_dcc,
+    OutdatedMarketplacePackage, RepoInstallResult, RepoSkillList, StoredMarketplaceSource,
+    entry_targets_dcc,
 };
 
 const ENV_MARKETPLACE_SOURCES: &str = "DCC_MCP_MARKETPLACE_SOURCES";
@@ -267,6 +269,11 @@ impl MarketplaceService {
             return Err(err);
         }
 
+        if let Err(err) = promote_single_nested_skill_directory(&staging) {
+            let _ = remove_path(&staging);
+            return Err(err);
+        }
+
         let skill_md = staging.join("SKILL.md");
         if !skill_md.is_file() {
             let _ = remove_path(&staging);
@@ -482,6 +489,23 @@ impl MarketplaceService {
             results.push(update_result);
         }
         Ok(results)
+    }
+
+    // ── add-repo (direct GitHub install) ──────────────────────────────────────
+
+    /// List SKILL.md entries from a GitHub repo without installing.
+    pub fn list_repo_skills(&self, repo_ref: &str) -> Result<RepoSkillList, MarketplaceError> {
+        crate::add_repo::list_repo_skills(repo_ref)
+    }
+
+    /// Install a skill directly from a GitHub repo (no marketplace.json needed).
+    pub fn add_repo(
+        &self,
+        repo_ref: &str,
+        dcc: Option<&str>,
+        force: bool,
+    ) -> Result<RepoInstallResult, MarketplaceError> {
+        crate::add_repo::install_from_repo(repo_ref, dcc, force, &self.root)
     }
 
     // ── internal helpers ─────────────────────────────────────────────────────
@@ -1174,6 +1198,34 @@ fn flatten_single_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
     Ok(())
 }
 
+fn promote_single_nested_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
+    if dest.join("SKILL.md").is_file() {
+        return Ok(());
+    }
+
+    let skill_dirs = collect_skill_dirs(dest);
+    let [skill_dir] = skill_dirs.as_slice() else {
+        return Ok(());
+    };
+    if skill_dir == dest {
+        return Ok(());
+    }
+
+    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+    let promoted = parent.join(format!(".promoting-{}", now_ms()));
+    if promoted.exists() {
+        remove_path(&promoted)?;
+    }
+    if let Err(err) = copy_dir_recursive(skill_dir, &promoted) {
+        let _ = remove_path(&promoted);
+        return Err(err);
+    }
+    remove_path(dest)?;
+    fs::rename(&promoted, dest)
+        .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
+    Ok(())
+}
+
 // ── fs helpers ───────────────────────────────────────────────────────────────
 
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), MarketplaceError> {
@@ -1203,7 +1255,7 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), MarketplaceError> {
     Ok(())
 }
 
-fn remove_path(path: &Path) -> Result<(), MarketplaceError> {
+pub(crate) fn remove_path(path: &Path) -> Result<(), MarketplaceError> {
     if path.is_dir() {
         fs::remove_dir_all(path)
     } else {
@@ -1276,27 +1328,21 @@ mod tests {
 
     #[test]
     fn default_sources_disabled_false_when_unset() {
-        // SAFETY: test-only env manipulation; isolated to this specific var.
-        unsafe { std::env::remove_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES) };
+        let _guard = dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, None);
         assert!(!default_sources_disabled());
     }
 
     #[test]
     fn default_sources_disabled_respects_truthy_values() {
-        // Save/restore to avoid leaking across tests.
-        let saved = std::env::var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES).ok();
         for v in ["1", "true", "TRUE", "yes", "YES"] {
-            unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) };
+            let _g =
+                dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, Some(v));
             assert!(default_sources_disabled(), "expected true for '{v}'");
         }
         for v in ["0", "false", "no", "", "FALSE", "NO"] {
-            unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) };
+            let _g =
+                dcc_mcp_test_utils::EnvVarGuard::set(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, Some(v));
             assert!(!default_sources_disabled(), "expected false for '{v}'");
-        }
-        // Restore original value (or unset).
-        match saved {
-            Some(v) => unsafe { std::env::set_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES, v) },
-            None => unsafe { std::env::remove_var(ENV_MARKETPLACE_NO_DEFAULT_SOURCES) },
         }
     }
 }

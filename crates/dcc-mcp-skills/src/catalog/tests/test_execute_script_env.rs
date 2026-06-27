@@ -1,55 +1,29 @@
 //! Regression tests for issue #231 (silent ambient-python fallback) and
 //! GUI-executable guard.
 //!
-//! These tests manipulate process env vars. They run serially relative to
-//! each other — guarded by EXEC_ENV_MUTEX so parallel `cargo test` threads
-//! don't interleave SET/REMOVE calls.
+//! These tests manipulate process env vars. Each test wraps its env-var
+//! mutations in a shared [`EnvVarsGuard`] so that dropped values are
+//! restored atomically, even on panic.
 use super::*;
+use dcc_mcp_test_utils::EnvVarsGuard;
 
-static EXEC_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// RAII guard that clears the three Python-execution env vars for the
-/// duration of a test, restoring their prior values on drop.
-/// Holds [`EXEC_ENV_MUTEX`] to prevent parallel races.
-struct ExecEnvGuard<'a> {
-    _lock: std::sync::MutexGuard<'a, ()>,
-    saved: Vec<(&'static str, Option<String>)>,
-}
-
-impl<'a> ExecEnvGuard<'a> {
-    fn new() -> Self {
-        let lock = EXEC_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-        let keys = [
-            "DCC_MCP_PYTHON_EXECUTABLE",
-            "DCC_MCP_PYTHON_INIT_SNIPPET",
-            "DCC_MCP_ALLOW_AMBIENT_PYTHON",
-        ];
-        let saved: Vec<(&'static str, Option<String>)> =
-            keys.iter().map(|k| (*k, std::env::var(*k).ok())).collect();
-        for (k, _) in &saved {
-            // SAFETY: tests run serially for this module via EXEC_ENV_MUTEX.
-            unsafe { std::env::remove_var(k) };
-        }
-        Self { _lock: lock, saved }
-    }
-}
-
-impl<'a> Drop for ExecEnvGuard<'a> {
-    fn drop(&mut self) {
-        for (k, v) in &self.saved {
-            match v {
-                Some(val) => unsafe { std::env::set_var(k, val) },
-                None => unsafe { std::env::remove_var(k) },
-            }
-        }
-    }
+/// Clear the three Python-execution env vars and return a guard that restores
+/// them on drop. Tests that need a specific value should create their own
+/// `EnvVarsGuard::set(&[...])` that includes these three clears followed by
+/// the desired override.
+fn clear_exec_env() -> EnvVarsGuard {
+    EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+    ])
 }
 
 // ── Ambient-python checks (issue #231) ──────────────────────────────────────
 
 #[test]
 fn test_execute_script_rejects_ambient_python_for_host_dcc() {
-    let _g = ExecEnvGuard::new();
+    let _g = clear_exec_env();
 
     let result = execute_script(
         "any_skill.py",
@@ -69,7 +43,7 @@ fn test_execute_script_rejects_ambient_python_for_host_dcc() {
 
 #[test]
 fn test_execute_script_rejects_ambient_python_case_insensitive() {
-    let _g = ExecEnvGuard::new();
+    let _g = clear_exec_env();
     let err = execute_script("any.py", serde_json::json!({}), Some("Houdini"))
         .expect_err("Houdini must also require a host python");
     assert!(err.contains("DCC_MCP_PYTHON_EXECUTABLE"));
@@ -77,8 +51,12 @@ fn test_execute_script_rejects_ambient_python_case_insensitive() {
 
 #[test]
 fn test_execute_script_allows_opt_out_via_env_var() {
-    let _g = ExecEnvGuard::new();
-    unsafe { std::env::set_var("DCC_MCP_ALLOW_AMBIENT_PYTHON", "1") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", Some("1")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("maya"));
     if let Err(err) = result {
@@ -91,8 +69,12 @@ fn test_execute_script_allows_opt_out_via_env_var() {
 
 #[test]
 fn test_execute_script_skips_check_when_executable_set() {
-    let _g = ExecEnvGuard::new();
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "python") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("python")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("maya"));
     if let Err(err) = result {
@@ -105,7 +87,7 @@ fn test_execute_script_skips_check_when_executable_set() {
 
 #[test]
 fn test_execute_script_allows_generic_python_dcc() {
-    let _g = ExecEnvGuard::new();
+    let _g = clear_exec_env();
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("python"));
     if let Err(err) = result {
         assert!(
@@ -117,7 +99,7 @@ fn test_execute_script_allows_generic_python_dcc() {
 
 #[test]
 fn test_execute_script_no_dcc_hint_does_not_trigger_check() {
-    let _g = ExecEnvGuard::new();
+    let _g = clear_exec_env();
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
     if let Err(err) = result {
         assert!(
@@ -131,8 +113,12 @@ fn test_execute_script_no_dcc_hint_does_not_trigger_check() {
 
 #[test]
 fn test_execute_script_rejects_gui_executable_maya_exe() {
-    let _g = ExecEnvGuard::new();
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "maya.exe") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("maya.exe")),
+    ]);
 
     let result = execute_script("any_skill.py", serde_json::json!({}), None);
     let err =
@@ -149,13 +135,15 @@ fn test_execute_script_rejects_gui_executable_maya_exe() {
 
 #[test]
 fn test_execute_script_rejects_gui_executable_case_insensitive() {
-    let _g = ExecEnvGuard::new();
-    unsafe {
-        std::env::set_var(
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        (
             "DCC_MCP_PYTHON_EXECUTABLE",
-            "/usr/autodesk/maya2024/bin/Maya",
-        )
-    };
+            Some("/usr/autodesk/maya2024/bin/Maya"),
+        ),
+    ]);
 
     let err = execute_script("any_skill.py", serde_json::json!({}), None)
         .expect_err("must fail for GUI executable regardless of case");
@@ -167,8 +155,12 @@ fn test_execute_script_rejects_gui_executable_case_insensitive() {
 
 #[test]
 fn test_execute_script_rejects_gui_executable_blender() {
-    let _g = ExecEnvGuard::new();
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "blender") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("blender")),
+    ]);
 
     let err = execute_script("any_skill.py", serde_json::json!({}), None)
         .expect_err("must fail for blender GUI executable");
@@ -180,9 +172,12 @@ fn test_execute_script_rejects_gui_executable_blender() {
 
 #[test]
 fn test_execute_script_allows_headless_interpreter() {
-    let _g = ExecEnvGuard::new();
-    // mayapy is the headless Maya interpreter — must NOT trigger the GUI guard
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "mayapy") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("mayapy")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
     if let Err(err) = result {
@@ -195,9 +190,12 @@ fn test_execute_script_allows_headless_interpreter() {
 
 #[test]
 fn test_execute_script_allows_hython() {
-    let _g = ExecEnvGuard::new();
-    // hython is Houdini's headless interpreter
-    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "hython") };
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("DCC_MCP_PYTHON_EXECUTABLE", Some("hython")),
+    ]);
 
     let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
     if let Err(err) = result {

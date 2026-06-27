@@ -706,15 +706,9 @@ mod skill_path_display_tests {
 
     #[test]
     fn path_tail_redacts_os_username_component() {
-        // SAFETY: scoped env mutation in a single-threaded unit test.
-        unsafe {
-            std::env::set_var("USERNAME", "alice");
-        }
+        let _g = dcc_mcp_test_utils::EnvVarGuard::set("USERNAME", Some("alice"));
         // A home-rooted path must not leak the operator's username.
         assert_eq!(safe_path_tail("C:/Users/alice/skills"), "~/skills");
-        unsafe {
-            std::env::remove_var("USERNAME");
-        }
     }
 
     #[test]

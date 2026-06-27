@@ -48,13 +48,89 @@ def remote_tag_exists(repo: str, tag_name: str) -> bool:
     fail(f"could not check remote tag {tag_name}: {result.stdout.strip()}")
 
 
+def check_ci_status(repo: str, sha: str) -> None:
+    """Block if any completed CI check runs failed for the commit."""
+    if os.environ.get("DCC_RELEASE_GUARD_SKIP_CI_CHECK") == "1":
+        return
+
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if result.returncode != 0:
+        if "Not Found" in result.stdout:
+            print("::notice::No CI check runs found for this commit; guard continues.")
+            return
+        fail(f"could not check CI status: {result.stdout.strip()}")
+
+    data = json.loads(result.stdout or '{"check_runs": []}')
+    check_runs: list[dict] = data.get("check_runs", [])
+
+    failed: list[str] = []
+    in_progress: list[str] = []
+    for run in check_runs:
+        name = run.get("name", "unknown")
+        status = run.get("status", "")
+        conclusion = run.get("conclusion", "")
+        if status == "completed" and conclusion in (
+            "failure",
+            "timed_out",
+            "action_required",
+            "startup_failure",
+        ):
+            failed.append(f"{name} → {conclusion}")
+        elif status in ("queued", "in_progress"):
+            in_progress.append(name)
+
+    if failed:
+        fail(
+            "CI checks failed for this release PR head commit:\n"
+            + "\n".join(f"  - {f}" for f in failed)
+            + "\nFix the CI failures before merging."
+        )
+
+    passed = sum(1 for r in check_runs if r.get("status") == "completed" and r.get("conclusion") == "success")
+    skipped = sum(
+        1
+        for r in check_runs
+        if r.get("status") == "completed" and r.get("conclusion") in ("skipped", "cancelled", "neutral")
+    )
+
+    parts = [f"CI checks: {passed} passed"]
+    if skipped:
+        parts.append(f"{skipped} skipped/cancelled")
+    if in_progress:
+        preview = ", ".join(in_progress[:3])
+        more = f" +{len(in_progress) - 3} more" if len(in_progress) > 3 else ""
+        parts.append(f"{len(in_progress)} in progress ({preview}{more})")
+
+    print("; ".join(parts) + " — guard passes.")
+
+
 def main() -> None:
     """Validate the current checkout against pull request metadata."""
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
     head_ref = os.environ.get("PR_HEAD_REF", "")
-    title = os.environ.get("PR_TITLE", "").strip()
     if not head_ref.startswith("release-please--branches--main"):
         print("Not a release-please branch; skipping.")
         return
+
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    sha = os.environ.get("PR_HEAD_SHA", "")
+
+    # workflow_run events: CI-only re-check — full metadata validation
+    # already passed on the original pull_request event.
+    if event_name == "workflow_run":
+        if not repo or not sha:
+            fail("GITHUB_REPOSITORY and PR_HEAD_SHA are required")
+        check_ci_status(repo, sha)
+        return
+
+    # pull_request events: full metadata + CI validation
+    title = os.environ.get("PR_TITLE", "").strip()
 
     manifest_path = Path(".release-please-manifest.json")
     if not manifest_path.exists():
@@ -82,7 +158,6 @@ def main() -> None:
         )
 
     if os.environ.get("DCC_RELEASE_GUARD_SKIP_REMOTE") != "1":
-        repo = os.environ.get("GITHUB_REPOSITORY", "")
         if not repo:
             fail("GITHUB_REPOSITORY is required for remote tag validation")
         tag_name = f"v{manifest_version}"
@@ -93,6 +168,9 @@ def main() -> None:
             )
 
     print(f"Release PR metadata is consistent for {manifest_version}.")
+
+    if repo and sha:
+        check_ci_status(repo, sha)
 
 
 if __name__ == "__main__":

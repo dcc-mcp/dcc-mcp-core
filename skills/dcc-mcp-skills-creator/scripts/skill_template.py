@@ -17,6 +17,7 @@ metadata:
     layer: thin-harness
     stage: authoring
     tags: ["modeling", "animation", "example"]
+    # depends: ["base-skill"]
     search-hint: "create object, inspect scene, export asset"
     tools: tools.yaml
 ---
@@ -26,6 +27,7 @@ metadata:
 Write concise instructions for the AI agent:
 
 - when to load this skill;
+- which prerequisite skill to load first, if `metadata.dcc-mcp.depends` is set;
 - what each tool changes or reads;
 - what to verify after success;
 - what diagnostic tool to call after failure.

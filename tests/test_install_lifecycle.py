@@ -944,6 +944,7 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         registry_dir=registry,
         display_name="Maya-Anim",
         adapter_version="1.2.3",
+        discovery_mcp_url="http://127.0.0.1:8765/mcp",
         gateway_port=19765,
         gateway_host="127.0.0.1",
         server_bin="dcc-mcp-server-test",
@@ -952,6 +953,7 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
     assert result["success"] is True
     assert result["role"] == "per-dcc-sidecar"
     assert result["registry_dir"] == str(registry.resolve())
+    assert result["discovery_mcp_url"] == "http://127.0.0.1:8765/mcp"
     assert result["environment"]["set"] == {
         "DCC_MCP_REGISTRY_DIR": str(registry.resolve()),
         "DCC_MCP_GATEWAY_PORT": "19765",
@@ -974,6 +976,8 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
         "Maya-Anim",
         "--adapter-version",
         "1.2.3",
+        "--discovery-mcp-url",
+        "http://127.0.0.1:8765/mcp",
         "--gateway-host",
         "127.0.0.1",
     ]
@@ -1022,6 +1026,137 @@ def test_build_sidecar_command_uses_sidecar_cli_contract(tmp_path: Path) -> None
             "tool calls are directly usable only after sidecar readiness reports ready."
         ),
     }
+
+
+def test_build_sidecar_command_accepts_valid_instance_id(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        instance_id="AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+    )
+
+    assert result["success"] is True
+    assert result["readiness_selector"]["instance_id"] == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    assert result["command"][result["command"].index("--instance-id") + 1] == ("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+    assert result["readiness_argv"][result["readiness_argv"].index("--instance-id") + 1] == (
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    )
+
+
+def test_build_sidecar_command_omits_missing_instance_id(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+    )
+
+    assert result["success"] is True
+    assert result["readiness_selector"]["instance_id"] is None
+    assert "--instance-id" not in result["command"]
+    assert "--instance-id" not in result["readiness_argv"]
+
+
+def test_build_sidecar_command_rejects_invalid_instance_id(tmp_path: Path) -> None:
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        instance_id="unknown",
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "invalid_instance_id"
+    assert result["message"] == "instance_id must be a UUID accepted by dcc-mcp-server sidecar."
+    assert "command" not in result
+
+
+def test_build_sidecar_command_defaults_watch_pid_to_current_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sidecar_lifecycle.os, "getpid", lambda: 54321)
+
+    result = lifecycle.build_sidecar_command(
+        dcc_type="blender",
+        host_rpc="ws://127.0.0.1:9100",
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        env={"PATH": ""},
+    )
+
+    assert result["success"] is True
+    assert result["watch_pid"] == 54321
+    watch_pid_index = result["command"].index("--watch-pid")
+    assert result["command"][watch_pid_index + 1] == "54321"
+
+
+def test_build_sidecar_command_reports_server_binary_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_which(command, path=None):
+        calls.append({"command": command, "path": path})
+        return r"C:\tools\dcc-mcp-server-test.exe"
+
+    def fake_run(args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout="dcc-mcp-server 0.18.20\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(sidecar_lifecycle.shutil, "which", fake_which)
+    monkeypatch.setattr(sidecar_lifecycle.subprocess, "run", fake_run)
+
+    result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        env={"PATH": r"C:\tools"},
+    )
+
+    assert result["success"] is True
+    assert result["server_binary"] == {
+        "command": "dcc-mcp-server-test",
+        "source": "explicit",
+        "configured": "dcc-mcp-server-test",
+        "path": r"C:\tools\dcc-mcp-server-test.exe",
+        "version": "dcc-mcp-server 0.18.20",
+        "version_error": None,
+    }
+    assert calls[0] == {"command": "dcc-mcp-server-test", "path": r"C:\tools"}
+    assert calls[1]["args"] == ["dcc-mcp-server-test", "--version"]
+    assert calls[1]["kwargs"]["timeout"] == sidecar_lifecycle.SERVER_BINARY_VERSION_TIMEOUT_SECS
+
+    calls.clear()
+    monkeypatch.setenv("PATH", r"C:\from-os")
+    env_result = lifecycle.build_sidecar_command(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=12345,
+        registry_dir=tmp_path / "registry",
+        server_bin="",
+        env={"DCC_MCP_SERVER_BIN": "dcc-mcp-server-env"},
+    )
+
+    assert env_result["success"] is True
+    assert env_result["command"][0] == "dcc-mcp-server-env"
+    assert env_result["server_binary"]["source"] == "env"
+    assert env_result["server_binary"]["configured"] == "dcc-mcp-server-env"
+    assert calls[0] == {"command": "dcc-mcp-server-env", "path": r"C:\from-os"}
 
 
 def test_build_sidecar_command_readiness_command_honors_python_env(tmp_path: Path) -> None:
@@ -1169,13 +1304,49 @@ def test_launch_sidecar_uses_detached_popen_contract(
     assert result["readiness"]["status"] == "not_checked"
     assert result["readiness"]["ready"] is False
     assert result["readiness"]["selector"] == result["readiness_selector"]
+    assert result["stdio"]["captured"] is True
+    assert result["stdio"]["log_dir"] == str((tmp_path / "registry" / "logs").resolve())
+    assert result["stdio"]["stdout_path"].endswith("sidecar-houdini-2468.stdout.log")
+    assert result["stdio"]["stderr_path"].endswith("sidecar-houdini-2468.stderr.log")
+    assert result["liveness"]["checked"] is False
     assert captured["command"] == result["command"]
     assert captured["command"][-2:] == ["--ppid-poll-ms", "50"]
     assert captured["kwargs"]["stdin"] == sidecar_lifecycle.subprocess.DEVNULL
-    assert captured["kwargs"]["stdout"] == sidecar_lifecycle.subprocess.DEVNULL
-    assert captured["kwargs"]["stderr"] == sidecar_lifecycle.subprocess.DEVNULL
+    assert Path(captured["kwargs"]["stdout"].name) == Path(result["stdio"]["stdout_path"])
+    assert Path(captured["kwargs"]["stderr"].name) == Path(result["stdio"]["stderr_path"])
     assert captured["kwargs"]["env"]["DCC_MCP_REGISTRY_DIR"] == str((tmp_path / "registry").resolve())
     assert captured["kwargs"]["env"]["DCC_MCP_GATEWAY_PORT"] == "9765"
+
+
+def test_launch_sidecar_can_return_process_for_supervisors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePopen:
+        pid = 4243
+
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(sidecar_lifecycle.subprocess, "Popen", FakePopen)
+
+    result = lifecycle.launch_sidecar(
+        dcc_type="maya",
+        host_rpc="qtserver://127.0.0.1:7001",
+        watch_pid=2468,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        detached=False,
+        return_process=True,
+        env={"PATH": ""},
+    )
+
+    assert result["success"] is True
+    assert result["pid"] == 4243
+    assert result["process"].pid == 4243
+    assert result["process"].command == result["command"]
+    assert "creationflags" not in result["process"].kwargs
 
 
 def test_launch_sidecar_can_return_bounded_readiness_verdict(
@@ -1229,6 +1400,104 @@ def test_launch_sidecar_can_return_bounded_readiness_verdict(
         "probe_arguments": {"level": "quick"},
         "probe_timeout_secs": 1.5,
     }
+
+
+def test_launch_sidecar_reports_early_process_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePopen:
+        pid = 4545
+
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.kwargs = kwargs
+            kwargs["stdout"].write(b"sidecar boot started\n")
+            kwargs["stdout"].flush()
+            kwargs["stderr"].write(b"error: invalid value 'unknown' for '--instance-id <UUID>'\n")
+            kwargs["stderr"].flush()
+
+        def poll(self):
+            return 9
+
+    monkeypatch.setattr(sidecar_lifecycle.subprocess, "Popen", FakePopen)
+
+    result = lifecycle.launch_sidecar(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=2468,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        liveness_check_secs=0.1,
+        env={"PATH": ""},
+    )
+
+    assert result["success"] is False
+    assert result["status"] == "exited"
+    assert result["reason"] == "sidecar_exited_during_startup"
+    assert result["liveness"]["checked"] is True
+    assert result["liveness"]["alive"] is False
+    assert result["liveness"]["exit_code"] == 9
+    assert result["stdio"]["captured"] is True
+    assert result["stdio"]["stdout_path"].endswith("sidecar-maya-2468.stdout.log")
+    assert result["stdio"]["stderr_path"].endswith("sidecar-maya-2468.stderr.log")
+    assert result["message"] == (
+        "Sidecar process exited before the startup liveness check completed; "
+        "stderr tail: error: invalid value 'unknown' for '--instance-id <UUID>'"
+    )
+    assert result["early_exit"]["exit_code"] == 9
+    assert result["early_exit"]["stdout_tail"] == "sidecar boot started"
+    assert result["early_exit"]["stderr_tail"] == "error: invalid value 'unknown' for '--instance-id <UUID>'"
+    assert result["early_exit"]["stdout_path"] == result["stdio"]["stdout_path"]
+    assert result["early_exit"]["stderr_path"] == result["stdio"]["stderr_path"]
+    assert result["early_exit"]["argv_metadata"]["program"] == "dcc-mcp-server-test"
+    assert result["early_exit"]["argv_metadata"]["subcommand"] == "sidecar"
+    assert "--host-rpc" in result["early_exit"]["argv_metadata"]["flags"]
+    assert result["readiness_checked"] is False
+
+
+def test_launch_sidecar_early_exit_tail_ignores_previous_log_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_dir = tmp_path / "registry" / "logs"
+    log_dir.mkdir(parents=True)
+    stale_stderr = log_dir / "sidecar-maya-2468.stderr.log"
+    stale_stderr.write_text(
+        "error: invalid value 'unknown' for '--instance-id <UUID>'\n",
+        encoding="utf-8",
+    )
+
+    class FakePopen:
+        pid = 4646
+
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.kwargs = kwargs
+            kwargs["stdout"].write(b"new launch reached argv parsing\n")
+            kwargs["stdout"].flush()
+
+        def poll(self):
+            return 2
+
+    monkeypatch.setattr(sidecar_lifecycle.subprocess, "Popen", FakePopen)
+
+    result = lifecycle.launch_sidecar(
+        dcc_type="maya",
+        host_rpc="commandport://127.0.0.1:6000",
+        watch_pid=2468,
+        registry_dir=tmp_path / "registry",
+        server_bin="dcc-mcp-server-test",
+        liveness_check_secs=0.1,
+        env={"PATH": ""},
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "sidecar_exited_during_startup"
+    assert result["message"] == "Sidecar process exited before the startup liveness check completed."
+    assert result["early_exit"]["stdout_tail"] == "new launch reached argv parsing"
+    assert result["early_exit"]["stderr_tail"] is None
+    assert result["early_exit"]["stderr_start_offset"] == stale_stderr.stat().st_size
 
 
 def test_module_cli_sidecar_command_returns_json_without_loading_core(tmp_path: Path) -> None:
@@ -1376,6 +1645,10 @@ def test_cli_launch_sidecar_passes_readiness_and_extra_args(
             '{"level":"quick"}',
             "--probe-timeout-secs",
             "1.5",
+            "--stdio-log-dir",
+            "C:/tmp/dcc-sidecar-logs",
+            "--liveness-check-secs",
+            "0.2",
         ]
     )
 
@@ -1388,6 +1661,58 @@ def test_cli_launch_sidecar_passes_readiness_and_extra_args(
     assert seen["probe_tool"] == "maya_diagnostics__ping"
     assert seen["probe_arguments"] == {"level": "quick"}
     assert seen["probe_timeout_secs"] == 1.5
+    assert seen["stdio_log_dir"] == "C:/tmp/dcc-sidecar-logs"
+    assert seen["capture_stdio"] is True
+    assert seen["liveness_check_secs"] == 0.2
+
+
+def test_cli_launch_sidecar_defaults_to_liveness_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_launch(**kwargs: object) -> dict:
+        seen.update(kwargs)
+        return {"success": True, "status": "started", "pid": 4242}
+
+    monkeypatch.setattr(lifecycle, "launch_sidecar", fake_launch)
+
+    code = lifecycle.main(
+        [
+            "launch-sidecar",
+            "--dcc",
+            "maya",
+            "--host-rpc",
+            "commandport://127.0.0.1:6000",
+            "--watch-pid",
+            "2468",
+            "--server-bin",
+            "dcc-mcp-server-test",
+        ]
+    )
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["pid"] == 4242
+    assert seen["liveness_check_secs"] == lifecycle.DEFAULT_CLI_SIDECAR_LIVENESS_CHECK_SECS
+
+
+def test_cli_launch_sidecar_requires_explicit_watch_pid(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        lifecycle.main(
+            [
+                "launch-sidecar",
+                "--dcc",
+                "maya",
+                "--host-rpc",
+                "commandport://127.0.0.1:6000",
+                "--server-bin",
+                "dcc-mcp-server-test",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    assert "--watch-pid" in capsys.readouterr().err
 
 
 def test_cli_sidecar_command_can_require_dispatch_capable(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1408,6 +1733,32 @@ def test_cli_sidecar_command_can_require_dispatch_capable(capsys: pytest.Capture
     payload = json.loads(capsys.readouterr().out)
     assert payload["reason"] == "dispatch_not_capable"
     assert payload["dispatch_contract"]["status"] == "unsupported"
+
+
+def test_cli_sidecar_command_forwards_discovery_mcp_url(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = lifecycle.main(
+        [
+            "sidecar-command",
+            "--dcc",
+            "maya",
+            "--host-rpc",
+            "qtserver://127.0.0.1:18765",
+            "--watch-pid",
+            "2468",
+            "--server-bin",
+            "dcc-mcp-server-test",
+            "--discovery-mcp-url",
+            "http://127.0.0.1:8765/mcp",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["discovery_mcp_url"] == "http://127.0.0.1:8765/mcp"
+    assert "--discovery-mcp-url" in payload["command"]
+    assert "http://127.0.0.1:8765/mcp" in payload["command"]
 
 
 def test_cli_sidecar_ready_passes_probe_arguments(

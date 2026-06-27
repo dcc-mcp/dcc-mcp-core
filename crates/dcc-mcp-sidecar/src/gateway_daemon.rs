@@ -20,7 +20,9 @@ pub use guardian::{
     GatewayGuardianHandle, GatewayGuardianSettings, GatewayGuardianStatus, spawn_gateway_guardian,
 };
 #[cfg(feature = "gateway-auto")]
-pub use launcher::{EnsureGatewayOptions, ensure_gateway_running};
+pub use launcher::{
+    AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS, EnsureGatewayOptions, ensure_gateway_running,
+};
 
 /// CLI parser for one relay discovery source.
 #[derive(Debug, Clone)]
@@ -74,11 +76,11 @@ pub struct GatewayArgs {
     #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
     pub registry_dir: Option<PathBuf>,
 
-    /// Disable the read-only Admin UI.
+    /// Disable the Admin UI.
     #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
     pub no_admin: bool,
 
-    /// URL prefix for the read-only Admin UI.
+    /// URL prefix for the Admin UI.
     #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
     pub admin_path: String,
 
@@ -285,7 +287,7 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     let log_dir = args
         .registry_dir
         .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-core-registry"));
+        .unwrap_or_else(dcc_mcp_gateway_ensure::default_registry_dir);
 
     eprintln!("Gateway daemon started (pid {new_pid}, version {version})");
     eprintln!("Logs: {}", log_dir.display());
@@ -344,14 +346,6 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
     }
 }
 
-fn is_backend_entry(
-    entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
-    stale_timeout: Duration,
-) -> bool {
-    entry.dcc_type != dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE
-        && !entry.is_stale(stale_timeout)
-}
-
 /// Run the standalone gateway until a shutdown signal arrives (or the
 /// idle-timeout fires when no backends remain).
 pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
@@ -396,78 +390,24 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         "standalone gateway running"
     );
 
-    // ── Idle-timeout watch (PIP-487) ───────────────────────────────────────
-    //
-    // Polls the FileRegistry for live backends. When no backend remains and
-    // persistence is off, starts a countdown. Backends that reconnect during
-    // the grace period cancel the timer; expiry triggers an orderly shutdown.
-    let idle_shutdown = if !gateway_persist && gateway_idle_timeout_secs > 0 {
-        let registry = runner.registry.clone();
-        let (idle_tx, idle_rx) = tokio::sync::watch::channel(false);
-        let stale_timeout = Duration::from_secs(args.stale_timeout_secs);
-        tokio::spawn(async move {
-            let poll = Duration::from_secs(5);
-            let grace = Duration::from_secs(gateway_idle_timeout_secs);
-            let mut idle_since: Option<std::time::Instant> = None;
-
-            loop {
-                tokio::time::sleep(poll).await;
-                let live_count = {
-                    match registry.try_read() {
-                        Ok(reg) => reg
-                            .list_all()
-                            .into_iter()
-                            .filter(|e| is_backend_entry(e, stale_timeout))
-                            .count(),
-                        Err(_) => continue,
-                    }
-                };
-
-                if live_count > 0 {
-                    if idle_since.take().is_some() {
-                        tracing::info!(
-                            live_backends = live_count,
-                            "gateway idle countdown cancelled — backends reconnected"
-                        );
-                    }
-                    continue;
-                }
-
-                let since = *idle_since.get_or_insert_with(std::time::Instant::now);
-                let elapsed = since.elapsed();
-                tracing::debug!(
-                    elapsed_secs = elapsed.as_secs(),
-                    grace_period_secs = grace.as_secs(),
-                    "gateway idle: no live backends"
-                );
-
-                if elapsed >= grace {
-                    tracing::warn!(
-                        grace_period_secs = grace.as_secs(),
-                        "gateway idle timeout reached — shutting down"
-                    );
-                    let _ = idle_tx.send(true);
-                    return;
-                }
-            }
-        });
-        Some(idle_rx)
-    } else {
-        None
-    };
-
     // ── Wait for shutdown trigger ──────────────────────────────────────────
-    let shutdown_reason = if let Some(mut idle_rx) = idle_shutdown {
-        tokio::select! {
-            sig = crate::select_shutdown_signal() => {
-                sig.unwrap_or("signal")
-            }
-            _ = idle_rx.changed() => {
-                "idle_timeout"
+    let supervisor_exit = {
+        let supervisor = outcome.gateway_supervisor.take();
+        async move {
+            if let Some(supervisor) = supervisor {
+                let _ = supervisor.await;
+            } else {
+                std::future::pending::<()>().await;
             }
         }
-    } else {
-        crate::select_shutdown_signal().await?
+    };
+    let shutdown_reason = tokio::select! {
+        sig = crate::select_shutdown_signal() => {
+            sig.unwrap_or("signal")
+        }
+        _ = supervisor_exit => {
+            "gateway_supervisor_exit"
+        }
     };
     tracing::info!(shutdown_reason, "standalone gateway shutting down");
 
@@ -605,7 +545,8 @@ fn default_gateway_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
+    use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+    use serde_json::json;
 
     #[test]
     fn relay_source_arg_maps_into_gateway_config() {
@@ -657,15 +598,104 @@ mod tests {
         port
     }
 
-    #[test]
-    fn idle_lifecycle_counts_backends_on_same_host_as_gateway() {
-        let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
-        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
-        let gateway = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+    async fn spawn_ready_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let app = axum::Router::new()
+            .route(
+                "/v1/readyz",
+                axum::routing::get(|| async {
+                    axum::Json(json!({
+                        "process": true,
+                        "dispatcher": true,
+                        "dcc": true,
+                    }))
+                }),
+            )
+            .route(
+                "/health",
+                axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+            );
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = rx.await;
+                })
+                .await
+                .ok();
+        });
+        (port, tx)
+    }
 
-        assert!(is_backend_entry(&maya, Duration::from_secs(30)));
-        assert!(is_backend_entry(&photoshop, Duration::from_secs(30)));
-        assert!(!is_backend_entry(&gateway, Duration::from_secs(30)));
+    async fn wait_gateway_health_up(
+        client: &reqwest::Client,
+        port: u16,
+        timeout: std::time::Duration,
+    ) {
+        let started = std::time::Instant::now();
+        let url = format!("http://127.0.0.1:{port}/health");
+        loop {
+            if let Ok(response) = client.get(&url).send().await
+                && response.status().is_success()
+            {
+                return;
+            }
+            assert!(
+                started.elapsed() < timeout,
+                "gateway did not answer /health within {timeout:?}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    async fn assert_gateway_health(client: &reqwest::Client, port: u16, context: &str) {
+        let health = client
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("gateway /health failed {context}: {err}"));
+        assert!(
+            health.status().is_success(),
+            "gateway /health expected 2xx {context}, got {}",
+            health.status()
+        );
+    }
+
+    async fn wait_gateway_health_down(
+        client: &reqwest::Client,
+        port: u16,
+        timeout: std::time::Duration,
+    ) {
+        let started = std::time::Instant::now();
+        let url = format!("http://127.0.0.1:{port}/health");
+        loop {
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {}
+                _ => return,
+            }
+            assert!(
+                started.elapsed() < timeout,
+                "gateway stayed healthy after all routable backends disappeared"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    }
+
+    async fn cleanup_gateway_outcome(
+        runner: &GatewayRunner,
+        outcome: &mut dcc_mcp_gateway::ElectionOutcome,
+    ) {
+        if let Some(abort) = outcome.gateway_abort.take() {
+            abort.abort();
+        }
+        if let Some(supervisor) = outcome.gateway_supervisor.take() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), supervisor).await;
+        }
+        if let Some(key) = outcome.sentinel_key.take() {
+            let reg = runner.registry.read().await;
+            let _ = reg.deregister(&key);
+        }
     }
 
     /// Issue #1358 — the standalone gateway daemon must serve gateway-
@@ -730,6 +760,81 @@ mod tests {
             let reg = runner.registry.read().await;
             let _ = reg.deregister(&key);
         }
+    }
+
+    #[tokio::test]
+    async fn standalone_daemon_idle_shutdown_tracks_routable_live_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw_port = ephemeral_port();
+        let args = GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: gw_port,
+            name: Some("standalone-daemon-liveness-e2e".to_string()),
+            remote_host: "127.0.0.1".to_string(),
+            remote_port: 0,
+            registry_dir: Some(dir.path().to_path_buf()),
+            no_admin: true,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 1,
+            daemon: false,
+            pidfile: None,
+            restart: false,
+        };
+        let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
+        let runner = GatewayRunner::new(cfg).expect("creating GatewayRunner");
+        let mut outcome = runner
+            .run_election()
+            .await
+            .expect("standalone daemon must win election on a free port");
+        assert!(outcome.is_gateway);
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap();
+        wait_gateway_health_up(&client, gw_port, std::time::Duration::from_secs(5)).await;
+
+        let (maya_port, maya_stop) = spawn_ready_backend().await;
+        let (photoshop_port, photoshop_stop) = spawn_ready_backend().await;
+        let maya = ServiceEntry::new("maya", "127.0.0.1", maya_port);
+        let maya_key = maya.key();
+        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", photoshop_port);
+        let photoshop_key = photoshop.key();
+        {
+            let reg = runner.registry.read().await;
+            reg.register(maya).expect("register maya backend");
+            reg.register(photoshop).expect("register photoshop backend");
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+        assert_gateway_health(
+            &client,
+            gw_port,
+            "while two routable DCC backends are registered",
+        )
+        .await;
+
+        {
+            let reg = runner.registry.read().await;
+            reg.deregister(&maya_key).expect("deregister first backend");
+        }
+        let _ = maya_stop.send(());
+        tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+        assert_gateway_health(&client, gw_port, "while one routable DCC backend remains").await;
+
+        let _ = photoshop_stop.send(());
+        {
+            let reg = runner.registry.read().await;
+            reg.update_status(&photoshop_key, ServiceStatus::Unreachable)
+                .expect("mark remaining backend unreachable");
+        }
+        wait_gateway_health_down(&client, gw_port, std::time::Duration::from_secs(16)).await;
+        cleanup_gateway_outcome(&runner, &mut outcome).await;
     }
 
     #[test]

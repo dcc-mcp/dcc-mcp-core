@@ -20,6 +20,9 @@ use uuid::Uuid;
 pub(crate) const DEFAULT_TTL_SECS: u64 = 30;
 pub(crate) const MAX_TTL_SECS: u64 = 24 * 60 * 60;
 pub(crate) const MCP_URL_METADATA_KEY: &str = "mcp_url";
+pub(crate) const DISCOVERY_MCP_URL_METADATA_KEY: &str = "discovery_mcp_url";
+pub(crate) const ROLE_METADATA_KEY: &str = "dcc_mcp_role";
+pub(crate) const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 pub(crate) const REGISTRY_SOURCE_METADATA_KEY: &str = "dcc_mcp_registry_source";
 pub(crate) const SOURCE_FILE: &str = "file";
 pub(crate) const SOURCE_HTTP: &str = "http";
@@ -507,6 +510,32 @@ pub(crate) fn entry_mcp_url(entry: &ServiceEntry) -> String {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| format!("http://{}:{}/mcp", entry.host, entry.port))
+}
+
+pub(crate) fn entry_discovery_mcp_url(entry: &ServiceEntry) -> String {
+    entry
+        .metadata
+        .get(DISCOVERY_MCP_URL_METADATA_KEY)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            if entry_uses_sidecar_dispatch(entry) {
+                String::new()
+            } else {
+                entry_mcp_url(entry)
+            }
+        })
+}
+
+pub(crate) fn entry_uses_sidecar_dispatch(entry: &ServiceEntry) -> bool {
+    entry
+        .metadata
+        .get(ROLE_METADATA_KEY)
+        .map(String::as_str)
+        .map(str::trim)
+        == Some(ROLE_PER_DCC_SIDECAR)
 }
 
 pub(crate) fn entry_registry_source(entry: &ServiceEntry) -> &str {

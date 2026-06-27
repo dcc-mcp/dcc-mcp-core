@@ -83,7 +83,7 @@ dcc-mcp-server gateway \
     --registry-dir /var/lib/dcc-mcp
 ```
 
-守护进程**只**承载网关平面 —— 发现、路由、只读 admin UI、审计。它从不
+守护进程**只**承载网关平面 —— 发现、路由、本地 admin UI、审计。它从不
 inline 执行工具；每个 `tools/call` 都会被转发到拥有该工具的 DCC 后端。
 完整契约见 [`gateway.md` § Standalone gateway daemon][standalone]。
 

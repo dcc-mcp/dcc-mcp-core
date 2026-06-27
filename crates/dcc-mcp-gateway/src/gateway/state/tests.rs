@@ -417,6 +417,33 @@ async fn test_live_instances_excludes_status_stale_immediately() {
 }
 
 #[tokio::test]
+async fn test_live_instances_excludes_unroutable_statuses_from_liveness_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        for (dcc, status, port) in [
+            ("maya", ServiceStatus::Booting, 18812),
+            ("blender", ServiceStatus::Unreachable, 18813),
+            ("houdini", ServiceStatus::ShuttingDown, 18814),
+            ("photoshop", ServiceStatus::Stale, 18815),
+        ] {
+            let mut entry = ServiceEntry::new(dcc, "127.0.0.1", port);
+            entry.status = status;
+            r.register(entry).unwrap();
+        }
+        r.register(ServiceEntry::new("zbrush", "127.0.0.1", 18816))
+            .unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let live = gs.live_instances(&*registry.read().await);
+    assert_eq!(live.len(), 1, "only the routable row should remain");
+    assert_eq!(live[0].dcc_type, "zbrush");
+}
+
+#[tokio::test]
 async fn test_live_instances_prefers_sidecar_for_same_dcc_pid() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));

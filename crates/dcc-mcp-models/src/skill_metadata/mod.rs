@@ -106,6 +106,7 @@ use serde_impl::{
         runtimes: Vec<crate::skill_metadata::SkillRuntimeDescriptor> => [get(clone), set],
         layer: Option<String> => [get(clone), set],
         stage: Option<String> => [get(clone), set],
+        resources_file: Option<String> => [get(clone), set],
         branding: Option<crate::skill_metadata::SkillBranding> => [get(clone), set],
         links: Option<crate::skill_metadata::SkillLinks> => [get(clone), set],
         example_prompts: Vec<String> => [get(clone), set],
@@ -289,6 +290,15 @@ pub struct SkillMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompts_file: Option<String>,
 
+    /// Sibling-file reference for the MCP resources primitive.
+    ///
+    /// Set from `metadata.dcc-mcp.resources` in SKILL.md frontmatter. The value
+    /// is a path relative to the skill root — either a single YAML file, a
+    /// directory containing `*.resource.yaml` entries, or a glob-like reference
+    /// whose non-glob parent directory is scanned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources_file: Option<String>,
+
     /// Architectural layer for skill routing and search partitioning.
     ///
     /// Set from `metadata.dcc-mcp.layer` in SKILL.md frontmatter. Valid values:
@@ -383,18 +393,6 @@ pub struct SkillMetadata {
     /// lazily on demand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipes_file: Option<String>,
-
-    /// Sibling-file reference for skill introspection metadata (issue #466).
-    ///
-    /// Set from `metadata.dcc-mcp.introspection` in SKILL.md frontmatter.
-    /// The value is a path relative to the skill root pointing to a YAML file
-    /// that describes capability probes, version checks, or runtime-discovery
-    /// hooks used by agents to verify skill compatibility before invocation.
-    ///
-    /// Parsing is deferred; the path is stored here so callers can load it
-    /// lazily on demand.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub introspection_file: Option<String>,
 
     /// Marketplace-card branding authored in `metadata.dcc-mcp.branding`.
     ///

@@ -1,7 +1,9 @@
+import { RiCloseLine, RiRefreshLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { compactId } from '../../admin-ui-core';
 import { type SkillDetailInstance, type SkillDetailPayload, type SkillRow } from '../../admin-types';
 import { SkillMarkdownPreview } from '../../components/SkillMarkdownPreview';
+import { Button } from '../../components/ui/button';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -90,12 +92,27 @@ export function SkillDetailPanel({
           </div>
         </div>
         <div className="table-actions">
-          <button className="refresh-btn" type="button" disabled={busy} onClick={onReload}>
+          <Button
+            className="skill-detail-action"
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={onReload}
+          >
+            <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
             {busy ? t('common.status.loading') : t('action.reload')}
-          </button>
-          <button className="linkish" type="button" onClick={onClose}>
+          </Button>
+          <Button
+            className="skill-detail-action"
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+          >
+            <RiCloseLine data-icon="inline-start" aria-hidden="true" />
             {t('action.close')}
-          </button>
+          </Button>
         </div>
       </div>
       {selected?.description ? (

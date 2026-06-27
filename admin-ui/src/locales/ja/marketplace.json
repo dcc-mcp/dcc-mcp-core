@@ -3,6 +3,7 @@
   "description": "DCC-MCP マーケットプレイスからスキルパッケージを参照してインストールします。インストールされたパッケージは自動的にスキル検出パスに追加されます。",
   "tab.browse": "参照",
   "tab.installed": "インストール済み",
+  "tab.updateCount": "更新 {count}",
   "metric.available": "利用可能なパッケージ",
   "metric.installed": "インストール済み",
   "metric.sources": "ソース",
@@ -10,6 +11,12 @@
   "detail.installedCount": "{count} 個インストール済み",
   "section.catalog": "カタログ",
   "section.installed": "インストール済みパッケージ",
+  "installed.package": "パッケージ",
+  "installed.version": "バージョン",
+  "installed.source": "ソース",
+  "installed.installedAt": "インストール日時",
+  "installed.actions": "操作",
+  "installed.updateAvailable": "更新可能",
   "card.detail": "詳細",
   "card.install": "インストール",
   "card.installed": "インストール済み",
@@ -82,6 +89,7 @@
   "error.missingSkill": "このパッケージには SKILL.md ファイルがありません。",
   "error.commandFailed": "コマンドの実行に失敗しました: {message}",
   "error.networkError": "ネットワークリクエストに失敗しました。接続を確認してください。",
+  "error.adminHtml": "Marketplace API が JSON ではなく HTML ページを返しました。ゲートウェイが /admin/api を提供していることを確認し、パネルを更新してください。",
   "error.generic": "{kind}: {message}",
   "error.unknown": "不明なエラーが発生しました。"
 }

@@ -27,11 +27,15 @@ use dcc_mcp_transport::discovery::{file_registry::FileRegistry, types::ServiceEn
 
 use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::http_registration::{
-    HttpInstanceDeregisterRequest, HttpInstanceRegistry, entry_mcp_url,
+    HttpInstanceDeregisterRequest, HttpInstanceRegistry, entry_discovery_mcp_url, entry_mcp_url,
+    entry_uses_sidecar_dispatch,
 };
 
 use super::admin::trace::AgentContext;
-use super::backend_client::{ForwardToolsCallRequest, forward_tools_call, try_describe_tool};
+use super::backend_client::{
+    BackendJsonRpcCallRequest, ForwardToolsCallRequest, call_backend_with_observability,
+    forward_tools_call, try_describe_tool,
+};
 use super::capability::{
     CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchQuery,
     parse_slug, refresh_instance, remove_instance, search,
@@ -457,7 +461,17 @@ pub async fn describe_tool_full(
         )
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
-    let url = entry_mcp_url(entry);
+    let url = entry_discovery_mcp_url(entry);
+    if url.is_empty() {
+        return Err(ServiceError::new(
+            "no-discovery-endpoint",
+            format!(
+                "instance {} ({}) does not expose a discovery endpoint",
+                record.instance_id, record.dcc_type,
+            ),
+        )
+        .with_instance_provenance("no-discovery", Some(record.instance_id)));
+    }
     drop(reg);
 
     // Use /v1/describe to get the full input_schema (issue #992).
@@ -512,21 +526,45 @@ pub async fn call_service(
     let entry = entry.clone();
     drop(reg);
 
-    match forward_tools_call(
-        &gs.http_client,
-        &url,
-        ForwardToolsCallRequest {
-            tool_name: &record.callable_id,
-            arguments: Some(arguments),
-            meta: meta_with_agent_context(meta, agent_context),
-            request_id: None,
-            trace_context,
-            traffic_capture: Some(&gs.traffic_capture),
-            timeout: gs.backend_timeout,
-        },
-    )
-    .await
-    {
+    let call_result = if entry_uses_sidecar_dispatch(&entry) {
+        let mut params = json!({
+            "name": &record.callable_id,
+            "arguments": arguments,
+        });
+        if let Some(meta) = meta_with_agent_context(meta, agent_context) {
+            params["_meta"] = meta;
+        }
+        call_backend_with_observability(
+            &gs.http_client,
+            &url,
+            BackendJsonRpcCallRequest {
+                method: "tools/call",
+                params: Some(params),
+                request_id: None,
+                trace_context,
+                traffic_capture: Some(&gs.traffic_capture),
+                timeout: gs.backend_timeout,
+            },
+        )
+        .await
+    } else {
+        forward_tools_call(
+            &gs.http_client,
+            &url,
+            ForwardToolsCallRequest {
+                tool_name: &record.callable_id,
+                arguments: Some(arguments),
+                meta: meta_with_agent_context(meta, agent_context),
+                request_id: None,
+                trace_context,
+                traffic_capture: Some(&gs.traffic_capture),
+                timeout: gs.backend_timeout,
+            },
+        )
+        .await
+    };
+
+    match call_result {
         Ok(mut result) => {
             inject_call_instance_meta(&mut result, &entry);
             Ok(result)
@@ -628,8 +666,11 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
     // Refresh every live instance in parallel. Errors are logged and
     // swallowed — a single flaky backend must not break the others.
     let refreshes = instances.iter().map(|entry| {
-        let url = entry_mcp_url(entry);
+        let url = entry_discovery_mcp_url(entry);
         async move {
+            if url.is_empty() {
+                return;
+            }
             refresh_instance(
                 &gs.capability_index,
                 &gs.http_client,
@@ -638,8 +679,9 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
                 &entry.dcc_type,
                 gs.backend_timeout,
                 reason,
+                Some(&gs.instance_diagnostics),
             )
-            .await
+            .await;
         }
     });
     futures::future::join_all(refreshes).await;

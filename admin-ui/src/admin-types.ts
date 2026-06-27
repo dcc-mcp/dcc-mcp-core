@@ -2,7 +2,7 @@ import { type InterpolationValues, type MessageKey } from './i18n';
 
 export type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
-export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'marketplace' | 'integrations' | 'discover' | 'overview';
+export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview';
 
 export type AnalyticsOverview = {
   range: string;
@@ -34,6 +34,7 @@ export type AnalyticsTimeseriesPoint = {
   tokens_input: number;
   tokens_output: number;
   avg_duration_ms: string;
+  max_duration_ms?: number;
 };
 
 export type AnalyticsHeatmapCell = {
@@ -43,6 +44,41 @@ export type AnalyticsHeatmapCell = {
   failures: number;
   avg_duration_ms: number;
   tokens_total: number;
+};
+
+export type MemoryRow = {
+  id: number;
+  layer: string;
+  key: string;
+  session_id: string;
+  dcc_name: string;
+  score: number;
+  created_unix_secs: number;
+  payload: Record<string, unknown>;
+};
+
+export type MemorySummary = {
+  total: number;
+  by_dcc: Record<string, number>;
+  positive: number;
+  negative: number;
+  ok_count: number;
+  fail_count: number;
+  hit_rate_pct: number | null;
+};
+
+export type MemoryPayload = {
+  enabled: boolean;
+  memory: MemoryRow[];
+  summary: MemorySummary;
+  error?: string;
+};
+
+export type MemoryFilters = {
+  layer?: string;
+  dccName?: string;
+  keyPrefix?: string;
+  limit?: number;
 };
 
 export type SignalTone = 'ok' | 'warn' | 'err';
@@ -856,6 +892,25 @@ export type InstanceSummary = {
   unhealthy: number;
 };
 
+export type InstanceUpdatePayload = {
+  status: 'available' | 'binary_not_found' | 'download_failed' | 'manifest_error' | 'not_configured' | 'stage_failed' | 'staged' | 'up_to_date';
+  error?: string | null;
+  message?: string | null;
+  hint?: string | null;
+  instance_id?: string | null;
+  instance_short?: string | null;
+  binary_name?: string | null;
+  current_version?: string | null;
+  current_version_source?: string | null;
+  latest_version?: string | null;
+  download_url?: string | null;
+  sha256?: string | null;
+  release_notes?: string | null;
+  update_available?: boolean;
+  requires_restart?: boolean;
+  staged_at?: string | null;
+};
+
 export type SkillPathRow = {
   path: string;
   display_path?: string;
@@ -1334,6 +1389,7 @@ export type MarketplaceErrorKind =
   | 'hash_mismatch'
   | 'archive_error'
   | 'invalid_path_component'
+  | 'admin_api_html'
   | 'internal_error';
 
 /// Structured error envelope from marketplace API.
@@ -1342,8 +1398,8 @@ export type MarketplaceErrorEnvelope = {
   message: string;
 };
 
-/// Integration kind — the three integration types managed by the Integrations panel.
-export type IntegrationKind = 'sentry' | 'webhooks' | 'otlp';
+/// Integration kind — the integration types managed by the Integrations panel.
+export type IntegrationKind = 'sentry' | 'webhooks' | 'wecom' | 'otlp';
 
 /// Integration status — lifecycle state of a single integration.
 export type IntegrationStatus = 'active' | 'inactive' | 'pending_restart';
@@ -1379,6 +1435,22 @@ export type UpdateIntegrationRequest = {
 
 /// Response from PUT /admin/api/integrations.
 export type UpdateIntegrationResult = IntegrationEntry;
+
+/// Request body for POST /admin/api/integrations/test.
+export type TestIntegrationRequest = {
+  kind: IntegrationKind;
+  config: Record<string, unknown>;
+};
+
+/// Response from POST /admin/api/integrations/test.
+export type TestIntegrationResult = {
+  kind: IntegrationKind;
+  status: 'sent';
+  message: string;
+  sent_at_ms?: number;
+  webhook_url?: string;
+  wecom?: Record<string, unknown>;
+};
 
 /// DCC-type → icon URL (local SVGs, bundled by Vite + vite-plugin-singlefile).
 /// Unknown/missing types fall back to a generic puzzle-piece icon.

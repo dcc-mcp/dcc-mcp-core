@@ -1,4 +1,4 @@
-"""Validate a skill directory using dcc_mcp_core.validate_skill."""
+"""Validate an installable skill directory using dcc_mcp_core.validate_skill."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def validate_skill_dir(skill_dir: str) -> dict:
     """Validate a skill directory and return a structured report.
 
     Args:
-        skill_dir: Path to the skill directory.
+        skill_dir: Path to the installable skill directory containing SKILL.md.
 
     Returns:
         Dict with 'skill_dir', 'is_clean', 'has_errors', and 'issues' list.

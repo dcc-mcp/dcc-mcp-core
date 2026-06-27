@@ -317,7 +317,13 @@ impl GatewayRunner {
                 sentinel.version = Some(own_version.clone());
                 sentinel.adapter_version = own_adapter_version.clone();
                 sentinel.adapter_dcc = own_adapter_dcc.clone();
-                stamp_gateway_sentinel(&mut sentinel, &gateway_name, "active");
+                stamp_gateway_sentinel(
+                    &mut sentinel,
+                    &gateway_name,
+                    "active",
+                    self.config.gateway_persist,
+                    self.config.gateway_idle_timeout_secs,
+                );
                 let sentinel_key = sentinel.key();
                 {
                     let reg = self.registry.read().await;
@@ -557,7 +563,13 @@ impl GatewayRunner {
             challenge_sentinel.version = Some(own_ver.clone());
             challenge_sentinel.adapter_version = adapter_version.clone();
             challenge_sentinel.adapter_dcc = adapter_dcc.clone();
-            stamp_gateway_sentinel(&mut challenge_sentinel, &gateway_name, "challenger");
+            stamp_gateway_sentinel(
+                &mut challenge_sentinel,
+                &gateway_name,
+                "challenger",
+                gateway_persist,
+                gateway_idle_timeout_secs,
+            );
             let challenge_sentinel_key = challenge_sentinel.key();
             {
                 let reg = registry.read().await;
@@ -624,7 +636,13 @@ impl GatewayRunner {
                     sentinel.version = Some(own_ver.clone());
                     sentinel.adapter_version = adapter_version.clone();
                     sentinel.adapter_dcc = adapter_dcc.clone();
-                    stamp_gateway_sentinel(&mut sentinel, &gateway_name, "active");
+                    stamp_gateway_sentinel(
+                        &mut sentinel,
+                        &gateway_name,
+                        "active",
+                        gateway_persist,
+                        gateway_idle_timeout_secs,
+                    );
                     let sentinel_key = sentinel.key();
                     {
                         let reg = registry.read().await;
@@ -728,7 +746,13 @@ impl GatewayRunner {
     }
 }
 
-fn stamp_gateway_sentinel(entry: &mut ServiceEntry, gateway_name: &str, role: &str) {
+fn stamp_gateway_sentinel(
+    entry: &mut ServiceEntry,
+    gateway_name: &str,
+    role: &str,
+    gateway_persist: bool,
+    gateway_idle_timeout_secs: u64,
+) {
     entry.display_name = Some(gateway_name.to_string());
     entry
         .metadata
@@ -742,6 +766,35 @@ fn stamp_gateway_sentinel(entry: &mut ServiceEntry, gateway_name: &str, role: &s
     entry.metadata.insert(
         "gateway_process_pid".to_string(),
         std::process::id().to_string(),
+    );
+    entry.metadata.insert(
+        "gateway_health_url".to_string(),
+        format!("http://{}:{}/health", entry.host, entry.port),
+    );
+    entry.metadata.insert(
+        "gateway_mcp_url".to_string(),
+        format!("http://{}:{}/mcp", entry.host, entry.port),
+    );
+    entry.metadata.insert(
+        "gateway_process_exe".to_string(),
+        std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| "<unknown>".to_string()),
+    );
+    entry.metadata.insert(
+        "gateway_started_at_unix".to_string(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string(),
+    );
+    entry
+        .metadata
+        .insert("gateway_persist".to_string(), gateway_persist.to_string());
+    entry.metadata.insert(
+        "gateway_idle_timeout_secs".to_string(),
+        gateway_idle_timeout_secs.to_string(),
     );
 }
 

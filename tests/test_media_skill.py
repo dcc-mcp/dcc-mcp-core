@@ -113,9 +113,28 @@ def test_sequence_command_uses_vx_ffmpeg_without_shell(media_common, tmp_path):
     assert "-pattern_type" in command
     assert "glob" in command
     assert "-framerate" in command
+    assert "-q:v" in command
+    assert "-crf" not in command
     assert source.endswith("frame_*.png")
     assert resolved_output == output
     assert all(isinstance(part, str) for part in command)
+
+
+def test_sequence_command_uses_crf_for_x264(media_common, tmp_path):
+    frame = tmp_path / "frame_0001.png"
+    _write_stub_file(frame)
+
+    command, _, _ = media_common.build_sequence_to_mp4_command(
+        input_pattern=str(tmp_path / "frame_%04d.png"),
+        output_path=str(tmp_path / "out.mp4"),
+        codec="libx264",
+        quality=23,
+        overwrite=False,
+    )
+
+    assert "-crf" in command
+    assert command[command.index("-crf") + 1] == "23"
+    assert "-q:v" not in command
 
 
 def test_probe_transcode_and_thumbnail_commands_use_fixed_vx_tools(media_common, tmp_path):
@@ -139,6 +158,8 @@ def test_probe_transcode_and_thumbnail_commands_use_fixed_vx_tools(media_common,
     assert thumbnail_command[:2] == ["vx", "ffmpeg"]
     assert "-c:v" in transcode_command
     assert "mpeg4" in transcode_command
+    assert "-q:v" in transcode_command
+    assert "-crf" not in transcode_command
     assert "scale=320:-1" in thumbnail_command
     assert transcode_output == tmp_path / "review.mp4"
     assert thumbnail_output == tmp_path / "thumb.png"

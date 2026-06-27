@@ -31,6 +31,12 @@ tools:
         stage:
           type: string
           description: "Optional progressive-loading stage, for example scene or authoring."
+        depends:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          description: "Optional prerequisite DCC-MCP skill names for metadata.dcc-mcp.depends."
         affinity:
           type: string
           enum: [any, main]

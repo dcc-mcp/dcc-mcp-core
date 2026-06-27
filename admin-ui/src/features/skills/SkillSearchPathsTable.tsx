@@ -1,6 +1,8 @@
+import { RiAddLine, RiDeleteBinLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { EmptyRow } from '../../admin-ui-core';
 import { type SkillPathRow } from '../../admin-types';
+import { Button } from '../../components/ui/button';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -30,6 +32,8 @@ export function SkillSearchPathsTable({
   onDelete,
   t,
 }: SkillSearchPathsTableProps) {
+  const canAdd = input.trim().length > 0 && !busy;
+
   return (
     <div className="skill-inventory-section">
       <h3 className="section-kicker">{t('skillPaths.section.searchPaths')}</h3>
@@ -40,16 +44,23 @@ export function SkillSearchPathsTable({
           placeholder={t('skillPaths.placeholder.addDirectoryPath')}
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canAdd) {
+              e.preventDefault();
+              onAdd();
+            }
+          }}
           aria-label={t('skillPaths.input.newPath')}
         />
-        <button
-          className="refresh-btn"
+        <Button
           type="button"
-          disabled={busy}
+          size="sm"
+          disabled={!canAdd}
           onClick={() => onAdd()}
         >
+          <RiAddLine data-icon="inline-start" aria-hidden="true" />
           {t('skillPaths.action.addPath')}
-        </button>
+        </Button>
       </div>
       <table>
         <thead>
@@ -96,14 +107,16 @@ export function SkillSearchPathsTable({
                 </td>
                 <td>
                   {row.id != null ? (
-                    <button
+                    <Button
                       type="button"
-                      className="linkish"
+                      variant="ghost"
+                      size="xs"
                       disabled={busy}
                       onClick={() => onDelete(row.id!)}
                     >
+                      <RiDeleteBinLine data-icon="inline-start" aria-hidden="true" />
                       {t('action.remove')}
-                    </button>
+                    </Button>
                   ) : (
                     '—'
                   )}

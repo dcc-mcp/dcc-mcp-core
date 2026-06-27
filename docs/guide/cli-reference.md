@@ -19,6 +19,9 @@ powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/s
 Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
 `--version v0.17.17` to the install script.
 
+A standalone CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is
+also published as a GitHub Release asset alongside the server bundle.
+
 | Binary | Role | Source |
 |---|---|---|
 | [`dcc-mcp-cli`](#dcc-mcp-cli) | User/CI control plane for local or remote DCC-MCP REST endpoints. | `crates/dcc-mcp-cli/` |
@@ -33,16 +36,82 @@ Development helper binaries (`stub_gen`) are documented in
 
 ## `dcc-mcp-cli`
 
-Client-side control plane for DCC-MCP. It does not host skills and does not
-replace `dcc-mcp-server`; it knows how to talk to a local or remote gateway /
-per-DCC REST endpoint and how to build auditable installation plans.
+Client-side control plane for DCC-MCP. It is the primary operator and agent UX;
+it does not host skills and does not replace the runtime binary
+`dcc-mcp-server`.
 
-The default endpoint is `http://127.0.0.1:9765`, override it with
-`--base-url` or `DCC_MCP_BASE_URL`.
+`dcc-mcp-cli` has two gateway modes:
+
+- `local` (default): read the core default FileRegistry directly and use the
+  selected DCC instance's MCP HTTP endpoint for `search`, `describe`,
+  `load-skill`, `call`, `wait-ready`, and guarded `stop-instance`.
+- named remote profiles: route the same control workflow through the selected
+  remote gateway base URL.
+
+Register and select remote profiles with:
+
+```bash
+dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
+dcc-mcp-cli gateway list
+dcc-mcp-cli gateway set pcA
+dcc-mcp-cli gateway set local
+```
+
+`--gateway <name>` overrides the current profile for one command. `--base-url`
+and `DCC_MCP_BASE_URL` remain supported as direct endpoint overrides for legacy
+scripts and smoke checks.
+
+In the default `local` profile, agent-control commands first ensure the
+machine-wide loopback gateway is healthy, then local `list` reads the
+FileRegistry and local `search`, `describe`, `load-skill`, `call`,
+`wait-ready`, and `stop-instance` resolve the target instance from that
+registry and talk to its advertised `mcp_url` / `readyz` / `safe_stop_url`
+directly. The gateway daemon is still kept available for Admin, health,
+update, and cross-instance control-plane routes. When the current profile is
+remote, or when `--gateway pcA` / `--base-url ...` is supplied, the same
+commands use the gateway `/v1/*` surfaces.
+
+`list` is an inventory and diagnostics command: it keeps live `booting` rows
+and sidecar rows with `dispatch_status=unavailable` visible so operators can
+see startup failures. Local `search`, `describe`, `load-skill`, `call`, and
+`reload-skills` only route to direct MCP instances ready for local CLI control
+(`status=available` or `busy`, with `dispatch_status=ready` when that metadata
+is reported). A per-DCC sidecar row is locally routable once it reports
+`dispatch_status=ready`; before that it remains visible as startup diagnostics
+and is not used for tool calls. Use `wait-ready` or `doctor` when `list` shows a
+live instance that is not yet ready for direct local CLI control. Each local
+`list` row includes `direct_control.recommended_next_action` so agents can
+distinguish "route this local MCP row" from "wait for sidecar dispatch
+readiness". Local rows also include `direct_control.diagnostics`, which folds
+sidecar failure metadata into one stable place: `failure_stage`,
+`failure_reason`, `host_rpc_*`, gateway guardian/recovery fields, and
+stdout/stderr log paths when the DCC supervisor records them in the registry.
+`doctor` summarizes not-ready local rows under
+`local.inventory.direct_control.not_ready_instances`.
+
+Agent-control commands (`list`, `search`, `describe`, `load-skill`, `call`,
+`wait-ready`, `reload-skills`, and `stop-instance`) and endpoint-level commands
+that need a local gateway (`health`, `update`, and `smoke` without an explicit
+`--url`) auto-ensure only loopback HTTP targets (`http://127.0.0.1:<port>` or
+`http://localhost:<port>`). Disable this for one invocation with
+`--no-auto-gateway`. Commands that operate only on local files (`install`,
+`marketplace`, `lint`), explicit lifecycle commands (`gateway ...`), and smoke
+checks against an explicit `--url` do not auto-start the gateway.
+Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
+current profile config, selected mode, registry directory and inventory, local
+direct-control readiness counts, gateway daemon status, and server binary
+path/source/version without launching or downloading anything.
 
 ```bash
 dcc-mcp-cli list
+dcc-mcp-cli list --gateway pcA
+dcc-mcp-cli doctor
 dcc-mcp-cli health
+dcc-mcp-cli --no-auto-gateway health
+dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
+dcc-mcp-cli gateway list
+dcc-mcp-cli gateway set pcA
+dcc-mcp-cli gateway set local
 dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
@@ -51,17 +120,25 @@ dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc1
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
 dcc-mcp-cli install --dcc-type maya --version 2026
+dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
+dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
 dcc-mcp-cli marketplace search --query hunyuan --dcc maya
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
 dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
+dcc-mcp-cli reload-skills --dcc-type maya
 dcc-mcp-cli marketplace list-installed --dcc maya
 dcc-mcp-cli marketplace outdated --dcc maya
 dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
+dcc-mcp-cli reload-skills --dcc-type maya
 dcc-mcp-cli marketplace update --all
-dcc-mcp-cli gateway ensure
-dcc-mcp-cli gateway status
-dcc-mcp-cli gateway stop
+dcc-mcp-cli update check
+dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
+dcc-mcp-cli update apply
+dcc-mcp-cli gateway daemon start
+dcc-mcp-cli gateway daemon restart
+dcc-mcp-cli gateway daemon stop
+dcc-mcp-cli gateway daemon status
 dcc-mcp-cli lint path/to/skills
 ```
 
@@ -70,15 +147,17 @@ dcc-mcp-cli lint path/to/skills
 | Command | REST/API contract | Meaning |
 |---|---|---|
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
-| `list` | `GET /v1/instances` | List live DCC instances from the gateway. |
-| `search [--instance-id <id>]` | `POST /v1/search` | Search callable capabilities, optionally scoped to a full UUID or unique prefix. |
-| `describe <tool-slug>` | `POST /v1/describe` | Inspect a capability before calling it. |
-| `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |
-| `call <tool-slug> --json <object>` | `POST /v1/call` | Invoke one capability. |
-| `call <backend-tool> --dcc-type <dcc> --instance-id <id> --json <object>` | `POST /v1/dcc/{dcc}/instances/{id}/call` | Invoke a backend tool without constructing a dotted gateway slug. |
-| `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | `GET /v1/instances` + per-instance `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
-| `stop-instance --dcc-type <dcc> --instance-id <id>` | `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request to instances that advertise `safe_stop_url`. |
-| `install --dcc-type <dcc> [--version <v>]` | catalog-backed local plan | Resolve the matching adapter and emit an auditable install plan. |
+| `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, local registry path/inventory, direct-control readiness counts and not-ready diagnostics, gateway daemon status, and server binary diagnostics without auto-starting or downloading services. |
+| `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
+| `search [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities, optionally scoped to a full UUID or unique prefix. |
+| `describe <tool-slug>` | local MCP `tools/list` or remote `POST /v1/describe` | Inspect a capability before calling it. |
+| `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call load_skill` or remote `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |
+| `call <tool-slug> --json <object>` | local MCP `tools/call` or remote `POST /v1/call` | Invoke one capability. |
+| `call <backend-tool> --dcc-type <dcc> --instance-id <id> --json <object>` | local MCP `tools/call` or remote `POST /v1/dcc/{dcc}/instances/{id}/call` | Invoke a backend tool without constructing a dotted gateway slug. |
+| `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | local registry + per-instance `/v1/readyz`, or remote gateway inventory + `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
+| `reload-skills [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call dcc_admin__reload_skills`, or remote `POST /v1/dcc/{dcc}/instances/{id}/call` | Ask running adapters to re-scan skill search paths after marketplace installs or path changes. |
+| `stop-instance --dcc-type <dcc> --instance-id <id>` | local `safe_stop_url` or remote `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request to instances that advertise `safe_stop_url`. |
+| `install --dcc-type <dcc> [--version <v>] [--python <path>] [--execute]` | catalog-backed local plan / executor | Resolve the matching adapter and emit an auditable install plan; with `--execute`, run package-install steps with consent, rollback, and package/path verification. Live DCC checks stay in the emitted `next_steps`. |
 | `marketplace add <source>` | local source registry | Register a marketplace source (`dcc-mcp/marketplace`, a GitHub `owner/repo`, raw JSON URL, or local catalog file). |
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
 | `marketplace search [--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Search skill package entries across configured or explicit sources. |
@@ -88,16 +167,49 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
 | `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
 | `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. For `git` installs, fetches the new ref in place; for other types, re-installs from the catalog. Use `--all` to update every outdated package. |
-| `gateway ensure [--port <port>]` | local process | Check gateway health via `GET /health` on the configured port (default 9765). If unreachable, acquire a launch lock and spawn the gateway daemon in the background. Reports `already_running: true` or `started: true` with process PID. |
-| `gateway start [--port <port>] [--idle-timeout <secs>]` | local process | Force-start a new gateway daemon. Wraps `gateway ensure` logic and accepts additional startup options: `--name <name>`, `--remote-host <host>`, `--gateway-bin <path>`, `--wait-timeout <secs>`. |
-| `gateway stop [--port <port>]` | local process | Stop a running gateway daemon by PID file. Sends SIGTERM (Unix) or TerminateProcess (Windows), verifies the process has exited, and cleans up the PID file. |
-| `gateway status [--port <port>]` | local process | Report gateway daemon status: host, port, health check result, PID, and whether the process is alive. JSON output for agent consumption. |
+| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
+| `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; use Admin's instance update button or `dcc-mcp-server update apply` in the server environment. |
+| `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
+| `gateway list` | local profile config | Show configured remote profiles and the active local/remote selection. |
+| `gateway set <profile\|local>` | local profile config | Select the active gateway profile. |
+| `gateway daemon start [--port <port>]` | local process | Start the local machine-wide gateway daemon. Defaults to `--gateway-idle-timeout-secs 0`, so an explicitly managed daemon stays alive with no backends. |
+| `gateway daemon restart [--port <port>]` | local process | Stop the pidfile-tracked daemon, then start it again. The restart's start phase uses the same persistent default as `daemon start`. |
+| `gateway daemon stop [--port <port>]` | local process | Stop a running gateway daemon by PID file and verify exit. |
+| `gateway daemon status [--port <port>]` | local process | Report gateway daemon health, PID, process liveness, registry dir, PID file, health URL, and CLI version. |
+| `gateway ensure/start/stop/status` | local process | Backward-compatible aliases for older scripts; prefer `gateway daemon ...` in user-facing docs. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
 
-`install` intentionally starts as a planning contract: it resolves catalog
-entries and spells out the runtime / adapter / verification steps without
-silently modifying DCC plugin folders. DCC-specific installers can attach to
-that contract incrementally.
+`gateway daemon start` and `gateway daemon restart` are the durable operator
+paths. Their default `--gateway-idle-timeout-secs 0` disables idle shutdown;
+pass a non-zero timeout only when a script intentionally wants a short-lived
+daemon. Automatic loopback gateway ensure applies to the agent-control path and
+endpoint commands; it can be disabled per invocation with `--no-auto-gateway`.
+
+`install` defaults to a planning contract: it resolves catalog entries and
+spells out the adapter package / host-plugin / verification steps without
+silently modifying DCC plugin folders. The JSON plan also includes
+machine-readable `next_steps`: first a `read-install-instructions` step pointing
+at the adapter-maintained raw `install.md` runbook when the catalog or GitHub
+repo URL provides one, then command arrays for `doctor`, `list`, `wait-ready`,
+`search`, marketplace skill `search`/`inspect`/`install`, and `reload-skills`,
+plus the manual host-plugin start step. Pass `--python` (or
+`DCC_MCP_INSTALL_PYTHON`) when a pip-based adapter must be installed into a DCC
+interpreter such as `mayapy`, `hython`, or Blender's bundled Python. Pass
+`--execute` to prompt for consent and run executable package-install steps.
+Execution rolls back completed steps when a later step fails, uses
+`<python> -m pip` for pip installs, verifies pip installs with `pip show`, and
+verifies git/zip/path installs by checking that their target path exists and is
+not an empty directory. A DCC is considered online only after its host plugin or
+sidecar starts, remains alive, and appears in `dcc-mcp-cli list`; the CLI does
+not fake gateway registration during install.
+
+Studios with dedicated deployment pipelines can disable automatic install
+execution by setting `DCC_MCP_INSTALL_DISABLED=1`. The plan still returns the
+adapter metadata and `next_steps`, but `install_policy.auto_install_enabled`
+is `false`, `--execute` is skipped, and the agent-facing prompt comes from
+`DCC_MCP_INSTALL_DISABLED_PROMPT` (supports `{adapter}`, `{dcc_type}`, and
+`{version}` placeholders). Use this for messages such as "Automatic install is
+unavailable; contact Pipeline TD to deploy {adapter} for {dcc_type}."
 
 `marketplace` is the CLI-first discovery surface for official and private
 skill package catalogs. The built-in source is
@@ -112,7 +224,10 @@ supports `install.type: git`, `install.type: path`, and `install.type: zip`.
 Archive installs verify `install.sha256` when present and reject entries that
 escape the install root. DCC adapters include
 `~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
-are discovered on adapter startup or the next `reload_skill_paths`.
+are discovered on adapter startup or the next
+`dcc-mcp-cli reload-skills --dcc-type <dcc>`. After a reload, run
+`dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc> --instance-id <id>` when
+the adapter has not auto-loaded that skill yet.
 
 `update` compares each installed package version against the latest catalog
 entry. For `git`-type installs, if a `.git` directory already exists the
@@ -120,6 +235,16 @@ command runs `git fetch && git checkout <ref>` in place; otherwise it
 re-clones. The local installed-state file is updated with the new version
 metadata. Installed packages with no matching catalog entry (e.g. the
 source was removed) are silently skipped.
+
+`dcc-mcp-cli update` is for binary updates exposed by the gateway update
+manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or
+`GatewayConfig.update_manifest_url`). `update check` is safe for both humans
+and agents because it only reads `/v1/update/check`; the CLI auto-ensures the
+local gateway before the request. `update apply` stages only the CLI binary.
+For server instances, prefer the Admin Instances panel update button, which
+calls `POST /admin/api/instances/{instance_id}/update` and stages
+`dcc-mcp-server` with restart-required status. When operating from the server
+host itself, use `dcc-mcp-server update apply` instead.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command
@@ -143,11 +268,14 @@ Default install locations are `~/.local/bin` on Linux/macOS and
 
 ## `dcc-mcp-server`
 
-Standalone server runner with explicit run modes for per-DCC MCP servers and
-the machine-wide gateway daemon. Invoking `dcc-mcp-server` with no subcommand
-behaves like `dcc-mcp-server auto`: it ensures a local gateway daemon exists,
-registers the per-DCC server as a backend, and keeps a lightweight guardian
-while the backend is alive so the daemon can be re-ensured after a crash.
+Runtime binary for adapters, sidecars, bridges, and the machine-wide gateway
+daemon. It remains scriptable for CI and operations, but the primary user and
+agent UX is `dcc-mcp-cli`.
+
+Invoking `dcc-mcp-server` with no subcommand behaves like `dcc-mcp-server auto`:
+it ensures a local gateway daemon exists, registers the per-DCC server as a
+backend, and keeps a lightweight guardian while the backend is alive so the
+daemon can be re-ensured after a crash.
 
 ### Run modes
 
@@ -161,6 +289,7 @@ while the backend is alive so the daemon can be re-ensured after a crash.
 | `dcc-mcp-server sidecar` | Per-DCC sidecar worker. | Ensures the standalone gateway daemon, registers a `per-dcc-sidecar` row, and dispatches through host RPC. Runtime is implemented by `dcc-mcp-sidecar`. |
 | `dcc-mcp-server translate` | External stdio MCP bridge. | Ensures the standalone gateway daemon and registers the bridge as a backend unless `--no-register` is set. |
 | `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
+| `dcc-mcp-server update check/apply` | Server binary update helper. | Reads the gateway update manifest on `127.0.0.1:<gateway-port>` and stages `dcc-mcp-server` for the next server launch. |
 
 `auto` and `serve` share the server flags below. `gateway` has its own smaller
 flag surface and rejects server-only flags such as `--app`.
@@ -187,9 +316,9 @@ flag surface and rejects server-only flags such as `--app`.
 | `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known gateway port to ensure/register with. `0` disables gateway ensure/election for this process. |
 | `--no-ensure-gateway` | — | `false` | Do not auto-launch the standalone gateway daemon before backend registration. |
 | `--legacy-gateway-election` | `DCC_MCP_LEGACY_GATEWAY_ELECTION` | `false` | Restore the old embedded first-wins election path. |
-| `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | Disable the read-only Admin UI on the elected gateway. Admin is enabled by default when a process wins the gateway role. |
-| `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | URL prefix for the read-only Admin UI and its JSON APIs. |
-| `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | shared `FileRegistry` directory. |
+| `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | Disable the Admin UI on the elected gateway. Admin is enabled by default when a process wins the gateway role. |
+| `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | URL prefix for the Admin UI and its JSON APIs. |
+| `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | `<temp>/dcc-mcp-registry` | shared `FileRegistry` directory used by CLI local mode, sidecars, and gateway runners. |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | Seconds without heartbeat before an instance is considered stale. |
 | `--app-version` | `DCC_MCP_APP_VERSION` | — | App version (e.g., `"2024.2"`); recorded in the registry. |
 | `--scene` | `DCC_MCP_SCENE` | — | Currently-open scene / document; recorded in the registry, used by multi-instance disambiguation. |
@@ -210,9 +339,16 @@ Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GA
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--daemon` | `DCC_MCP_DAEMON` | `false` | Respawn the current executable as a detached gateway child and exit the parent. Unix children start in a new session; Windows children use detached process flags. Respawn failures fail before the parent exits. |
+| `--restart` | — | `false` | Restart a running gateway daemon. Reads the PID from `--pidfile`, gracefully stops the old process, waits for exit (up to 15 s), then spawns a fresh detached gateway and polls `/health` until ready. Requires `--pidfile`. Handles stale pidfiles (dead process): prints a warning, removes the stale pidfile, and spawns a fresh gateway. |
 | `--pidfile PATH` | `DCC_MCP_PIDFILE` | — | Implies daemon mode. The pidfile records the detached child PID and is removed when that child exits cleanly. Pidfile write failures fail before the parent exits. |
 | `--gateway-persist` | `DCC_MCP_GATEWAY_PERSIST` | `false` | Keep the gateway daemon alive with no registered backends. |
 | `--gateway-idle-timeout-secs` | `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` | `30` | Seconds to wait after the last backend disappears before shutdown. `0` disables idle shutdown. |
+
+Daemon auto-ensure paths pass a bounded idle timeout by default unless
+`DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` is set. The user-facing
+`dcc-mcp-cli gateway daemon start` wrapper passes `0` by default so the
+explicitly managed machine-wide daemon does not exit just because no DCC is
+currently registered.
 
 ### File-logging flags
 

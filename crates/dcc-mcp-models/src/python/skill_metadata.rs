@@ -78,6 +78,7 @@ impl SkillMetadata {
             runtimes,
             groups: Vec::new(),
             prompts_file: None,
+            resources_file: None,
             layer: None,
             stage: None,
             // Recall metadata extensions (#1335) and capability-graph fields
@@ -91,7 +92,6 @@ impl SkillMetadata {
             requires: Vec::new(),
             success_metrics: None,
             recipes_file: None,
-            introspection_file: None,
             branding: None,
             links: None,
             example_prompts: Vec::new(),

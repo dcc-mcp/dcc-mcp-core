@@ -3,7 +3,7 @@
 //! Computes daily call aggregates from persisted audit rows and returns
 //! overview KPI, time series, and weekday×hour heatmap data.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::{Query, State};
@@ -367,6 +367,8 @@ fn merge_daily(
         entry.llm_completion += agg.llm_completion;
         entry.llm_total += agg.llm_total;
         entry.duration_ms_sum += agg.duration_ms_sum;
+        entry.duration_ms_min = entry.duration_ms_min.min(agg.duration_ms_min);
+        entry.duration_ms_max = entry.duration_ms_max.max(agg.duration_ms_max);
     }
     let mut result: Vec<_> = day_map.into_values().collect();
     result.sort_by(|a, b| a.date.cmp(&b.date));
@@ -394,6 +396,8 @@ pub async fn handle_admin_analytics_overview(
     let total_saved: u64 = daily.iter().map(|d| d.tokens_saved).sum();
     let total_llm: u64 = daily.iter().map(|d| d.llm_total).sum();
     let total_dur_ms: u64 = daily.iter().map(|d| d.duration_ms_sum).sum();
+    let unique_instances = count_unique(audits.iter().filter_map(|a| a.instance_id.as_deref()));
+    let unique_agents = count_unique(audits.iter().filter_map(|a| a.agent_id.as_deref()));
 
     let top_tools = compute_top_tools(&audits, 10);
     let period_start = cutoff
@@ -417,6 +421,8 @@ pub async fn handle_admin_analytics_overview(
             "llm_tokens_total": total_llm,
             "avg_duration_ms": format!("{:.1}", if total_calls > 0 { total_dur_ms as f64 / total_calls as f64 } else { 0.0 }),
             "avg_tokens_per_call": format!("{:.1}", if total_calls > 0 { (total_input + total_output) as f64 / total_calls as f64 } else { 0.0 }),
+            "unique_instances": unique_instances,
+            "unique_agents": unique_agents,
         },
         "top_tools": top_tools,
         "daily_series": daily.iter().map(|d| json!({
@@ -427,6 +433,7 @@ pub async fn handle_admin_analytics_overview(
             "tokens_input": d.tokens_input,
             "tokens_output": d.tokens_output,
             "avg_duration_ms": format!("{:.1}", d.avg_duration_ms()),
+            "max_duration_ms": d.duration_ms_max,
         })).collect::<Vec<_>>(),
     });
 
@@ -458,6 +465,7 @@ pub async fn handle_admin_analytics_timeseries(
                     "tokens_input": agg.tokens_input,
                     "tokens_output": agg.tokens_output,
                     "avg_duration_ms": format!("{:.1}", agg.avg_duration_ms()),
+                    "max_duration_ms": agg.duration_ms_max,
                 })
             })
             .collect();
@@ -492,6 +500,7 @@ pub async fn handle_admin_analytics_timeseries(
                     "tokens_input": d.tokens_input,
                     "tokens_output": d.tokens_output,
                     "avg_duration_ms": format!("{:.1}", d.avg_duration_ms()),
+                    "max_duration_ms": d.duration_ms_max,
                 })
             })
             .collect();
@@ -569,24 +578,24 @@ pub async fn handle_admin_analytics_export(
                 (0, 0, 0)
             };
 
-            csv.push_str(&format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
-                a.request_id,
-                ts,
-                a.action,
+            csv.push_str(&csv_row(&[
+                a.request_id.as_str(),
+                &ts.to_string(),
+                a.action.as_str(),
                 a.dcc_type.as_deref().unwrap_or(""),
-                a.success as u8,
-                a.duration_ms.unwrap_or(0),
+                &(a.success as u8).to_string(),
+                &a.duration_ms.unwrap_or(0).to_string(),
                 a.instance_id.as_deref().unwrap_or(""),
                 a.agent_id.as_deref().unwrap_or(""),
                 a.agent_name.as_deref().unwrap_or(""),
-                ti,
-                to,
-                tsaved,
-                lp,
-                lc,
-                lt,
-            ));
+                &ti.to_string(),
+                &to.to_string(),
+                &tsaved.to_string(),
+                &lp.to_string(),
+                &lc.to_string(),
+                &lt.to_string(),
+            ]));
+            csv.push('\n');
         }
 
         let filename = format!("dcc-mcp-analytics-export-{}.csv", params.range);
@@ -639,6 +648,38 @@ pub async fn handle_admin_analytics_export(
 
 fn format_2dp(v: f64) -> String {
     format!("{:.2}", v)
+}
+
+fn count_unique<'a>(values: impl Iterator<Item = &'a str>) -> usize {
+    values
+        .filter(|value| !value.trim().is_empty())
+        .collect::<HashSet<_>>()
+        .len()
+}
+
+fn csv_row(cells: &[&str]) -> String {
+    cells
+        .iter()
+        .map(|cell| csv_cell(cell))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn csv_cell(raw: &str) -> String {
+    let mut value = raw.to_string();
+    if value
+        .chars()
+        .next()
+        .is_some_and(|first| matches!(first, '=' | '+' | '-' | '@' | '\t' | '\r'))
+    {
+        value.insert(0, '\'');
+    }
+
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value
+    }
 }
 
 /// Fetch audit records from SQLite or in-memory ring buffer.

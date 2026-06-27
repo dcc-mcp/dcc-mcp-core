@@ -63,34 +63,17 @@
 //!
 //! ## Environment variables
 //!
-//! | Variable                  | Description                                        |
-//! |---------------------------|----------------------------------------------------|
-//! | `DCC_MCP_SKILL_PATHS`     | Colon/semicolon-separated skill dirs               |
-//! | `DCC_MCP_MCP_PORT`        | MCP HTTP server port (default 0 = OS-assigned)     |
-//! | `DCC_MCP_WS_PORT`         | WebSocket bridge port (default 9001)               |
-//! | `DCC_MCP_APP`             | App name hint (e.g. "maya", "photoshop")           |
-//! | `DCC_MCP_SERVER_NAME`     | Server name advertised to MCP clients              |
-//! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to run/ensure (default 9765, 0=off)   |
-//! | `DCC_MCP_GATEWAY_HOST`    | Gateway bind host (default follows `--host`)       |
-//! | `DCC_MCP_GATEWAY_NAME`    | Human-readable gateway candidate/owner label       |
-//! | `DCC_MCP_GATEWAY_REMOTE_HOST` | Optional remote gateway bind host (default 0.0.0.0) |
-//! | `DCC_MCP_GATEWAY_REMOTE_PORT` | Optional remote gateway port (default 59765, 0=off) |
-//! | `DCC_MCP_NO_ADMIN`        | Disable read-only `/admin` on the elected gateway  |
-//! | `DCC_MCP_ADMIN_PATH`      | Admin URL prefix (default `/admin`)                |
-//! | `DCC_MCP_GATEWAY_ADMIN_DB` | Override path for admin SQLite (traces / skill paths) |
-//! | `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` | Admin SQLite retention in days (default 30, max 3650) |
-//! | `DCC_MCP_WEBHOOKS_CONFIG` | YAML event webhook config for forwarding `skill.*`, `tool.*`, and other EventBus envelopes |
-//! | `DCC_MCP_STANDALONE_REGISTRY_DCC_TYPE` | FileRegistry `dcc_type` when `--app` is empty (default `python`) |
-//! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
-//! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
+//! Operator-facing configuration details live in `docs/guide/cli-reference.md`.
 
+#[cfg(feature = "telemetry")]
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
-use cli::{Args, CatalogAction, ServerArgs, SubCmd, UpdateAction};
+use cli::{Args, CatalogAction, ServerArgs, SubCmd};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, SkillPathEntry};
@@ -103,7 +86,9 @@ use dcc_mcp_skills::constants::resolve_registry_dcc_type;
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_skills::constants::{ENV_SKILL_PATHS, app_skill_paths_env_key};
 #[cfg(feature = "gateway-auto")]
-use dcc_mcp_transport::discovery::types::ServiceEntry;
+use dcc_mcp_transport::discovery::types::{SERVER_BINARY_VERSION_METADATA_KEY, ServiceEntry};
+#[cfg(feature = "telemetry")]
+use serde::Deserialize;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 mod capture;
 mod cli;
@@ -111,6 +96,7 @@ mod event_webhooks;
 #[cfg(feature = "sentry")]
 mod sentry_init;
 mod translate;
+mod update;
 
 #[cfg(feature = "gateway-auto")]
 pub(crate) const GATEWAY_RUNTIME_MODE_METADATA_KEY: &str = "gateway_runtime_mode";
@@ -122,6 +108,27 @@ pub(crate) const GATEWAY_RECOVERY_DRIVER_METADATA_KEY: &str = "gateway_recovery_
 pub(crate) const REGISTRATION_REFRESH_MODE_METADATA_KEY: &str = "registration_refresh_mode";
 #[cfg(feature = "gateway-auto")]
 pub(crate) const GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN: &str = "daemon_guardian";
+
+#[cfg(feature = "telemetry")]
+const ENV_DCC_MCP_ETC_DIR: &str = "DCC_MCP_ETC_DIR";
+#[cfg(feature = "telemetry")]
+const DEFAULT_OTLP_CONFIG_FILE: &str = "otlp.json";
+
+#[cfg(feature = "telemetry")]
+#[derive(Debug, Default, Deserialize)]
+struct LocalOtlpConfig {
+    endpoint: Option<String>,
+    service_name: Option<String>,
+    headers: Option<String>,
+}
+
+#[cfg(feature = "telemetry")]
+#[derive(Debug)]
+struct ResolvedOtlpConfig {
+    endpoint: Option<String>,
+    service_name: String,
+    headers: Option<String>,
+}
 #[cfg(feature = "gateway-auto")]
 pub(crate) const GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION: &str = "embedded_election";
 #[cfg(feature = "gateway-auto")]
@@ -190,48 +197,6 @@ fn run_catalog_cmd(action: &CatalogAction) -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         },
-    }
-    Ok(())
-}
-
-async fn run_update_cmd(gateway_port: u16, action: UpdateAction) -> anyhow::Result<()> {
-    let gateway_url = format!("http://127.0.0.1:{gateway_port}");
-    let binary_name = env!("CARGO_PKG_NAME");
-    let current_version = env!("CARGO_PKG_VERSION");
-    let updater = dcc_mcp_updater::Updater::new(&gateway_url, binary_name, current_version);
-
-    match action {
-        UpdateAction::Check => {
-            let info = updater.check_update().await?;
-            println!("{}", serde_json::to_string_pretty(&info)?);
-        }
-        UpdateAction::Apply => {
-            let info = updater.check_update().await?;
-            if !info.update_available {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "status": "up-to-date",
-                        "current_version": info.current_version,
-                        "latest_version": info.latest_version,
-                        "message": "Already running the latest version."
-                    }))?
-                );
-                return Ok(());
-            }
-            let downloaded = updater.download_update(&info).await?;
-            dcc_mcp_updater::Updater::stage_update(&downloaded, updater.binary_name())?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "status": "staged",
-                    "current_version": info.current_version,
-                    "latest_version": info.latest_version,
-                    "staged_at": downloaded.to_string_lossy(),
-                    "message": "Update downloaded and staged. Restart the server to apply.",
-                }))?
-            );
-        }
     }
     Ok(())
 }
@@ -413,6 +378,10 @@ fn stamp_server_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &Server
     let runtime_mode = server_gateway_runtime_mode(args);
     let guardian_enabled = server_gateway_guardian_enabled(args);
     entry.metadata.insert(
+        SERVER_BINARY_VERSION_METADATA_KEY.to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+    entry.metadata.insert(
         GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
         runtime_mode.to_string(),
     );
@@ -455,7 +424,7 @@ fn build_server_gateway_daemon_options(
         gateway_idle_timeout_secs: std::env::var("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(30),
+            .unwrap_or(dcc_mcp_sidecar::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS),
     }
 }
 
@@ -575,6 +544,117 @@ pub(crate) async fn select_shutdown_signal() -> anyhow::Result<&'static str> {
     }
 }
 
+#[cfg(feature = "telemetry")]
+fn resolved_otlp_config() -> ResolvedOtlpConfig {
+    let local = match read_local_otlp_config() {
+        Ok(config) => config,
+        Err(err) => {
+            tracing::warn!(error = %err, "local OTLP config ignored");
+            None
+        }
+    };
+
+    let endpoint = env_string("OTEL_EXPORTER_OTLP_ENDPOINT").or_else(|| {
+        local
+            .as_ref()
+            .and_then(|config| clean_string(config.endpoint.as_deref()))
+    });
+    let service_name = env_string("OTEL_SERVICE_NAME")
+        .or_else(|| {
+            local
+                .as_ref()
+                .and_then(|config| clean_string(config.service_name.as_deref()))
+        })
+        .unwrap_or_else(|| "dcc-mcp-server".into());
+    let headers = env_string("OTEL_EXPORTER_OTLP_HEADERS").or_else(|| {
+        local
+            .as_ref()
+            .and_then(|config| clean_string(config.headers.as_deref()))
+    });
+
+    ResolvedOtlpConfig {
+        endpoint,
+        service_name,
+        headers,
+    }
+}
+
+#[cfg(feature = "telemetry")]
+fn read_local_otlp_config() -> anyhow::Result<Option<LocalOtlpConfig>> {
+    let Some(path) = default_otlp_config_path() else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let config = serde_json::from_str(&raw)?;
+    Ok(Some(config))
+}
+
+#[cfg(feature = "telemetry")]
+fn default_otlp_config_path() -> Option<PathBuf> {
+    integration_etc_dir().map(|dir| dir.join(DEFAULT_OTLP_CONFIG_FILE))
+}
+
+#[cfg(feature = "telemetry")]
+fn integration_etc_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(ENV_DCC_MCP_ETC_DIR).filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
+    home_dir().map(|home| home.join("dcc-mcp").join("etc"))
+}
+
+#[cfg(feature = "telemetry")]
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            let drive = std::env::var_os("HOMEDRIVE")?;
+            let path = std::env::var_os("HOMEPATH")?;
+            Some(PathBuf::from(format!(
+                "{}{}",
+                drive.to_string_lossy(),
+                path.to_string_lossy()
+            )))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
+}
+
+#[cfg(feature = "telemetry")]
+fn env_string(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| clean_string(Some(value.as_str())))
+}
+
+#[cfg(feature = "telemetry")]
+fn clean_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+#[cfg(feature = "telemetry")]
+fn parse_otlp_headers(raw: &str) -> HashMap<String, String> {
+    raw.split(',')
+        .filter_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            let key = key.trim();
+            if key.is_empty() {
+                return None;
+            }
+            Some((key.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -588,12 +668,21 @@ async fn main() -> anyhow::Result<()> {
     // Otherwise, install a minimal no-op provider to suppress OTel warnings.
     #[cfg(feature = "telemetry")]
     {
-        let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
-        let telemetry_cfg = if let Some(ref endpoint) = otlp_endpoint {
+        let otlp = resolved_otlp_config();
+        if let Some(headers) = otlp.headers.as_deref() {
+            tracing::info!(
+                headers_configured = !headers.trim().is_empty(),
+                "OTLP headers loaded from configuration; exporter support remains provider-specific"
+            );
+        }
+        let telemetry_cfg = if let Some(ref endpoint) = otlp.endpoint {
             tracing::info!(endpoint, "OTLP endpoint detected — enabling OTLP telemetry");
-            dcc_mcp_telemetry::types::TelemetryConfig::builder("dcc-mcp-server")
-                .with_otlp_exporter(endpoint.clone())
-                .build()
+            let mut builder = dcc_mcp_telemetry::types::TelemetryConfig::builder(otlp.service_name)
+                .with_otlp_exporter(endpoint.clone());
+            if let Some(headers) = otlp.headers.as_deref() {
+                builder = builder.with_otlp_headers(parse_otlp_headers(headers));
+            }
+            builder.build()
         } else {
             dcc_mcp_telemetry::types::TelemetryConfig {
                 enable_metrics: true,
@@ -636,7 +725,7 @@ async fn main() -> anyhow::Result<()> {
             return gateway_daemon::run(gateway_args).await;
         }
         Some(SubCmd::Update { action }) => {
-            return run_update_cmd(_update_gateway_port, action).await;
+            return update::run_update_cmd(_update_gateway_port, action).await;
         }
         Some(SubCmd::Capture { action }) => return capture::run(action).await,
         None => return run_server(args.server).await,
@@ -667,12 +756,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // ── Apply any staged binary update before starting ────────────────────
-    match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
-        Ok(true) => tracing::info!("staged binary update applied"),
-        Ok(false) => { /* no update was staged */ }
-        Err(e) => tracing::warn!(error = %e, "failed to apply staged binary update"),
-    }
+    update::apply_staged_update();
 
     // Wire up rolling-file logging by default unless --no-log-file is passed.
     // Any explicit DCC_MCP_LOG_* env var or CLI flag also enables it.
@@ -1112,360 +1196,4 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn no_log_file_disables_default_file_logging() {
-        let opts = FileLoggingCliOptions {
-            no_log_file: true,
-            ..FileLoggingCliOptions::default()
-        };
-
-        assert!(!should_enable_file_logging(&opts, false));
-    }
-
-    #[test]
-    fn parsed_no_log_file_has_no_implicit_retention_override() {
-        let args = Args::try_parse_from([
-            "dcc-mcp-server",
-            "--no-log-file",
-            "--gateway-port",
-            "0",
-            "--no-bridge",
-        ])
-        .expect("valid CLI args");
-        let opts = FileLoggingCliOptions::from(&args.server);
-
-        assert!(opts.log_retention_days.is_none());
-        assert!(opts.log_max_total_size_mb.is_none());
-        assert!(!should_enable_file_logging(&opts, false));
-    }
-
-    #[test]
-    fn explicit_log_option_overrides_no_log_file() {
-        let opts = FileLoggingCliOptions {
-            no_log_file: true,
-            log_retention_days: Some(3),
-            ..FileLoggingCliOptions::default()
-        };
-
-        assert!(should_enable_file_logging(&opts, false));
-    }
-
-    #[test]
-    fn env_logging_option_overrides_no_log_file() {
-        let opts = FileLoggingCliOptions {
-            no_log_file: true,
-            ..FileLoggingCliOptions::default()
-        };
-
-        assert!(should_enable_file_logging(&opts, true));
-    }
-
-    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    #[test]
-    fn resolve_registry_dir_prefers_explicit_path() {
-        let explicit = PathBuf::from(r"C:\dcc-mcp\registry");
-
-        assert_eq!(resolve_registry_dir(Some(&explicit)), explicit);
-    }
-
-    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    #[test]
-    fn server_gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
-        let mut args =
-            Args::try_parse_from(["dcc-mcp-server", "--app", "maya"]).expect("valid CLI args");
-        assert!(
-            should_start_gateway_daemon_guardian(&args.server),
-            "implicit auto mode should keep a daemon guardian alive"
-        );
-
-        args = Args::try_parse_from(["dcc-mcp-server", "auto", "--app", "houdini"])
-            .expect("valid CLI args");
-        let Some(SubCmd::Auto(auto_args)) = args.command else {
-            panic!("expected auto subcommand");
-        };
-        assert!(
-            should_start_gateway_daemon_guardian(&auto_args),
-            "explicit auto mode should keep a daemon guardian alive"
-        );
-
-        let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--gateway-port", "0"])
-            .expect("valid CLI args");
-        assert!(
-            !should_start_gateway_daemon_guardian(&args.server),
-            "--gateway-port 0 disables gateway participation"
-        );
-
-        let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--no-ensure-gateway"])
-            .expect("valid CLI args");
-        assert!(
-            !should_start_gateway_daemon_guardian(&args.server),
-            "--no-ensure-gateway opts out of daemon launch and guardian"
-        );
-
-        let args = Args::try_parse_from([
-            "dcc-mcp-server",
-            "--app",
-            "maya",
-            "--legacy-gateway-election",
-        ])
-        .expect("valid CLI args");
-        assert!(
-            !should_start_gateway_daemon_guardian(&args.server),
-            "legacy embedded election owns its own gateway loop"
-        );
-
-        let parsed = Args::try_parse_from([
-            "dcc-mcp-server",
-            "serve",
-            "--app",
-            "maya",
-            "--no-auto-gateway",
-        ])
-        .expect("valid CLI args");
-        let Some(SubCmd::Serve(serve)) = parsed.command else {
-            panic!("expected serve subcommand");
-        };
-        assert!(
-            !should_start_gateway_daemon_guardian(&serve.into_server_args()),
-            "serve --no-auto-gateway must not start a daemon guardian"
-        );
-    }
-
-    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    #[test]
-    fn server_gateway_daemon_options_preserve_cli_identity() {
-        let args = Args::try_parse_from([
-            "dcc-mcp-server",
-            "--app",
-            "maya",
-            "--server-name",
-            "maya-prod",
-            "--host",
-            "127.0.0.2",
-            "--gateway-host",
-            "0.0.0.0",
-            "--gateway-name",
-            "studio-gateway",
-            "--gateway-remote-host",
-            "10.0.0.10",
-            "--gateway-remote-port",
-            "59766",
-            "--registry-dir",
-            r"C:\dcc-mcp\registry",
-        ])
-        .expect("valid CLI args");
-        let registry_dir_path = args.server.registry_dir.as_deref().map(PathBuf::from);
-
-        let opts = build_server_gateway_daemon_options(&args.server, registry_dir_path.as_ref());
-        assert_eq!(opts.host, "0.0.0.0");
-        assert_eq!(opts.port, 9765);
-        assert_eq!(opts.name.as_deref(), Some("studio-gateway"));
-        assert_eq!(opts.registry_dir, PathBuf::from(r"C:\dcc-mcp\registry"));
-        assert_eq!(opts.remote_host, "10.0.0.10");
-        assert_eq!(opts.remote_port, 59766);
-
-        let args = Args::try_parse_from(["dcc-mcp-server", "--server-name", "houdini-lookdev"])
-            .expect("valid CLI args");
-        let opts = build_server_gateway_daemon_options(&args.server, None);
-        assert_eq!(opts.host, "127.0.0.1");
-        assert_eq!(opts.name.as_deref(), Some("gateway-for-houdini-lookdev"));
-    }
-
-    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    #[test]
-    fn server_registration_metadata_reports_gateway_guardian_mode() {
-        let args =
-            Args::try_parse_from(["dcc-mcp-server", "--app", "maya"]).expect("valid CLI args");
-        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
-
-        stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
-
-        assert_eq!(
-            entry
-                .metadata
-                .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
-                .map(String::as_str),
-            Some("daemon-backed")
-        );
-        assert_eq!(
-            entry
-                .metadata
-                .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
-                .map(String::as_str),
-            Some("true")
-        );
-        assert_eq!(
-            entry
-                .metadata
-                .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
-                .map(String::as_str),
-            Some(GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN)
-        );
-        assert_eq!(
-            entry
-                .metadata
-                .get(REGISTRATION_REFRESH_MODE_METADATA_KEY)
-                .map(String::as_str),
-            Some(REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
-        );
-
-        let args = Args::try_parse_from(["dcc-mcp-server", "--app", "maya", "--gateway-port", "0"])
-            .expect("valid CLI args");
-        stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
-        assert_eq!(
-            entry
-                .metadata
-                .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
-                .map(String::as_str),
-            Some("not_configured")
-        );
-        assert_eq!(
-            entry
-                .metadata
-                .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
-                .map(String::as_str),
-            Some("false")
-        );
-        assert_eq!(
-            entry
-                .metadata
-                .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
-                .map(String::as_str),
-            Some(GATEWAY_RECOVERY_DRIVER_NONE)
-        );
-
-        let args = Args::try_parse_from([
-            "dcc-mcp-server",
-            "--app",
-            "maya",
-            "--legacy-gateway-election",
-        ])
-        .expect("valid CLI args");
-        stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
-        assert_eq!(
-            entry
-                .metadata
-                .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
-                .map(String::as_str),
-            Some(GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION)
-        );
-    }
-
-    // ── Cross-DCC regression: gateway runtime mode (PIP-488) ──────────────────
-    //
-    // Verify that daemon-backed registration stamps the right metadata for at
-    // least two DCC families so the admin UI, diagnostics, and agent tools
-    // do not encode Maya-only assumptions.
-
-    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    #[test]
-    fn multi_dcc_daemon_registration_metadata_is_consistent() {
-        // Maya and Blender: both in default daemon-backed mode must stamp the
-        // same metadata keys with DCC-appropriate values.
-        for dcc in &["maya", "blender"] {
-            let args = Args::try_parse_from(["dcc-mcp-server", "--app", dcc])
-                .unwrap_or_else(|_| panic!("valid CLI args for {dcc}"));
-            let mut entry = ServiceEntry::new(*dcc, "127.0.0.1", 18812);
-
-            stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
-
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
-                    .map(String::as_str),
-                Some("daemon-backed"),
-                "{dcc}: default mode must be daemon-backed"
-            );
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
-                    .map(String::as_str),
-                Some("true"),
-                "{dcc}: guardian must be enabled by default"
-            );
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
-                    .map(String::as_str),
-                Some(GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN),
-                "{dcc}: recovery driver must be daemon_guardian"
-            );
-        }
-    }
-
-    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    #[test]
-    fn multi_dcc_legacy_fallback_is_explicit_opt_in() {
-        // Photoshop and ZBrush: `--legacy-gateway-election` must consistently
-        // disable the daemon and stamp embedded_election across DCC families.
-        for dcc in &["photoshop", "zbrush"] {
-            let args =
-                Args::try_parse_from(["dcc-mcp-server", "--app", dcc, "--legacy-gateway-election"])
-                    .unwrap_or_else(|_| panic!("valid CLI args for {dcc}"));
-            let mut entry = ServiceEntry::new(*dcc, "127.0.0.1", 18813);
-
-            stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
-
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
-                    .map(String::as_str),
-                Some("embedded-fallback"),
-                "{dcc}: legacy mode must stamp embedded-fallback"
-            );
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_GUARDIAN_ENABLED_METADATA_KEY)
-                    .map(String::as_str),
-                Some("false"),
-                "{dcc}: guardian must be disabled in legacy mode"
-            );
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
-                    .map(String::as_str),
-                Some(GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION),
-                "{dcc}: recovery driver must be embedded_election in legacy mode"
-            );
-        }
-    }
-
-    #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-    #[test]
-    fn multi_dcc_gateway_port_zero_disables_guardian() {
-        for dcc in &["maya", "houdini"] {
-            let args =
-                Args::try_parse_from(["dcc-mcp-server", "--app", dcc, "--gateway-port", "0"])
-                    .unwrap_or_else(|_| panic!("valid CLI args for {dcc}"));
-            let mut entry = ServiceEntry::new(*dcc, "127.0.0.1", 18814);
-
-            stamp_server_gateway_runtime_metadata(&mut entry, &args.server);
-
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_RUNTIME_MODE_METADATA_KEY)
-                    .map(String::as_str),
-                Some("not_configured"),
-                "{dcc}: gateway_port=0 must stamp not_configured"
-            );
-            assert_eq!(
-                entry
-                    .metadata
-                    .get(GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
-                    .map(String::as_str),
-                Some(GATEWAY_RECOVERY_DRIVER_NONE),
-                "{dcc}: recovery driver must be none when port is 0"
-            );
-        }
-    }
-}
+mod main_tests;

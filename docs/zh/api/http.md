@@ -42,7 +42,7 @@ cfg = McpHttpConfig(
 | `enable_cors` | `bool` | `False` | 是否启用浏览器客户端的 CORS |
 | `session_ttl_secs` | `int` | `3600` | 空闲会话 TTL 秒数（0 禁用自动清理） |
 | `gateway_port` | `int` | `9765`（Python） | 竞争的网关端口（`0` = 禁用）。参见[网关](#网关) |
-| `admin_enabled` | `bool` | `True` | 赢得选举的 gateway 提供只读 Admin UI（`GET /admin`） |
+| `admin_enabled` | `bool` | `True` | 赢得选举的 gateway 提供本地 Admin UI（`GET /admin`） |
 | `admin_path` | `str` | `"/admin"` | Admin UI 的 URL 前缀 |
 | `registry_dir` | `str \| None` | `None` | 共享 `FileRegistry` JSON 目录（默认 OS 临时目录） |
 | `stale_timeout_secs` | `int` | `30` | 心跳超时秒数（实例视为过期） |

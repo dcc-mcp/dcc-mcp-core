@@ -101,6 +101,20 @@ impl AdminSqliteReader {
             .filter_map(|s| serde_json::from_str(&s).ok())
             .collect()
     }
+
+    pub fn list_agent_memory(
+        &self,
+        layer: Option<&str>,
+        dcc_name: Option<&str>,
+        key_prefix: Option<&str>,
+        limit: usize,
+    ) -> Vec<serde_json::Value> {
+        self.inner
+            .list_agent_memory_json(layer, dcc_name, key_prefix, limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
 }
 
 #[cfg(feature = "admin-persist-sqlite")]
@@ -195,6 +209,18 @@ impl AdminSqliteLane {
 
     pub fn try_delete_skill_path(&self, id: i64) -> bool {
         self.inner.try_delete_skill_path(id)
+    }
+
+    pub fn try_delete_agent_memory(
+        &self,
+        id: Option<i64>,
+        layer: Option<String>,
+        dcc_name: Option<String>,
+        session_id: Option<String>,
+        key_prefix: Option<String>,
+    ) -> bool {
+        self.inner
+            .try_delete_agent_memory(id, layer, dcc_name, session_id, key_prefix)
     }
 }
 
@@ -308,6 +334,16 @@ impl AdminSqliteReader {
     pub fn list_deregistered_instances(&self, _limit: usize) -> Vec<serde_json::Value> {
         vec![]
     }
+
+    pub fn list_agent_memory(
+        &self,
+        _layer: Option<&str>,
+        _dcc_name: Option<&str>,
+        _key_prefix: Option<&str>,
+        _limit: usize,
+    ) -> Vec<serde_json::Value> {
+        vec![]
+    }
 }
 
 #[cfg(not(feature = "admin-persist-sqlite"))]
@@ -341,6 +377,17 @@ impl AdminSqliteLane {
     }
 
     pub fn try_delete_skill_path(&self, _: i64) -> bool {
+        false
+    }
+
+    pub fn try_delete_agent_memory(
+        &self,
+        _: Option<i64>,
+        _: Option<String>,
+        _: Option<String>,
+        _: Option<String>,
+        _: Option<String>,
+    ) -> bool {
         false
     }
 }

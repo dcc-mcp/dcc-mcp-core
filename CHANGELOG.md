@@ -5,21 +5,274 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.18.17](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.16...v0.18.17) (2026-06-26)
-
-
-### Features
-
-* ADR-010 Phase 1 — jsonrpc wire types + stateless MCP service ([#1735](https://github.com/dcc-mcp/dcc-mcp-core/issues/1735)) ([a5ac3f2](https://github.com/dcc-mcp/dcc-mcp-core/commit/a5ac3f299039588e2c5b1ce81de52933fd4946c4))
-* **dcc-mcp-updater, gateway, cli, server:** add gateway-controlled auto-update mechanism ([de524a9](https://github.com/dcc-mcp/dcc-mcp-core/commit/de524a97999591506ceb80139669d48314bfe8c4))
+## [0.18.39](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.38...v0.18.39) (2026-06-22)
 
 
 ### Bug Fixes
 
-* **ci:** explicitly install lightningcss native module after npm ci ([37d5c26](https://github.com/dcc-mcp/dcc-mcp-core/commit/37d5c260696323abe4ea90173951e54475ed6efd))
-* **cli, fmt, clippy:** fix lint errors and apply cargo fmt ([2c60e98](https://github.com/dcc-mcp/dcc-mcp-core/commit/2c60e981bc7263d6fb5e04b81f73c6abc1ddff1c))
-* **gateway-ensure:** add CREATE_NO_WINDOW to tasklist/taskkill subprocess calls ([#1738](https://github.com/dcc-mcp/dcc-mcp-core/issues/1738)) ([ea94543](https://github.com/dcc-mcp/dcc-mcp-core/commit/ea94543b4c4066fefa72f5bababa3f6ed0c1f831))
-* **updater, gateway, cli:** address PR review issues ([4278c43](https://github.com/dcc-mcp/dcc-mcp-core/commit/4278c435c59ede103532f180e664cdec8c5bb5a8))
+* **gateway:** strip meta from mcp.arguments in suggested_post_load_next_step ([#1719](https://github.com/dcc-mcp/dcc-mcp-core/issues/1719)) ([efe83da](https://github.com/dcc-mcp/dcc-mcp-core/commit/efe83da7affa289b932b9f2adb9c00937cc68ffa)), closes [#1717](https://github.com/dcc-mcp/dcc-mcp-core/issues/1717)
+
+## [0.18.38](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.37...v0.18.38) (2026-06-20)
+
+
+### Bug Fixes
+
+* support nested marketplace skills ([6d0a682](https://github.com/dcc-mcp/dcc-mcp-core/commit/6d0a6822db33fca18d12affb3be8bb3f14b7b2e4))
+
+
+### Documentation
+
+* guide skill dependency authoring ([cc48bef](https://github.com/dcc-mcp/dcc-mcp-core/commit/cc48bef7f67b6cebde6dc652372122e93d2e75e0))
+
+## [0.18.37](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.36...v0.18.37) (2026-06-20)
+
+
+### Features
+
+* add admin memory management ([e1493eb](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1493ebb5ec67cc7803c1faacbdc174cc95edc93))
+
+## [0.18.36](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.35...v0.18.36) (2026-06-19)
+
+
+### Features
+
+* add asset-source skill and demo docs for cross-DCC asset import (PIP-1833) ([44495be](https://github.com/dcc-mcp/dcc-mcp-core/commit/44495bed99653ad9065cb7ab86f3a585d6f67bb4))
+* implement asset_import contract module (GH-1698) ([13a004b](https://github.com/dcc-mcp/dcc-mcp-core/commit/13a004be2d104bf79f11f6c79d905c76e596a268))
+
+
+### Bug Fixes
+
+* add CREATE_NO_WINDOW to subprocess calls that spawn console-subsystem binaries ([3cab75a](https://github.com/dcc-mcp/dcc-mcp-core/commit/3cab75a139a600b0c938c68af67b124eb2bb9947))
+* **gateway:** route skill lifecycle dispatch through MCP URL when discovery URL is missing ([#1701](https://github.com/dcc-mcp/dcc-mcp-core/issues/1701)) ([195e734](https://github.com/dcc-mcp/dcc-mcp-core/commit/195e73417b67522794201798b1740f8aa0669baf))
+* increase timing tolerance in test_guardian_run_continues_after_exception for slow macOS ARM runners ([0c5e2dd](https://github.com/dcc-mcp/dcc-mcp-core/commit/0c5e2dd5803f3a0d84447286152643e03345f4de))
+* replace _wait_until busy-polling with Event.wait() in guardian test ([1f1f621](https://github.com/dcc-mcp/dcc-mcp-core/commit/1f1f6218665f4dbac3cef484a8b0c7c2d02cd115))
+* resolve ruff lint issues in asset_import.py ([a604299](https://github.com/dcc-mcp/dcc-mcp-core/commit/a60429904b68e28115ad648222714cb3547af04f))
+* resolve ruff lint issues in test_asset_import_contract.py ([d5cc2d9](https://github.com/dcc-mcp/dcc-mcp-core/commit/d5cc2d9208a1b2f5959f070a5ce365b7261c269d))
+* ruff format asset_import.py ([9891e23](https://github.com/dcc-mcp/dcc-mcp-core/commit/9891e237ce75b8b4c5e8e05ad4948a91f429abdd))
+
+
+### Code Refactoring
+
+* split oversized cleanup targets ([b43114a](https://github.com/dcc-mcp/dcc-mcp-core/commit/b43114a50eb2321be12867ce32aef786c7b4230e))
+
+## [0.18.35](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.34...v0.18.35) (2026-06-18)
+
+
+### Bug Fixes
+
+* cache generated skill schemas ([0646863](https://github.com/dcc-mcp/dcc-mcp-core/commit/0646863836476d248549a12a9f887a2f358c539a))
+* **core:** prevent YAML skill overwrite of builtin diagnostic tools ([#1703](https://github.com/dcc-mcp/dcc-mcp-core/issues/1703)) ([22cebef](https://github.com/dcc-mcp/dcc-mcp-core/commit/22cebef2c38c7a5ca6169d00605beb2afa749fc4)), closes [#1696](https://github.com/dcc-mcp/dcc-mcp-core/issues/1696)
+* deduplicate schema-generation warnings to prevent log flooding ([#1700](https://github.com/dcc-mcp/dcc-mcp-core/issues/1700)) ([30992b2](https://github.com/dcc-mcp/dcc-mcp-core/commit/30992b264f7a7d8bfa92c50a3534b9c9f3c98e3e)), closes [#1695](https://github.com/dcc-mcp/dcc-mcp-core/issues/1695)
+* **skills:** remove unused find_helper_script that caused compilation error ([96e98bd](https://github.com/dcc-mcp/dcc-mcp-core/commit/96e98bd08b9f7ccffa830302b28dd399c9023e68))
+
+## [0.18.34](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.33...v0.18.34) (2026-06-18)
+
+
+### Bug Fixes
+
+* **gateway:** prevent discovery queries to dispatch-only sidecars ([2a6333a](https://github.com/dcc-mcp/dcc-mcp-core/commit/2a6333a6e0afb6f022a5ff21dbd9a9c85686ba50))
+
+## [0.18.33](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.32...v0.18.33) (2026-06-17)
+
+
+### Bug Fixes
+
+* **skills:** fix flaky embedded helper fallback test by removing global state manipulation ([9cc9283](https://github.com/dcc-mcp/dcc-mcp-core/commit/9cc9283992f7c4e37a594bbc232c93a6d9af40a3))
+
+## [0.18.32](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.31...v0.18.32) (2026-06-16)
+
+
+### Documentation
+
+* fix stale package counts, Python version range, and version examples ([#1688](https://github.com/dcc-mcp/dcc-mcp-core/issues/1688)) ([0d4aa69](https://github.com/dcc-mcp/dcc-mcp-core/commit/0d4aa690070c06cd310468ac2d2896a5fcbd2546))
+* sync README_zh bundled skills table and remove stale pip install -e . hints ([#1690](https://github.com/dcc-mcp/dcc-mcp-core/issues/1690)) ([01f9b03](https://github.com/dcc-mcp/dcc-mcp-core/commit/01f9b03617d3c25ece73efce9e76c0a7f78155dc))
+
+## [0.18.31](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.30...v0.18.31) (2026-06-16)
+
+
+### Bug Fixes
+
+* **skills:** embed generate_input_schema.py into binary to fix schema gen in production ([#1687](https://github.com/dcc-mcp/dcc-mcp-core/issues/1687)) ([30249bb](https://github.com/dcc-mcp/dcc-mcp-core/commit/30249bb49ea9ded8463d39f245f17d4c219f597f))
+
+
+### Documentation
+
+* **catalog:** update photoshop adapter entry with setup tag and installer docs URL ([076145b](https://github.com/dcc-mcp/dcc-mcp-core/commit/076145bd2cccc4c935eb7950d02f2f76c12ec5e4))
+
+## [0.18.30](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.29...v0.18.30) (2026-06-16)
+
+
+### Bug Fixes
+
+* **release:** isolate release workflow concurrency from other CI ([e3ea411](https://github.com/dcc-mcp/dcc-mcp-core/commit/e3ea4115dcbb43793d825fe304583fc1e945cf02))
+* run ruff format on test_gateway_facade_aggregation.py ([8a62e08](https://github.com/dcc-mcp/dcc-mcp-core/commit/8a62e085934f4a73e105819e65f8543066614ff6))
+* **test:** replace fixed sleep with polling in facade_cluster fixture ([9e22fa2](https://github.com/dcc-mcp/dcc-mcp-core/commit/9e22fa25f79851c5a24caf685d5847d8f13ceb40))
+
+## [0.18.29](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.28...v0.18.29) (2026-06-15)
+
+
+### Documentation
+
+* document search_tools multi-word phrase matching ([fbbf8e4](https://github.com/dcc-mcp/dcc-mcp-core/commit/fbbf8e45b9545c4a3af38f5752c8cf84a13412e8))
+
+## [0.18.28](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.27...v0.18.28) (2026-06-15)
+
+
+### Bug Fixes
+
+* align skill version diagnostics ([06a156c](https://github.com/dcc-mcp/dcc-mcp-core/commit/06a156cb2829395971dfb23fb6f1836ecf468a91))
+
+## [0.18.27](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.26...v0.18.27) (2026-06-15)
+
+
+### Bug Fixes
+
+* preserve sidecar discovery endpoint ([513c5bb](https://github.com/dcc-mcp/dcc-mcp-core/commit/513c5bbe3005495641f07983449d86deb5ab45ee))
+
+## [0.18.26](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.25...v0.18.26) (2026-06-14)
+
+
+### Bug Fixes
+
+* accept **kwargs in infra skill wrappers for in-process execution ([ef60f0b](https://github.com/dcc-mcp/dcc-mcp-core/commit/ef60f0b83ed613db79464f112373f28fb67a0398))
+* cargo fmt --check compliance for discovery.rs ([ed7062c](https://github.com/dcc-mcp/dcc-mcp-core/commit/ed7062cab08b0c7614c00b267106219c64bcd73a))
+* **http-server:** search_tools natural-language phrase matching ([#1667](https://github.com/dcc-mcp/dcc-mcp-core/issues/1667)) ([30e522a](https://github.com/dcc-mcp/dcc-mcp-core/commit/30e522a652888b65b589cf6289f1172be3fadf6a))
+* remove stale args.* references in dcc-diagnostics kwargs path ([fb3d436](https://github.com/dcc-mcp/dcc-mcp-core/commit/fb3d4363dd02df3b1f186ba7bf1b4ceca3acc6dc))
+* skip guardian test on Windows + py3.14 to unblock PR ([561258d](https://github.com/dcc-mcp/dcc-mcp-core/commit/561258d432b832c75df5184293f7fd2a1e8b64b3))
+
+
+### Documentation
+
+* document CLI standalone ZIP bundle ([#1651](https://github.com/dcc-mcp/dcc-mcp-core/issues/1651) follow-up) ([d296337](https://github.com/dcc-mcp/dcc-mcp-core/commit/d2963377603e663b46599f1a788d6658f4cad591))
+
+## [0.18.25](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.24...v0.18.25) (2026-06-14)
+
+
+### Bug Fixes
+
+* index loaded skill tools after gateway load ([706eb20](https://github.com/dcc-mcp/dcc-mcp-core/commit/706eb203f131e1a52983e8aab366d8834ee1e4bc))
+
+## [0.18.24](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.23...v0.18.24) (2026-06-14)
+
+
+### Bug Fixes
+
+* cargo fmt formatting in skill_mgmt.rs and refresh.rs ([56e86cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/56e86cc92a4f5ef4a847be4cbee2cd6b484b293c))
+* cargo fmt import ordering in buffer.rs ([346fad7](https://github.com/dcc-mcp/dcc-mcp-core/commit/346fad7d10fcd0d1180a3b5134e1a6dca1987f3c))
+* cargo fmt in tests.rs from regresion test commit ([1b2925e](https://github.com/dcc-mcp/dcc-mcp-core/commit/1b2925e1f53418808705562c2255a480c4616bc2))
+* gate admin-only gateway code ([a20e27e](https://github.com/dcc-mcp/dcc-mcp-core/commit/a20e27e427bb2c4e3160babdafef16bcb2c093dc))
+* **gateway:** inject load_skill tools directly into capability index ([#1659](https://github.com/dcc-mcp/dcc-mcp-core/issues/1659)) ([fa309ef](https://github.com/dcc-mcp/dcc-mcp-core/commit/fa309ef63efed7c74aa362cc75b3d1ebf1986021))
+* make release webhook notification optional ([62482f1](https://github.com/dcc-mcp/dcc-mcp-core/commit/62482f18cf270d428938e0ed77e01e04d2a174cc))
+* preserve index on refresh_instance error, add regression test ([ae648e2](https://github.com/dcc-mcp/dcc-mcp-core/commit/ae648e2b2501f7342f4cc5e648e828d10e64f9e5)), closes [#1659](https://github.com/dcc-mcp/dcc-mcp-core/issues/1659)
+* regenerate workspace-hack after bytemuck dependency introduction ([14229ea](https://github.com/dcc-mcp/dcc-mcp-core/commit/14229ea26f16fa2137c6c7ff22517d702bd4a019))
+* remove deprecated Python::is_initialized() for pyo3 0.28 compat ([8c477c6](https://github.com/dcc-mcp/dcc-mcp-core/commit/8c477c64bb605650d37bf7383d5d2a92dee5263e))
+* suppress clippy too_many_arguments on refresh_instance (8 params) ([1b8b69c](https://github.com/dcc-mcp/dcc-mcp-core/commit/1b8b69c905e5d5a08ef33d3b1b7e5050e4983f6c))
+
+
+### Code Refactoring
+
+* Phase 1 unsafe cleanup — shared test-utils crate, bytemuck shm, safe pyo3 API ([8090d55](https://github.com/dcc-mcp/dcc-mcp-core/commit/8090d559eedd5923c0af40d5f6f2d504880acac5))
+* Phase 2 unsafe cleanup — Send/Sync derive, EnvVarsGuard shared ([#1660](https://github.com/dcc-mcp/dcc-mcp-core/issues/1660)) ([d1a5a95](https://github.com/dcc-mcp/dcc-mcp-core/commit/d1a5a9554e390d46fbfe37079134155cbb583b9b))
+
+## [0.18.23](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.22...v0.18.23) (2026-06-13)
+
+
+### Bug Fixes
+
+* harden admin integrations ([f319719](https://github.com/dcc-mcp/dcc-mcp-core/commit/f3197195eb84511a791b03b33b783934cf3a0110))
+* preserve wecom webhook on partial save ([8441f9f](https://github.com/dcc-mcp/dcc-mcp-core/commit/8441f9ffeadabd506178f0b9fe240d4fd3391cb5))
+* resolve ruff lint violations in _registration.py ([9de2827](https://github.com/dcc-mcp/dcc-mcp-core/commit/9de2827d6e0847088389637bbe27d1fb9b87ab00))
+* split admin integration module ([8830544](https://github.com/dcc-mcp/dcc-mcp-core/commit/8830544cf588208ecaf30cc0273ca47dc77b6805))
+* surface gateway load skill backend failures ([0df8e56](https://github.com/dcc-mcp/dcc-mcp-core/commit/0df8e56dfa9cf11c1c6cf1ee6b5495baffd9d1bc))
+
+## [0.18.22](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.21...v0.18.22) (2026-06-13)
+
+
+### Features
+
+* add CLI standalone ZIP bundle and update manifest to release pipeline ([92fbd5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/92fbd5a6f8a95250a4ac54037f06b5df7d1b260d))
+
+
+### Bug Fixes
+
+* apply ruff format to generate_update_manifest.py ([1447f03](https://github.com/dcc-mcp/dcc-mcp-core/commit/1447f03aff3d74b3efa13dfd759fad6344b82994))
+* auto-ensure gateway for cli control ([d67af5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/d67af5af6e4aa592346d8e468ebb5dfcdf7ea398))
+* **ci:** add retry with exponential backoff for Multica 429 in publish workflow ([7e6f52f](https://github.com/dcc-mcp/dcc-mcp-core/commit/7e6f52f28f2b677ac1d826993b9a40fd92416c68))
+* ensure gateway before local cli list ([80e8699](https://github.com/dcc-mcp/dcc-mcp-core/commit/80e8699bab3e967f7af1663cd04cdc89afd8333b))
+* polish admin select controls ([1935f58](https://github.com/dcc-mcp/dcc-mcp-core/commit/1935f5833ce512660dd8fb0221b2c0f7fac77075))
+* resolve ruff lint issues in update manifest generator ([c018300](https://github.com/dcc-mcp/dcc-mcp-core/commit/c018300fa28f4c7f89285e6f5c708167d13420a7))
+* ruff D413 - blank line after Returns section content ([eebff1d](https://github.com/dcc-mcp/dcc-mcp-core/commit/eebff1d599d0d537c8012982398592224120698e))
+* stabilize cli registry e2e ([540fd3d](https://github.com/dcc-mcp/dcc-mcp-core/commit/540fd3d392bbf30d5a297d2fb8af9492e4f2bccc))
+* use instance server version for updates ([009ee8a](https://github.com/dcc-mcp/dcc-mcp-core/commit/009ee8aa8d3bbbca1d421df44167ed4867739870))
+
+## [0.18.21](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.20...v0.18.21) (2026-06-12)
+
+
+### Features
+
+* **cli:** add local-first gateway control ([0ef32f9](https://github.com/dcc-mcp/dcc-mcp-core/commit/0ef32f906a128b30f51b9ca4d3ca2f4b98a87baf))
+* improve admin control plane ([dc45ce1](https://github.com/dcc-mcp/dcc-mcp-core/commit/dc45ce1be775c9b2bc31d69d6a32eda31f2d6a13))
+
+
+### Bug Fixes
+
+* harden cli gateway stop and local search ([2517ebd](https://github.com/dcc-mcp/dcc-mcp-core/commit/2517ebdc267934efd92f06be15f8d0f447dbfeaa))
+* isolate sidecar early-exit log tails ([12007f8](https://github.com/dcc-mcp/dcc-mcp-core/commit/12007f89cad40c836ed129ca46e1d4a604ea6820))
+* resolve admin ci failures ([e15362b](https://github.com/dcc-mcp/dcc-mcp-core/commit/e15362b3159147f2a60cb89b038e8b72d362c810))
+* surface sidecar early-exit diagnostics ([0d5c01d](https://github.com/dcc-mcp/dcc-mcp-core/commit/0d5c01d756058f5caf80983d166921d7a111f425))
+* validate sidecar instance ids ([51ce6eb](https://github.com/dcc-mcp/dcc-mcp-core/commit/51ce6ebe8f9eb2c1fdfbeb0cc007918cfe41790a))
+
+## [0.18.20](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.19...v0.18.20) (2026-06-11)
+
+
+### Features
+
+* add server release bundles ([2139b01](https://github.com/dcc-mcp/dcc-mcp-core/commit/2139b01a5fa7c920df593092b2b85d27c368c087))
+
+
+### Bug Fixes
+
+* improve gateway sidecar diagnostics ([6045d19](https://github.com/dcc-mcp/dcc-mcp-core/commit/6045d19eadc06bcb309027c2002098d6b829b996))
+
+## [0.18.19](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.18...v0.18.19) (2026-06-11)
+
+
+### Bug Fixes
+
+* resolve packaged gateway binary ([039c062](https://github.com/dcc-mcp/dcc-mcp-core/commit/039c062bc036543f0ac8be899ddeb5db7b84190a))
+
+## [0.18.18](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.17...v0.18.18) (2026-06-11)
+
+
+### Features
+
+* **marketplace:** add add-repo command for direct GitHub install (PIP-1377) ([e892e48](https://github.com/dcc-mcp/dcc-mcp-core/commit/e892e480b0059a62268d6a6dac610b7a372b7c0c))
+
+
+### Bug Fixes
+
+* clippy warnings for Rust 1.96 — needless_borrows_for_generic_args and let_and_return ([30a39ad](https://github.com/dcc-mcp/dcc-mcp-core/commit/30a39ad984c451b66bbe61f0d683c7cbc5e3370f))
+
+
+### Documentation
+
+* document auto-update, --restart, install --execute, gateway-ensure crate, and marketplace slide-out ([232479c](https://github.com/dcc-mcp/dcc-mcp-core/commit/232479c28eda613ea51e13cb1e17ae8f0a11f387))
+
+## [0.18.17](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.16...v0.18.17) (2026-06-10)
+
+
+### Features
+
+* **dcc-mcp-updater, gateway, cli, server:** add gateway-controlled auto-update mechanism ([4d10fd1](https://github.com/dcc-mcp/dcc-mcp-core/commit/4d10fd19273fcac1a6507eae9fccd2f3da2762e3))
+
+
+### Bug Fixes
+
+* **ci, media:** add py314 coverage and portable ffmpeg flags ([b40dfda](https://github.com/dcc-mcp/dcc-mcp-core/commit/b40dfda22c8d1cf50b359d77351f76717de83fe2))
+* **ci:** explicitly install lightningcss native module after npm ci ([a906380](https://github.com/dcc-mcp/dcc-mcp-core/commit/a906380d307e2aae792e540d70dccd86737436f2))
+* **cli, fmt, clippy:** fix lint errors and apply cargo fmt ([5609cbf](https://github.com/dcc-mcp/dcc-mcp-core/commit/5609cbf046825469549a78e8aa8d4e8592d9aef3))
+* **gateway:** align daemon keepalive liveness ([eb1f92d](https://github.com/dcc-mcp/dcc-mcp-core/commit/eb1f92d3c1c7dbd97201825cd434ae096ff30448))
+* **updater, gateway, cli:** address PR review issues ([a9b0279](https://github.com/dcc-mcp/dcc-mcp-core/commit/a9b02798bc198d31fc36a7ba065d2440952a506d))
 
 ## [0.18.16](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.15...v0.18.16) (2026-06-10)
 

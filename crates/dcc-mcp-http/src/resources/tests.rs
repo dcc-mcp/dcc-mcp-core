@@ -172,7 +172,7 @@ resources:
     let metadata = dcc_mcp_models::SkillMetadata {
         name: "maya-docs".to_string(),
         skill_path: tmp.path().to_string_lossy().into_owned(),
-        metadata: json!({"dcc-mcp": {"resources": "resources/"}}),
+        resources_file: Some("resources/".to_string()),
         ..Default::default()
     };
     reg.sync_skill_resources(|visit| visit(&metadata));
