@@ -25,6 +25,13 @@ WHEEL_FEATURES_PY37 := "python-bindings,ext-module," + OPT_FEATURES
 default:
     @just --list
 
+# ── Git hooks ─────────────────────────────────────────────────────────────────
+
+# Install git hooks from .githooks/ (sets core.hooksPath).
+# Run once after clone. Also invoked automatically by `dev`.
+githooks-install:
+    git config core.hooksPath .githooks
+
 # ── Feature introspection (for CI / scripts) ──────────────────────────────────
 # CI workflows call these to pick up the canonical feature list from justfile
 # rather than hard-coding feature names in workflow YAML.
@@ -168,6 +175,7 @@ demo-gateway-photoshop:
 dev:
     #!/usr/bin/env sh
     set -eu
+    just githooks-install
     if [ ! -d .venv ]; then python -m venv .venv; fi
     .venv/bin/python -m pip install maturin 2>/dev/null || true
     just stubgen
@@ -175,6 +183,7 @@ dev:
 
 [windows]
 dev:
+    just githooks-install
     if (-not (Test-Path .venv)) { python -m venv .venv }
     & .\.venv\Scripts\python.exe -m pip install --disable-pip-version-check maturin -q
     just stubgen
