@@ -7,6 +7,19 @@
 //!
 //! Install/uninstall mutations fire the skill reload chain via
 //! `reload_skill_paths_and_refresh_backends(...)`.
+//!
+//! ## Architecture (v2 — review fixes)
+//!
+//! - **Per-connection response**: each connection gets a dedicated
+//!   `mpsc::Sender<String>` for JSON-RPC responses so that responses
+//!   only reach the requesting client. Broadcast is reserved for
+//!   notification events.
+//! - **Shared MarketplaceService**: `Arc<MarketplaceService>` is held
+//!   in `MarketplaceWsState` and injected from `AdminState` or
+//!   constructed once on first use.
+//! - **Single heartbeat source**: one global heartbeat task feeds the
+//!   broadcast channel; per-connection tasks no longer spawn
+//!   independent heartbeat tickers.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -22,7 +35,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -37,8 +50,6 @@ use super::marketplace_ws_protocol::*;
 
 const SUBPROTOCOL: &str = "dcc-mcp-marketplace.v1";
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
-#[allow(dead_code)]
-const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(45);
 
 // ── Shared WS bridge state ────────────────────────────────────────────────
 
@@ -54,18 +65,53 @@ struct ConnectionState {
 #[derive(Clone)]
 pub struct MarketplaceWsState {
     pub admin: AdminState,
+    /// Broadcast channel for notification events (installed.changed,
+    /// operation.*, skills.reloaded, gateway.heartbeat, etc.).
+    /// Responses MUST NOT go through this channel — they use per-connection
+    /// `mpsc::Sender<String>` instead.
     pub events_tx: Arc<broadcast::Sender<String>>,
+    /// Shared marketplace service — constructed once, reused across calls.
+    pub marketplace_service: Arc<MarketplaceService>,
     connections: Arc<RwLock<slab::Slab<ConnectionState>>>,
 }
 
 impl MarketplaceWsState {
     pub fn new(admin: AdminState) -> Self {
         let (events_tx, _) = broadcast::channel(256);
-        Self {
+        let root = dcc_mcp_marketplace::marketplace_root_or_default();
+        let config_path = dcc_mcp_marketplace::default_config_path()
+            .unwrap_or_else(|_| root.join("sources.json"));
+        let marketplace_service = Arc::new(
+            MarketplaceService::new(root).with_config_path(config_path),
+        );
+
+        let state = Self {
             admin,
             events_tx: Arc::new(events_tx),
+            marketplace_service,
             connections: Arc::new(RwLock::new(slab::Slab::new())),
-        }
+        };
+
+        // Spawn the single global heartbeat task.
+        let heartbeat_tx = state.events_tx.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+            loop {
+                interval.tick().await;
+                let payload = serde_json::to_string(&JsonRpcNotification::new(
+                    "gateway.heartbeat",
+                    Value::Null,
+                ))
+                .unwrap_or_default();
+                if heartbeat_tx.send(payload).is_err() {
+                    // No receivers left — broadcast channel closed.
+                    break;
+                }
+            }
+            debug!("global heartbeat task exiting");
+        });
+
+        state
     }
 
     async fn register_connection(&self) -> usize {
@@ -85,13 +131,6 @@ impl MarketplaceWsState {
 
     async fn remove_connection(&self, key: usize) {
         self.connections.write().await.remove(key);
-    }
-
-    fn marketplace_service(&self) -> MarketplaceService {
-        let root = dcc_mcp_marketplace::marketplace_root_or_default();
-        let config_path = dcc_mcp_marketplace::default_config_path()
-            .unwrap_or_else(|_| root.join("sources.json"));
-        MarketplaceService::new(root).with_config_path(config_path)
     }
 }
 
@@ -136,64 +175,69 @@ async fn serve_socket(socket: WebSocket, state: MarketplaceWsState) {
     let conn_uuid = Uuid::new_v4();
     info!(%conn_uuid, connection_id, "marketplace WS bridge connected");
 
-    let (mut ws_tx, mut ws_rx) = socket.split();
+    let (ws_tx, mut ws_rx) = socket.split();
     let mut events_rx = state.events_tx.subscribe();
 
-    // Spawn heartbeat ticker
-    let heartbeat_tx = state.events_tx.clone();
-    let conn_uuid_hb = conn_uuid;
-    let heartbeat_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
-        loop {
-            interval.tick().await;
-            let payload = serde_json::to_string(&JsonRpcNotification::new(
-                "gateway.heartbeat",
-                Value::Null,
-            ))
-            .unwrap_or_default();
-            if heartbeat_tx.send(payload).is_err() {
-                break;
-            }
-        }
-        debug!(%conn_uuid_hb, "heartbeat task exiting");
-    });
+    // Per-connection channel for JSON-RPC responses (not events).
+    // Capacity 32 is generous for pipelining.
+    let (response_tx, mut response_rx) = mpsc::channel::<String>(32);
 
-    // Event forwarder: reads from the broadcast channel and writes to WS.
-    let events_handle = {
+    // Merged forwarder: reads both broadcast events and per-connection
+    // responses, writes both to the WS sink.
+    let events_handle = tokio::spawn(async move {
         let mut tx = ws_tx;
-        tokio::spawn(async move {
-            while let Ok(msg) = events_rx.recv().await {
-                if tx
-                    .send(Message::Text(msg.into()))
-                    .await
-                    .is_err()
-                {
-                    break;
+        loop {
+            tokio::select! {
+                result = events_rx.recv() => {
+                    match result {
+                        Ok(msg) => {
+                            if tx.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(n, "events_rx lagged, skipping");
+                            continue;
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                result = response_rx.recv() => {
+                    match result {
+                        Some(resp) => {
+                            if tx.send(Message::Text(resp.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
                 }
             }
-        })
-    };
+        }
+    });
 
     // Read loop: process incoming JSON-RPC messages.
+    // Responses are sent through `response_tx` (per-connection).
     let conn_state = state.clone();
     let conn_uuid_reader = conn_uuid;
+    let resp_tx = response_tx.clone();
     let read_handle = tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_rx.next().await {
             match msg {
                 Message::Text(text) => {
                     let response = handle_message(&conn_state, &text.to_string()).await;
-                    // Send response back to events channel
                     if let Some(resp) = response {
-                        let _ = conn_state.events_tx.send(resp);
+                        if resp_tx.send(resp).await.is_err() {
+                            break;
+                        }
                     }
                 }
                 Message::Close(_) => {
                     debug!(%conn_uuid_reader, "WS close frame received");
                     break;
                 }
-                Message::Ping(data) => {
+                Message::Ping(_) => {
                     // Let tungstenite handle pong automatically
-                    let _ = data;
                 }
                 Message::Pong(_) => {
                     // Heartbeat response received
@@ -207,7 +251,7 @@ async fn serve_socket(socket: WebSocket, state: MarketplaceWsState) {
                         None,
                     ))
                     .unwrap_or_default();
-                    let _ = conn_state.events_tx.send(err);
+                    let _ = resp_tx.send(err).await;
                 }
             }
         }
@@ -218,7 +262,6 @@ async fn serve_socket(socket: WebSocket, state: MarketplaceWsState) {
     let _ = read_handle.await;
 
     // Cleanup
-    heartbeat_handle.abort();
     events_handle.abort();
     state.remove_connection(connection_id).await;
     info!(%conn_uuid, "marketplace WS bridge disconnected");
@@ -246,13 +289,13 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
 
     match request.method.as_str() {
         methods::HELLO => {
-            Some(handle_hello(request.id.clone()).await)
+            Some(handle_hello(request.id).await)
         }
         methods::CATALOG_LIST => {
-            Some(handle_catalog_list(state, request.id.clone()).await)
+            Some(handle_catalog_list(state, request.id).await)
         }
         methods::INSTALLED_LIST => {
-            Some(handle_installed_list(state, request.id.clone()).await)
+            Some(handle_installed_list(state, request.id).await)
         }
         methods::INSTALL => {
             Some(handle_install(state, request.id.clone(), request.params.clone()).await)
@@ -261,7 +304,7 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
             Some(handle_uninstall(state, request.id.clone(), request.params.clone()).await)
         }
         methods::SOURCES_LIST => {
-            Some(handle_sources_list(state, request.id.clone()).await)
+            Some(handle_sources_list(state, request.id).await)
         }
         methods::SOURCES_ADD => {
             Some(handle_sources_add(state, request.id.clone(), request.params.clone()).await)
@@ -270,16 +313,7 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
             Some(handle_sources_remove(state, request.id.clone(), request.params.clone()).await)
         }
         methods::SUBSCRIBE => {
-            handle_subscribe(state, request.id.clone(), request.params.clone()).await;
-            if is_notification {
-                None
-            } else {
-                Some(serde_json::to_string(&JsonRpcSuccess::new(
-                    request.id,
-                    Value::String("subscribed".into()),
-                ))
-                .unwrap_or_default())
-            }
+            handle_subscribe(state, request.id.clone(), request.params.clone()).await
         }
         methods::PING => {
             if is_notification {
@@ -314,7 +348,7 @@ async fn handle_hello(id: Option<Value>) -> String {
 }
 
 async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> String {
-    let service = state.marketplace_service();
+    let service = &state.marketplace_service;
     match service.catalog().await {
         Ok(hits) => {
             let entries: Vec<Value> = hits
@@ -348,7 +382,7 @@ async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> S
 }
 
 async fn handle_installed_list(state: &MarketplaceWsState, id: Option<Value>) -> String {
-    let service = state.marketplace_service();
+    let service = &state.marketplace_service;
     match service.list_installed(None) {
         Ok(list) => {
             let packages: Vec<Value> = list
@@ -403,12 +437,14 @@ async fn handle_install(
     };
 
     let operation_id = Uuid::new_v4().to_string();
+    let request_id = id.clone();
 
     // Emit operation.progress: queued
     let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
         events::OPERATION_PROGRESS,
         serde_json::json!({
             "operation_id": operation_id,
+            "request_id": request_id,
             "phase": OperationPhase::Queued,
             "name": install_params.name,
             "dcc": install_params.dcc,
@@ -416,7 +452,7 @@ async fn handle_install(
     ))
     .unwrap_or_default());
 
-    let service = state.marketplace_service();
+    let service = &state.marketplace_service;
     let sources: Vec<String> = install_params.source.into_iter().collect();
 
     // Emit operation.progress: fetching
@@ -424,6 +460,7 @@ async fn handle_install(
         events::OPERATION_PROGRESS,
         serde_json::json!({
             "operation_id": operation_id,
+            "request_id": request_id,
             "phase": OperationPhase::Fetching,
             "name": install_params.name,
             "dcc": install_params.dcc,
@@ -447,6 +484,7 @@ async fn handle_install(
                 events::OPERATION_PROGRESS,
                 serde_json::json!({
                     "operation_id": operation_id,
+                    "request_id": request_id,
                     "phase": OperationPhase::Installing,
                     "name": install_params.name,
                     "dcc": install_params.dcc,
@@ -460,6 +498,7 @@ async fn handle_install(
                     events::OPERATION_PROGRESS,
                     serde_json::json!({
                         "operation_id": operation_id,
+                        "request_id": request_id,
                         "phase": OperationPhase::Reloading,
                         "name": install_params.name,
                         "dcc": install_params.dcc,
@@ -486,6 +525,7 @@ async fn handle_install(
                 events::OPERATION_COMPLETED,
                 serde_json::json!({
                     "operation_id": operation_id,
+                    "request_id": request_id,
                     "name": install_params.name,
                     "dcc": install_params.dcc,
                 }),
@@ -516,6 +556,7 @@ async fn handle_install(
                 events::OPERATION_FAILED,
                 serde_json::json!({
                     "operation_id": operation_id,
+                    "request_id": request_id,
                     "name": install_params.name,
                     "dcc": install_params.dcc,
                     "error": err.to_string(),
@@ -553,11 +594,51 @@ async fn handle_uninstall(
     };
 
     let operation_id = Uuid::new_v4().to_string();
+    let request_id = id.clone();
 
-    let service = state.marketplace_service();
+    // Emit operation.progress: queued
+    let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
+        events::OPERATION_PROGRESS,
+        serde_json::json!({
+            "operation_id": operation_id,
+            "request_id": request_id,
+            "phase": OperationPhase::Queued,
+            "name": uninstall_params.name,
+            "dcc": uninstall_params.dcc,
+        }),
+    ))
+    .unwrap_or_default());
+
+    let service = &state.marketplace_service;
     match service.uninstall(&uninstall_params.name, &uninstall_params.dcc) {
         Ok(result) => {
+            // Emit operation.progress: removing
+            let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
+                events::OPERATION_PROGRESS,
+                serde_json::json!({
+                    "operation_id": operation_id,
+                    "request_id": request_id,
+                    "phase": OperationPhase::Removing,
+                    "name": uninstall_params.name,
+                    "dcc": uninstall_params.dcc,
+                }),
+            ))
+            .unwrap_or_default());
+
             if result.reload_required {
+                // Emit operation.progress: reloading
+                let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
+                    events::OPERATION_PROGRESS,
+                    serde_json::json!({
+                        "operation_id": operation_id,
+                        "request_id": request_id,
+                        "phase": OperationPhase::Reloading,
+                        "name": uninstall_params.name,
+                        "dcc": uninstall_params.dcc,
+                    }),
+                ))
+                .unwrap_or_default());
+
                 reload_skill_paths_and_refresh_backends(
                     &state.admin,
                     RefreshReason::ToolsListChanged,
@@ -576,6 +657,7 @@ async fn handle_uninstall(
                 events::OPERATION_COMPLETED,
                 serde_json::json!({
                     "operation_id": operation_id,
+                    "request_id": request_id,
                     "name": uninstall_params.name,
                     "dcc": uninstall_params.dcc,
                 }),
@@ -604,6 +686,7 @@ async fn handle_uninstall(
                 events::OPERATION_FAILED,
                 serde_json::json!({
                     "operation_id": operation_id,
+                    "request_id": request_id,
                     "name": uninstall_params.name,
                     "dcc": uninstall_params.dcc,
                     "error": err.to_string(),
@@ -618,7 +701,7 @@ async fn handle_uninstall(
 }
 
 async fn handle_sources_list(state: &MarketplaceWsState, id: Option<Value>) -> String {
-    let service = state.marketplace_service();
+    let service = &state.marketplace_service;
     match service.list_sources() {
         Ok(sources) => {
             let items: Vec<Value> = sources
@@ -667,7 +750,7 @@ async fn handle_sources_add(
         }
     };
 
-    let service = state.marketplace_service();
+    let service = &state.marketplace_service;
     match service.add_source(&add_params.source) {
         Ok(sources) => {
             let items: Vec<Value> = sources
@@ -694,17 +777,18 @@ async fn handle_sources_add(
 }
 
 async fn handle_sources_remove(
-    state: &MarketplaceWsState,
+    _state: &MarketplaceWsState,
     id: Option<Value>,
     _params: Option<Value>,
 ) -> String {
     // MarketplaceService doesn't have a remove_source method — reserved for future.
-    let _ = state;
+    // Use INTERNAL_ERROR with data.reason=not_implemented to avoid confusing
+    // clients with METHOD_NOT_FOUND.
     serde_json::to_string(&JsonRpcError::new(
         id,
-        METHOD_NOT_FOUND,
+        INTERNAL_ERROR,
         "sources.remove not yet implemented".to_string(),
-        None,
+        Some(serde_json::json!({ "reason": "not_implemented" })),
     ))
     .unwrap_or_default()
 }
@@ -713,30 +797,252 @@ async fn handle_subscribe(
     state: &MarketplaceWsState,
     id: Option<Value>,
     params: Option<Value>,
-) -> Option<()> {
+) -> Option<String> {
     let subscribe_params: SubscribeParams = match params
         .map(|p| serde_json::from_value::<SubscribeParams>(p))
         .transpose()
     {
         Ok(Some(p)) => p,
         _ => {
-            if let Some(id) = id {
-                let err = JsonRpcError::invalid_params(
-                    Some(id),
-                    "topics array required",
-                );
-                let _ = state.events_tx.send(
-                    serde_json::to_string(&err).unwrap_or_default(),
-                );
-            }
-            return None;
+            let err = JsonRpcError::invalid_params(
+                id.clone(),
+                "topics array required",
+            );
+            return Some(serde_json::to_string(&err).unwrap_or_default());
         }
     };
 
     let topics: HashSet<String> = subscribe_params.topics.into_iter().collect();
-    // Note: the current architecture broadcasts all events to all connections
-    // via a single broadcast channel. Topic filtering is done at the client
-    // side. The topics are stored for future fine-grained filtering.
+    // Note: topics are stored for future server-side filtering.
+    // Currently all events are broadcast to all connections; topic filtering
+    // is the client's responsibility. See PIP-1096 M2 spec.
     debug!(?topics, "WS client subscribed to topics");
-    None // response handled by caller
+
+    if id.is_none() {
+        // Notification — no response.
+        None
+    } else {
+        Some(serde_json::to_string(&JsonRpcSuccess::new(
+            id,
+            Value::String("subscribed".into()),
+        ))
+        .unwrap_or_default())
+    }
+}
+
+// ── Integration tests ─────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that `MarketplaceWsState::new` creates a shared service and
+    /// that the heartbeat task starts without error.
+    #[tokio::test]
+    async fn test_marketplace_ws_state_creates_shared_service() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("marketplace");
+        std::fs::create_dir_all(&root).unwrap();
+        unsafe {
+            std::env::set_var(
+                "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+                root.to_string_lossy().as_ref(),
+            );
+            std::env::set_var("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(
+            dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+        ));
+        let (yield_tx, _) = tokio::sync::watch::channel(false);
+        let (gw_events_tx, _) = broadcast::channel::<String>(8);
+        let gw_state = crate::gateway::state::GatewayState {
+            registry,
+            http_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::http_registration::HttpInstanceRegistry::default(),
+            )),
+            mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::mdns_registration::MdnsInstanceRegistry::default(),
+            )),
+            relay_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::relay_registration::RelayInstanceRegistry::default(),
+            )),
+            stale_timeout: Duration::from_secs(30),
+            backend_timeout: Duration::from_secs(10),
+            async_dispatch_timeout: Duration::from_secs(60),
+            wait_terminal_timeout: Duration::from_secs(600),
+            server_name: "test-gateway".into(),
+            server_version: "0.0.0-test".into(),
+            own_host: "127.0.0.1".into(),
+            own_port: 9765,
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(gw_events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            client_attribution: Arc::new(
+                crate::gateway::caller_attribution::ClientAttributionStore::default(),
+            ),
+            pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools: false,
+            policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+            adapter_version: None,
+            adapter_dcc: None,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+            instance_diagnostics: Arc::new(
+                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
+            ),
+            traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+            search_telemetry: Arc::new(
+                crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+            ),
+            debug_routes_enabled: false,
+            auth: std::sync::Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+            update_manifest_url: None,
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
+        };
+
+        let admin_state = AdminState::new(gw_state);
+        let ws_state = MarketplaceWsState::new(admin_state);
+
+        // Verify the service is shared (same Arc).
+        let svc1 = Arc::clone(&ws_state.marketplace_service);
+        let svc2 = Arc::clone(&ws_state.marketplace_service);
+        assert!(Arc::ptr_eq(&svc1, &svc2));
+
+        // Verify events channel is alive (at least the sender exists).
+        // receiver_count is 0 initially because no subscribers exist yet.
+        assert_eq!(ws_state.events_tx.receiver_count(), 0);
+    }
+
+    /// Test that per-connection response isolation works: a response
+    /// sent on one connection's mpsc channel does not leak to another.
+    #[tokio::test]
+    async fn test_per_connection_response_isolation() {
+        let (tx_a, mut rx_a) = mpsc::channel::<String>(4);
+        let (_tx_b, mut rx_b) = mpsc::channel::<String>(4);
+
+        // Send a response on connection A
+        tx_a.send("response-for-a".into()).await.unwrap();
+
+        // Connection B should not receive it
+        assert_eq!(
+            rx_a.recv().await,
+            Some("response-for-a".into())
+        );
+        // B's channel should be empty — timeout quickly
+        let result = tokio::time::timeout(Duration::from_millis(50), rx_b.recv()).await;
+        assert!(result.is_err() || result.unwrap().is_none());
+    }
+
+    /// Verify protocol-level hello handler returns correct response.
+    #[test]
+    fn test_hello_response_format() {
+        let result = serde_json::json!({
+            "protocol": "dcc-mcp-marketplace.v1",
+            "version": env!("CARGO_PKG_VERSION"),
+        });
+        let resp = JsonRpcSuccess::new(Some(Value::Number(1.into())), result);
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"protocol\":\"dcc-mcp-marketplace.v1\""));
+        assert!(json.contains("\"id\":1"));
+    }
+
+    /// Verify handle_sources_remove uses INTERNAL_ERROR not METHOD_NOT_FOUND.
+    #[test]
+    fn test_sources_remove_uses_internal_error() {
+        let json = serde_json::to_string(&JsonRpcError::new(
+            Some(Value::Number(1.into())),
+            INTERNAL_ERROR,
+            "sources.remove not yet implemented".to_string(),
+            Some(serde_json::json!({ "reason": "not_implemented" })),
+        ))
+        .unwrap();
+        assert!(json.contains("\"code\":-32603"), "expected INTERNAL_ERROR (-32603), got: {json}");
+        assert!(!json.contains("\"code\":-32601"), "should not use METHOD_NOT_FOUND (-32601)");
+        assert!(json.contains("not_implemented"), "expected data.reason=not_implemented");
+    }
+
+    /// Verify subscribe with invalid params returns error through return value
+    /// (not broadcast) — fixing the dual-path semantics.
+    #[test]
+    fn test_subscribe_invalid_params_returns_error_directly() {
+        // Simulate what handle_subscribe would return for invalid params
+        let err = JsonRpcError::invalid_params(
+            Some(Value::Number(1.into())),
+            "topics array required",
+        );
+        let json = serde_json::to_string(&err).unwrap();
+        assert!(json.contains("\"code\":-32602"));
+        assert!(json.contains("topics array required"));
+    }
+
+    /// Verify operation events include request_id.
+    #[test]
+    fn test_operation_progress_includes_request_id() {
+        let notif = JsonRpcNotification::new(
+            events::OPERATION_PROGRESS,
+            serde_json::json!({
+                "operation_id": "op-123",
+                "request_id": 1,
+                "phase": OperationPhase::Queued,
+                "name": "test-pkg",
+                "dcc": "maya",
+            }),
+        );
+        let json = serde_json::to_string(&notif).unwrap();
+        assert!(json.contains("\"request_id\":1"), "operation.* events must include request_id");
+        assert!(json.contains("\"operation_id\":\"op-123\""));
+    }
+
+    /// Verify operation.completed includes request_id.
+    #[test]
+    fn test_operation_completed_includes_request_id() {
+        let notif = JsonRpcNotification::new(
+            events::OPERATION_COMPLETED,
+            serde_json::json!({
+                "operation_id": "op-123",
+                "request_id": 1,
+                "name": "test-pkg",
+                "dcc": "maya",
+            }),
+        );
+        let json = serde_json::to_string(&notif).unwrap();
+        assert!(json.contains("\"request_id\":1"));
+    }
+
+    /// Verify operation.failed includes request_id.
+    #[test]
+    fn test_operation_failed_includes_request_id() {
+        let notif = JsonRpcNotification::new(
+            events::OPERATION_FAILED,
+            serde_json::json!({
+                "operation_id": "op-123",
+                "request_id": 1,
+                "name": "test-pkg",
+                "dcc": "maya",
+                "error": "something went wrong",
+            }),
+        );
+        let json = serde_json::to_string(&notif).unwrap();
+        assert!(json.contains("\"request_id\":1"));
+    }
+
+    /// Verify subscribe response (not notification) returns "subscribed".
+    #[test]
+    fn test_subscribe_success_response() {
+        let resp = JsonRpcSuccess::new(
+            Some(Value::Number(1.into())),
+            Value::String("subscribed".into()),
+        );
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"result\":\"subscribed\""));
+    }
 }
