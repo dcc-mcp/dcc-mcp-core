@@ -44,7 +44,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP server
-axum = { version = "0.8", features = ["http1", "tokio"] }
+axum = { version = "0.8", features = ["http1", "tokio", "ws"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 sysinfo = { workspace = true }

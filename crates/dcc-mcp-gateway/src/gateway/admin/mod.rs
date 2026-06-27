@@ -72,6 +72,8 @@ mod logs_tests;
 #[cfg(feature = "admin")]
 pub mod marketplace;
 #[cfg(feature = "admin")]
+pub mod marketplace_ws;
+#[cfg(feature = "admin")]
 mod memory;
 #[cfg(feature = "admin")]
 mod skill_health;
