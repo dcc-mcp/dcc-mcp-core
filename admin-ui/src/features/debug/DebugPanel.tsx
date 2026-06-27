@@ -10,7 +10,7 @@ import type {
   HealthPayload,
   InstanceRow,
   InstanceSummary,
-  OpenApiSource,
+  NavigateOptions,
   Panel,
   StatsPayload,
   TraceRow,
@@ -37,16 +37,6 @@ import {
   TimeValue,
   totalTraceTokens,
 } from '../../admin-ui-core';
-
-type NavigateOptions = {
-  traceId?: string;
-  range?: string;
-  openApiSource?: OpenApiSource;
-  replace?: boolean;
-  discoverTab?: string;
-  overviewTab?: string;
-  tracesTab?: string;
-};
 
 type TokenPressure = {
   total: number;

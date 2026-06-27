@@ -510,6 +510,16 @@ export type OpenApiSource = {
   kind: 'gateway' | 'instance';
 };
 
+export type NavigateOptions = {
+  traceId?: string;
+  range?: string;
+  openApiSource?: OpenApiSource;
+  replace?: boolean;
+  discoverTab?: string;
+  overviewTab?: string;
+  tracesTab?: string;
+};
+
 export type ActivityEvent = {
   event_id: string;
   timestamp: string;
