@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  RiDownloadCloudLine,
   RiFileCopyLine,
   RiFolderOpenLine,
   RiRefreshLine,
@@ -20,7 +19,7 @@ import {
   SelectValue,
 } from './components/ui/select';
 import { DiscoverPanel, type DiscoverTab } from './features/discover';
-import { type OverviewTab } from './features/overview';
+import { OverviewPanel, type OverviewTab } from './features/overview';
 import { CommandCenterPanel } from './features/setup';
 import { AnalyticsPanel } from './features/analytics/AnalyticsPanel';
 import { DebugPanel } from './features/debug';
@@ -28,13 +27,19 @@ import { GovernancePanel } from './features/governance';
 import { InstancesPanel, type InstanceUpdateNotice } from './features/instances';
 import { MemoryPanel } from './features/agent-memory/MemoryPanel';
 import { OpenApiPanel } from './features/openapi';
+import { ActivityPanel } from './features/activity';
+import { HealthPanel } from './features/health';
+import { ToolsPanel } from './features/tools';
+import { WorkflowsPanel } from './features/workflows';
+import { TasksPanel } from './features/tasks';
+import { TracesPanel } from './features/traces';
 import { canonicalAdminPanelTarget, readDiscoverTabFromUrl, readOverviewTabFromUrl, readTracesTabFromUrl } from './navigation';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
 import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogSeverityFilter } from './logs';
-import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ClientPlatform, type DebugSignal, type FailureSignal, type IdeTarget, type InstanceRow, type InstanceSummary, type InstanceUpdatePayload, type OpenApiSource, type Panel, type SetupUrlMode, type TokenBreakdownEntry, type TraceDetailPayload, type TraceRow } from './admin-types';
-import { actorLabel, agentLabel, apiJson, API_BASE, AttributionFacetList, backendAccessUrls, callGroupLabel, compactId, compactInstanceId, compactList, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, errorRateTone, firstTrust, flattenOpenApiOperations, formatBytes, formatDurationMs, formatSavingsPct, formatTokenCount, formatUptime, gatewayLabel, gatewayMcpUrl, gatewayOpenApiSource, groupRows, haystack, HealthCard, HeroMetric, HourlyChart, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, latencyClass, latencyTone, LatencyValue, matchesListFilter, MetricTile, NavIcon, NAVIGATION, openApiSpecFilename, PanelHeader, platformLabel, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, responseFormatLabel, returnedTokensLabel, savedTokensLabel, sourceIpLabel, StatBarList, STATS_RANGE_IDS, StatusBadge, statusClass, StatusLine, taskActorLabel, taskOutcomeText, taskPrimaryRequestId, taskRequestCount, taskWorkflowLabel, TimeValue, TokenBreakdownList, toolGroupLabel, toolInstanceLabel, totalTraceTokens, TraceDetailPanel, traceGroupLabel, traceLatency, traceLinks, trafficBodyBytes, trafficEmptyKey, trafficFrameDetail, trafficMethod, trafficRedactedPaths, trafficRequestId, trafficSessionId, trafficStatusDetailKey, trafficStatusLabelKey, trafficStatusTone, trafficTimestamp, trustChip, trustFor, WorkflowCard, WorkflowGraphDetail } from './admin-ui-core';
+import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ClientPlatform, type DebugSignal, type FailureSignal, type IdeTarget, type InstanceRow, type InstanceSummary, type InstanceUpdatePayload, type OpenApiSource, type Panel, type SetupUrlMode, type TokenBreakdownEntry, type TraceDetailPayload } from './admin-types';
+import { apiJson, backendAccessUrls, compactId, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, flattenOpenApiOperations, gatewayMcpUrl, gatewayOpenApiSource, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, matchesListFilter, NavIcon, NAVIGATION, openApiSpecFilename, PanelHeader, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, STATS_RANGE_IDS, statusClass, StatusLine, totalTraceTokens, traceLatency, haystack, trafficRequestId, trafficSessionId, trafficMethod, trafficRedactedPaths, agentLabel, formatDurationMs, formatTokenCount } from './admin-ui-core';
 import {
   useActivityQuery,
   useCallsQuery,
@@ -509,15 +514,6 @@ function App() {
     );
   }, [workflows, listSearch]);
 
-  const selectedWorkflow = useMemo(
-    () => workflows.find((workflow) => workflow.workflow_id === selectedWorkflowId) ?? null,
-    [workflows, selectedWorkflowId],
-  );
-  const visibleSelectedWorkflow = useMemo(
-    () => selectedWorkflow && filteredWorkflows.some((workflow) => workflow.workflow_id === selectedWorkflow.workflow_id) ? selectedWorkflow : null,
-    [filteredWorkflows, selectedWorkflow],
-  );
-
   const filteredInstanceRows = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     if (!q) {
@@ -613,19 +609,6 @@ function App() {
   const slowTraces = useMemo(
     () => [...traces].filter((trace) => trace.total_ms != null).sort((a, b) => traceLatency(b) - traceLatency(a)).slice(0, 8),
     [traces],
-  );
-
-  const traceByRequest = useMemo(() => {
-    const rows = new Map<string, TraceRow>();
-    for (const trace of traces) {
-      rows.set(trace.request_id, trace);
-    }
-    return rows;
-  }, [traces]);
-
-  const slowCallCount = useMemo(
-    () => calls.filter((call) => isSlowLatency(call.duration_ms)).length,
-    [calls],
   );
 
   const slowTraceCount = useMemo(
@@ -728,10 +711,6 @@ function App() {
     return safeRows.filter((r) => r.name.toLowerCase().includes(q));
   }, [listSearch]);
 
-  const filteredTokenByTool = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_tool), [filterTokenBreakdowns, stats]);
-  const filteredTokenByInstance = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_instance), [filterTokenBreakdowns, stats]);
-  const filteredTokenByAgent = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_agent), [filterTokenBreakdowns, stats]);
-  const filteredTokenByTransport = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_transport), [filterTokenBreakdowns, stats]);
   const filteredTokenByFormat = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_response_format), [filterTokenBreakdowns, stats]);
 
   const filteredGovernanceDecisions = useMemo(() => {
@@ -785,18 +764,6 @@ function App() {
     };
   }, [governance]);
 
-  const taskSummary = useMemo(() => {
-    const completed = tasks.filter((task) => isOkStatus(task.status)).length;
-    const failed = tasks.filter((task) => isErrStatus(task.status)).length;
-    const active = tasks.filter((task) => isWarnStatus(task.status)).length;
-    const total = tasks.length;
-    const settled = completed + failed;
-    const successRate = settled > 0 ? (completed / settled) * 100 : 0;
-    const durations = tasks.map((task) => task.duration_ms).filter((ms): ms is number => typeof ms === 'number' && ms >= 0);
-    const avgDurationMs = durations.length > 0 ? durations.reduce((sum, ms) => sum + ms, 0) / durations.length : null;
-    return { completed, failed, active, total, successRate, avgDurationMs };
-  }, [tasks]);
-
   const workflowSummary = useMemo(() => {
     const completed = workflows.filter((workflow) => isOkStatus(workflow.status)).length;
     const failed = workflows.filter((workflow) => isErrStatus(workflow.status)).length;
@@ -841,28 +808,6 @@ function App() {
     };
   }, [stats, traces]);
 
-  const trafficSummary = useMemo(() => {
-    const sessions = new Set(trafficFrames.map(trafficSessionId).filter(Boolean)).size;
-    const redacted = trafficFrames.reduce((sum, frame) => sum + trafficRedactedPaths(frame).length, 0);
-    const bytes = trafficFrames.reduce((sum, frame) => sum + (trafficBodyBytes(frame) ?? 0), 0);
-    const transports = new Set(trafficFrames.map((frame) => frame.attributes?.transport).filter(Boolean)).size;
-    return { sessions, redacted, bytes, transports };
-  }, [trafficFrames]);
-  const trafficCaptureStatus = traffic?.capture_status;
-  const trafficStatusDetail = useMemo(() => {
-    const status = trafficCaptureStatus;
-    const base = t(trafficStatusDetailKey(status), {
-      captured: status?.captured_decision_count ?? 0,
-      skipped: status?.skipped_decision_count ?? 0,
-      reasons: compactList(status?.skip_reasons, t('traffic.statusDetail.noReasons')),
-    });
-    const redacted = status?.redacted_path_count ?? trafficSummary.redacted;
-    if (redacted > 0) {
-      return `${base} ${t('traffic.statusDetail.redacted', { count: redacted })}`;
-    }
-    return base;
-  }, [t, trafficCaptureStatus, trafficSummary.redacted]);
-
   const statsSummary = useMemo(() => {
     const failed = stats?.failed_calls ?? Math.max(0, (stats?.total_calls ?? 0) - (stats?.successful_calls ?? 0));
     const success = stats?.successful_calls ?? Math.max(0, (stats?.total_calls ?? 0) - failed);
@@ -889,25 +834,6 @@ function App() {
   /// Headline token figures for the stats hero cards. Prefers the precise
   /// payload-token accounting when present and falls back to the aggregate
   /// stats / trace-derived totals so the hero never renders blank.
-  const heroTokens = useMemo(() => {
-    const payload = stats?.payload_token_usage;
-    const input = payload?.total_input_tokens ?? stats?.total_input_tokens ?? statsSummary.totalInputTokens ?? 0;
-    const output = payload?.total_output_tokens ?? stats?.total_output_tokens ?? statsSummary.totalOutputTokens ?? 0;
-    const total = payload?.total_tokens
-      ?? stats?.total_tokens
-      ?? ((input || output) ? input + output : statsSummary.totalTokens)
-      ?? 0;
-    return {
-      total,
-      input,
-      output,
-      avg: payload?.avg_total_tokens_per_call ?? stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens ?? 0,
-      saved: stats?.token_usage?.total_saved_tokens ?? 0,
-      savedPct: stats?.token_usage?.average_savings_pct ?? 0,
-      estimator: payload?.token_estimator ?? stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? '-',
-    };
-  }, [health, stats, statsSummary]);
-
   const slowLatencyDetail = useMemo(() => {
     const slowest = slowTraces[0];
     if (!slowest) {
@@ -1657,88 +1583,25 @@ function App() {
           />
         )}
         {activePanel === 'activity' && (
-          <section className="panel active activity-panel">
-            <h2>{t('activity.title')}</h2>
-            <StatusLine text={updatedAt.activity} error={errors.activity} />
-            {activity.length === 0 ? <p className="empty">{t('activity.empty.none')}</p> : filteredActivity.length === 0 ? (
-              <p className="empty">{t('activity.empty.search')}</p>
-            ) : (
-              <table>
-                <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.status')}</th><th>{t('common.table.kind')}</th><th>{t('common.table.message')}</th><th>{t('common.table.dcc')}</th><th>{t('common.table.actor')}</th><th>{t('common.table.platform')}</th><th>{t('common.table.sourceIp')}</th><th>{t('common.table.request')}</th><th>{t('common.table.ms')}</th></tr></thead>
-                <tbody>
-                  {filteredActivity.map((event) => {
-                    const requestId = event.correlation?.request_id;
-                    return (
-                      <tr key={event.event_id}>
-                        <td><TimeValue value={event.timestamp} /></td>
-                        <td><StatusBadge value={event.status} /></td>
-                        <td>{event.kind}</td>
-                        <td title={event.message}>{event.message}</td>
-                        <td>{event.correlation?.dcc_type ?? '-'}</td>
-                        <td>{event.correlation?.actor_name ?? event.correlation?.actor_id ?? '-'}</td>
-                        <td>{event.correlation?.client_platform ?? '-'}</td>
-                        <td>{event.correlation?.source_ip ?? '-'}</td>
-                        <td>
-                          {requestId ? (
-                            <Button variant="secondary" size="xs" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
-                              {requestId.slice(0, 12)}
-                            </Button>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td>{event.duration_ms ?? '-'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-            <Button type="button" size="sm" onClick={() => activityQuery.refetch()}>
-              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-              {t('action.refresh')}
-            </Button>
-          </section>
+          <ActivityPanel
+            updatedAt={updatedAt.activity}
+            error={errors.activity}
+            activity={activity}
+            filteredActivity={filteredActivity}
+            onGoToPanel={goToPanel}
+            onRefresh={() => activityQuery.refetch()}
+            t={t}
+          />
         )}
 
         {activePanel === 'health' && (
-          <section className="panel active health-panel">
-            <h2>{t('health.title')}</h2>
-            <StatusLine text={updatedAt.health} error={errors.health} />
-            <div className="health-grid">
-              <HealthCard tone={health?.status === 'ok' ? 'ok' : 'warn'} label={t('health.metric.status')} value={health?.status ?? '?'} />
-              <HealthCard label={t('health.metric.uptime')} value={formatUptime(health?.uptime_secs)} />
-              <HealthCard tone={health && health.instances_ready > 0 ? 'ok' : 'warn'} label={t('health.metric.ready')} value={`${health?.instances_ready ?? 0} / ${health?.instances_total ?? 0}`} />
-              <HealthCard label={t('health.metric.version')} value={health?.version ?? '?'} />
-              <HealthCard label={t('health.metric.gatewayOwner')} value={gatewayLabel(health)} />
-              <HealthCard label={t('health.metric.gatewayCandidates')} value={String(health?.gateway?.candidates?.length ?? 0)} />
-              <HealthCard
-                label={t('health.metric.responseFormat')}
-                value={`${health?.response_format?.default ?? 'toon'} / ${health?.response_format?.token_estimator ?? '-'}`}
-              />
-              <HealthCard label={t('health.metric.rss')} value={formatBytes(health?.rss_bytes ?? undefined)} />
-              <HealthCard label={t('health.metric.bodyLimit')} value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '?'} />
-              <HealthCard
-                label={t('health.metric.rateLimit')}
-                value={health?.limits ? (health.limits.rate_limit_per_minute_per_ip === 0 ? 'off' : String(health.limits.rate_limit_per_minute_per_ip)) : '?'}
-              />
-              <HealthCard
-                label={t('health.metric.xffTrustedDepth')}
-                value={health?.limits ? String(health.limits.xff_trusted_depth) : '?'}
-              />
-              <HealthCard label={t('health.metric.readRetries')} value={health?.limits ? String(health.limits.read_retry_max) : '?'} />
-              <HealthCard label={t('health.metric.circuitLimit')} value={health?.limits ? `${health.limits.circuit_failure_threshold} / ${health.limits.circuit_open_secs}s` : '?'} />
-              <HealthCard
-                tone={health?.circuits && health.circuits.circuits_open > 0 ? 'warn' : undefined}
-                label={t('health.metric.circuitsOpenTracked')}
-                value={health?.circuits ? `${health.circuits.circuits_open} / ${health.circuits.tracked_backends}` : '?'}
-              />
-            </div>
-            <Button type="button" size="sm" onClick={() => healthQuery.refetch()}>
-              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-              {t('action.refresh')}
-            </Button>
-          </section>
+          <HealthPanel
+            updatedAt={updatedAt.health}
+            error={errors.health}
+            health={health}
+            onRefresh={() => healthQuery.refetch()}
+            t={t}
+          />
         )}
 
         {activePanel === 'instances' && (
@@ -1756,38 +1619,14 @@ function App() {
           />
         )}
         {activePanel === 'tools' && (
-          <section className="panel active tools-panel">
-            <h2>{t('tools.title')}</h2>
-            <StatusLine text={updatedAt.tools} error={errors.tools} />
-            {tools.length === 0 ? <p className="empty">{t('tools.empty.none')}</p> : filteredTools.length === 0 ? (
-              <p className="empty">{t('tools.empty.search')}</p>
-            ) : (
-              Array.from(groupRows(filteredTools, toolGroupLabel).entries())
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([group, groupTools]) => (
-                <div key={group} className="group-block">
-                  <h3 className="group-title">{group}</h3>
-                  <p className="group-meta">{t('tools.group.toolCount', { count: groupTools.length })}</p>
-                  <table>
-                    <thead><tr><th>{t('tools.table.slug')}</th><th>{t('common.table.appType')}</th><th>{t('common.table.instance')}</th><th>{t('common.table.summary')}</th></tr></thead>
-                    <tbody>
-                      {groupTools.map((tool) => (
-                        <tr key={tool.slug}>
-                          <td>{tool.slug}</td>
-                          <td>{tool.dcc_type}</td>
-                          <td>{toolInstanceLabel(tool)}</td>
-                          <td>{tool.summary.slice(0, 120)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )))}
-            <Button type="button" size="sm" onClick={() => toolsQuery.refetch()}>
-              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-              {t('action.refresh')}
-            </Button>
-          </section>
+          <ToolsPanel
+            updatedAt={updatedAt.tools}
+            error={errors.tools}
+            tools={tools}
+            filteredTools={filteredTools}
+            onRefresh={() => toolsQuery.refetch()}
+            t={t}
+          />
         )}
 
         {activePanel === 'openapi' && (
@@ -1811,602 +1650,86 @@ function App() {
           />
         )}
         {activePanel === 'workflows' && (
-          <section className="panel active workflows-panel">
-            <PanelHeader
-              title={t('workflows.title')}
-              meta={t('workflows.meta')}
-              action={(
-                <Button type="button" size="sm" onClick={() => workflowsQuery.refetch()}>
-                  <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                  {t('action.refresh')}
-                </Button>
-              )}
-            />
-            <StatusLine text={copiedNotice || updatedAt.workflows} error={errors.workflows} />
-            <div className="metric-grid compact">
-              <MetricTile label={t('common.metric.total')} value={workflowSummary.total} />
-              <MetricTile tone={workflowSummary.successRate >= 80 || workflowSummary.total === 0 ? 'ok' : 'warn'} label={t('common.metric.successRate')} value={`${workflowSummary.successRate.toFixed(1)}%`} detail={t('stats.detail.okFailed', { ok: workflowSummary.completed, failed: workflowSummary.failed })} />
-              <MetricTile tone="ok" label={t('workflows.metric.completed')} value={workflowSummary.completed} />
-              <MetricTile tone={workflowSummary.warning > 0 ? 'warn' : undefined} label={t('workflows.metric.warnings')} value={workflowSummary.warning} />
-              <MetricTile tone={workflowSummary.failed > 0 ? 'err' : undefined} label={t('workflows.metric.failed')} value={workflowSummary.failed} />
-              <MetricTile tone={workflowSummary.zeroResults > 0 ? 'warn' : undefined} label={t('workflows.metric.zeroResult')} value={workflowSummary.zeroResults} />
-              <MetricTile label={t('workflows.metric.searches')} value={workflowSummary.searches} detail={t('workflows.metric.avgSteps', { value: workflowSummary.avgSteps.toFixed(1) })} />
-              <MetricTile label={t('common.metric.visible')} value={`${filteredWorkflows.length} / ${workflows.length}`} />
-            </div>
-            {visibleSelectedWorkflow ? (
-              <WorkflowGraphDetail
-                workflow={visibleSelectedWorkflow}
-                onClose={() => setSelectedWorkflowId(null)}
-                onOpenTrace={(requestId) => goToPanel('traces', { traceId: requestId })}
-                onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
-                t={t}
-              />
-            ) : null}
-            {workflows.length === 0 ? <p className="empty">{t('workflows.empty.none')}</p> : filteredWorkflows.length === 0 ? (
-              <p className="empty">{t('workflows.empty.search')}</p>
-            ) : (
-              <div className="workflow-board">
-                {filteredWorkflows.map((workflow) => (
-                  <WorkflowCard
-                    key={`${workflow.group_kind}-${workflow.workflow_id}`}
-                    workflow={workflow}
-                    onInspect={(workflowId) => setSelectedWorkflowId(workflowId)}
-                    onOpenTrace={(requestId) => goToPanel('traces', { traceId: requestId })}
-                    onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
-                    t={t}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+          <WorkflowsPanel
+            updatedAt={updatedAt.workflows}
+            error={errors.workflows}
+            workflows={workflows}
+            filteredWorkflows={filteredWorkflows}
+            selectedWorkflowId={selectedWorkflowId}
+            onSelectWorkflowId={setSelectedWorkflowId}
+            onGoToPanel={goToPanel}
+            onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
+            onRefresh={() => workflowsQuery.refetch()}
+            copiedNotice={copiedNotice || ''}
+            t={t}
+          />
         )}
 
         {activePanel === 'tasks' && (
-          <section className="panel active tasks-panel">
-            <PanelHeader
-              title={t('tasks.title')}
-              meta={t('tasks.meta')}
-              action={(
-                <Button type="button" size="sm" onClick={() => tasksQuery.refetch()}>
-                  <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                  {t('action.refresh')}
-                </Button>
-              )}
-            />
-            <StatusLine text={updatedAt.tasks} error={errors.tasks} />
-            <div className="metric-grid compact">
-              <MetricTile label={t('common.metric.total')} value={taskSummary.total} />
-              <MetricTile tone={taskSummary.successRate >= 80 || taskSummary.total === 0 ? 'ok' : 'warn'} label={t('common.metric.successRate')} value={`${taskSummary.successRate.toFixed(1)}%`} detail={t('stats.detail.okFailed', { ok: taskSummary.completed, failed: taskSummary.failed })} />
-              <MetricTile tone="ok" label={t('tasks.metric.completed')} value={taskSummary.completed} />
-              <MetricTile tone={taskSummary.failed > 0 ? 'err' : undefined} label={t('tasks.metric.failed')} value={taskSummary.failed} />
-              <MetricTile tone={taskSummary.active > 0 ? 'warn' : undefined} label={t('tasks.metric.activeWaiting')} value={taskSummary.active} />
-              <MetricTile label={t('common.metric.avgDuration')} value={formatDurationMs(taskSummary.avgDurationMs)} />
-              <MetricTile label={t('common.metric.visible')} value={`${filteredTasks.length} / ${tasks.length}`} />
-            </div>
-            {tasks.length === 0 ? <p className="empty">{t('tasks.empty.none')}</p> : filteredTasks.length === 0 ? (
-              <p className="empty">{t('tasks.empty.search')}</p>
-            ) : (
-              <div className="task-board">
-                {filteredTasks.map((task) => {
-                  const requestId = taskPrimaryRequestId(task);
-                  const tone = isErrStatus(task.status) ? 'err' : isWarnStatus(task.status) ? 'warn' : isOkStatus(task.status) ? 'ok' : 'muted';
-                  const outcome = taskOutcomeText(task);
-                  const requestCount = taskRequestCount(task);
-                  return (
-                    <article key={task.task_id} className={`task-card ${tone}`}>
-                      <div className="task-main">
-                        <div className="task-title-row">
-                          <StatusBadge value={task.status} />
-                          <span className="task-type">{task.task_type}</span>
-                          <TimeValue className="task-time" value={task.started_at} />
-                          <span>{formatDurationMs(task.duration_ms)}</span>
-                        </div>
-                        <h3 title={task.title}>{task.title}</h3>
-                        {task.goal && task.goal !== task.title ? (
-                          <p className="task-outcome"><strong>{t('tasks.label.goal')}</strong>{task.goal}</p>
-                        ) : null}
-                        {outcome ? (
-                          <p className={`task-outcome ${tone === 'err' ? 'err' : ''}`}>
-                            <strong>{tone === 'err' ? t('tasks.label.failure') : t('tasks.label.result')}</strong>
-                            {outcome}
-                          </p>
-                        ) : null}
-                        <div className="task-meta">
-                          <span>{compactList(task.app_types, task.correlation?.dcc_type ?? 'gateway')}</span>
-                          <span>{t('tasks.label.workflow', { id: taskWorkflowLabel(task) })}</span>
-                          <span>{t('tasks.label.calls', { count: requestCount })}</span>
-                          <span>{t('tasks.label.client', { value: taskActorLabel(task) })}</span>
-                        </div>
-                        {task.artifacts?.length ? (
-                          <div className="task-chip-row" aria-label={t('tasks.label.artifacts')}>
-                            {task.artifacts.map((artifact) => (
-                              <span key={`${artifact.kind}-${artifact.name}-${artifact.request_id ?? ''}`}>
-                                {artifact.kind}: {artifact.name}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {task.validation_checks?.length ? (
-                          <div className="task-chip-row" aria-label={t('tasks.label.validation')}>
-                            {task.validation_checks.map((check) => (
-                              <span key={`${check.title}-${check.request_id ?? ''}`}>
-                                {check.title} <StatusBadge value={check.status} />
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="task-side">
-                        {requestId ? (
-                          <button className="link-chip" type="button" title={requestId} onClick={() => goToPanel('traces', { traceId: requestId })}>
-                            {t('tasks.link.trace', { id: requestId.slice(0, 12) })}
-                          </button>
-                        ) : (
-                          <span className="mono-path">{task.task_id.slice(0, 12)}</span>
-                        )}
-                        {task.related?.workflow_ids?.length ? (
-                          <button className="link-chip" type="button" onClick={() => goToPanel('workflows')}>
-                            {t('tasks.link.workflows', { count: task.related.workflow_ids.length })}
-                          </button>
-                        ) : null}
-                        {requestCount ? (
-                          <button className="link-chip" type="button" onClick={() => goToPanel('traces', { tracesTab: 'calls' })}>
-                            {t('tasks.link.calls', { count: requestCount })}
-                          </button>
-                        ) : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
+          <TasksPanel
+            updatedAt={updatedAt.tasks}
+            error={errors.tasks}
+            tasks={tasks}
+            filteredTasks={filteredTasks}
+            onGoToPanel={goToPanel}
+            onRefresh={() => tasksQuery.refetch()}
+            t={t}
+          />
         )}
 
         {activePanel === 'traces' && (
-          <section className="panel active traces-panel" data-panel="traces">
-            <PanelHeader
-              title={t('traces.title')}
-              meta={t('traces.meta')}
-              action={
-                <div className="table-actions">
-                  <nav className="discover-tabs traces-subnav" role="tablist" aria-label={t('navigation.tracesTab.meta')}>
-                    <button
-                      className={tracesTab === 'traces' ? 'discover-tab active' : 'discover-tab'}
-                      role="tab"
-                      aria-selected={tracesTab === 'traces'}
-                      type="button"
-                      onClick={() => goToPanel('traces', { tracesTab: 'traces', replace: true })}
-                    >
-                      {t('navigation.tracesTab.traces')}
-                    </button>
-                    <button
-                      className={tracesTab === 'calls' ? 'discover-tab active' : 'discover-tab'}
-                      role="tab"
-                      aria-selected={tracesTab === 'calls'}
-                      type="button"
-                      onClick={() => goToPanel('traces', { tracesTab: 'calls', replace: true })}
-                    >
-                      {t('navigation.tracesTab.calls')}
-                    </button>
-                  </nav>
-                  {tracesTab === 'traces' ? (
-                    <Button type="button" size="sm" onClick={() => tracesQuery.refetch()}>
-                      <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                      {t('action.refresh')}
-                    </Button>
-                  ) : (
-                    <Button type="button" size="sm" onClick={() => callsQuery.refetch()}>
-                      <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                      {t('action.refresh')}
-                    </Button>
-                  )}
-                </div>
-              }
-            />
-            <StatusLine text={copiedNotice || updatedAt.traces} error={errors.traces} />
-            {tracesTab === 'traces' ? (
-              <>
-                <div className="metric-grid compact">
-                  <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
-                  <MetricTile tone={traceSummary.failed > 0 ? 'err' : undefined} label={t('workflows.metric.failed')} value={traceSummary.failed} />
-                  <MetricTile tone={latencyTone(traceSummary.p95)} label={t('debug.metric.latency')} value={formatDurationMs(traceSummary.p95)} />
-                  <MetricTile tone={latencyTone(traceSummary.p99)} label={t('stats.metric.p99Latency')} value={formatDurationMs(traceSummary.p99)} detail={latencyThresholdDetail} />
-                  <MetricTile tone={traceSummary.slow > 0 ? 'warn' : undefined} label={t('stats.metric.slowCalls')} value={traceSummary.slow} detail={slowLatencyDetail} />
-                  <MetricTile label={t('traces.metric.totalTokens')} value={formatTokenCount(traceSummary.totalTokens)} detail={t('traces.detail.inputOutput', { input: formatTokenCount(traceSummary.totalInputTokens), output: formatTokenCount(traceSummary.totalOutputTokens) })} />
-                  <MetricTile label={t('traces.metric.agentContext')} value={traceSummary.agentContext} />
-                  <MetricTile label={t('traces.metric.spans')} value={traceSummary.spans} />
-                  <MetricTile label={t('common.metric.visible')} value={`${filteredTraces.length} / ${traces.length}`} />
-                </div>
-                {traces.length === 0 ? <p className="empty">{t('traces.empty.none')}</p> : filteredTraces.length === 0 ? (
-                  <p className="empty">{t('traces.empty.search')}</p>
-                ) : (
-                  <div className="trace-layout">
-                    <div className="trace-list">
-                      {Array.from(groupRows(filteredTraces, traceGroupLabel).entries())
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([group, groupTraces]) => (
-                        <div key={group} className="trace-group">
-                          <div className="trace-group-head">
-                            <h3>{group}</h3>
-                            <span>{groupTraces.length}</span>
-                          </div>
-                          {groupTraces.map((trace) => (
-                            <button
-                              key={trace.request_id}
-                              className={`trace-item ${isErrStatus(trace.status) ? 'err' : isWarnStatus(trace.status) ? 'warn' : isOkStatus(trace.status) ? 'ok' : ''} ${latencyClass(trace.total_ms)}`}
-                              type="button"
-                              onClick={() => goToPanel('traces', { traceId: trace.request_id, replace: true })}
-                            >
-                              <span className="trace-item-main">
-                                <strong>{trace.tool}</strong>
-                                <span>{compactId(trace.request_id)} - {compactInstanceId(trace.instance_id)} - <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}</span>
-                                <span>
-                                  {actorLabel(trace)} {trustChip(firstTrust(trace, ['actor_name', 'actor_id', 'actor_email_hash', 'auth_subject']))}
-                                  {' - '}
-                                  {platformLabel(trace)} {trustChip(firstTrust(trace, ['client_platform', 'client_os', 'client_host']))}
-                                  {' - '}
-                                  {sourceIpLabel(trace)} {trustChip(trustFor(trace, 'source_ip'))}
-                                </span>
-                                <span>{agentLabel(trace)}{trace.slowest_span_name ? ` - ${t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })}` : ''}</span>
-                              </span>
-                              <span className="trace-item-side">
-                                <StatusBadge value={trace.status} />
-                                <LatencyValue value={trace.total_ms} t={t} />
-                                <span>{t('traces.detail.spanCount', { count: trace.span_count ?? 0 })}</span>
-                                <span>{t('traces.detail.tokenCount', { count: formatTokenCount(totalTraceTokens(trace)) })}</span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                    <TraceDetailPanel
-                      trace={traceDetailPayload}
-                      fallback={traceDetail}
-                      t={t}
-                      onCopy={copyText}
-                      onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
-                      onDownloadIssueReport={(requestId) => void downloadIssueReport(requestId)}
-                    />
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <h2>{t('calls.title')}</h2>
-                <StatusLine text={queryMeta(callsQuery)} error={callsQuery.error?.message} />
-                {calls.length === 0 ? <p className="empty">{t('calls.empty.none')}</p> : filteredCalls.length === 0 ? (
-                  <p className="empty">{t('calls.empty.search')}</p>
-                ) : (
-                  Array.from(groupRows(filteredCalls, callGroupLabel).entries())
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([group, groupCalls]) => (
-                    <div key={group} className="group-block">
-                      <h3 className="group-title">{group}</h3>
-                      <table>
-                        <thead><tr><th>{t('common.table.time')}</th><th>{t('common.table.request')}</th><th>{t('common.table.tool')}</th><th>{t('common.table.appType')}</th><th>{t('common.table.instance')}</th><th>{t('common.table.actor')}</th><th>{t('calls.table.agent')}</th><th>{t('common.table.platform')}</th><th>{t('common.table.sourceIp')}</th><th>{t('calls.table.transport')}</th><th>{t('calls.table.format')}</th><th>{t('calls.table.returned')}</th><th>{t('calls.table.saved')}</th><th>{t('common.table.status')}</th><th>{t('calls.table.error')}</th><th>{t('common.table.ms')}</th><th>{t('calls.table.detail')}</th></tr></thead>
-                        <tbody>
-                          {groupCalls.map((call) => {
-                            const trace = traceByRequest.get(call.request_id);
-                            const slowestSpan = trace?.slowest_span_name
-                              ? t('traces.detail.slowestSpan', { name: trace.slowest_span_name, duration: formatDurationMs(trace.slowest_span_ms) })
-                              : '';
-                            return (
-                              <tr key={call.request_id} className={`latency-row ${latencyClass(call.duration_ms)}`}>
-                                <td><TimeValue value={call.timestamp} /></td>
-                                <td>
-                                  <Button variant="secondary" size="xs" type="button" title={call.request_id} onClick={() => goToPanel('traces', { traceId: call.request_id, tracesTab: 'traces' })}>
-                                    {call.request_id.slice(0, 12)}
-                                  </Button>
-                                </td>
-                                <td>{call.tool}</td>
-                                <td>{call.dcc_type}</td>
-                                <td>{compactInstanceId(call.instance_id)}</td>
-                                <td title={call.actor_id ?? call.auth_subject ?? ''}>
-                                  <span className="trust-cell">{actorLabel(call)}{trustChip(firstTrust(call, ['actor_name', 'actor_id', 'actor_email_hash', 'auth_subject']))}</span>
-                                </td>
-                                <td title={call.agent_id ?? call.agent_name ?? ''}>{agentLabel(call)}</td>
-                                <td title={[call.client_platform, call.client_os, call.client_host].filter(Boolean).join(' / ')}>
-                                  <span className="trust-cell">{platformLabel(call)}{trustChip(firstTrust(call, ['client_platform', 'client_os', 'client_host']))}</span>
-                                </td>
-                                <td><span className="trust-cell">{sourceIpLabel(call)}{trustChip(trustFor(call, 'source_ip'))}</span></td>
-                                <td>{call.transport ?? '-'}</td>
-                                <td>{responseFormatLabel(call)}</td>
-                                <td>{returnedTokensLabel(call)}</td>
-                                <td>{savedTokensLabel(call)}</td>
-                                <td><StatusBadge value={call.status} /></td>
-                                <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
-                                <td className="latency-cell">
-                                  <LatencyValue value={call.duration_ms} t={t} />
-                                  {slowestSpan ? <div className="latency-subtext">{slowestSpan}</div> : null}
-                                </td>
-                                <td>
-                                  <div className="table-actions">
-                                    <Button variant="secondary" size="xs" type="button" onClick={() => void expandTraceDetail(call.request_id)}>{t('calls.action.expand')}</Button>
-                                    <Button variant="outline" size="xs" type="button" onClick={() => void copyText(traceLinks(call.request_id, call.links).admin_trace_url ?? '', 'trace URL')}>
-                                      <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
-                                      {t('traces.action.copyUrl')}
-                                    </Button>
-                                    <Button variant="outline" size="xs" type="button" onClick={() => void copyIssueReport(call.request_id)}>
-                                      <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
-                                      {t('traces.action.copyIssueJson')}
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )))}
-                <pre className="empty">{callDetail}</pre>
-              </>
-            )}
-          </section>
+          <TracesPanel
+            updatedAt={updatedAt.traces}
+            error={errors.traces}
+            traces={traces}
+            filteredTraces={filteredTraces}
+            calls={calls}
+            filteredCalls={filteredCalls}
+            tracesTab={tracesTab}
+            onTracesTabChange={(tab) => goToPanel('traces', { tracesTab: tab, replace: true })}
+            onSelectTraceId={(id) => goToPanel('traces', { traceId: id ?? undefined, replace: true })}
+            traceDetailPayload={traceDetailPayload}
+            traceDetail={traceDetail}
+            stats={stats}
+            onCopyText={copyText}
+            onCopyIssueReport={(requestId) => void copyIssueReport(requestId)}
+            onDownloadIssueReport={(requestId) => void downloadIssueReport(requestId)}
+            onTracesRefresh={() => tracesQuery.refetch()}
+            onCallsRefresh={() => callsQuery.refetch()}
+            copiedNotice={copiedNotice || ''}
+            callDetail={callDetail}
+            onExpandTraceDetail={(requestId) => void expandTraceDetail(requestId)}
+            t={t}
+          />
         )}
 
         {activePanel === 'overview' && (
-          <section className="panel active overview-panel" data-panel="overview">
-            <PanelHeader
-              title={t('navigation.panel.overview')}
-              meta={t('navigation.overviewTab.meta')}
-              action={
-                <div className="table-actions">
-                  <nav className="overview-tabs" role="tablist" aria-label={t('navigation.overviewTab.meta')}>
-                    <button
-                      className={overviewTab === 'stats' ? 'discover-tab active' : 'discover-tab'}
-                      role="tab"
-                      aria-selected={overviewTab === 'stats'}
-                      type="button"
-                      onClick={() => goToPanel('overview', { overviewTab: 'stats', replace: true })}
-                    >
-                      {t('navigation.overviewTab.stats')}
-                    </button>
-                    <button
-                      className={overviewTab === 'traffic' ? 'discover-tab active' : 'discover-tab'}
-                      role="tab"
-                      aria-selected={overviewTab === 'traffic'}
-                      type="button"
-                      onClick={() => goToPanel('overview', { overviewTab: 'traffic', replace: true })}
-                    >
-                      {t('navigation.overviewTab.traffic')}
-                    </button>
-                  </nav>
-                  {overviewTab === 'stats' ? (
-                    <div className="stats-actions">
-                      <div className="range-control">
-                        <span className="range-label" id="overview-stats-range-label">
-                          {t('stats.label.range')}
-                        </span>
-                        <Select
-                          value={statsRange}
-                          onValueChange={(value) => {
-                            setStatsRange(value);
-                            pushAdminUrl('overview', { range: value, replace: true, overviewTab: 'stats' });
-                          }}
-                        >
-                          <SelectTrigger
-                            className="admin-select-trigger range-select-trigger"
-                           id="overview-stats-range-select"
-                            size="sm"
-                            aria-labelledby="overview-stats-range-label"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="admin-select-content" position="popper" align="start">
-                            <SelectGroup>
-                              <SelectItem value="1h">1h</SelectItem>
-                              <SelectItem value="24h">24h</SelectItem>
-                              <SelectItem value="7d">7d</SelectItem>
-                              <SelectItem value="all">All</SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button type="button" size="sm" onClick={refreshStats}>
-                        <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                        {t('action.refresh')}
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="table-actions">
-                      <Button asChild variant="outline" size="sm">
-                        <a
-                          href={traffic?.links?.traffic_export_jsonl_url ?? `${API_BASE}/traffic/export?limit=1000`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <RiDownloadCloudLine data-icon="inline-start" aria-hidden="true" />
-                          {t('action.exportJsonl')}
-                        </a>
-                      </Button>
-                      <Button type="button" size="sm" onClick={() => trafficQuery.refetch()}>
-                        <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-                        {t('action.refresh')}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              }
-            />
-            {overviewTab === 'stats' ? (
-              <>
-                <StatusLine text={queryMeta(statsQuery)} error={statsQuery.error?.message} />
-                {stats?.error ? <p className="empty">{stats.error}</p> : null}
-                <div className="stats-hero">
-                  <HeroMetric
-                    accent
-                    label={t('stats.hero.totalTokens')}
-                    value={formatTokenCount(heroTokens.total)}
-                    detail={(
-                      <>
-                        {t('stats.hero.perCall', { value: formatTokenCount(heroTokens.avg) })}
-                        {' · '}
-                        {t('stats.hero.estimator', { name: heroTokens.estimator })}
-                      </>
-                    )}
-                  />
-                  <HeroMetric
-                    label={t('stats.hero.inputTokens')}
-                    value={formatTokenCount(heroTokens.input)}
-                    detail={t('stats.hero.outputTokens') + ': ' + formatTokenCount(heroTokens.output)}
-                  />
-                  <HeroMetric
-                    label={t('stats.hero.tokensSaved')}
-                    value={formatTokenCount(heroTokens.saved)}
-                    detail={<strong>{t('stats.hero.savings', { value: formatSavingsPct(heroTokens.savedPct) })}</strong>}
-                  />
-                  <HeroMetric
-                    label={t('stats.hero.totalCalls')}
-                    value={(stats?.total_calls ?? 0).toLocaleString()}
-                    detail={t('stats.hero.successRate', { value: stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%' })}
-                  />
-                </div>
-                <div className="metric-grid">
-                  <MetricTile label={t('stats.metric.calls')} value={stats?.total_calls ?? 0} detail={t('stats.detail.window', { range: statsRange })} />
-                  <MetricTile tone={errorRateTone(stats)} label={t('stats.metric.success')} value={stats ? `${stats.success_rate.toFixed(1)}%` : '0.0%'} detail={t('stats.detail.okFailed', { ok: statsSummary.success, failed: statsSummary.failed })} />
-                  <MetricTile
-                    label={t('stats.metric.payloadTokens')}
-                    value={formatTokenCount(stats?.payload_token_usage?.total_tokens ?? stats?.total_tokens ?? statsSummary.totalTokens)}
-                    detail={t('stats.detail.payloadCoverage', {
-                      avg: formatTokenCount(stats?.payload_token_usage?.avg_total_tokens_per_call ?? stats?.avg_tokens_per_call ?? stats?.avg_total_tokens_per_call ?? statsSummary.avgTokens),
-                      recorded: stats?.payload_token_usage?.calls_with_any_payload_tokens ?? 0,
-                      missing: stats?.payload_token_usage?.calls_missing_payload_tokens ?? 0,
-                    })}
-                  />
-                  <MetricTile
-                    label={t('stats.metric.inputOutputTokens')}
-                    value={formatTokenCount(stats?.payload_token_usage?.total_input_tokens ?? stats?.total_input_tokens ?? statsSummary.totalInputTokens)}
-                    detail={t('stats.detail.output', { value: formatTokenCount(stats?.payload_token_usage?.total_output_tokens ?? stats?.total_output_tokens ?? statsSummary.totalOutputTokens) })}
-                  />
-                  <MetricTile tone={latencyTone(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} label={t('stats.metric.p50Latency')} value={formatDurationMs(stats?.latency_ms?.p50_ms ?? stats?.p50_ms)} />
-                  <MetricTile tone={latencyTone(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} label={t('stats.metric.p95Latency')} value={formatDurationMs(stats?.latency_ms?.p95_ms ?? stats?.p95_ms)} />
-                  <MetricTile tone={latencyTone(stats?.latency_ms?.p99_ms)} label={t('stats.metric.p99Latency')} value={formatDurationMs(stats?.latency_ms?.p99_ms)} detail={latencyThresholdDetail} />
-                  <MetricTile tone={slowCallCount > 0 ? 'warn' : undefined} label={t('stats.metric.slowCalls')} value={slowCallCount} detail={slowLatencyDetail} />
-                  <MetricTile
-                    label={t('stats.metric.responseTokensReturned')}
-                    value={formatTokenCount(stats?.token_usage?.total_returned_tokens)}
-                    detail={t('stats.detail.original', { value: formatTokenCount(stats?.token_usage?.total_original_tokens) })}
-                  />
-                  <MetricTile
-                    tone={(stats?.token_usage?.total_saved_tokens ?? 0) > 0 ? 'ok' : undefined}
-                    label={t('stats.metric.responseTokensSaved')}
-                    value={formatTokenCount(stats?.token_usage?.total_saved_tokens)}
-                    detail={t('stats.detail.average', { value: formatSavingsPct(stats?.token_usage?.average_savings_pct) })}
-                  />
-                  <MetricTile
-                    label={t('stats.metric.responseFormat')}
-                    value={health?.response_format?.default ?? 'toon'}
-                    detail={stats?.payload_token_usage?.token_estimator ?? stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? t('stats.detail.tokenEstimatorUnavailable')}
-                  />
-                </div>
-                <div className="stats-charts">
-                  <StatBarList title={t('stats.chart.topAppTypes')} items={filteredTopAppTypes} t={t} />
-                  <StatBarList title={t('stats.chart.topTools')} items={filteredTopTools} t={t} />
-                  <StatBarList title={t('stats.chart.topInstances')} items={filteredTopInstances} t={t} />
-                  <StatBarList title={t('stats.chart.topAgents')} items={filteredTopAgents} t={t} />
-                  <AttributionFacetList title={t('stats.chart.topActors')} items={filteredTopActors} t={t} />
-                  <AttributionFacetList title={t('stats.chart.topClientPlatforms')} items={filteredTopClientPlatforms} t={t} />
-                  <AttributionFacetList title={t('stats.chart.topSourceIps')} items={filteredTopSourceIps} t={t} />
-                  {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} t={t} /> : null}
-                  <TokenBreakdownList title={t('stats.chart.savingsByTool')} items={filteredTokenByTool} t={t} />
-                  <TokenBreakdownList title={t('stats.chart.savingsByInstance')} items={filteredTokenByInstance} t={t} />
-                  <TokenBreakdownList title={t('stats.chart.savingsByAgent')} items={filteredTokenByAgent} t={t} />
-                  <TokenBreakdownList title={t('stats.chart.savingsByTransport')} items={filteredTokenByTransport} t={t} />
-                  <TokenBreakdownList title={t('stats.chart.savingsByFormat')} items={filteredTokenByFormat} t={t} />
-                </div>
-              </>
-            ) : (
-              <>
-                <StatusLine text={copiedNotice || queryMeta(trafficQuery)} error={trafficQuery.error?.message} />
-                <div className="metric-grid compact">
-                  <MetricTile
-                    tone={trafficStatusTone(trafficCaptureStatus)}
-                    label={t('traffic.metric.captureState')}
-                    value={t(trafficStatusLabelKey(trafficCaptureStatus))}
-                    detail={trafficStatusDetail}
-                  />
-                  <MetricTile label={t('traffic.metric.retained')} value={trafficFrames.length} detail={t('stats.detail.visible', { visible: filteredTrafficFrames.length })} />
-                  <MetricTile label={t('traffic.metric.sessions')} value={trafficSummary.sessions} />
-                  <MetricTile label={t('traffic.metric.transports')} value={trafficSummary.transports} />
-                  <MetricTile tone={trafficSummary.redacted > 0 ? 'warn' : undefined} label={t('traffic.metric.redactions')} value={trafficSummary.redacted} />
-                  <MetricTile label={t('traffic.metric.payload')} value={formatBytes(trafficSummary.bytes)} />
-                </div>
-                {trafficFrames.length === 0 ? <p className="empty">{t(trafficEmptyKey(trafficCaptureStatus))}</p> : filteredTrafficFrames.length === 0 ? (
-                  <p className="empty">{t('traffic.empty.search')}</p>
-                ) : (
-                  <div className="trace-layout">
-                    <div className="trace-list">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t('common.table.time')}</th>
-                            <th>{t('common.table.request')}</th>
-                            <th>{t('traffic.table.method')}</th>
-                            <th>{t('traffic.table.leg')}</th>
-                            <th>{t('traffic.table.http')}</th>
-                            <th>{t('traffic.table.session')}</th>
-                            <th>{t('traffic.table.bytes')}</th>
-                            <th>{t('traffic.table.redaction')}</th>
-                            <th>{t('common.table.actions')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredTrafficFrames.map((frame, index) => {
-                            const requestId = trafficRequestId(frame);
-                            return (
-                              <tr key={frame.id ?? `${requestId ?? 'traffic'}-${index}`}>
-                                <td><TimeValue value={trafficTimestamp(frame)} /></td>
-                                <td>
-                                  <span className="mono-path">{compactId(requestId)}</span>
-                                  <div className="muted">{compactId(frame.correlation?.trace_id)}</div>
-                                </td>
-                                <td>
-                                  <span className="mono-path">{trafficMethod(frame)}</span>
-                                  <div className="muted">{frame.attributes?.mcp?.kind ?? '-'}</div>
-                                </td>
-                                <td>
-                                  {frame.attributes?.leg ?? '-'}
-                                  <div className="muted">{frame.attributes?.transport ?? '-'}</div>
-                                </td>
-                                <td>
-                                  {frame.attributes?.http?.method ?? '-'} {frame.attributes?.http?.url ?? ''}
-                                  <div className="muted">{frame.attributes?.http?.status ?? '-'}</div>
-                                </td>
-                                <td className="mono-path">{compactId(trafficSessionId(frame))}</td>
-                                <td>{formatBytes(trafficBodyBytes(frame))}</td>
-                                <td className="mono-path">{compactList(trafficRedactedPaths(frame), t('governance.privacy.none'))}</td>
-                                <td>
-                                  <div className="table-actions">
-                                    <Button variant="secondary" size="xs" type="button" onClick={() => setTrafficDetail(trafficFrameDetail(frame))}>{t('action.view')}</Button>
-                                    {requestId ? (
-                                      <Button variant="secondary" size="xs" type="button" onClick={() => goToPanel('traces', { traceId: requestId })}>{t('action.trace')}</Button>
-                                    ) : null}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="trace-detail-card">
-                      <div className="trace-card-head">
-                        <h3>{t('traffic.detail.frameJson')}</h3>
-                        <Button variant="outline" size="sm" type="button" onClick={() => void copyText(trafficDetail, 'traffic frame JSON')}>
-                          <RiFileCopyLine data-icon="inline-start" aria-hidden="true" />
-                          {t('action.copy')}
-                        </Button>
-                      </div>
-                      <pre className="payload-pre">{trafficDetail}</pre>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
+          <OverviewPanel
+            active={activePanel === 'overview'}
+            overviewTab={overviewTab}
+            onTabChange={(tab) => goToPanel('overview', { overviewTab: tab, replace: true })}
+            stats={stats}
+            statsRange={statsRange}
+            onStatsRangeChange={(value) => {
+              setStatsRange(value);
+              pushAdminUrl('overview', { range: value, replace: true, overviewTab: 'stats' });
+            }}
+            onStatsRefresh={refreshStats}
+            health={health}
+            traces={traces}
+            calls={calls}
+            traffic={traffic}
+            search={listSearch}
+            trafficDetail={trafficDetail}
+            onSetTrafficDetail={setTrafficDetail}
+            onGoToPanel={goToPanel}
+            onCopyText={copyText}
+            onTrafficRefresh={() => trafficQuery.refetch()}
+            copiedNotice={copiedNotice || ''}
+            updatedAt={{ stats: updatedAt.stats, traffic: updatedAt.traffic }}
+            errors={{ stats: errors.stats, traffic: errors.traffic }}
+            t={t}
+          />
         )}
 
         {activePanel === 'governance' && (

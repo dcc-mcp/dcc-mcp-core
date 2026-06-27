@@ -82,8 +82,8 @@ CLEANUP_TODO.md
 .multica/
 
 # Harbor tasks (local only, not committed)
-tasks/
-plans/
+/tasks/
+/plans/
 
 # Local test output files
 test_output.txt
