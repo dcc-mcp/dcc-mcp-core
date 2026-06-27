@@ -102,6 +102,7 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
         let slug = tool_slug(input.dcc_type, &input.instance_id, &callable_id);
         let tool_group = extract_tool_group_from_meta(tool.meta.as_ref());
         let available_groups = extract_available_groups_from_meta(tool.meta.as_ref());
+        let discovery_only = is_discovery_only_tool(&tool.name);
         records.push(
             CapabilityRecord::new(
                 slug,
@@ -121,7 +122,8 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
                 extract_metadata(tool.meta.as_ref()),
             )
             .with_available_groups(available_groups)
-            .with_search_tokens(search_tokens),
+            .with_search_tokens(search_tokens)
+            .with_discovery_only(discovery_only),
         );
     }
 
@@ -156,6 +158,18 @@ fn should_skip(name: &str) -> bool {
         return true;
     }
     false
+}
+
+/// Return `true` when the tool is a discovery-only meta-tool that
+/// must NOT be dispatched via sidecar `tools/call`.
+///
+/// Discovery-only tools (e.g. `dcc_capability_manifest`) are still
+/// searchable and describable, but `is_callable()` returns false.
+fn is_discovery_only_tool(backend_tool: &str) -> bool {
+    let lower = backend_tool.to_ascii_lowercase();
+    // dcc_capability_manifest is served by the discovery MCP
+    // endpoint, not the sidecar tools/call dispatch path.
+    lower == "dcc_capability_manifest"
 }
 
 /// Pull the `(skill_name, bare_tool)` pair out of a backend tool name.
@@ -868,5 +882,28 @@ mod unit_tests {
         assert_eq!(meta.execution.as_deref(), Some("sync"));
         assert_eq!(meta.timeout_hint_secs, Some(5));
         assert_eq!(meta.risk.as_deref(), Some("mutation"));
+    }
+
+    // ── discovery_only (PIP-2420) ─────────────────────────────────────────
+
+    #[test]
+    fn discovery_only_tool_is_marked() {
+        let iid = Uuid::from_u128(99);
+        let tools = vec![
+            tool("dcc_capability_manifest", "DCC capability manifest", json!({"type": "object"})),
+            tool("create_sphere", "make a sphere", json!({"type": "object"})),
+        ];
+        let out = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "3dsmax",
+            backend_tools: &tools,
+        });
+        let by_name: std::collections::HashMap<_, _> = out
+            .records
+            .iter()
+            .map(|r| (r.backend_tool.as_str(), r))
+            .collect();
+        assert!(by_name["dcc_capability_manifest"].discovery_only);
+        assert!(!by_name["create_sphere"].discovery_only);
     }
 }

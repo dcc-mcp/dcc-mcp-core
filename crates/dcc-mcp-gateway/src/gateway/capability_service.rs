@@ -244,7 +244,10 @@ pub fn search_hit_to_value_with_context(
         }
     } else if hit.record.loaded {
         value["load_state"] = json!("loaded");
-        if let Some(group_name) = hit.record.disabled_by_group() {
+        if hit.record.discovery_only {
+            value["discovery_only"] = json!(true);
+            value["next_step"] = describe_next_step(&hit.record.tool_slug, context);
+        } else if let Some(group_name) = hit.record.disabled_by_group() {
             // Tool is loaded but its progressive group is inactive.
             value["disabled_by_group"] = json!(group_name);
             // Provide an activate_tool_group next_step (MCP only —
@@ -527,13 +530,14 @@ pub async fn call_service(
     drop(reg);
 
     let call_result = if entry_uses_sidecar_dispatch(&entry) {
-        let mut params = json!({
+        // _meta is intentionally NOT forwarded into sidecar params.
+        // The sidecar tools/call contract expects only {name, arguments};
+        // injecting _meta at the params level leaks gateway-internal
+        // metadata into adapter tool kwargs (PIP-2420).
+        let params = json!({
             "name": &record.callable_id,
             "arguments": arguments,
         });
-        if let Some(meta) = meta_with_agent_context(meta, agent_context) {
-            params["_meta"] = meta;
-        }
         call_backend_with_observability(
             &gs.http_client,
             &url,

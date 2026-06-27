@@ -289,6 +289,13 @@ pub struct CapabilityRecord {
     /// is always callable when `loaded=true`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_group: Option<String>,
+    /// True when this tool is a discovery-only meta-tool that must
+    /// NOT be dispatched via sidecar `tools/call` (e.g.
+    /// `dcc_capability_manifest`). Discovery-only tools are still
+    /// searchable and describable, but `is_callable()` returns false
+    /// regardless of load state.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discovery_only: bool,
 }
 
 impl CapabilityRecord {
@@ -333,6 +340,7 @@ impl CapabilityRecord {
             metadata: None,
             available_groups: Vec::new(),
             tool_group,
+            discovery_only: false,
         }
     }
 
@@ -365,6 +373,14 @@ impl CapabilityRecord {
     #[must_use]
     pub fn with_search_tokens(mut self, tokens: Vec<String>) -> Self {
         self.search_tokens = normalise_search_tokens(tokens);
+        self
+    }
+
+    /// Mark this record as a discovery-only meta-tool that must not be
+    /// dispatched via sidecar `tools/call`.
+    #[must_use]
+    pub fn with_discovery_only(mut self, discovery_only: bool) -> Self {
+        self.discovery_only = discovery_only;
         self
     }
 
@@ -405,6 +421,7 @@ impl CapabilityRecord {
             metadata: None,
             available_groups: Vec::new(),
             tool_group,
+            discovery_only: false,
         }
     }
 
@@ -415,6 +432,9 @@ impl CapabilityRecord {
     /// - the tool either has no group, or its group is active.
     #[must_use]
     pub fn is_callable(&self) -> bool {
+        if self.discovery_only {
+            return false;
+        }
         if !self.loaded {
             return false;
         }
@@ -715,5 +735,67 @@ mod unit_tests {
         );
         let s = serde_json::to_string(&bare).unwrap();
         assert!(!s.contains("\"tags\""), "bare record JSON: {s}");
+    }
+
+    // ── discovery_only (PIP-2420) ─────────────────────────────────────────
+
+    #[test]
+    fn discovery_only_tool_is_not_callable() {
+        let mut rec = CapabilityRecord::new(
+            "maya.abcdef01.dcc_capability_manifest".into(),
+            "dcc_capability_manifest".into(),
+            "dcc_capability_manifest".into(),
+            None,
+            "Discovery manifest",
+            Vec::new(),
+            "maya".into(),
+            Uuid::nil(),
+            true,
+            true,
+            None,
+        );
+        rec.discovery_only = true;
+        assert!(!rec.is_callable());
+    }
+
+    #[test]
+    fn discovery_only_false_serializes_as_default() {
+        let rec = CapabilityRecord::new(
+            "x.abcdef01.a".into(),
+            "a".into(),
+            "a".into(),
+            None,
+            "",
+            Vec::new(),
+            "x".into(),
+            Uuid::nil(),
+            false,
+            false,
+            None,
+        );
+        let s = serde_json::to_string(&rec).unwrap();
+        assert!(!s.contains("discovery_only"), "default false should not serialize");
+    }
+
+    #[test]
+    fn discovery_only_true_is_serialized() {
+        let mut rec = CapabilityRecord::new(
+            "x.abcdef01.a".into(),
+            "a".into(),
+            "a".into(),
+            None,
+            "",
+            Vec::new(),
+            "x".into(),
+            Uuid::nil(),
+            false,
+            false,
+            None,
+        );
+        rec.discovery_only = true;
+        let s = serde_json::to_string(&rec).unwrap();
+        assert!(s.contains("discovery_only"), "true must serialize: {s}");
+        let back: CapabilityRecord = serde_json::from_str(&s).unwrap();
+        assert!(back.discovery_only);
     }
 }

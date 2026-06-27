@@ -799,16 +799,22 @@ pub fn entry_to_json(
         },
         "stale":           stale,
     });
-    // ── host execution readiness (issue #1331) ────────────────────────────
+    // ── host execution readiness (issue #1331, #2420) ──────────────────────
     //
     // Always include this summary so admin/agent surfaces can branch on a
     // single string without parsing the nested `diagnostics.readiness`
     // block. Status is `unknown` when no readiness probe has reported yet.
-    let host_exec = super::instance_diagnostics::HostExecutionStatus::from_diagnostics(diagnostics);
-    let missing_bits = super::instance_diagnostics::HostExecutionStatus::missing_bits(diagnostics);
+    //
+    // Sidecar-dispatch instances (e.g. 3ds Max per_dcc_sidecar) only need
+    // dispatcher + dcc; host_execution_bridge and main_thread_executor are
+    // not required for sidecar dispatch (PIP-2420).
+    let uses_sidecar = super::http_registration::entry_uses_sidecar_dispatch(e);
+    let host_exec = super::instance_diagnostics::HostExecutionStatus::from_diagnostics(diagnostics, uses_sidecar);
+    let missing_bits = super::instance_diagnostics::HostExecutionStatus::missing_bits(diagnostics, uses_sidecar);
     row["host_execution"] = json!({
         "status": host_exec.label(),
         "missing_bits": missing_bits,
+        "uses_sidecar_dispatch": uses_sidecar,
     });
     if let Some(diag) = diagnostics.filter(|d| {
         d.readiness.is_some() || d.last_error.is_some() || d.probed_at_unix_secs.is_some()
