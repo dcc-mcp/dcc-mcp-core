@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.39...v0.19.0) (2026-06-27)
+
+### Features
+
+* add ADR-010 Phase 1 jsonrpc wire types and stateless MCP service ([#1735](https://github.com/dcc-mcp/dcc-mcp-core/issues/1735)) ([a5ac3f2](https://github.com/dcc-mcp/dcc-mcp-core/commit/a5ac3f299039588e2c5b1ce81de52933fd4946c4))
+* add gateway-controlled auto-update support across updater, gateway, CLI, and server ([de524a9](https://github.com/dcc-mcp/dcc-mcp-core/commit/de524a97999591506ceb80139669d48314bfe8c4))
+* add shared gateway ensure primitives and gateway daemon restart support ([e21ab0f](https://github.com/dcc-mcp/dcc-mcp-core/commit/e21ab0f231600e339c61da57144545827d95861e), [de26e50](https://github.com/dcc-mcp/dcc-mcp-core/commit/de26e502700984a73ea4ed78432a8c687851ccb1))
+* add cargo fmt pre-push hook and CI auto-fix for unformatted Rust ([#1744](https://github.com/dcc-mcp/dcc-mcp-core/issues/1744)) ([e1e9cb6](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1e9cb620d4de7376e001d5bf54a0690f9dfeb37))
+
+### Bug Fixes
+
+* recover repository metadata to the published 0.18.39 state before the 0.19.0 release train ([#1752](https://github.com/dcc-mcp/dcc-mcp-core/issues/1752)) ([b3aaab1](https://github.com/dcc-mcp/dcc-mcp-core/commit/b3aaab1ed52b8d0f09c867d54a7f12efe694897b))
+* hide Windows tasklist/taskkill console windows in gateway ensure process checks ([#1738](https://github.com/dcc-mcp/dcc-mcp-core/issues/1738)) ([ea94543](https://github.com/dcc-mcp/dcc-mcp-core/commit/ea94543b4506a6bebcc0e5f414cc546936d5636f))
+* make cargo-deny advisory checks non-blocking while keeping bans, licenses, and sources blocking ([#1742](https://github.com/dcc-mcp/dcc-mcp-core/issues/1742)) ([045bc9d](https://github.com/dcc-mcp/dcc-mcp-core/commit/045bc9dab43da1089662a73d88bf9ff9e10ee848))
+* install maturin before `vx just build` in the full Python matrix ([#1746](https://github.com/dcc-mcp/dcc-mcp-core/issues/1746)) ([1e36d27](https://github.com/dcc-mcp/dcc-mcp-core/commit/1e36d27a0ad8ab94a4cca64ad4ddc7907de542bd))
+* upgrade pip before macOS Python 3.7 wheel smoke installs ([#1740](https://github.com/dcc-mcp/dcc-mcp-core/issues/1740)) ([d88d763](https://github.com/dcc-mcp/dcc-mcp-core/commit/d88d763ce2f70989cb37dfdf448159aa12cb14de))
+* add release-please divergence and version-consistency gates to catch stale release branches ([d708a4f](https://github.com/dcc-mcp/dcc-mcp-core/commit/d708a4f36d97e602b5e62f4a7ec8a03eb135e115))
+
 ## [0.18.39](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.38...v0.18.39) (2026-06-22)
 
 
