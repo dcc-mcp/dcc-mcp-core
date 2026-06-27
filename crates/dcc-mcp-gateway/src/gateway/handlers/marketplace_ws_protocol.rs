@@ -145,6 +145,7 @@ pub enum OperationPhase {
     Queued,
     Fetching,
     Installing,
+    Removing,
     Reloading,
 }
 
@@ -348,10 +349,17 @@ mod tests {
     }
 
     #[test]
-    fn operation_phase_serialization() {
+    fn operation_phase_serialization_installing() {
         let phase = OperationPhase::Installing;
         let json = serde_json::to_string(&phase).unwrap();
         assert_eq!(json, r#""installing""#);
+    }
+
+    #[test]
+    fn operation_phase_serialization_removing() {
+        let phase = OperationPhase::Removing;
+        let json = serde_json::to_string(&phase).unwrap();
+        assert_eq!(json, r#""removing""#);
     }
 
     #[test]
