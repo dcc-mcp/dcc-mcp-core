@@ -63,6 +63,7 @@ document without scanning every file.
 | Document | Purpose |
 |----------|---------|
 | [actions.md](actions.md) | ToolRegistry, ToolDispatcher, ToolPipeline, VersionedRegistry |
+| [asset-import-contract.md](asset-import-contract.md) | `AssetDescriptor` → `ImportToSceneResult` contract for cross-DCC asset import |
 | [custom-actions.md](custom-actions.md) | Adding custom tool types and validation strategies |
 | [events.md](events.md) | EventBus pub/sub system |
 | [naming.md](naming.md) | Client-safe tool name and action ID validation rules |
