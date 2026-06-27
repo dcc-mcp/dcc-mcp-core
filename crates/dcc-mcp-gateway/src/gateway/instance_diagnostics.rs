@@ -83,13 +83,13 @@ impl InstanceDiagnosticsStore {
     }
 }
 
-/// Host-execution readiness summary (issue #1331).
+/// Host-execution readiness summary (issue #1331, #2420).
 ///
-/// `ready` when every bit required to dispatch a host-thread action is green
-/// (`dispatcher`, `dcc`, `host_execution_bridge`, `main_thread_executor`);
-/// `not_ready` when at least one of those bits is red but readiness was
-/// probed; `unknown` when no readiness probe data has been observed yet
-/// (e.g. a pre-#660 backend that only exposes `GET /health`).
+/// `ready` when every bit required to dispatch an action is green.
+/// For sidecar-dispatch instances (e.g. 3ds Max per_dcc_sidecar),
+/// only `dispatcher` and `dcc` are required — sidecar dispatch does
+/// not need `host_execution_bridge` or `main_thread_executor`.
+/// For non-sidecar instances, all four bits must be green.
 ///
 /// Lifted to the top level of the instance JSON so admin / agent surfaces
 /// can distinguish "online but execution bridge not attached" from
@@ -113,16 +113,22 @@ impl HostExecutionStatus {
     }
 
     /// Derive the summary from a cached [`InstanceDiagnostics`] entry.
+    ///
+    /// When `uses_sidecar` is true, only `dispatcher` and `dcc` are
+    /// required — sidecar dispatch does not need host execution bridge
+    /// or main thread executor (PIP-2420).
     #[must_use]
-    pub fn from_diagnostics(diag: Option<&InstanceDiagnostics>) -> Self {
+    pub fn from_diagnostics(diag: Option<&InstanceDiagnostics>, uses_sidecar: bool) -> Self {
         let Some(report) = diag.and_then(|d| d.readiness.as_ref()) else {
             return Self::Unknown;
         };
-        if report.dispatcher
-            && report.dcc
-            && report.host_execution_bridge
-            && report.main_thread_executor
-        {
+        if !report.dispatcher || !report.dcc {
+            return Self::NotReady;
+        }
+        if uses_sidecar {
+            // Sidecar dispatch only needs dispatcher + dcc.
+            Self::Ready
+        } else if report.host_execution_bridge && report.main_thread_executor {
             Self::Ready
         } else {
             Self::NotReady
@@ -132,8 +138,15 @@ impl HostExecutionStatus {
     /// Bounded list of readiness bits that are currently red, for the
     /// admin/debug remediation hint. Empty when status is `Ready` or
     /// `Unknown`.
+    ///
+    /// When `uses_sidecar` is true, `host_execution_bridge` and
+    /// `main_thread_executor` are intentionally excluded from the
+    /// missing-bits list because sidecar dispatch does not require them.
     #[must_use]
-    pub fn missing_bits(diag: Option<&InstanceDiagnostics>) -> Vec<&'static str> {
+    pub fn missing_bits(
+        diag: Option<&InstanceDiagnostics>,
+        uses_sidecar: bool,
+    ) -> Vec<&'static str> {
         let Some(report) = diag.and_then(|d| d.readiness.as_ref()) else {
             return Vec::new();
         };
@@ -144,11 +157,13 @@ impl HostExecutionStatus {
         if !report.dcc {
             out.push("dcc");
         }
-        if !report.host_execution_bridge {
-            out.push("host_execution_bridge");
-        }
-        if !report.main_thread_executor {
-            out.push("main_thread_executor");
+        if !uses_sidecar {
+            if !report.host_execution_bridge {
+                out.push("host_execution_bridge");
+            }
+            if !report.main_thread_executor {
+                out.push("main_thread_executor");
+            }
         }
         out
     }
@@ -249,11 +264,11 @@ mod tests {
     #[test]
     fn host_execution_status_unknown_without_probe() {
         assert_eq!(
-            HostExecutionStatus::from_diagnostics(None),
+            HostExecutionStatus::from_diagnostics(None, false),
             HostExecutionStatus::Unknown
         );
         assert_eq!(HostExecutionStatus::Unknown.label(), "unknown");
-        assert!(HostExecutionStatus::missing_bits(None).is_empty());
+        assert!(HostExecutionStatus::missing_bits(None, false).is_empty());
     }
 
     #[test]
@@ -267,11 +282,11 @@ mod tests {
             main_thread_executor: true,
         });
         assert_eq!(
-            HostExecutionStatus::from_diagnostics(Some(&diag)),
+            HostExecutionStatus::from_diagnostics(Some(&diag), false),
             HostExecutionStatus::Ready
         );
         assert_eq!(HostExecutionStatus::Ready.label(), "ready");
-        assert!(HostExecutionStatus::missing_bits(Some(&diag)).is_empty());
+        assert!(HostExecutionStatus::missing_bits(Some(&diag), false).is_empty());
     }
 
     #[test]
@@ -285,11 +300,11 @@ mod tests {
             main_thread_executor: true,
         });
         assert_eq!(
-            HostExecutionStatus::from_diagnostics(Some(&diag)),
+            HostExecutionStatus::from_diagnostics(Some(&diag), false),
             HostExecutionStatus::NotReady
         );
         assert_eq!(HostExecutionStatus::NotReady.label(), "not_ready");
-        let missing = HostExecutionStatus::missing_bits(Some(&diag));
+        let missing = HostExecutionStatus::missing_bits(Some(&diag), false);
         assert_eq!(missing, vec!["dcc", "host_execution_bridge"]);
     }
 
@@ -305,8 +320,46 @@ mod tests {
             main_thread_executor: true,
         });
         assert_eq!(
-            HostExecutionStatus::from_diagnostics(Some(&diag)),
+            HostExecutionStatus::from_diagnostics(Some(&diag), false),
             HostExecutionStatus::Ready
         );
+    }
+
+    #[test]
+    fn sidecar_ready_without_host_execution_bits() {
+        // Sidecar-dispatch instances don't need host_execution_bridge
+        // or main_thread_executor (PIP-2420).
+        let diag = diag_with(ReadinessReport {
+            process: true,
+            dcc: true,
+            skill_catalog: true,
+            dispatcher: true,
+            host_execution_bridge: false,
+            main_thread_executor: false,
+        });
+        assert_eq!(
+            HostExecutionStatus::from_diagnostics(Some(&diag), true),
+            HostExecutionStatus::Ready
+        );
+        let missing = HostExecutionStatus::missing_bits(Some(&diag), true);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn sidecar_not_ready_when_dispatcher_missing() {
+        let diag = diag_with(ReadinessReport {
+            process: true,
+            dcc: true,
+            skill_catalog: true,
+            dispatcher: false,
+            host_execution_bridge: true,
+            main_thread_executor: true,
+        });
+        assert_eq!(
+            HostExecutionStatus::from_diagnostics(Some(&diag), true),
+            HostExecutionStatus::NotReady
+        );
+        let missing = HostExecutionStatus::missing_bits(Some(&diag), true);
+        assert_eq!(missing, vec!["dispatcher"]);
     }
 }
