@@ -35,7 +35,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -81,9 +81,8 @@ impl MarketplaceWsState {
         let root = dcc_mcp_marketplace::marketplace_root_or_default();
         let config_path = dcc_mcp_marketplace::default_config_path()
             .unwrap_or_else(|_| root.join("sources.json"));
-        let marketplace_service = Arc::new(
-            MarketplaceService::new(root).with_config_path(config_path),
-        );
+        let marketplace_service =
+            Arc::new(MarketplaceService::new(root).with_config_path(config_path));
 
         let state = Self {
             admin,
@@ -115,12 +114,9 @@ impl MarketplaceWsState {
     }
 
     async fn register_connection(&self) -> usize {
-        self.connections
-            .write()
-            .await
-            .insert(ConnectionState {
-                topics: HashSet::new(),
-            })
+        self.connections.write().await.insert(ConnectionState {
+            topics: HashSet::new(),
+        })
     }
 
     async fn set_topics(&self, key: usize, topics: HashSet<String>) {
@@ -149,11 +145,7 @@ pub async fn handle_marketplace_ws(
     let protocol_ok = headers
         .get(header::SEC_WEBSOCKET_PROTOCOL)
         .and_then(|v| v.to_str().ok())
-        .map(|v| {
-            v.split(',')
-                .map(|s| s.trim())
-                .any(|p| p == SUBPROTOCOL)
-        })
+        .map(|v| v.split(',').map(|s| s.trim()).any(|p| p == SUBPROTOCOL))
         .unwrap_or(false);
 
     if !protocol_ok {
@@ -288,24 +280,16 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
     let is_notification = request.id.is_none();
 
     match request.method.as_str() {
-        methods::HELLO => {
-            Some(handle_hello(request.id).await)
-        }
-        methods::CATALOG_LIST => {
-            Some(handle_catalog_list(state, request.id).await)
-        }
-        methods::INSTALLED_LIST => {
-            Some(handle_installed_list(state, request.id).await)
-        }
+        methods::HELLO => Some(handle_hello(request.id).await),
+        methods::CATALOG_LIST => Some(handle_catalog_list(state, request.id).await),
+        methods::INSTALLED_LIST => Some(handle_installed_list(state, request.id).await),
         methods::INSTALL => {
             Some(handle_install(state, request.id.clone(), request.params.clone()).await)
         }
         methods::UNINSTALL => {
             Some(handle_uninstall(state, request.id.clone(), request.params.clone()).await)
         }
-        methods::SOURCES_LIST => {
-            Some(handle_sources_list(state, request.id).await)
-        }
+        methods::SOURCES_LIST => Some(handle_sources_list(state, request.id).await),
         methods::SOURCES_ADD => {
             Some(handle_sources_add(state, request.id.clone(), request.params.clone()).await)
         }
@@ -319,11 +303,13 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
             if is_notification {
                 None
             } else {
-                Some(serde_json::to_string(&JsonRpcSuccess::new(
-                    request.id,
-                    Value::String("pong".into()),
-                ))
-                .unwrap_or_default())
+                Some(
+                    serde_json::to_string(&JsonRpcSuccess::new(
+                        request.id,
+                        Value::String("pong".into()),
+                    ))
+                    .unwrap_or_default(),
+                )
             }
         }
         _ => {
@@ -425,14 +411,14 @@ async fn handle_install(
         Ok(Some(p)) => p,
         Ok(None) => {
             return serde_json::to_string(&JsonRpcError::invalid_params(id, "params required"))
-                .unwrap_or_default()
+                .unwrap_or_default();
         }
         Err(e) => {
             return serde_json::to_string(&JsonRpcError::invalid_params(
                 id,
                 &format!("invalid install params: {e}"),
             ))
-            .unwrap_or_default()
+            .unwrap_or_default();
         }
     };
 
@@ -440,33 +426,37 @@ async fn handle_install(
     let request_id = id.clone();
 
     // Emit operation.progress: queued
-    let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-        events::OPERATION_PROGRESS,
-        serde_json::json!({
-            "operation_id": operation_id,
-            "request_id": request_id,
-            "phase": OperationPhase::Queued,
-            "name": install_params.name,
-            "dcc": install_params.dcc,
-        }),
-    ))
-    .unwrap_or_default());
+    let _ = state.events_tx.send(
+        serde_json::to_string(&JsonRpcNotification::new(
+            events::OPERATION_PROGRESS,
+            serde_json::json!({
+                "operation_id": operation_id,
+                "request_id": request_id,
+                "phase": OperationPhase::Queued,
+                "name": install_params.name,
+                "dcc": install_params.dcc,
+            }),
+        ))
+        .unwrap_or_default(),
+    );
 
     let service = &state.marketplace_service;
     let sources: Vec<String> = install_params.source.into_iter().collect();
 
     // Emit operation.progress: fetching
-    let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-        events::OPERATION_PROGRESS,
-        serde_json::json!({
-            "operation_id": operation_id,
-            "request_id": request_id,
-            "phase": OperationPhase::Fetching,
-            "name": install_params.name,
-            "dcc": install_params.dcc,
-        }),
-    ))
-    .unwrap_or_default());
+    let _ = state.events_tx.send(
+        serde_json::to_string(&JsonRpcNotification::new(
+            events::OPERATION_PROGRESS,
+            serde_json::json!({
+                "operation_id": operation_id,
+                "request_id": request_id,
+                "phase": OperationPhase::Fetching,
+                "name": install_params.name,
+                "dcc": install_params.dcc,
+            }),
+        ))
+        .unwrap_or_default(),
+    );
 
     match service
         .install(
@@ -480,31 +470,35 @@ async fn handle_install(
     {
         Ok(result) => {
             // Emit operation.progress: installing
-            let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                events::OPERATION_PROGRESS,
-                serde_json::json!({
-                    "operation_id": operation_id,
-                    "request_id": request_id,
-                    "phase": OperationPhase::Installing,
-                    "name": install_params.name,
-                    "dcc": install_params.dcc,
-                }),
-            ))
-            .unwrap_or_default());
-
-            if result.reload_required {
-                // Emit operation.progress: reloading
-                let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
+            let _ = state.events_tx.send(
+                serde_json::to_string(&JsonRpcNotification::new(
                     events::OPERATION_PROGRESS,
                     serde_json::json!({
                         "operation_id": operation_id,
                         "request_id": request_id,
-                        "phase": OperationPhase::Reloading,
+                        "phase": OperationPhase::Installing,
                         "name": install_params.name,
                         "dcc": install_params.dcc,
                     }),
                 ))
-                .unwrap_or_default());
+                .unwrap_or_default(),
+            );
+
+            if result.reload_required {
+                // Emit operation.progress: reloading
+                let _ = state.events_tx.send(
+                    serde_json::to_string(&JsonRpcNotification::new(
+                        events::OPERATION_PROGRESS,
+                        serde_json::json!({
+                            "operation_id": operation_id,
+                            "request_id": request_id,
+                            "phase": OperationPhase::Reloading,
+                            "name": install_params.name,
+                            "dcc": install_params.dcc,
+                        }),
+                    ))
+                    .unwrap_or_default(),
+                );
 
                 reload_skill_paths_and_refresh_backends(
                     &state.admin,
@@ -513,24 +507,28 @@ async fn handle_install(
                 .await;
 
                 // Emit skills.reloaded
-                let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                    events::SKILLS_RELOADED,
-                    serde_json::json!({ "reason": "install" }),
-                ))
-                .unwrap_or_default());
+                let _ = state.events_tx.send(
+                    serde_json::to_string(&JsonRpcNotification::new(
+                        events::SKILLS_RELOADED,
+                        serde_json::json!({ "reason": "install" }),
+                    ))
+                    .unwrap_or_default(),
+                );
             }
 
             // Emit operation.completed
-            let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                events::OPERATION_COMPLETED,
-                serde_json::json!({
-                    "operation_id": operation_id,
-                    "request_id": request_id,
-                    "name": install_params.name,
-                    "dcc": install_params.dcc,
-                }),
-            ))
-            .unwrap_or_default());
+            let _ = state.events_tx.send(
+                serde_json::to_string(&JsonRpcNotification::new(
+                    events::OPERATION_COMPLETED,
+                    serde_json::json!({
+                        "operation_id": operation_id,
+                        "request_id": request_id,
+                        "name": install_params.name,
+                        "dcc": install_params.dcc,
+                    }),
+                ))
+                .unwrap_or_default(),
+            );
 
             // Emit installed.changed
             let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
@@ -552,17 +550,19 @@ async fn handle_install(
         }
         Err(err) => {
             // Emit operation.failed
-            let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                events::OPERATION_FAILED,
-                serde_json::json!({
-                    "operation_id": operation_id,
-                    "request_id": request_id,
-                    "name": install_params.name,
-                    "dcc": install_params.dcc,
-                    "error": err.to_string(),
-                }),
-            ))
-            .unwrap_or_default());
+            let _ = state.events_tx.send(
+                serde_json::to_string(&JsonRpcNotification::new(
+                    events::OPERATION_FAILED,
+                    serde_json::json!({
+                        "operation_id": operation_id,
+                        "request_id": request_id,
+                        "name": install_params.name,
+                        "dcc": install_params.dcc,
+                        "error": err.to_string(),
+                    }),
+                ))
+                .unwrap_or_default(),
+            );
 
             let (code, msg) = marketplace_error_to_rpc(&err);
             serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
@@ -582,14 +582,14 @@ async fn handle_uninstall(
         Ok(Some(p)) => p,
         Ok(None) => {
             return serde_json::to_string(&JsonRpcError::invalid_params(id, "params required"))
-                .unwrap_or_default()
+                .unwrap_or_default();
         }
         Err(e) => {
             return serde_json::to_string(&JsonRpcError::invalid_params(
                 id,
                 &format!("invalid uninstall params: {e}"),
             ))
-            .unwrap_or_default()
+            .unwrap_or_default();
         }
     };
 
@@ -597,47 +597,53 @@ async fn handle_uninstall(
     let request_id = id.clone();
 
     // Emit operation.progress: queued
-    let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-        events::OPERATION_PROGRESS,
-        serde_json::json!({
-            "operation_id": operation_id,
-            "request_id": request_id,
-            "phase": OperationPhase::Queued,
-            "name": uninstall_params.name,
-            "dcc": uninstall_params.dcc,
-        }),
-    ))
-    .unwrap_or_default());
+    let _ = state.events_tx.send(
+        serde_json::to_string(&JsonRpcNotification::new(
+            events::OPERATION_PROGRESS,
+            serde_json::json!({
+                "operation_id": operation_id,
+                "request_id": request_id,
+                "phase": OperationPhase::Queued,
+                "name": uninstall_params.name,
+                "dcc": uninstall_params.dcc,
+            }),
+        ))
+        .unwrap_or_default(),
+    );
 
     let service = &state.marketplace_service;
     match service.uninstall(&uninstall_params.name, &uninstall_params.dcc) {
         Ok(result) => {
             // Emit operation.progress: removing
-            let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                events::OPERATION_PROGRESS,
-                serde_json::json!({
-                    "operation_id": operation_id,
-                    "request_id": request_id,
-                    "phase": OperationPhase::Removing,
-                    "name": uninstall_params.name,
-                    "dcc": uninstall_params.dcc,
-                }),
-            ))
-            .unwrap_or_default());
-
-            if result.reload_required {
-                // Emit operation.progress: reloading
-                let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
+            let _ = state.events_tx.send(
+                serde_json::to_string(&JsonRpcNotification::new(
                     events::OPERATION_PROGRESS,
                     serde_json::json!({
                         "operation_id": operation_id,
                         "request_id": request_id,
-                        "phase": OperationPhase::Reloading,
+                        "phase": OperationPhase::Removing,
                         "name": uninstall_params.name,
                         "dcc": uninstall_params.dcc,
                     }),
                 ))
-                .unwrap_or_default());
+                .unwrap_or_default(),
+            );
+
+            if result.reload_required {
+                // Emit operation.progress: reloading
+                let _ = state.events_tx.send(
+                    serde_json::to_string(&JsonRpcNotification::new(
+                        events::OPERATION_PROGRESS,
+                        serde_json::json!({
+                            "operation_id": operation_id,
+                            "request_id": request_id,
+                            "phase": OperationPhase::Reloading,
+                            "name": uninstall_params.name,
+                            "dcc": uninstall_params.dcc,
+                        }),
+                    ))
+                    .unwrap_or_default(),
+                );
 
                 reload_skill_paths_and_refresh_backends(
                     &state.admin,
@@ -645,24 +651,28 @@ async fn handle_uninstall(
                 )
                 .await;
 
-                let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                    events::SKILLS_RELOADED,
-                    serde_json::json!({ "reason": "uninstall" }),
-                ))
-                .unwrap_or_default());
+                let _ = state.events_tx.send(
+                    serde_json::to_string(&JsonRpcNotification::new(
+                        events::SKILLS_RELOADED,
+                        serde_json::json!({ "reason": "uninstall" }),
+                    ))
+                    .unwrap_or_default(),
+                );
             }
 
             // Emit operation.completed
-            let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                events::OPERATION_COMPLETED,
-                serde_json::json!({
-                    "operation_id": operation_id,
-                    "request_id": request_id,
-                    "name": uninstall_params.name,
-                    "dcc": uninstall_params.dcc,
-                }),
-            ))
-            .unwrap_or_default());
+            let _ = state.events_tx.send(
+                serde_json::to_string(&JsonRpcNotification::new(
+                    events::OPERATION_COMPLETED,
+                    serde_json::json!({
+                        "operation_id": operation_id,
+                        "request_id": request_id,
+                        "name": uninstall_params.name,
+                        "dcc": uninstall_params.dcc,
+                    }),
+                ))
+                .unwrap_or_default(),
+            );
 
             // Emit installed.changed
             let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
@@ -682,17 +692,19 @@ async fn handle_uninstall(
             serde_json::to_string(&JsonRpcSuccess::new(id, response)).unwrap_or_default()
         }
         Err(err) => {
-            let _ = state.events_tx.send(serde_json::to_string(&JsonRpcNotification::new(
-                events::OPERATION_FAILED,
-                serde_json::json!({
-                    "operation_id": operation_id,
-                    "request_id": request_id,
-                    "name": uninstall_params.name,
-                    "dcc": uninstall_params.dcc,
-                    "error": err.to_string(),
-                }),
-            ))
-            .unwrap_or_default());
+            let _ = state.events_tx.send(
+                serde_json::to_string(&JsonRpcNotification::new(
+                    events::OPERATION_FAILED,
+                    serde_json::json!({
+                        "operation_id": operation_id,
+                        "request_id": request_id,
+                        "name": uninstall_params.name,
+                        "dcc": uninstall_params.dcc,
+                        "error": err.to_string(),
+                    }),
+                ))
+                .unwrap_or_default(),
+            );
 
             let (code, msg) = marketplace_error_to_rpc(&err);
             serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
@@ -739,14 +751,14 @@ async fn handle_sources_add(
         Ok(Some(p)) => p,
         Ok(None) => {
             return serde_json::to_string(&JsonRpcError::invalid_params(id, "params required"))
-                .unwrap_or_default()
+                .unwrap_or_default();
         }
         Err(e) => {
             return serde_json::to_string(&JsonRpcError::invalid_params(
                 id,
                 &format!("invalid params: {e}"),
             ))
-            .unwrap_or_default()
+            .unwrap_or_default();
         }
     };
 
@@ -804,10 +816,7 @@ async fn handle_subscribe(
     {
         Ok(Some(p)) => p,
         _ => {
-            let err = JsonRpcError::invalid_params(
-                id.clone(),
-                "topics array required",
-            );
+            let err = JsonRpcError::invalid_params(id.clone(), "topics array required");
             return Some(serde_json::to_string(&err).unwrap_or_default());
         }
     };
@@ -822,11 +831,10 @@ async fn handle_subscribe(
         // Notification — no response.
         None
     } else {
-        Some(serde_json::to_string(&JsonRpcSuccess::new(
-            id,
-            Value::String("subscribed".into()),
-        ))
-        .unwrap_or_default())
+        Some(
+            serde_json::to_string(&JsonRpcSuccess::new(id, Value::String("subscribed".into())))
+                .unwrap_or_default(),
+        )
     }
 }
 
@@ -933,10 +941,7 @@ mod tests {
         tx_a.send("response-for-a".into()).await.unwrap();
 
         // Connection B should not receive it
-        assert_eq!(
-            rx_a.recv().await,
-            Some("response-for-a".into())
-        );
+        assert_eq!(rx_a.recv().await, Some("response-for-a".into()));
         // B's channel should be empty — timeout quickly
         let result = tokio::time::timeout(Duration::from_millis(50), rx_b.recv()).await;
         assert!(result.is_err() || result.unwrap().is_none());
@@ -965,9 +970,18 @@ mod tests {
             Some(serde_json::json!({ "reason": "not_implemented" })),
         ))
         .unwrap();
-        assert!(json.contains("\"code\":-32603"), "expected INTERNAL_ERROR (-32603), got: {json}");
-        assert!(!json.contains("\"code\":-32601"), "should not use METHOD_NOT_FOUND (-32601)");
-        assert!(json.contains("not_implemented"), "expected data.reason=not_implemented");
+        assert!(
+            json.contains("\"code\":-32603"),
+            "expected INTERNAL_ERROR (-32603), got: {json}"
+        );
+        assert!(
+            !json.contains("\"code\":-32601"),
+            "should not use METHOD_NOT_FOUND (-32601)"
+        );
+        assert!(
+            json.contains("not_implemented"),
+            "expected data.reason=not_implemented"
+        );
     }
 
     /// Verify subscribe with invalid params returns error through return value
@@ -975,10 +989,8 @@ mod tests {
     #[test]
     fn test_subscribe_invalid_params_returns_error_directly() {
         // Simulate what handle_subscribe would return for invalid params
-        let err = JsonRpcError::invalid_params(
-            Some(Value::Number(1.into())),
-            "topics array required",
-        );
+        let err =
+            JsonRpcError::invalid_params(Some(Value::Number(1.into())), "topics array required");
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("\"code\":-32602"));
         assert!(json.contains("topics array required"));
@@ -998,7 +1010,10 @@ mod tests {
             }),
         );
         let json = serde_json::to_string(&notif).unwrap();
-        assert!(json.contains("\"request_id\":1"), "operation.* events must include request_id");
+        assert!(
+            json.contains("\"request_id\":1"),
+            "operation.* events must include request_id"
+        );
         assert!(json.contains("\"operation_id\":\"op-123\""));
     }
 
