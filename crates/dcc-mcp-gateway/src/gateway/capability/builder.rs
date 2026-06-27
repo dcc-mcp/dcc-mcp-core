@@ -890,7 +890,11 @@ mod unit_tests {
     fn discovery_only_tool_is_marked() {
         let iid = Uuid::from_u128(99);
         let tools = vec![
-            tool("dcc_capability_manifest", "DCC capability manifest", json!({"type": "object"})),
+            tool(
+                "dcc_capability_manifest",
+                "DCC capability manifest",
+                json!({"type": "object"}),
+            ),
             tool("create_sphere", "make a sphere", json!({"type": "object"})),
         ];
         let out = build_records_from_backend(BuildInput {

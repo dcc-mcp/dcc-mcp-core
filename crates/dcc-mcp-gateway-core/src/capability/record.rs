@@ -774,7 +774,10 @@ mod unit_tests {
             None,
         );
         let s = serde_json::to_string(&rec).unwrap();
-        assert!(!s.contains("discovery_only"), "default false should not serialize");
+        assert!(
+            !s.contains("discovery_only"),
+            "default false should not serialize"
+        );
     }
 
     #[test]

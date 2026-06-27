@@ -1524,7 +1524,10 @@ mod unit_tests {
             match_reasons: vec![],
         };
         let row = search_hit_to_value(hit);
-        assert_eq!(row["callable"], false, "discovery_only must not be callable");
+        assert_eq!(
+            row["callable"], false,
+            "discovery_only must not be callable"
+        );
         assert_eq!(row["load_state"], "loaded");
         assert_eq!(row["discovery_only"], true);
         assert_eq!(

@@ -809,8 +809,12 @@ pub fn entry_to_json(
     // dispatcher + dcc; host_execution_bridge and main_thread_executor are
     // not required for sidecar dispatch (PIP-2420).
     let uses_sidecar = super::http_registration::entry_uses_sidecar_dispatch(e);
-    let host_exec = super::instance_diagnostics::HostExecutionStatus::from_diagnostics(diagnostics, uses_sidecar);
-    let missing_bits = super::instance_diagnostics::HostExecutionStatus::missing_bits(diagnostics, uses_sidecar);
+    let host_exec = super::instance_diagnostics::HostExecutionStatus::from_diagnostics(
+        diagnostics,
+        uses_sidecar,
+    );
+    let missing_bits =
+        super::instance_diagnostics::HostExecutionStatus::missing_bits(diagnostics, uses_sidecar);
     row["host_execution"] = json!({
         "status": host_exec.label(),
         "missing_bits": missing_bits,

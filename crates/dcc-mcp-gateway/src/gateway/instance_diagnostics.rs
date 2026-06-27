@@ -143,7 +143,10 @@ impl HostExecutionStatus {
     /// `main_thread_executor` are intentionally excluded from the
     /// missing-bits list because sidecar dispatch does not require them.
     #[must_use]
-    pub fn missing_bits(diag: Option<&InstanceDiagnostics>, uses_sidecar: bool) -> Vec<&'static str> {
+    pub fn missing_bits(
+        diag: Option<&InstanceDiagnostics>,
+        uses_sidecar: bool,
+    ) -> Vec<&'static str> {
         let Some(report) = diag.and_then(|d| d.readiness.as_ref()) else {
             return Vec::new();
         };
