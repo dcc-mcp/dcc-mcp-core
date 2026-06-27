@@ -39,6 +39,7 @@ mod sse_impl;
 mod update_impl;
 
 pub use lifecycle_impl::handle_v1_dcc_instance_stop;
+pub use marketplace_ws::{MarketplaceWsState, handle_marketplace_ws};
 pub use mcp_impl::handle_gateway_mcp;
 pub use proxy_impl::{handle_proxy_dcc, handle_proxy_instance};
 pub use registration_impl::{
@@ -51,7 +52,6 @@ pub use rest_impl::{
     handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz,
     handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
 };
-pub use marketplace_ws::{MarketplaceWsState, handle_marketplace_ws};
 pub use sse_impl::handle_gateway_get;
 pub(crate) use update_impl::{handle_v1_update_check, handle_v1_update_download};
 

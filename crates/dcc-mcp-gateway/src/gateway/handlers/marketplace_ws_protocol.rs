@@ -92,17 +92,13 @@ impl MarketplaceErrorCode {
 
 /// Map a `dcc_mcp_marketplace::MarketplaceError` to the appropriate JSON-RPC
 /// application error code.
-pub fn marketplace_error_to_rpc(
-    err: &dcc_mcp_marketplace::MarketplaceError,
-) -> (i32, String) {
+pub fn marketplace_error_to_rpc(err: &dcc_mcp_marketplace::MarketplaceError) -> (i32, String) {
     use dcc_mcp_marketplace::MarketplaceError;
     let code = match err {
         MarketplaceError::NotFound(_) => MarketplaceErrorCode::PackageNotFound,
         MarketplaceError::AlreadyInstalled { .. } => MarketplaceErrorCode::AlreadyInstalled,
         MarketplaceError::DccMismatch { .. } => MarketplaceErrorCode::DccMismatch,
-        MarketplaceError::UnsupportedInstallType(_) => {
-            MarketplaceErrorCode::UnsupportedInstallType
-        }
+        MarketplaceError::UnsupportedInstallType(_) => MarketplaceErrorCode::UnsupportedInstallType,
         MarketplaceError::Fetch(..) | MarketplaceError::Archive(..) => {
             MarketplaceErrorCode::SourceFetchFailed
         }
@@ -221,11 +217,21 @@ impl JsonRpcError {
     }
 
     pub fn invalid_params(id: Option<Value>, detail: &str) -> Self {
-        Self::new(id, INVALID_PARAMS, format!("Invalid params: {detail}"), None)
+        Self::new(
+            id,
+            INVALID_PARAMS,
+            format!("Invalid params: {detail}"),
+            None,
+        )
     }
 
     pub fn internal(id: Option<Value>, detail: &str) -> Self {
-        Self::new(id, INTERNAL_ERROR, format!("Internal error: {detail}"), None)
+        Self::new(
+            id,
+            INTERNAL_ERROR,
+            format!("Internal error: {detail}"),
+            None,
+        )
     }
 
     pub fn parse_error() -> Self {
@@ -320,8 +326,7 @@ mod tests {
 
     #[test]
     fn error_code_mapping_unsupported_install_type() {
-        let err =
-            dcc_mcp_marketplace::MarketplaceError::UnsupportedInstallType("zip".into());
+        let err = dcc_mcp_marketplace::MarketplaceError::UnsupportedInstallType("zip".into());
         let (code, msg) = marketplace_error_to_rpc(&err);
         assert_eq!(code, MarketplaceErrorCode::UnsupportedInstallType.code());
         assert_eq!(msg, "UNSUPPORTED_INSTALL_TYPE");
@@ -330,10 +335,8 @@ mod tests {
     #[test]
     fn error_code_mapping_fetch_failed() {
         // Archive is also mapped to SourceFetchFailed
-        let err = dcc_mcp_marketplace::MarketplaceError::Archive(
-            "fetch error".into(),
-            "test".into(),
-        );
+        let err =
+            dcc_mcp_marketplace::MarketplaceError::Archive("fetch error".into(), "test".into());
         let (code, msg) = marketplace_error_to_rpc(&err);
         assert_eq!(code, MarketplaceErrorCode::SourceFetchFailed.code());
         assert_eq!(msg, "SOURCE_FETCH_FAILED");
