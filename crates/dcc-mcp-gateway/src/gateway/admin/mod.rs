@@ -80,7 +80,7 @@ mod skill_health;
 #[cfg(feature = "admin")]
 mod skill_paths;
 #[cfg(feature = "admin")]
-mod skill_reload;
+pub mod skill_reload;
 pub mod sqlite_lane;
 pub mod state;
 pub mod stats;

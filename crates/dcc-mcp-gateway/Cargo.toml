@@ -50,6 +50,8 @@ tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 sysinfo = { workspace = true }
 http = "1.0"
 futures = "0.3"
+futures-util = { workspace = true }
+slab = "0.4"
 tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
 
 # `nucleo-matcher` backs fuzzy capability search via the `dcc-mcp-gateway-search`
