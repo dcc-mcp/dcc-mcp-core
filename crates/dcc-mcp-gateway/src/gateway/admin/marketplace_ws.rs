@@ -5,7 +5,9 @@
 
 use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
+use dcc_mcp_marketplace::MarketplaceService;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -46,18 +48,51 @@ struct WsError {
     message: String,
 }
 
+pub(crate) fn is_origin_trusted(origin_str: &str) -> bool {
+    origin_str.starts_with("http://localhost:")
+        || origin_str.starts_with("https://localhost:")
+        || origin_str.starts_with("http://127.0.0.1:")
+        || origin_str.starts_with("https://127.0.0.1:")
+        || origin_str == "http://localhost"
+        || origin_str == "https://localhost"
+        || origin_str == "http://127.0.0.1"
+        || origin_str == "https://127.0.0.1"
+        || origin_str == "null"
+}
+
 pub async fn handle_marketplace_ws(
     ws: WebSocketUpgrade,
+    headers: HeaderMap,
     State(state): State<AdminState>,
 ) -> impl IntoResponse {
+    if let Some(origin) = headers.get(axum::http::header::ORIGIN) {
+        if let Ok(origin_str) = origin.to_str() {
+            if !is_origin_trusted(origin_str) {
+                error!(
+                    "WebSocket connection rejected: Untrusted origin '{}'",
+                    origin_str
+                );
+                return StatusCode::FORBIDDEN.into_response();
+            }
+        }
+    }
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 async fn handle_socket(socket: WebSocket, state: AdminState) {
     info!("Marketplace WebSocket client connected");
+    let service = marketplace_service();
     let (mut sender, mut receiver) = socket.split();
 
-    while let Some(Ok(msg)) = receiver.next().await {
+    while let Some(msg_res) = receiver.next().await {
+        let msg = match msg_res {
+            Ok(m) => m,
+            Err(err) => {
+                error!("WebSocket receive error: {}", err);
+                break;
+            }
+        };
+
         let text = match msg {
             Message::Text(t) => t,
             Message::Close(_) => break,
@@ -72,7 +107,7 @@ async fn handle_socket(socket: WebSocket, state: AdminState) {
             }
         };
 
-        let res = match handle_action(&req.action, req.payload, &state).await {
+        let res = match handle_action(&req.action, req.payload, &service, &state).await {
             Ok(val) => WsResponse {
                 id: req.id,
                 status: "success".to_string(),
@@ -106,9 +141,9 @@ async fn handle_socket(socket: WebSocket, state: AdminState) {
 async fn handle_action(
     action: &str,
     payload: serde_json::Value,
+    service: &MarketplaceService,
     state: &AdminState,
 ) -> Result<serde_json::Value, (String, String)> {
-    let service = marketplace_service();
     match action {
         "catalog" => {
             let hits = service.catalog().await.map_err(|err| {
@@ -313,5 +348,48 @@ async fn handle_action(
             "unknown_action".to_string(),
             format!("Unknown action: {}", action),
         )),
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_is_origin_trusted() {
+        assert!(is_origin_trusted("http://localhost:9766"));
+        assert!(is_origin_trusted("http://127.0.0.1:9766"));
+        assert!(is_origin_trusted("https://localhost:5173"));
+        assert!(is_origin_trusted("http://localhost"));
+        assert!(is_origin_trusted("http://127.0.0.1"));
+        assert!(is_origin_trusted("null"));
+
+        assert!(!is_origin_trusted("http://example.com"));
+        assert!(!is_origin_trusted("https://evil.com/localhost"));
+        assert!(!is_origin_trusted("http://192.168.1.1:9766"));
+    }
+
+    #[test]
+    fn test_ws_request_deserialization() {
+        let text = r#"{"id":"1","action":"catalog","payload":{}}"#;
+        let req: WsRequest = serde_json::from_str(text).unwrap();
+        assert_eq!(req.id, "1");
+        assert_eq!(req.action, "catalog");
+    }
+
+    #[test]
+    fn test_ws_response_serialization() {
+        let res = WsResponse {
+            id: "1".to_string(),
+            status: "success".to_string(),
+            payload: Some(json!({"entries": []})),
+            error: None,
+        };
+        let text = serde_json::to_string(&res).unwrap();
+        assert!(text.contains(r#""id":"1""#));
+        assert!(text.contains(r#""status":"success""#));
     }
 }
