@@ -509,6 +509,21 @@ pub async fn call_service(
 ) -> Result<Value, ServiceError> {
     let record = describe_service(&gs.capability_index, slug)?;
     enforce_record_policy(&gs.policy, GatewayPolicyOperation::Call, &record)?;
+    // Discovery-only tools (e.g. dcc_capability_manifest) must not be
+    // dispatched via sidecar tools/call — they are served by the discovery
+    // MCP endpoint. Return a clear error so callers get actionable guidance
+    // instead of a cryptic backend failure (PIP-2420).
+    if record.discovery_only {
+        return Err(ServiceError::new(
+            "discovery-only-tool",
+            format!(
+                "tool '{}' is a discovery-only meta-tool and cannot be called directly; \
+                 use describe_tool to inspect its schema or query the discovery MCP endpoint",
+                record.callable_id,
+            ),
+        )
+        .with_instance_provenance("discovery_only", Some(record.instance_id)));
+    }
     // Resolve the backend endpoint using the live registry — the
     // capability record's `instance_id` is authoritative even if the
     // backend's port changed since indexing, because we always
@@ -1481,6 +1496,66 @@ mod unit_tests {
         assert_eq!(row["load_state"], "loaded");
         assert!(row.get("disabled_by_group").is_none());
         assert_eq!(row["next_step"]["action"], "describe");
+    }
+
+    // ── discovery_only guard (PIP-2420) ──────────────────────────────────
+
+    #[test]
+    fn discovery_only_search_hit_is_not_callable_and_has_describe_next_step() {
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let mut rec = CapabilityRecord::new(
+            "maya.abcdef0123456789abcdef0123456789.dcc_capability_manifest".into(),
+            "dcc_capability_manifest".into(),
+            "dcc_capability_manifest".into(),
+            None,
+            "DCC capability manifest",
+            Vec::new(),
+            "maya".into(),
+            iid,
+            false,
+            true, // loaded
+            None,
+        );
+        rec.discovery_only = true;
+        let hit = SearchHit {
+            record: rec,
+            rank: 1,
+            score: 10,
+            match_reasons: vec![],
+        };
+        let row = search_hit_to_value(hit);
+        assert_eq!(row["callable"], false, "discovery_only must not be callable");
+        assert_eq!(row["load_state"], "loaded");
+        assert_eq!(row["discovery_only"], true);
+        assert_eq!(
+            row["next_step"]["action"], "describe",
+            "next_step should be describe, not call"
+        );
+    }
+
+    #[test]
+    fn describe_service_exposes_discovery_only_record() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::from_u128(0xabcd_1234);
+        let mut rec = CapabilityRecord::new(
+            tool_slug("maya", &iid, "dcc_capability_manifest"),
+            "dcc_capability_manifest".into(),
+            "dcc_capability_manifest".into(),
+            None,
+            "",
+            Vec::new(),
+            "maya".into(),
+            iid,
+            false,
+            true,
+            None,
+        );
+        rec.discovery_only = true;
+        idx.upsert_instance(iid, vec![rec], InstanceFingerprint(1));
+        let slug = tool_slug("maya", &iid, "dcc_capability_manifest");
+        let found = describe_service(&idx, &slug).expect("should find record");
+        assert!(found.discovery_only);
+        assert!(!found.is_callable());
     }
 
     #[test]
