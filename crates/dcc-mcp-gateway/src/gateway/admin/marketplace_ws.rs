@@ -3,22 +3,23 @@
 //! Exposes a WebSocket endpoint under `/admin/api/marketplace/ws` to allow
 //! standalone marketplace UI to interact with the local Gateway.
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{error, info};
-use futures::{SinkExt, StreamExt};
 
-use super::state::AdminState;
 use super::marketplace::{
-    marketplace_service, resolve_icon_url, MarketplaceEntryResponse, InstalledPackageResponse,
-    InstallResultResponse, UninstallResultResponse, MarketplaceSourceResponse,
-    OutdatedPackageResponse, UpdateResultItem, InstallRequestBody, UninstallRequestBody,
-    AddSourceRequest, UpdateRequest, OutdatedQueryParams, ErrorResponse, InstallMetadataResponse,
+    AddSourceRequest, ErrorResponse, InstallMetadataResponse, InstallRequestBody,
+    InstallResultResponse, InstalledPackageResponse, MarketplaceEntryResponse,
+    MarketplaceSourceResponse, OutdatedPackageResponse, OutdatedQueryParams, UninstallRequestBody,
+    UninstallResultResponse, UpdateRequest, UpdateResultItem, marketplace_service,
+    resolve_icon_url,
 };
 use super::skill_reload::reload_skill_paths_and_refresh_backends;
+use super::state::AdminState;
 use crate::gateway::capability::RefreshReason;
 
 #[derive(Debug, Deserialize)]
@@ -164,9 +165,8 @@ async fn handle_action(
             Ok(json!({ "packages": packages }))
         }
         "install" => {
-            let body: InstallRequestBody = serde_json::from_value(payload).map_err(|err| {
-                ("bad_request".to_string(), err.to_string())
-            })?;
+            let body: InstallRequestBody = serde_json::from_value(payload)
+                .map_err(|err| ("bad_request".to_string(), err.to_string()))?;
             let sources: Vec<String> = body.source.into_iter().collect();
             let result = service
                 .install(
@@ -182,7 +182,8 @@ async fn handle_action(
                     (err_res.kind, err_res.message)
                 })?;
             if result.reload_required {
-                reload_skill_paths_and_refresh_backends(state, RefreshReason::ToolsListChanged).await;
+                reload_skill_paths_and_refresh_backends(state, RefreshReason::ToolsListChanged)
+                    .await;
             }
             Ok(json!(InstallResultResponse {
                 installed: result.installed,
@@ -196,15 +197,15 @@ async fn handle_action(
             }))
         }
         "uninstall" => {
-            let body: UninstallRequestBody = serde_json::from_value(payload).map_err(|err| {
-                ("bad_request".to_string(), err.to_string())
-            })?;
+            let body: UninstallRequestBody = serde_json::from_value(payload)
+                .map_err(|err| ("bad_request".to_string(), err.to_string()))?;
             let result = service.uninstall(&body.name, &body.dcc).map_err(|err| {
                 let err_res = ErrorResponse::from_error(&err);
                 (err_res.kind, err_res.message)
             })?;
             if result.reload_required {
-                reload_skill_paths_and_refresh_backends(state, RefreshReason::ToolsListChanged).await;
+                reload_skill_paths_and_refresh_backends(state, RefreshReason::ToolsListChanged)
+                    .await;
             }
             Ok(json!(UninstallResultResponse {
                 uninstalled: result.uninstalled,
@@ -232,9 +233,8 @@ async fn handle_action(
             Ok(json!({ "sources": items }))
         }
         "add_source" => {
-            let body: AddSourceRequest = serde_json::from_value(payload).map_err(|err| {
-                ("bad_request".to_string(), err.to_string())
-            })?;
+            let body: AddSourceRequest = serde_json::from_value(payload)
+                .map_err(|err| ("bad_request".to_string(), err.to_string()))?;
             let sources = service.add_source(&body.source).map_err(|err| {
                 let err_res = ErrorResponse::from_error(&err);
                 (err_res.kind, err_res.message)
@@ -250,9 +250,8 @@ async fn handle_action(
             Ok(json!({ "sources": items }))
         }
         "outdated" => {
-            let params: OutdatedQueryParams = serde_json::from_value(payload).map_err(|err| {
-                ("bad_request".to_string(), err.to_string())
-            })?;
+            let params: OutdatedQueryParams = serde_json::from_value(payload)
+                .map_err(|err| ("bad_request".to_string(), err.to_string()))?;
             let list = service
                 .outdated(params.dcc.as_deref(), params.name.into_iter().collect())
                 .await
@@ -279,16 +278,19 @@ async fn handle_action(
             Ok(json!({ "dcc": list.dcc, "count": list.count, "packages": packages }))
         }
         "update" => {
-            let body: UpdateRequest = serde_json::from_value(payload).map_err(|err| {
-                ("bad_request".to_string(), err.to_string())
-            })?;
-            let results = service.update(body.name, body.all, body.dcc).await.map_err(|err| {
-                let err_res = ErrorResponse::from_error(&err);
-                (err_res.kind, err_res.message)
-            })?;
+            let body: UpdateRequest = serde_json::from_value(payload)
+                .map_err(|err| ("bad_request".to_string(), err.to_string()))?;
+            let results = service
+                .update(body.name, body.all, body.dcc)
+                .await
+                .map_err(|err| {
+                    let err_res = ErrorResponse::from_error(&err);
+                    (err_res.kind, err_res.message)
+                })?;
             let any_reload = results.iter().any(|r| r.reload_required);
             if any_reload {
-                reload_skill_paths_and_refresh_backends(state, RefreshReason::ToolsListChanged).await;
+                reload_skill_paths_and_refresh_backends(state, RefreshReason::ToolsListChanged)
+                    .await;
             }
             let items: Vec<UpdateResultItem> = results
                 .into_iter()
@@ -307,6 +309,9 @@ async fn handle_action(
                 .collect();
             Ok(json!({ "updated": items.len(), "results": items }))
         }
-        _ => Err(("unknown_action".to_string(), format!("Unknown action: {}", action))),
+        _ => Err((
+            "unknown_action".to_string(),
+            format!("Unknown action: {}", action),
+        )),
     }
 }

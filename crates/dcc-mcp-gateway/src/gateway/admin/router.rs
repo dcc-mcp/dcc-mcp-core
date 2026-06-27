@@ -171,10 +171,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/marketplace/update",
             routing::post(handle_marketplace_update),
         )
-        .route(
-            "/api/marketplace/ws",
-            routing::get(handle_marketplace_ws),
-        )
+        .route("/api/marketplace/ws", routing::get(handle_marketplace_ws))
         .with_state(state)
 }
 
