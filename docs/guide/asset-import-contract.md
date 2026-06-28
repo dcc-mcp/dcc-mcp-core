@@ -135,7 +135,9 @@ at the top of `import_to_scene`.
 
 ### String constant enums
 
-**`AssetFormat`** — well-known interchange format identifiers:
+### AssetFormat string constants
+
+Well-known interchange format identifiers:
 
 | Constant | Value |
 |----------|-------|
@@ -149,7 +151,7 @@ at the top of `import_to_scene`.
 | `AssetFormat.BLEND` | `"blend"` |
 | `AssetFormat.UNKNOWN` | `"unknown"` |
 
-**`UnitHint`**:
+### UnitHint values
 
 | Constant | Value |
 |----------|-------|
@@ -158,7 +160,7 @@ at the top of `import_to_scene`.
 | `UnitHint.INCH` | `"inch"` |
 | `UnitHint.UNITLESS` | `"unitless"` |
 
-**`AxisHint`**:
+### AxisHint values
 
 | Constant | Value |
 |----------|-------|
@@ -195,7 +197,7 @@ into the host DCC scene, and returns an `ImportToSceneResult`.
 | `error_message` | `Optional[str]` | No | Human-readable error when `success` is `False`. |
 | `extra` | `Dict[str, Any]` | No | Free-form DCC-specific enrichments. |
 
-#### `MaterialMode`
+#### MaterialMode values
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -255,20 +257,20 @@ prefix avoids collisions with DCC-native and other-plugin attributes.
 
 ### ImportWarning codes
 
-Warning code | Meaning
--------------|--------
-`missing_textures` | Texture files referenced by the asset were not found on disk.
-`missing_plugin` | A required DCC plugin or format handler is not installed.
-`scale_clamped` | Import scale was clamped to the adapter's supported range.
-`rotation_clamped` | Rotation values were clamped to the adapter's supported range.
-`non_uniform_scale_baked` | Non-uniform scaling was baked into the geometry.
-`degenerate_geometry_skipped` | Zero-area faces or zero-length edges were dropped.
-`hierarchy_flattened` | The original scene hierarchy was collapsed (e.g. USD to OBJ fallback).
-`names_collided` | Object names conflicted with existing scene objects; suffixes were appended.
-`material_fallback` | Materials were downgraded (e.g. PBR → standard).
-`animation_stripped` | Animation data was discarded (format or adapter limitation).
-`unsupported_feature` | A specific feature in the file is not supported by this adapter.
-`unknown` | An unrecognised warning that does not fit any other code.
+| Warning code | Meaning |
+|--------------|---------|
+| `missing_textures` | Texture files referenced by the asset were not found on disk. |
+| `missing_plugin` | A required DCC plugin or format handler is not installed. |
+| `scale_clamped` | Import scale was clamped to the adapter's supported range. |
+| `rotation_clamped` | Rotation values were clamped to the adapter's supported range. |
+| `non_uniform_scale_baked` | Non-uniform scaling was baked into the geometry. |
+| `degenerate_geometry_skipped` | Zero-area faces or zero-length edges were dropped. |
+| `hierarchy_flattened` | The original scene hierarchy was collapsed (e.g. USD to OBJ fallback). |
+| `names_collided` | Object names conflicted with existing scene objects; suffixes were appended. |
+| `material_fallback` | Materials were downgraded (e.g. PBR → standard). |
+| `animation_stripped` | Animation data was discarded (format or adapter limitation). |
+| `unsupported_feature` | A specific feature in the file is not supported by this adapter. |
+| `unknown` | An unrecognised warning that does not fit any other code. |
 
 Each warning is an `ImportWarning(code, message, detail?)` frozen dataclass.
 Consumers should match on `code`, not on `message`.
