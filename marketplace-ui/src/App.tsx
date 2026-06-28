@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { locales } from './locales';
 
 type Lang = 'en' | 'zh';
@@ -10,7 +10,7 @@ export default function App() {
   });
 
   const [wsUrl, setWsUrl] = useState(() => {
-    return localStorage.getItem('dcc_mcp_ws_url') || 'ws://127.0.0.1:9765/admin/api/marketplace/ws';
+    return localStorage.getItem('dcc_mcp_ws_url') || 'ws://127.0.0.1:9765/marketplace/ws';
   });
 
   const [wsState, setWsState] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -53,16 +53,46 @@ export default function App() {
     return str;
   }, [lang]);
 
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimeoutRef = useRef<any>(null);
+
+  // Fetch data when connected
+  const fetchData = useCallback(async (activeClient: any) => {
+    if (!activeClient) return;
+    setLoading(true);
+    try {
+      const [catRes, instRes, srcRes] = await Promise.all([
+        activeClient.send('marketplace.catalog.list'),
+        activeClient.send('marketplace.installed.list'),
+        activeClient.send('marketplace.sources.list')
+      ]);
+
+      setCatalog(catRes.entries || []);
+      setInstalled(instRes.packages || []);
+      setSources(srcRes.sources || []);
+      // Outdated packages is not supported over WS in the canonical bridge, so we default to empty
+      setOutdated({ count: 0, packages: [] });
+    } catch (err) {
+      console.error('Failed to fetch marketplace data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // WebSocket Client implementation
   const connectWs = useCallback((urlToConnect: string) => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+
     setWsState('connecting');
     setWsError(null);
 
-    const ws = new WebSocket(urlToConnect);
+    const ws = new WebSocket(urlToConnect, 'dcc-mcp-marketplace.v1');
     const pendingRequests = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>();
 
     const wsClient = {
-      send: (action: string, payload: any = {}) => {
+      send: (method: string, params: any = undefined) => {
         return new Promise((resolve, reject) => {
           if (ws.readyState !== WebSocket.OPEN) {
             reject(new Error('WebSocket is not connected'));
@@ -70,15 +100,26 @@ export default function App() {
           }
           const id = Math.random().toString(36).substring(2, 15);
           pendingRequests.set(id, { resolve, reject });
-          ws.send(JSON.stringify({ id, action, payload }));
+          ws.send(JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            method,
+            ...(params !== undefined ? { params } : {})
+          }));
         });
       }
     };
 
     ws.onopen = () => {
       setWsState('connected');
+      reconnectAttemptRef.current = 0;
       localStorage.setItem('dcc_mcp_ws_url', urlToConnect);
       setClient(wsClient);
+      fetchData(wsClient);
+
+      wsClient.send('marketplace.subscribe', { topics: ['*'] }).catch(err => {
+        console.error('Failed to subscribe:', err);
+      });
     };
 
     ws.onclose = () => {
@@ -88,6 +129,15 @@ export default function App() {
         pending.reject(new Error('Connection closed'));
       }
       pendingRequests.clear();
+
+      const attempt = reconnectAttemptRef.current;
+      const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+      reconnectAttemptRef.current = attempt + 1;
+      console.log(`WebSocket closed. Reconnecting in ${delay}ms (attempt ${attempt + 1})...`);
+
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectWs(urlToConnect);
+      }, delay);
     };
 
     ws.onerror = () => {
@@ -98,56 +148,40 @@ export default function App() {
     ws.onmessage = (event) => {
       try {
         const res = JSON.parse(event.data);
+
+        if (res.id === undefined || res.id === null) {
+          if (res.method === 'marketplace.installed.changed' || res.method === 'marketplace.skills.reloaded') {
+            fetchData(wsClient);
+          }
+          return;
+        }
+
         const pending = pendingRequests.get(res.id);
         if (pending) {
           pendingRequests.delete(res.id);
-          if (res.status === 'success') {
-            pending.resolve(res.payload);
-          } else {
+          if (res.error) {
             pending.reject(res.error);
+          } else {
+            pending.resolve(res.result);
           }
         }
       } catch (err) {
         console.error('Failed to parse message:', err);
       }
     };
-  }, []);
+  }, [fetchData]);
 
-  // Connect on mount if we have a URL
+  // Connect on mount or when URL changes
   useEffect(() => {
     if (wsUrl) {
       connectWs(wsUrl);
     }
-  }, []);
-
-  // Fetch data when connected
-  const fetchData = useCallback(async () => {
-    if (!client) return;
-    setLoading(true);
-    try {
-      const [catRes, instRes, srcRes, outRes] = await Promise.all([
-        client.send('catalog'),
-        client.send('installed'),
-        client.send('sources'),
-        client.send('outdated', {})
-      ]);
-
-      setCatalog(catRes.entries || []);
-      setInstalled(instRes.packages || []);
-      setSources(srcRes.sources || []);
-      setOutdated(outRes || { count: 0, packages: [] });
-    } catch (err) {
-      console.error('Failed to fetch marketplace data:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [client]);
-
-  useEffect(() => {
-    if (wsState === 'connected' && client) {
-      fetchData();
-    }
-  }, [wsState, client, fetchData]);
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [wsUrl, connectWs]);
 
   // DCC types in catalog
   const dccTypes = useMemo(() => {
@@ -193,12 +227,12 @@ export default function App() {
     setInstallingKey(key);
     setInstallNotice(null);
     try {
-      const result = await client.send('install', {
+      const result = await client.send('marketplace.install', {
         name: entry.name,
         dcc,
         force: forceInstall
       });
-      await fetchData();
+      await fetchData(client);
       setInstallNotice({
         name: entry.name,
         dcc,
@@ -218,11 +252,11 @@ export default function App() {
     setInstallingKey(key);
     setInstallNotice(null);
     try {
-      const result = await client.send('uninstall', {
+      const result = await client.send('marketplace.uninstall', {
         name: pkg.name,
         dcc: pkg.dcc
       });
-      await fetchData();
+      await fetchData(client);
       setInstallNotice({
         name: pkg.name,
         dcc: pkg.dcc,
@@ -243,16 +277,16 @@ export default function App() {
     setInstallingKey(key);
     setInstallNotice(null);
     try {
-      const result = await client.send('update', {
+      const result = await client.send('marketplace.install', {
         name: pkgName,
-        dcc
+        dcc,
+        force: true
       });
-      await fetchData();
-      const updatedItem = result.results?.find((r: any) => r.name === pkgName && r.dcc === dcc);
+      await fetchData(client);
       setInstallNotice({
         name: pkgName,
         dcc,
-        reload_required: updatedItem?.reload_required || false,
+        reload_required: result.reload_required || false,
         action: 'update'
       });
       setInstalledDetail(null);
@@ -266,11 +300,11 @@ export default function App() {
   const handleAddSource = useCallback(async () => {
     if (!client || !sourceInput.trim()) return;
     try {
-      await client.send('add_source', {
+      await client.send('marketplace.sources.add', {
         source: sourceInput.trim()
       });
       setSourceInput('');
-      await fetchData();
+      await fetchData(client);
     } catch (err: any) {
       alert(t('source.addFailed') + ': ' + (err.message || err));
     }

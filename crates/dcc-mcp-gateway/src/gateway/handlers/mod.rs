@@ -25,6 +25,7 @@ pub(crate) use dcc_mcp_transport::discovery::types::ServiceStatus;
 #[cfg(feature = "admin")]
 mod debug_openapi;
 mod lifecycle_impl;
+#[cfg(feature = "admin")]
 mod marketplace_ws;
 pub(crate) mod marketplace_ws_protocol;
 mod mcp_impl;
@@ -39,6 +40,7 @@ mod sse_impl;
 mod update_impl;
 
 pub use lifecycle_impl::handle_v1_dcc_instance_stop;
+#[cfg(feature = "admin")]
 pub use marketplace_ws::{MarketplaceWsState, handle_marketplace_ws};
 pub use mcp_impl::handle_gateway_mcp;
 pub use proxy_impl::{handle_proxy_dcc, handle_proxy_instance};

@@ -27,7 +27,6 @@ use super::marketplace::{
     handle_marketplace_installed, handle_marketplace_outdated, handle_marketplace_sources,
     handle_marketplace_uninstall, handle_marketplace_update,
 };
-use super::marketplace_ws::handle_marketplace_ws;
 use super::memory::{handle_admin_memory, handle_admin_memory_forget};
 use super::skill_paths::{
     handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
@@ -171,7 +170,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
             "/api/marketplace/update",
             routing::post(handle_marketplace_update),
         )
-        .route("/api/marketplace/ws", routing::get(handle_marketplace_ws))
         .with_state(state)
 }
 

@@ -6,16 +6,17 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use super::caller_attribution::caller_attribution_middleware;
+#[cfg(feature = "admin")]
+use super::handlers::{MarketplaceWsState, handle_marketplace_ws};
 use super::handlers::{
-    MarketplaceWsState, handle_gateway_get, handle_gateway_mcp, handle_gateway_yield,
-    handle_health, handle_instances, handle_marketplace_ws, handle_proxy_dcc,
-    handle_proxy_instance, handle_v1_call, handle_v1_call_batch, handle_v1_context,
-    handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe, handle_v1_dcc_instance_stop,
-    handle_v1_describe, handle_v1_describe_path, handle_v1_docs, handle_v1_healthz,
-    handle_v1_instances_deregister, handle_v1_instances_heartbeat, handle_v1_instances_register,
-    handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz,
-    handle_v1_search, handle_v1_skills, handle_v1_unload_skill, handle_v1_update_check,
-    handle_v1_update_download,
+    handle_gateway_get, handle_gateway_mcp, handle_gateway_yield, handle_health, handle_instances,
+    handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
+    handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
+    handle_v1_dcc_instance_stop, handle_v1_describe, handle_v1_describe_path, handle_v1_docs,
+    handle_v1_healthz, handle_v1_instances_deregister, handle_v1_instances_heartbeat,
+    handle_v1_instances_register, handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi,
+    handle_v1_readyz, handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
+    handle_v1_update_check, handle_v1_update_download,
 };
 use super::http_limits::rate_limit_middleware;
 use super::resilience::gateway_limits;
