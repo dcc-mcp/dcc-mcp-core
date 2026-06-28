@@ -91,9 +91,9 @@ desc.validate()  # raises AssetImportValidationError on violation
 | `variants` | `List[AssetFileVariant]` | Yes (≥1) | File formats available. At least one variant with a non-empty `local_path`. |
 | `attribution` | `Optional[AssetAttribution]` | No | Legal attribution metadata (see [table below](#attribution-metadata-fields)). |
 | `preview` | `Optional[str]` | No | Path to a preview image / thumbnail. |
-| `unit_hint` | `str` | No (default `unitless`) | Native unit hint from [`UnitHint`](#unit-hint-values). |
+| `unit_hint` | `str` | No (default `unitless`) | Native unit hint from [`UnitHint`](#unithint-values). |
 | `meters_per_unit` | `float` | No (default `1.0`) | Conversion factor from asset units to meters. |
-| `up_axis` | `str` | No (default `"y"`) | Source asset up-axis from [`AxisHint`](#axis-hint-values). |
+| `up_axis` | `str` | No (default `"y"`) | Source asset up-axis from [`AxisHint`](#axishint-values). |
 | `scale_hint` | `Optional[float]` | No | Suggested import scale multiplier. |
 | `source_bbox` | `Optional[Dict]` | No | Bounding box from the source tool. **Always cm, Y-up.** Shape: `{"min": [x, y, z], "max": [x, y, z]}`. |
 | `tags` | `List[str]` | No | Free-form tags for categorisation / search. |
@@ -181,7 +181,7 @@ into the host DCC scene, and returns an `ImportToSceneResult`.
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
 | `descriptor` | `AssetDescriptor` | Yes | The asset to import (from source skill). |
-| `material_mode` | `str` | No (default `as_authored`) | Material handling strategy from [`MaterialMode`](#material-mode-values). |
+| `material_mode` | `str` | No (default `as_authored`) | Material handling strategy from [`MaterialMode`](#materialmode-values). |
 | `placement` | `Optional[PlacementHint]` | No | Position, rotation, scale override. |
 | `target_collection` | `Optional[str]` | No | Name of the collection / layer to import into. |
 | `skip_existing` | `bool` | No (default `False`) | Skip import when the `asset_id` is already in the scene. |
