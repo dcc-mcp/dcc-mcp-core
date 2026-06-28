@@ -24,13 +24,8 @@ pub use crate::gateway::admin::trace_log::TraceLog;
 
 // Re-export agent context types from the split module.
 pub use super::agent_context::{
-    AgentContext,
-    AgentContextTrust,
-    TRUST_AUTH,
-    TRUST_HEADER,
-    TRUST_SELF_REPORTED,
-    TRUST_SERVER_DERIVED,
-    TRUST_TRUSTED_PROXY,
+    AgentContext, AgentContextTrust, TRUST_AUTH, TRUST_HEADER, TRUST_SELF_REPORTED,
+    TRUST_SERVER_DERIVED, TRUST_TRUSTED_PROXY,
 };
 
 // ── Trace Context ────────────────────────────────────────────────────────────

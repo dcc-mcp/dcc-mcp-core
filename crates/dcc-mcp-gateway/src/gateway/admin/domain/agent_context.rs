@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::gateway::admin::domain::trace::{
-    MAX_AGENT_CONTEXT_LIST_ITEMS,
-    MAX_AGENT_CONTEXT_METADATA_BYTES,
-    MAX_AGENT_CONTEXT_STRING_BYTES,
+    MAX_AGENT_CONTEXT_LIST_ITEMS, MAX_AGENT_CONTEXT_METADATA_BYTES, MAX_AGENT_CONTEXT_STRING_BYTES,
     parse_traceparent,
 };
 
