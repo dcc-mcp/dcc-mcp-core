@@ -3,6 +3,8 @@
 //! Implements the request/response/notification envelopes plus the method
 //! dispatch, error codes, and operation state machine defined in PIP-1096 M2.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

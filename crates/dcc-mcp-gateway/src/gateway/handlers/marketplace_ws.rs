@@ -54,6 +54,7 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 // ── Shared WS bridge state ────────────────────────────────────────────────
 
 /// Per-connection state tracked in the bridge registry.
+#[allow(dead_code)]
 struct ConnectionState {
     topics: HashSet<String>,
 }
@@ -119,6 +120,7 @@ impl MarketplaceWsState {
         })
     }
 
+    #[allow(dead_code)]
     async fn set_topics(&self, key: usize, topics: HashSet<String>) {
         if let Some(conn) = self.connections.write().await.get_mut(key) {
             conn.topics = topics;
@@ -132,6 +134,32 @@ impl MarketplaceWsState {
 
 // ── Upgrade handler ───────────────────────────────────────────────────────
 
+pub(crate) fn is_origin_trusted(origin_str: &str) -> bool {
+    let origin_lower = origin_str.to_lowercase();
+
+    if origin_lower.starts_with("http://localhost") || origin_lower.starts_with("https://localhost")
+    {
+        let rest = if origin_lower.starts_with("https://") {
+            &origin_lower["https://localhost".len()..]
+        } else {
+            &origin_lower["http://localhost".len()..]
+        };
+        return rest.is_empty() || rest.starts_with(':');
+    }
+
+    if origin_lower.starts_with("http://127.0.0.1") || origin_lower.starts_with("https://127.0.0.1")
+    {
+        let rest = if origin_lower.starts_with("https://") {
+            &origin_lower["https://127.0.0.1".len()..]
+        } else {
+            &origin_lower["http://127.0.0.1".len()..]
+        };
+        return rest.is_empty() || rest.starts_with(':');
+    }
+
+    false
+}
+
 /// `GET /marketplace/ws` — upgrade to a WebSocket connection.
 ///
 /// Requires the `Sec-WebSocket-Protocol: dcc-mcp-marketplace.v1` subprotocol
@@ -141,6 +169,21 @@ pub async fn handle_marketplace_ws(
     headers: axum::http::HeaderMap,
     State(state): State<MarketplaceWsState>,
 ) -> impl IntoResponse {
+    // Check Origin header. Reject if missing or untrusted.
+    let origin_ok = if let Some(origin) = headers.get(header::ORIGIN) {
+        if let Ok(origin_str) = origin.to_str() {
+            is_origin_trusted(origin_str)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if !origin_ok {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     // Check that the client requested our subprotocol via Sec-WebSocket-Protocol header.
     let protocol_ok = headers
         .get(header::SEC_WEBSOCKET_PROTOCOL)
@@ -219,7 +262,8 @@ async fn serve_socket(socket: WebSocket, state: MarketplaceWsState) {
                 Message::Text(text) => {
                     let response = handle_message(&conn_state, &text.to_string()).await;
                     if let Some(resp) = response {
-                        if resp_tx.send(resp).await.is_err() {
+                        let is_err = resp_tx.send(resp).await.is_err();
+                        if is_err {
                             break;
                         }
                     }
@@ -405,7 +449,7 @@ async fn handle_install(
     params: Option<Value>,
 ) -> String {
     let install_params: InstallParams = match params
-        .map(|p| serde_json::from_value::<InstallParams>(p))
+        .map(serde_json::from_value::<InstallParams>)
         .transpose()
     {
         Ok(Some(p)) => p,
@@ -576,7 +620,7 @@ async fn handle_uninstall(
     params: Option<Value>,
 ) -> String {
     let uninstall_params: UninstallParams = match params
-        .map(|p| serde_json::from_value::<UninstallParams>(p))
+        .map(serde_json::from_value::<UninstallParams>)
         .transpose()
     {
         Ok(Some(p)) => p,
@@ -745,7 +789,7 @@ async fn handle_sources_add(
     params: Option<Value>,
 ) -> String {
     let add_params: AddSourceParams = match params
-        .map(|p| serde_json::from_value::<AddSourceParams>(p))
+        .map(serde_json::from_value::<AddSourceParams>)
         .transpose()
     {
         Ok(Some(p)) => p,
@@ -806,12 +850,12 @@ async fn handle_sources_remove(
 }
 
 async fn handle_subscribe(
-    state: &MarketplaceWsState,
+    _state: &MarketplaceWsState,
     id: Option<Value>,
     params: Option<Value>,
 ) -> Option<String> {
     let subscribe_params: SubscribeParams = match params
-        .map(|p| serde_json::from_value::<SubscribeParams>(p))
+        .map(serde_json::from_value::<SubscribeParams>)
         .transpose()
     {
         Ok(Some(p)) => p,
@@ -1059,5 +1103,20 @@ mod tests {
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\":\"subscribed\""));
+    }
+
+    /// Verify origin trusted validation.
+    #[test]
+    fn test_is_origin_trusted() {
+        assert!(is_origin_trusted("http://localhost"));
+        assert!(is_origin_trusted("http://localhost:3000"));
+        assert!(is_origin_trusted("https://localhost"));
+        assert!(is_origin_trusted("http://127.0.0.1"));
+        assert!(is_origin_trusted("http://127.0.0.1:8080"));
+        assert!(is_origin_trusted("https://127.0.0.1"));
+
+        assert!(!is_origin_trusted("http://example.com"));
+        assert!(!is_origin_trusted("null"));
+        assert!(!is_origin_trusted("file://"));
     }
 }

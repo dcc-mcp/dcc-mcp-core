@@ -94,7 +94,8 @@ fn main() -> Result<(), String> {
         .map(PathBuf::from)
         .ok_or_else(|| "CARGO_MANIFEST_DIR is not set".to_string())?;
     let ws = workspace_root(&manifest_dir)?;
-    let admin_ui = ws.join("admin-ui");
+    let admin_ui = dunce::canonicalize(ws.join("admin-ui"))
+        .map_err(|e| format!("failed to canonicalize admin-ui path: {e}"))?;
     let out = manifest_dir.join("src/gateway/admin/generated/index.html");
 
     println!(

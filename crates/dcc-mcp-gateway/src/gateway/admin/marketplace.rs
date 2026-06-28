@@ -194,13 +194,13 @@ pub struct UpdateResultItem {
 // ── Error envelope ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
-struct ErrorResponse {
-    kind: String,
-    message: String,
+pub(crate) struct ErrorResponse {
+    pub(crate) kind: String,
+    pub(crate) message: String,
 }
 
 impl ErrorResponse {
-    fn from_error(err: &dcc_mcp_marketplace::MarketplaceError) -> Self {
+    pub(crate) fn from_error(err: &dcc_mcp_marketplace::MarketplaceError) -> Self {
         let kind = match err {
             dcc_mcp_marketplace::MarketplaceError::NotFound(_) => "not_found",
             dcc_mcp_marketplace::MarketplaceError::AlreadyInstalled { .. } => "already_installed",
@@ -236,7 +236,7 @@ fn error_response(
 
 // ── Service helper ───────────────────────────────────────────────────────────
 
-fn marketplace_service() -> MarketplaceService {
+pub(crate) fn marketplace_service() -> MarketplaceService {
     let root = dcc_mcp_marketplace::marketplace_root_or_default();
     let config_path =
         dcc_mcp_marketplace::default_config_path().unwrap_or_else(|_| root.join("sources.json"));
@@ -450,9 +450,9 @@ pub async fn handle_marketplace_outdated(
 #[derive(Debug, Deserialize)]
 pub struct OutdatedQueryParams {
     #[serde(default)]
-    name: Option<String>,
+    pub(crate) name: Option<String>,
     #[serde(default)]
-    dcc: Option<String>,
+    pub(crate) dcc: Option<String>,
 }
 
 /// `POST /admin/api/marketplace/update`
@@ -493,7 +493,7 @@ pub async fn handle_marketplace_update(
 ///
 /// Absolute URLs are passed through unchanged. Relative paths are resolved
 /// against raw.githubusercontent.com source URLs.
-fn resolve_icon_url(icon: Option<&str>, source_url: Option<&str>) -> Option<String> {
+pub(crate) fn resolve_icon_url(icon: Option<&str>, source_url: Option<&str>) -> Option<String> {
     let icon = icon?;
     if icon.starts_with("http://") || icon.starts_with("https://") {
         return Some(icon.to_string());
