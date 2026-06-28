@@ -2,6 +2,7 @@
 //!
 //! Re-exports all trace types for backward compatibility.
 
+pub mod agent_context;
 pub mod trace;
 
 pub use trace::*;
