@@ -12,11 +12,11 @@ use std::time::UNIX_EPOCH;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::gateway::admin::state::{AdminAuditRecord, AdminState};
-use crate::gateway::admin::trace::DispatchTrace;
-use crate::gateway::admin::trace::AgentContext;
 #[cfg(feature = "admin")]
 use crate::gateway::admin::links::AdminLinkBuilder;
+use crate::gateway::admin::state::{AdminAuditRecord, AdminState};
+use crate::gateway::admin::trace::AgentContext;
+use crate::gateway::admin::trace::DispatchTrace;
 use crate::gateway::event_log::ContendEvent;
 
 const POSTMORTEM_PREVIOUS_CALL_LIMIT: usize = 5;

@@ -9,7 +9,9 @@ use serde_json::{Map, Value, json};
 
 use crate::gateway::admin::state::AdminState;
 use crate::gateway::admin::wecom_response::summarize as summarize_wecom_response;
-use crate::gateway::admin::wecom_url::{WECOM_WEBHOOK_URL_HINT, looks_valid as wecom_webhook_url_looks_valid};
+use crate::gateway::admin::wecom_url::{
+    WECOM_WEBHOOK_URL_HINT, looks_valid as wecom_webhook_url_looks_valid,
+};
 
 const ENV_SENTRY_DSN: &str = "DCC_MCP_SENTRY_DSN";
 const ENV_SENTRY_ENVIRONMENT: &str = "DCC_MCP_SENTRY_ENVIRONMENT";

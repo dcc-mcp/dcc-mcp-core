@@ -15,7 +15,9 @@ use serde_json::{Value, json};
 
 use crate::gateway::admin::debug_response::{DebugListQuery, debug_response};
 use crate::gateway::admin::events::contend_event_to_admin_row;
-use crate::gateway::admin::issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
+use crate::gateway::admin::issue_report::{
+    IssueReportMode, issue_report_filename, issue_report_json,
+};
 use crate::gateway::admin::links::AdminLinkBuilder;
 use crate::gateway::admin::skill_reload::reload_skill_paths_and_refresh_backends;
 use crate::gateway::admin::state::{AdminAuditRecord, AdminState};
