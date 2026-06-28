@@ -27,6 +27,17 @@
 //! the binary via a Rust `const`.  No `npm`, no CDN, no `build.rs`.
 //! Vanilla JS polls the JSON API endpoints every 5 seconds.
 //!
+//! # Module layout (PIP-687 split)
+//!
+//! ```text
+//! admin/
+//! ├── domain/       # pure types, no I/O (trace types)
+//! ├── application/  # orchestration/handler routing
+//! ├── infra/        # SQLite reads, log reads, activity projection, integration config
+//! ├── html.rs       # standalone asset module (feature-gated)
+//! └── mod.rs        # re-exports only
+//! ```
+//!
 //! # Endpoints
 //!
 //! | Path | Source data | Phase |
@@ -43,8 +54,26 @@
 //!
 //! See `docs/guide/gateway-admin.md` for screenshots and configuration knobs.
 
+// ── New PIP-687 split submodules ──────────────────────────────────────────
+
+/// Domain layer: pure types, no I/O.
+pub mod domain;
+
+/// Application layer: handler routing and orchestration.
+pub mod application;
+
+/// Infrastructure layer: SQLite, logs, activity projection, integration config.
+pub mod infra;
+
+// ── Backward-compat shim modules (content moved to domain/application/infra) ──
+
 #[cfg(feature = "admin")]
 pub mod activity;
+#[cfg(feature = "admin")]
+pub(crate) mod integrations;
+
+// ── Remaining top-level modules ───────────────────────────────────────────
+
 #[cfg(feature = "admin")]
 mod agent_trace;
 #[cfg(feature = "admin")]
@@ -61,8 +90,6 @@ mod general;
 pub mod governance;
 #[cfg(feature = "admin")]
 mod html;
-#[cfg(feature = "admin")]
-pub(crate) mod integrations;
 #[cfg(feature = "admin")]
 mod issue_report;
 #[cfg(feature = "admin")]
@@ -118,8 +145,9 @@ mod stats_traces_tests;
 // Intentional: parking_lot Mutex for env-var test serialization
 mod workflows_tests;
 
-#[cfg(feature = "admin")]
-pub use activity::{ActivityCorrelation, ActivityEvent, TaskSnapshot};
+// ── Backward-compatible re-exports ────────────────────────────────────────
+
+// DB helpers.
 pub use dcc_mcp_db::{
     default_gateway_admin_sqlite_path as default_admin_db_path,
     resolve_gateway_admin_sqlite_path as resolve_admin_db_path,
@@ -127,7 +155,9 @@ pub use dcc_mcp_db::{
 pub use sqlite_lane::{AdminSqliteLane, AdminSqliteReader, read_custom_skill_paths_for_startup};
 pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore};
 pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
+
 pub use trace::{DispatchTrace, TraceContext, TraceLog, TracePayload, TraceSpan};
+
 #[cfg(feature = "admin")]
 pub use workers::build_workers_payload;
 #[cfg(feature = "admin")]
