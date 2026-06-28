@@ -167,7 +167,7 @@ pub async fn build_activity_payload(state: &AdminState, limit: usize) -> Value {
 }
 
 #[cfg(feature = "admin")]
-pub async fn build_tasks_payload(
+pub(crate) async fn build_tasks_payload(
     state: &AdminState,
     limit: usize,
     links: AdminLinkBuilder,

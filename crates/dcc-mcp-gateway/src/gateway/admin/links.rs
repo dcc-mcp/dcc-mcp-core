@@ -4,7 +4,7 @@ use axum::http::{HeaderMap, Uri};
 use serde_json::{Value, json};
 
 #[derive(Clone)]
-pub(super) struct AdminLinkBuilder {
+pub(crate) struct AdminLinkBuilder {
     origin: String,
     admin_base: String,
 }
