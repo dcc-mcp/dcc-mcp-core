@@ -1,4 +1,10 @@
-//! Built admin UI assets embedded in the gateway binary.
+//! Standalone asset module — embedded admin UI frontend.
+//!
+//! This module is intentionally kept independent from the domain/application/infra
+//! split because `include_str!` embeds a 1.5MB build artifact at compile time.
+//! When `feature = "admin"` is off, the binary only carries a tiny fallback page.
+//!
+//! The asset is served by `general::handle_admin_ui` through `ADMIN_HTML`.
 
 /// The Vite-built React admin dashboard HTML page.
 #[cfg(feature = "admin")]
