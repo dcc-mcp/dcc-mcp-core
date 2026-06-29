@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.0...v0.19.1) (2026-06-28)
+
+
+### Features
+
+* **gateway:** add marketplace WS bridge with JSON-RPC 2.0 protocol ([f7a03a9](https://github.com/dcc-mcp/dcc-mcp-core/commit/f7a03a925b68081bb10e220e88eed9d87268d2bb))
+* **marketplace:** split skills marketplace into standalone web app ([#1762](https://github.com/dcc-mcp/dcc-mcp-core/issues/1762)) ([526d480](https://github.com/dcc-mcp/dcc-mcp-core/commit/526d4804aeddb9be5d5026d91dfa9fe3489d9426))
+
+
+### Bug Fixes
+
+* **gateway:** resolve gateway/app-ui DCC tool contract bugs (PIP-2420) ([#1759](https://github.com/dcc-mcp/dcc-mcp-core/issues/1759)) ([26a0543](https://github.com/dcc-mcp/dcc-mcp-core/commit/26a054381d22e36e5179637ee7622e7e54d66b32))
+* **gateway:** resolve P1-P3 review findings on marketplace WS bridge ([e762f9e](https://github.com/dcc-mcp/dcc-mcp-core/commit/e762f9e57c90abb7b0807e021a82bc171e8a329f))
+
+
+### Code Refactoring
+
+* **admin-ui:** split large App.tsx and admin-ui-core.tsx into feature modules ([#1763](https://github.com/dcc-mcp/dcc-mcp-core/issues/1763)) ([96c8a60](https://github.com/dcc-mcp/dcc-mcp-core/commit/96c8a60bb3c5e3a1f70d068f9eaa94afa69e0520))
+
+
+### Documentation
+
+* document asset-import-contract in docs/guide (PIP-1824) ([479bd10](https://github.com/dcc-mcp/dcc-mcp-core/commit/479bd104880612d96c79ac325d02638084762b59))
+* fix markdownlint errors in asset-import-contract.md (PIP-2433) ([2cbc49f](https://github.com/dcc-mcp/dcc-mcp-core/commit/2cbc49f7e21a57bff3f2b3f60329ba3cd1272259))
+* fix markdownlint link fragments in asset-import-contract.md ([01c0467](https://github.com/dcc-mcp/dcc-mcp-core/commit/01c0467f2ed1c4d3c66a12eba45bc9a3e8b7104e))
+
 ## [0.19.0](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.18.39...v0.19.0) (2026-06-27)
 
 ### Features
