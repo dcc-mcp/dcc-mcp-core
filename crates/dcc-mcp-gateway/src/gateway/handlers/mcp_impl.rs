@@ -409,12 +409,32 @@ fn compact_tool_text_payload(tool_name: Option<&str>, legacy_payload: &Value) ->
     match tool_name {
         Some("search" | "search_tools") => {
             if let Some(hits) = legacy_payload.get("hits").and_then(Value::as_array) {
+                // Single-kind path (kind=tool|skill): compact hits array.
                 let total = legacy_payload
                     .get("total")
                     .and_then(Value::as_u64)
                     .and_then(|value| usize::try_from(value).ok())
                     .unwrap_or(hits.len());
                 compact_search_payload(total, hits)
+            } else if legacy_payload.get("tools").is_some()
+                || legacy_payload.get("skills").is_some()
+            {
+                // kind=all path: nested { tools: {hits: [...]}, skills: {skills: [...]} }.
+                // The tools/skills subtrees are already compacted in tools.rs;
+                // just strip the metadata fields that tools.rs already injected.
+                let mut out = serde_json::Map::new();
+                for key in &[
+                    "search_id",
+                    "ranker_version",
+                    "index_generation",
+                    "tools",
+                    "skills",
+                ] {
+                    if let Some(v) = legacy_payload.get(*key) {
+                        out.insert(key.to_string(), v.clone());
+                    }
+                }
+                Value::Object(out)
             } else {
                 legacy_payload.clone()
             }
@@ -1285,5 +1305,107 @@ mod tests {
         );
         assert!(response.get("result").is_none());
         assert!(response["error"].get("_meta").is_none());
+    }
+
+    // ── kind=all compact tests (PIP-2454 regression) ──────────────────
+
+    #[test]
+    fn compact_kind_all_preserves_tools_and_skills_subtrees() {
+        // Simulate a kind=all response payload (as produced by tools.rs
+        // after compact_tools_hits + compact_skills_list).
+        // The compact_tool_text_payload must detect the kind=all shape
+        // and preserve both tools and skills subtrees instead of
+        // falling through to legacy_payload.clone().
+        let payload = json!({
+            "search_id": "search-001",
+            "ranker_version": "v2.1.0",
+            "index_generation": "gen-001",
+            "tools": {
+                "total": 2,
+                "hits": [
+                    {"tool_slug": "blender.abc.create_cube", "backend_tool": "create_cube", "dcc_type": "blender", "score": 98, "loaded": true},
+                    {"tool_slug": "blender.abc.render", "backend_tool": "render", "dcc_type": "blender", "score": 85, "loaded": true}
+                ],
+                "capped": false
+            },
+            "skills": {
+                "skills": [
+                    {"tool_slug": "blender.abc.blender-export", "skill_name": "blender-export", "dcc_type": "blender", "score": 90},
+                    {"tool_slug": "blender.abc.blender-import", "skill_name": "blender-import", "dcc_type": "blender", "score": 80}
+                ],
+                "total": 2,
+                "capped": false
+            }
+        });
+
+        let compact = compact_tool_text_payload(Some("search"), &payload);
+
+        // Must have both tools and skills keys (not just tools alone)
+        assert!(
+            compact.get("tools").is_some(),
+            "kind=all compact must keep tools"
+        );
+        assert!(
+            compact.get("skills").is_some(),
+            "kind=all compact must keep skills"
+        );
+
+        // Must strip the raw text metadata fields that are only
+        // part of the legacy full response
+        let compact_str = serde_json::to_string(&compact).unwrap();
+        assert!(
+            compact_str.len() < 2000,
+            "kind=all compact payload must be well under 10K chars (got {} chars)",
+            compact_str.len()
+        );
+    }
+
+    #[test]
+    fn compact_kind_all_strips_extra_metadata_keys() {
+        // kind=all response may carry extra keys from the internal
+        // response serialization. compact must only keep the five
+        // canonical keys.
+        let payload = json!({
+            "search_id": "search-001",
+            "ranker_version": "v2.1.0",
+            "index_generation": "gen-001",
+            "tools": {"total": 0, "hits": []},
+            "skills": {"skills": [], "total": 0},
+            "internal_scratch": "should-be-dropped",
+            "raw_jsonrpc": "should-be-dropped",
+        });
+
+        let compact = compact_tool_text_payload(Some("search"), &payload);
+
+        assert_eq!(compact.as_object().unwrap().len(), 5);
+        assert!(compact.get("internal_scratch").is_none());
+        assert!(compact.get("raw_jsonrpc").is_none());
+        assert!(compact.get("search_id").is_some());
+        assert!(compact.get("tools").is_some());
+        assert!(compact.get("skills").is_some());
+    }
+
+    #[test]
+    fn compact_single_kind_hits_still_works() {
+        // Regression: single-kind (hits-based) compact path must
+        // not be broken by the kind=all addition.
+        let payload = json!({
+            "total": 3,
+            "hits": [
+                {"tool_slug": "maya.abc.sphere", "backend_tool": "sphere", "callable_id": "sphere", "dcc_type": "maya", "score": 99, "tags": ["modeling"], "loaded": true},
+                {"tool_slug": "maya.abc.cube", "backend_tool": "cube", "callable_id": "cube", "dcc_type": "maya", "score": 80, "tags": [], "loaded": true},
+                {"tool_slug": "maya.abc.render", "backend_tool": "render", "callable_id": "render", "dcc_type": "maya", "score": 60, "tags": [], "loaded": true}
+            ]
+        });
+
+        let compact = compact_tool_text_payload(Some("search"), &payload);
+
+        assert_eq!(compact["total"], 3);
+        assert_eq!(compact["hits"].as_array().unwrap().len(), 3);
+        // compact_search_payload strips redundant callable_id
+        // (callable_id == backend_tool, so it's omitted)
+        assert!(compact["hits"][0].get("callable_id").is_none());
+        // but preserves tool_slug
+        assert_eq!(compact["hits"][0]["tool_slug"], "maya.abc.sphere");
     }
 }

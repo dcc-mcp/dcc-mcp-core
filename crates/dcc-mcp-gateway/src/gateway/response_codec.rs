@@ -312,29 +312,90 @@ fn compact_search_hit(hit: &Value) -> Value {
     compact_record(hit)
 }
 
-fn compact_record(record: &Value) -> Value {
+pub(crate) fn compact_record(record: &Value) -> Value {
     let mut out = Map::new();
+    // Canonical identification
     copy_field(&mut out, record, "tool_slug");
     copy_field(&mut out, record, "backend_tool");
     copy_callable_if_distinct(&mut out, record);
     copy_field(&mut out, record, "skill_name");
+    // Discovery essentials: name, one-line description, categorisation tags
     copy_field(&mut out, record, "summary");
     copy_field(&mut out, record, "tags");
+    // DCC scope
     copy_field(&mut out, record, "dcc_type");
     copy_field(&mut out, record, "instance_id");
+    // Readiness hints
     copy_field(&mut out, record, "has_schema");
     copy_field(&mut out, record, "loaded");
     copy_field(&mut out, record, "load_state");
     copy_field(&mut out, record, "callable");
     copy_field(&mut out, record, "disabled_by_group");
-    copy_field(&mut out, record, "available_groups");
+    // Ranking
     copy_field(&mut out, record, "rank");
     copy_field(&mut out, record, "score");
-    copy_field(&mut out, record, "match_reasons");
-    copy_field(&mut out, record, "annotations");
-    copy_field(&mut out, record, "metadata");
+    // Next-step for unloaded tools (critical for discovery flow)
     copy_field(&mut out, record, "next_step");
+    // NOTE: metadata, annotations, available_groups, and match_reasons are
+    // intentionally excluded.  compact is for *discovery*, not *definition*;
+    // these fields carry operational/audit detail that belong in describe_tool.
     Value::Object(out)
+}
+
+/// Compact tools hits from a kind=all search response, keeping only the
+/// fields that `compact_search_payload` preserves for the single-kind path.
+/// Also caps the tool count so kind=all output stays bounded.
+const MAX_KIND_ALL_TOOLS: usize = 10;
+
+pub(crate) fn compact_tools_hits(tools_value: &Value) -> Value {
+    let hits = tools_value
+        .get("hits")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total = tools_value
+        .get("total")
+        .and_then(Value::as_u64)
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(hits.len());
+    let capped: Vec<Value> = hits
+        .into_iter()
+        .take(MAX_KIND_ALL_TOOLS)
+        .map(|hit| compact_record(&hit))
+        .collect();
+    json!({
+        "total": total.min(MAX_KIND_ALL_TOOLS),
+        "hits": capped,
+        "capped": total > MAX_KIND_ALL_TOOLS,
+    })
+}
+
+/// Compact skills list payload for kind=all, keeping only the lightweight
+/// per-skill fields used for discovery.  Also caps the skill count so
+/// kind=all output stays bounded.
+const MAX_KIND_ALL_SKILLS: usize = 10;
+
+pub(crate) fn compact_skills_list(skills_value: &Value) -> Value {
+    let skills = skills_value
+        .get("skills")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total = skills_value
+        .get("total")
+        .and_then(Value::as_u64)
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(skills.len());
+    let capped: Vec<Value> = skills
+        .into_iter()
+        .take(MAX_KIND_ALL_SKILLS)
+        .map(|skill| compact_record(&skill))
+        .collect();
+    json!({
+        "skills": capped,
+        "total": total.min(MAX_KIND_ALL_SKILLS),
+        "capped": total > MAX_KIND_ALL_SKILLS,
+    })
 }
 
 fn token_accounting_for_compact_value(value: &Value) -> Option<Value> {
@@ -652,10 +713,12 @@ mod tests {
         assert_eq!(body["hits"][0]["dcc_type"], "maya");
         assert_eq!(body["hits"][1]["dcc_type"], "photoshop");
         assert_eq!(body["hits"][0]["tool_slug"], "maya.abcdef01.create_sphere");
-        assert_eq!(
-            body["hits"][0]["match_reasons"],
-            json!(["tool_lexical", "summary_fuzzy"])
-        );
+        // match_reasons is a discovery-only field — compact strips it
+        assert!(body["hits"][0].get("match_reasons").is_none());
+        // annotations are discovery-only — compact strips them
+        assert!(body["hits"][0].get("annotations").is_none());
+        // metadata is discovery-only — compact strips it
+        assert!(body["hits"][0].get("metadata").is_none());
         assert_eq!(body["hits"][1]["next_step"]["action"], "load_skill");
         assert!(body["hits"][0].get("callable_id").is_none());
         assert_eq!(body["hits"][1]["callable_id"], "select_layer_by_name");
@@ -759,7 +822,10 @@ mod tests {
 
         assert!(compact["record"].get("callable_id").is_none());
         assert!(compact["record"].get("tags").is_none());
-        assert_eq!(compact["record"]["metadata"]["affinity"], "main");
+        // metadata/annotations are discovery-only fields — compact strips them
+        assert!(compact["record"].get("metadata").is_none());
+        assert!(compact["record"].get("annotations").is_none());
+        // describe payload preserves the full tool definition
         assert_eq!(
             compact["tool"]["inputSchema"]["properties"]["path"]["type"],
             "string"
@@ -862,5 +928,168 @@ mod tests {
             body["error"]["candidates"][0]["tool_slug"],
             "maya.abcdef01.render"
         );
+    }
+
+    // ── kind=all size ceiling tests (PIP-2454 v2) ─────────────────────
+
+    /// Build a worst-case tool hit with realistic field sizes (~400 chars).
+    fn worst_case_tool_hit(slug: &str, dcc: &str) -> Value {
+        json!({
+            "tool_slug": slug,
+            "backend_tool": slug.rsplit('.').next().unwrap_or(slug),
+            "callable_id": slug.rsplit('.').next().unwrap_or(slug),
+            "skill_name": format!("{dcc}-geometry"),
+            "summary": format!("{slug} — create and edit 3D geometry in {dcc}"),
+            "tags": ["geometry", "modelling", "mesh"],
+            "dcc_type": dcc,
+            "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+            "has_schema": true,
+            "loaded": true,
+            "load_state": "ready",
+            "callable": true,
+            "disabled_by_group": false,
+            "available_groups": ["studio-tools", "core"],
+            "rank": 5,
+            "score": 95,
+            "match_reasons": ["tool_lexical", "summary_fuzzy"],
+            "annotations": {"readOnlyHint": false, "destructiveHint": false},
+            "metadata": {"affinity": "main", "timeoutHintSecs": 30},
+            "next_step": null
+        })
+    }
+
+    fn worst_case_skill_hit(name: &str, dcc: &str) -> Value {
+        json!({
+            "tool_slug": format!("{dcc}.abcdef01.{name}"),
+            "backend_tool": name,
+            "callable_id": name,
+            "skill_name": name,
+            "summary": format!("{name} — {dcc} asset pipeline skill"),
+            "tags": ["import", "export", "pipeline"],
+            "dcc_type": dcc,
+            "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+            "has_schema": true,
+            "loaded": true,
+            "load_state": "ready",
+            "callable": true,
+            "disabled_by_group": false,
+            "available_groups": ["studio-tools"],
+            "rank": 3,
+            "score": 90,
+            "match_reasons": ["skill_lexical"],
+            "annotations": {"readOnlyHint": false},
+            "metadata": {"affinity": "main"},
+            "next_step": null
+        })
+    }
+
+    #[test]
+    fn compact_kind_all_fits_10k_with_max_caps() {
+        // Simulate the worst-case kind=all response: 10 tools + 10 skills,
+        // each with realistic field sizes.  After v2 compact (stripped
+        // metadata/annotations/match_reasons/available_groups), 20 records
+        // × ~400 chars ≈ 8K chars, well under the 10K ceiling.
+        let mut tool_hits = Vec::new();
+        for i in 0..10 {
+            tool_hits.push(worst_case_tool_hit(
+                &format!("blender.abcdef01.tool_{:02}", i),
+                "blender",
+            ));
+        }
+        let mut skill_entries = Vec::new();
+        for i in 0..10 {
+            skill_entries.push(worst_case_skill_hit(
+                &format!("blender-skill-{:02}", i),
+                "blender",
+            ));
+        }
+
+        let tools_value = json!({
+            "total": 10,
+            "hits": tool_hits,
+        });
+        let skills_value = json!({
+            "total": 10,
+            "skills": skill_entries,
+        });
+
+        let compact_tools = compact_tools_hits(&tools_value);
+        let compact_skills = compact_skills_list(&skills_value);
+
+        let kind_all = json!({
+            "search_id": "search-001",
+            "ranker_version": "v2.1.0",
+            "index_generation": "gen-001",
+            "tools": compact_tools,
+            "skills": compact_skills,
+        });
+
+        let compact_str = serde_json::to_string(&kind_all).unwrap();
+        assert!(
+            compact_str.len() <= 10_000,
+            "kind=all compact must fit within 10K chars, got {} chars",
+            compact_str.len()
+        );
+    }
+
+    #[test]
+    fn compact_kind_all_caps_when_over_limit() {
+        // When there are more than MAX_KIND_ALL_TOOLS tools (25 hits),
+        // compact_tools_hits must cap to 10 and set capped=true.
+        let mut tool_hits = Vec::new();
+        for i in 0..25 {
+            tool_hits.push(worst_case_tool_hit(
+                &format!("blender.abcdef01.tool_{:02}", i),
+                "blender",
+            ));
+        }
+        let tools_value = json!({
+            "total": 25,
+            "hits": tool_hits,
+        });
+
+        let compact = compact_tools_hits(&tools_value);
+
+        assert_eq!(compact["total"], 10);
+        assert_eq!(compact["hits"].as_array().unwrap().len(), 10);
+        assert_eq!(compact["capped"], true);
+
+        // Same for skills
+        let mut skill_entries = Vec::new();
+        for i in 0..25 {
+            skill_entries.push(worst_case_skill_hit(
+                &format!("blender-skill-{:02}", i),
+                "blender",
+            ));
+        }
+        let skills_value = json!({
+            "total": 25,
+            "skills": skill_entries,
+        });
+
+        let compact_skills = compact_skills_list(&skills_value);
+        assert_eq!(compact_skills["total"], 10);
+        assert_eq!(compact_skills["skills"].as_array().unwrap().len(), 10);
+        assert_eq!(compact_skills["capped"], true);
+    }
+
+    #[test]
+    fn compact_record_strips_discovery_only_fields() {
+        let record = worst_case_tool_hit("blender.abcdef01.create_cube", "blender");
+        let compact = compact_record(&record);
+
+        // Must keep discovery-essential fields
+        assert!(compact.get("tool_slug").is_some());
+        assert!(compact.get("summary").is_some());
+        assert!(compact.get("tags").is_some());
+        assert!(compact.get("dcc_type").is_some());
+        assert!(compact.get("score").is_some());
+        assert!(compact.get("loaded").is_some());
+
+        // Must strip definition/audit fields
+        assert!(compact.get("metadata").is_none());
+        assert!(compact.get("annotations").is_none());
+        assert!(compact.get("available_groups").is_none());
+        assert!(compact.get("match_reasons").is_none());
     }
 }

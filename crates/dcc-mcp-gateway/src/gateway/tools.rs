@@ -192,8 +192,12 @@ pub async fn tool_search(
         "all" => {
             let tools_json =
                 tool_search_tools(gs, args, trace_context, session_id, agent_context).await?;
+            // Bug 3 fix: use search_skills (not list_skills) so dcc_type
+            // filtering is inherited and results are scoped to the requested
+            // DCC type.  list_skills returns every skill from every live DCC
+            // instance, which defeats dcc_type=blender for kind=all.
             let (skills_text, skills_err) =
-                crate::gateway::aggregator::skill_mgmt_dispatch(gs, "list_skills", args).await;
+                crate::gateway::aggregator::skill_mgmt_dispatch(gs, "search_skills", args).await;
             if skills_err {
                 return Err(skills_text);
             }
@@ -222,12 +226,20 @@ pub async fn tool_search(
                 .or_else(|| skills_value.get("index_generation"))
                 .cloned()
                 .unwrap_or(Value::Null);
-            Ok(serde_json::to_string_pretty(&json!({
+            // Bug 2 fix: apply compact_search_payload to tools hits so the
+            // per-hit payload is trimmed before merging (same fields as the
+            // single-kind compact path).  Also cap cross-category total
+            // hits to avoid unbounded kind=all output.
+            let compact_tools = crate::gateway::response_codec::compact_tools_hits(&tools_value);
+            let compact_skills = crate::gateway::response_codec::compact_skills_list(&skills_value);
+            // Compact JSON (not pretty-printed) so the kind=all payload stays
+            // under the MCP token ceiling.  See PIP-2454 size verification.
+            Ok(serde_json::to_string(&json!({
                 "search_id": search_id,
                 "ranker_version": ranker_version,
                 "index_generation": index_generation,
-                "tools": tools_value,
-                "skills": skills_value,
+                "tools": compact_tools,
+                "skills": compact_skills,
             }))
             .map_err(|e| e.to_string())?)
         }
