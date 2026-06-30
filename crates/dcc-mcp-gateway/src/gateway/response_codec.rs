@@ -312,7 +312,7 @@ fn compact_search_hit(hit: &Value) -> Value {
     compact_record(hit)
 }
 
-fn compact_record(record: &Value) -> Value {
+pub(crate) fn compact_record(record: &Value) -> Value {
     let mut out = Map::new();
     copy_field(&mut out, record, "tool_slug");
     copy_field(&mut out, record, "backend_tool");
