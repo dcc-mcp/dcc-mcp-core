@@ -274,6 +274,127 @@ class DccServerBase:
             minimal_mode=minimal_mode,
         )
 
+    def run_registration(
+        self,
+        phases: Any | None = None,
+        extra_skill_paths: list[str] | None = None,
+        include_bundled: bool = True,
+        minimal: bool | None = None,
+        minimal_mode: Any | None = None,
+        strict_scan: bool | None = None,
+    ) -> Any:
+        """Execute a custom or standard registration phase pipeline.
+
+        Args:
+            phases: Optional list of phases to run. Defaults to ``get_standard_phases()``.
+            extra_skill_paths: Additional skill paths to scan.
+            include_bundled: Whether to include core bundled skills.
+            minimal: Whether minimal mode is enabled (legacy flag).
+            minimal_mode: Explicit minimal mode configuration.
+            strict_scan: Whether to fail-fast on broken skill directories.
+
+        Returns:
+            :class:`~dcc_mcp_core._registration.RegistrationReport`.
+
+        """
+        from dcc_mcp_core._registration import RegistrationContext
+        from dcc_mcp_core._registration import get_standard_phases
+        from dcc_mcp_core._registration import run_registration_phases
+
+        if phases is None:
+            phases = get_standard_phases()
+
+        context = RegistrationContext(
+            server=self,
+            extra_skill_paths=extra_skill_paths,
+            include_bundled=include_bundled,
+            minimal=minimal,
+            minimal_mode=minimal_mode,
+            strict_scan=strict_scan,
+        )
+        report = run_registration_phases(phases, context)
+        # Store report for diagnostics
+        self._registration_report = report
+        return report
+
+    # ── Builtin registration phases (PIP-689) ───────────────────────────
+
+    def _register_core_builtin_actions(self, context: Any) -> None:
+        """Discover skills via the base-class registration path (phase helper)."""
+        self.register_builtin_actions(
+            extra_skill_paths=context.extra_skill_paths,
+            include_bundled=context.include_bundled,
+            minimal_mode=context.minimal_mode,
+        )
+
+    def _run_strict_skill_scan_phase(self, context: Any) -> None:
+        """Run strict skill validation when enabled (phase helper)."""
+        # Default implementation does nothing; adapters override if they support strict scan.
+        pass
+
+    def _register_metadata_driven_tools(self, context: Any) -> None:
+        """Register ``recipes__*`` and ``skill_refs__*`` (phase helper)."""
+        try:
+            from dcc_mcp_core.metadata_registration import register_metadata_driven_tools
+        except ImportError:
+            return
+        paths = self.collect_skill_search_paths(
+            extra_paths=context.extra_skill_paths,
+            include_bundled=context.include_bundled,
+            filter_existing=True,
+        )
+        report = register_metadata_driven_tools(self._server, dcc_name=self._dcc_name, extra_paths=paths)
+        if not report.ok:
+            logger.debug(
+                "[%s] metadata_driven_tools: %d registered, %d skipped, %d failed",
+                self._dcc_name,
+                report.registered_count,
+                report.skipped_count,
+                report.failed_count,
+            )
+
+    def _register_introspect_tools(self, context: Any) -> None:
+        """Register the four ``dcc_introspect__*`` tools (phase helper)."""
+        try:
+            from dcc_mcp_core.introspect import register_introspect_tools
+        except ImportError:
+            return
+        register_introspect_tools(self._server, dcc_name=self._dcc_name)
+
+    def _register_feedback_tool(self, context: Any) -> None:
+        """Register the ``dcc_feedback__report`` MCP tool (phase helper)."""
+        try:
+            from dcc_mcp_core.feedback import register_feedback_tool
+        except ImportError:
+            return
+        register_feedback_tool(self._server, dcc_name=self._dcc_name)
+
+    def _register_qt_ui_inspector(self, context: Any) -> None:
+        """Adopt the shared core ``qt_ui_inspector__*`` tools (phase helper)."""
+        # Default does nothing; adapters override to wire their specific Qt integration.
+        pass
+
+    def _register_capability_manifest_tool(self, context: Any) -> None:
+        """Register the ``dcc_capability_manifest`` MCP tool (phase helper)."""
+        # Default does nothing; adapters override to wire their specific builder.
+        pass
+
+    def _attach_project_tools(self, context: Any) -> None:
+        """Register the four ``project_*`` MCP tools (phase helper)."""
+        # Default does nothing; adapters override if they support project tools.
+        pass
+
+    def _attach_resources(self, context: Any) -> None:
+        """Publish host-specific dynamic resource producers (phase helper)."""
+        # Default does nothing; adapters override if they support resources.
+        pass
+
+    def _mark_skill_catalog_ready(self, context: Any) -> None:
+        """Signal that the skill catalog has been populated (phase helper)."""
+        readiness = getattr(self, "_readiness", None)
+        if readiness is not None and hasattr(readiness, "mark_skill_catalog_ready"):
+            readiness.mark_skill_catalog_ready()
+
     def reload_skill_paths(
         self,
         extra_skill_paths: list[str] | None = None,
