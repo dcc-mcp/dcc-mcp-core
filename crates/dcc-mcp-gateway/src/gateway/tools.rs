@@ -232,7 +232,9 @@ pub async fn tool_search(
             // hits to avoid unbounded kind=all output.
             let compact_tools = crate::gateway::response_codec::compact_tools_hits(&tools_value);
             let compact_skills = crate::gateway::response_codec::compact_skills_list(&skills_value);
-            Ok(serde_json::to_string_pretty(&json!({
+            // Compact JSON (not pretty-printed) so the kind=all payload stays
+            // under the MCP token ceiling.  See PIP-2454 size verification.
+            Ok(serde_json::to_string(&json!({
                 "search_id": search_id,
                 "ranker_version": ranker_version,
                 "index_generation": index_generation,
