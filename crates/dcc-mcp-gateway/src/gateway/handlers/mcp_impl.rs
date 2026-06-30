@@ -1311,7 +1311,8 @@ mod tests {
 
     #[test]
     fn compact_kind_all_preserves_tools_and_skills_subtrees() {
-        // Simulate a kind=all response payload (as produced by tools.rs).
+        // Simulate a kind=all response payload (as produced by tools.rs
+        // after compact_tools_hits + compact_skills_list).
         // The compact_tool_text_payload must detect the kind=all shape
         // and preserve both tools and skills subtrees instead of
         // falling through to legacy_payload.clone().
@@ -1322,14 +1323,15 @@ mod tests {
             "tools": {
                 "total": 2,
                 "hits": [
-                    {"tool_slug": "blender.abc.create_cube", "backend_tool": "create_cube", "callable_id": "create_cube", "dcc_type": "blender", "score": 98, "tags": [], "loaded": true},
-                    {"tool_slug": "blender.abc.render", "backend_tool": "render", "callable_id": "render", "dcc_type": "blender", "score": 85, "tags": [], "loaded": true}
-                ]
+                    {"tool_slug": "blender.abc.create_cube", "backend_tool": "create_cube", "dcc_type": "blender", "score": 98, "loaded": true},
+                    {"tool_slug": "blender.abc.render", "backend_tool": "render", "dcc_type": "blender", "score": 85, "loaded": true}
+                ],
+                "capped": false
             },
             "skills": {
                 "skills": [
-                    {"name": "blender-export", "dcc_type": "blender", "score": 90},
-                    {"name": "blender-import", "dcc_type": "blender", "score": 80}
+                    {"tool_slug": "blender.abc.blender-export", "skill_name": "blender-export", "dcc_type": "blender", "score": 90},
+                    {"tool_slug": "blender.abc.blender-import", "skill_name": "blender-import", "dcc_type": "blender", "score": 80}
                 ],
                 "total": 2,
                 "capped": false
