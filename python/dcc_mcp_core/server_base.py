@@ -395,8 +395,6 @@ class DccServerBase:
         if readiness is not None and hasattr(readiness, "mark_skill_catalog_ready"):
             readiness.mark_skill_catalog_ready()
 
-
-
     def reload_skill_paths(
         self,
         extra_skill_paths: list[str] | None = None,
