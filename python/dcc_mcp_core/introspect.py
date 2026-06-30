@@ -383,6 +383,7 @@ def register_introspect_tools(
 
         def wrapper(params: Any) -> Any:
             args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
+            args.pop("_meta", None)
             return fn(**args)
 
         return wrapper
