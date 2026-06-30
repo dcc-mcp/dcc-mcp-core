@@ -8,6 +8,7 @@ the schema DCC-agnostic; adapters can store host-specific state in
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
 import logging
@@ -252,6 +253,8 @@ class ProjectToolsIntegration:
         Tag passed to ``register_project_tools``.
     scene_resolver:
         Strategy used to discover the *current* host scene path.
+
+
     """
 
     def __init__(
@@ -285,13 +288,13 @@ class ProjectToolsIntegration:
                 factory = project_factory or DccProject.open
                 try:
                     project = factory(scene)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     logger.debug("ProjectToolsIntegration.bind: project factory failed: %s", exc)
                     project = None
 
         try:
             register_project_tools(inner, dcc_name=self.dcc_name, project=project)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("ProjectToolsIntegration.bind: register_project_tools raised: %s", exc)
             return False
 
@@ -317,14 +320,14 @@ class ProjectToolsIntegration:
     def _safe_resolve_scene(self) -> str | None:
         try:
             scene = self.scene_resolver.current_scene()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("ProjectToolsIntegration: scene resolver raised: %s", exc)
             return None
         if not scene:
             return None
         try:
             return str(Path(scene).absolute())
-        except Exception:  # noqa: BLE001
+        except Exception:
             return str(scene)
 
 

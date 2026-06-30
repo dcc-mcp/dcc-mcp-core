@@ -103,7 +103,14 @@ class CoreBuiltinActionsPhase(RegistrationPhase):
     name = "core_builtin_actions"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._register_core_builtin_actions(context)
+        if hasattr(context.server, "_register_core_builtin_actions"):
+            context.server._register_core_builtin_actions(context)
+        else:
+            context.server.register_builtin_actions(
+                extra_skill_paths=context.extra_skill_paths,
+                include_bundled=context.include_bundled,
+                minimal_mode=context.minimal_mode,
+            )
 
 
 class StrictSkillScanPhase(RegistrationPhase):
@@ -113,7 +120,14 @@ class StrictSkillScanPhase(RegistrationPhase):
     fatal_exceptions = (ValueError,)
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._run_strict_skill_scan_phase(context)
+        if hasattr(context.server, "_run_strict_skill_scan_phase"):
+            context.server._run_strict_skill_scan_phase(context)
+        elif hasattr(context.server, "_run_strict_skill_scan_if_enabled"):
+            context.server._run_strict_skill_scan_if_enabled(
+                context.strict_scan,
+                context.extra_skill_paths,
+                context.include_bundled,
+            )
 
 
 class MetadataDrivenToolsPhase(RegistrationPhase):
@@ -122,7 +136,23 @@ class MetadataDrivenToolsPhase(RegistrationPhase):
     name = "metadata_driven_tools"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._register_metadata_driven_tools(context)
+        if hasattr(context.server, "_register_metadata_driven_tools"):
+            context.server._register_metadata_driven_tools(context)
+        else:
+            try:
+                from dcc_mcp_core.metadata_registration import register_metadata_driven_tools
+            except ImportError:
+                return
+            paths = context.server.collect_skill_search_paths(
+                extra_paths=context.extra_skill_paths,
+                include_bundled=context.include_bundled,
+                filter_existing=True,
+            )
+            register_metadata_driven_tools(
+                context.server._server,
+                dcc_name=context.server._dcc_name,
+                extra_paths=paths,
+            )
 
 
 class IntrospectToolsPhase(RegistrationPhase):
@@ -131,7 +161,14 @@ class IntrospectToolsPhase(RegistrationPhase):
     name = "introspect_tools"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._register_introspect_tools(context)
+        if hasattr(context.server, "_register_introspect_tools"):
+            context.server._register_introspect_tools()
+        else:
+            try:
+                from dcc_mcp_core.introspect import register_introspect_tools
+            except ImportError:
+                return
+            register_introspect_tools(context.server._server, dcc_name=context.server._dcc_name)
 
 
 class FeedbackToolPhase(RegistrationPhase):
@@ -140,7 +177,14 @@ class FeedbackToolPhase(RegistrationPhase):
     name = "feedback_tool"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._register_feedback_tool(context)
+        if hasattr(context.server, "_register_feedback_tool"):
+            context.server._register_feedback_tool()
+        else:
+            try:
+                from dcc_mcp_core.feedback import register_feedback_tool
+            except ImportError:
+                return
+            register_feedback_tool(context.server._server, dcc_name=context.server._dcc_name)
 
 
 class QtUiInspectorPhase(RegistrationPhase):
@@ -149,7 +193,8 @@ class QtUiInspectorPhase(RegistrationPhase):
     name = "qt_ui_inspector"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._register_qt_ui_inspector(context)
+        if hasattr(context.server, "_register_qt_ui_inspector"):
+            context.server._register_qt_ui_inspector()
 
 
 class CapabilityManifestPhase(RegistrationPhase):
@@ -158,7 +203,8 @@ class CapabilityManifestPhase(RegistrationPhase):
     name = "capability_manifest"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._register_capability_manifest_tool(context)
+        if hasattr(context.server, "_register_capability_manifest_tool"):
+            context.server._register_capability_manifest_tool()
 
 
 class ProjectToolsPhase(RegistrationPhase):
@@ -167,7 +213,8 @@ class ProjectToolsPhase(RegistrationPhase):
     name = "project_tools"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._attach_project_tools(context)
+        if hasattr(context.server, "_attach_project_tools"):
+            context.server._attach_project_tools()
 
 
 class ResourcesPhase(RegistrationPhase):
@@ -176,7 +223,8 @@ class ResourcesPhase(RegistrationPhase):
     name = "resources"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._attach_resources(context)
+        if hasattr(context.server, "_attach_resources"):
+            context.server._attach_resources()
 
 
 class SkillCatalogReadyPhase(RegistrationPhase):
@@ -185,7 +233,10 @@ class SkillCatalogReadyPhase(RegistrationPhase):
     name = "skill_catalog_ready"
 
     def run(self, context: RegistrationContext) -> None:
-        context.server._mark_skill_catalog_ready(context)
+        if hasattr(context.server, "_readiness") and hasattr(context.server._readiness, "mark_skill_catalog_ready"):
+            context.server._readiness.mark_skill_catalog_ready()
+        elif hasattr(context.server, "_mark_skill_catalog_ready"):
+            context.server._mark_skill_catalog_ready()
 
 
 def get_standard_phases() -> list[RegistrationPhase]:
