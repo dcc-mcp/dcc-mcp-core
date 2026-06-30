@@ -230,8 +230,8 @@ pub async fn tool_search(
             // per-hit payload is trimmed before merging (same fields as the
             // single-kind compact path).  Also cap cross-category total
             // hits to avoid unbounded kind=all output.
-            let compact_tools = compact_tools_hits(&tools_value);
-            let compact_skills = compact_skills_list(&skills_value);
+            let compact_tools = crate::gateway::response_codec::compact_tools_hits(&tools_value);
+            let compact_skills = crate::gateway::response_codec::compact_skills_list(&skills_value);
             Ok(serde_json::to_string_pretty(&json!({
                 "search_id": search_id,
                 "ranker_version": ranker_version,
@@ -246,51 +246,6 @@ pub async fn tool_search(
             tool_search_tools(gs, args, trace_context, session_id, agent_context).await
         }
     }
-}
-
-/// Compact tools hits from a search response, keeping only the fields
-/// that `compact_search_payload` preserves for the single-kind path.
-fn compact_tools_hits(tools_value: &Value) -> Value {
-    let hits = tools_value
-        .get("hits")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let total = tools_value
-        .get("total")
-        .and_then(Value::as_u64)
-        .and_then(|v| usize::try_from(v).ok())
-        .unwrap_or(hits.len());
-    crate::gateway::response_codec::compact_search_payload(total, &hits)
-}
-
-/// Compact skills list payload, keeping only the lightweight per-skill
-/// fields used for discovery.  Also caps the skill count so kind=all
-/// output stays bounded.
-const MAX_KIND_ALL_SKILLS: usize = 20;
-const MAX_KIND_ALL_TOOLS: usize = 25;
-
-fn compact_skills_list(skills_value: &Value) -> Value {
-    let skills = skills_value
-        .get("skills")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let total = skills_value
-        .get("total")
-        .and_then(Value::as_u64)
-        .and_then(|v| usize::try_from(v).ok())
-        .unwrap_or(skills.len());
-    let capped: Vec<Value> = skills
-        .into_iter()
-        .take(MAX_KIND_ALL_SKILLS)
-        .map(|skill| crate::gateway::response_codec::compact_record(&skill))
-        .collect();
-    json!({
-        "skills": capped,
-        "total": total.min(MAX_KIND_ALL_SKILLS),
-        "capped": total > MAX_KIND_ALL_SKILLS,
-    })
 }
 
 /// Unified describe: `tool_slug` for backend schema, or `skill_name` for skill detail.

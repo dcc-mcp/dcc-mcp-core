@@ -337,6 +337,52 @@ pub(crate) fn compact_record(record: &Value) -> Value {
     Value::Object(out)
 }
 
+/// Compact tools hits from a kind=all search response, keeping only the
+/// fields that `compact_search_payload` preserves for the single-kind path.
+pub(crate) fn compact_tools_hits(tools_value: &Value) -> Value {
+    let hits = tools_value
+        .get("hits")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total = tools_value
+        .get("total")
+        .and_then(Value::as_u64)
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(hits.len());
+    compact_search_payload(total, &hits)
+}
+
+/// Compact skills list payload for kind=all, keeping only the lightweight
+/// per-skill fields used for discovery.  Also caps the skill count so
+/// kind=all output stays bounded.
+const MAX_KIND_ALL_SKILLS: usize = 20;
+// Cross-category tool cap (per tools.rs kind=all path).
+const MAX_KIND_ALL_TOOLS: usize = 25;
+
+pub(crate) fn compact_skills_list(skills_value: &Value) -> Value {
+    let skills = skills_value
+        .get("skills")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total = skills_value
+        .get("total")
+        .and_then(Value::as_u64)
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(skills.len());
+    let capped: Vec<Value> = skills
+        .into_iter()
+        .take(MAX_KIND_ALL_SKILLS)
+        .map(|skill| compact_record(&skill))
+        .collect();
+    json!({
+        "skills": capped,
+        "total": total.min(MAX_KIND_ALL_SKILLS),
+        "capped": total > MAX_KIND_ALL_SKILLS,
+    })
+}
+
 fn token_accounting_for_compact_value(value: &Value) -> Option<Value> {
     encode_response(value, Some(value), ResponseFormat::Toon)
         .ok()
