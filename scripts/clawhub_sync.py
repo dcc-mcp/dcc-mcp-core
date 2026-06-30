@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Any
 
 import dcc_mcp_core
@@ -17,7 +18,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".github" / "clawhub-skills.json"
 DEFAULT_CLI = os.environ.get("CLAWHUB_CLI_PACKAGE", "clawhub@0.17.0")
 CLAWHUB_LICENSE = "MIT-0"
+MAX_RETRIES = 3
 VERSION_EXISTS_RE = re.compile(r"\bVersion(?:\s+\S+)?\s+already exists\b")
+RETRYABLE_RE = re.compile(
+    r"\b(?:Embedding failed|Please try again|reset in \d+s)\b",
+    re.IGNORECASE,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,6 +102,12 @@ def version_already_exists(proc: subprocess.CompletedProcess[str]) -> bool:
     return VERSION_EXISTS_RE.search(output) is not None
 
 
+def is_retryable(proc: subprocess.CompletedProcess[str]) -> bool:
+    """Return True when ClawHub output indicates a transient retryable failure."""
+    output = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+    return RETRYABLE_RE.search(output) is not None
+
+
 def publish_one(
     entry: dict[str, Any],
     *,
@@ -147,11 +159,24 @@ def publish_one(
         return 0
 
     print(f"Publishing {slug}@{version} from {skill_dir} ...", flush=True)
-    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
-    print_completed_process_output(proc)
-    if proc.returncode != 0 and version_already_exists(proc):
-        print(f"{slug}@{version} already exists on ClawHub; skipping.")
-        return 0
+    for attempt in range(1, MAX_RETRIES + 1):
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        print_completed_process_output(proc)
+        if proc.returncode == 0:
+            return 0
+        if version_already_exists(proc):
+            print(f"{slug}@{version} already exists on ClawHub; skipping.")
+            return 0
+        if attempt < MAX_RETRIES and is_retryable(proc):
+            wait = 2**attempt
+            print(
+                f"Transient ClawHub error for {slug}@{version}; "
+                f"retrying in {wait}s (attempt {attempt}/{MAX_RETRIES}) ...",
+                flush=True,
+            )
+            time.sleep(wait)
+        else:
+            return int(proc.returncode)
     return int(proc.returncode)
 
 
