@@ -218,6 +218,138 @@ class DccProject:
         return True
 
 
+# ---------------------------------------------------------------------------
+# Scene resolution strategy
+# ---------------------------------------------------------------------------
+
+
+class BaseSceneResolver:
+    """Strategy for resolving the *current* host scene path.
+
+    Adapters should subclass this and implement :meth:`current_scene` to
+    enable argument-less project tool calls.
+    """
+
+    def current_scene(self) -> str | None:
+        """Return the absolute scene path, or ``None`` when unavailable."""
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Integration object
+# ---------------------------------------------------------------------------
+
+
+class ProjectToolsIntegration:
+    """Bind ``register_project_tools`` against a DCC server.
+
+    The integration handles host-side scene resolution so agents can call
+    ``project_save`` with no arguments.
+
+    Parameters
+    ----------
+    dcc_name:
+        Tag passed to ``register_project_tools``.
+    scene_resolver:
+        Strategy used to discover the *current* host scene path.
+    """
+
+    def __init__(
+        self,
+        dcc_name: str,
+        *,
+        scene_resolver: BaseSceneResolver | None = None,
+    ) -> None:
+        self.dcc_name = dcc_name
+        self.scene_resolver = scene_resolver or BaseSceneResolver()
+        self.bound_scene: str | None = None
+        self.bound_project: DccProject | None = None
+        self.registered: bool = False
+
+    def bind(
+        self,
+        server: Any,
+        *,
+        project_factory: Callable[[str | Path], DccProject] | None = None,
+        explicit_project: DccProject | None = None,
+    ) -> bool:
+        """Register the four project tools on *server*."""
+        inner = self._inner_server(server)
+        if inner is None:
+            return False
+
+        project = explicit_project
+        if project is None:
+            scene = self._safe_resolve_scene()
+            if scene:
+                factory = project_factory or DccProject.open
+                try:
+                    project = factory(scene)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("ProjectToolsIntegration.bind: project factory failed: %s", exc)
+                    project = None
+
+        try:
+            register_project_tools(inner, dcc_name=self.dcc_name, project=project)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ProjectToolsIntegration.bind: register_project_tools raised: %s", exc)
+            return False
+
+        self.bound_scene = project.state.scene_path if project and project.state else None
+        self.bound_project = project
+        self.registered = True
+        logger.info(
+            "[%s] project tools registered (default scene=%s)",
+            self.dcc_name,
+            self.bound_scene or "<none>",
+        )
+        return True
+
+    @staticmethod
+    def _inner_server(server: Any) -> Any:
+        """Return the inner Rust ``McpHttpServer`` (or ``None``)."""
+        # DccServerBase stores it in _server
+        inner = getattr(server, "_server", server)
+        if not hasattr(inner, "register_handler") or not hasattr(inner, "registry"):
+            return None
+        return inner
+
+    def _safe_resolve_scene(self) -> str | None:
+        try:
+            scene = self.scene_resolver.current_scene()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("ProjectToolsIntegration: scene resolver raised: %s", exc)
+            return None
+        if not scene:
+            return None
+        try:
+            return str(Path(scene).absolute())
+        except Exception:  # noqa: BLE001
+            return str(scene)
+
+
+def attach_project_tools(
+    server: Any,
+    *,
+    dcc_name: str,
+    scene_resolver: BaseSceneResolver | None = None,
+    project_factory: Callable[[str | Path], DccProject] | None = None,
+    explicit_project: DccProject | None = None,
+    enabled: bool = True,
+) -> ProjectToolsIntegration | None:
+    """One-shot helper to wire project tools into a server."""
+    if not enabled:
+        return None
+    integration = ProjectToolsIntegration(dcc_name=dcc_name, scene_resolver=scene_resolver)
+    if integration.bind(
+        server,
+        project_factory=project_factory,
+        explicit_project=explicit_project,
+    ):
+        return integration
+    return None
+
+
 # ── MCP tools (issue #576) ────────────────────────────────────────────────
 
 _PROJECT_SAVE_SCHEMA: dict[str, Any] = {
@@ -482,7 +614,10 @@ __all__ = [
     "PROJECT_SAVE_TOOL",
     "PROJECT_STATE_FILE",
     "PROJECT_STATUS_TOOL",
+    "BaseSceneResolver",
     "DccProject",
     "ProjectState",
+    "ProjectToolsIntegration",
+    "attach_project_tools",
     "register_project_tools",
 ]
