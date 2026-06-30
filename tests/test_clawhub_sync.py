@@ -140,7 +140,9 @@ class TestClawhubSync:
         assert "retrying in 2s" in captured.out
         assert "Published example@1.2.3" in captured.out
 
-    def test_publish_retries_embedding_failure_then_treats_existing_as_success(self, tmp_path, monkeypatch, capsys) -> None:
+    def test_publish_retries_embedding_failure_then_treats_existing_as_success(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
         sync = load_sync_module()
         skill_dir = tmp_path / "skills" / "example"
         skill_dir.mkdir(parents=True)
@@ -268,7 +270,6 @@ class TestClawhubSync:
 
         assert rc == 1
         assert len(calls) == 1
-
 
     def test_clawhub_skill_versions_follow_release_please(self) -> None:
         entries = json.loads(MANIFEST.read_text(encoding="utf-8"))

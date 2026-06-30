@@ -168,7 +168,7 @@ def publish_one(
             print(f"{slug}@{version} already exists on ClawHub; skipping.")
             return 0
         if attempt < MAX_RETRIES and is_retryable(proc):
-            wait = 2 ** attempt
+            wait = 2**attempt
             print(
                 f"Transient ClawHub error for {slug}@{version}; "
                 f"retrying in {wait}s (attempt {attempt}/{MAX_RETRIES}) ...",
