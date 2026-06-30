@@ -357,8 +357,6 @@ pub(crate) fn compact_tools_hits(tools_value: &Value) -> Value {
 /// per-skill fields used for discovery.  Also caps the skill count so
 /// kind=all output stays bounded.
 const MAX_KIND_ALL_SKILLS: usize = 20;
-// Cross-category tool cap (per tools.rs kind=all path).
-const MAX_KIND_ALL_TOOLS: usize = 25;
 
 pub(crate) fn compact_skills_list(skills_value: &Value) -> Value {
     let skills = skills_value
