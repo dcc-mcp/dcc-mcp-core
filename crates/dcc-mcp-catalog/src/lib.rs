@@ -143,40 +143,107 @@ pub fn load_from_str(text: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
 
 // ── search / describe ─────────────────────────────────────────────────────────
 
-/// Search catalog entries.
+/// A scored reference into the catalog entry slice.
+///
+/// Storing indices instead of full [`CatalogEntry`] clones avoids allocating
+/// hundreds of entries before the caller trims to a paginated page.
+#[derive(Debug, Clone, Copy)]
+pub struct SearchHit {
+    /// Index into the source `&[CatalogEntry]` slice.
+    pub index: usize,
+    /// Match quality score (higher = better match).
+    ///
+    /// Currently a simple 1-point per matched field; callers that need richer
+    /// ranking can sort by this score before paginating.
+    pub score: u32,
+}
+
+/// Score every matching entry and return lightweight index references.
 ///
 /// `query` is matched case-insensitively against `name`, `description`,
 /// `dcc`, `tags`, version/maintainer metadata, and install URL.  An empty query
-/// returns all entries.
-pub fn search(entries: &[CatalogEntry], query: &str) -> Vec<CatalogEntry> {
+/// returns all entries with a score of 1.
+///
+/// Callers should sort the returned hits by their chosen criteria (e.g.
+/// alphabetically by name, or by score), then materialise only the needed page
+/// via [`materialise_page`].
+pub fn search_hits(entries: &[CatalogEntry], query: &str) -> Vec<SearchHit> {
     if query.is_empty() {
-        return entries.to_vec();
+        return entries
+            .iter()
+            .enumerate()
+            .map(|(i, _)| SearchHit { index: i, score: 1 })
+            .collect();
     }
     let q = query.to_lowercase();
     entries
         .iter()
-        .filter(|e| {
-            e.name.to_lowercase().contains(&q)
-                || e.description.to_lowercase().contains(&q)
-                || e.dcc.iter().any(|d| d.to_lowercase().contains(&q))
-                || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
-                || e.version
-                    .as_deref()
-                    .is_some_and(|version| version.to_lowercase().contains(&q))
-                || e.maintainer
-                    .as_deref()
-                    .is_some_and(|maintainer| maintainer.to_lowercase().contains(&q))
-                || e.install
-                    .as_ref()
-                    .and_then(|install| install.url.as_deref())
-                    .is_some_and(|url| url.to_lowercase().contains(&q))
-                || e.install
-                    .as_ref()
-                    .and_then(|install| install.instructions_url.as_deref())
-                    .is_some_and(|url| url.to_lowercase().contains(&q))
+        .enumerate()
+        .filter_map(|(i, e)| {
+            let mut score: u32 = 0;
+            if e.name.to_lowercase().contains(&q) {
+                score += 1;
+            }
+            if e.description.to_lowercase().contains(&q) {
+                score += 1;
+            }
+            if e.dcc.iter().any(|d| d.to_lowercase().contains(&q)) {
+                score += 1;
+            }
+            if e.tags.iter().any(|t| t.to_lowercase().contains(&q)) {
+                score += 1;
+            }
+            if e.version
+                .as_deref()
+                .is_some_and(|version| version.to_lowercase().contains(&q))
+            {
+                score += 1;
+            }
+            if e.maintainer
+                .as_deref()
+                .is_some_and(|maintainer| maintainer.to_lowercase().contains(&q))
+            {
+                score += 1;
+            }
+            if e.install
+                .as_ref()
+                .and_then(|install| install.url.as_deref())
+                .is_some_and(|url| url.to_lowercase().contains(&q))
+            {
+                score += 1;
+            }
+            if e.install
+                .as_ref()
+                .and_then(|install| install.instructions_url.as_deref())
+                .is_some_and(|url| url.to_lowercase().contains(&q))
+            {
+                score += 1;
+            }
+            if score > 0 {
+                Some(SearchHit { index: i, score })
+            } else {
+                None
+            }
         })
-        .cloned()
         .collect()
+}
+
+/// Clone entries for a sorted page of [`SearchHit`]s.
+///
+/// `hits` is typically the result of [`search_hits`] after sorting and
+/// slicing to `offset..offset+limit`. Only the entries referenced by the
+/// final window are cloned.
+pub fn materialise_page(entries: &[CatalogEntry], hits: &[SearchHit]) -> Vec<CatalogEntry> {
+    hits.iter().map(|h| entries[h.index].clone()).collect()
+}
+
+/// Search catalog entries (backward-compatible convenience wrapper).
+///
+/// Returns cloned entries for every match.  Prefer [`search_hits`] +
+/// [`materialise_page`] for paginated or score-aware callers.
+pub fn search(entries: &[CatalogEntry], query: &str) -> Vec<CatalogEntry> {
+    let hits = search_hits(entries, query);
+    materialise_page(entries, &hits)
 }
 
 /// Look up a single entry by exact name.
@@ -367,10 +434,77 @@ entries:
     }
 
     #[test]
-    fn test_describe_found() {
+    fn test_search_hits_scored() {
         let entries = sample_entries();
-        let entry = describe(&entries, "dcc-mcp-blender-skills").unwrap();
-        assert_eq!(entry.dcc, vec!["blender"]);
+        let hits = search_hits(&entries, "maya");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].index, 0);
+        // "maya" matches: name (dcc-mcp-**maya**-skills), description (**Maya**),
+        // dcc (["maya"]), tags (["maya"]) = score 4
+        assert_eq!(hits[0].score, 4);
+    }
+
+    #[test]
+    fn test_search_hits_empty_query_scores_all() {
+        let entries = sample_entries();
+        let hits = search_hits(&entries, "");
+        assert_eq!(hits.len(), 3);
+        assert!(hits.iter().all(|h| h.score == 1));
+    }
+
+    #[test]
+    fn test_materialise_page_respects_order() {
+        let entries = sample_entries();
+        let mut hits = search_hits(&entries, "");
+        // Reverse: houdini (idx 2), blender (idx 1), maya (idx 0)
+        hits.sort_by(|a, b| b.index.cmp(&a.index));
+        let page = materialise_page(&entries, &hits);
+        assert_eq!(page[0].name, "dcc-mcp-houdini-vfx");
+        assert_eq!(page[1].name, "dcc-mcp-blender-skills");
+        assert_eq!(page[2].name, "dcc-mcp-maya-skills");
+    }
+
+    #[test]
+    fn test_materialise_page_clones_only_window() {
+        let entries = sample_entries();
+        let mut hits = search_hits(&entries, "");
+        hits.sort_by(|a, b| entries[a.index].name.cmp(&entries[b.index].name));
+        // YAML order: maya(0), blender(1), houdini(2)
+        // Sorted alphabetically: blender(1), houdini(2), maya(0)
+        let page_hits = &hits[0..2];
+        let page = materialise_page(&entries, page_hits);
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].name, "dcc-mcp-blender-skills");
+        assert_eq!(page[1].name, "dcc-mcp-houdini-vfx");
+    }
+
+    #[test]
+    fn test_search_backward_compat() {
+        let entries = sample_entries();
+        let results = search(&entries, "blender");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "dcc-mcp-blender-skills");
+    }
+
+    #[test]
+    fn test_search_hits_score_multiple_fields() {
+        // An entry where "maya" appears in name, description, dcc, AND tags
+        let entries = vec![CatalogEntry {
+            name: "maya-toolkit".into(),
+            description: "Advanced Maya pipeline tools".into(),
+            dcc: vec!["maya".into()],
+            url: None,
+            tags: vec!["maya".into(), "official".into()],
+            version: None,
+            min_core_version: None,
+            install: None,
+            maintainer: None,
+            icon: None,
+        }];
+        let hits = search_hits(&entries, "maya");
+        assert_eq!(hits.len(), 1);
+        // name + description + dcc + tags = 4
+        assert_eq!(hits[0].score, 4);
     }
 
     #[test]

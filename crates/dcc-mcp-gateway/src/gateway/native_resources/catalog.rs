@@ -152,7 +152,13 @@ pub fn pointer() -> Value {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Query {
     /// Index, optionally filtered by keyword.
-    List { query: String },
+    List {
+        query: String,
+        /// Max entries to return (default: no limit — all matches).
+        limit: Option<usize>,
+        /// Zero-based offset into the result set (default: 0).
+        offset: usize,
+    },
     /// Single entry by exact name.
     Single { name: String },
 }
@@ -166,6 +172,8 @@ pub fn parse(uri: &str) -> Option<Query> {
             // `gateway://catalog/` collapses to the list root.
             return Some(Query::List {
                 query: String::new(),
+                limit: None,
+                offset: 0,
             });
         }
         return Some(Query::Single {
@@ -177,11 +185,21 @@ pub fn parse(uri: &str) -> Option<Query> {
     if path != ROOT_URI {
         return None;
     }
-    let q = query
-        .map(parse_query)
-        .and_then(|m| m.get("query").map(|s| s.to_string()))
-        .unwrap_or_default();
-    Some(Query::List { query: q })
+    let m = query.map(parse_query).unwrap_or_default();
+    let q = m.get("query").map(|s| s.to_string()).unwrap_or_default();
+    let limit = m
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0);
+    let offset = m
+        .get("offset")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    Some(Query::List {
+        query: q,
+        limit,
+        offset,
+    })
 }
 
 /// Render the payload for a `gateway://catalog*` read.
@@ -189,14 +207,26 @@ pub async fn build_payload(query: &Query) -> Result<Value, String> {
     let entries = catalog_entries().await?;
 
     match query {
-        Query::List { query } => {
-            let mut hits = dcc_mcp_catalog::search(&entries, query);
-            hits.sort_by(|a, b| a.name.cmp(&b.name));
+        Query::List {
+            query,
+            limit,
+            offset,
+        } => {
+            let mut hits = dcc_mcp_catalog::search_hits(&entries, query);
+            // Sort alphabetically by name (stable behaviour).
+            hits.sort_by(|a, b| entries[a.index].name.cmp(&entries[b.index].name));
+            let total = hits.len();
+            let start = (*offset).min(total);
+            let end = limit.map_or(total, |lim| total.min(start + lim));
+            let page = &hits[start..end];
+            let page_entries = dcc_mcp_catalog::materialise_page(&entries, page);
             Ok(json!({
-                "total":   hits.len(),
+                "total":   total,
                 "query":   query,
+                "limit":   limit,
+                "offset":  offset,
                 "source":  "marketplace",
-                "entries": hits,
+                "entries": page_entries,
             }))
         }
         Query::Single { name } => match dcc_mcp_catalog::describe(&entries, name) {
@@ -248,7 +278,9 @@ mod tests {
         assert_eq!(
             parse("gateway://catalog"),
             Some(Query::List {
-                query: String::new()
+                query: String::new(),
+                limit: None,
+                offset: 0,
             })
         );
     }
@@ -258,7 +290,34 @@ mod tests {
         assert_eq!(
             parse("gateway://catalog?query=maya"),
             Some(Query::List {
-                query: "maya".to_string()
+                query: "maya".to_string(),
+                limit: None,
+                offset: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_root_with_pagination() {
+        assert_eq!(
+            parse("gateway://catalog?query=maya&limit=10&offset=20"),
+            Some(Query::List {
+                query: "maya".to_string(),
+                limit: Some(10),
+                offset: 20,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_root_limit_zero_is_none() {
+        // limit=0 is treated as no-limit (None).
+        assert_eq!(
+            parse("gateway://catalog?query=maya&limit=0"),
+            Some(Query::List {
+                query: "maya".to_string(),
+                limit: None,
+                offset: 0,
             })
         );
     }
@@ -345,6 +404,8 @@ entries:
 
         let v = build_payload(&Query::List {
             query: String::new(),
+            limit: None,
+            offset: 0,
         })
         .await
         .expect("build_payload should succeed");
@@ -363,11 +424,57 @@ entries:
 
         let v = build_payload(&Query::List {
             query: "maya".to_string(),
+            limit: None,
+            offset: 0,
         })
         .await
         .expect("build_payload should succeed");
 
         assert_eq!(v["total"], 1);
+        assert_eq!(v["entries"][0]["name"], "maya-skills");
+    }
+
+    #[tokio::test]
+    async fn build_payload_list_paginated_limit() {
+        LOADER.clear_cache().await;
+        let f = write_catalog_yaml(TWO_ENTRY_YAML);
+        let _g = EnvVarsGuard::set(&[
+            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
+            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
+        ]);
+
+        let v = build_payload(&Query::List {
+            query: String::new(),
+            limit: Some(1),
+            offset: 0,
+        })
+        .await
+        .expect("build_payload should succeed");
+
+        assert_eq!(v["total"], 2, "total should reflect full result count");
+        assert_eq!(v["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(v["entries"][0]["name"], "blender-skills");
+    }
+
+    #[tokio::test]
+    async fn build_payload_list_paginated_offset() {
+        LOADER.clear_cache().await;
+        let f = write_catalog_yaml(TWO_ENTRY_YAML);
+        let _g = EnvVarsGuard::set(&[
+            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
+            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
+        ]);
+
+        let v = build_payload(&Query::List {
+            query: String::new(),
+            limit: None,
+            offset: 1,
+        })
+        .await
+        .expect("build_payload should succeed");
+
+        assert_eq!(v["total"], 2);
+        assert_eq!(v["entries"].as_array().unwrap().len(), 1);
         assert_eq!(v["entries"][0]["name"], "maya-skills");
     }
 
