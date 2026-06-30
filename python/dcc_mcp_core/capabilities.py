@@ -19,19 +19,21 @@ SOLID notes
 
 from __future__ import annotations
 
-import json
+from dataclasses import asdict
+from dataclasses import dataclass
+from dataclasses import field
 import logging
 import re
-from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from typing import Callable
 
 from dcc_mcp_core import json_dumps
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "CapabilityRecord",
     "CapabilityManifestBuilder",
+    "CapabilityRecord",
     "build_manifest_payload",
     "register_capability_mcp_tool",
 ]
@@ -49,17 +51,17 @@ class CapabilityRecord:
     skill_name: str
     summary: str
     loaded: bool
-    tags: List[str] = field(default_factory=list)
-    execution: Optional[str] = None
-    affinity: Optional[str] = None
-    timeout_hint_secs: Optional[int] = None
+    tags: list[str] = field(default_factory=list)
+    execution: str | None = None
+    affinity: str | None = None
+    timeout_hint_secs: int | None = None
     has_schema: bool = False
-    group: Optional[str] = None
-    load_hint: Dict[str, Any] = field(default_factory=dict)
+    group: str | None = None
+    load_hint: dict[str, Any] = field(default_factory=dict)
     requires_load_skill: bool = False
-    callable_id: Optional[str] = None
+    callable_id: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Plain dict form suitable for JSON serialisation."""
         payload = asdict(self)
         out = {k: v for k, v in payload.items() if v not in (None, [], "", {})}
@@ -77,10 +79,10 @@ class CapabilityManifestBuilder:
         self,
         dcc_name: str,
         *,
-        skill_lister: Optional[Callable[[], List[Any]]] = None,
-        action_lister: Optional[Callable[[], List[Any]]] = None,
-        is_loaded: Optional[Callable[[str], bool]] = None,
-        skill_info_lister: Optional[Callable[[str], Any]] = None,
+        skill_lister: Callable[[], list[Any]] | None = None,
+        action_lister: Callable[[], list[Any]] | None = None,
+        is_loaded: Callable[[str], bool] | None = None,
+        skill_info_lister: Callable[[str], Any] | None = None,
     ) -> None:
         self._dcc_name = dcc_name
         self._skill_lister = skill_lister
@@ -88,10 +90,10 @@ class CapabilityManifestBuilder:
         self._is_loaded = is_loaded
         self._skill_info_lister = skill_info_lister
 
-    def build(self) -> List[CapabilityRecord]:
+    def build(self) -> list[CapabilityRecord]:
         """Return records for every non-stub action in the catalog."""
         skills_by_name = self._collect_skill_info()
-        records: List[CapabilityRecord] = []
+        records: list[CapabilityRecord] = []
         covered_tools: set[str] = set()
 
         for action in self._collect_actions():
@@ -119,13 +121,13 @@ class CapabilityManifestBuilder:
 
         return records
 
-    def _collect_skill_info(self) -> Dict[str, Dict[str, Any]]:
-        skills: Dict[str, Dict[str, Any]] = {}
+    def _collect_skill_info(self) -> dict[str, dict[str, Any]]:
+        skills: dict[str, dict[str, Any]] = {}
         if self._skill_lister is None:
             return skills
         try:
             raw = self._skill_lister() or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("capability manifest: skill_lister failed: %s", exc)
             return skills
 
@@ -137,21 +139,21 @@ class CapabilityManifestBuilder:
             skills[name] = entry
         return skills
 
-    def _collect_actions(self) -> List[Dict[str, Any]]:
+    def _collect_actions(self) -> list[dict[str, Any]]:
         if self._action_lister is None:
             return []
         try:
             raw = self._action_lister() or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("capability manifest: action_lister failed: %s", exc)
             return []
         return [_as_dict(a) for a in raw if a]
 
     def _project_action(
         self,
-        action: Dict[str, Any],
-        skills_by_name: Dict[str, Dict[str, Any]],
-    ) -> Optional[CapabilityRecord]:
+        action: dict[str, Any],
+        skills_by_name: dict[str, dict[str, Any]],
+    ) -> CapabilityRecord | None:
         name = action.get("name") or action.get("tool")
         if not name or _is_stub(name):
             return None
@@ -169,7 +171,7 @@ class CapabilityManifestBuilder:
             200,
         )
 
-        tags: List[str] = []
+        tags: list[str] = []
         for source in (
             action.get("tags"),
             skill_info.get("tags"),
@@ -201,7 +203,7 @@ class CapabilityManifestBuilder:
             callable_id=name,
         )
 
-    def _collect_skill_tools(self, skill_name: str, skill_info: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _collect_skill_tools(self, skill_name: str, skill_info: dict[str, Any]) -> list[dict[str, Any]]:
         tools = skill_info.get("tools") or skill_info.get("actions")
         if isinstance(tools, list) and tools and isinstance(tools[0], dict):
             return [dict(t) for t in tools]
@@ -210,7 +212,7 @@ class CapabilityManifestBuilder:
             return []
         try:
             info = self._skill_info_lister(skill_name)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("capability manifest: skill_info(%r) raised %s", skill_name, exc)
             return []
         if not info:
@@ -223,9 +225,9 @@ class CapabilityManifestBuilder:
         self,
         *,
         skill_name: str,
-        tool: Dict[str, Any],
-        skill_info: Dict[str, Any],
-    ) -> Optional[CapabilityRecord]:
+        tool: dict[str, Any],
+        skill_info: dict[str, Any],
+    ) -> CapabilityRecord | None:
         tool_name = tool.get("name") or tool.get("tool")
         if not tool_name or _is_stub(tool_name):
             return None
@@ -233,7 +235,7 @@ class CapabilityManifestBuilder:
         backend_tool = "{}__{}".format(skill_name.replace("-", "_"), tool_name)
         summary = _truncate(_first_nonempty(tool.get("summary"), tool.get("description"), ""), 160)
 
-        tags: List[str] = []
+        tags: list[str] = []
         for source in (
             tool.get("tags"),
             skill_info.get("tags"),
@@ -268,22 +270,22 @@ class CapabilityManifestBuilder:
             return False
         try:
             return bool(self._is_loaded(skill_name))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("capability manifest: is_loaded(%r) raised %s", skill_name, exc)
             return False
 
 
 def build_manifest_payload(
-    records: List[CapabilityRecord],
+    records: list[CapabilityRecord],
     *,
     dcc_name: str,
-    dcc_version: Optional[str] = None,
-    scene: Optional[str] = None,
-    display_name: Optional[str] = None,
-    instance_id: Optional[str] = None,
-    documents: Optional[List[str]] = None,
-    extra_metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    dcc_version: str | None = None,
+    scene: str | None = None,
+    display_name: str | None = None,
+    instance_id: str | None = None,
+    documents: list[str] | None = None,
+    extra_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Wrap records with instance metadata for gateway ingestion."""
     loaded_records = [r for r in records if r.loaded]
     unloaded_records = [r for r in records if not r.loaded]
@@ -318,7 +320,7 @@ def register_capability_mcp_tool(
     *,
     builder: CapabilityManifestBuilder,
     dcc_name: str,
-    metadata_provider: Optional[Callable[[], Dict[str, Any]]] = None,
+    metadata_provider: Callable[[], dict[str, Any]] | None = None,
 ) -> bool:
     """Register ``dcc_capability_manifest`` as an MCP tool."""
     inner = getattr(server, "_server", None)
@@ -344,7 +346,7 @@ def register_capability_mcp_tool(
         "additionalProperties": False,
     }
 
-    def handler(params: Dict[str, Any]) -> Dict[str, Any]:
+    def handler(params: dict[str, Any]) -> dict[str, Any]:
         records = builder.build()
         if params.get("loaded_only"):
             records = [r for r in records if r.loaded]
@@ -386,7 +388,7 @@ def register_capability_mcp_tool(
         )
         inner.register_handler(tool_name, handler)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("capability manifest: registration failed: %s", exc)
         return False
 
@@ -397,20 +399,20 @@ _SLUG_CLEAN_RE = re.compile(r"[^A-Za-z0-9_]")
 def _slugify_tool_slug(dcc_name: str, tool_name: str) -> str:
     clean_dcc = _SLUG_CLEAN_RE.sub("_", dcc_name)
     clean_tool = _SLUG_CLEAN_RE.sub("_", tool_name)
-    return "{}.instance.{}".format(clean_dcc, clean_tool)
+    return f"{clean_dcc}.instance.{clean_tool}"
 
 
 def _is_stub(name: str) -> bool:
     return name.startswith(_SKILL_STUB_PREFIX) or name.startswith(_GROUP_STUB_PREFIX)
 
 
-def _derive_skill(tool_name: str) -> Optional[str]:
+def _derive_skill(tool_name: str) -> str | None:
     if "__" not in tool_name:
         return None
     return tool_name.split("__", 1)[0].replace("_", "-")
 
 
-def _as_dict(value: Any) -> Dict[str, Any]:
+def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     to_dict = getattr(value, "to_dict", None)
@@ -421,7 +423,7 @@ def _as_dict(value: Any) -> Dict[str, Any]:
                 return result
         except (TypeError, ValueError, AttributeError):
             pass
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for attr in dir(value):
         if attr.startswith("_"):
             continue
@@ -435,7 +437,7 @@ def _as_dict(value: Any) -> Dict[str, Any]:
     return out
 
 
-def _as_str_list(value: Any) -> List[str]:
+def _as_str_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
@@ -458,13 +460,13 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
-def _maybe_str(value: Any) -> Optional[str]:
+def _maybe_str(value: Any) -> str | None:
     if value is None or value == "":
         return None
     return str(value)
 
 
-def _maybe_int(value: Any) -> Optional[int]:
+def _maybe_int(value: Any) -> int | None:
     if value in (None, ""):
         return None
     try:
@@ -473,7 +475,7 @@ def _maybe_int(value: Any) -> Optional[int]:
         return None
 
 
-def _extract_instance_id(server: Any) -> Optional[str]:
+def _extract_instance_id(server: Any) -> str | None:
     for chain in (
         ("instance_id",),
         ("_config", "instance_id"),
