@@ -233,7 +233,7 @@ pub fn tokenize(s: &str) -> Vec<String> {
 }
 
 /// Field token buckets for a single skill, used during scoring.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FieldTokens {
     pub name: Vec<String>,
     pub tags: Vec<String>,
@@ -372,10 +372,54 @@ pub fn score_skills(
     layer_filter_explicit: bool,
     path_sources: Option<&[SkillPathSource]>,
 ) -> Vec<Scored> {
+    let fields: Vec<FieldTokens> = skills
+        .iter()
+        .map(|m| FieldTokens::from_metadata(m))
+        .collect();
+    let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
+    score_skills_with_tokens(
+        query,
+        skills,
+        scopes,
+        layer_filter_explicit,
+        path_sources,
+        &fields,
+        &doc_lens,
+    )
+}
+
+/// Score skills using pre-computed [`FieldTokens`] and document lengths.
+///
+/// This is the fast path: the caller supplies already-tokenised fields
+/// (e.g. from cached [`SkillEntry::field_tokens`]) so no re-tokenisation
+/// happens at query time.
+///
+/// `fields` and `doc_lens` must be the same length as `skills`.
+/// `skills` is still required for the metadata needed during scoring
+/// (name, layer, etc.).
+pub fn score_skills_with_tokens(
+    query: &str,
+    skills: &[&SkillMetadata],
+    scopes: &[SkillScope],
+    layer_filter_explicit: bool,
+    path_sources: Option<&[SkillPathSource]>,
+    fields: &[FieldTokens],
+    doc_lens: &[usize],
+) -> Vec<Scored> {
     assert_eq!(
         skills.len(),
         scopes.len(),
         "skills and scopes slices must be the same length"
+    );
+    assert_eq!(
+        skills.len(),
+        fields.len(),
+        "skills and fields slices must be the same length"
+    );
+    assert_eq!(
+        skills.len(),
+        doc_lens.len(),
+        "skills and doc_lens slices must be the same length"
     );
     if let Some(srcs) = path_sources {
         assert_eq!(
@@ -388,13 +432,6 @@ pub fn score_skills(
     let tokens = tokenize(query);
     let q_trim_lower = query.trim().to_lowercase();
     let q_raw_lower = query.to_lowercase();
-
-    // Pre-compute field tokens and document lengths.
-    let fields: Vec<FieldTokens> = skills
-        .iter()
-        .map(|m| FieldTokens::from_metadata(m))
-        .collect();
-    let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
 
     let total_docs = skills.len();
     let avgdl: f64 = if total_docs == 0 {

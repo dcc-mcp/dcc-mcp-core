@@ -74,12 +74,12 @@ pub fn make_catalog_with_dispatcher() -> (SkillCatalog, Arc<ToolDispatcher>) {
 pub fn add_skill_with_scope(catalog: &SkillCatalog, meta: SkillMetadata, scope: SkillScope) {
     catalog.entries.insert(
         meta.name.clone(),
-        SkillEntry {
-            metadata: meta,
-            state: SkillState::Discovered,
-            registered_tools: Vec::new(),
+        SkillEntry::new(
+            meta,
+            SkillState::Discovered,
+            Vec::new(),
             scope,
-            path_source: Default::default(),
-        },
+            Default::default(),
+        ),
     );
 }

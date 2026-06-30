@@ -1789,6 +1789,7 @@ dependencies = [
 name = "dcc-mcp-skills"
 version = "0.19.2"
 dependencies = [
+ "criterion",
  "dashmap",
  "dcc-mcp-actions",
  "dcc-mcp-models",
@@ -1802,6 +1803,7 @@ dependencies = [
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
+ "rand 0.8.6",
  "serde",
  "serde_json",
  "serde_yaml_ng",

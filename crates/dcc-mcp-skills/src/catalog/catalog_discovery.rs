@@ -233,13 +233,13 @@ impl SkillCatalog {
             if !self.entries.contains_key(&name) {
                 self.entries.insert(
                     name,
-                    SkillEntry {
-                        metadata: skill,
-                        state: SkillState::Discovered,
-                        registered_tools: Vec::new(),
-                        scope: SkillScope::Repo,
+                    SkillEntry::new(
+                        skill,
+                        SkillState::Discovered,
+                        Vec::new(),
+                        SkillScope::Repo,
                         path_source,
-                    },
+                    ),
                 );
                 new_count += 1;
             }
@@ -288,19 +288,22 @@ impl SkillCatalog {
             if let Some(mut entry) = self.entries.get_mut(&name) {
                 entry.metadata = skill;
                 entry.path_source = path_source;
+                entry.field_tokens =
+                    crate::catalog::scoring::FieldTokens::from_metadata(&entry.metadata);
+                entry.doc_len = entry.field_tokens.doc_len();
                 if entry.state != SkillState::Loaded {
                     entry.state = SkillState::Discovered;
                 }
             } else {
                 self.entries.insert(
                     name,
-                    SkillEntry {
-                        metadata: skill,
-                        state: SkillState::Discovered,
-                        registered_tools: Vec::new(),
-                        scope: SkillScope::Repo,
+                    SkillEntry::new(
+                        skill,
+                        SkillState::Discovered,
+                        Vec::new(),
+                        SkillScope::Repo,
                         path_source,
-                    },
+                    ),
                 );
                 added += 1;
             }
@@ -344,18 +347,21 @@ impl SkillCatalog {
         if let Some(mut entry) = self.entries.get_mut(&name) {
             if entry.state != SkillState::Loaded {
                 entry.metadata = metadata;
+                entry.field_tokens =
+                    crate::catalog::scoring::FieldTokens::from_metadata(&entry.metadata);
+                entry.doc_len = entry.field_tokens.doc_len();
                 entry.state = SkillState::Discovered;
             }
         } else {
             self.entries.insert(
                 name,
-                SkillEntry {
+                SkillEntry::new(
                     metadata,
-                    state: SkillState::Discovered,
-                    registered_tools: Vec::new(),
-                    scope: SkillScope::Repo,
-                    path_source: Default::default(),
-                },
+                    SkillState::Discovered,
+                    Vec::new(),
+                    SkillScope::Repo,
+                    Default::default(),
+                ),
             );
         }
         self.refresh_dependency_states();
@@ -396,13 +402,13 @@ impl SkillCatalog {
                 if !self.entries.contains_key(&name) {
                     self.entries.insert(
                         name,
-                        SkillEntry {
-                            metadata: skill,
-                            state: SkillState::Discovered,
-                            registered_tools: Vec::new(),
-                            scope: *scope,
-                            path_source: Default::default(),
-                        },
+                        SkillEntry::new(
+                            skill,
+                            SkillState::Discovered,
+                            Vec::new(),
+                            *scope,
+                            Default::default(),
+                        ),
                     );
                     total_new += 1;
                 }

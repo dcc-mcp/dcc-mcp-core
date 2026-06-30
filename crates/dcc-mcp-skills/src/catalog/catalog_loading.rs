@@ -209,13 +209,13 @@ impl SkillCatalog {
 
         self.entries.insert(
             skill_name.clone(),
-            SkillEntry {
+            SkillEntry::new(
                 metadata,
-                state: SkillState::Discovered,
-                registered_tools: Vec::new(),
+                SkillState::Discovered,
+                Vec::new(),
                 scope,
                 path_source,
-            },
+            ),
         );
         self.refresh_dependency_states();
         self.load_skill(&skill_name)
