@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.1...v0.19.2) (2026-06-30)
+
+
+### Bug Fixes
+
+* **ci:** retry ClawHub skill publish on transient embedding failures ([#1769](https://github.com/dcc-mcp/dcc-mcp-core/issues/1769)) ([7417966](https://github.com/dcc-mcp/dcc-mcp-core/commit/7417966d233f82f8f6e443e8412ce3f66566a6bf))
+* **gateway:** compact kind=all search to stay within MCP token limits ([#1767](https://github.com/dcc-mcp/dcc-mcp-core/issues/1767)) ([6388695](https://github.com/dcc-mcp/dcc-mcp-core/commit/6388695cba09975bc37b85c09e6fc8ba036fa5ce))
+* **introspect:** strip _meta from tool arguments ([#1768](https://github.com/dcc-mcp/dcc-mcp-core/issues/1768)) ([e0ada6f](https://github.com/dcc-mcp/dcc-mcp-core/commit/e0ada6f148cfb7c4f3f5990c1527550a91811c87))
+
+
+### Code Refactoring
+
+* shared builtin action registration pipeline ([#1771](https://github.com/dcc-mcp/dcc-mcp-core/issues/1771)) ([055439a](https://github.com/dcc-mcp/dcc-mcp-core/commit/055439a5d36358b47449a1a86915ba9088907be4))
+
 ## [0.19.1](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.0...v0.19.1) (2026-06-28)
 
 
