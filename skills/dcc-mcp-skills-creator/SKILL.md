@@ -117,6 +117,9 @@ Generated `tools.yaml` entries follow the modern contract:
   not repo names or prose-only instructions. Use it when one skill must be
   discovered or loaded before another, for example `depends: ["qt-ui-inspector"]`.
 - `input_schema` and `output_schema` are declared explicitly.
+- Runtime discovery never imports or executes tool scripts to infer missing
+  schemas by default. Treat Python-derived schemas as an authoring-time helper:
+  generate them before publishing, then commit the JSON Schema to `tools.yaml`.
 - Keep MCP-facing `input_schema` shapes simple: prefer a top-level object with
   `properties`, `required`, primitive `type`, bounds, and descriptions. Put
   mutually exclusive forms, conditional requirements, and cross-field rules in
@@ -134,7 +137,7 @@ Generated `tools.yaml` entries follow the modern contract:
 2. Give the skill a kebab-case name and each local tool a snake_case name.
 3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
 4. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
-5. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
+5. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. Do not rely on runtime Python introspection for missing schemas. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
 6. Put long examples, recipes, and host-specific notes under `references/`.
 7. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
 8. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.

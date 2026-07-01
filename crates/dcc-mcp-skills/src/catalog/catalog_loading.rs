@@ -427,11 +427,12 @@ impl SkillCatalog {
                 return Err(err);
             }
 
-            // Generate input_schema: prefer tools.yaml if present, otherwise derive from Python signature
+            // Prefer manifest schemas. Runtime Python introspection is opt-in
+            // because importing arbitrary skill scripts during discovery can
+            // spawn DCC host Python processes and run module-level side effects.
             let input_schema = if tool_decl.input_schema.is_null() {
-                // Try to generate schema from Python script signature
                 if let Some(ref script_path) = script_path {
-                    crate::catalog::schema_gen::generate_input_schema(script_path, None)
+                    crate::catalog::schema_gen::generate_input_schema_if_enabled(script_path, None)
                         .unwrap_or_else(|| serde_json::json!({"type": "object"}))
                 } else {
                     serde_json::json!({"type": "object"})
@@ -533,9 +534,8 @@ impl SkillCatalog {
                     .unwrap_or("unknown");
                 let action_name = format!("{}__{}", skill_base, stem.replace('-', "_"));
 
-                // Try to generate schema from Python script signature
                 let input_schema =
-                    crate::catalog::schema_gen::generate_input_schema(script_path, None)
+                    crate::catalog::schema_gen::generate_input_schema_if_enabled(script_path, None)
                         .unwrap_or_else(|| serde_json::json!({"type": "object"}));
 
                 let meta = ToolMeta {

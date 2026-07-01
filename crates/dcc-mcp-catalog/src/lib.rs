@@ -457,7 +457,7 @@ entries:
         let entries = sample_entries();
         let mut hits = search_hits(&entries, "");
         // Reverse: houdini (idx 2), blender (idx 1), maya (idx 0)
-        hits.sort_by(|a, b| b.index.cmp(&a.index));
+        hits.sort_by_key(|h| std::cmp::Reverse(h.index));
         let page = materialise_page(&entries, &hits);
         assert_eq!(page[0].name, "dcc-mcp-houdini-vfx");
         assert_eq!(page[1].name, "dcc-mcp-blender-skills");

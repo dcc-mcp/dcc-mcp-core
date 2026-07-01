@@ -324,6 +324,13 @@ decl = ToolDeclaration(
 | `defer_loading` | `bool` | `False` | Accepts `defer-loading` / `defer_loading` in SKILL.md and marks the declaration as discovery-oriented |
 | `source_file` | `str` | `""` | Explicit path to the script (relative to skill dir) |
 
+Runtime discovery is manifest-first: if `input_schema` is omitted, loaded and
+unloaded tool metadata falls back to `{"type": "object"}`. Core does not import
+or execute tool scripts to infer schemas during normal DCC startup, search, or
+describe calls. Set `DCC_MCP_ENABLE_SCHEMA_INTROSPECTION=1` only as a
+development/migration aid, then copy the generated schema into `tools.yaml` or
+register it through `ToolSpec`.
+
 ### Deriving `input_schema` / `output_schema` from Python types (#242)
 
 Hand-writing JSON Schema is error-prone — agent-authored actions drift,
@@ -388,6 +395,10 @@ spell containers and unions with `typing.List`, `typing.Dict`,
 The core package still imports without third-party Python library dependencies. Unsupported
 types raise `TypeError` with a clear escape hatch: pass an explicit
 `input_schema=...` dict or use pydantic's `MyModel.model_json_schema()`.
+
+This helper is for Python registration-time authoring (`ToolSpec`) and offline
+schema generation. It is not part of the default file-based skill discovery
+path, which intentionally avoids importing arbitrary DCC scripts.
 
 ::: tip Why not pydantic?
 We intentionally stay free of third-party Python library dependencies. Adding `pydantic` for this one
