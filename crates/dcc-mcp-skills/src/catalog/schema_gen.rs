@@ -1,19 +1,22 @@
-//! Generate JSON Schema from Python script signatures.
+//! Opt-in JSON Schema generation from Python script signatures.
 //!
-//! This module provides functionality to introspect Python scripts and generate
-//! JSON Schema compatible `inputSchema` for MCP tools. It uses a helper Python
-//! script to extract function signatures, type annotations, defaults, and
-//! docstring parameter descriptions.
+//! Runtime skill discovery is manifest-first and does not import or execute
+//! Python scripts unless `DCC_MCP_ENABLE_SCHEMA_INTROSPECTION=1` is set. The
+//! helper path remains for development and migration tooling that needs to
+//! derive `inputSchema` from a script signature before committing it to
+//! `tools.yaml`.
 
 use parking_lot::Mutex;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::UNIX_EPOCH;
 
 const HELPER_SOURCE: &str = include_str!("../../scripts/generate_input_schema.py");
+const ENABLE_SCHEMA_INTROSPECTION_ENV: &str = "DCC_MCP_ENABLE_SCHEMA_INTROSPECTION";
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct SchemaCacheKey {
@@ -73,22 +76,46 @@ pub fn generate_input_schema<P: AsRef<Path>>(
     schema
 }
 
+/// Return true when runtime Python schema introspection is explicitly enabled.
+///
+/// The default runtime path is manifest-first: skill authors declare
+/// `input_schema` in `tools.yaml`, like FastMCP/LangChain keep schemas attached
+/// to registered tools. Importing arbitrary skill scripts during discovery is
+/// kept as a development escape hatch because it can spawn DCC host Python
+/// processes and run module-level side effects.
+pub fn schema_introspection_enabled() -> bool {
+    std::env::var(ENABLE_SCHEMA_INTROSPECTION_ENV).is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+/// Generate a script-derived schema only when explicitly enabled.
+pub fn generate_input_schema_if_enabled<P: AsRef<Path>>(
+    script_path: P,
+    function_name: Option<&str>,
+) -> Option<JsonValue> {
+    if !schema_introspection_enabled() {
+        return None;
+    }
+    generate_input_schema(script_path, function_name)
+}
+
 fn generate_input_schema_uncached(
     script_path: &Path,
     function_name: Option<&str>,
 ) -> Option<JsonValue> {
     // Try to find Python interpreter (try python first, then python3)
     let python_cmd = find_python_interpreter()?;
+    let helper_path = schema_helper_script_path()?;
 
-    // Build command: python -c <embedded helper> <script_path> [function_name]
-    let mut cmd = Command::new(python_cmd);
-    cmd.arg("-c");
-    cmd.arg(HELPER_SOURCE);
-    cmd.arg(script_path);
-
-    if let Some(func_name) = function_name {
-        cmd.arg(func_name);
-    }
+    // Build command: python <materialized helper> <script_path> [function_name].
+    // Keeping the helper source out of argv prevents DCC process inspectors from
+    // accumulating huge repeated command lines during skill scans.
+    let mut cmd =
+        build_schema_helper_command(&python_cmd, &helper_path, script_path, function_name);
 
     // Execute and capture output
     let output = match cmd.output() {
@@ -133,10 +160,60 @@ fn generate_input_schema_uncached(
     }
 }
 
+fn schema_helper_script_path() -> Option<PathBuf> {
+    static HELPER_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+    HELPER_PATH.get_or_init(materialize_schema_helper).clone()
+}
+
+fn materialize_schema_helper() -> Option<PathBuf> {
+    let mut hasher = DefaultHasher::new();
+    HELPER_SOURCE.hash(&mut hasher);
+    let helper_hash = hasher.finish();
+    let dir = std::env::temp_dir().join("dcc-mcp-core");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(
+            "Failed to create schema helper temp directory '{}': {}",
+            dir.display(),
+            e
+        );
+        return None;
+    }
+
+    let path = dir.join(format!(
+        "generate_input_schema-{helper_hash:x}-{}.py",
+        std::process::id()
+    ));
+    if let Err(e) = std::fs::write(&path, HELPER_SOURCE) {
+        tracing::warn!(
+            "Failed to materialize schema helper script '{}': {}",
+            path.display(),
+            e
+        );
+        return None;
+    }
+    Some(path)
+}
+
+fn build_schema_helper_command(
+    python_cmd: &str,
+    helper_path: &Path,
+    script_path: &Path,
+    function_name: Option<&str>,
+) -> Command {
+    let mut cmd = Command::new(python_cmd);
+    cmd.arg(helper_path);
+    cmd.arg(script_path);
+    if let Some(func_name) = function_name {
+        cmd.arg(func_name);
+    }
+    cmd
+}
+
 /// Find available Python interpreter.
 ///
-/// The result is cached in a `OnceLock` — the shell-out to `python
-/// --version` only happens once per process lifetime.
+/// `DCC_MCP_PYTHON_EXECUTABLE` is honored first so DCC hosts can use mayapy,
+/// hython, or another host interpreter. The result is cached in a `OnceLock`;
+/// set the env var before the server starts.
 fn find_python_interpreter() -> Option<String> {
     static PYTHON_CMD: OnceLock<Option<String>> = OnceLock::new();
     PYTHON_CMD
@@ -145,6 +222,23 @@ fn find_python_interpreter() -> Option<String> {
 }
 
 fn find_python_interpreter_uncached() -> Option<String> {
+    if let Ok(cmd) = std::env::var("DCC_MCP_PYTHON_EXECUTABLE")
+        && !cmd.trim().is_empty()
+    {
+        if crate::gui_executable::is_gui_executable(Path::new(&cmd)).is_some() {
+            tracing::warn!(
+                "Ignoring DCC_MCP_PYTHON_EXECUTABLE for schema generation because it points to a GUI DCC executable: {}",
+                cmd
+            );
+        } else if Command::new(&cmd)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+        {
+            return Some(cmd);
+        }
+    }
+
     // List of possible Python commands to try (in order of preference)
     let candidates = ["python", "python3", "py"];
 
@@ -181,6 +275,10 @@ pub fn validate_schema_drift(
     defined_schema: &JsonValue,
     script_path: Option<&str>,
 ) -> bool {
+    if !schema_introspection_enabled() {
+        return true;
+    }
+
     let Some(script_path) = script_path else {
         return true; // No script to validate against
     };
@@ -239,6 +337,7 @@ pub fn validate_schema_drift(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dcc_mcp_test_utils::EnvVarsGuard;
     use std::env;
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -421,24 +520,100 @@ def main(value: int):
 "#,
         );
 
-        let old_counter = env::var_os("DCC_MCP_SCHEMA_COUNTER");
-        unsafe {
-            env::set_var("DCC_MCP_SCHEMA_COUNTER", &counter);
-        }
+        let counter_value = counter.to_string_lossy().into_owned();
+        let _env = EnvVarsGuard::set(&[("DCC_MCP_SCHEMA_COUNTER", Some(counter_value.as_str()))]);
         let first = generate_input_schema(script.path(), Some("main"));
         let second = generate_input_schema(script.path(), Some("main"));
-        if let Some(value) = old_counter {
-            unsafe {
-                env::set_var("DCC_MCP_SCHEMA_COUNTER", value);
-            }
-        } else {
-            unsafe {
-                env::remove_var("DCC_MCP_SCHEMA_COUNTER");
-            }
-        }
 
         assert!(first.is_some());
         assert_eq!(first, second);
+        assert_eq!(std::fs::read_to_string(counter).unwrap(), "1");
+    }
+
+    #[test]
+    fn test_schema_helper_command_uses_materialized_script() {
+        let helper_path = schema_helper_script_path().expect("helper script should materialize");
+        assert!(helper_path.is_file());
+        assert_eq!(
+            std::fs::read_to_string(&helper_path).unwrap(),
+            HELPER_SOURCE
+        );
+
+        let script_path = Path::new("tool.py");
+        let cmd = build_schema_helper_command("python", &helper_path, script_path, Some("main"));
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+
+        assert!(!args.iter().any(|arg| arg == "-c"));
+        assert!(!args.iter().any(|arg| arg.contains("Generate JSON Schema")));
+        assert_eq!(args[0], helper_path.to_string_lossy());
+        assert_eq!(args[1], script_path.to_string_lossy());
+        assert_eq!(args[2], "main");
+    }
+
+    #[test]
+    fn test_schema_introspection_is_opt_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let counter = dir.path().join("counter.txt");
+        std::fs::write(&counter, "0").unwrap();
+        let script = create_test_script(
+            r#"
+import os
+from pathlib import Path
+
+counter = Path(os.environ["DCC_MCP_SCHEMA_COUNTER"])
+counter.write_text(str(int(counter.read_text() or "0") + 1))
+
+
+def main(value: int):
+    pass
+"#,
+        );
+
+        let counter_value = counter.to_string_lossy().into_owned();
+        let _env = EnvVarsGuard::set(&[
+            ("DCC_MCP_ENABLE_SCHEMA_INTROSPECTION", None),
+            ("DCC_MCP_SCHEMA_COUNTER", Some(counter_value.as_str())),
+        ]);
+
+        assert!(generate_input_schema_if_enabled(script.path(), Some("main")).is_none());
+        assert_eq!(std::fs::read_to_string(counter).unwrap(), "0");
+    }
+
+    #[test]
+    fn test_schema_introspection_opt_in_runs_helper() {
+        if Command::new("python").arg("--version").output().is_err() {
+            eprintln!("Skipping test: Python interpreter not found in PATH");
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let counter = dir.path().join("counter.txt");
+        std::fs::write(&counter, "0").unwrap();
+        let script = create_test_script(
+            r#"
+import os
+from pathlib import Path
+
+counter = Path(os.environ["DCC_MCP_SCHEMA_COUNTER"])
+counter.write_text(str(int(counter.read_text() or "0") + 1))
+
+
+def main(value: int):
+    pass
+"#,
+        );
+
+        let counter_value = counter.to_string_lossy().into_owned();
+        let _env = EnvVarsGuard::set(&[
+            ("DCC_MCP_ENABLE_SCHEMA_INTROSPECTION", Some("1")),
+            ("DCC_MCP_SCHEMA_COUNTER", Some(counter_value.as_str())),
+        ]);
+
+        let schema = generate_input_schema_if_enabled(script.path(), Some("main"));
+        assert!(schema.is_some());
         assert_eq!(std::fs::read_to_string(counter).unwrap(), "1");
     }
 }
