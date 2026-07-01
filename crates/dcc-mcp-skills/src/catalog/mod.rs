@@ -35,6 +35,7 @@
 //! ```
 
 pub mod execute;
+pub mod inverted_index;
 pub mod persistence;
 pub mod schema_gen;
 pub mod scoring;
@@ -65,8 +66,11 @@ use std::sync::Arc;
 use crate::loader;
 use crate::loader::SkippedSkillDiagnostic;
 
+pub(crate) use self::inverted_index::{IndexGuard, InvertedIndex};
+
 #[allow(clippy::module_inception)]
 mod catalog;
+mod catalog_index;
 mod groups;
 pub(crate) mod helpers;
 pub mod list_projection;
@@ -144,6 +148,10 @@ pub struct SkillCatalog {
     pub(super) after_group_change_hook: RwLock<Option<Arc<AfterGroupChangeFn>>>,
     /// Tool groups currently active (`"<skill>:<group>"` keys).
     pub(super) active_groups: DashSet<String>,
+    /// Inverted index for fast `search_skills` scoring. Built lazily on
+    /// the first query, invalidated on any mutation. Wrapped in `RwLock`
+    /// so builds (writer) and reads (readers) can coexist.
+    pub(super) inverted_index: RwLock<IndexGuard>,
 }
 
 impl std::fmt::Debug for SkillCatalog {
@@ -193,6 +201,7 @@ impl Registry<SkillEntry> for SkillCatalog {
         self.skipped.remove(&key);
         self.entries.insert(key, entry);
         self.refresh_dependency_states();
+        self.inverted_index.write().invalidate();
     }
 
     fn get(&self, key: &str) -> Option<SkillEntry> {
@@ -208,6 +217,7 @@ impl Registry<SkillEntry> for SkillCatalog {
         let removed = self.entries.remove(key).is_some();
         if removed {
             self.refresh_dependency_states();
+            self.inverted_index.write().invalidate();
         }
         removed
     }

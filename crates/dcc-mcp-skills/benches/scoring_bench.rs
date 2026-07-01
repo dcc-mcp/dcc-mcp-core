@@ -5,8 +5,9 @@
 //! `score_skills` (re-tokenise every call) vs `score_skills_with_tokens`
 //! (cached tokens) to quantify the allocation/CPU saving.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
+use dcc_mcp_skills::catalog::inverted_index::InvertedIndex;
 use dcc_mcp_skills::catalog::scoring::{FieldTokens, score_skills, score_skills_with_tokens};
 
 // ── Synthetic skill generation ──────────────────────────────────────────
@@ -160,6 +161,28 @@ fn bench_score_skills(c: &mut Criterion) {
                     &field_refs,
                     &doc_lens,
                 );
+            })
+        });
+
+        // ── PIP-2469: inverted index vs linear scan ──
+        let idx = InvertedIndex::build(&fields);
+        let query_tokens = vec!["polygon".to_string(), "bevel".to_string()];
+
+        c.bench_function(&format!("inverted_index_build/{group_label}"), |b| {
+            b.iter(|| {
+                let _ = InvertedIndex::build(&fields);
+            })
+        });
+
+        c.bench_function(&format!("inverted_index_query/{group_label}"), |b| {
+            b.iter(|| {
+                let mut total = 0usize;
+                for token in &query_tokens {
+                    if let Some(postings) = idx.get(token) {
+                        total += postings.count();
+                    }
+                }
+                black_box(total);
             })
         });
     }
