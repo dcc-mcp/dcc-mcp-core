@@ -234,23 +234,13 @@ jobs:
       - name: Stub generation check
         if: matrix.rust-validation == 'full'
         run: vx just stubgen-check
+      # Format is enforced locally via pre-commit (`cargo-fmt` hook) and here via
+      # `fmt-check`. Do not auto-commit fmt fixes in CI — `[skip ci]` on those
+      # bot commits can skip validation of unrelated changes bundled in the same
+      # push (e.g. workspace-hakari sync).
       - name: Rust format check
         if: matrix.rust-validation == 'full'
         run: vx just fmt-check
-      - name: Auto-fix Rust formatting
-        if: failure() && matrix.rust-validation == 'full' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        shell: bash
-        run: |
-          git fetch origin "${{ github.head_ref }}"
-          git checkout -B "${{ github.head_ref }}" "origin/${{ github.head_ref }}"
-          cargo fmt --all
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add -u
-            git commit -m "style: apply cargo fmt [skip ci]"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
       - name: Clippy
         if: matrix.rust-validation == 'full'
         run: vx just clippy
