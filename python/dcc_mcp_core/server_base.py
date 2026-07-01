@@ -353,7 +353,7 @@ class DccServerBase:
                 report.failed_count,
             )
 
-    def _register_introspect_tools(self) -> None:
+    def _register_introspect_tools(self, context: Any | None = None) -> None:
         """Register the four ``dcc_introspect__*`` tools (phase helper)."""
         try:
             from dcc_mcp_core.introspect import register_introspect_tools
@@ -361,7 +361,7 @@ class DccServerBase:
             return
         register_introspect_tools(self._server, dcc_name=self._dcc_name)
 
-    def _register_feedback_tool(self) -> None:
+    def _register_feedback_tool(self, context: Any | None = None) -> None:
         """Register the ``dcc_feedback__report`` MCP tool (phase helper)."""
         try:
             from dcc_mcp_core.feedback import register_feedback_tool
@@ -369,27 +369,27 @@ class DccServerBase:
             return
         register_feedback_tool(self._server, dcc_name=self._dcc_name)
 
-    def _register_qt_ui_inspector(self) -> None:
+    def _register_qt_ui_inspector(self, context: Any | None = None) -> None:
         """Adopt the shared core ``qt_ui_inspector__*`` tools (phase helper)."""
         # Default does nothing; adapters override to wire their specific Qt integration.
         pass
 
-    def _register_capability_manifest_tool(self) -> None:
+    def _register_capability_manifest_tool(self, context: Any | None = None) -> None:
         """Register the ``dcc_capability_manifest`` MCP tool (phase helper)."""
         # Default does nothing; adapters override to wire their specific builder.
         pass
 
-    def _attach_project_tools(self) -> None:
+    def _attach_project_tools(self, context: Any | None = None) -> None:
         """Register the four ``project_*`` MCP tools (phase helper)."""
         # Default does nothing; adapters override if they support project tools.
         pass
 
-    def _attach_resources(self) -> None:
+    def _attach_resources(self, context: Any | None = None) -> None:
         """Publish host-specific dynamic resource producers (phase helper)."""
         # Default does nothing; adapters override if they support resources.
         pass
 
-    def _mark_skill_catalog_ready(self) -> None:
+    def _mark_skill_catalog_ready(self, context: Any | None = None) -> None:
         """Signal that the skill catalog has been populated (phase helper)."""
         readiness = getattr(self, "_readiness", None)
         if readiness is not None and hasattr(readiness, "mark_skill_catalog_ready"):

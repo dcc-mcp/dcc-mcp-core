@@ -162,7 +162,7 @@ class IntrospectToolsPhase(RegistrationPhase):
 
     def run(self, context: RegistrationContext) -> None:
         if hasattr(context.server, "_register_introspect_tools"):
-            context.server._register_introspect_tools()
+            context.server._register_introspect_tools(context)
         else:
             try:
                 from dcc_mcp_core.introspect import register_introspect_tools
@@ -178,7 +178,7 @@ class FeedbackToolPhase(RegistrationPhase):
 
     def run(self, context: RegistrationContext) -> None:
         if hasattr(context.server, "_register_feedback_tool"):
-            context.server._register_feedback_tool()
+            context.server._register_feedback_tool(context)
         else:
             try:
                 from dcc_mcp_core.feedback import register_feedback_tool
@@ -194,7 +194,7 @@ class QtUiInspectorPhase(RegistrationPhase):
 
     def run(self, context: RegistrationContext) -> None:
         if hasattr(context.server, "_register_qt_ui_inspector"):
-            context.server._register_qt_ui_inspector()
+            context.server._register_qt_ui_inspector(context)
 
 
 class CapabilityManifestPhase(RegistrationPhase):
@@ -204,7 +204,7 @@ class CapabilityManifestPhase(RegistrationPhase):
 
     def run(self, context: RegistrationContext) -> None:
         if hasattr(context.server, "_register_capability_manifest_tool"):
-            context.server._register_capability_manifest_tool()
+            context.server._register_capability_manifest_tool(context)
 
 
 class ProjectToolsPhase(RegistrationPhase):
@@ -214,7 +214,7 @@ class ProjectToolsPhase(RegistrationPhase):
 
     def run(self, context: RegistrationContext) -> None:
         if hasattr(context.server, "_attach_project_tools"):
-            context.server._attach_project_tools()
+            context.server._attach_project_tools(context)
 
 
 class ResourcesPhase(RegistrationPhase):
@@ -224,7 +224,7 @@ class ResourcesPhase(RegistrationPhase):
 
     def run(self, context: RegistrationContext) -> None:
         if hasattr(context.server, "_attach_resources"):
-            context.server._attach_resources()
+            context.server._attach_resources(context)
 
 
 class SkillCatalogReadyPhase(RegistrationPhase):
@@ -236,7 +236,7 @@ class SkillCatalogReadyPhase(RegistrationPhase):
         if hasattr(context.server, "_readiness") and hasattr(context.server._readiness, "mark_skill_catalog_ready"):
             context.server._readiness.mark_skill_catalog_ready()
         elif hasattr(context.server, "_mark_skill_catalog_ready"):
-            context.server._mark_skill_catalog_ready()
+            context.server._mark_skill_catalog_ready(context)
 
 
 def get_standard_phases() -> list[RegistrationPhase]:

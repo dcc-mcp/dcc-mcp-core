@@ -165,3 +165,39 @@ def test_host_hook_override_is_dispatched() -> None:
         "resources",
         "ready",
     ]
+
+
+def test_standard_phases_accept_real_dcc_server_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default ``DccServerBase`` hooks must keep the phase dispatcher contract."""
+    from dcc_mcp_core.server_base import DccServerBase
+
+    class MinimalServer(DccServerBase):
+        pass
+
+    server = MinimalServer.__new__(MinimalServer)
+    server._dcc_name = "maya"
+    server._server = object()
+
+    monkeypatch.setattr(DccServerBase, "register_builtin_actions", lambda self, **kwargs: None)
+    monkeypatch.setattr(DccServerBase, "collect_skill_search_paths", lambda self, **kwargs: [])
+
+    import dcc_mcp_core.feedback as feedback
+    import dcc_mcp_core.introspect as introspect
+    import dcc_mcp_core.metadata_registration as metadata_registration
+
+    class _MetadataReport:
+        ok = True
+        registered_count = 0
+        skipped_count = 0
+        failed_count = 0
+
+    monkeypatch.setattr(
+        metadata_registration, "register_metadata_driven_tools", lambda *args, **kwargs: _MetadataReport()
+    )
+    monkeypatch.setattr(introspect, "register_introspect_tools", lambda *args, **kwargs: None)
+    monkeypatch.setattr(feedback, "register_feedback_tool", lambda *args, **kwargs: None)
+
+    report = run_registration_phases(get_standard_phases(), RegistrationContext(server=server))
+
+    assert report.success is True
+    assert [outcome.success for outcome in report.outcomes] == [True] * len(report.outcomes)
