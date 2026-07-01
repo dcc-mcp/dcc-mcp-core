@@ -125,25 +125,25 @@ def test_host_hook_override_is_dispatched() -> None:
         def _register_metadata_driven_tools(self, context):
             self.calls.append("metadata")
 
-        def _register_introspect_tools(self):
+        def _register_introspect_tools(self, context):
             self.calls.append("introspect")
 
-        def _register_feedback_tool(self):
+        def _register_feedback_tool(self, context):
             self.calls.append("feedback")
 
-        def _register_qt_ui_inspector(self):
+        def _register_qt_ui_inspector(self, context):
             self.calls.append("qt")
 
-        def _register_capability_manifest_tool(self):
+        def _register_capability_manifest_tool(self, context):
             self.calls.append("manifest")
 
-        def _attach_project_tools(self):
+        def _attach_project_tools(self, context):
             self.calls.append("project")
 
-        def _attach_resources(self):
+        def _attach_resources(self, context):
             self.calls.append("resources")
 
-        def _mark_skill_catalog_ready(self):
+        def _mark_skill_catalog_ready(self, context):
             self.calls.append("ready")
 
     server = MockServer()
