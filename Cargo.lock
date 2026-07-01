@@ -8035,6 +8035,7 @@ dependencies = [
  "rand 0.8.6",
  "rand 0.9.4",
  "rand_core 0.6.4",
+ "regex",
  "regex-automata",
  "regex-syntax",
  "reqwest 0.13.4",

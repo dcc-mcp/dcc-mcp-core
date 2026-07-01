@@ -89,8 +89,8 @@ impl SkillCatalog {
             let scopes: Vec<SkillScope> = prefiltered.iter().map(|e| e.scope).collect();
             let path_sources: Vec<scoring::SkillPathSource> =
                 prefiltered.iter().map(|e| e.path_source).collect();
-            let fields: Vec<scoring::FieldTokens> =
-                prefiltered.iter().map(|e| e.field_tokens.clone()).collect();
+            let fields: Vec<&scoring::FieldTokens> =
+                prefiltered.iter().map(|e| &e.field_tokens).collect();
             let doc_lens: Vec<usize> = prefiltered.iter().map(|e| e.doc_len).collect();
             let scored = scoring::score_skills_with_tokens(
                 q_trim,

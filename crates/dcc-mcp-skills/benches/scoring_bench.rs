@@ -150,13 +150,14 @@ fn bench_score_skills(c: &mut Criterion) {
 
         c.bench_function(&format!("cached_tokens/{group_label}"), |b| {
             b.iter(|| {
+                let field_refs: Vec<&FieldTokens> = fields.iter().collect();
                 let _ = score_skills_with_tokens(
                     "polygon bevel",
                     &skill_refs,
                     &scopes,
                     false,
                     None,
-                    &fields,
+                    &field_refs,
                     &doc_lens,
                 );
             })

@@ -214,6 +214,14 @@ impl SkillEntry {
             doc_len,
         }
     }
+
+    /// Re-compute `field_tokens` and `doc_len` from the current
+    /// `metadata`. Call after any mutation that changes the skill's
+    /// searchable text (description, tags, tools, search_aliases, etc.).
+    pub fn refresh_tokens(&mut self) {
+        self.field_tokens = crate::catalog::scoring::FieldTokens::from_metadata(&self.metadata);
+        self.doc_len = self.field_tokens.doc_len();
+    }
 }
 
 // ── RegistryEntry impl ───────────────────────────────────────────────────────

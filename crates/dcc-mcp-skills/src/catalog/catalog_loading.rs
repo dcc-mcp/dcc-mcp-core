@@ -593,6 +593,7 @@ impl SkillCatalog {
 
         if let Some(mut entry) = self.entries.get_mut(skill_name) {
             entry.metadata = metadata.clone();
+            entry.refresh_tokens();
             entry.state = SkillState::Loaded;
             entry.registered_tools = registered.clone();
         }

@@ -288,9 +288,7 @@ impl SkillCatalog {
             if let Some(mut entry) = self.entries.get_mut(&name) {
                 entry.metadata = skill;
                 entry.path_source = path_source;
-                entry.field_tokens =
-                    crate::catalog::scoring::FieldTokens::from_metadata(&entry.metadata);
-                entry.doc_len = entry.field_tokens.doc_len();
+                entry.refresh_tokens();
                 if entry.state != SkillState::Loaded {
                     entry.state = SkillState::Discovered;
                 }
@@ -347,9 +345,7 @@ impl SkillCatalog {
         if let Some(mut entry) = self.entries.get_mut(&name) {
             if entry.state != SkillState::Loaded {
                 entry.metadata = metadata;
-                entry.field_tokens =
-                    crate::catalog::scoring::FieldTokens::from_metadata(&entry.metadata);
-                entry.doc_len = entry.field_tokens.doc_len();
+                entry.refresh_tokens();
                 entry.state = SkillState::Discovered;
             }
         } else {
