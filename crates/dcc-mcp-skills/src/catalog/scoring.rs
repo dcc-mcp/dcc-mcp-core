@@ -233,7 +233,7 @@ pub fn tokenize(s: &str) -> Vec<String> {
 }
 
 /// Field token buckets for a single skill, used during scoring.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FieldTokens {
     pub name: Vec<String>,
     pub tags: Vec<String>,
@@ -372,10 +372,55 @@ pub fn score_skills(
     layer_filter_explicit: bool,
     path_sources: Option<&[SkillPathSource]>,
 ) -> Vec<Scored> {
+    let fields: Vec<FieldTokens> = skills
+        .iter()
+        .map(|m| FieldTokens::from_metadata(m))
+        .collect();
+    let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
+    let field_refs: Vec<&FieldTokens> = fields.iter().collect();
+    score_skills_with_tokens(
+        query,
+        skills,
+        scopes,
+        layer_filter_explicit,
+        path_sources,
+        &field_refs,
+        &doc_lens,
+    )
+}
+
+/// Score skills using pre-computed [`FieldTokens`] and document lengths.
+///
+/// This is the fast path: the caller supplies already-tokenised fields
+/// (e.g. from cached [`SkillEntry::field_tokens`]) so no re-tokenisation
+/// happens at query time.
+///
+/// `fields` and `doc_lens` must be the same length as `skills`.
+/// `skills` is still required for the metadata needed during scoring
+/// (name, layer, etc.).
+pub fn score_skills_with_tokens(
+    query: &str,
+    skills: &[&SkillMetadata],
+    scopes: &[SkillScope],
+    layer_filter_explicit: bool,
+    path_sources: Option<&[SkillPathSource]>,
+    fields: &[&FieldTokens],
+    doc_lens: &[usize],
+) -> Vec<Scored> {
     assert_eq!(
         skills.len(),
         scopes.len(),
         "skills and scopes slices must be the same length"
+    );
+    assert_eq!(
+        skills.len(),
+        fields.len(),
+        "skills and fields slices must be the same length"
+    );
+    assert_eq!(
+        skills.len(),
+        doc_lens.len(),
+        "skills and doc_lens slices must be the same length"
     );
     if let Some(srcs) = path_sources {
         assert_eq!(
@@ -388,13 +433,6 @@ pub fn score_skills(
     let tokens = tokenize(query);
     let q_trim_lower = query.trim().to_lowercase();
     let q_raw_lower = query.to_lowercase();
-
-    // Pre-compute field tokens and document lengths.
-    let fields: Vec<FieldTokens> = skills
-        .iter()
-        .map(|m| FieldTokens::from_metadata(m))
-        .collect();
-    let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
 
     let total_docs = skills.len();
     let avgdl: f64 = if total_docs == 0 {
@@ -1123,5 +1161,230 @@ mod tests {
         // Identical scores → alphabetical tie-break.
         assert_eq!(out[0].name, "alpha");
         assert_eq!(out[1].name, "beta");
+    }
+
+    // ── cached-path parity (PIP-2467 regression) ─────────────────────────
+
+    #[test]
+    fn test_cached_path_same_as_re_tokenize() {
+        // score_skills_with_tokens (catalog fast path) must produce
+        // identical Scored output to score_skills (re-tokenise every call)
+        // for the same inputs. This guards against the two paths
+        // diverging.
+        let a = mk_full(
+            "maya-geometry",
+            "create polygon bevel tools",
+            "sphere bevel",
+            &["modeling", "geometry"],
+            "maya",
+            &[
+                ("create_sphere", "create a sphere"),
+                ("bevel_edges", "bevel polygon edges"),
+            ],
+        );
+        let b = mk_full(
+            "blender-render",
+            "render bake lighting tools",
+            "render bake",
+            &["rendering"],
+            "blender",
+            &[
+                ("bake_lighting", "bake lightmaps"),
+                ("render_scene", "render the scene"),
+            ],
+        );
+        let c = mk_full(
+            "houdini-sim",
+            "simulate particles fluids",
+            "sim particles",
+            &["simulation", "fx"],
+            "houdini",
+            &[("sim_particles", "simulate particles")],
+        );
+
+        let skills: Vec<&SkillMetadata> = vec![&a, &b, &c];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo, SkillScope::Repo];
+        let queries = ["polygon", "render", "sim", "maya", ""];
+
+        for query in &queries {
+            let from_scratch = score_skills(query, &skills, &scopes, false, None);
+
+            let fields: Vec<FieldTokens> = skills
+                .iter()
+                .map(|m| FieldTokens::from_metadata(m))
+                .collect();
+            let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
+            let field_refs: Vec<&FieldTokens> = fields.iter().collect();
+            let cached = score_skills_with_tokens(
+                query,
+                &skills,
+                &scopes,
+                false,
+                None,
+                &field_refs,
+                &doc_lens,
+            );
+
+            assert_eq!(
+                from_scratch.len(),
+                cached.len(),
+                "result count mismatch for query '{query}'"
+            );
+            for (fs, cs) in from_scratch.iter().zip(cached.iter()) {
+                assert_eq!(fs.index, cs.index, "index mismatch for query '{query}'");
+                assert!(
+                    (fs.score - cs.score).abs() < 1e-12,
+                    "score mismatch for query '{query}': re-tokenize={}, cached={}",
+                    fs.score,
+                    cs.score,
+                );
+                assert_eq!(fs.name, cs.name, "name mismatch for query '{query}'");
+                assert_eq!(
+                    fs.exact_name, cs.exact_name,
+                    "exact_name mismatch for query '{query}'"
+                );
+                assert_eq!(
+                    fs.name_substring_hit, cs.name_substring_hit,
+                    "name_substring_hit mismatch for query '{query}'"
+                );
+                assert_eq!(fs.scope, cs.scope, "scope mismatch for query '{query}'");
+            }
+        }
+    }
+
+    #[test]
+    fn test_cached_path_parity_with_layer_and_path_source_penalties() {
+        // Same parity check as above, but with layer and path-source
+        // multipliers active — ensures penalties compound identically
+        // in both paths.
+        let bundled = mk_full("bundled-tool", "render bake helpers", "", &[], "maya", &[]);
+        let mut infra = mk_full(
+            "dcc-diagnostics",
+            "render bake helpers",
+            "",
+            &[],
+            "maya",
+            &[],
+        );
+        infra.layer = Some("infrastructure".to_string());
+        let mut example = mk_full(
+            "demo-render",
+            "render bake render bake",
+            "",
+            &[],
+            "maya",
+            &[],
+        );
+        example.layer = Some("example".to_string());
+
+        let skills: Vec<&SkillMetadata> = vec![&bundled, &infra, &example];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo, SkillScope::Repo];
+        let path_sources = vec![
+            SkillPathSource::Bundled,
+            SkillPathSource::Bundled,
+            SkillPathSource::Bundled,
+        ];
+
+        let from_scratch =
+            score_skills("render bake", &skills, &scopes, false, Some(&path_sources));
+
+        let fields: Vec<FieldTokens> = skills
+            .iter()
+            .map(|m| FieldTokens::from_metadata(m))
+            .collect();
+        let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
+        let field_refs: Vec<&FieldTokens> = fields.iter().collect();
+        let cached = score_skills_with_tokens(
+            "render bake",
+            &skills,
+            &scopes,
+            false,
+            Some(&path_sources),
+            &field_refs,
+            &doc_lens,
+        );
+
+        assert_eq!(from_scratch.len(), cached.len());
+        for (fs, cs) in from_scratch.iter().zip(cached.iter()) {
+            assert_eq!(fs.index, cs.index);
+            assert!((fs.score - cs.score).abs() < 1e-12);
+            assert_eq!(fs.name, cs.name);
+            assert_eq!(fs.exact_name, cs.exact_name);
+        }
+    }
+
+    #[test]
+    fn test_refresh_tokens_after_metadata_mutation() {
+        // After modifying metadata fields that affect searchable text,
+        // FieldTokens::from_metadata must produce different tokens, and
+        // doc_len must update accordingly.
+        let mut a = mk_full(
+            "maya-geometry",
+            "create polygon bevel tools",
+            "sphere",
+            &[],
+            "maya",
+            &[],
+        );
+        let mut b = mk_full(
+            "blender-render",
+            "render lighting",
+            "lighting",
+            &[],
+            "blender",
+            &[],
+        );
+
+        // Initial tokens
+        let ft_a1 = FieldTokens::from_metadata(&a);
+        let ft_b1 = FieldTokens::from_metadata(&b);
+
+        // Mutate metadata (simulating load_transform)
+        a.description = "create nurbs surface tools".to_string();
+        a.tags = vec!["nurbs".to_string()];
+        b.description = "render global illumination".to_string();
+        b.tags = vec!["gi".to_string()];
+
+        let ft_a2 = FieldTokens::from_metadata(&a);
+        let ft_b2 = FieldTokens::from_metadata(&b);
+
+        // Tokens must have changed after mutation
+        assert_ne!(
+            ft_a1, ft_a2,
+            "tokens must change after description/tags mutation"
+        );
+        assert_ne!(
+            ft_b1, ft_b2,
+            "tokens must change after description/tags mutation"
+        );
+
+        // doc_len must update
+        assert_ne!(ft_a1.doc_len(), ft_a2.doc_len());
+        assert_ne!(ft_b1.doc_len(), ft_b2.doc_len());
+
+        // Verify that the cached path with refreshed tokens produces correct scores
+        let skills: Vec<&SkillMetadata> = vec![&a, &b];
+        let scopes = vec![SkillScope::Repo, SkillScope::Repo];
+        let from_scratch = score_skills("nurbs", &skills, &scopes, false, None);
+
+        let fields: Vec<FieldTokens> = skills
+            .iter()
+            .map(|m| FieldTokens::from_metadata(m))
+            .collect();
+        let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
+        let field_refs: Vec<&FieldTokens> = fields.iter().collect();
+        let cached = score_skills_with_tokens(
+            "nurbs",
+            &skills,
+            &scopes,
+            false,
+            None,
+            &field_refs,
+            &doc_lens,
+        );
+
+        assert_eq!(from_scratch.len(), cached.len());
+        assert_eq!(from_scratch[0].name, "maya-geometry");
+        assert_eq!(cached[0].name, "maya-geometry");
     }
 }

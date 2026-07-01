@@ -209,13 +209,13 @@ impl SkillCatalog {
 
         self.entries.insert(
             skill_name.clone(),
-            SkillEntry {
+            SkillEntry::new(
                 metadata,
-                state: SkillState::Discovered,
-                registered_tools: Vec::new(),
+                SkillState::Discovered,
+                Vec::new(),
                 scope,
                 path_source,
-            },
+            ),
         );
         self.refresh_dependency_states();
         self.load_skill(&skill_name)
@@ -593,6 +593,7 @@ impl SkillCatalog {
 
         if let Some(mut entry) = self.entries.get_mut(skill_name) {
             entry.metadata = metadata.clone();
+            entry.refresh_tokens();
             entry.state = SkillState::Loaded;
             entry.registered_tools = registered.clone();
         }

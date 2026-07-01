@@ -18,12 +18,12 @@ fn skill_catalog_satisfies_registry_contract() {
     use dcc_mcp_models::registry::testing::assert_registry_contract;
     use fixtures::{make_test_catalog, make_test_skill};
 
-    let sample_entry = SkillEntry {
-        metadata: make_test_skill("contract_skill", "maya", &["tool_a"]),
-        state: SkillState::Discovered,
-        registered_tools: Vec::new(),
-        scope: SkillScope::Repo,
-        path_source: Default::default(),
-    };
+    let sample_entry = SkillEntry::new(
+        make_test_skill("contract_skill", "maya", &["tool_a"]),
+        SkillState::Discovered,
+        Vec::new(),
+        SkillScope::Repo,
+        Default::default(),
+    );
     assert_registry_contract(make_test_catalog, sample_entry);
 }

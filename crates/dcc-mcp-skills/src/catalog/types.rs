@@ -86,6 +86,13 @@ pub struct SkillEntry {
     /// for backward compatibility when persisted state lacks the field.
     #[serde(default)]
     pub path_source: crate::catalog::scoring::SkillPathSource,
+    /// Pre-computed tokenised field representation for BM25 scoring.
+    /// Computed once at discovery/load time, reused on every search.
+    #[serde(default)]
+    pub field_tokens: crate::catalog::scoring::FieldTokens,
+    /// Pre-computed document length (total token count across all fields).
+    #[serde(default)]
+    pub doc_len: usize,
 }
 
 // ── Summary / Detail types ──
@@ -183,6 +190,38 @@ pub struct SkillDetail {
     /// Compact aggregate for discovery/detail consumers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<SkillRuntimeSummary>,
+}
+
+impl SkillEntry {
+    /// Create a new [`SkillEntry`] with pre-computed `field_tokens` and
+    /// `doc_len` derived from the metadata.
+    pub fn new(
+        metadata: SkillMetadata,
+        state: SkillState,
+        registered_tools: Vec<String>,
+        scope: SkillScope,
+        path_source: crate::catalog::scoring::SkillPathSource,
+    ) -> Self {
+        let field_tokens = crate::catalog::scoring::FieldTokens::from_metadata(&metadata);
+        let doc_len = field_tokens.doc_len();
+        Self {
+            metadata,
+            state,
+            registered_tools,
+            scope,
+            path_source,
+            field_tokens,
+            doc_len,
+        }
+    }
+
+    /// Re-compute `field_tokens` and `doc_len` from the current
+    /// `metadata`. Call after any mutation that changes the skill's
+    /// searchable text (description, tags, tools, search_aliases, etc.).
+    pub fn refresh_tokens(&mut self) {
+        self.field_tokens = crate::catalog::scoring::FieldTokens::from_metadata(&self.metadata);
+        self.doc_len = self.field_tokens.doc_len();
+    }
 }
 
 // ── RegistryEntry impl ───────────────────────────────────────────────────────
