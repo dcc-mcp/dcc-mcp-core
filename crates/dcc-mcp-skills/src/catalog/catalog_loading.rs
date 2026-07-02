@@ -695,6 +695,10 @@ impl SkillCatalog {
             let _ = self.unload_skill(skill_name);
         }
         self.skipped.remove(skill_name);
+        // Remove from dcc shard before removing from entries.
+        if let Some(entry) = self.entries.get(skill_name) {
+            self.shard_remove(skill_name, &entry.metadata.dcc);
+        }
         let removed = self.entries.remove(skill_name).is_some();
         if removed {
             self.refresh_dependency_states();
@@ -715,6 +719,7 @@ impl SkillCatalog {
         }
         self.entries.clear();
         self.skipped.clear();
+        self.dcc_shards.clear();
         self.inverted_index.write().invalidate();
     }
 

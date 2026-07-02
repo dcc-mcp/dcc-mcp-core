@@ -72,8 +72,10 @@ pub fn make_catalog_with_dispatcher() -> (SkillCatalog, Arc<ToolDispatcher>) {
 /// `add_skill` always tags skills as `Repo`; to exercise scope filtering
 /// we reach past that constructor and inject the entry directly.
 pub fn add_skill_with_scope(catalog: &SkillCatalog, meta: SkillMetadata, scope: SkillScope) {
+    let name = meta.name.clone();
+    let dcc = meta.dcc.clone();
     catalog.entries.insert(
-        meta.name.clone(),
+        name.clone(),
         SkillEntry::new(
             meta,
             SkillState::Discovered,
@@ -82,4 +84,5 @@ pub fn add_skill_with_scope(catalog: &SkillCatalog, meta: SkillMetadata, scope: 
             Default::default(),
         ),
     );
+    catalog.shard_insert(&name, &dcc);
 }

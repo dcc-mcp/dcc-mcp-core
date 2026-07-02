@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) mod fixtures;
 mod test_catalog_crud;
+mod test_dcc_shards;
 mod test_dispatcher;
 mod test_execute_script;
 mod test_execute_script_env;
