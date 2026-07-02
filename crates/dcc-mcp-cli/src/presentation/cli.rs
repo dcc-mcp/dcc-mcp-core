@@ -1464,6 +1464,7 @@ mod tests {
             relay_sources: Vec::new(),
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
+            semantic_search_enabled: false,
             daemon: false,
             pidfile: None,
             restart: false,
