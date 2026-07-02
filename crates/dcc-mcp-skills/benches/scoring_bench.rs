@@ -125,20 +125,28 @@ fn synthetic_skill(i: usize, rng: &mut impl rand::Rng) -> SkillMetadata {
     }
 }
 
-fn synthetic_catalogue(n: usize) -> (Vec<SkillMetadata>, Vec<FieldTokens>, Vec<usize>) {
+fn synthetic_catalogue(
+    n: usize,
+) -> (
+    Vec<SkillMetadata>,
+    Vec<FieldTokens>,
+    Vec<usize>,
+    Vec<String>,
+) {
     use rand::SeedableRng;
     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
     let metas: Vec<SkillMetadata> = (0..n).map(|i| synthetic_skill(i, &mut rng)).collect();
+    let names: Vec<String> = metas.iter().map(|m| m.name.clone()).collect();
     let fields: Vec<FieldTokens> = metas.iter().map(FieldTokens::from_metadata).collect();
     let doc_lens: Vec<usize> = fields.iter().map(|f| f.doc_len()).collect();
-    (metas, fields, doc_lens)
+    (metas, fields, doc_lens, names)
 }
 
 // ── Benchmark groups ────────────────────────────────────────────────────
 
 fn bench_score_skills(c: &mut Criterion) {
     for n in [1_000usize, 5_000, 10_000] {
-        let (metas, fields, doc_lens) = synthetic_catalogue(n);
+        let (metas, fields, doc_lens, names) = synthetic_catalogue(n);
         let skill_refs: Vec<&SkillMetadata> = metas.iter().collect();
         let scopes: Vec<SkillScope> = vec![SkillScope::Repo; n];
 
@@ -165,12 +173,17 @@ fn bench_score_skills(c: &mut Criterion) {
         });
 
         // ── PIP-2469: inverted index vs linear scan ──
-        let idx = InvertedIndex::build(&fields);
+        let names_and_fields: Vec<(&str, &FieldTokens)> = names
+            .iter()
+            .zip(fields.iter())
+            .map(|(n, f)| (n.as_str(), f))
+            .collect();
+        let idx = InvertedIndex::build(&names_and_fields);
         let query_tokens = vec!["polygon".to_string(), "bevel".to_string()];
 
         c.bench_function(&format!("inverted_index_build/{group_label}"), |b| {
             b.iter(|| {
-                let _ = InvertedIndex::build(&fields);
+                let _ = InvertedIndex::build(&names_and_fields);
             })
         });
 

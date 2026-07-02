@@ -43,9 +43,13 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// A single posting: document index + term frequency in that document.
-#[derive(Debug, Clone, Copy)]
+/// A single posting: skill name + term frequency in that document.
+///
+/// Uses skill name as the stable document identity so the posting list is
+/// independent of the per-query prefiltered slice ordering (PIP-2469 P0).
+#[derive(Debug, Clone)]
 pub struct Posting {
+    pub name: String,
     pub doc_idx: usize,
     #[allow(dead_code)]
     pub tf: usize,
@@ -64,24 +68,30 @@ pub struct InvertedIndex {
 }
 
 impl InvertedIndex {
-    /// Build an inverted index from a slice of `FieldTokens` (one per skill).
+    /// Build an inverted index from a slice of skill names and their
+    /// `FieldTokens`. The names provide stable document identity so the
+    /// posting list remains correct across different `tags`/`dcc` filters.
     ///
     /// Complexity: O(total tokens across all fields). The posting lists are
     /// built by scanning every token in every field for every document.
-    pub fn build(fields: &[FieldTokens]) -> Self {
+    pub fn build(names_and_fields: &[(&str, &FieldTokens)]) -> Self {
         let index = Arc::new(DashMap::<String, Vec<Posting>>::new());
 
         // Accumulate per-document token → tf maps first, then merge into
         // the global index. This avoids locking the DashMap shard on every
         // single token insertion.
-        let per_doc: Vec<_> = fields.iter().map(|ft| doc_token_tfs(ft)).collect();
+        let per_doc: Vec<_> = names_and_fields
+            .iter()
+            .map(|(name, ft)| (name.to_string(), doc_token_tfs(ft)))
+            .collect();
 
-        for (doc_idx, doc_tf) in per_doc.iter().enumerate() {
+        for (doc_idx, (name, doc_tf)) in per_doc.iter().enumerate() {
             for (token, tf) in doc_tf.iter() {
-                index
-                    .entry(token.clone())
-                    .or_default()
-                    .push(Posting { doc_idx, tf: *tf });
+                index.entry(token.clone()).or_default().push(Posting {
+                    name: name.clone(),
+                    doc_idx,
+                    tf: *tf,
+                });
             }
         }
 
@@ -96,7 +106,9 @@ impl InvertedIndex {
     /// Return the posting list for `token`, if present.
     #[inline]
     pub fn get(&self, token: &str) -> Option<impl Iterator<Item = Posting> + '_> {
-        self.index.get(token).map(|entry| entry.clone().into_iter())
+        self.index
+            .get(token)
+            .map(|entry| entry.value().clone().into_iter())
     }
 
     /// Return the document frequency (number of docs containing `token`).
@@ -192,7 +204,7 @@ mod tests {
         ft.name = vec!["polygon".to_string(), "bevel".to_string()];
         ft.description = vec!["polygon".to_string(), "tools".to_string()];
 
-        let idx = InvertedIndex::build(&[ft]);
+        let idx = InvertedIndex::build(&[("test-skill", &ft)]);
         assert!(idx.token_count() >= 3);
         assert_eq!(idx.doc_freq("polygon"), 1);
         assert_eq!(idx.doc_freq("bevel"), 1);
@@ -201,6 +213,7 @@ mod tests {
 
         let postings: Vec<_> = idx.get("polygon").unwrap().collect();
         assert_eq!(postings.len(), 1);
+        assert_eq!(postings[0].name, "test-skill");
         assert_eq!(postings[0].doc_idx, 0);
         assert_eq!(postings[0].tf, 2, "polygon appears in name + description");
     }
@@ -215,7 +228,7 @@ mod tests {
         ft1.name = vec!["render".to_string()];
         ft1.tags = vec!["modeling".to_string()];
 
-        let idx = InvertedIndex::build(&[ft0, ft1]);
+        let idx = InvertedIndex::build(&[("skill-a", &ft0), ("skill-b", &ft1)]);
         assert_eq!(idx.doc_freq("polygon"), 1);
         assert_eq!(idx.doc_freq("render"), 1);
         assert_eq!(idx.doc_freq("modeling"), 2, "shared token");

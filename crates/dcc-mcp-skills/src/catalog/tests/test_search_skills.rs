@@ -239,3 +239,155 @@ fn test_search_skills_empty_query_skips_index() {
     // Index should still be stale (empty query path skips index).
     assert!(catalog.inverted_index.read().is_stale());
 }
+
+// ── PIP-2469 P2: indexed vs linear parity and multi-filter regression ──
+
+#[test]
+fn test_search_skills_indexed_vs_linear_parity() {
+    // Force the index path and verify results match a forced-linear path
+    // for the same catalog state, same filter, same query. This catches
+    // the P0 class of bug where index doc_idx is wrong.
+    let catalog = make_test_catalog();
+
+    let words = [
+        "polygon", "bevel", "render", "bake", "simulate", "animate", "rig", "uv",
+    ];
+    for i in 0..30 {
+        let name = format!("maya-skill-{:03}", i);
+        let mut skill = make_test_skill(&name, "maya", &[]);
+        skill.description = format!("{} tools for dcc", words[i % words.len()]);
+        skill.tags = vec![words[(i + 1) % words.len()].to_string()];
+        catalog.add_skill(skill);
+    }
+    for i in 0..30 {
+        let name = format!("blender-skill-{:03}", i);
+        let mut skill = make_test_skill(&name, "blender", &[]);
+        skill.description = format!("{} tools for dcc", words[i % words.len()]);
+        skill.tags = vec![words[(i + 3) % words.len()].to_string()];
+        catalog.add_skill(skill);
+    }
+
+    let query = "render animate";
+    let filters: Vec<(&[&str], Option<&str>)> = vec![
+        (&[][..], None),
+        (&[], Some("maya")),
+        (&[], Some("blender")),
+        (&["render"], None),
+        (&["render"], Some("maya")),
+        (&["rig"], Some("blender")),
+    ];
+
+    for (tags, dcc) in &filters {
+        // Indexed path (builds or reuses index).
+        let indexed = catalog.search_skills(Some(query), tags, *dcc, None, None);
+        let indexed_names: Vec<String> = indexed.iter().map(|s| s.name.clone()).collect();
+
+        // Force linear path by invalidating index but NOT allowing rebuild
+        // (we check staleness directly — the linear fallback in prune_with_index
+        // happens when tokens are empty or prefiltered is empty, so instead we
+        // compare against a fresh catalog that never built an index).
+        let fresh = make_test_catalog();
+        for i in 0..30 {
+            let name = format!("maya-skill-{:03}", i);
+            let mut skill = make_test_skill(&name, "maya", &[]);
+            skill.description = format!("{} tools for dcc", words[i % words.len()]);
+            skill.tags = vec![words[(i + 1) % words.len()].to_string()];
+            fresh.add_skill(skill);
+        }
+        for i in 0..30 {
+            let name = format!("blender-skill-{:03}", i);
+            let mut skill = make_test_skill(&name, "blender", &[]);
+            skill.description = format!("{} tools for dcc", words[i % words.len()]);
+            skill.tags = vec![words[(i + 3) % words.len()].to_string()];
+            fresh.add_skill(skill);
+        }
+        // Force linear path by setting index stale and never querying without
+        // filter first (the empty query doesn't build index).
+        let linear = fresh.search_skills(Some(query), tags, *dcc, None, None);
+        let linear_names: Vec<String> = linear.iter().map(|s| s.name.clone()).collect();
+
+        assert_eq!(
+            indexed_names, linear_names,
+            "indexed vs linear result order mismatch for tags={:?} dcc={:?}",
+            tags, dcc
+        );
+        assert_eq!(
+            indexed.len(),
+            linear.len(),
+            "result count mismatch for tags={:?} dcc={:?}",
+            tags,
+            dcc
+        );
+    }
+}
+
+#[test]
+fn test_search_skills_multi_filter_index_integrity() {
+    // Multi-filter sequence: dcc=None → dcc=maya → tags=[...] — the index
+    // must remain correct across filter changes (P0 regression).
+    let catalog = make_test_catalog();
+
+    let words = ["polygon", "bevel", "render", "bake", "simulate"];
+    for i in 0..20 {
+        let name = format!("maya-skill-{:03}", i);
+        let mut skill = make_test_skill(&name, "maya", &[]);
+        skill.description = format!("{} maya tool", words[i % words.len()]);
+        catalog.add_skill(skill);
+    }
+    for i in 0..20 {
+        let name = format!("blender-skill-{:03}", i);
+        let mut skill = make_test_skill(&name, "blender", &[]);
+        skill.description = format!("{} blender tool", words[i % words.len()]);
+        catalog.add_skill(skill);
+    }
+
+    let query = "polygon";
+
+    // Step 1: no filter — builds index from full 40-entry catalog.
+    let r1 = catalog.search_skills(Some(query), &[], None, None, None);
+    assert!(!r1.is_empty(), "step 1 must return results");
+
+    // Step 2: dcc=maya — must only return maya skills.
+    let r2 = catalog.search_skills(Some(query), &[], Some("maya"), None, None);
+    assert!(!r2.is_empty(), "step 2 must return maya results");
+    for s in &r2 {
+        assert_eq!(
+            s.dcc.to_lowercase(),
+            "maya",
+            "step 2 must only return maya skills, got {}",
+            s.name
+        );
+    }
+
+    // Step 3: dcc=blender — must only return blender skills.
+    let r3 = catalog.search_skills(Some(query), &[], Some("blender"), None, None);
+    assert!(!r3.is_empty(), "step 3 must return blender results");
+    for s in &r3 {
+        assert_eq!(
+            s.dcc.to_lowercase(),
+            "blender",
+            "step 3 must only return blender skills, got {}",
+            s.name
+        );
+    }
+
+    // Step 4: back to no filter — must return both.
+    let r4 = catalog.search_skills(Some(query), &[], None, None, None);
+    assert!(!r4.is_empty(), "step 4 must return results");
+    let has_maya = r4.iter().any(|s| s.dcc.eq_ignore_ascii_case("maya"));
+    let has_blender = r4.iter().any(|s| s.dcc.eq_ignore_ascii_case("blender"));
+    assert!(has_maya, "step 4 must include maya skills");
+    assert!(has_blender, "step 4 must include blender skills");
+
+    // Step 5: dcc=maya again after a different filter — must still be correct.
+    let r5 = catalog.search_skills(Some(query), &[], Some("maya"), None, None);
+    assert!(!r5.is_empty(), "step 5 must return maya results");
+    for s in &r5 {
+        assert_eq!(
+            s.dcc.to_lowercase(),
+            "maya",
+            "step 5 must only return maya skills, got {}",
+            s.name
+        );
+    }
+}

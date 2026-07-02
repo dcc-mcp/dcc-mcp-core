@@ -330,6 +330,7 @@ impl SkillCatalog {
         }
 
         if !result.skipped.is_empty() {
+            self.record_skipped_diagnostics(&result.skipped, SkillScope::Repo);
             tracing::warn!(
                 count = result.skipped.len(),
                 skipped = ?result.skipped,
