@@ -83,7 +83,7 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
         .collect();
 
     let mut hits: Vec<SearchHit<R>> = match query.mode {
-        SearchMode::Fuzzy => {
+        SearchMode::Fuzzy | SearchMode::Hybrid => {
             let mut scorer = FuzzyScorer::new();
             rank_multi(
                 &candidates,
@@ -510,6 +510,51 @@ mod tests {
         let s = serde_json::to_string(&page).unwrap();
         let back: SearchPage<Row> = serde_json::from_str(&s).unwrap();
         assert_eq!(back.total, 300);
+    }
+
+    #[test]
+    fn hybrid_mode_acts_like_fuzzy() {
+        let records = vec![
+            mk(
+                "m.1.sphere",
+                "maya_primitives__create_sphere",
+                "Create a polygon sphere.",
+                &["modeling"],
+                true,
+            ),
+            mk(
+                "m.1.fbx",
+                "maya_geometry__export_fbx",
+                "Export the current Maya scene to FBX.",
+                &["interchange"],
+                true,
+            ),
+        ];
+
+        let fuzzy_hits = search(
+            &records,
+            &SearchQuery {
+                query: "sphere".into(),
+                mode: SearchMode::Fuzzy,
+                ..Default::default()
+            },
+        );
+        let hybrid_hits = search(
+            &records,
+            &SearchQuery {
+                query: "sphere".into(),
+                mode: SearchMode::Hybrid,
+                ..Default::default()
+            },
+        );
+
+        // Hybrid should produce same results as Fuzzy in Phase 1
+        assert_eq!(fuzzy_hits.len(), hybrid_hits.len());
+        assert_eq!(fuzzy_hits[0].score, hybrid_hits[0].score);
+        assert_eq!(
+            fuzzy_hits[0].record.backend_tool(),
+            hybrid_hits[0].record.backend_tool()
+        );
     }
 
     #[test]

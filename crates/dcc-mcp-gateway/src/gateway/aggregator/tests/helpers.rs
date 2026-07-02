@@ -124,6 +124,7 @@ pub(crate) async fn make_gateway_state(
         update_manifest_url: None,
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
+        semantic_search_enabled: false,
     }
 }
 
@@ -414,6 +415,7 @@ pub(crate) async fn gateway_state_with_instances(
         update_manifest_url: None,
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
+        semantic_search_enabled: false,
     };
     (state, dir, ids)
 }

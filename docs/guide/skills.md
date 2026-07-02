@@ -1183,6 +1183,43 @@ doc = SkillDocument(
 hit = SkillSearchHit(skill_id="maya-geometry", score=0.85, rank=1)
 ```
 
+### Gateway Hybrid Search Mode (opt-in)
+
+The Rust gateway daemon supports three search modes via the `mode` parameter
+in the unified `search` tool:
+
+| `mode` | Strategy | Default |
+|--------|----------|---------|
+| `fuzzy` | BM25 + nucleo fuzzy matching with prefix/subsequence bonuses | Yes |
+| `exact` | Substring-only matching (legacy deterministic table) | No |
+| `hybrid` | Fuzzy primary + semantic boost when the gateway is configured | No |
+
+`mode=hybrid` currently maps to `mode=fuzzy` internally (Phase 1 wire-up).
+When the gateway is configured with `semantic_search_enabled: true`, a future
+release will apply semantic embedding similarity to boost conceptual recall.
+
+**Enable semantic search** (future Phase 2):
+```bash
+pip install 'dcc-mcp-core[semantic]'
+export DCC_MCP_SEMANTIC_SEARCH_ENABLED=1
+```
+
+The search response includes a `semantic` object indicating whether the
+semantic provider is active and whether a hybrid→fuzzy downgrade occurred:
+
+```json
+{
+  "search_id": "...",
+  "ranker_version": "gateway-hybrid-v2",
+  "semantic": {
+    "active": false,
+    "note": "mode=hybrid requested but semantic search is not enabled; fell back to mode=fuzzy"
+  },
+  "total": 5,
+  "hits": [...]
+}
+```
+
 ## Lifecycle Hooks
 
 The typed lifecycle-hook framework lets adapter and policy code subscribe to

@@ -84,9 +84,25 @@ mod tests {
             serde_json::to_string(&SearchMode::Exact).unwrap(),
             "\"exact\""
         );
+        assert_eq!(
+            serde_json::to_string(&SearchMode::Hybrid).unwrap(),
+            "\"hybrid\""
+        );
 
         let back: SearchMode = serde_json::from_str("\"fuzzy\"").unwrap();
         assert_eq!(back, SearchMode::Fuzzy);
+        let back_hybrid: SearchMode = serde_json::from_str("\"hybrid\"").unwrap();
+        assert_eq!(back_hybrid, SearchMode::Hybrid);
+    }
+
+    #[test]
+    fn hybrid_mode_roundtrips_via_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&SearchMode::Hybrid).unwrap(),
+            "\"hybrid\""
+        );
+        let parsed: SearchMode = serde_json::from_str("\"hybrid\"").unwrap();
+        assert_eq!(parsed, SearchMode::Hybrid);
     }
 
     #[test]
