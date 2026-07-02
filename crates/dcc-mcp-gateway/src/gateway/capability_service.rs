@@ -37,8 +37,8 @@ use super::backend_client::{
     forward_tools_call, try_describe_tool,
 };
 use super::capability::{
-    CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchQuery,
-    parse_slug, refresh_instance, remove_instance, search,
+    CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchMode,
+    SearchQuery, parse_slug, refresh_instance, remove_instance, search,
 };
 use super::request_meta::meta_with_agent_context;
 use super::state::GatewayState;
@@ -620,6 +620,34 @@ pub async fn call_service(
             .with_backend(backend_attachment))
         }
     }
+}
+
+/// Shared helper for both MCP and REST search paths.
+///
+/// When `mode=hybrid` is requested but semantic search is not enabled,
+/// silently downgrades to `mode=fuzzy` and builds a diagnostic
+/// `semantic` object for the response. Returns the (possibly downgraded)
+/// query and the `semantic` JSON field the caller should merge into its
+/// response payload.
+pub fn apply_search_mode_downgrade(
+    mut query: SearchQuery,
+    semantic_search_enabled: bool,
+) -> (SearchQuery, Value) {
+    let hybrid_downgraded = query.mode == SearchMode::Hybrid && !semantic_search_enabled;
+    if hybrid_downgraded {
+        query.mode = SearchMode::Fuzzy;
+    }
+    let semantic = if hybrid_downgraded {
+        json!({
+            "active": false,
+            "note": "mode=hybrid requested but semantic search is not enabled; fell back to mode=fuzzy"
+        })
+    } else {
+        json!({
+            "active": semantic_search_enabled,
+        })
+    };
+    (query, semantic)
 }
 
 /// Helper — materialise a `SearchQuery` from the REST / MCP JSON

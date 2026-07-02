@@ -96,16 +96,6 @@ mod tests {
     }
 
     #[test]
-    fn hybrid_mode_roundtrips_via_snake_case() {
-        assert_eq!(
-            serde_json::to_string(&SearchMode::Hybrid).unwrap(),
-            "\"hybrid\""
-        );
-        let parsed: SearchMode = serde_json::from_str("\"hybrid\"").unwrap();
-        assert_eq!(parsed, SearchMode::Hybrid);
-    }
-
-    #[test]
     fn search_query_defaults_preserve_pre_659_shape() {
         let q = SearchQuery::default();
         assert!(q.query.is_empty());

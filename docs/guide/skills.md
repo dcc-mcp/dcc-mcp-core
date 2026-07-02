@@ -1198,7 +1198,7 @@ in the unified `search` tool:
 When the gateway is configured with `semantic_search_enabled: true`, a future
 release will apply semantic embedding similarity to boost conceptual recall.
 
-**Enable semantic search** (future Phase 2):
+**Enable semantic search**:
 ```bash
 pip install 'dcc-mcp-core[semantic]'
 export DCC_MCP_SEMANTIC_SEARCH_ENABLED=1

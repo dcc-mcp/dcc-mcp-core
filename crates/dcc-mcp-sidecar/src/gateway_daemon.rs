@@ -115,6 +115,12 @@ pub struct GatewayArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", default_value = "30")]
     pub gateway_idle_timeout_secs: u64,
 
+    /// Enable semantic search (requires `dcc-mcp-core[semantic]` ONNX
+    /// runtime). When enabled, `mode=hybrid` combines fuzzy matching with
+    /// embedding similarity. Default: false.
+    #[arg(long, env = "DCC_MCP_SEMANTIC_SEARCH_ENABLED", default_value = "false")]
+    pub semantic_search_enabled: bool,
+
     /// Detach from the terminal and run as a background daemon.
     /// On Unix this respawns a fresh child in a new session; on Windows
     /// the process respawns itself with DETACHED_PROCESS and
@@ -342,6 +348,11 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
         gateway_idle_timeout_secs: args.gateway_idle_timeout_secs,
+        semantic_search_enabled: args.semantic_search_enabled
+            || std::env::var("DCC_MCP_SEMANTIC_SEARCH_ENABLED")
+                .ok()
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
         ..GatewayConfig::default()
     }
 }

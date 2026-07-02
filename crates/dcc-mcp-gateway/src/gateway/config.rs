@@ -222,7 +222,8 @@ pub struct GatewayConfig {
     /// installation. When `false` (default), `mode=hybrid` silently
     /// falls back to `mode=fuzzy`.
     ///
-    /// Default: `false`. Override with `DCC_MCP_SEMANTIC_SEARCH_ENABLED=1`.
+    /// Default: `false`. Wired via sidecar `--semantic-search-enabled`
+    /// / `DCC_MCP_SEMANTIC_SEARCH_ENABLED=1`.
     pub semantic_search_enabled: bool,
 }
 
