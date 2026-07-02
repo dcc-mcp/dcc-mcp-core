@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.2...v0.19.3) (2026-07-02)
+
+
+### Features
+
+* **skills:** add inverted index for sub-linear skill search (PIP-2469) ([a5fdf99](https://github.com/dcc-mcp/dcc-mcp-core/commit/a5fdf99298d71a2989372d7f9510344433fbffe3))
+
+
+### Bug Fixes
+
+* avoid runtime schema introspection ([df291d8](https://github.com/dcc-mcp/dcc-mcp-core/commit/df291d889bde20064a94ed1feca650b70004c08f))
+* **ci:** remove auto-format bot commits with [skip ci] ([5cc805d](https://github.com/dcc-mcp/dcc-mcp-core/commit/5cc805d96e068226cfd9d1fb56741f0acdbac95b))
+* **ci:** resolve PR [#1772](https://github.com/dcc-mcp/dcc-mcp-core/issues/1772) CI test failures ([7a1c59c](https://github.com/dcc-mcp/dcc-mcp-core/commit/7a1c59c0fbd9b425ca1be929809ac25c7251505d))
+* unify registration hook contract — all phase helpers accept optional context ([95cdd41](https://github.com/dcc-mcp/dcc-mcp-core/commit/95cdd4101aaa6d5e90a5c576b79d8470740c2df5))
+* update MockServer hook signatures to accept context ([d565cf0](https://github.com/dcc-mcp/dcc-mcp-core/commit/d565cf0138dd35a153841c2cefbbf14302d4fec7))
+
+
+### Performance Improvements
+
+* **catalog:** score by index, clone only final search page ([1e1e8b6](https://github.com/dcc-mcp/dcc-mcp-core/commit/1e1e8b63e00d4df750ad2815ca3dadba69077678))
+* **scoring:** precompute FieldTokens at catalog load time ([#1774](https://github.com/dcc-mcp/dcc-mcp-core/issues/1774)) ([e25aa6f](https://github.com/dcc-mcp/dcc-mcp-core/commit/e25aa6f095ae15bbda8c417abfd64ffc13bf9972))
+
+
+### Code Refactoring
+
+* abstract host common modules ([045b508](https://github.com/dcc-mcp/dcc-mcp-core/commit/045b508ea704ca085e7d4249746be603b7f1e0b1))
+* shared builtin action registration pipeline ([298d8cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/298d8cc5dbe7581ae6c67cbd6b9434fb4842e9b3))
+
 ## [0.19.2](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.1...v0.19.2) (2026-06-30)
 
 
