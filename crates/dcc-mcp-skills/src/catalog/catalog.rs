@@ -85,13 +85,34 @@ impl SkillCatalog {
                         | scoring::LAYER_EXAMPLE
                 )
             });
-            let metas: Vec<&SkillMetadata> = prefiltered.iter().map(|e| &e.metadata).collect();
-            let scopes: Vec<SkillScope> = prefiltered.iter().map(|e| e.scope).collect();
+
+            // ── 3a. Inverted-index candidate pruning (PIP-2469) ──
+            //
+            // Build or rebuild the inverted index if stale. When the index
+            // is available, extract only the subset of prefiltered entries
+            // that intersect the query's posting lists — BM25 scoring then
+            // only visits those candidates instead of the full prefiltered
+            // set. If the index is not available (first call or after a
+            // mutation that hasn't been rebuilt yet), fall back to the
+            // existing linear scan.
+            let (candidate_entries, _candidate_indices): (Vec<&SkillEntry>, Vec<usize>) =
+                self.prune_with_index(q_trim, &prefiltered);
+            let candidate_count = candidate_entries.len();
+            let total_count = prefiltered.len();
+            if candidate_count < total_count {
+                tracing::debug!(
+                    "search_skills inverted index pruned {total_count} → {candidate_count} entries"
+                );
+            }
+
+            let metas: Vec<&SkillMetadata> =
+                candidate_entries.iter().map(|e| &e.metadata).collect();
+            let scopes: Vec<SkillScope> = candidate_entries.iter().map(|e| e.scope).collect();
             let path_sources: Vec<scoring::SkillPathSource> =
-                prefiltered.iter().map(|e| e.path_source).collect();
+                candidate_entries.iter().map(|e| e.path_source).collect();
             let fields: Vec<&scoring::FieldTokens> =
-                prefiltered.iter().map(|e| &e.field_tokens).collect();
-            let doc_lens: Vec<usize> = prefiltered.iter().map(|e| e.doc_len).collect();
+                candidate_entries.iter().map(|e| &e.field_tokens).collect();
+            let doc_lens: Vec<usize> = candidate_entries.iter().map(|e| e.doc_len).collect();
             let scored = scoring::score_skills_with_tokens(
                 q_trim,
                 &metas,
@@ -103,7 +124,7 @@ impl SkillCatalog {
             );
             scored
                 .into_iter()
-                .map(|s| helpers::skill_entry_to_summary(&prefiltered[s.index]))
+                .map(|s| helpers::skill_entry_to_summary(candidate_entries[s.index]))
                 .collect()
         };
 
