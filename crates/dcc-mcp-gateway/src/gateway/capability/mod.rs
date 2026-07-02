@@ -60,6 +60,7 @@ mod index;
 mod record;
 mod refresh;
 mod search;
+pub mod search_cache;
 
 #[cfg(test)]
 mod tests;
