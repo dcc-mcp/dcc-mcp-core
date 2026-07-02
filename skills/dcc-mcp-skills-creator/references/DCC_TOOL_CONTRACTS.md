@@ -14,6 +14,11 @@ Use this checklist for every `tools.yaml` entry.
 - `timeout_hint_secs`: realistic upper bound for dispatch and UX.
 - `annotations`: MCP safety hints.
 
+Runtime discovery is manifest-first. Missing `input_schema` falls back to a
+permissive `{"type": "object"}` instead of importing or executing the script.
+If you derive schemas from Python annotations, do it while authoring and write
+the result into `tools.yaml`.
+
 ## Recovery Chains
 
 Domain tools should include `next-tools.on-failure` entries that point to

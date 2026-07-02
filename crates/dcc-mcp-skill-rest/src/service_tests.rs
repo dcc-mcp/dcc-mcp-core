@@ -507,6 +507,125 @@ fn describe_returns_schema_when_asked() {
 }
 
 #[test]
+fn missing_tool_schema_does_not_run_python_by_default() {
+    use dcc_mcp_actions::ToolRegistry;
+    use dcc_mcp_skills::SkillCatalog;
+    use std::sync::Arc;
+
+    struct TempSkillDir {
+        root: std::path::PathBuf,
+    }
+
+    impl Drop for TempSkillDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    let skill_dir = TempSkillDir {
+        root: std::env::temp_dir().join(format!(
+            "dcc-mcp-rest-missing-schema-{}",
+            uuid::Uuid::new_v4()
+        )),
+    };
+    std::fs::create_dir_all(skill_dir.root.join("scripts")).unwrap();
+    let counter = skill_dir.root.join("counter.txt");
+    std::fs::write(&counter, "0").unwrap();
+    std::fs::write(
+        skill_dir.root.join("SKILL.md"),
+        r#"---
+name: auto-schema-skill
+description: Generates schema from a Python signature.
+allowed-tools: python
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tools: tools.yaml
+---
+
+# Auto Schema Skill
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        skill_dir.root.join("tools.yaml"),
+        r#"tools:
+  - name: set_timeline
+    description: Set the playback timeline range.
+    source_file: scripts/set_timeline.py
+"#,
+    )
+    .unwrap();
+    let counter_literal = counter.to_string_lossy().replace('\\', "/");
+    std::fs::write(
+        skill_dir.root.join("scripts").join("set_timeline.py"),
+        format!(
+            r#"
+from pathlib import Path
+
+counter = Path(r"{counter_literal}")
+counter.write_text(str(int(counter.read_text() or "0") + 1))
+
+
+def main(start_frame: int, end_frame: int, playback: bool = False):
+    """Set the playback timeline range."""
+    pass
+"#
+        ),
+    )
+    .unwrap();
+
+    let _introspection_env =
+        dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_ENABLE_SCHEMA_INTROSPECTION", None);
+    let registry = Arc::new(ToolRegistry::new());
+    let catalog = Arc::new(SkillCatalog::new(registry));
+    let path = skill_dir.root.to_string_lossy().into_owned();
+    assert!(catalog.discover(Some(&[path]), Some("maya")) > 0);
+
+    let catalog_src = Arc::new(CatalogSource::new(catalog));
+    let actions = catalog_src.list_actions();
+    let action = actions
+        .iter()
+        .find(|a| a.action_name == "auto_schema_skill__set_timeline")
+        .expect("missing-schema tool should still be discoverable");
+    assert!(!action.loaded);
+    assert_eq!(action.input_schema, serde_json::json!({"type": "object"}));
+
+    let svc = SkillRestService::new(catalog_src, Arc::new(FakeInvoker::default()));
+    for _ in 0..2 {
+        let search = svc.search(&SearchRequest {
+            query: Some("set_timeline".into()),
+            dcc_type: Some("maya".into()),
+            loaded_only: false,
+            ..Default::default()
+        });
+        let hit = search
+            .hits
+            .iter()
+            .find(|hit| hit.action == "auto_schema_skill__set_timeline")
+            .expect("search should surface the missing-schema tool");
+        assert!(!hit.has_schema);
+    }
+
+    let desc = svc
+        .describe(&DescribeRequest {
+            tool_slug: ToolSlug::build(
+                "maya",
+                "auto-schema-skill",
+                "auto_schema_skill__set_timeline",
+            ),
+            include_schema: true,
+        })
+        .unwrap();
+    assert_eq!(
+        desc.input_schema,
+        Some(serde_json::json!({"type": "object"}))
+    );
+    assert_eq!(std::fs::read_to_string(counter).unwrap(), "0");
+}
+
+#[test]
 fn catalog_source_lists_discovered_tools_with_input_schema() {
     use dcc_mcp_actions::ToolRegistry;
     use dcc_mcp_skills::SkillCatalog;

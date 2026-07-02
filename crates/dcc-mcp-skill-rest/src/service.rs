@@ -666,9 +666,10 @@ impl SkillCatalogSource for CatalogSource {
             });
         }
 
-        // Discovered-but-unloaded skills: expose every tools.yaml declaration
-        // with its full input_schema so gateway `describe_tool` / POST
-        // `/v1/describe` work before `load_skill` (issue #992 class).
+        // Discovered-but-unloaded skills: expose tools.yaml declarations.
+        // Runtime stays manifest-first: if a tool omits input_schema, describe
+        // returns a permissive object schema unless Python introspection is
+        // explicitly enabled for development/migration.
         for summary in summaries {
             if self.catalog.is_loaded(&summary.name) {
                 continue;
@@ -687,9 +688,6 @@ impl SkillCatalogSource for CatalogSource {
                     tool_decl.description.clone()
                 };
                 let input_schema = if tool_decl.input_schema.is_null() {
-                    // Try to generate schema from Python script signature so
-                    // describe returns real inputSchema before load_skill
-                    // (same logic as load_skill_metadata in catalog_loading.rs).
                     let skill_path = std::path::Path::new(&detail.skill_path);
                     let script_path = dcc_mcp_skills::catalog::resolve_tool_script(
                         tool_decl,
@@ -697,12 +695,14 @@ impl SkillCatalogSource for CatalogSource {
                         skill_path,
                     );
                     if let Some(ref sp) = script_path {
-                        dcc_mcp_skills::catalog::schema_gen::generate_input_schema(sp, None)
-                            .unwrap_or_else(|| {
-                                // Only warn once per (skill, tool) pair per
-                                // process lifetime — `list_actions` is called
-                                // on every read request and repeated warnings
-                                // flood the Admin logs panel.
+                        dcc_mcp_skills::catalog::schema_gen::generate_input_schema_if_enabled(
+                            sp, None,
+                        )
+                        .unwrap_or_else(|| {
+                            // Only warn once per (skill, tool) pair per process lifetime when
+                            // opt-in introspection fails. `list_actions` is called on every read
+                            // request, so repeated warnings flood the Admin logs panel.
+                            if dcc_mcp_skills::catalog::schema_gen::schema_introspection_enabled() {
                                 let key = (detail.name.clone(), tool_decl.name.clone());
                                 let mut warned = self.schema_warned.lock();
                                 if warned.insert(key) {
@@ -712,8 +712,9 @@ impl SkillCatalogSource for CatalogSource {
                                         tool_decl.name
                                     );
                                 }
-                                serde_json::json!({"type": "object"})
-                            })
+                            }
+                            serde_json::json!({"type": "object"})
+                        })
                     } else {
                         serde_json::json!({"type": "object"})
                     }
