@@ -166,11 +166,11 @@ impl SearchCache {
             cache.pop(key);
             return None;
         }
-        if let Some(current_gen) = current_index_gen {
-            if entry.index_generation != current_gen {
-                cache.pop(key);
-                return None;
-            }
+        if let Some(current_gen) = current_index_gen
+            && entry.index_generation != current_gen
+        {
+            cache.pop(key);
+            return None;
         }
         Some(entry.body.clone())
     }
