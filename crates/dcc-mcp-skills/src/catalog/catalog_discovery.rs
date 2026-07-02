@@ -26,7 +26,7 @@ impl SkillCatalog {
         let key = dcc.to_ascii_lowercase();
         self.dcc_shards
             .entry(key)
-            .or_insert_with(DashSet::new)
+            .or_default()
             .insert(name.to_string());
     }
 
