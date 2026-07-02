@@ -7,6 +7,7 @@ use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::agent_telemetry::{
     AgentWorkflowEvent, error_kind_from_text, policy_reason_from_value,
 };
+use crate::gateway::capability::search_cache::SearchCacheKey;
 use crate::gateway::capability::{RefreshReason, tool_slug};
 use crate::gateway::capability_service::{
     SearchResponseContext, ServiceError, describe_tool_full, index_generation,
@@ -547,6 +548,32 @@ pub async fn handle_v1_search(
             }
         }
     }
+
+    // --- LRU cache check (PIP-2471) ---
+    let cache_key = SearchCacheKey::from_query(&query);
+    let cache_gen = gs.search_cache.generation();
+    let index_gen = index_generation(&gs.capability_index);
+    if let Some(cached_body) =
+        gs.search_cache
+            .get_with_index_gen(&cache_key, cache_gen, Some(&index_gen))
+    {
+        let hits: Vec<Value> = serde_json::from_slice(&cached_body).unwrap_or_default();
+        let index_generation = index_generation(&gs.capability_index);
+        let search_context = SearchResponseContext::new(
+            crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
+            index_generation,
+        );
+        let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+            .with_index_generation(search_context.index_generation.clone())
+            .with_search(
+                search_context.search_id.clone(),
+                search_context.ranker_version.to_string(),
+            )
+            .with_search_cache_hit(true);
+        return search_response_with_metadata(&headers, &body, hits, &metadata);
+    }
+    // --- end cache check ---
+
     let index_generation = index_generation(&gs.capability_index);
     let search_context = SearchResponseContext::new(
         crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
@@ -605,6 +632,17 @@ pub async fn handle_v1_search(
             search_context.search_id.clone(),
             search_context.ranker_version.to_string(),
         );
+
+    // --- LRU cache store (PIP-2471) ---
+    if let Ok(body_bytes) = serde_json::to_vec(&hits) {
+        gs.search_cache.put(
+            cache_key,
+            body_bytes,
+            search_context.index_generation.clone(),
+        );
+    }
+    // --- end cache store ---
+
     search_response_with_metadata(&headers, &body, hits, &metadata)
 }
 

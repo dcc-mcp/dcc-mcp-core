@@ -65,6 +65,8 @@ use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
 
 use super::middleware::MiddlewareChain;
 
+use super::capability::search_cache::SearchCache;
+
 /// A call that the gateway has forwarded to a backend and is still awaiting.
 ///
 /// Re-exported from [`dcc_mcp_gateway_core::PendingCall`] as part of the
@@ -237,6 +239,12 @@ pub struct GatewayState {
     /// reference; the inner `RwLock` is held only for the
     /// milliseconds it takes to swap a single instance's slice.
     pub capability_index: Arc<super::capability::CapabilityIndex>,
+
+    /// LRU cache for hot search queries (PIP-2471).
+    ///
+    /// Shared via `Arc` so handlers and refresh paths can invalidate
+    /// it when the capability index changes.
+    pub search_cache: Arc<SearchCache>,
 
     /// Contention event log (issue #766).
     ///
