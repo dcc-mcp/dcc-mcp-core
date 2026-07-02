@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
+use crate::gateway::capability::search_cache::SearchCacheKey;
 use crate::gateway::capability_service::{SearchResponseContext, search_hit_to_value_with_context};
 use crate::gateway::search_telemetry::{
     RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
@@ -411,6 +412,59 @@ pub async fn tool_search_tools(
         gs.semantic_search_enabled,
     );
 
+    // --- LRU cache check (PIP-2471) ---
+    let cache_key = SearchCacheKey::from_query(&query);
+    let index_gen = crate::gateway::capability_service::index_generation(&gs.capability_index);
+    if let Some(cached_body) = gs
+        .search_cache
+        .get_with_index_gen(&cache_key, Some(&index_gen))
+    {
+        let cached_hits: Vec<Value> = serde_json::from_slice(&cached_body).unwrap_or_else(|e| {
+            tracing::warn!(
+                ?e,
+                "search cache entry corrupt (MCP), falling back to recompute"
+            );
+            Vec::new()
+        });
+        if !cached_hits.is_empty() {
+            let search_context = SearchResponseContext::new(
+                crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
+                index_gen,
+            );
+            gs.search_telemetry.record_search(SearchTelemetryInput {
+                search_id: search_context.search_id.clone(),
+                transport: "mcp".to_string(),
+                kind: "tool".to_string(),
+                query: query.query.clone(),
+                dcc_type: query.dcc_type.clone(),
+                dcc_types: query.dcc_types.clone(),
+                instance_id: query.instance_id.map(|id| id.to_string()),
+                limit: query.limit,
+                total: cached_hits.len(),
+                ranker_version: search_context.ranker_version.to_string(),
+                index_generation: search_context.index_generation.clone(),
+                hits: vec![],
+                trace_context: trace_context.cloned(),
+                session_id: session_id
+                    .map(str::to_string)
+                    .or_else(|| agent_context.and_then(|ctx| ctx.session_id.clone())),
+                agent_context: agent_context.cloned(),
+                tags_any: query.tags_any.clone(),
+            });
+            return serde_json::to_string_pretty(&json!({
+                "search_id": search_context.search_id,
+                "ranker_version": search_context.ranker_version,
+                "index_generation": search_context.index_generation,
+                "total": cached_hits.len(),
+                "hits": cached_hits,
+                "semantic": semantic,
+                "search_cache_hit": true,
+            }))
+            .map_err(|e| e.to_string());
+        }
+    }
+    // --- end cache check ---
+
     let search_context = SearchResponseContext::new(
         crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
         index_generation,
@@ -445,6 +499,16 @@ pub async fn tool_search_tools(
         agent_context: agent_context.cloned(),
         tags_any: query.tags_any.clone(),
     });
+
+    // --- LRU cache store (PIP-2471) ---
+    if let Ok(body_bytes) = serde_json::to_vec(&annotated) {
+        gs.search_cache.put(
+            cache_key,
+            body_bytes,
+            search_context.index_generation.clone(),
+        );
+    }
+    // --- end cache store ---
 
     serde_json::to_string_pretty(&json!({
         "search_id": search_context.search_id,
@@ -1315,6 +1379,9 @@ mod tests {
             adapter_version: None,
             adapter_dcc: None,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            search_cache: Arc::new(crate::gateway::capability::search_cache::SearchCache::new(
+                Default::default(),
+            )),
             event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),

@@ -940,6 +940,9 @@ pub(crate) async fn start_gateway_tasks(
         adapter_version,
         adapter_dcc,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        search_cache: Arc::new(crate::gateway::capability::search_cache::SearchCache::new(
+            Default::default(),
+        )),
         event_log: contention_log.clone(),
         #[cfg(feature = "prometheus")]
         gateway_metrics: gateway_metrics.clone(),

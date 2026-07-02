@@ -84,6 +84,9 @@ fn test_gateway_state_with_debug_routes(
         adapter_version: None,
         adapter_dcc: None,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        search_cache: Arc::new(crate::gateway::capability::search_cache::SearchCache::new(
+            Default::default(),
+        )),
         event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
         middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
         instance_diagnostics: Arc::new(
