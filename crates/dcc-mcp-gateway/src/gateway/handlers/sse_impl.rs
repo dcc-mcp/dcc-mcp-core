@@ -209,6 +209,7 @@ mod tests {
             update_manifest_url: None,
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
+            semantic_search_enabled: false,
         }
     }
 

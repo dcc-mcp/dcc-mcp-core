@@ -215,6 +215,15 @@ pub struct GatewayConfig {
     ///
     /// Default: `30`. Override with `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS`.
     pub gateway_idle_timeout_secs: u64,
+
+    /// Enable semantic search boosting for `mode=hybrid` queries.
+    ///
+    /// Requires `dcc-mcp-core[semantic]` or equivalent ONNX runtime
+    /// installation. When `false` (default), `mode=hybrid` silently
+    /// falls back to `mode=fuzzy`.
+    ///
+    /// Default: `false`. Override with `DCC_MCP_SEMANTIC_SEARCH_ENABLED=1`.
+    pub semantic_search_enabled: bool,
 }
 
 impl Default for GatewayConfig {
@@ -254,6 +263,7 @@ impl Default for GatewayConfig {
             update_manifest_url: None,
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
+            semantic_search_enabled: false,
         }
     }
 }

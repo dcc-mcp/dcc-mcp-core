@@ -558,7 +558,7 @@ impl ScorerFactory {
     #[must_use]
     pub fn from_mode(mode: SearchMode) -> Box<dyn StrategyScorer> {
         match mode {
-            SearchMode::Fuzzy => Box::new(StrategyFuzzyScorer),
+            SearchMode::Fuzzy | SearchMode::Hybrid => Box::new(StrategyFuzzyScorer),
             SearchMode::Exact => Box::new(StrategyExactScorer),
         }
     }

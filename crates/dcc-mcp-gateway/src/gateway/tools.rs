@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
+use crate::gateway::capability::SearchMode;
 use crate::gateway::capability_service::{SearchResponseContext, search_hit_to_value_with_context};
 use crate::gateway::search_telemetry::{
     RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
@@ -401,9 +402,17 @@ pub async fn tool_search_tools(
         crate::gateway::capability::RefreshReason::Periodic,
     )
     .await;
-    let query = crate::gateway::capability_service::parse_search_payload(args);
+    let mut query = crate::gateway::capability_service::parse_search_payload(args);
     let index_generation =
         crate::gateway::capability_service::index_generation(&gs.capability_index);
+
+    // When mode=hybrid is requested but semantic search is not enabled,
+    // silently downgrade to fuzzy and record a diagnostic note.
+    let hybrid_downgraded = query.mode == SearchMode::Hybrid && !gs.semantic_search_enabled;
+    if hybrid_downgraded {
+        query.mode = SearchMode::Fuzzy;
+    }
+
     let search_context = SearchResponseContext::new(
         crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
         index_generation,
@@ -445,6 +454,16 @@ pub async fn tool_search_tools(
         "index_generation": search_context.index_generation,
         "total": annotated.len(),
         "hits":  annotated,
+        "semantic": if hybrid_downgraded {
+            json!({
+                "active": false,
+                "note": "mode=hybrid requested but semantic search is not enabled; fell back to mode=fuzzy"
+            })
+        } else {
+            json!({
+                "active": gs.semantic_search_enabled,
+            })
+        },
     }))
     .map_err(|e| e.to_string())
 }
@@ -1155,6 +1174,7 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "dcc": {"type": "string", "description": "Alias of dcc_type for skill search"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "tags_any": {"type": "array", "items": {"type": "string"}, "description": "OR tag filter — rows carrying any of these tags pass. tags remains AND."},
+                    "mode": {"type": "string", "enum": ["fuzzy", "exact", "hybrid"], "default": "fuzzy", "description": "Search mode: fuzzy (default, BM25+nucleo), exact (substring), hybrid (fuzzy + semantic boost when configured)."},
                     "limit": {"type": "integer", "minimum": 0},
                     "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
                     "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
@@ -1322,6 +1342,7 @@ mod tests {
             update_manifest_url: None,
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
+            semantic_search_enabled: false,
         }
     }
 

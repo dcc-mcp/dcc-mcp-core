@@ -376,6 +376,7 @@ pub(crate) async fn start_gateway_tasks(
     auth: crate::gateway::security::GatewayAuth,
     gateway_persist: bool,
     gateway_idle_timeout_secs: u64,
+    semantic_search_enabled: bool,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, yield_rx) = watch::channel(false);
@@ -951,6 +952,7 @@ pub(crate) async fn start_gateway_tasks(
         update_manifest_url: std::env::var("DCC_MCP_UPDATE_MANIFEST_URL").ok(),
         gateway_persist,
         gateway_idle_timeout_secs,
+        semantic_search_enabled,
     };
 
     let idle_shutdown_handle = if matches!(gw_state.adapter_dcc.as_deref(), Some("gateway"))

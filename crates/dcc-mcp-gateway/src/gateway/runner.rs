@@ -366,6 +366,7 @@ impl GatewayRunner {
                     self.config.auth.clone(),
                     self.config.gateway_persist,
                     self.config.gateway_idle_timeout_secs,
+                    self.config.semantic_search_enabled,
                 )
                 .await
                 {
@@ -551,6 +552,7 @@ impl GatewayRunner {
         let auth = self.config.auth.clone();
         let gateway_persist = self.config.gateway_persist;
         let gateway_idle_timeout_secs = self.config.gateway_idle_timeout_secs;
+        let semantic_search_enabled = self.config.semantic_search_enabled;
 
         let handle = tokio::spawn(async move {
             // Publish a short-lived challenger sentinel before asking the
@@ -687,6 +689,7 @@ impl GatewayRunner {
                         auth.clone(),
                         gateway_persist,
                         gateway_idle_timeout_secs,
+                        semantic_search_enabled,
                     )
                     .await
                     {

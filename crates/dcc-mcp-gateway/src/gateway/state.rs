@@ -292,6 +292,12 @@ pub struct GatewayState {
     /// policy; daemon mode overrides this from CLI/env configuration.
     pub gateway_persist: bool,
     pub gateway_idle_timeout_secs: u64,
+
+    /// Whether semantic search boosting is enabled for `mode=hybrid` queries.
+    ///
+    /// Default: `false`. When `false`, `mode=hybrid` silently falls back to
+    /// `mode=fuzzy`.  Mirrors [`GatewayConfig::semantic_search_enabled`].
+    pub semantic_search_enabled: bool,
 }
 
 impl GatewayState {

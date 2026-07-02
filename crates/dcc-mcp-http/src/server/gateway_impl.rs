@@ -68,6 +68,7 @@ pub(crate) async fn start_gateway_runner(
         update_manifest_url: None,
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
+        semantic_search_enabled: false,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {
