@@ -189,6 +189,43 @@ pub fn search_service_hits_for_policy(
         .collect()
 }
 
+/// Cache-aware search — used by both REST and MCP transport paths
+/// (PIP-2471 P1 fix).
+///
+/// Returns `(hits, search_context, cache_hit)`.
+/// Callers serialize hits and attach transport-specific metadata.
+pub fn search_with_cache(
+    gs: &GatewayState,
+    query: &SearchQuery,
+) -> (Vec<SearchHit>, SearchResponseContext, bool) {
+    use super::capability::search_cache::SearchCacheKey;
+
+    let cache_key = SearchCacheKey::from_query(query);
+    let index_gen = index_generation(&gs.capability_index);
+
+    if let Some(cached_bytes) = gs.search_cache.get(&cache_key, Some(&index_gen)) {
+        let hits: Vec<SearchHit> = serde_json::from_slice(&cached_bytes).unwrap_or_default();
+        let context = SearchResponseContext::new(
+            crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
+            index_gen,
+        );
+        return (hits, context, true);
+    }
+
+    let context = SearchResponseContext::new(
+        crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
+        index_gen,
+    );
+    let hits = search_service_hits_for_policy(&gs.capability_index, query, &gs.policy);
+
+    if let Ok(body_bytes) = serde_json::to_vec(&hits) {
+        gs.search_cache
+            .put(cache_key, body_bytes, context.index_generation.clone());
+    }
+
+    (hits, context, false)
+}
+
 pub fn search_service_rows_for_policy_with_context(
     index: &CapabilityIndex,
     query: &SearchQuery,

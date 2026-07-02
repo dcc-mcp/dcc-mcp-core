@@ -106,6 +106,21 @@ impl SearchCacheKey {
             tags.sort();
             parts.push(format!("et={}", tags.join(",")));
         }
+        // Fields that affect scoring and ranking (PIP-2471 P0 fix).
+        if let Some(ref sh) = query.scene_hint {
+            parts.push(format!("sh={sh}"));
+        }
+        if let Some(ms) = query.min_score {
+            parts.push(format!("ms={ms}"));
+        }
+        if let Some(ref sk) = query.skill_hint {
+            parts.push(format!("sk={sk}"));
+        }
+        if !query.or_queries.is_empty() {
+            let mut or_q: Vec<&str> = query.or_queries.iter().map(String::as_str).collect();
+            or_q.sort();
+            parts.push(format!("oq={}", or_q.join(",")));
+        }
         parts.push(format!("m={:?}", query.mode));
 
         Self {
@@ -118,13 +133,13 @@ impl SearchCacheKey {
 ///
 /// Wrapped in `Arc<Mutex<...>>` so it can be shared across handlers
 /// and invalidated from the refresh path.
+///
+/// Invalidation is driven by the `index_generation` field stored
+/// alongside each entry — callers supply the current generation
+/// on lookups, and stale entries are evicted on mismatch.
 pub struct SearchCache {
     cache: Mutex<LruCache<SearchCacheKey, CachedSearchResult>>,
     ttl: std::time::Duration,
-    /// Monotonically increasing generation counter bumped on every
-    /// invalidation — used to detect stale entries without holding
-    /// the lock for the duration of a `get`.
-    generation: Mutex<u64>,
 }
 
 impl SearchCache {
@@ -133,33 +148,16 @@ impl SearchCache {
         Self {
             cache: Mutex::new(LruCache::new(config.capacity)),
             ttl: config.ttl,
-            generation: Mutex::new(0),
         }
     }
 
     /// Look up a cached result.
     ///
-    /// Returns `None` if the key is missing, the entry is expired,
-    /// or the generation doesn't match the expected value.
-    ///
-    /// When `current_index_generation` is provided, the entry is
-    /// also rejected if its stored generation differs — this
-    /// ensures stale entries are evicted after index changes.
-    pub fn get(&self, key: &SearchCacheKey, expected_generation: u64) -> Option<Vec<u8>> {
-        self.get_with_index_gen(key, expected_generation, None)
-    }
-
-    /// Look up a cached result with index-generation validation.
-    ///
+    /// Returns `None` if the key is missing or the entry is expired.
     /// When `current_index_gen` is `Some(...)` and differs from the
     /// stored `index_generation`, the entry is treated as a miss
     /// and evicted — this handles index-change invalidation.
-    pub fn get_with_index_gen(
-        &self,
-        key: &SearchCacheKey,
-        _expected_generation: u64,
-        current_index_gen: Option<&str>,
-    ) -> Option<Vec<u8>> {
+    pub fn get(&self, key: &SearchCacheKey, current_index_gen: Option<&str>) -> Option<Vec<u8>> {
         let mut cache = self.cache.lock().unwrap();
         let entry = cache.get(key)?;
         if entry.inserted_at.elapsed() >= self.ttl {
@@ -189,20 +187,8 @@ impl SearchCache {
     }
 
     /// Invalidate the entire cache.
-    ///
-    /// Bumps the generation counter so that concurrent `get` calls
-    /// with an old generation see a miss. Returns the new generation.
-    pub fn invalidate(&self) -> u64 {
-        let mut cache = self.cache.lock().unwrap();
-        cache.clear();
-        let mut guard = self.generation.lock().unwrap();
-        *guard = guard.wrapping_add(1);
-        *guard
-    }
-
-    /// Return the current generation counter.
-    pub fn generation(&self) -> u64 {
-        *self.generation.lock().unwrap()
+    pub fn invalidate(&self) {
+        self.cache.lock().unwrap().clear();
     }
 
     /// Return the number of cached entries.
@@ -219,10 +205,8 @@ impl SearchCache {
 impl std::fmt::Debug for SearchCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let len = self.len();
-        let generation = self.generation();
         f.debug_struct("SearchCache")
             .field("len", &len)
-            .field("generation", &generation)
             .field("ttl", &self.ttl)
             .finish()
     }
@@ -242,28 +226,25 @@ mod tests {
     #[test]
     fn cache_hit_and_miss() {
         let cache = SearchCache::new(SearchCacheConfig::default());
-        let generation = cache.generation();
 
         let key = SearchCacheKey::from_query(&make_query("sphere"));
-        assert!(cache.get(&key, generation).is_none());
+        assert!(cache.get(&key, None).is_none());
 
         cache.put(key.clone(), b"cached".to_vec(), "gen1".into());
-        assert_eq!(cache.get(&key, generation), Some(b"cached".to_vec()));
+        assert_eq!(cache.get(&key, None), Some(b"cached".to_vec()));
         assert_eq!(cache.len(), 1);
     }
 
     #[test]
     fn cache_invalidation() {
         let cache = SearchCache::new(SearchCacheConfig::default());
-        let generation = cache.generation();
 
         let key = SearchCacheKey::from_query(&make_query("sphere"));
         cache.put(key.clone(), b"cached".to_vec(), "gen1".into());
 
-        let new_gen = cache.invalidate();
-        assert_ne!(new_gen, generation);
+        cache.invalidate();
         assert!(cache.is_empty());
-        assert!(cache.get(&key, generation).is_none());
+        assert!(cache.get(&key, None).is_none());
     }
 
     #[test]
@@ -273,13 +254,12 @@ mod tests {
             ..Default::default()
         };
         let cache = SearchCache::new(config);
-        let generation = cache.generation();
 
         let key = SearchCacheKey::from_query(&make_query("sphere"));
         cache.put(key.clone(), b"cached".to_vec(), "gen1".into());
 
         std::thread::sleep(std::time::Duration::from_millis(10));
-        assert!(cache.get(&key, generation).is_none());
+        assert!(cache.get(&key, None).is_none());
     }
 
     #[test]
@@ -322,5 +302,65 @@ mod tests {
             SearchCacheKey::from_query(&q1).inner,
             SearchCacheKey::from_query(&q2).inner,
         );
+    }
+
+    #[test]
+    fn min_score_produces_different_keys() {
+        let mut q1 = make_query("sphere");
+        q1.min_score = Some(50);
+        let q2 = make_query("sphere");
+
+        assert_ne!(
+            SearchCacheKey::from_query(&q1).inner,
+            SearchCacheKey::from_query(&q2).inner,
+        );
+    }
+
+    #[test]
+    fn or_queries_produce_different_keys() {
+        let mut q1 = make_query("sphere");
+        q1.or_queries = vec!["cube".into()];
+        let q2 = make_query("sphere");
+
+        assert_ne!(
+            SearchCacheKey::from_query(&q1).inner,
+            SearchCacheKey::from_query(&q2).inner,
+        );
+    }
+
+    #[test]
+    fn scene_hint_produces_different_keys() {
+        let mut q1 = make_query("sphere");
+        q1.scene_hint = Some("modeling".into());
+        let q2 = make_query("sphere");
+
+        assert_ne!(
+            SearchCacheKey::from_query(&q1).inner,
+            SearchCacheKey::from_query(&q2).inner,
+        );
+    }
+
+    #[test]
+    fn skill_hint_produces_different_keys() {
+        let mut q1 = make_query("sphere");
+        q1.skill_hint = Some("maya-primitives".into());
+        let q2 = make_query("sphere");
+
+        assert_ne!(
+            SearchCacheKey::from_query(&q1).inner,
+            SearchCacheKey::from_query(&q2).inner,
+        );
+    }
+
+    #[test]
+    fn index_gen_mismatch_evicts() {
+        let cache = SearchCache::new(SearchCacheConfig::default());
+        let key = SearchCacheKey::from_query(&make_query("sphere"));
+        cache.put(key.clone(), b"cached".to_vec(), "gen1".into());
+
+        // Same generation: hit.
+        assert!(cache.get(&key, Some("gen1")).is_some());
+        // Different generation: miss (evicted).
+        assert!(cache.get(&key, Some("gen2")).is_none());
     }
 }

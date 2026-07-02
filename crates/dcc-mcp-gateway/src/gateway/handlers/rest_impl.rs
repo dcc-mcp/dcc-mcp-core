@@ -7,12 +7,10 @@ use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::agent_telemetry::{
     AgentWorkflowEvent, error_kind_from_text, policy_reason_from_value,
 };
-use crate::gateway::capability::search_cache::SearchCacheKey;
 use crate::gateway::capability::{RefreshReason, tool_slug};
 use crate::gateway::capability_service::{
-    SearchResponseContext, ServiceError, describe_tool_full, index_generation,
-    parse_search_payload, refresh_all_live_backends, search_hit_to_value_with_context,
-    search_service_hits_for_policy, service_error_to_json,
+    ServiceError, describe_tool_full, index_generation, parse_search_payload,
+    refresh_all_live_backends, search_hit_to_value_with_context, service_error_to_json,
 };
 use crate::gateway::response_codec::{compact_call_batch_payload, compact_describe_payload};
 use crate::gateway::search_telemetry::{SearchTelemetryInput, search_id_from_payload};
@@ -549,20 +547,16 @@ pub async fn handle_v1_search(
         }
     }
 
-    // --- LRU cache check (PIP-2471) ---
-    let cache_key = SearchCacheKey::from_query(&query);
-    let cache_gen = gs.search_cache.generation();
-    let index_gen = index_generation(&gs.capability_index);
-    if let Some(cached_body) =
-        gs.search_cache
-            .get_with_index_gen(&cache_key, cache_gen, Some(&index_gen))
-    {
-        let hits: Vec<Value> = serde_json::from_slice(&cached_body).unwrap_or_default();
-        let index_generation = index_generation(&gs.capability_index);
-        let search_context = SearchResponseContext::new(
-            crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
-            index_generation,
-        );
+    // --- LRU cache-aware search (PIP-2471 P1: shared REST+MCP helper) ---
+    let (search_hits, search_context, cache_hit) =
+        crate::gateway::capability_service::search_with_cache(&gs, &query);
+
+    let hits: Vec<Value> = search_hits
+        .iter()
+        .map(|hit| search_hit_to_value_with_context(hit.clone(), Some(&search_context)))
+        .collect();
+
+    if cache_hit {
         let metadata = RestResponseMetadata::from_trace_context(&trace_context)
             .with_index_generation(search_context.index_generation.clone())
             .with_search(
@@ -572,20 +566,9 @@ pub async fn handle_v1_search(
             .with_search_cache_hit(true);
         return search_response_with_metadata(&headers, &body, hits, &metadata);
     }
-    // --- end cache check ---
 
-    let index_generation = index_generation(&gs.capability_index);
-    let search_context = SearchResponseContext::new(
-        crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
-        index_generation,
-    );
-    let hits = search_service_hits_for_policy(&gs.capability_index, &query, &gs.policy);
-    let telemetry_hits = search_hits_for_telemetry(&hits);
     let total = hits.len();
-    let hits: Vec<Value> = hits
-        .into_iter()
-        .map(|hit| search_hit_to_value_with_context(hit, Some(&search_context)))
-        .collect();
+    let telemetry_hits = search_hits_for_telemetry(&search_hits);
     let session_id = session_id_from_headers(&headers).or_else(|| {
         agent_context
             .as_ref()
@@ -632,16 +615,6 @@ pub async fn handle_v1_search(
             search_context.search_id.clone(),
             search_context.ranker_version.to_string(),
         );
-
-    // --- LRU cache store (PIP-2471) ---
-    if let Ok(body_bytes) = serde_json::to_vec(&hits) {
-        gs.search_cache.put(
-            cache_key,
-            body_bytes,
-            search_context.index_generation.clone(),
-        );
-    }
-    // --- end cache store ---
 
     search_response_with_metadata(&headers, &body, hits, &metadata)
 }

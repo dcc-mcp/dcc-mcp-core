@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
-use crate::gateway::capability_service::{SearchResponseContext, search_hit_to_value_with_context};
+use crate::gateway::capability_service::search_hit_to_value_with_context;
 use crate::gateway::search_telemetry::{
     RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
     search_id_from_meta, search_id_from_payload,
@@ -402,17 +402,10 @@ pub async fn tool_search_tools(
     )
     .await;
     let query = crate::gateway::capability_service::parse_search_payload(args);
-    let index_generation =
-        crate::gateway::capability_service::index_generation(&gs.capability_index);
-    let search_context = SearchResponseContext::new(
-        crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
-        index_generation,
-    );
-    let hits = crate::gateway::capability_service::search_service_hits_for_policy(
-        &gs.capability_index,
-        &query,
-        &gs.policy,
-    );
+
+    // --- LRU cache-aware search (PIP-2471 P1: shared REST+MCP helper) ---
+    let (hits, search_context, _cache_hit) =
+        crate::gateway::capability_service::search_with_cache(gs, &query);
     let telemetry_hits = search_hits_for_telemetry(&hits);
     let annotated: Vec<Value> = hits
         .into_iter()
