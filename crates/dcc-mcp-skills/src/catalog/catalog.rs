@@ -28,32 +28,66 @@ impl SkillCatalog {
         scope: Option<SkillScope>,
         limit: Option<usize>,
     ) -> Vec<SkillSummary> {
-        // ── 1. Pre-filter by tags/dcc (AND semantics) ──
-        let mut prefiltered: Vec<SkillEntry> = self
-            .entries
-            .iter()
-            .filter(|entry| {
-                let meta = &entry.value().metadata;
+        // ── 0. dcc shard fast-path (PIP-2470) ──
+        //
+        // When `dcc` is specified, use the per-dcc shard to narrow the
+        // entry scan to only skills in the matching shard.  If the shard
+        // doesn't exist (no skills for that dcc), return early.
+        let dcc_key = dcc
+            .filter(|d| !d.is_empty())
+            .map(|d| d.to_ascii_lowercase());
 
-                if !tags.is_empty() {
-                    for tag in tags {
-                        if !meta.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+        // ── 1. Pre-filter by tags/dcc (AND semantics) ──
+        let mut prefiltered: Vec<SkillEntry> = match &dcc_key {
+            Some(key) => {
+                let shard = self.dcc_shards.get(key);
+                let Some(shard) = shard else {
+                    return Vec::new();
+                };
+                self.entries
+                    .iter()
+                    .filter(|entry| {
+                        // Fast shard membership check before inspecting metadata.
+                        if !shard.contains(entry.key()) {
                             return false;
                         }
-                    }
-                }
+                        let meta = &entry.value().metadata;
 
-                if let Some(dcc_filter) = dcc
-                    && !dcc_filter.is_empty()
-                    && !meta.dcc.eq_ignore_ascii_case(dcc_filter)
-                {
-                    return false;
-                }
+                        if !tags.is_empty() {
+                            for tag in tags {
+                                if !meta.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                                    return false;
+                                }
+                            }
+                        }
 
-                true
-            })
-            .map(|entry| entry.value().clone())
-            .collect();
+                        // dcc filter already satisfied by shard membership.
+                        true
+                    })
+                    .map(|entry| entry.value().clone())
+                    .collect()
+            }
+            None => {
+                // No dcc filter: scan all entries (existing path).
+                self.entries
+                    .iter()
+                    .filter(|entry| {
+                        let meta = &entry.value().metadata;
+
+                        if !tags.is_empty() {
+                            for tag in tags {
+                                if !meta.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                                    return false;
+                                }
+                            }
+                        }
+
+                        true
+                    })
+                    .map(|entry| entry.value().clone())
+                    .collect()
+            }
+        };
 
         // ── 2. No query → deterministic order, no ranking ──
         let q_trim = query.map(str::trim).unwrap_or("");
