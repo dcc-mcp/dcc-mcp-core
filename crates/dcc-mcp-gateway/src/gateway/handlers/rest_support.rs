@@ -187,12 +187,16 @@ pub(super) fn search_response_with_metadata(
     body: &Value,
     hits: Vec<Value>,
     metadata: &RestResponseMetadata,
+    semantic: Option<Value>,
 ) -> Response {
     let total = hits.len();
     let mut legacy = json!({
         "total": total,
         "hits": hits,
     });
+    if let Some(ref sem) = semantic {
+        legacy["semantic"] = sem.clone();
+    }
     metadata.insert_body_fields(&mut legacy);
     let mut compact = compact_search_payload(
         total,
@@ -201,6 +205,9 @@ pub(super) fn search_response_with_metadata(
             .map(Vec::as_slice)
             .unwrap_or_default(),
     );
+    if let Some(ref sem) = semantic {
+        compact["semantic"] = sem.clone();
+    }
     metadata.insert_body_fields(&mut compact);
     negotiated_response_with_metadata(
         headers,

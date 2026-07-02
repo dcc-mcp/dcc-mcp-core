@@ -3,7 +3,6 @@
 use serde_json::{Value, json};
 
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
-use crate::gateway::capability::SearchMode;
 use crate::gateway::capability_service::{SearchResponseContext, search_hit_to_value_with_context};
 use crate::gateway::search_telemetry::{
     RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
@@ -402,16 +401,15 @@ pub async fn tool_search_tools(
         crate::gateway::capability::RefreshReason::Periodic,
     )
     .await;
-    let mut query = crate::gateway::capability_service::parse_search_payload(args);
+    let query = crate::gateway::capability_service::parse_search_payload(args);
     let index_generation =
         crate::gateway::capability_service::index_generation(&gs.capability_index);
 
-    // When mode=hybrid is requested but semantic search is not enabled,
-    // silently downgrade to fuzzy and record a diagnostic note.
-    let hybrid_downgraded = query.mode == SearchMode::Hybrid && !gs.semantic_search_enabled;
-    if hybrid_downgraded {
-        query.mode = SearchMode::Fuzzy;
-    }
+    // Shared helper: hybrid→fuzzy downgrade + semantic diagnostic
+    let (query, semantic) = crate::gateway::capability_service::apply_search_mode_downgrade(
+        query,
+        gs.semantic_search_enabled,
+    );
 
     let search_context = SearchResponseContext::new(
         crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
@@ -454,16 +452,7 @@ pub async fn tool_search_tools(
         "index_generation": search_context.index_generation,
         "total": annotated.len(),
         "hits":  annotated,
-        "semantic": if hybrid_downgraded {
-            json!({
-                "active": false,
-                "note": "mode=hybrid requested but semantic search is not enabled; fell back to mode=fuzzy"
-            })
-        } else {
-            json!({
-                "active": gs.semantic_search_enabled,
-            })
-        },
+        "semantic": semantic,
     }))
     .map_err(|e| e.to_string())
 }

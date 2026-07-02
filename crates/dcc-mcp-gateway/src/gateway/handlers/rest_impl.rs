@@ -547,6 +547,16 @@ pub async fn handle_v1_search(
             }
         }
     }
+
+    // Shared helper: hybrid→fuzzy downgrade + semantic diagnostic.
+    // MCP and REST must produce byte-identical search responses for
+    // the same query — this helper is the single source of truth for
+    // the downgrade logic and the `semantic` response field.
+    let (query, semantic) = crate::gateway::capability_service::apply_search_mode_downgrade(
+        query,
+        gs.semantic_search_enabled,
+    );
+
     let index_generation = index_generation(&gs.capability_index);
     let search_context = SearchResponseContext::new(
         crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
@@ -605,7 +615,7 @@ pub async fn handle_v1_search(
             search_context.search_id.clone(),
             search_context.ranker_version.to_string(),
         );
-    search_response_with_metadata(&headers, &body, hits, &metadata)
+    search_response_with_metadata(&headers, &body, hits, &metadata, Some(semantic))
 }
 
 /// `POST /v1/load_skill` — load a skill on a target backend instance
