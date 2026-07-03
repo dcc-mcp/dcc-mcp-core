@@ -148,3 +148,6 @@ pub(crate) use version::parse_semver;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tools_tests;
