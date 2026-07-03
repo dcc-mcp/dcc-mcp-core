@@ -32,12 +32,6 @@ ignore = [
     # lru 0.15.0: `IterMut` violates Stacked Borrows (unsound).
     # Upstream fix tracked at https://github.com/jeromefroe/lru-rs/issues/203.
     "RUSTSEC-2026-0002",
-    # pyo3 0.28.3: `PyList`/`PyTuple` iterator OOB read in `nth`/`nth_back` (vulnerability).
-    # Fixed in pyo3 0.28.4; pinned dep on fastembed-side.
-    "RUSTSEC-2026-0176",
-    # pyo3 0.28.3: `PyCFunction::new_closure` missing `Sync` bound (vulnerability).
-    # Fixed in pyo3 0.28.4; pinned dep on fastembed-side.
-    "RUSTSEC-2026-0177",
 ]
 
 [licenses]
