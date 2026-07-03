@@ -26,8 +26,7 @@ def _get_method_param_count(file: Path, class_name: str, method_name: str) -> in
     ``self`` is included in the count so callers know how many total
     positional args the function expects.
     """
-    with open(file, "rb") as f:
-        tree = ast.parse(f.read())
+    tree = ast.parse(file.read_bytes())
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
@@ -44,8 +43,7 @@ def _get_method_param_count(file: Path, class_name: str, method_name: str) -> in
 
 def _get_non_self_param_count(file: Path, class_name: str, method_name: str) -> int:
     """Return the number of required positional params excluding ``self``."""
-    with open(file, "rb") as f:
-        tree = ast.parse(f.read())
+    tree = ast.parse(file.read_bytes())
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
@@ -120,8 +118,7 @@ class TestPhaseHookSignatureConsistency:
 
     def test_all_standard_phase_hooks_are_covered(self) -> None:
         """Every phase-like method on DccServerBase is listed in one of the two groups."""
-        with open(_SERVER_BASE, "rb") as f:
-            tree = ast.parse(f.read())
+        tree = ast.parse(_SERVER_BASE.read_bytes())
 
         dcc_base_methods: set[str] = set()
         for node in ast.walk(tree):
@@ -129,7 +126,7 @@ class TestPhaseHookSignatureConsistency:
                 for item in node.body:
                     if isinstance(item, ast.FunctionDef):
                         nm = item.name
-                        if nm.startswith("_register_") or nm.startswith(  # noqa: SIM114
+                        if nm.startswith("_register_") or nm.startswith(
                             "_run_"
                         ) or nm.startswith("_attach_") or nm.startswith("_mark_"):
                             dcc_base_methods.add(nm)
@@ -150,8 +147,7 @@ class TestPhaseHookSignatureConsistency:
         """Verify each phase in _registration.py calls with the arg count that DccServerBase defines."""
         # Map: phase hook name → expected non-self positional parameters from _registration.py
         registration_calls: dict[str, int] = {}
-        with open(_REGISTRATION, "rb") as f:
-            tree = ast.parse(f.read())
+        tree = ast.parse(_REGISTRATION.read_bytes())
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
@@ -180,17 +176,20 @@ class TestPhaseHookSignatureConsistency:
                             f"got {n_args}"
                         )
 
-        covered = set(CONTEXT_HOOKS) | set(NO_ARG_HOOKS)
         for method_name, call_args in registration_calls.items():
             # Skip methods not defined on DccServerBase (e.g. _readiness.mark_skill_catalog_ready)
             try:
-                defined_args = _get_non_self_param_count(
+                required = _get_non_self_param_count(
+                    _SERVER_BASE, "DccServerBase", method_name
+                )
+                total = _get_method_param_count(
                     _SERVER_BASE, "DccServerBase", method_name
                 )
             except ValueError:
                 continue  # method is not on DccServerBase, skip
-            assert defined_args == call_args, (
+            assert required <= call_args <= total, (
                 f"_registration.py calls {method_name} with {call_args} arg(s) "
-                f"but DccServerBase defines it with {defined_args} non-self "
-                f"param(s). This will raise TypeError at runtime."
+                f"but DccServerBase defines it with {required} required and "
+                f"{total} total non-self param(s). "
+                f"This would raise TypeError at runtime."
             )
