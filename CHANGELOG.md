@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.2...v0.19.3) (2026-07-03)
+
+
+### Features
+
+* **gateway:** add LRU cache for hot search queries ([b745642](https://github.com/dcc-mcp/dcc-mcp-core/commit/b7456427802a462a229ab35d3c4b8835f9cb2ab5))
+* **search:** add Hybrid search mode and semantic_search_enabled config (Phase 1) ([6ba8a74](https://github.com/dcc-mcp/dcc-mcp-core/commit/6ba8a741e6e13a0fa44d87984b93990467eb31d9))
+* **skills:** add inverted index for sub-linear skill search (PIP-2469) ([a5fdf99](https://github.com/dcc-mcp/dcc-mcp-core/commit/a5fdf99298d71a2989372d7f9510344433fbffe3))
+* **skills:** partition skill catalog by dcc_type (PIP-2470) ([1f58e98](https://github.com/dcc-mcp/dcc-mcp-core/commit/1f58e984cc18d1f9b47229dff0f2ef552b9ff7f9))
+
+
+### Bug Fixes
+
+* add missing semantic_search_enabled in dcc-mcp-cli GatewayArgs test constructor ([b07c270](https://github.com/dcc-mcp/dcc-mcp-core/commit/b07c2700ab970b7b556bcdc637e1ce83470a77a3))
+* add missing semantic_search_enabled in GatewayArgs test constructors ([ef32af1](https://github.com/dcc-mcp/dcc-mcp-core/commit/ef32af116722dc4813100b841afaac3033a4c37a))
+* align phase hook signature test ([35d27ee](https://github.com/dcc-mcp/dcc-mcp-core/commit/35d27eefa50337e6611778ca1eb4938effd86473))
+* avoid runtime schema introspection ([df291d8](https://github.com/dcc-mcp/dcc-mcp-core/commit/df291d889bde20064a94ed1feca650b70004c08f))
+* **ci:** remove auto-format bot commits with [skip ci] ([5cc805d](https://github.com/dcc-mcp/dcc-mcp-core/commit/5cc805d96e068226cfd9d1fb56741f0acdbac95b))
+* **ci:** resolve PR [#1772](https://github.com/dcc-mcp/dcc-mcp-core/issues/1772) CI test failures ([7a1c59c](https://github.com/dcc-mcp/dcc-mcp-core/commit/7a1c59c0fbd9b425ca1be929809ac25c7251505d))
+* **clippy:** replace or_insert_with(DashSet::new) with or_default() ([233f93a](https://github.com/dcc-mcp/dcc-mcp-core/commit/233f93a11d387ed4477e0bdc3ad44dedfec43711))
+* **core:** strip _meta from params before Python handler dispatch ([d5a0392](https://github.com/dcc-mcp/dcc-mcp-core/commit/d5a0392ac934c0c34827918a11913002dbf1492f))
+* review feedback — MCP/REST search parity, env wiring, dedup tests ([e0991f0](https://github.com/dcc-mcp/dcc-mcp-core/commit/e0991f0f06a98cb8df6010fe0ea0e63f3363e58a))
+* ruff format in test_phase_hook_signature_consistency.py ([b3598d0](https://github.com/dcc-mcp/dcc-mcp-core/commit/b3598d0d0c9b2de3a446c9e0214e99d353254888))
+* suppress cargo-deny advisory RUSTSEC-2026-{0002,0176,0177} blocking release ([97545b0](https://github.com/dcc-mcp/dcc-mcp-core/commit/97545b0e5e2fd162c3ac6819408d79fd066ce0d5))
+* **test:** apply ruff format to phase hook signature test ([301771d](https://github.com/dcc-mcp/dcc-mcp-core/commit/301771d75976dad300a267d57b7f4527de397abb))
+* **test:** relax phase hook signature assertion for optional context params ([be1cf8b](https://github.com/dcc-mcp/dcc-mcp-core/commit/be1cf8b5cc3f83dad42027ab1c06e38d27640835))
+* unify registration hook contract — all phase helpers accept optional context ([95cdd41](https://github.com/dcc-mcp/dcc-mcp-core/commit/95cdd4101aaa6d5e90a5c576b79d8470740c2df5))
+* update MockServer hook signatures to accept context ([d565cf0](https://github.com/dcc-mcp/dcc-mcp-core/commit/d565cf0138dd35a153841c2cefbbf14302d4fec7))
+
+
+### Performance Improvements
+
+* **catalog:** score by index, clone only final search page ([1e1e8b6](https://github.com/dcc-mcp/dcc-mcp-core/commit/1e1e8b63e00d4df750ad2815ca3dadba69077678))
+* **scoring:** precompute FieldTokens at catalog load time ([#1774](https://github.com/dcc-mcp/dcc-mcp-core/issues/1774)) ([e25aa6f](https://github.com/dcc-mcp/dcc-mcp-core/commit/e25aa6f095ae15bbda8c417abfd64ffc13bf9972))
+
+
+### Code Refactoring
+
+* abstract host common modules ([045b508](https://github.com/dcc-mcp/dcc-mcp-core/commit/045b508ea704ca085e7d4249746be603b7f1e0b1))
+* **gateway:** extract tools tests to tools_tests.rs to stay under 1500-line limit ([6504427](https://github.com/dcc-mcp/dcc-mcp-core/commit/6504427f86f18386006b13380aaf96a26a820a3b))
+* shared builtin action registration pipeline ([298d8cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/298d8cc5dbe7581ae6c67cbd6b9434fb4842e9b3))
+
+
+### Documentation
+
+* add phase hook signature consistency check to code-review checklist ([2270123](https://github.com/dcc-mcp/dcc-mcp-core/commit/2270123acee12fccb6c913fe24d9cded44423d26))
+
 ## [0.19.2](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.1...v0.19.2) (2026-06-30)
 
 
