@@ -408,6 +408,7 @@ restarts because the field is `#[serde(default)]`.
 10. **Lifecycle hooks — `off()` removes by identity (`is`), not equality** → store the handler reference; `hooks.off(event, lambda ctx: ...)` never matches (#1337)
 11. **Agent memory — `MemoryRecorder.install()` must be called** → the recorder does nothing until wired to a `LifecycleHooks` instance; forgetting `install()` means zero memory is recorded (#1334)
 12. **Agent memory — raw prompts are redacted** → never pass LLM prompts or `api_key`/`password`/`secret`/`token` keys in `MemoryEntry.payload`; the `_safe_payload` filter strips them (#1334)
+13. **Phase hook signature mismatch** → `_registration.py` calls 3 hooks with `(context)` and 7 with no args. Overriding a hook with the wrong parameter count silently fails because `run_registration_phases` catches non-fatal exceptions. Always run an integration test that calls `get_standard_phases()` against your real server class (not `MockServer`) and assert no `TypeError` (PIP-2479). See [`tests/test_phase_hook_signature_consistency.py`](tests/test_phase_hook_signature_consistency.py) for the static check.
 
 Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
