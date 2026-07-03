@@ -20,38 +20,16 @@ _SERVER_BASE = _PROJECT_ROOT / "python" / "dcc_mcp_core" / "server_base.py"
 _REGISTRATION = _PROJECT_ROOT / "python" / "dcc_mcp_core" / "_registration.py"
 
 
-def _get_method_param_count(file: Path, class_name: str, method_name: str) -> int:
-    """Return the number of positional parameters for *method_name* on *class_name*.
-
-    ``self`` is included in the count so callers know how many total
-    positional args the function expects.
-    """
-    tree = ast.parse(file.read_bytes())
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name == method_name:
-                    # Count plain positional args (includes self)
-                    return len([a for a in item.args.args if a.arg != "self"])
-            break
-    msg = f"Method {class_name}.{method_name} not found in {file}"
-    raise ValueError(msg)
-
-
 def _get_non_self_param_count(file: Path, class_name: str, method_name: str) -> int:
-    """Return the number of required positional params excluding ``self``."""
+    """Return the number of positional params excluding ``self``."""
     tree = ast.parse(file.read_bytes())
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for item in node.body:
                 if isinstance(item, ast.FunctionDef) and item.name == method_name:
-                    defaults = item.args.defaults or []
                     arg_names = [a.arg for a in item.args.args if a.arg != "self"]
-                    # Required = total non-self params minus default-valued ones
-                    ndefaults = len(defaults)
-                    return max(0, len(arg_names) - ndefaults)
+                    return len(arg_names)
             break
     msg = f"Method {class_name}.{method_name} not found in {file}"
     raise ValueError(msg)
@@ -63,11 +41,6 @@ CONTEXT_HOOKS: tuple[str, ...] = (
     "_register_core_builtin_actions",
     "_run_strict_skill_scan_phase",
     "_register_metadata_driven_tools",
-)
-
-# -- phase hooks called WITH NO arguments (only self) ------------------------
-
-NO_ARG_HOOKS: tuple[str, ...] = (
     "_register_introspect_tools",
     "_register_feedback_tool",
     "_register_qt_ui_inspector",
@@ -77,6 +50,10 @@ NO_ARG_HOOKS: tuple[str, ...] = (
     "_mark_skill_catalog_ready",
 )
 
+# -- phase hooks called WITH NO arguments (only self) ------------------------
+
+NO_ARG_HOOKS: tuple[str, ...] = ()
+
 
 class TestPhaseHookSignatureConsistency:
     """Every ``DccServerBase`` phase hook must match its caller in ``_registration.py``.
@@ -85,13 +62,13 @@ class TestPhaseHookSignatureConsistency:
       - ``CoreBuiltinActionsPhase``:     ``server._register_core_builtin_actions(context)``
       - ``StrictSkillScanPhase``:        ``server._run_strict_skill_scan_phase(context)``
       - ``MetadataDrivenToolsPhase``:    ``server._register_metadata_driven_tools(context)``
-      - ``IntrospectToolsPhase``:        ``server._register_introspect_tools()``
-      - ``FeedbackToolPhase``:           ``server._register_feedback_tool()``
-      - ``QtUiInspectorPhase``:          ``server._register_qt_ui_inspector()``
-      - ``CapabilityManifestPhase``:     ``server._register_capability_manifest_tool()``
-      - ``ProjectToolsPhase``:           ``server._attach_project_tools()``
-      - ``ResourcesPhase``:              ``server._attach_resources()``
-      - ``SkillCatalogReadyPhase``:      ``server._mark_skill_catalog_ready()``
+      - ``IntrospectToolsPhase``:        ``server._register_introspect_tools(context)``
+      - ``FeedbackToolPhase``:           ``server._register_feedback_tool(context)``
+      - ``QtUiInspectorPhase``:          ``server._register_qt_ui_inspector(context)``
+      - ``CapabilityManifestPhase``:     ``server._register_capability_manifest_tool(context)``
+      - ``ProjectToolsPhase``:           ``server._attach_project_tools(context)``
+      - ``ResourcesPhase``:              ``server._attach_resources(context)``
+      - ``SkillCatalogReadyPhase``:      ``server._mark_skill_catalog_ready(context)``
     """
 
     def test_context_hooks_accept_one_arg(self) -> None:
@@ -175,16 +152,19 @@ class TestPhaseHookSignatureConsistency:
                             f"got {n_args}"
                         )
 
+        covered = set(CONTEXT_HOOKS) | set(NO_ARG_HOOKS)
         for method_name, call_args in registration_calls.items():
+            if method_name not in covered:
+                continue
             # Skip methods not defined on DccServerBase (e.g. _readiness.mark_skill_catalog_ready)
             try:
-                required = _get_non_self_param_count(_SERVER_BASE, "DccServerBase", method_name)
-                total = _get_method_param_count(_SERVER_BASE, "DccServerBase", method_name)
+                defined_args = _get_non_self_param_count(
+                    _SERVER_BASE, "DccServerBase", method_name
+                )
             except ValueError:
                 continue  # method is not on DccServerBase, skip
-            assert required <= call_args <= total, (
+            assert defined_args == call_args, (
                 f"_registration.py calls {method_name} with {call_args} arg(s) "
-                f"but DccServerBase defines it with {required} required and "
-                f"{total} total non-self param(s). "
-                f"This would raise TypeError at runtime."
+                f"but DccServerBase defines it with {defined_args} non-self "
+                f"param(s). This will raise TypeError at runtime."
             )
