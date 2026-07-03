@@ -158,9 +158,7 @@ class TestPhaseHookSignatureConsistency:
                 continue
             # Skip methods not defined on DccServerBase (e.g. _readiness.mark_skill_catalog_ready)
             try:
-                defined_args = _get_non_self_param_count(
-                    _SERVER_BASE, "DccServerBase", method_name
-                )
+                defined_args = _get_non_self_param_count(_SERVER_BASE, "DccServerBase", method_name)
             except ValueError:
                 continue  # method is not on DccServerBase, skip
             assert defined_args == call_args, (
