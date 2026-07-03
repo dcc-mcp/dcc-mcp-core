@@ -33,9 +33,7 @@ def _get_method_param_count(file: Path, class_name: str, method_name: str) -> in
             for item in node.body:
                 if isinstance(item, ast.FunctionDef) and item.name == method_name:
                     # Count plain positional args (includes self)
-                    return len(
-                        [a for a in item.args.args if a.arg != "self"]
-                    )
+                    return len([a for a in item.args.args if a.arg != "self"])
             break
     msg = f"Method {class_name}.{method_name} not found in {file}"
     raise ValueError(msg)
@@ -126,9 +124,12 @@ class TestPhaseHookSignatureConsistency:
                 for item in node.body:
                     if isinstance(item, ast.FunctionDef):
                         nm = item.name
-                        if nm.startswith("_register_") or nm.startswith(
-                            "_run_"
-                        ) or nm.startswith("_attach_") or nm.startswith("_mark_"):
+                        if (
+                            nm.startswith("_register_")
+                            or nm.startswith("_run_")
+                            or nm.startswith("_attach_")
+                            or nm.startswith("_mark_")
+                        ):
                             dcc_base_methods.add(nm)
                 break
 
@@ -168,9 +169,7 @@ class TestPhaseHookSignatureConsistency:
                         registration_calls.setdefault(method_name, n_args)
                         # Verify consistency: all calls to the same method should
                         # pass the same number of arguments
-                        assert (
-                            registration_calls[method_name] == n_args
-                        ), (
+                        assert registration_calls[method_name] == n_args, (
                             f"Inconsistent calls to {method_name}: "
                             f"expected {registration_calls[method_name]} args, "
                             f"got {n_args}"
@@ -179,12 +178,8 @@ class TestPhaseHookSignatureConsistency:
         for method_name, call_args in registration_calls.items():
             # Skip methods not defined on DccServerBase (e.g. _readiness.mark_skill_catalog_ready)
             try:
-                required = _get_non_self_param_count(
-                    _SERVER_BASE, "DccServerBase", method_name
-                )
-                total = _get_method_param_count(
-                    _SERVER_BASE, "DccServerBase", method_name
-                )
+                required = _get_non_self_param_count(_SERVER_BASE, "DccServerBase", method_name)
+                total = _get_method_param_count(_SERVER_BASE, "DccServerBase", method_name)
             except ValueError:
                 continue  # method is not on DccServerBase, skip
             assert required <= call_args <= total, (
