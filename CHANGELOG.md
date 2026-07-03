@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * **ci:** resolve PR [#1772](https://github.com/dcc-mcp/dcc-mcp-core/issues/1772) CI test failures ([7a1c59c](https://github.com/dcc-mcp/dcc-mcp-core/commit/7a1c59c0fbd9b425ca1be929809ac25c7251505d))
 * **clippy:** replace or_insert_with(DashSet::new) with or_default() ([233f93a](https://github.com/dcc-mcp/dcc-mcp-core/commit/233f93a11d387ed4477e0bdc3ad44dedfec43711))
 * **core:** strip _meta from params before Python handler dispatch ([d5a0392](https://github.com/dcc-mcp/dcc-mcp-core/commit/d5a0392ac934c0c34827918a11913002dbf1492f))
+* **pipeline:** strip _-prefixed internal keys before calling Python handlers ([5e1f7c4](https://github.com/dcc-mcp/dcc-mcp-core/commit/5e1f7c489dff48a07abbd603daf87dfc47fd3939))
+* **python:** strip _-prefixed internal keys before calling Python handlers ([e7dad71](https://github.com/dcc-mcp/dcc-mcp-core/commit/e7dad712a2e86fbd3e4b27071f90562a35d4612c))
 * review feedback — MCP/REST search parity, env wiring, dedup tests ([e0991f0](https://github.com/dcc-mcp/dcc-mcp-core/commit/e0991f0f06a98cb8df6010fe0ea0e63f3363e58a))
 * ruff format in test_phase_hook_signature_consistency.py ([b3598d0](https://github.com/dcc-mcp/dcc-mcp-core/commit/b3598d0d0c9b2de3a446c9e0214e99d353254888))
 * suppress cargo-deny advisory RUSTSEC-2026-{0002,0176,0177} blocking release ([97545b0](https://github.com/dcc-mcp/dcc-mcp-core/commit/97545b0e5e2fd162c3ac6819408d79fd066ce0d5))
