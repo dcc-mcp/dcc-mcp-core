@@ -397,6 +397,12 @@ impl PyToolDispatcher {
             }
         }
 
+        // 2c. Strip _meta before calling Python handlers to prevent
+        // gateway metadata from leaking into skill implementations.
+        if let Value::Object(ref mut map) = params {
+            map.remove("_meta");
+        }
+
         // 3. Call the Python handler
         if let Err(veto) = self.emit_vetoable_tool_event(
             "tool.dispatched",
