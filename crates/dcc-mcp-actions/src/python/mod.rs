@@ -397,12 +397,6 @@ impl PyToolDispatcher {
             }
         }
 
-        // 2c. Strip _meta before calling Python handlers to prevent
-        // gateway metadata from leaking into skill implementations.
-        if let Value::Object(ref mut map) = params {
-            map.remove("_meta");
-        }
-
         // 3. Call the Python handler
         if let Err(veto) = self.emit_vetoable_tool_event(
             "tool.dispatched",
@@ -420,6 +414,11 @@ impl PyToolDispatcher {
             return Err(pyo3::exceptions::PyPermissionError::new_err(message));
         }
         let handler = self.handler_map.get(action_name).expect("checked above");
+        // Strip _-prefixed internal keys (e.g. _meta) before passing to Python handlers
+        // to avoid TypeError when the handler does not accept **kwargs.
+        if let Value::Object(ref mut map) = params {
+            map.retain(|k, _| !k.starts_with('_'));
+        }
         let py_params = value_to_py(py, &params)?;
         let raw = handler.call1(py, (py_params,)).map_err(|e| {
             self.emit_tool_failed(
