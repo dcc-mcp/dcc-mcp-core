@@ -574,6 +574,43 @@ assert 0.0 <= stats["summary_hit_rate"] <= 1.0
 
 ---
 
+**Phase hook signature mismatch — non-fatal, CI-invisible (PIP-2479, PIP-2468):**
+
+``_registration.py`` dispatches phase hooks with calling conventions that
+vary by phase — 3 hooks receive a ``RegistrationContext`` argument and 7
+receive nothing. If an adapter override has the wrong parameter count,
+``run_registration_phases`` catches the ``TypeError`` as non-fatal
+(``except Exception`` at line 80 of ``_registration.py``), logs it, and
+continues — the tools for that phase silently fail to register.
+
+```python
+# server_base.py — definition (DccServerBase)
+def _register_introspect_tools(self) -> None:      # ← no `context` arg
+    ...
+
+# _registration.py — call site (IntrospectToolsPhase.run)
+server._register_introspect_tools()                 # ← 0 args passed
+
+# Adapting override with wrong signature:
+def _register_introspect_tools(self, context): ...  # ← TypeError at runtime!
+# → caught as non-fatal by run_registration_phases → phase marked failed
+# → tools never registered → CI still GREEN because test uses MockServer
+```
+
+**Prevention:**
+
+1. **Static**: verify that every ``DccServerBase`` phase hook method signature
+   matches its caller in ``_registration.py`` — see
+   ``tests/test_phase_hook_signature_consistency.py`` for the automated check.
+2. **Integration**: every adapter must have at least one test that runs
+   ``get_standard_phases()`` against the real server class (not ``MockServer``)
+   and asserts no ``TypeError``.
+3. **Code review**: before approving PRs that touch registration or phase hooks,
+   check that the caller signature in ``_registration.py`` matches the hook
+   definition in ``server_base.py`` (or the adapter subclass).
+
+---
+
 ## Do and Don't — Full Reference
 
 ### Do ✅
