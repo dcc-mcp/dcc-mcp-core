@@ -191,7 +191,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 
 ## Version / language support
 
-- **Current version**: 0.19.6 <!-- x-release-please-version -->
+- **Current version**: 0.19.7 <!-- x-release-please-version -->
 - **Python**: 3.8–3.14 (`abi3-py38` wheel). Pure-Python modules syntax-compatible with Python 3.7 (Maya 2022).
 - **Rust**: Edition 2024; MSRV pinned in `rust-toolchain.toml` at the repo root
 - **Build**: maturin + PyO3
