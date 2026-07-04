@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.6](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.5...v0.19.6) (2026-07-04)
+
+
+### Bug Fixes
+
+* **ci:** ensure Windows abi3 wheel is built without --find-interpreter ([#1792](https://github.com/dcc-mcp/dcc-mcp-core/issues/1792)) ([f7abfb5](https://github.com/dcc-mcp/dcc-mcp-core/commit/f7abfb5370c6086b6cb82cb4650b06b259a360cf))
+* formalize Maya 2022 / Python 3.7 support baseline through end of 2026 ([#1799](https://github.com/dcc-mcp/dcc-mcp-core/issues/1799)) ([3eefda1](https://github.com/dcc-mcp/dcc-mcp-core/commit/3eefda1835abd08e16ec6c1e10bb219af52d1178))
+
 ## [0.19.5](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.4...v0.19.5) (2026-07-04)
 
 
