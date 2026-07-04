@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.4](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.3...v0.19.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* **gateway:** coexist with external daemon when registry sentinel missing ([#1794](https://github.com/dcc-mcp/dcc-mcp-core/issues/1794)) ([92da072](https://github.com/dcc-mcp/dcc-mcp-core/commit/92da072c983dff03e463b94b06d8f8f213131623))
+
 ## [0.19.3](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.2...v0.19.3) (2026-07-03)
 
 
