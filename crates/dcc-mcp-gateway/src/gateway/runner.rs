@@ -430,36 +430,34 @@ impl GatewayRunner {
                 let gw_adapter_version = resident.as_ref().and_then(|e| e.adapter_version.clone());
                 let gw_adapter_dcc = resident.as_ref().and_then(|e| e.adapter_dcc.clone());
 
-                let resident_health = if resident.is_none() {
-                    ResidentGatewayHealth::Missing
-                } else {
-                    probe_resident_gateway_health(
-                        &self.config.host,
-                        self.config.gateway_port,
-                        Duration::from_secs(self.config.challenger_poll_interval_secs.clamp(1, 5)),
-                    )
-                    .await
-                };
-
-                // Three cases reach this branch:
-                //   A. Resident exists and /health passes    -> plain
-                //   B. Resident exists but /health fails     -> challenger
-                //   C. Resident is gone (TIME_WAIT / race    -> challenger
-                //      with no live sentinel; the OS still
-                //      holds the address but no peer is the
-                //      authoritative owner)
+                // Three cases reach this branch (decided by /health, not sentinel
+                // presence alone):
+                //   A. /health passes                         -> plain instance
+                //   B. /health fails with a resident sentinel -> challenger
+                //   C. /health fails with no sentinel         -> challenger
+                //      (TIME_WAIT / race: bind failed, nothing
+                //      listening yet, registry row may be gone)
                 //
-                // (C) is the post-crash recovery case: the previous
+                // Standalone ``dcc-mcp-server gateway`` daemons often hold the
+                // port without a ``__gateway__`` row in this process's
+                // FileRegistry (separate registry dir or daemon-only deploy).
+                // Case A covers that attach/coexist path: probe /health before
+                // assuming (C). Without the probe, adapters entered challenger
+                // mode, published a competing sentinel, and shut down (PIP-2509).
+                //
+                // (C) remains the post-crash recovery case: the previous
                 // gateway died, ``prune_dead_entries`` cleared the stale
-                // sentinel, but the kernel still keeps the port in
-                // TIME_WAIT so our first bind attempt failed. Without
-                // spawning a challenger here, peers running the same
-                // crate version as the dead gateway would never poll
-                // for the port to free up — they would stay as plain
-                // instances forever, leaving 9765 dark until someone
-                // restarts a DCC. The challenger loop polls up to
-                // ``challenger_timeout_secs`` and wins the bind the
-                // moment TIME_WAIT releases (#893 follow-up).
+                // sentinel, the kernel still keeps the port in TIME_WAIT, and
+                // /health fails because nothing is listening. The challenger
+                // loop polls up to ``challenger_timeout_secs`` and wins the
+                // bind the moment TIME_WAIT releases (#893 follow-up).
+                let resident_health = probe_resident_gateway_health(
+                    &self.config.host,
+                    self.config.gateway_port,
+                    Duration::from_secs(self.config.challenger_poll_interval_secs.clamp(1, 5)),
+                )
+                .await;
+
                 let challenger_reason = challenger_reason(resident_health);
 
                 if let Some(challenger_reason) = challenger_reason {
@@ -1073,5 +1071,13 @@ mod tests {
                 "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode"
             )
         );
+    }
+
+    #[test]
+    fn healthy_gateway_without_registry_sentinel_coexists() {
+        // PIP-2509: standalone gateway daemon holds the port but may not write
+        // a __gateway__ row into this adapter's FileRegistry. A successful
+        // /health probe must run as a plain DCC instance, not challenger mode.
+        assert_eq!(challenger_reason(ResidentGatewayHealth::Healthy), None);
     }
 }
