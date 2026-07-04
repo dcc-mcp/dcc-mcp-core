@@ -24,6 +24,7 @@ from dcc_mcp_core._server.options import _StandaloneMainThreadExecution
 from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
 
 if TYPE_CHECKING:
+    from dcc_mcp_core._runtime.mcp_http_config import McpHttpConfig
     from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
     from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 
@@ -142,8 +143,8 @@ def build_mcp_http_config(
     version_provider: Callable[[], str],
 ) -> McpHttpConfig:
     """Build the ``McpHttpConfig`` for ``DccServerBase`` from resolved options."""
-    McpHttpConfig = resolve_mcp_http_config_class()
-    config = McpHttpConfig(
+    mcp_http_config_cls = resolve_mcp_http_config_class()
+    config = mcp_http_config_cls(
         port=options.port,
         server_name=options.server_name or f"{options.dcc_name}-mcp",
         server_version=options.server_version if options.server_version is not None else package_version,
