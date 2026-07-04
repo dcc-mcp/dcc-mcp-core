@@ -416,22 +416,17 @@ class TestDccServerBaseOptionsPath:
     """Verify DccServerBase(options) does not emit DeprecationWarning."""
 
     def _make_server_via_options(self, tmp_path):
-        import builtins
+        from unittest.mock import patch
 
         from dcc_mcp_core.server_base import DccServerBase
 
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(exist_ok=True)
-        fake_cfg = _FakeConfig()
-        real_import = __import__
-
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "dcc_mcp_core" and fromlist:
-                return _make_fake_dcc_mcp(fake_cfg)
-            return real_import(name, globals, locals, fromlist, level)
-
         opts = DccServerOptions.from_env("houdini", skills_dir)
-        with patch.object(builtins, "__import__", side_effect=fake_import):
+        with patch(
+            "dcc_mcp_core.server_base.create_adapter_server",
+            return_value=_FakeDccServer(),
+        ):
             with warnings.catch_warnings(record=True) as w:
                 warnings.simplefilter("always")
                 server = DccServerBase(opts)

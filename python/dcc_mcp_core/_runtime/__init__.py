@@ -8,5 +8,5 @@ __all__ = [
     "resolve_mcp_http_config_class",
 ]
 
-from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
+from dcc_mcp_core._runtime.core_availability import is_core_extension_available

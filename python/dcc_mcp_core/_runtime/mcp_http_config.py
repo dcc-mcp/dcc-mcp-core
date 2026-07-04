@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
-from typing import Dict
-from typing import Optional
 
 
 def _default_server_version() -> str:
@@ -38,22 +36,22 @@ class McpHttpConfig:
     enable_tool_cache: bool = False
     enable_prometheus: bool = False
     gateway_port: int = 9765
-    registry_dir: Optional[str] = None
+    registry_dir: str | None = None
     dcc_version: str = ""
     scene: str = ""
     dcc_type: str = ""
-    instance_metadata: Dict[str, str] = field(default_factory=dict)
+    instance_metadata: dict[str, str] = field(default_factory=dict)
     standalone_main_thread_execution: bool = False
     exclude_skill_stubs_from_tools_list: bool = False
     exclude_group_stubs_from_tools_list: bool = False
-    job_storage_path: Optional[str] = None
+    job_storage_path: str | None = None
     sandbox_policy: Any = None
 
     def __init__(
         self,
         port: int = 8765,
-        server_name: Optional[str] = None,
-        server_version: Optional[str] = None,
+        server_name: str | None = None,
+        server_version: str | None = None,
         **kwargs: Any,
     ) -> None:
         self.port = int(port)
