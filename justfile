@@ -19,9 +19,6 @@ DEV_FEATURES := "python-bindings,ext-module," + OPT_FEATURES
 # Feature set for abi3 release wheels (Python 3.8+)
 WHEEL_FEATURES := "python-bindings,ext-module,abi3-py38," + OPT_FEATURES
 
-# Feature set for Python 3.7 wheels (non-abi3 — PyO3 requires >=3.8 for abi3)
-WHEEL_FEATURES_PY37 := "python-bindings,ext-module," + OPT_FEATURES
-
 default:
     @just --list
 
@@ -48,9 +45,6 @@ print-dev-features:
 
 print-wheel-features:
     @echo "{{WHEEL_FEATURES}}"
-
-print-wheel-features-py37:
-    @echo "{{WHEEL_FEATURES_PY37}}"
 
 # ── Admin UI ──────────────────────────────────────────────────────────────────
 #
@@ -202,12 +196,6 @@ build *EXTRA:
     just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES}} {{EXTRA}}
 
-# Build Python 3.7 wheel (non-abi3, for py37-specific CI jobs).
-# EXTRA is forwarded to maturin (e.g. `-i python3.7`, `--target x86_64`).
-build-py37 *EXTRA:
-    just stubgen
-    maturin build --release --out dist --features {{WHEEL_FEATURES_PY37}} {{EXTRA}}
-
 # Install dev/test dependencies
 install-dev-deps:
     pip install maturin pytest pytest-cov anyio ruff
@@ -266,17 +254,13 @@ lint-py:
 lint-skills: build-cli
     {{CLI_BIN}} lint --max-depth 4 skills/dcc-cli-gateway python/dcc_mcp_core/skills examples/skills examples/remote-server/skills examples/rez-skills tests/fixtures/skills tests/fixtures/prompts_skills
 
-# Verify pure-Python sources parse on Python 3.7 (cp37 wheel parity).
-lint-py37-syntax:
-    python scripts/run_with_py37.py scripts/check_py37_syntax.py
+# Lint everything: Rust (clippy + fmt-check) + Python (ruff) + skills
+lint: clippy fmt-check lint-py lint-skills
 
 # Auto-fix Python lint issues and format
 lint-py-fix:
     ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/
     ruff format python/dcc_mcp_core/ tests/ examples/ scripts/
-
-# Lint everything: Rust (clippy + fmt-check) + Python (ruff + py37 parse gate) + skills
-lint: clippy fmt-check lint-py lint-py37-syntax lint-skills
 
 # Fix all fixable lint issues (Rust fmt + Python ruff)
 lint-fix: fmt lint-py-fix

@@ -399,15 +399,9 @@ jobs:
           - os: ubuntu-latest
             artifact_name: semantic-wheel-linux-abi3
             target: linux-abi3
-          - os: ubuntu-22.04
-            artifact_name: semantic-wheel-linux-py37
-            target: linux-py37
           - os: windows-latest
             artifact_name: semantic-wheel-windows-abi3
             target: windows-abi3
-          - os: windows-2022
-            artifact_name: semantic-wheel-windows-py37
-            target: windows-py37
           - os: macos-latest
             artifact_name: semantic-wheel-macos-abi3
             target: macos-abi3
@@ -423,7 +417,7 @@ jobs:
       # builds run inside the pyo3/maturin docker image which bundles its
       # own pinned toolchain.
       - name: Setup Rust
-        if: matrix.target != 'linux-abi3' && matrix.target != 'linux-py37'
+        if: matrix.target != 'linux-abi3'
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.95.0'
@@ -435,12 +429,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Setup Python (py37 build)
-        if: matrix.target == 'windows-py37'
-        uses: ./.github/actions/setup-windows-python37
-
       - name: Install maturin
-        if: matrix.target != 'linux-abi3' && matrix.target != 'linux-py37'
+        if: matrix.target != 'linux-abi3'
         shell: bash
         run: |
           python -m pip install --upgrade pip
@@ -451,11 +441,6 @@ jobs:
         if: matrix.target == 'linux-abi3'
         shell: bash
         run: scripts/release/build_manylinux_semantic_wheel.sh abi3
-
-      - name: Build wheel (Linux py37)
-        if: matrix.target == 'linux-py37'
-        shell: bash
-        run: scripts/release/build_manylinux_semantic_wheel.sh py37
 
       # ── macOS aarch64 (abi3) ──
       # Apple Silicon only: `ort-sys 2.0.0-rc.12` no longer publishes
@@ -475,7 +460,7 @@ jobs:
             --features python-bindings,ext-module,abi3-py38 \
             --out wheels
 
-      # ── Windows (abi3 / py37) ──
+      # ── Windows abi3 ──
       - name: Build wheel (Windows abi3)
         if: matrix.target == 'windows-abi3'
         shell: bash
@@ -483,16 +468,6 @@ jobs:
         run: |
           maturin build --release \
             --features python-bindings,ext-module,abi3-py38 \
-            --out wheels
-
-      - name: Build wheel (Windows py37 non-abi3)
-        if: matrix.target == 'windows-py37'
-        shell: bash
-        working-directory: pkg/dcc-mcp-core-semantic
-        run: |
-          maturin build --release \
-            --features python-bindings,ext-module \
-            -i python3.7 \
             --out wheels
 
       - name: Upload semantic wheel artefact
