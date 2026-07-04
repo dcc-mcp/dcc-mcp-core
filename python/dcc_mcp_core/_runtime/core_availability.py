@@ -13,7 +13,6 @@ def is_core_extension_available() -> bool:
     if _CORE_AVAILABLE is not None:
         return _CORE_AVAILABLE
 
-
     try:
         importlib.import_module("dcc_mcp_core._core")
     except ImportError:
