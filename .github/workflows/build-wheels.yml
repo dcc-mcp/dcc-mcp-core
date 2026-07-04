@@ -55,6 +55,16 @@ jobs:
           target: x86_64
           python-version: '3.11'
           artifact-name: wheels-linux-x86_64
+      - name: Verify wheel tag is abi3
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *cp38-abi3* ]]; then
+            echo "::error::Expected cp38-abi3 wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: abi3 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -74,7 +84,22 @@ jobs:
         with:
           target: x64
           python-version: '3.11'
+          # --find-interpreter can pick up a non-abi3 Python on Windows,
+          # silently downgrading the wheel tag from cp38-abi3 to cp37.
+          # Build without it so the abi3-py38 feature in WHEEL_FEATURES
+          # (justfile) produces the correct tag.  (PIP-2508)
+          maturin-extra-args: ''
           artifact-name: wheels-windows-x64
+      - name: Verify wheel tag is abi3
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *cp38-abi3* ]]; then
+            echo "::error::Expected cp38-abi3 wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: abi3 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -96,6 +121,16 @@ jobs:
           python-version: '3.11'
           maturin-extra-args: '--sdist --find-interpreter'
           artifact-name: wheels-macos-universal2
+      - name: Verify wheel tag is abi3
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *cp38-abi3* ]]; then
+            echo "::error::Expected cp38-abi3 wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: abi3 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
