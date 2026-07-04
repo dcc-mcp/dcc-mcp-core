@@ -179,6 +179,7 @@ keywords = ["dcc", "mcp", "maya", "blender", "houdini", "pyo3"]
 [lib]
 name = "_core"
 crate-type = ["cdylib", "rlib"]
+required-features = ["python-bindings"]
 
 [dependencies]
 # Internal crates

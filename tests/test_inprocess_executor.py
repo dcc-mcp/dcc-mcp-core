@@ -593,7 +593,7 @@ def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
     fake_server = _Server()
     import dcc_mcp_core.server_base as server_base
 
-    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+    monkeypatch.setattr(server_base, "create_adapter_server", lambda *_args, **_kwargs: fake_server)
 
     class _Dispatcher:
         def dispatch_callable(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -636,7 +636,7 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
     fake_server = _Server()
     import dcc_mcp_core.server_base as server_base
 
-    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+    monkeypatch.setattr(server_base, "create_adapter_server", lambda *_args, **_kwargs: fake_server)
 
     bridge = HostExecutionBridge()
     opts = DccServerOptions.from_env(
@@ -675,7 +675,7 @@ def test_dcc_server_base_standalone_main_thread_registers_inline_executor_before
     fake_server = _Server()
     import dcc_mcp_core.server_base as server_base
 
-    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+    monkeypatch.setattr(server_base, "create_adapter_server", lambda *_args, **_kwargs: fake_server)
 
     opts = DccServerOptions.from_env(
         "test_standalone_ctor",
@@ -719,7 +719,7 @@ def test_dcc_server_base_execution_bridge_attaches_queue_dispatcher_before_disco
     fake_server = _Server()
     import dcc_mcp_core.server_base as server_base
 
-    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+    monkeypatch.setattr(server_base, "create_adapter_server", lambda *_args, **_kwargs: fake_server)
 
     dispatcher = QueueDispatcher()
     bridge = HostExecutionBridge(dispatcher=dispatcher)

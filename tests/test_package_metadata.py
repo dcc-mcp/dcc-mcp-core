@@ -18,4 +18,5 @@ def _project_dependencies() -> list[str]:
 
 
 def test_core_requires_packaged_server_binary_runtime() -> None:
-    assert SERVER_BINARY_DEP in _project_dependencies()
+    deps = _project_dependencies()
+    assert any(dep.startswith(SERVER_BINARY_DEP) for dep in deps)

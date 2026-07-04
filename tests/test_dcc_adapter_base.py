@@ -537,7 +537,7 @@ class TestDccServerBase:
             calls.append((args, kwargs))
 
         monkeypatch.setattr("dcc_mcp_core._server.skill_discovery.register_all_builtin_skills", mock_register)
-        monkeypatch.setattr("dcc_mcp_core.server_base.create_skill_server", MagicMock())
+        monkeypatch.setattr("dcc_mcp_core.server_base.create_adapter_server", MagicMock())
 
         opts = DccServerOptions.from_env("maya", tmp_path, port=0, gateway_port=0)
         _ = DccServerBase(opts)
@@ -1033,7 +1033,7 @@ class TestDccServerBase:
                 return "20.5.1"
 
         opts = DccServerOptions.from_env("houdini", skills_dir, port=0, gateway_port=0)
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=_FakeDccServer()):
+        with patch("dcc_mcp_core.server_base.create_adapter_server", return_value=_FakeDccServer()):
             server = HoudiniMcpServer(opts)
 
         assert server._config.dcc_version == "20.5.1"
@@ -1056,7 +1056,7 @@ class TestDccServerBase:
             gateway_port=0,
             dcc_version="19.5.0",
         )
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=_FakeDccServer()):
+        with patch("dcc_mcp_core.server_base.create_adapter_server", return_value=_FakeDccServer()):
             server = HoudiniMcpServer(opts)
 
         assert server._config.dcc_version == "19.5.0"

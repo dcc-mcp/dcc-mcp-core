@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 from typing import Any
-from typing import Dict
 from typing import Iterable
-from typing import List
-from typing import Optional
 
 
 class PurePythonToolRegistry:
     """Duck-typed registry placeholder while HTTP/MCP runs in the sidecar."""
 
     def __init__(self) -> None:
-        self._actions: Dict[str, Dict[str, Any]] = {}
+        self._actions: dict[str, dict[str, Any]] = {}
 
     def register(
         self,
@@ -21,7 +18,7 @@ class PurePythonToolRegistry:
         *,
         description: str = "",
         category: str = "",
-        tags: Optional[Iterable[str]] = None,
+        tags: Iterable[str] | None = None,
         dcc: str = "",
         **metadata: Any,
     ) -> None:
@@ -34,7 +31,7 @@ class PurePythonToolRegistry:
             **metadata,
         }
 
-    def list_actions(self, dcc_name: Optional[str] = None) -> List[Any]:
+    def list_actions(self, dcc_name: str | None = None) -> list[Any]:
         if dcc_name is None:
             return list(self._actions.values())
         return [action for action in self._actions.values() if action.get("dcc") in ("", dcc_name)]

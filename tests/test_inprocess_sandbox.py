@@ -108,7 +108,7 @@ def _make_base_with_captured_executor(tmp_path: Path) -> tuple[DccServerBase, li
         enable_job_persistence=False,
         enable_telemetry=False,
     )
-    with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+    with patch("dcc_mcp_core.server_base.create_adapter_server", return_value=MagicMock()):
         base = DccServerBase(opts)
 
     captured: list[Any] = []
