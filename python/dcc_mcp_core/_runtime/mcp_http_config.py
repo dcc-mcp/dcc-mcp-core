@@ -81,8 +81,5 @@ class McpHttpConfig:
 
     def __repr__(self) -> str:
         return (
-            "McpHttpConfig("
-            f"port={self.port}, "
-            f"server_name={self.server_name!r}, "
-            f"server_version={self.server_version!r})"
+            f"McpHttpConfig(port={self.port}, server_name={self.server_name!r}, server_version={self.server_version!r})"
         )

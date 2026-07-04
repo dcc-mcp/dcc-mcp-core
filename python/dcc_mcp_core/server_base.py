@@ -59,6 +59,7 @@ def _package_version() -> str:
     except Exception:
         return _PKG_VERSION
 
+
 logger = logging.getLogger(__name__)
 
 

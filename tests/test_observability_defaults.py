@@ -194,7 +194,9 @@ class TestTelemetryDefaults:
                 srv = _Stub(_options("maya", skills, port=0))
                 assert srv._enable_telemetry is False
 
-    def test_init_telemetry_skips_when_already_initialized(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_init_telemetry_skips_when_already_initialized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """_init_telemetry must not call TelemetryConfig.init() twice."""
         with patch("dcc_mcp_core.server_base.create_adapter_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
