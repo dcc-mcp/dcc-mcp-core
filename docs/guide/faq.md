@@ -25,11 +25,11 @@ dcc-mcp-core is DCC-agnostic — the core library provides the infrastructure. D
 - **ZBrush** — via [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) (in development, HTTP bridge)
 - **Blender, Houdini, 3ds Max** — community/third-party integrations using this library
 
-The core library works with any Python 3.7+ environment.
+The core library requires Python 3.8+. Pure-Python modules are syntax-compatible with Python 3.7 for Maya 2022. See [Maya 2022 Support Policy](/guide/maya2022-support).
 
 ### What Python versions are supported?
 
-Python 3.7–3.14 are tested in CI. Wheels are built with `abi3-py38` for maximum compatibility.
+Python 3.8–3.14 are tested in CI. Wheels are built with `abi3-py38` for maximum compatibility. Python 3.7 syntax compatibility is verified separately for Maya 2022.
 
 ### Does it have any Python library runtime dependencies?
 

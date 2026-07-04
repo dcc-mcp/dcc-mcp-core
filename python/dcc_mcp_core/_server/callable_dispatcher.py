@@ -45,10 +45,9 @@ if TYPE_CHECKING:
     pass
 
 # `typing.Protocol`, `typing.runtime_checkable` and `typing.Literal` are
-# 3.8+. The package still claims `requires-python = ">=3.7"`, so on 3.7
-# we expose `BaseDccCallableDispatcherFull` / `BaseDccPump` as plain
-# duck-typed classes with the same attribute contracts; concrete
-# dispatchers do not need to inherit from them either way.
+# 3.8+. For Python 3.7 (Maya 2022), expose `BaseDccCallableDispatcherFull`
+# / `BaseDccPump` as duck-typed classes with the same attribute contracts;
+# concrete dispatchers do not need to inherit from them either way.
 from typing import Literal
 from typing import Protocol
 from typing import runtime_checkable  # type: ignore[assignment,misc]

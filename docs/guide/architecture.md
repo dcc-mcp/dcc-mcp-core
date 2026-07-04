@@ -536,7 +536,7 @@ The workspace builds a single PyO3 native extension (`dcc_mcp_core._core`) via `
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 dependencies = [
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]  # Companion binary wheel for daemon-backed gateway startup
@@ -567,7 +567,7 @@ The native extension bundles all Rust code — no `pip install` for PyO3, tokio,
 
 Using PyO3 with:
 - `multiple-pymethods` — Multiple `#[pymethods]` per struct
-- `abi3-py38` — Stable ABI for Python 3.8+ (CI tests 3.7–3.14)
+- `abi3-py38` — Stable ABI for Python 3.8+ (CI tests 3.8–3.14)
 - `extension-module` — Allow loading from any Python path
 
 ### 3. Rust Edition 2024, MSRV 1.95

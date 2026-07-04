@@ -3,9 +3,8 @@
 # Import future modules
 from __future__ import annotations
 
-# `typing.Protocol` and `typing.runtime_checkable` are 3.8+. The package
-# still supports Python 3.7 for older embedded DCC runtimes such as Maya 2022
-# and Blender 2.83, so expose a duck-typed base class there.
+# `typing.Protocol` and `typing.runtime_checkable` are 3.8+. For Python 3.7
+# (Maya 2022, Blender 2.83), expose a duck-typed base class there.
 from typing import Protocol
 from typing import runtime_checkable
 

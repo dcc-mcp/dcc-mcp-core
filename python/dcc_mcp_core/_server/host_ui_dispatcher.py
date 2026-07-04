@@ -11,8 +11,8 @@ instead — it runs inline on the calling thread and does not need a pump.
 
 See ``docs/api/dispatcher.md`` (Host UI dispatcher checklist).
 
-Type annotations use ``typing.Optional`` / ``Dict`` / … so the separate cp37
-wheel imports cleanly (PEP 604 ``|`` and ``dict[...]`` are invalid on 3.7).
+Type annotations use ``typing.Optional`` / ``Dict`` / … for Python 3.7
+(Maya 2022) compatibility (PEP 604 ``|`` and ``dict[...]`` are invalid on 3.7).
 """
 
 from __future__ import annotations

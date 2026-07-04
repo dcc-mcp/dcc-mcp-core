@@ -85,7 +85,7 @@ class SceneStats:
     object_count: int
     vertex_count: int
     has_mesh: bool
-    extra: Dict[str, Any] = field(default_factory=dict)  # noqa: UP006 — wheel ships abi3-py38, keep typing.Dict for Py3.7 parity
+    extra: Dict[str, Any] = field(default_factory=dict)  # noqa: UP006 — typing.Dict for Python 3.7 (Maya 2022) compatibility
 
     def to_dict(self) -> Dict[str, Any]:  # noqa: UP006 — see above
         """Serialize this stats object to a plain dict.

@@ -388,8 +388,8 @@ Supported types (stdlib only): `bool`, `int`, `float`, `str`, `bytes`,
 `None`, `list[X]`, `tuple[X, ...]`, `tuple[A, B, ...]` (fixed),
 `dict[str, V]`, `Optional[X]` / `X | None`, `Union[A, B]`,
 `Literal[...]`, `Enum`, `datetime.datetime`, `datetime.date`,
-`pathlib.Path`, `uuid.UUID`, `@dataclass`, `TypedDict`. On Python 3.7,
-spell containers and unions with `typing.List`, `typing.Dict`,
+`pathlib.Path`, `uuid.UUID`, `@dataclass`, `TypedDict`. On Python 3.7
+(Maya 2022), spell containers and unions with `typing.List`, `typing.Dict`,
 `typing.Tuple`, `typing.Optional`, and `typing.Union`; `Literal` and
 `TypedDict` require `typing_extensions` in the skill author's environment.
 The core package still imports without third-party Python library dependencies. Unsupported

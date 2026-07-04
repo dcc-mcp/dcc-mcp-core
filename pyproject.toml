@@ -130,7 +130,7 @@ known-first-party = ["dcc_mcp_core"]
 # instead of ``from dcc_mcp_core import …`` so submodules avoid the lazy package facade.
 
 [tool.ruff.lint.per-file-ignores]
-# Legacy py37 compat guards retained for code that hasn't been migrated yet.
+# Python 3.7 (Maya 2022) compat: use typing.Optional/Dict/List instead of PEP 604 syntax.
 "python/dcc_mcp_core/_server/host_ui_dispatcher.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_server/tools_list_policy.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_install_lifecycle_process.py" = ["UP006", "UP045"]
@@ -143,7 +143,7 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/adapter_contracts.py" = ["UP006", "UP037", "UP045"]
 "python/dcc_mcp_core/asset_import.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/install_lifecycle.py" = ["UP006", "UP007", "UP045"]
-"scripts/check_py37_syntax.py" = ["UP032"]  # retained for reference; no longer run in CI
+"scripts/check_py37_syntax.py" = ["UP032"]  # Python 3.7 syntax gate — enforced in CI via check-py37-syntax job
 "__init__.py" = ["F401"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]
 "tests/*.py" = ["F401", "F811", "F821", "E711", "E712", "SIM117", "SIM118", "D100", "D101", "D103", "D106", "D205", "D400", "D415", "E501"]
