@@ -547,6 +547,9 @@ jobs:
           assert 'success' in result;
           print('OK: skill._serialize_result falls back to pure Python')
         "
+      - name: Run py37 sidecar factory tests (source tree)
+        shell: bash
+        run: PYTHONPATH=python pytest tests/test_py37_sidecar_server_factory.py -q
 
   # ── Lint Python source ──
   lint:

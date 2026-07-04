@@ -22,6 +22,8 @@ class _SidecarStub:
     adapter_version: str | None = None
     display_name: str | None = None
     wait_ready_timeout_secs: float = 15.0
+    server_bin: str | None = None
+    extra_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,12 +64,18 @@ class TestServerFactoryRouting:
         )
         options = _OptionsStub(
             dcc_name="maya",
-            sidecar=_SidecarStub(host_rpc="commandport://127.0.0.1:6000"),
+            sidecar=_SidecarStub(
+                host_rpc="commandport://127.0.0.1:6000",
+                server_bin="dcc-mcp-server-test",
+                extra_args=("--ppid-poll-ms", "50"),
+            ),
         )
         config = PureMcpHttpConfig(port=8765, server_name="maya-mcp")
         server = create_adapter_server("maya", config, options)
         assert isinstance(server, SidecarBackedSkillServer)
         assert server.backend == "sidecar"
+        assert server._server_bin == "dcc-mcp-server-test"
+        assert server._extra_args == ("--ppid-poll-ms", "50")
 
     def test_uses_create_skill_server_when_core_available(self, monkeypatch: pytest.MonkeyPatch):
         import sys
@@ -127,6 +135,43 @@ class TestSidecarBackedSkillServer:
         server = SidecarBackedSkillServer("maya", PureMcpHttpConfig(), host_rpc="")
         with pytest.raises(RuntimeError, match="host_rpc"):
             server.start()
+
+    def test_start_forwards_server_bin_and_extra_args(self, monkeypatch: pytest.MonkeyPatch):
+        captured: dict = {}
+
+        def _fake_launch(**kwargs):
+            captured.update(kwargs)
+            return {
+                "success": True,
+                "readiness": {"mcp_url": "http://127.0.0.1:9876/mcp"},
+                "process": MagicMock(),
+            }
+
+        monkeypatch.setattr(
+            "dcc_mcp_core._runtime.sidecar_skill_server.launch_sidecar",
+            _fake_launch,
+        )
+        server = SidecarBackedSkillServer(
+            "maya",
+            PureMcpHttpConfig(port=8765),
+            host_rpc="commandport://127.0.0.1:6000",
+            server_bin="dcc-mcp-server-test",
+            extra_args=("--ppid-poll-ms", "50"),
+        )
+        server.start()
+        assert captured.get("server_bin") == "dcc-mcp-server-test"
+        assert captured.get("extra_args") == ("--ppid-poll-ms", "50")
+
+
+class TestExecutionBridgeLazyCore:
+    def test_sandbox_context_skips_core_when_unavailable(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "dcc_mcp_core._server.execution_bridge.is_core_extension_available",
+            lambda: False,
+        )
+        from dcc_mcp_core._server.execution_bridge import _sandbox_context
+
+        assert _sandbox_context(MagicMock()) is None
 
 
 class TestServerBaseImportLight:

@@ -220,6 +220,8 @@ class SidecarOptions:
     adapter_version: str | None = None
     display_name: str | None = None
     wait_ready_timeout_secs: float = 15.0
+    server_bin: str | None = None
+    extra_args: tuple[str, ...] = ()
 
     @classmethod
     def from_env(
@@ -229,15 +231,22 @@ class SidecarOptions:
         adapter_version: str | None = None,
         display_name: str | None = None,
         wait_ready_timeout_secs: float = 15.0,
+        server_bin: str | None = None,
+        extra_args: tuple[str, ...] = (),
     ) -> SidecarOptions:
         resolved_host_rpc = host_rpc
         if resolved_host_rpc is None:
             resolved_host_rpc = os.environ.get("DCC_MCP_HOST_RPC", "") or None
+        resolved_server_bin = server_bin
+        if resolved_server_bin is None:
+            resolved_server_bin = os.environ.get("DCC_MCP_SERVER_BIN", "") or None
         return cls(
             host_rpc=resolved_host_rpc,
             adapter_version=adapter_version,
             display_name=display_name,
             wait_ready_timeout_secs=wait_ready_timeout_secs,
+            server_bin=resolved_server_bin,
+            extra_args=extra_args,
         )
 
 

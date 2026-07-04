@@ -31,6 +31,8 @@ def create_adapter_server(
         adapter_version=getattr(sidecar, "adapter_version", None) if sidecar is not None else None,
         display_name=getattr(sidecar, "display_name", None) if sidecar is not None else None,
         wait_ready_timeout_secs=_resolve_wait_ready(sidecar),
+        server_bin=getattr(sidecar, "server_bin", None) if sidecar is not None else None,
+        extra_args=_resolve_extra_args(sidecar),
     )
 
 
@@ -58,3 +60,12 @@ def _resolve_wait_ready(sidecar: Any) -> float:
     if value is None:
         return 15.0
     return float(value)
+
+
+def _resolve_extra_args(sidecar: Any) -> tuple:
+    if sidecar is None:
+        return ()
+    value = getattr(sidecar, "extra_args", None)
+    if not value:
+        return ()
+    return tuple(str(arg) for arg in value)

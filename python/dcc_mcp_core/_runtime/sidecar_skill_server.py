@@ -56,6 +56,8 @@ class SidecarBackedSkillServer:
         adapter_version: Optional[str] = None,
         display_name: Optional[str] = None,
         wait_ready_timeout_secs: float = 15.0,
+        server_bin: Optional[str] = None,
+        extra_args: Optional[tuple] = None,
     ) -> None:
         self._dcc_name = str(dcc_name or "dcc")
         self._config = config
@@ -64,6 +66,8 @@ class SidecarBackedSkillServer:
         self._adapter_version = adapter_version
         self._display_name = display_name or self._dcc_name
         self._wait_ready_timeout_secs = float(wait_ready_timeout_secs)
+        self._server_bin = str(server_bin).strip() if server_bin else None
+        self._extra_args = tuple(str(arg) for arg in (extra_args or ()))
         self._registry = PurePythonToolRegistry()
         self._pending_skill_paths: List[str] = []
         self._handle: Optional[SidecarServerHandle] = None
@@ -121,6 +125,8 @@ class SidecarBackedSkillServer:
             gateway_port=gateway_port if gateway_port > 0 else None,
             wait_ready_timeout_secs=self._wait_ready_timeout_secs,
             require_dispatch_capable=True,
+            server_bin=self._server_bin,
+            extra_args=self._extra_args or None,
         )
         self._launch_result = dict(launch)
         if not launch.get("success"):
