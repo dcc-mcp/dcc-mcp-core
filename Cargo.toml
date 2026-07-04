@@ -260,6 +260,13 @@ job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
 # `dcc-mcp-gateway/admin`. Off by default — when disabled, zero admin
 # UI code or front-end assets are compiled into the wheel.
 admin = ["dcc-mcp-gateway/admin"]
+
+# py37-lite: pure-Python wheel profile for Maya 2022 / Python 3.7.
+# Excludes all PyO3/python-bindings features so maturin produces a
+# py3-none-any wheel with zero compiled extensions. Only Rust features
+# that do NOT depend on PyO3 are enabled.
+# See also `build-py37` in justfile and the py37-lite CI workflows.
+py37-lite = ["workflow", "scheduler", "prometheus", "job-persist-sqlite", "admin"]
 abi3-py38 = ["pyo3/abi3-py38"]
 # Python 3.7 wheel: non-abi3 build, no abi3-py38 feature
 ext-module = ["pyo3/extension-module"]

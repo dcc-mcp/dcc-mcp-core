@@ -21,8 +21,13 @@ import contextlib
 import threading
 
 # Import local modules
-from dcc_mcp_core._core import BlockingDispatcher
-from dcc_mcp_core._core import QueueDispatcher
+try:
+    from dcc_mcp_core._core import BlockingDispatcher
+    from dcc_mcp_core._core import QueueDispatcher
+except ImportError:
+    # py37-lite: _core not available, dispatchers are absent.
+    BlockingDispatcher = None  # type: ignore[assignment,misc]
+    QueueDispatcher = None  # type: ignore[assignment,misc]
 from dcc_mcp_core.host._protocols import TickableDispatcher
 
 

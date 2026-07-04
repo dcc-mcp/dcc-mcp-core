@@ -196,6 +196,13 @@ build *EXTRA:
     just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES}} {{EXTRA}}
 
+# Build the py37-lite pure-Python wheel (py3-none-any).
+# Uses no PyO3 features so maturin produces a wheel with only pure-Python
+# sources — no compiled _core extension. The wheel is tagged py3-none-any
+# and installable on Python 3.7 (Maya 2022 / Blender 2.83).
+build-py37:
+    maturin build --release --out dist --no-default-features -F py37-lite
+
 # Install dev/test dependencies
 install-dev-deps:
     pip install maturin pytest pytest-cov anyio ruff

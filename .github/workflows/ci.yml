@@ -355,6 +355,53 @@ jobs:
           # npm install/build in every wheel job.
           prebuild-admin-ui: "false"
 
+  # ── Build py37-lite pure-Python wheel (py3-none-any) ──
+  # Runs on ubuntu-22.04 (Python 3.7 available) to produce a platform-
+  # independent wheel with zero compiled Rust extensions. The wheel is
+  # reused by the test-py37 job below.
+  build-py37-wheel:
+    name: Build wheel (py37-lite)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: rust-py37
+          shared-key: rust-ubuntu
+      - name: Install maturin
+        run: python -m pip install "maturin>=1.5,<2.0"
+        shell: bash
+      - name: Build py37-lite wheel
+        run: vx just build-py37
+        shell: bash
+      - name: Verify wheel tag is py3-none-any
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *py3-none-any* ]]; then
+            echo "::error::Expected py3-none-any wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: py3-none-any wheel tag confirmed"
+      - name: Upload py37-lite wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheel-py37-lite
+          path: dist/
+          retention-days: 30
+
   # ── Python tests: trimmed OS × Python matrix (8 cells, was 18) ──
   # Covers representative supported Python versions on ubuntu (cheapest) +
   # endpoint versions (oldest 3.8, newest 3.14) on Windows/macOS. Middle versions on
@@ -432,6 +479,74 @@ jobs:
           use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  # ── py37-lite wheel test: pure-Python subset on Python 3.7 ──
+  # Installs the py3-none-any wheel from build-py37-wheel and runs
+  # the minimal import/skill/host smoke that exercises only pure-Python
+  # code paths. The _core extension is absent in this profile:
+  # `from dcc_mcp_core import _core` must raise ImportError.
+  test-py37:
+    name: Test (py37-lite)
+    needs: [build-py37-wheel]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - name: Download py37-lite wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: wheel-py37-lite
+          path: dist/
+      - name: Install wheel + test deps
+        run: |
+          pip install dist/*.whl
+          pip install pytest
+        shell: bash
+      - name: Verify _core raises ImportError
+        shell: bash
+        run: |
+          python -c "
+          import importlib
+          try:
+              importlib.import_module('dcc_mcp_core._core')
+              print('FAIL: _core should NOT be importable in py37-lite')
+              exit(1)
+          except ImportError:
+              print('OK: _core correctly raises ImportError')
+          "
+      - name: Verify import dcc_mcp_core works
+        shell: bash
+        run: python -c "import dcc_mcp_core; print('OK: import dcc_mcp_core')"
+      - name: Verify skill module works
+        shell: bash
+        run: python -c "
+          from dcc_mcp_core.skill import skill_entry, skill_success, skill_error;
+          result = skill_success('test');
+          assert result['success'] is True;
+          print('OK: dcc_mcp_core.skill works')
+        "
+      - name: Verify host module imports (without _core)
+        shell: bash
+        run: python -c "
+          import dcc_mcp_core.host;
+          assert dcc_mcp_core.host.BlockingDispatcher is None;
+          assert dcc_mcp_core.host.QueueDispatcher is None;
+          # Pure-Python sub-modules work fine
+          from dcc_mcp_core.host._adapter import HostAdapter, TickableDispatcher;
+          from dcc_mcp_core.host._standalone import StandaloneHost;
+          print('OK: dcc_mcp_core.host imports without _core')
+        "
+      - name: Verify lazy _core fallback (skill._serialize_result)
+        shell: bash
+        run: python -c "
+          from dcc_mcp_core.skill import skill_success;
+          from dcc_mcp_core.skill import _serialize_result as sr;
+          result = sr(skill_success('test'));
+          assert 'success' in result;
+          print('OK: skill._serialize_result falls back to pure Python')
+        "
 
   # ── Lint Python source ──
   lint:

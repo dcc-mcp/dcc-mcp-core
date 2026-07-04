@@ -9,7 +9,14 @@ from typing import Protocol
 from typing import runtime_checkable
 
 # Import local modules
-from dcc_mcp_core._core import TickOutcome
+try:
+    from dcc_mcp_core._core import TickOutcome
+except ImportError:
+    # py37-lite wheel: pure-Python fallback when _core is absent.
+    class TickOutcome:  # type: ignore[no-redef]
+        """Duck-typed fallback for TickOutcome (py37-lite)."""
+
+        more_pending: bool
 
 
 @runtime_checkable
