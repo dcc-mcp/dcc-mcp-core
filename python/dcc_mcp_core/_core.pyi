@@ -2535,7 +2535,7 @@ class SkillMetadata:
     description: Bevel tools for Maya polygon modeling.
     # agentskills.io standard
     license: MIT
-    compatibility: Maya 2022+, Python 3.8+
+    compatibility: Maya 2022+, Python 3.7+
     allowed-tools: Bash Read
     metadata:
       author: studio-name
