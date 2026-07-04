@@ -90,8 +90,9 @@ class TestFileLoggingDefaults:
             captured.append(cfg)
             return str(tmp_path)
 
-        import dcc_mcp_core
         from types import SimpleNamespace
+
+        import dcc_mcp_core
 
         monkeypatch.setitem(dcc_mcp_core.__dict__, "init_file_logging", _fake_init)
         monkeypatch.setitem(dcc_mcp_core.__dict__, "get_log_dir", lambda: str(tmp_path))

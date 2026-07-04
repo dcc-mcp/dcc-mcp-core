@@ -140,7 +140,7 @@ def build_mcp_http_config(
     *,
     package_version: str,
     version_provider: Callable[[], str],
-) -> McpHttpConfig:
+) -> Any:
     """Build the ``McpHttpConfig`` for ``DccServerBase`` from resolved options."""
     McpHttpConfig = resolve_mcp_http_config_class()
     config = McpHttpConfig(
