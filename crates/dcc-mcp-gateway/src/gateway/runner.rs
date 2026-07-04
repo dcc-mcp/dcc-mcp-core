@@ -24,7 +24,6 @@ pub struct GatewayRunner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResidentGatewayHealth {
-    Missing,
     Healthy,
     Unhealthy,
 }
@@ -801,9 +800,6 @@ fn stamp_gateway_sentinel(
 
 fn challenger_reason(resident_health: ResidentGatewayHealth) -> Option<&'static str> {
     match resident_health {
-        ResidentGatewayHealth::Missing => Some(
-            "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode",
-        ),
         ResidentGatewayHealth::Unhealthy => {
             Some("Resident gateway failed /health probe — entering challenger mode")
         }
@@ -1064,12 +1060,10 @@ mod tests {
     }
 
     #[test]
-    fn missing_resident_still_recovers_time_wait_race() {
+    fn unhealthy_resident_recovers_bind_failure() {
         assert_eq!(
-            challenger_reason(ResidentGatewayHealth::Missing),
-            Some(
-                "Bind failed but no resident sentinel (TIME_WAIT / race) — entering challenger mode"
-            )
+            challenger_reason(ResidentGatewayHealth::Unhealthy),
+            Some("Resident gateway failed /health probe — entering challenger mode")
         );
     }
 
