@@ -1,4 +1,5 @@
 import { RiRefreshLine } from '@remixicon/react';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { type InterpolationValues, type MessageKey } from '../i18n';
 import {
@@ -51,7 +52,7 @@ function severityLabel(severity: LogSeverityFilter, t: Translator): string {
 }
 
 function SeverityBadge({ severity, t }: { severity: LogSeverity; t: Translator }) {
-  return <span className={`severity-badge severity-${severity}`}>{severityLabel(severity, t)}</span>;
+  return <Badge variant="outline" className={`severity-badge severity-${severity}`}>{severityLabel(severity, t)}</Badge>;
 }
 
 function TimeValue({ value, className }: { value?: string | null; className?: string }) {
@@ -144,7 +145,7 @@ export function LogsPanel({
                           <div className="step-head">
                             <span className="step-name">{t('logs.label.step', { index: idx + 1 })}: {logStepTitle(log)}</span>
                             <TimeValue className="muted" value={log.timestamp} />
-                            <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
+                            <Badge variant="outline" className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</Badge>
                             <SeverityBadge severity={stepSeverity} t={t} />
                           </div>
                           <div className="step-detail">{logStepDetail(log)}</div>
@@ -168,7 +169,7 @@ export function LogsPanel({
                       const severity = normalizeLogSeverity(log);
                       return (
                         <div key={`${log.timestamp}-${log.request_id ?? ''}-${idx}`} className={`log-line severity-${severity}`}>
-                          <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
+                          <Badge variant="outline" className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</Badge>
                           {' '}
                           <TimeValue className="muted" value={log.timestamp} />
                           {' '}

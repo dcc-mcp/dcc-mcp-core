@@ -29,6 +29,7 @@ import { MarketplaceCard } from './MarketplaceCard';
 import { MarketplaceDetailModal } from './MarketplaceDetailModal';
 import { MarketplaceInstalledDetailPanel } from './MarketplaceInstalledDetailPanel';
 import { MarketplaceInstalledList } from './MarketplaceInstalledList';
+import { Badge } from '../../components/ui/badge';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -569,9 +570,9 @@ export function MarketplacePanel({
                   <span className="marketplace-source-url mono-path" title={source.url}>
                     {source.url}
                   </span>
-                  <span className={`source-pill source-pill-${source.origin}`}>
+                  <Badge variant="outline" className={`source-pill source-pill-${source.origin}`}>
                     {source.origin}
-                  </span>
+                  </Badge>
                 </div>
               ))}
             </div>

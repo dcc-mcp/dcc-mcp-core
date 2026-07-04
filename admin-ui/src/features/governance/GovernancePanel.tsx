@@ -1,4 +1,5 @@
 import { RiRefreshLine } from '@remixicon/react';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import type {
   GovernanceDecisionRow,
@@ -139,9 +140,12 @@ export function GovernancePanel({
                       <div className="muted">{formatTraceDate(row.timestamp)}</div>
                     </td>
                     <td>
-                      <span className={`badge ${row.outcome === 'allowed' ? 'badge-ok' : row.outcome === 'throttled' || row.outcome === 'denied' ? 'badge-err' : 'badge-muted'}`}>
+                      <Badge
+                        variant={row.outcome === 'allowed' ? 'default' : row.outcome === 'throttled' || row.outcome === 'denied' ? 'destructive' : 'secondary'}
+                        className={row.outcome === 'allowed' ? 'badge-ok' : row.outcome === 'throttled' || row.outcome === 'denied' ? 'badge-err' : 'badge-muted'}
+                      >
                         {row.outcome ?? 'unknown'}
-                      </span>
+                      </Badge>
                       {row.reason ? <div className="muted">{row.policy?.reason ?? row.reason}</div> : null}
                     </td>
                     <td>

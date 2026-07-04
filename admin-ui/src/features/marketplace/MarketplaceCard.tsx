@@ -2,6 +2,7 @@ import { useState } from 'react';
 import './MarketplaceCard.css';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { MarketplaceEntry, InstalledMarketplacePackage } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -77,9 +78,9 @@ export function MarketplaceCard({
         </p>
 
         {isOutdated ? (
-          <span className="marketplace-card-outdated-badge">
+          <Badge variant="outline" className="marketplace-card-outdated-badge">
             {t('marketplace.card.outdated')}
-          </span>
+          </Badge>
         ) : null}
 
         <div className="marketplace-card-meta">

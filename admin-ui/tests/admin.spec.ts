@@ -747,7 +747,7 @@ async function mockAdminApi(page: Page) {
         method: 'tools/call',
         total_ms: 42,
         ok: true,
-        spans: [{ name: 'dispatch', duration_ns: 42000000, ok: true }],
+        spans: [{ name: 'dispatch', started_ns: 0, duration_ns: 42000000, ok: true }],
         agent_context: {
           actor_id: 'artist-1',
           actor_name: 'Layout Artist',
@@ -772,6 +772,11 @@ async function mockAdminApi(page: Page) {
           },
           model: 'gpt-test',
           session_id: 'session-1',
+          task: 'Create a sphere and report scene status.',
+          user_intent_summary: 'Artist asked for a simple sphere.',
+          plan: ['Validate the scene context', 'Call create_sphere'],
+          observations: ['Dispatch completed on Maya'],
+          agent_reply_summary: 'Sphere created.',
         },
         input: {
           content: '{"radius":1}',
@@ -2024,6 +2029,19 @@ test.describe('Admin Page', () => {
     await expect(page).toHaveURL(/trace=req-123/);
     await expect(page.locator('.trace-detail-panel')).toContainText('req-123');
     await expect(page.locator('.trace-detail-panel')).toContainText('dispatch');
+    await expect(page.locator('.trace-detail-panel')).toContainText('Agent timeline');
+    await expect(page.locator('.trace-related-head')).toContainText('Related evidence');
+    await expect(page.locator('.trace-links a', { hasText: 'Calls' })).toHaveAttribute('href', /tracesTab=calls/);
+    await expect(page.locator('.agent-swimlane')).toHaveCount(4);
+    await expect(page.locator('.agent-timeline-card')).toContainText('Agent Invocation');
+    await expect(page.locator('.agent-timeline-card')).toContainText('LLM Operations');
+    await expect(page.locator('.agent-timeline-card')).toContainText('Tool Calls');
+    await expect(page.locator('.agent-timeline-card')).toContainText('Failures');
+    await expect(page.locator('.agent-timeline-card')).toContainText('Create a sphere and report scene status.');
+    await expect(page.locator('.agent-timeline-card')).toContainText('Plan 2');
+    await expect(page.locator('.agent-timeline-card')).toContainText('Call create_sphere');
+    await expect(page.locator('.agent-timeline-card')).toContainText('Observation 1');
+    await expect(page.locator('.agent-timeline-card')).toContainText('Sphere created.');
     await expect(page.locator('.trace-detail-panel')).toContainText('Token accounting');
     await expect(page.locator('.trace-detail-panel')).toContainText('dcc-mcp-byte4-v1');
     await expect(page.locator('.trace-detail-panel')).toContainText(/Input tokens\s*3/);
@@ -2060,6 +2078,7 @@ test.describe('Admin Page', () => {
     await expect(tracesPanel.locator('.trace-item.latency-critical', { hasText: 'req-slow' })).toContainText('TAIL');
     await expect(tracesPanel.locator('.trace-item.err.latency-slow', { hasText: 'req-failed-s' })).toContainText('SLOW');
     await expect(tracesPanel).toContainText('p99 latency');
+    await expect(tracesPanel).toContainText('tail >= 5.00 s');
     await expect(tracesPanel).toContainText('slowest upload_texture 5.40 s');
 
     await tracesPanel.locator('.trace-item', { hasText: 'req-slow' }).click();
@@ -2181,8 +2200,12 @@ test.describe('Admin Page', () => {
     ]);
     await expect(hero).toContainText('success rate');
     await expect(overviewPanel).toContainText('p99 latency');
+    await expect(overviewPanel).toContainText('tail >= 5.00 s');
     await expect(overviewPanel).toContainText('Slow calls');
     await expect(overviewPanel).toContainText('slowest req-slow 6.20 s; slowest upload_texture 5.40 s');
+    await expect(overviewPanel.locator('.overview-issues')).toContainText('Top issues now');
+    await expect(overviewPanel.locator('.overview-issue.err')).toContainText('2 failed call(s)');
+    await expect(overviewPanel.locator('.overview-issue.warn', { hasText: 'Slowest trace' })).toContainText('Slowest trace');
     await expect(overviewPanel).toContainText('Response tokens saved');
     await expect(overviewPanel).toContainText('140');
     await expect(overviewPanel).toContainText('Top app types');
@@ -2201,6 +2224,24 @@ test.describe('Admin Page', () => {
     await expect(overviewPanel).toContainText('7d window');
     await page.getByLabel('Filter current panel').fill('rest');
     await expect(overviewPanel).toContainText('rest');
+  });
+
+  test('opens calls from overview issue recommendations', async ({ page }) => {
+    await page.goto('/admin/?panel=overview&overviewTab=stats&range=1h');
+    const issue = page.locator('.overview-issue.err');
+    await expect(issue).toContainText('req-failed-f');
+    await issue.getByRole('button', { name: 'Open calls' }).click();
+    await expect(page).toHaveURL(/panel=traces/);
+    await expect(page).toHaveURL(/tracesTab=calls/);
+    await expect(page).toHaveURL(/trace=req-failed-fast/);
+    await expect(page.locator('.traces-panel')).toContainText('req-failed-f');
+  });
+
+  test('loads overview stats when only the range query is present', async ({ page }) => {
+    await page.goto('/admin/?panel=overview&range=24h');
+    const overviewPanel = page.locator('.overview-panel');
+    await expect(overviewPanel).toBeVisible();
+    await expect(overviewPanel).toContainText('Total tokens');
   });
 
   test('loads analytics from the root admin URL through the admin API base', async ({ page }) => {
@@ -2376,6 +2417,10 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.skill-paths-panel')).toContainText('Searched / used');
     await expect(page.locator('.skill-paths-panel')).toContainText('best rank 2');
     await expect(page.locator('.skill-paths-panel')).toContainText('1 calls, 0 failures');
+    await expect(page.locator('.skill-insight-strip')).toHaveAttribute('aria-label', 'Operator focus');
+    await expect(page.locator('.skill-insight-strip')).toContainText('Missing paths');
+    await expect(page.locator('.skill-insight-strip')).toContainText('Needs adoption');
+    await expect(page.locator('.skill-insight-strip')).toContainText('blender-lookdev');
     await expect(page.locator('.skill-paths-panel')).toContainText('low adoption');
     await expect(page.locator('.skill-paths-panel')).toContainText('admin_custom #7');
     await expect(page.locator('.skill-paths-panel')).not.toContainText('G:/custom/admin-skills');
@@ -2449,17 +2494,22 @@ test.describe('Admin Page', () => {
     await expect(panel).toBeVisible();
     await expect(panel.locator('.skill-inventory-row')).toHaveCount(2);
     await expect(panel.locator('.skill-inventory-list-header')).toBeHidden();
+    await expect(panel.locator('.skill-insight-strip')).toBeVisible();
 
     const metrics = await panel.evaluate((root) => {
       const rows = Array.from(root.querySelectorAll('.skill-inventory-row'));
+      const insights = root.querySelector('.skill-insight-strip');
       return {
         documentWidth: document.documentElement.scrollWidth,
         viewportWidth: window.innerWidth,
         rowHeights: rows.map((row) => Math.round(row.getBoundingClientRect().height)),
+        insightWidth: insights?.scrollWidth ?? 0,
+        insightClientWidth: insights?.clientWidth ?? 0,
         firstRowText: rows[0]?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
       };
     });
     expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 2);
+    expect(metrics.insightWidth).toBeLessThanOrEqual(metrics.insightClientWidth + 1);
     expect(Math.max(...metrics.rowHeights)).toBeLessThanOrEqual(250);
     expect(metrics.firstRowText).toContain('maya-modeling');
     expect(metrics.firstRowText).toContain('create_sphere');

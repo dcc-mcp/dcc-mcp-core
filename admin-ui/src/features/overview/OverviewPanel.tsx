@@ -40,6 +40,7 @@ import {
   trafficTimestamp,
   isOkStatus,
   isErrStatus,
+  StatusBadge,
   matchesListFilter,
   haystack,
   totalTraceTokens,
@@ -91,6 +92,17 @@ const TABS: { id: OverviewTab; labelKey: string }[] = [
   { id: 'stats', labelKey: 'navigation.overviewTab.stats' },
   { id: 'traffic', labelKey: 'navigation.overviewTab.traffic' },
 ];
+
+type OverviewIssue = {
+  key: string;
+  tone: 'err' | 'warn' | 'ok';
+  status: string;
+  title: string;
+  detail: string;
+  action: string;
+  panel: Panel;
+  opts?: NavigateOptions;
+};
 
 export function OverviewPanel({
   active,
@@ -239,10 +251,100 @@ export function OverviewPanel({
     () =>
       t('common.detail.slowThreshold', {
         slow: formatDurationMs(1000),
-        critical: formatDurationMs(5000),
+        tail: formatDurationMs(5000),
       }),
     [t]
   );
+
+  const topIssues = useMemo<OverviewIssue[]>(() => {
+    const issues: OverviewIssue[] = [];
+    const failedCalls = calls.filter((call) => isErrStatus(call.status));
+    const slowestTrace = slowTraces[0];
+    const tokenHeavyTrace = [...traces]
+      .filter((trace) => totalTraceTokens(trace) != null)
+      .sort((a, b) => (totalTraceTokens(b) ?? 0) - (totalTraceTokens(a) ?? 0))[0];
+    const missingPayloadTokens = stats?.payload_token_usage?.calls_missing_payload_tokens ?? 0;
+
+    if (failedCalls.length) {
+      const failed = failedCalls[0];
+      issues.push({
+        key: 'failed-calls',
+        tone: 'err',
+        status: failed.status,
+        title: t('stats.issue.failedCalls', { count: failedCalls.length }),
+        detail: t('stats.issue.failedCallsDetail', {
+          tool: failed.tool,
+          id: compactId(failed.request_id),
+          error: failed.error || failed.status,
+        }),
+        action: t('stats.issue.openCalls'),
+        panel: 'traces',
+        opts: { tracesTab: 'calls', traceId: failed.request_id },
+      });
+    }
+
+    if (slowestTrace && isSlowLatency(slowestTrace.total_ms)) {
+      issues.push({
+        key: 'slowest-trace',
+        tone: 'warn',
+        status: slowestTrace.status,
+        title: t('stats.issue.slowestTrace'),
+        detail: t('stats.issue.slowestTraceDetail', {
+          tool: slowestTrace.tool,
+          id: compactId(slowestTrace.request_id),
+          latency: formatDurationMs(slowestTrace.total_ms),
+        }),
+        action: t('stats.issue.openTimeline'),
+        panel: 'traces',
+        opts: { traceId: slowestTrace.request_id, tracesTab: 'traces' },
+      });
+    }
+
+    if (tokenHeavyTrace && (totalTraceTokens(tokenHeavyTrace) ?? 0) > 0) {
+      issues.push({
+        key: 'token-heavy',
+        tone: 'warn',
+        status: 'token',
+        title: t('stats.issue.tokenHeavy'),
+        detail: t('stats.issue.tokenHeavyDetail', {
+          tool: tokenHeavyTrace.tool,
+          id: compactId(tokenHeavyTrace.request_id),
+          tokens: formatTokenCount(totalTraceTokens(tokenHeavyTrace)),
+          agent: agentLabel(tokenHeavyTrace),
+        }),
+        action: t('stats.issue.openTimeline'),
+        panel: 'traces',
+        opts: { traceId: tokenHeavyTrace.request_id, tracesTab: 'traces' },
+      });
+    }
+
+    if (missingPayloadTokens > 0) {
+      issues.push({
+        key: 'missing-payload-tokens',
+        tone: 'warn',
+        status: 'coverage',
+        title: t('stats.issue.missingPayloadTokens', { count: missingPayloadTokens }),
+        detail: t('stats.issue.missingPayloadTokensDetail'),
+        action: t('stats.issue.openCalls'),
+        panel: 'traces',
+        opts: { tracesTab: 'calls' },
+      });
+    }
+
+    if (issues.length === 0) {
+      issues.push({
+        key: 'healthy',
+        tone: 'ok',
+        status: 'ok',
+        title: t('stats.issue.healthy'),
+        detail: t('stats.issue.healthyDetail'),
+        action: t('stats.issue.openTraces'),
+        panel: 'traces',
+      });
+    }
+
+    return issues.slice(0, 4);
+  }, [calls, slowTraces, stats, t, traces]);
 
   const filterTopEntries = useCallback(
     (rows: TopEntry[] | undefined) => {
@@ -538,6 +640,33 @@ export function OverviewPanel({
               detail={stats?.payload_token_usage?.token_estimator ?? stats?.payload_token_estimator ?? health?.response_format?.token_estimator ?? t('stats.detail.tokenEstimatorUnavailable')}
             />
           </div>
+          <section className="overview-issues" aria-label={t('stats.issue.title')}>
+            <div className="trace-card-head">
+              <h3>{t('stats.issue.title')}</h3>
+              <span>{t('stats.issue.meta')}</span>
+            </div>
+            <div className="overview-issue-grid">
+              {topIssues.map((issue) => (
+                <article className={`overview-issue ${issue.tone}`} key={issue.key}>
+                  <div className="overview-issue-main">
+                    <StatusBadge value={issue.status} />
+                    <div>
+                      <h4>{issue.title}</h4>
+                      <p>{issue.detail}</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant={issue.tone === 'ok' ? 'outline' : 'secondary'}
+                    size="sm"
+                    type="button"
+                    onClick={() => onGoToPanel(issue.panel, issue.opts)}
+                  >
+                    {issue.action}
+                  </Button>
+                </article>
+              ))}
+            </div>
+          </section>
           <div className="stats-charts">
             <StatBarList title={t('stats.chart.topAppTypes')} items={filteredTopAppTypes} t={t} />
             <StatBarList title={t('stats.chart.topTools')} items={filteredTopTools} t={t} />

@@ -1,4 +1,6 @@
 import type { Panel } from '../admin-types';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
 
 export type PanelSearchBarProps = {
   panel: Panel;
@@ -41,7 +43,7 @@ export function PanelSearchBar({
       data-has-filter={canToggleLatency ? 'true' : undefined}
       data-has-meta={meta ? 'true' : undefined}
     >
-      <input
+      <Input
         type="search"
         className="list-search-input"
         placeholder={placeholder}
@@ -50,15 +52,17 @@ export function PanelSearchBar({
         aria-label={ariaLabel}
       />
       {canToggleLatency ? (
-        <button
-          className={`filter-chip ${slowOnly ? 'active' : ''}`}
+        <Button
+          className="filter-chip"
+          variant={slowOnly ? 'secondary' : 'outline'}
+          size="sm"
           type="button"
           aria-pressed={slowOnly}
           title={latencyTitle}
           onClick={onToggleLatency}
         >
           {slowOnly ? allLabel : slowLabel}
-        </button>
+        </Button>
       ) : null}
       {meta ? (
         <span className="list-search-meta" aria-live="polite">

@@ -5,6 +5,7 @@ import {
 } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import type { InstalledMarketplacePackage, MarketplaceEntry } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import './MarketplaceInstalledDetailPanel.css';
 
@@ -52,7 +53,7 @@ export function MarketplaceInstalledDetailPanel({
         <div>
           <h3>{pkg.name}</h3>
           <div className="marketplace-installed-detail-meta">
-            <span className="source-pill">{pkg.dcc}</span>
+            <Badge variant="outline" className="source-pill">{pkg.dcc}</Badge>
             <span className="marketplace-installed-detail-version">
               {t('marketplace.detail.version')}: {version}
             </span>

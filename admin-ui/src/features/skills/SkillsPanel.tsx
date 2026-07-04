@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom';
 import { RiRefreshLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { haystack, matchesListFilter, PanelHeader, StatusLine } from '../../admin-ui-core';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { type SkillPathRow, type SkillRow } from '../../admin-types';
 import { SkillDetailPanel } from './SkillDetailPanel';
 import { SkillInventoryList } from './SkillInventoryList';
 import { SkillSearchPathsTable } from './SkillSearchPathsTable';
@@ -13,6 +15,64 @@ import { useSkillPaths } from './hooks/useSkillPaths';
 import { useSkillsInventory } from './hooks/useSkillsInventory';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
+type SkillInsight = { tone: 'ok' | 'warn' | 'err' | 'muted'; label: string; value: number | string; detail: string };
+
+function joinNames(names: string[], fallback: string) {
+  return names.length > 0 ? names.slice(0, 3).join(', ') : fallback;
+}
+
+function buildSkillInsights(skills: SkillRow[], paths: SkillPathRow[], totals: { missing_paths: number }, t: Translator): SkillInsight[] {
+  const failures = skills.filter((skill) => skill.adoption.failure_count > 0 || skill.adoption.load_error_count > 0);
+  const missingPaths = paths.filter((path) => path.status === 'missing' || path.exists === false);
+  const lowAdoption = skills.filter((skill) => skill.adoption.low_adoption);
+  const unused = skills.filter((skill) => skill.loaded && !skill.adoption.used && !skill.adoption.low_adoption);
+  const insights: SkillInsight[] = [];
+
+  if (failures.length > 0) {
+    insights.push({
+      tone: 'err',
+      label: t('skillPaths.insight.failures'),
+      value: failures.length,
+      detail: joinNames(failures.map((skill) => skill.name), t('common.status.unknown')),
+    });
+  }
+  if (totals.missing_paths > 0 || missingPaths.length > 0) {
+    insights.push({
+      tone: 'warn',
+      label: t('skillPaths.insight.missingPaths'),
+      value: totals.missing_paths || missingPaths.length,
+      detail: joinNames(
+        missingPaths.map((path) => path.display_path ?? path.path_alias ?? path.source_label ?? path.source),
+        t('skillPaths.insight.missingPathsUnknown'),
+      ),
+    });
+  }
+  if (lowAdoption.length > 0) {
+    insights.push({
+      tone: 'warn',
+      label: t('skillPaths.insight.lowAdoption'),
+      value: lowAdoption.length,
+      detail: joinNames(lowAdoption.map((skill) => skill.name), t('common.status.unknown')),
+    });
+  }
+  if (insights.length === 0 && unused.length > 0) {
+    insights.push({
+      tone: 'muted',
+      label: t('skillPaths.insight.unused'),
+      value: unused.length,
+      detail: joinNames(unused.map((skill) => skill.name), t('common.status.unknown')),
+    });
+  }
+  if (insights.length === 0) {
+    insights.push({
+      tone: 'ok',
+      label: t('skillPaths.insight.ready'),
+      value: 0,
+      detail: t('skillPaths.insight.readyDetail'),
+    });
+  }
+  return insights.slice(0, 3);
+}
 
 export type SkillsPanelProps = {
   active: boolean;
@@ -148,6 +208,11 @@ export function SkillsPanel({
     onCountsChange?.({ skills: filteredSkills.length, paths: filteredPaths.length });
   }, [filteredPaths.length, filteredSkills.length, onCountsChange]);
 
+  const skillInsights = useMemo(
+    () => buildSkillInsights(inventory.skills, pathStore.paths, inventory.totals, t),
+    [inventory.skills, inventory.totals, pathStore.paths, t],
+  );
+
   if (!active) return null;
 
   return (
@@ -169,6 +234,20 @@ export function SkillsPanel({
       <StatusLine text={updatedAt} error={error} />
       <p className="empty log-hint">{t('skillPaths.description')}</p>
       <SkillsSummaryGrid totals={inventory.totals} pathCount={pathStore.paths.length} t={t} />
+      <div className="skill-insight-strip" aria-label={t('skillPaths.insight.title')}>
+        {skillInsights.map((insight) => (
+          <div className={`skill-insight-card ${insight.tone}`} key={insight.label}>
+            <Badge
+              variant={insight.tone === 'err' ? 'destructive' : insight.tone === 'ok' ? 'default' : 'outline'}
+              className="skill-insight-label"
+            >
+              {insight.label}
+            </Badge>
+            <strong>{insight.value}</strong>
+            <small title={insight.detail}>{insight.detail}</small>
+          </div>
+        ))}
+      </div>
       <div className="skill-inventory-section">
         <h3 className="section-kicker">{t('skillPaths.section.loadedSkills')}</h3>
         {inventory.skills.length === 0 ? (

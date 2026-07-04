@@ -1,6 +1,7 @@
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { formatTraceDate } from '../../admin-ui-core';
 import { type SkillRow } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -27,7 +28,12 @@ export function SkillAdoptionChip({ skill, t }: { skill: SkillRow; t: Translator
   return (
     <div className="skill-card-adoption">
       <div className="skill-card-adoption-row">
-        <span className={`badge badge-${tone}`}>{stateLabel}</span>
+        <Badge
+          variant={tone === 'err' ? 'destructive' : tone === 'muted' ? 'secondary' : 'outline'}
+          className={`skill-adoption-badge ${tone}`}
+        >
+          {stateLabel}
+        </Badge>
         <span className="skill-card-adoption-counts">
           {t('skillPaths.usage.callsFailures', {
             calls: adoption.call_count,

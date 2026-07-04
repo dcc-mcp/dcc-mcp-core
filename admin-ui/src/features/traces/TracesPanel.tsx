@@ -129,7 +129,7 @@ export function TracesPanel({
     () =>
       t('common.detail.slowThreshold', {
         slow: formatDurationMs(1000),
-        critical: formatDurationMs(5000),
+        tail: formatDurationMs(5000),
       }),
     [t]
   );
@@ -240,7 +240,11 @@ export function TracesPanel({
                 output: formatTokenCount(traceSummary.totalOutputTokens),
               })}
             />
-            <MetricTile label={t('traces.metric.agentContext')} value={traceSummary.agentContext} />
+            <MetricTile
+              label={t('traces.metric.agentContext')}
+              value={traceSummary.agentContext}
+              detail={t('traces.detail.agentCoverage', { count: traceSummary.agentContext, total: traces.length })}
+            />
             <MetricTile label={t('traces.metric.spans')} value={traceSummary.spans} />
             <MetricTile label={t('common.metric.visible')} value={`${filteredTraces.length} / ${traces.length}`} />
           </div>

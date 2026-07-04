@@ -55,8 +55,8 @@ export function WorkflowsPanel({
   }, [workflows]);
 
   const visibleSelectedWorkflow = useMemo(
-    () => workflows.find((w) => w.workflow_id === selectedWorkflowId),
-    [workflows, selectedWorkflowId]
+    () => filteredWorkflows.find((w) => w.workflow_id === selectedWorkflowId),
+    [filteredWorkflows, selectedWorkflowId]
   );
 
   return (

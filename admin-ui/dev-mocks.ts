@@ -472,6 +472,8 @@ const TRACES = [
     slowest_span_name: 'backend.dispatch',
     slowest_span_ms: 36,
     token_accounting: CALLS[0].token_accounting,
+    agent_name: 'Dev Admin UI',
+    agent_model: 'gpt-dev',
   },
   {
     timestamp: NOW,
@@ -498,15 +500,28 @@ const TRACE_DETAIL = {
   total_ms: 48,
   ok: true,
   spans: [
-    { name: 'gateway.received', duration_ns: 2_000_000, ok: true },
-    { name: 'gateway.route', duration_ns: 10_000_000, ok: true },
-    { name: 'backend.dispatch', duration_ns: 36_000_000, ok: true },
+    { name: 'gateway.received', started_ns: 0, duration_ns: 2_000_000, ok: true },
+    { name: 'gateway.route', started_ns: 2_000_000, duration_ns: 10_000_000, ok: true },
+    { name: 'backend.dispatch', started_ns: 12_000_000, duration_ns: 36_000_000, ok: true },
   ],
   agent_context: {
     agent_name: 'Dev Admin UI',
     client_platform: 'vite',
     session_id: 'session-dev',
     source_ip: '127.0.0.1',
+    task: 'Create a sphere in the active Maya scene.',
+    user_intent_summary: 'Validate a simple DCC tool call from the admin trace.',
+    plan: [
+      'Route the request through the gateway.',
+      'Dispatch the tool call to the Maya backend.',
+      'Return the created object name and token accounting.',
+    ],
+    observations: [
+      'The backend accepted the request and returned pSphere1.',
+      'No retry or fallback path was needed.',
+    ],
+    reasoning_summary: 'The gateway matched the tool slug to the live Maya instance and preserved payload metadata.',
+    agent_reply_summary: 'Created pSphere1 and returned a compact success payload.',
   },
   input: {
     content: '{"radius":1}',
