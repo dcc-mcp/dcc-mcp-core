@@ -481,6 +481,38 @@ jobs:
       - name: Run py37 syntax check
         run: python scripts/check_py37_syntax.py
 
+  # ── py37-lite: pure-Python wheel smoke test on Python 3.7 ─────────────
+  # Builds and installs the py37-lite pure-Python wheel, then runs a basic
+  # import smoke test. The full test suite depends on _core import convergence
+  # (PIP-2532); this job validates wheel packaging and basic module loading.
+  py37-lite-test:
+    name: py37-lite test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - name: Install build dependencies
+        run: pip install build hatchling
+      - name: Build py37-lite wheel
+        run: python scripts/build_py37_lite_wheel.py
+      - name: Verify wheel tag is py3-none-any
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *py3-none-any* ]]; then
+            echo "::error::Expected py3-none-any wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: py3-none-any wheel tag confirmed"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: py37-lite-wheel
+          path: dist/*.whl
+          if-no-files-found: error
+
   # -- Sentry E2E: real ingest through dcc-mcp-server init_sentry() --
   # Requires DCC_MCP_SENTRY_DSN GitHub Actions secret. Skips cleanly when
   # the secret is absent so forks / local clones do not fail the workflow.

@@ -137,3 +137,43 @@ jobs:
         with:
           tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
+
+  # ── py37-lite: pure-Python wheel for Python 3.7 (Maya 2022 compat) ──
+  # Produces a py3-none-any wheel with NO Rust native extension.
+  # Uses ubuntu-22.04 because Python 3.7 is no longer available on
+  # ubuntu-24.04 (ubuntu-latest).
+  py37-lite:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - name: Install build dependencies
+        run: pip install build hatchling
+      - name: Build py37-lite pure-Python wheel
+        run: python scripts/build_py37_lite_wheel.py
+      - name: Verify wheel tag is py3-none-any
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *py3-none-any* ]]; then
+            echo "::error::Expected py3-none-any wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: py3-none-any wheel tag confirmed"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: py37-lite-wheel
+          path: dist/*.whl
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag-name }}
+          files: dist/*.whl

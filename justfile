@@ -196,9 +196,15 @@ build *EXTRA:
     just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES}} {{EXTRA}}
 
+# Build py37-lite pure-Python wheel (py3-none-any) for Python 3.7 compatibility.
+# Maya 2022 / Blender 2.83 embed Python 3.7; this wheel excludes the Rust native
+# extension and relies on dcc-mcp-server as an optional pip dependency (3.8+).
+build-py37:
+    python scripts/build_py37_lite_wheel.py
+
 # Install dev/test dependencies
 install-dev-deps:
-    pip install maturin pytest pytest-cov anyio ruff
+    pip install maturin pytest pytest-cov anyio ruff build hatchling
 
 # ── Python tests ──────────────────────────────────────────────────────────────
 

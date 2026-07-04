@@ -32,7 +32,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "dcc-mcp-server>=0.18.17,<1.0.0",
+    # dcc-mcp-server is a Rust binary (not a Python library). On Python 3.8+ the
+    # abi3 wheel bundles the native extension and depends on the server binary
+    # for gateway/sidecar operation. On Python 3.7 the py37-lite pure-Python
+    # wheel skips the native extension entirely — the server binary is optional
+    # and only needed when the user runs the HTTP/MCP gateway.
+    "dcc-mcp-server>=0.18.17,<1.0.0; python_version >= '3.8'",
 ]
 
 [project.optional-dependencies]
