@@ -22,12 +22,9 @@ version = "0.19.4"  # x-release-please-version
 description = "Native Rust semantic embeddings (fastembed-rs) for dcc-mcp-core"
 readme = "README.md"
 license = { text = "MIT" }
-# Matches the main `dcc-mcp-core` baseline so DCC hosts that still ship
-# Python 3.7 (Maya 2022, 3ds Max 2022) can install this companion wheel.
-# The 3.7 build path uses non-abi3 (`ext-module` only); 3.8+ uses
-# `ext-module + abi3-py38`. See `crates/dcc-mcp-semantic/Cargo.toml` for
-# the matching feature split.
-requires-python = ">=3.7"
+# Matches the main `dcc-mcp-core` baseline. Python 3.7 support was
+# dropped when the workspace upgraded to pyo3 0.29.
+requires-python = ">=3.8"
 keywords = ["dcc", "mcp", "embeddings", "fastembed", "semantic", "vector"]
 authors = [
     { name = "Hal Long", email = "hal.long@outlook.com" },
@@ -38,7 +35,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -65,17 +61,13 @@ Issues = "https://github.com/dcc-mcp/dcc-mcp-core/issues"
 # duplicated under pkg/.
 manifest-path = "../../crates/dcc-mcp-semantic/Cargo.toml"
 
-# Build the PyO3 extension module. Features are split so the Python 3.7
-# wheel can be built without `abi3-py38`:
+# Build the PyO3 extension module (abi3 for Python 3.8+).
 #
 #   - `python-bindings` pulls in fastembed + `dep:pyo3`
 #   - `ext-module` enables `pyo3/extension-module`
 #   - `abi3-py38` enables `pyo3/abi3-py38` (single abi3 wheel for 3.8-3.13)
 #
-# Default (abi3 wheel for 3.8-3.13):
-#   maturin build  # uses the features list below
-# Python 3.7 (non-abi3, cp37 build):
-#   maturin build --no-default-features --features python-bindings,ext-module
+# Python 3.7 (non-abi3) was dropped when the workspace upgraded to pyo3 0.29.
 features = ["python-bindings", "ext-module", "abi3-py38"]
 
 bindings = "pyo3"
