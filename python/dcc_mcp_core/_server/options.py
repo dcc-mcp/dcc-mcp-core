@@ -208,6 +208,40 @@ def BridgeExecution(bridge: HostExecutionBridge) -> _BridgeExecution:
 
 
 @dataclass(frozen=True)
+class SidecarOptions:
+    """Sidecar launch contract for py37-lite / no-_core adapters.
+
+    When the compiled ``_core`` extension is unavailable, ``DccServerBase``
+    delegates HTTP/MCP serving to ``dcc-mcp-server sidecar`` and routes tool
+    dispatch through ``host_rpc``.
+    """
+
+    host_rpc: str | None = None
+    adapter_version: str | None = None
+    display_name: str | None = None
+    wait_ready_timeout_secs: float = 15.0
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        host_rpc: str | None = None,
+        adapter_version: str | None = None,
+        display_name: str | None = None,
+        wait_ready_timeout_secs: float = 15.0,
+    ) -> SidecarOptions:
+        resolved_host_rpc = host_rpc
+        if resolved_host_rpc is None:
+            resolved_host_rpc = os.environ.get("DCC_MCP_HOST_RPC", "") or None
+        return cls(
+            host_rpc=resolved_host_rpc,
+            adapter_version=adapter_version,
+            display_name=display_name,
+            wait_ready_timeout_secs=wait_ready_timeout_secs,
+        )
+
+
+@dataclass(frozen=True)
 class ExecutionOptions:
     """Execution mode selection.
 
@@ -257,6 +291,7 @@ class DccServerOptions:
     observability: ObservabilityOptions = field(default_factory=ObservabilityOptions)
     diagnostics: DiagnosticsOptions = field(default_factory=DiagnosticsOptions)
     execution: ExecutionOptions = field(default_factory=ExecutionOptions)
+    sidecar: SidecarOptions = field(default_factory=SidecarOptions)
 
     @classmethod
     def from_env(
@@ -287,6 +322,11 @@ class DccServerOptions:
         dispatcher: BaseDccCallableDispatcher | None = None,
         execution_bridge: HostExecutionBridge | None = None,
         standalone_main_thread: bool = False,
+        # sidecar kwargs (py37-lite)
+        host_rpc: str | None = None,
+        adapter_version: str | None = None,
+        sidecar_display_name: str | None = None,
+        wait_ready_timeout_secs: float = 15.0,
     ) -> DccServerOptions:
         """Build a :class:`DccServerOptions` from keyword arguments + env vars.
 
@@ -333,6 +373,12 @@ class DccServerOptions:
             exec_mode = InlineExecution
 
         execution = ExecutionOptions(mode=exec_mode)
+        sidecar = SidecarOptions.from_env(
+            host_rpc=host_rpc,
+            adapter_version=adapter_version,
+            display_name=sidecar_display_name or server_name,
+            wait_ready_timeout_secs=wait_ready_timeout_secs,
+        )
 
         return cls(
             dcc_name=dcc_name,
@@ -344,4 +390,5 @@ class DccServerOptions:
             observability=observability,
             diagnostics=diagnostics,
             execution=execution,
+            sidecar=sidecar,
         )
