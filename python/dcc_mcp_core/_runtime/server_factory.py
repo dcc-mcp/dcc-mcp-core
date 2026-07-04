@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from typing import Any
-from typing import Optional
 
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.sidecar_skill_server import SidecarBackedSkillServer
@@ -13,7 +12,7 @@ from dcc_mcp_core._runtime.sidecar_skill_server import SidecarBackedSkillServer
 def create_adapter_server(
     dcc_name: str,
     config: Any,
-    options: Optional[Any] = None,
+    options: Any | None = None,
 ) -> Any:
     """Create the inner server object used by :class:`DccServerBase`."""
     if is_core_extension_available():
@@ -44,7 +43,7 @@ def _resolve_host_rpc(sidecar: Any) -> str:
     return str(os.environ.get("DCC_MCP_HOST_RPC", "")).strip()
 
 
-def _resolve_watch_pid(options: Optional[Any]) -> Optional[int]:
+def _resolve_watch_pid(options: Any | None) -> int | None:
     if options is None:
         return None
     diagnostics = getattr(options, "diagnostics", None)

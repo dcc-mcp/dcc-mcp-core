@@ -6,9 +6,6 @@ import logging
 import os
 from typing import Any
 from typing import Callable
-from typing import Dict
-from typing import List
-from typing import Optional
 
 from dcc_mcp_core._install_lifecycle_sidecar import build_sidecar_command
 from dcc_mcp_core._install_lifecycle_sidecar import launch_sidecar
@@ -52,12 +49,12 @@ class SidecarBackedSkillServer:
         config: Any,
         *,
         host_rpc: str,
-        watch_pid: Optional[int] = None,
-        adapter_version: Optional[str] = None,
-        display_name: Optional[str] = None,
+        watch_pid: int | None = None,
+        adapter_version: str | None = None,
+        display_name: str | None = None,
         wait_ready_timeout_secs: float = 15.0,
-        server_bin: Optional[str] = None,
-        extra_args: Optional[tuple] = None,
+        server_bin: str | None = None,
+        extra_args: tuple | None = None,
     ) -> None:
         self._dcc_name = str(dcc_name or "dcc")
         self._config = config
@@ -69,20 +66,20 @@ class SidecarBackedSkillServer:
         self._server_bin = str(server_bin).strip() if server_bin else None
         self._extra_args = tuple(str(arg) for arg in (extra_args or ()))
         self._registry = PurePythonToolRegistry()
-        self._pending_skill_paths: List[str] = []
-        self._handle: Optional[SidecarServerHandle] = None
-        self._launch_result: Dict[str, Any] = {}
+        self._pending_skill_paths: list[str] = []
+        self._handle: SidecarServerHandle | None = None
+        self._launch_result: dict[str, Any] = {}
 
     @property
     def registry(self) -> PurePythonToolRegistry:
         return self._registry
 
-    def discover(self, extra_paths: Optional[List[str]] = None) -> int:
+    def discover(self, extra_paths: list[str] | None = None) -> int:
         paths = [str(path) for path in (extra_paths or []) if str(path).strip()]
         self._pending_skill_paths = paths
         if paths:
             existing = os.environ.get("DCC_MCP_SKILL_PATHS", "")
-            merged = os.pathsep.join([existing] + paths) if existing else os.pathsep.join(paths)
+            merged = os.pathsep.join([existing, *paths]) if existing else os.pathsep.join(paths)
             os.environ["DCC_MCP_SKILL_PATHS"] = merged
         logger.info(
             "[%s] sidecar discover recorded %d path(s); HTTP/MCP is owned by dcc-mcp-server sidecar",
@@ -148,10 +145,10 @@ class SidecarBackedSkillServer:
 
     # SkillQueryClient compatibility stubs ---------------------------------
 
-    def list_skills(self) -> List[Any]:
+    def list_skills(self) -> list[Any]:
         return []
 
-    def search_skills(self, **kwargs: Any) -> List[Any]:
+    def search_skills(self, **kwargs: Any) -> list[Any]:
         return []
 
     def load_skill(self, name: str) -> None:
@@ -185,7 +182,7 @@ class SidecarBackedSkillServer:
         return False
 
 
-def _resolve_mcp_url(launch: Dict[str, Any]) -> str:
+def _resolve_mcp_url(launch: dict[str, Any]) -> str:
     readiness = launch.get("readiness") or {}
     for key in ("mcp_url", "discovery_mcp_url", "endpoint"):
         value = readiness.get(key) or launch.get(key)
