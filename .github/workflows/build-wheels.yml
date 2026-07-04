@@ -107,6 +107,72 @@ jobs:
           tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
+  # ── py37-lite: pure-Python wheel (py3-none-any) for Python 3.7 ──
+  # Maya 2022 / Blender 2.83 embed Python 3.7 and cannot load cp38-abi3
+  # wheels. This job produces a pure-Python wheel with zero compiled Rust
+  # extensions so users can `pip install dcc-mcp-core` without a Rust toolchain.
+  #
+  # maturin with --no-default-features -F py37-lite compiles the Rust source
+  # tree as an rlib only (no cdylib → no _core extension), and maturin falls
+  # back to packaging only the pure-Python sources under python/.
+  py37-lite:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: rust-py37
+          shared-key: rust-ubuntu
+      - name: Install maturin & just
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "maturin>=1.5,<2.0" "just>=1.0"
+        shell: bash
+      - name: Build py37-lite pure-Python wheel
+        run: just build-py37
+        shell: bash
+      - name: Verify wheel tag is py3-none-any
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *py3-none-any* ]]; then
+            echo "::error::Expected py3-none-any wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: py3-none-any wheel tag confirmed"
+      - name: Verify _core extension is NOT present in the wheel
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          if unzip -l "$wheel" | grep -q "_core"; then
+            echo "::error::py37-lite wheel should not contain _core extension, but found:"
+            unzip -l "$wheel" | grep "_core"
+            exit 1
+          fi
+          echo "OK: no _core extension in py37-lite wheel"
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag-name }}
+          files: dist/*.whl
+
   macos:
     runs-on: macos-latest
     permissions:

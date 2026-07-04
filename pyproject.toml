@@ -32,7 +32,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "dcc-mcp-server>=0.18.17,<1.0.0",
+    # dcc-mcp-server (Python 3.8+): provides the sidecar gateway daemon binary
+    # and the packaging toolchain for standalone DCC MCP server bundles.
+    # Maya 2022 / Blender 2.83 embed Python 3.7; the py37-lite wheel ships
+    # pure-Python code only and users install dcc-mcp-server separately when
+    # their platform provides a compatible binary wheel.
+    "dcc-mcp-server>=0.18.17,<1.0.0; python_version >= '3.8'",
 ]
 
 [project.optional-dependencies]
