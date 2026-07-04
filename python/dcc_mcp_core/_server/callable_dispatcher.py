@@ -34,7 +34,6 @@ import contextvars
 from dataclasses import dataclass
 from dataclasses import field
 import logging
-import sys
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -50,23 +49,9 @@ if TYPE_CHECKING:
 # we expose `BaseDccCallableDispatcherFull` / `BaseDccPump` as plain
 # duck-typed classes with the same attribute contracts; concrete
 # dispatchers do not need to inherit from them either way.
-if sys.version_info >= (3, 8):
-    from typing import Literal
-    from typing import Protocol
-    from typing import runtime_checkable
-else:  # pragma: no cover - py3.7 only
-
-    def runtime_checkable(cls):
-        return cls
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
-
-    class _LiteralFallback:
-        def __getitem__(self, _item):
-            return str
-
-    Literal = _LiteralFallback()  # type: ignore[assignment,misc]
+from typing import Literal
+from typing import Protocol
+from typing import runtime_checkable  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 

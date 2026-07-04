@@ -49,17 +49,8 @@ if TYPE_CHECKING:
 # `BaseDccCallableDispatcher` as a plain duck-typed class with the same
 # `dispatch_callable` attribute contract; concrete dispatchers do not
 # need to inherit from it either way.
-if sys.version_info >= (3, 8):
-    from typing import Protocol
-    from typing import runtime_checkable
-else:  # pragma: no cover - py3.7 only
-
-    def runtime_checkable(cls):
-        return cls
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
-
+from typing import Protocol
+from typing import runtime_checkable
 
 logger = logging.getLogger(__name__)
 
