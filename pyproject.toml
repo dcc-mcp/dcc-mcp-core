@@ -11,14 +11,13 @@ authors = [
 ]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 keywords = ["dcc", "mcp", "maya", "blender", "houdini", "rust", "pyo3"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -93,14 +92,14 @@ features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler
 bindings = "pyo3"
 
 [tool.mypy]
-python_version = "3.7"
+python_version = "3.8"
 strict = true
 ignore_missing_imports = true
 disable_error_code = ["type-arg", "misc", "no-any-return"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py37"
+target-version = "py38"
 src = ["python/dcc_mcp_core", "tests", "examples"]
 # `_core.pyi` is regenerated from the Rust extension by `pyo3-stub-gen`
 # on every build; running ruff against it produces ~1k spurious diffs
@@ -131,7 +130,7 @@ known-first-party = ["dcc_mcp_core"]
 # instead of ``from dcc_mcp_core import …`` so submodules avoid the lazy package facade.
 
 [tool.ruff.lint.per-file-ignores]
-# cp37 wheels: PEP 604 unions / builtin generics are syntax errors on Python 3.7.
+# Legacy py37 compat guards retained for code that hasn't been migrated yet.
 "python/dcc_mcp_core/_server/host_ui_dispatcher.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_server/tools_list_policy.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_install_lifecycle_process.py" = ["UP006", "UP045"]
@@ -144,7 +143,7 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/adapter_contracts.py" = ["UP006", "UP037", "UP045"]
 "python/dcc_mcp_core/asset_import.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/install_lifecycle.py" = ["UP006", "UP007", "UP045"]
-"scripts/check_py37_syntax.py" = ["UP032"]
+"scripts/check_py37_syntax.py" = ["UP032"]  # retained for reference; no longer run in CI
 "__init__.py" = ["F401"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]
 "tests/*.py" = ["F401", "F811", "F821", "E711", "E712", "SIM117", "SIM118", "D100", "D101", "D103", "D106", "D205", "D400", "D415", "E501"]
