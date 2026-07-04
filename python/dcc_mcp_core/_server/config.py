@@ -13,7 +13,7 @@ import os
 from typing import TYPE_CHECKING
 from typing import Any
 
-from dcc_mcp_core._core import McpHttpConfig
+from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.options import DiagnosticsOptions
 from dcc_mcp_core._server.options import ExecutionMode
@@ -142,6 +142,7 @@ def build_mcp_http_config(
     version_provider: Callable[[], str],
 ) -> McpHttpConfig:
     """Build the ``McpHttpConfig`` for ``DccServerBase`` from resolved options."""
+    McpHttpConfig = resolve_mcp_http_config_class()
     config = McpHttpConfig(
         port=options.port,
         server_name=options.server_name or f"{options.dcc_name}-mcp",

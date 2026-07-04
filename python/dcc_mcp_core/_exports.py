@@ -79,7 +79,7 @@ _LAZY: dict[str, str] = {
     "IntWrapper": "dcc_mcp_core._core",
     "IpcChannelAdapter": "dcc_mcp_core._core",
     "LoggingMiddleware": "dcc_mcp_core._core",
-    "McpHttpConfig": "dcc_mcp_core._core",
+    "McpHttpConfig": "dcc_mcp_core._runtime.config_bridge",
     "McpHttpServer": "dcc_mcp_core._core",
     "McpServerHandle": "dcc_mcp_core._core",
     "ObjectTransform": "dcc_mcp_core._core",

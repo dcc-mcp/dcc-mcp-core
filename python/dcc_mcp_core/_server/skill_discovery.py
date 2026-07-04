@@ -14,10 +14,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from dcc_mcp_core._core import get_app_skill_paths_from_env
-from dcc_mcp_core._core import get_local_skills_dir
-from dcc_mcp_core._core import get_skill_paths_from_env
-from dcc_mcp_core._core import get_skills_dir
+from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
+from dcc_mcp_core._runtime.skill_paths import get_local_skills_dir
+from dcc_mcp_core._runtime.skill_paths import get_skill_paths_from_env
+from dcc_mcp_core._runtime.skill_paths import get_skills_dir
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core.hotreload import DccSkillHotReloader
