@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.7](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.6...v0.19.7) (2026-07-04)
+
+
+### Features
+
+* improve admin observability workflow ([2a49db2](https://github.com/dcc-mcp/dcc-mcp-core/commit/2a49db2fd6fa655e5f03e552540e9fdfc07bbe07))
+
+
+### Bug Fixes
+
+* **ci:** restore Python 3.7 syntax gate and requires-python constraint ([3a19664](https://github.com/dcc-mcp/dcc-mcp-core/commit/3a19664305d76bdbdd7fdc28184cb91e43c8846f))
+* split admin observability styles ([2ecdbf8](https://github.com/dcc-mcp/dcc-mcp-core/commit/2ecdbf8e7ffed2ce01048d4144733b1b76a9e0a1))
+
 ## [0.19.6](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.5...v0.19.6) (2026-07-04)
 
 
