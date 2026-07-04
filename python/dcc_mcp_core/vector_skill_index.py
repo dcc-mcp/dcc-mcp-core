@@ -53,26 +53,15 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
-import sys
 from threading import RLock
 from typing import Iterable
+from typing import Protocol
+from typing import runtime_checkable
 
 from dcc_mcp_core.semantic_skill_index import SkillDocument
 from dcc_mcp_core.semantic_skill_index import SkillSearchHit
 from dcc_mcp_core.vector_embedder import Embedder
 from dcc_mcp_core.vector_embedder import HashedEmbedder
-
-if sys.version_info >= (3, 8):
-    from typing import Protocol
-    from typing import runtime_checkable
-else:  # pragma: no cover - py3.7 only
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
-
-    def runtime_checkable(cls):  # type: ignore[no-redef]
-        return cls
-
 
 __all__ = [
     "InMemoryVectorStore",

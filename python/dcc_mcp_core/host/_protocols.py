@@ -3,25 +3,14 @@
 # Import future modules
 from __future__ import annotations
 
-# Import built-in modules
-import sys
-
-# Import local modules
-from dcc_mcp_core._core import TickOutcome
-
 # `typing.Protocol` and `typing.runtime_checkable` are 3.8+. The package
 # still supports Python 3.7 for older embedded DCC runtimes such as Maya 2022
 # and Blender 2.83, so expose a duck-typed base class there.
-if sys.version_info >= (3, 8):
-    from typing import Protocol
-    from typing import runtime_checkable
-else:  # pragma: no cover - py3.7 only
+from typing import Protocol
+from typing import runtime_checkable
 
-    def runtime_checkable(cls):
-        return cls
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
+# Import local modules
+from dcc_mcp_core._core import TickOutcome
 
 
 @runtime_checkable

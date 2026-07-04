@@ -40,7 +40,6 @@ from __future__ import annotations
 
 # Import built-in modules
 import contextvars
-import sys
 import threading
 from typing import TYPE_CHECKING
 
@@ -53,17 +52,8 @@ if TYPE_CHECKING:
 # attribute contract; concrete impls don't need to inherit from it
 # either way (the `current_job` ContextVar is annotated, so the type
 # is only used for static analysis and runtime `isinstance` on 3.8+).
-if sys.version_info >= (3, 8):
-    from typing import Protocol
-    from typing import runtime_checkable
-else:  # pragma: no cover - py3.7 only
-
-    def runtime_checkable(cls):
-        return cls
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
-
+from typing import Protocol
+from typing import runtime_checkable
 
 __all__ = [
     "CancelToken",

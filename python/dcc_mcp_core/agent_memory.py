@@ -30,21 +30,13 @@ from enum import Enum
 import json
 from pathlib import Path
 import sqlite3
-import sys
 from threading import RLock
 import time
 from typing import Any
 from typing import Callable
 from typing import Iterable
 from typing import Mapping
-
-if sys.version_info >= (3, 8):
-    from typing import Protocol
-else:  # pragma: no cover - py3.7 only
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
-
+from typing import Protocol
 
 __all__ = [
     "InMemoryMemoryStore",

@@ -42,21 +42,10 @@ import hashlib
 import math
 import os
 import re
-import sys
 from typing import Iterable
 from typing import Mapping
-
-if sys.version_info >= (3, 8):
-    from typing import Protocol
-    from typing import runtime_checkable
-else:  # pragma: no cover - py3.7 only
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
-
-    def runtime_checkable(cls):  # type: ignore[no-redef]
-        return cls
-
+from typing import Protocol
+from typing import runtime_checkable
 
 __all__ = [
     "DEFAULT_DIM",

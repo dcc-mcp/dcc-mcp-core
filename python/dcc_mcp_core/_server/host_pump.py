@@ -9,27 +9,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib
-import sys
 import threading
 import time
 from typing import Any
 from typing import Callable
 from typing import Optional
+from typing import Protocol
+from typing import runtime_checkable
 
 from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpPolicy
 from dcc_mcp_core._server.callable_dispatcher import DrainStats
-
-if sys.version_info >= (3, 8):
-    from typing import Protocol
-    from typing import runtime_checkable
-else:  # pragma: no cover - py3.7 only
-
-    def runtime_checkable(cls):
-        return cls
-
-    class Protocol:  # type: ignore[no-redef]
-        pass
-
 
 __all__ = [
     "HostPumpController",
