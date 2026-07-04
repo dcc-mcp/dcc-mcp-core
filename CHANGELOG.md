@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.5](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.4...v0.19.5) (2026-07-04)
+
+
+### Bug Fixes
+
+* **ci:** remove Python 3.7 from CI matrix ([fc7cbf0](https://github.com/dcc-mcp/dcc-mcp-core/commit/fc7cbf0fd3a78f76b8e0af59dc846584de685033))
+* remove outdated Python 3.7 version guards (UP036) ([3c0c4a0](https://github.com/dcc-mcp/dcc-mcp-core/commit/3c0c4a0dec91649bd4f679ca986821bd1bd39db7))
+
 ## [0.19.4](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.3...v0.19.4) (2026-07-04)
 
 
