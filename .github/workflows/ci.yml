@@ -518,35 +518,38 @@ jobs:
           "
       - name: Verify import dcc_mcp_core works
         shell: bash
-        run: python -c "import dcc_mcp_core; print('OK: import dcc_mcp_core')"
+        run: |
+          python -c "import dcc_mcp_core; print('OK: import dcc_mcp_core')"
       - name: Verify skill module works
         shell: bash
-        run: python -c "
-          from dcc_mcp_core.skill import skill_entry, skill_success, skill_error;
-          result = skill_success('test');
-          assert result['success'] is True;
+        run: |
+          python -c "
+          from dcc_mcp_core.skill import skill_entry, skill_success, skill_error
+          result = skill_success('test')
+          assert result['success'] is True
           print('OK: dcc_mcp_core.skill works')
-        "
+          "
       - name: Verify host module imports (without _core)
         shell: bash
-        run: python -c "
-          import dcc_mcp_core.host;
-          assert dcc_mcp_core.host.BlockingDispatcher is None;
-          assert dcc_mcp_core.host.QueueDispatcher is None;
-          # Pure-Python sub-modules work fine
-          from dcc_mcp_core.host._adapter import HostAdapter, TickableDispatcher;
-          from dcc_mcp_core.host._standalone import StandaloneHost;
+        run: |
+          python -c "
+          import dcc_mcp_core.host
+          assert dcc_mcp_core.host.BlockingDispatcher is None
+          assert dcc_mcp_core.host.QueueDispatcher is None
+          from dcc_mcp_core.host._adapter import HostAdapter, TickableDispatcher
+          from dcc_mcp_core.host._standalone import StandaloneHost
           print('OK: dcc_mcp_core.host imports without _core')
-        "
+          "
       - name: Verify lazy _core fallback (skill._serialize_result)
         shell: bash
-        run: python -c "
-          from dcc_mcp_core.skill import skill_success;
-          from dcc_mcp_core.skill import _serialize_result as sr;
-          result = sr(skill_success('test'));
-          assert 'success' in result;
+        run: |
+          python -c "
+          from dcc_mcp_core.skill import skill_success
+          from dcc_mcp_core.skill import _serialize_result as sr
+          result = sr(skill_success('test'))
+          assert 'success' in result
           print('OK: skill._serialize_result falls back to pure Python')
-        "
+          "
       - name: Run py37 sidecar factory tests (source tree)
         shell: bash
         run: PYTHONPATH=python pytest tests/test_py37_sidecar_server_factory.py -q
