@@ -722,7 +722,7 @@ new generated/reference skills.
 
 TOML helpers are intentionally not exposed yet. The current adapter and bundled
 skill use cases read TOML as metadata handled by core loaders rather than skill
-script runtime code, and Python 3.7 support would require adding another
+script runtime code, and Python 3.7 compatibility (Maya 2022) would require adding another
 runtime dependency for a stable read/write API. Revisit TOML helpers when a
 skill script needs dependency-free TOML at runtime.
 

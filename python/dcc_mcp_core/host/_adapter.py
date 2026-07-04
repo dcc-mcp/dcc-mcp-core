@@ -82,8 +82,7 @@ __all__ = ["HostAdapter", "TickableDispatcher"]
 # Type alias kept short so override signatures read clearly.
 # Uses ``typing.Callable`` + ``typing.Optional`` rather than
 # ``collections.abc.Callable`` / PEP-604 ``|`` syntax so the module
-# imports cleanly on Python 3.7 and 3.8 — the wheel is ABI3-py37 so
-# users may run this on any supported interpreter.
+# imports cleanly on Python 3.7 (Maya 2022) and 3.8.
 TickFn = Callable[[], Optional[float]]
 
 

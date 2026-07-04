@@ -465,6 +465,23 @@ jobs:
               --base-url http://127.0.0.1:1 --dry-run --trace "$f"
           done
 
+  # ── Python 3.7 syntax compatibility gate ──────────────────────────────
+  # Maya 2022 ships Python 3.7. Pure-Python modules in dcc_mcp_core must
+  # remain syntax-compatible with 3.7 even though the Rust extension
+  # (_core) requires 3.8+. This job runs `check_py37_syntax.py` with a
+  # Python 3.7 interpreter to catch PEP 604 unions, walrus operators, and
+  # other 3.8+ syntax that would break Maya 2022 imports.
+  check-py37-syntax:
+    name: Python 3.7 syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - name: Check Python 3.7 syntax compatibility
+        run: python scripts/check_py37_syntax.py
+
   # -- Sentry E2E: real ingest through dcc-mcp-server init_sentry() --
   # Requires DCC_MCP_SENTRY_DSN GitHub Actions secret. Skips cleanly when
   # the secret is absent so forks / local clones do not fail the workflow.

@@ -1,8 +1,12 @@
-"""Verify the pure-Python tree parses under Python 3.7 (cp37 wheel parity).
+"""Verify pure-Python modules are syntax-compatible with Python 3.7 (Maya 2022).
 
 Must be invoked with a Python 3.7 interpreter (``python3.7 scripts/check_py37_syntax.py``).
 PEP 604 unions (``str | None``) and builtin generics (``dict[str, Any]``) are syntax
 errors on 3.7 even with ``from __future__ import annotations``.
+
+This is enforced in CI via ``check-py37-syntax`` job. The Rust extension
+(``_core``) requires Python 3.8+, but pure-Python modules must remain
+importable on Maya 2022's embedded Python 3.7.
 """
 
 from __future__ import annotations

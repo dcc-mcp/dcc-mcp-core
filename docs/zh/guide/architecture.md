@@ -384,7 +384,7 @@ workspace 通过 `maturin` 构建为单一 PyO3 原生扩展（`dcc_mcp_core._co
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 dependencies = [
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]  # daemon-backed gateway 启动所需的配套二进制 wheel
@@ -415,7 +415,7 @@ python/dcc_mcp_core/
 
 使用 PyO3，特性：
 - `multiple-pymethods` — 每个 struct 多个 `#[pymethods]`
-- `abi3-py38` — Python 3.8+ 稳定 ABI（CI 测试 3.7–3.14）
+- `abi3-py38` — Python 3.8+ 稳定 ABI（CI 测试 3.8–3.14）
 - `extension-module` — 允许从任意 Python 路径加载
 
 ### 3. Rust Edition 2024, MSRV 1.95

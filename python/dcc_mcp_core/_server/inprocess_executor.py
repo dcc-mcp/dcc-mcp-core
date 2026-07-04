@@ -44,11 +44,10 @@ from dcc_mcp_core.script_execution import normalize_file_backed_script_execution
 if TYPE_CHECKING:
     pass
 
-# `typing.Protocol` / `typing.runtime_checkable` are 3.8+. The package
-# still claims `requires-python = ">=3.7"`, so on 3.7 we expose
-# `BaseDccCallableDispatcher` as a plain duck-typed class with the same
-# `dispatch_callable` attribute contract; concrete dispatchers do not
-# need to inherit from it either way.
+# `typing.Protocol` / `typing.runtime_checkable` are 3.8+. For Python 3.7
+# (Maya 2022), expose `BaseDccCallableDispatcher` as a duck-typed class
+# with the same `dispatch_callable` attribute contract; concrete
+# dispatchers do not need to inherit from it either way.
 from typing import Protocol
 from typing import runtime_checkable
 

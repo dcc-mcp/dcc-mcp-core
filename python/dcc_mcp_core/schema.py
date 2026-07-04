@@ -44,7 +44,7 @@ import uuid
 try:
     from typing import get_args
     from typing import get_origin
-except ImportError:  # pragma: no cover - Python 3.7 only
+except ImportError:  # pragma: no cover — Python 3.7 (Maya 2022) compatibility
 
     def get_args(tp: Any) -> tuple[Any, ...]:
         return getattr(tp, "__args__", ()) or ()
