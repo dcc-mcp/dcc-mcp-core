@@ -8,6 +8,7 @@ import {
   RiRefreshLine,
 } from '@remixicon/react';
 import { SkillMarkdownPreview } from './components/SkillMarkdownPreview';
+import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 import { type MessageKey } from './i18n';
 import { formatTime, timestampTitle } from './time';
@@ -313,7 +314,7 @@ export function TimeValue({ value, className }: { value: string | null | undefin
   return <time className={className} dateTime={title} title={title}>{text}</time>;
 }
 
-export function StatusLine({ text, error }: { text: string; error?: string }) {
+export function StatusLine({ text = '', error }: { text?: string; error?: string }) {
   if (!error && !text.trim()) return null;
   return <div className="status-bar">{error ? `Error: ${error}` : text}</div>;
 }
@@ -478,8 +479,8 @@ export function SkillDetailPanel({
         <div>
           <h3>{selected?.name ?? skill.name}</h3>
           <div className="skill-detail-meta">
-            <span className="source-pill">{dccLabel || t('common.status.unknown')}</span>
-            <span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>{selected?.state ?? (skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded'))}</span>
+            <Badge variant="outline" className="source-pill">{dccLabel || t('common.status.unknown')}</Badge>
+            <Badge variant={skill.loaded ? 'default' : 'secondary'} className={skill.loaded ? 'badge-ok' : 'badge-muted'}>{selected?.state ?? (skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded'))}</Badge>
             {selected?.instance_short ? <span className="mono-path">{t('skillPaths.label.instance', { id: selected.instance_short })}</span> : null}
           </div>
         </div>
@@ -512,7 +513,7 @@ export function SkillDetailPanel({
               {tool.summary ? <span>{tool.summary}</span> : null}
               {tool.annotations.length > 0 ? (
                 <div className="skill-tool-annotations">
-                  {tool.annotations.map((label) => <span className="source-pill" key={`${tool.name}-${label}`}>{label}</span>)}
+                  {tool.annotations.map((label) => <Badge variant="outline" className="source-pill" key={`${tool.name}-${label}`}>{label}</Badge>)}
                 </div>
               ) : null}
             </div>
@@ -530,9 +531,9 @@ export function SkillDetailPanel({
       {detail?.instances && detail.instances.length > 1 ? (
         <div className="skill-detail-instances">
           {detail.instances.map((instance) => (
-            <span className="source-pill" key={`${instance.instance_id ?? instance.instance_short ?? instance.name}`}>
+            <Badge variant="outline" className="source-pill" key={`${instance.instance_id ?? instance.instance_short ?? instance.name}`}>
               {instance.dcc_type ?? instance.dcc ?? skill.dcc_type}:{instance.instance_short ?? compactId(instance.instance_id)}
-            </span>
+            </Badge>
           ))}
         </div>
       ) : null}
@@ -617,7 +618,7 @@ export function LatencyBadge({ value, t }: { value: number | null | undefined; t
   if (!severity) {
     return null;
   }
-  return <span className={`badge badge-latency badge-latency-${severity}`}>{t(latencyBadgeKey(severity))}</span>;
+  return <Badge variant="outline" className={`badge-latency badge-latency-${severity}`}>{t(latencyBadgeKey(severity))}</Badge>;
 }
 
 export function LatencyValue({ value, t }: { value: number | null | undefined; t: Translator }) {
@@ -1165,6 +1166,7 @@ export function TraceLinks({ links, t }: { links: AdminLinks; t: Translator }) {
   const rows = [
     [t('traces.link.adminTrace'), links.admin_trace_url],
     [t('traces.link.traceApi'), links.trace_api_url],
+    [t('traces.link.calls'), links.admin_calls_url],
     [t('traces.link.agentTracePacket'), links.agent_trace_packet_url],
     [t('traces.link.debugBundle'), links.debug_bundle_url],
     [t('traces.link.issueReportJson'), links.issue_report_url],
@@ -1543,7 +1545,7 @@ export function WorkflowGraphDetail({
                   <span className="workflow-node-meta">
                     {node.timestamp ? <TimeValue value={node.timestamp} /> : null}
                     <StatusBadge value={node.status} />
-                    {node.escape_hatch ? <span className="badge-warn">{t('workflows.badge.escapeHatch')}</span> : null}
+                    {node.escape_hatch ? <Badge variant="outline" className="badge-warn">{t('workflows.badge.escapeHatch')}</Badge> : null}
                   </span>
                 </button>
               );
@@ -1684,6 +1686,95 @@ export function TraceDetailPanel({
     }
     return JSON.stringify(attrs);
   };
+  type TimelineBar = {
+    title: string;
+    detail: string;
+    left: number;
+    width: number;
+    tone: 'agent' | 'llm' | 'tool' | 'fail';
+  };
+  const agentTimeline: { kind: string; title: string; detail?: string; tone?: 'ok' | 'warn' | 'err' | 'muted' }[] = [];
+  if (agent?.task) {
+    agentTimeline.push({ kind: t('traces.timeline.task'), title: agent.task, tone: 'muted' });
+  }
+  if (agent?.user_intent_summary) {
+    agentTimeline.push({ kind: t('traces.timeline.intent'), title: agent.user_intent_summary, tone: 'muted' });
+  }
+  agent?.plan?.forEach((step, index) => {
+    agentTimeline.push({ kind: t('traces.timeline.planStep', { index: index + 1 }), title: step, tone: 'muted' });
+  });
+  spans.forEach((span) => {
+    const durationMs = spanDurationMs(span);
+    agentTimeline.push({
+      kind: t('traces.timeline.span'),
+      title: span.name,
+      detail: formatDurationMs(durationMs),
+      tone: span.ok ? (latencySeverity(durationMs) ? 'warn' : 'ok') : 'err',
+    });
+  });
+  agent?.observations?.forEach((observation, index) => {
+    agentTimeline.push({ kind: t('traces.timeline.observation', { index: index + 1 }), title: observation, tone: 'muted' });
+  });
+  if (agent?.reasoning_summary) {
+    agentTimeline.push({ kind: t('traces.timeline.reasoning'), title: agent.reasoning_summary, tone: 'muted' });
+  }
+  if (agent?.agent_reply_summary) {
+    agentTimeline.push({ kind: t('traces.timeline.reply'), title: agent.agent_reply_summary, tone: trace.ok ? 'ok' : 'err' });
+  }
+  const rawSpanBars = (() => {
+    const hasStarts = spans.every((span) => Number.isFinite(span.started_ns));
+    const minStart = hasStarts ? Math.min(...spans.map((span) => span.started_ns)) : 0;
+    let cursorMs = 0;
+    return spans.map((span) => {
+      const durationMs = Math.max(1, spanDurationMs(span));
+      const startMs = hasStarts ? Math.max(0, Math.round((span.started_ns - minStart) / 1_000_000)) : cursorMs;
+      cursorMs += durationMs;
+      return { span, startMs, durationMs };
+    });
+  })();
+  const totalTimelineMs = Math.max(1, trace.total_ms ?? 0, ...rawSpanBars.map((bar) => bar.startMs + bar.durationMs));
+  const pct = (value: number) => Math.max(0, Math.min(100, value));
+  const spanBars: TimelineBar[] = rawSpanBars.map(({ span, startMs, durationMs }) => ({
+    title: span.name,
+    detail: formatDurationMs(durationMs),
+    left: pct((startMs / totalTimelineMs) * 100),
+    width: Math.max(2, pct((durationMs / totalTimelineMs) * 100)),
+    tone: span.ok ? 'tool' : 'fail',
+  }));
+  const llmEvents = [
+    agent?.user_intent_summary ? { title: agent.user_intent_summary, detail: t('traces.timeline.intent') } : null,
+    ...(agent?.plan ?? []).map((step, index) => ({ title: step, detail: t('traces.timeline.planStep', { index: index + 1 }) })),
+    agent?.reasoning_summary ? { title: agent.reasoning_summary, detail: t('traces.timeline.reasoning') } : null,
+    agent?.agent_reply_summary ? { title: agent.agent_reply_summary, detail: t('traces.timeline.reply') } : null,
+  ].filter(Boolean) as { title: string; detail: string }[];
+  const llmBars: TimelineBar[] = llmEvents.map((event, index) => {
+    const slot = 100 / Math.max(1, llmEvents.length);
+    return {
+      ...event,
+      left: pct(index * slot + 2),
+      width: Math.max(8, Math.min(24, slot * 0.7)),
+      tone: 'llm',
+    };
+  });
+  const failureBars: TimelineBar[] = spanBars.filter((bar) => bar.tone === 'fail');
+  if (!trace.ok && failureBars.length === 0) {
+    failureBars.push({
+      title: trace.tool_slug ?? trace.method,
+      detail: formatDurationMs(trace.total_ms),
+      left: 0,
+      width: 100,
+      tone: 'fail',
+    });
+  }
+  const timelineLanes: { label: string; bars: TimelineBar[] }[] = [
+    {
+      label: t('traces.timeline.agentInvocation'),
+      bars: agent ? [{ title: agentTitle, detail: formatDurationMs(trace.total_ms), left: 0, width: 100, tone: 'agent' }] : [],
+    },
+    { label: t('traces.timeline.llmOperations'), bars: llmBars },
+    { label: t('traces.timeline.toolCalls'), bars: spanBars.filter((bar) => bar.tone === 'tool') },
+    { label: t('traces.timeline.failures'), bars: failureBars },
+  ];
 
   return (
     <div className="trace-detail-panel">
@@ -1722,6 +1813,10 @@ export function TraceDetailPanel({
           <span><strong>{t('traces.label.started')}</strong>{formatTraceDate(trace.started_at)}</span>
           <span><strong>{t('traces.label.spans')}</strong>{spans.length}</span>
         </div>
+        <div className="trace-related-head">
+          <strong>{t('traces.detail.relatedEvidence')}</strong>
+          <span>{t('traces.detail.relatedEvidenceHint')}</span>
+        </div>
         <TraceLinks links={links} t={t} />
       </div>
 
@@ -1758,6 +1853,61 @@ export function TraceDetailPanel({
             {agent.tags?.map((tag) => <span key={tag}>{tag}</span>)}
           </div>
           <pre className="payload-pre caller-context-pre">{JSON.stringify(safeCallerContext(agent), null, 2)}</pre>
+        </div>
+      ) : null}
+
+      {agent ? (
+        <div className="trace-detail-card agent-timeline-card">
+          <div className="trace-card-head">
+            <h3>{t('traces.detail.agentTimeline')}</h3>
+            <span>{t('traces.detail.timelineItems', { count: agentTimeline.length })}</span>
+          </div>
+          <div className="agent-timeline-legend" aria-label={t('traces.detail.agentTimeline')}>
+            <span className="agent">{t('traces.timeline.agentInvocation')}</span>
+            <span className="llm">{t('traces.timeline.llmOperations')}</span>
+            <span className="tool">{t('traces.timeline.toolCalls')}</span>
+            <span className="fail">{t('traces.timeline.failures')}</span>
+          </div>
+          <div className="agent-timeline-ruler">
+            <span>0 ms</span>
+            <div className="agent-timeline-track" />
+            <span>{formatDurationMs(totalTimelineMs)}</span>
+          </div>
+          <div className="agent-swimlanes">
+            {timelineLanes.map((lane) => (
+              <div className="agent-swimlane" key={lane.label}>
+                <div className="agent-swimlane-label">{lane.label}</div>
+                <div className="agent-swimlane-track">
+                  {lane.bars.length ? lane.bars.map((bar, index) => (
+                    <span
+                      className={`agent-swimlane-bar ${bar.tone}`}
+                      key={`${lane.label}-${bar.title}-${index}`}
+                      style={{ left: `${bar.left}%`, width: `${bar.width}%` }}
+                      title={`${bar.detail}: ${bar.title}`}
+                    >
+                      <span>{bar.detail}</span>
+                    </span>
+                  )) : <span className="agent-swimlane-empty">{t('traces.timeline.noEvents')}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {agentTimeline.length ? (
+            <ol className="agent-timeline-events">
+              {agentTimeline.map((item, index) => (
+                <li className={`agent-timeline-item ${item.tone ?? 'muted'}`} key={`${item.kind}-${index}`}>
+                  <span className="agent-timeline-index">{index + 1}</span>
+                  <span className="agent-timeline-body">
+                    <strong>{item.kind}</strong>
+                    <span>{item.title}</span>
+                    {item.detail ? <small>{item.detail}</small> : null}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="empty">{t('traces.detail.noAgentTimeline')}</p>
+          )}
         </div>
       ) : null}
 
@@ -1819,8 +1969,8 @@ export function GovernanceControlCard({ control, t }: { control: GovernanceMiddl
   return (
     <div className="governance-card">
       <div className="governance-card-head">
-        <span className="source-pill">{control.kind}</span>
-        <span className="badge badge-muted">{control.mode}</span>
+        <Badge variant="outline" className="source-pill">{control.kind}</Badge>
+        <Badge variant="secondary" className="badge-muted">{control.mode}</Badge>
       </div>
       <h3>{control.summary}</h3>
       {fields.length ? <p className="mono-path">{compactList(fields, t('governance.empty.fields'))}</p> : null}

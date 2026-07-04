@@ -22,6 +22,57 @@
   align-items: stretch;
 }
 
+.skill-insight-strip {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  margin: 0.85rem 0 1.1rem;
+}
+
+.skill-insight-card {
+  background: color-mix(in srgb, var(--card) 94%, var(--muted));
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted-foreground);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 0.26rem;
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+}
+
+.skill-insight-card.ok {
+  border-left-color: var(--ok);
+}
+
+.skill-insight-card.warn {
+  border-left-color: var(--warn);
+}
+
+.skill-insight-card.err {
+  border-left-color: var(--err);
+}
+
+.skill-insight-label {
+  justify-self: start;
+}
+
+.skill-insight-card strong {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.skill-insight-card small {
+  color: var(--muted-foreground);
+  font-size: 0.73rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The grid renders a `<div role="listitem">` wrapper around each card.
    Make the wrapper a flex column so the inner `.skill-card` stretches to
    the row height, giving every card an equal height in its row. */

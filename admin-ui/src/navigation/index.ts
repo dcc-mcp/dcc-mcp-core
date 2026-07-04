@@ -217,6 +217,7 @@ export function traceLinks(requestId: string, provided?: AdminLinks): AdminLinks
     openapi_docs_url: provided?.openapi_docs_url ?? gatewayDocsHref(),
     stats_url: provided?.stats_url ?? fullHrefForAdmin('overview', { range: readStatsRangeFromUrl(), overviewTab: 'stats' }),
     admin_traces_url: provided?.admin_traces_url ?? fullHrefForAdmin('traces'),
+    admin_calls_url: provided?.admin_calls_url ?? fullHrefForAdmin('traces', { tracesTab: 'calls', trace: requestId }),
   };
 }
 

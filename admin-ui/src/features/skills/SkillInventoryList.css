@@ -2,6 +2,7 @@
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   margin: 14px 0 28px;
   overflow: hidden;
 }
@@ -15,7 +16,7 @@
 }
 
 .skill-inventory-list-header {
-  background: var(--muted);
+  background: color-mix(in srgb, var(--muted) 72%, transparent);
   border-bottom: 1px solid var(--border);
   color: var(--muted-foreground);
   font-size: 0.68rem;
@@ -29,6 +30,7 @@
   border-bottom: 1px solid var(--border);
   min-height: 5.4rem;
   padding: 0.78rem 0.85rem;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .skill-inventory-row:last-child {
@@ -36,7 +38,7 @@
 }
 
 .skill-inventory-row:hover {
-  background: color-mix(in srgb, var(--muted) 36%, transparent);
+  background: color-mix(in srgb, var(--muted) 44%, transparent);
 }
 
 .skill-inventory-row.is-selected {
@@ -44,7 +46,7 @@
 }
 
 .skill-inventory-row.is-unloaded {
-  background: color-mix(in srgb, var(--muted) 28%, var(--card));
+  background: color-mix(in srgb, var(--muted) 32%, var(--card));
 }
 
 .skill-inventory-highlight {
@@ -162,6 +164,16 @@
   color: var(--muted-foreground);
   font-size: 0.68rem;
   padding: 0.14rem 0.4rem;
+}
+
+.skill-adoption-badge.ok {
+  border-color: color-mix(in srgb, var(--ok) 28%, var(--border));
+  color: color-mix(in srgb, var(--ok) 78%, var(--foreground));
+}
+
+.skill-adoption-badge.warn {
+  border-color: color-mix(in srgb, var(--warn) 34%, var(--border));
+  color: color-mix(in srgb, var(--warn) 76%, var(--foreground));
 }
 
 .skill-inventory-usage-cell {

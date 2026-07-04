@@ -3,6 +3,7 @@ import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { compactId } from '../../admin-ui-core';
 import { type SkillDetailInstance, type SkillDetailPayload, type SkillRow } from '../../admin-types';
 import { SkillMarkdownPreview } from '../../components/SkillMarkdownPreview';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
@@ -77,13 +78,13 @@ export function SkillDetailPanel({
         <div>
           <h3>{selected?.name ?? skill.name}</h3>
           <div className="skill-detail-meta">
-            <span className="source-pill">{dccLabel || t('common.status.unknown')}</span>
-            <span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>
+            <Badge variant="outline" className="source-pill">{dccLabel || t('common.status.unknown')}</Badge>
+            <Badge variant={skill.loaded ? 'default' : 'secondary'} className={skill.loaded ? 'badge-ok' : 'badge-muted'}>
               {selected?.state
                 ?? (skill.loaded
                   ? t('skillPaths.state.loaded')
                   : t('skillPaths.state.unloaded'))}
-            </span>
+            </Badge>
             {selected?.instance_short ? (
               <span className="mono-path">
                 {t('skillPaths.label.instance', { id: selected.instance_short })}
@@ -153,9 +154,9 @@ export function SkillDetailPanel({
               {tool.annotations.length > 0 ? (
                 <div className="skill-tool-annotations">
                   {tool.annotations.map((label) => (
-                    <span className="source-pill" key={`${tool.name}-${label}`}>
+                    <Badge variant="outline" className="source-pill" key={`${tool.name}-${label}`}>
                       {label}
-                    </span>
+                    </Badge>
                   ))}
                 </div>
               ) : null}
@@ -174,13 +175,14 @@ export function SkillDetailPanel({
       {detail?.instances && detail.instances.length > 1 ? (
         <div className="skill-detail-instances">
           {detail.instances.map((instance) => (
-            <span
+            <Badge
+              variant="outline"
               className="source-pill"
               key={`${instance.instance_id ?? instance.instance_short ?? instance.name}`}
             >
               {instance.dcc_type ?? instance.dcc ?? skill.dcc_type}:
               {instance.instance_short ?? compactId(instance.instance_id)}
-            </span>
+            </Badge>
           ))}
         </div>
       ) : null}

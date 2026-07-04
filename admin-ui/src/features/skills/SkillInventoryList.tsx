@@ -2,6 +2,7 @@ import { RiEyeLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { formatTraceDate, resolveDccIcon } from '../../admin-ui-core';
 import { type SkillRow } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { deriveAccentColor, deriveBrandingInitial } from './branding';
 import './SkillInventoryList.css';
@@ -134,13 +135,18 @@ function SkillStateCell({ skill, t }: { skill: SkillRow; t: Translator }) {
 
   return (
     <div className="skill-inventory-state-cell">
-      <span className="source-pill" data-dcc={skill.dcc_type || 'unknown'}>
+      <Badge variant="outline" className="source-pill" data-dcc={skill.dcc_type || 'unknown'}>
         {skill.dcc_type || t('common.status.unknown')}
-      </span>
-      <span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>
+      </Badge>
+      <Badge variant={skill.loaded ? 'default' : 'secondary'}>
         {skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded')}
-      </span>
-      <span className={`badge badge-${adoptionTone}`}>{adoptionLabel}</span>
+      </Badge>
+      <Badge
+        variant={adoptionTone === 'err' ? 'destructive' : adoptionTone === 'muted' ? 'secondary' : 'outline'}
+        className={`skill-adoption-badge ${adoptionTone}`}
+      >
+        {adoptionLabel}
+      </Badge>
       {skill.version ? (
         <code className="skill-inventory-version">v{skill.version}</code>
       ) : null}

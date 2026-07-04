@@ -7,6 +7,7 @@ import {
 } from '@remixicon/react';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { IntegrationEntry, IntegrationKind } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
@@ -76,9 +77,12 @@ export function IntegrationCard({ entry, active = false, onEdit, t }: Integratio
           </span>
           <div>
             <h3 className="integration-card-name">{t(nameKey)}</h3>
-            <span className={`badge ${sentryStatusTone(entry.status)}`}>
+            <Badge
+              variant={entry.status === 'active' ? 'default' : entry.status === 'pending_restart' ? 'outline' : 'secondary'}
+              className={sentryStatusTone(entry.status)}
+            >
               {t(statusLocaleKey(entry.status))}
-            </span>
+            </Badge>
           </div>
         </div>
 

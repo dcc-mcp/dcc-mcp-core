@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { RiDeleteBinLine, RiRefreshLine } from '@remixicon/react';
 import { EmptyRow, MetricTile, PanelHeader, StatusLine, TimeValue } from '../../admin-ui-core';
 import type { MemoryFilters, MemoryRow, Translator } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import {
   Select,
@@ -185,7 +186,7 @@ export function MemoryPanel({ active, t }: { active: boolean; t: Translator }) {
               visibleRows.map((row) => (
                 <tr key={row.id}>
                   <td><TimeValue value={createdIso(row)} /></td>
-                  <td><span className="source-pill">{row.layer}</span></td>
+                  <td><Badge variant="outline" className="source-pill">{row.layer}</Badge></td>
                   <td><code title={row.key}>{row.key}</code></td>
                   <td>{row.dcc_name || '-'}</td>
                   <td><span className="mono-path">{row.session_id}</span></td>

@@ -158,7 +158,7 @@ function App() {
   // On-demand trace detail (enabled only when a trace ID is selected)
   const traceDetailQuery = useTraceDetailQuery(selectedTraceId);
   const traceDetail = useMemo(() => {
-    if (!selectedTraceId) return 'Select a trace row for detail.';
+    if (!selectedTraceId) return t('traces.empty.selectTrace');
     if (traceDetailQuery.isLoading) return t('common.status.loading');
     if (traceDetailQuery.error) return t('common.status.errorPrefix', { message: traceDetailQuery.error.message });
     if (traceDetailQuery.data != null) return JSON.stringify(traceDetailQuery.data, null, 2);
@@ -1687,7 +1687,7 @@ function App() {
             filteredCalls={filteredCalls}
             tracesTab={tracesTab}
             onTracesTabChange={(tab) => goToPanel('traces', { tracesTab: tab, replace: true })}
-            onSelectTraceId={(id) => goToPanel('traces', { traceId: id ?? undefined, replace: true })}
+            onSelectTraceId={(id) => goToPanel('traces', { traceId: id ?? undefined, tracesTab: 'traces', replace: true })}
             traceDetailPayload={traceDetailPayload}
             traceDetail={traceDetail}
             stats={stats}

@@ -303,7 +303,7 @@ export function IntegrationEditForm({
           <h3>{t(nameKey)}</h3>
           <Badge
             variant={entry.status === 'active' ? 'default' : entry.status === 'pending_restart' ? 'secondary' : 'outline'}
-            className={`badge ${entry.status === 'active' ? 'badge-ok' : entry.status === 'pending_restart' ? 'badge-warn' : 'badge-muted'}`}
+            className={entry.status === 'active' ? 'badge-ok' : entry.status === 'pending_restart' ? 'badge-warn' : 'badge-muted'}
           >
             {t(statusLocaleKey(entry.status))}
           </Badge>

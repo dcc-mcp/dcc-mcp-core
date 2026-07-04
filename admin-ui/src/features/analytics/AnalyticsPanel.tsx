@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import { RiDownloadCloudLine, RiRefreshLine } from '@remixicon/react';
 import { API_BASE, formatDurationMs, PanelHeader, StatusLine } from '../../admin-ui-core';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import {
   Select,
@@ -395,7 +396,7 @@ export function AnalyticsPanel({
               <h3>{profileTitle}</h3>
               <p>{profileSubtitle}</p>
             </div>
-            <span className="analytics-profile-badge">{t(`analytics.range.${range}` as any)}</span>
+            <Badge variant="secondary" className="analytics-profile-badge">{t(`analytics.range.${range}` as any)}</Badge>
           </section>
 
           {/* KPI grid */}

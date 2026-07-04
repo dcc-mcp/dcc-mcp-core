@@ -2,7 +2,9 @@ import { RiAddLine, RiDeleteBinLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { EmptyRow } from '../../admin-ui-core';
 import { type SkillPathRow } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -38,7 +40,7 @@ export function SkillSearchPathsTable({
     <div className="skill-inventory-section">
       <h3 className="section-kicker">{t('skillPaths.section.searchPaths')}</h3>
       <div className="skill-path-add">
-        <input
+        <Input
           type="text"
           className="list-search-input"
           placeholder={t('skillPaths.placeholder.addDirectoryPath')}
@@ -80,30 +82,31 @@ export function SkillSearchPathsTable({
             filtered.map((row) => (
               <tr key={`${row.source}-${row.path_hash ?? row.path}-${row.id ?? 'x'}`}>
                 <td>
-                  <span className="source-pill" data-source={row.source} title={row.source}>
+                  <Badge variant="outline" className="source-pill" data-source={row.source} title={row.source}>
                     {row.source_label ?? row.source}
-                  </span>
+                  </Badge>
                 </td>
                 <td>
                   <span className="mono-path">{row.display_path ?? row.path}</span>
                   {row.path_alias ? <div className="muted">{row.path_alias}</div> : null}
                 </td>
                 <td>
-                  <span
-                    className={`badge ${
+                  <Badge
+                    variant={
                       row.status === 'present'
-                        ? 'badge-ok'
+                        ? 'default'
                         : row.status === 'missing'
-                          ? 'badge-warn'
-                          : 'badge-muted'
-                    }`}
+                          ? 'outline'
+                          : 'secondary'
+                    }
+                    className={row.status === 'missing' ? 'skill-adoption-badge warn' : undefined}
                   >
                     {row.status === 'present'
                       ? t('skillPaths.state.present')
                       : row.status === 'missing'
                         ? t('skillPaths.state.missing')
                         : row.status ?? t('common.status.unknown')}
-                  </span>
+                  </Badge>
                 </td>
                 <td>
                   {row.id != null ? (

@@ -11,7 +11,7 @@
   margin-bottom: 0.75rem;
 }
 
-.skill-path-add .list-search-input {
+.skill-path-add [data-slot='input'] {
   flex: 1 1 240px;
   min-width: 0;
 }
@@ -22,6 +22,25 @@
 
 .skill-inventory-section {
   margin-bottom: 1rem;
+}
+
+.skill-paths-panel [data-slot='badge'] {
+  max-width: 100%;
+}
+
+.skill-paths-panel .source-pill,
+.skill-paths-panel .skill-adoption-badge {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.skill-paths-panel table {
+  table-layout: fixed;
+}
+
+.skill-paths-panel th,
+.skill-paths-panel td {
+  overflow-wrap: anywhere;
 }
 
 .section-kicker {

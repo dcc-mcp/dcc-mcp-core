@@ -6,6 +6,7 @@ import {
 import { useMemo } from 'react';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { InstalledMarketplacePackage, MarketplaceEntry } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import './MarketplaceInstalledList.css';
 
@@ -81,7 +82,7 @@ export function MarketplaceInstalledList({
                 {pkg.name}
               </button>
               <div className="marketplace-installed-subline">
-                <span className="source-pill marketplace-installed-dcc">{pkg.dcc}</span>
+                <Badge variant="outline" className="source-pill marketplace-installed-dcc">{pkg.dcc}</Badge>
                 <code className="marketplace-installed-path" title={pkg.path}>
                   {pkg.path}
                 </code>
@@ -91,9 +92,9 @@ export function MarketplaceInstalledList({
             <div className="marketplace-installed-version-cell">
               <span className="marketplace-installed-version">{version}</span>
               {isOutdated ? (
-                <span className="marketplace-installed-update-badge">
+                <Badge variant="outline" className="marketplace-installed-update-badge">
                   {t('marketplace.installed.updateAvailable')}
-                </span>
+                </Badge>
               ) : null}
             </div>
 

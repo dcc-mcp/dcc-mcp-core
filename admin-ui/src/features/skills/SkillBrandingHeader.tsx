@@ -1,6 +1,7 @@
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { resolveDccIcon } from '../../admin-ui-core';
 import { type SkillRow } from '../../admin-types';
+import { Badge } from '../../components/ui/badge';
 import { deriveAccentColor, deriveBrandingInitial } from './branding';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
@@ -47,12 +48,12 @@ export function SkillBrandingHeader({ skill, t }: { skill: SkillRow; t: Translat
           </p>
         ) : null}
         <div className="skill-card-meta">
-          <span className="source-pill" data-dcc={skill.dcc_type || 'unknown'}>
+          <Badge variant="outline" className="source-pill" data-dcc={skill.dcc_type || 'unknown'}>
             {skill.dcc_type || t('common.status.unknown')}
-          </span>
-          <span className={`badge ${skill.loaded ? 'badge-ok' : 'badge-muted'}`}>
+          </Badge>
+          <Badge variant={skill.loaded ? 'default' : 'secondary'} className={skill.loaded ? 'badge-ok' : 'badge-muted'}>
             {skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded')}
-          </span>
+          </Badge>
           {skill.version ? <span className="skill-card-version">v{skill.version}</span> : null}
         </div>
       </div>
