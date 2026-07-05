@@ -97,6 +97,65 @@ fn marketplace_add_list_search_and_inspect_local_source() {
 }
 
 #[test]
+fn marketplace_pack_and_publish_updates_catalog() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "release-skill",
+        "---\nname: release-skill\ndescription: Release package\nmetadata:\n  dcc-mcp:\n    dcc: maya\n    version: 0.2.0\n    tags: modeling, publish\n---\n",
+    );
+    std::fs::write(skill_dir.join("tools.yaml"), "tools: []\n").unwrap();
+    let out_dir = tmp.path().join("dist");
+    let skill_dir_s = skill_dir.to_string_lossy().to_string();
+    let out_dir_s = out_dir.to_string_lossy().to_string();
+
+    let packed = run_json(&["marketplace", "pack", &skill_dir_s, "--out", &out_dir_s]);
+    let package_path = std::path::PathBuf::from(packed["package_path"].as_str().unwrap());
+    assert!(package_path.is_file());
+    assert_eq!(packed["sha256"].as_str().unwrap().len(), 64);
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog_s = catalog_path.to_string_lossy().to_string();
+    let sha256 = format!("sha256:{}", packed["sha256"].as_str().unwrap());
+    let published = run_json(&[
+        "marketplace",
+        "publish",
+        &skill_dir_s,
+        "--catalog",
+        &catalog_s,
+        "--install-url",
+        "https://github.com/dcc-mcp/release-skill/releases/download/v0.2.0/release-skill.zip",
+        "--sha256",
+        &sha256,
+        "--maintainer",
+        "dcc-mcp",
+        "--tag",
+        "extra",
+    ]);
+    assert_eq!(published["action"], "created");
+    assert_eq!(published["entry"]["name"], "release-skill");
+    assert_eq!(published["entry"]["dcc"], json!(["maya"]));
+    assert_eq!(published["entry"]["version"], "0.2.0");
+    assert_eq!(published["entry"]["install"]["type"], "zip");
+    assert_eq!(published["entry"]["install"]["sha256"], sha256);
+
+    let updated = run_json(&[
+        "marketplace",
+        "publish",
+        &skill_dir_s,
+        "--catalog",
+        &catalog_s,
+        "--install-url",
+        "https://github.com/dcc-mcp/release-skill/releases/download/v0.3.0/release-skill.zip",
+        "--version",
+        "0.3.0",
+    ]);
+    assert_eq!(updated["action"], "updated");
+    assert_eq!(updated["count"], 1);
+    assert_eq!(updated["entry"]["version"], "0.3.0");
+}
+
+#[test]
 fn marketplace_install_list_and_uninstall_path_package() {
     let tmp = TempDir::new().unwrap();
     let skill_dir = write_skill(

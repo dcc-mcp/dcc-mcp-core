@@ -72,6 +72,8 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | `marketplace uninstall <name> --dcc <dcc>`| 移除已安装的包            |
 | `marketplace outdated [name] --dcc <dcc>` | 检查是否有更新版本        |
 | `marketplace update [name] --all`         | 升级已安装的包            |
+| `marketplace pack <path> --out dist/`     | 生成 zip 包和 SHA-256 摘要 |
+| `marketplace publish <path> --catalog <file>` | 更新 marketplace catalog 条目 |
 
 完整参数参考：[cli-reference.md](cli-reference.md#marketplace)。
 
@@ -119,6 +121,45 @@ catalog 明确需要固定宿主 Python 解释器时才使用 `install.python_pa
   install:
     type: path
     url: "/share/skills/my-internal-skills"
+```
+
+## 发布打包（`pack` / `publish`）
+
+稳定发布的 marketplace 包建议由仓库 CI 生成 ZIP 并发布到 GitHub Release，
+再更新 `marketplace.json`：
+
+```bash
+dcc-mcp-cli marketplace pack . --out dist/
+gh release upload v0.1.0 dist/my-skill.zip --clobber
+dcc-mcp-cli marketplace publish . \
+  --catalog ../marketplace/marketplace.json \
+  --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
+  --sha256 sha256:<digest>
+```
+
+开发期或内部包仍可继续使用 `install.type: git` 或 `path`。
+
+各 skill 包仓库可以复用这个最小 GitHub Actions 形态：
+
+```yaml
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack marketplace package
+        run: dcc-mcp-cli marketplace pack . --out dist/
+      - name: Upload release asset
+        run: gh release upload "${GITHUB_REF_NAME}" dist/*.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
 ```
 
 ## 目录布局

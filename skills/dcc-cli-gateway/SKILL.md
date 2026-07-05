@@ -439,6 +439,16 @@ dcc-mcp-cli marketplace update <package_name> --dcc maya
 dcc-mcp-cli reload-skills --dcc-type maya
 ```
 
+Use marketplace release commands for package authors and CI:
+
+```bash
+dcc-mcp-cli marketplace pack ./my-skill --out dist/
+dcc-mcp-cli marketplace publish ./my-skill \
+  --catalog ./marketplace.json \
+  --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
+  --sha256 sha256:<digest>
+```
+
 After installing or updating skills, first run
 `dcc-mcp-cli reload-skills --dcc-type <dcc>` so running adapters re-scan the
 marketplace skill path. Then use `dcc-mcp-cli load-skill` for a live instance

@@ -31,6 +31,16 @@ metadata:
 Publish (register or update) a dcc-mcp extension package to a marketplace
 catalog (`marketplace.json`).
 
+Prefer the CLI for local and CI publishing:
+
+```bash
+dcc-mcp-cli marketplace pack ./my-extension --out dist/
+dcc-mcp-cli marketplace publish ./my-extension \
+  --catalog ./marketplace.json \
+  --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-extension.zip \
+  --sha256 sha256:<digest>
+```
+
 ## Tools
 
 ### `marketplace_publish_extension__publish`

@@ -24,6 +24,8 @@ use crate::domain::rest::{
 };
 use crate::infra::http::HttpGateway;
 
+use super::marketplace_cmd;
+
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 
 #[derive(Debug, Parser)]
@@ -301,6 +303,10 @@ enum MarketplaceAction {
         #[arg(long)]
         force: bool,
     },
+    /// Create a zip package and SHA-256 digest for a local marketplace package.
+    Pack(marketplace_cmd::MarketplacePackArgs),
+    /// Upsert a package entry into a local marketplace.json catalog.
+    Publish(Box<marketplace_cmd::MarketplacePublishArgs>),
 }
 
 #[derive(Debug, clap::Args)]
@@ -687,6 +693,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                         to_json(service.add_repo(&repo_ref, dcc.as_deref(), force)?)?
                     }
                 }
+                MarketplaceAction::Pack(args) => marketplace_cmd::run_pack(args)?,
+                MarketplaceAction::Publish(args) => marketplace_cmd::run_publish(*args)?,
             }
         }
         Command::Lint(lint_args) => {
