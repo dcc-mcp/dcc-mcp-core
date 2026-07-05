@@ -377,12 +377,12 @@ class TestTelemetryConfigInitShutdown:
 
     def test_init_raises_if_tracer_already_set(self):
         """init() raises RuntimeError when global tracer dispatcher is already set."""
-        # Establish the global tracer first.  In the old single-process test
-        # suite, another test module's ToolRecorder would have already polluted
-        # the global OTel state — but with xdist --dist loadfile each file runs
-        # in its own clean worker, so we must set up the condition explicitly.
-        setup = TelemetryConfig("setup-tracer").with_noop_exporter()
-        setup.init()
+        # The global OTel dispatcher may already be set by a prior test file
+        # in this worker (xdist --dist loadfile).  If not, establish it so
+        # the second init() correctly raises RuntimeError.
+        if not is_telemetry_initialized():
+            setup = TelemetryConfig("setup-tracer").with_noop_exporter()
+            setup.init()
 
         cfg = TelemetryConfig("pytest-run").with_noop_exporter()
         with pytest.raises(RuntimeError):
