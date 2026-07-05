@@ -175,14 +175,14 @@ class TestExecutionBridgeLazyCore:
 
 
 class TestServerBaseImportLight:
-    def test_server_base_does_not_import_core_at_module_level(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setitem(__import__("sys").modules, "dcc_mcp_core._core", MagicMock(__version__="test"))
+    def test_server_base_imports_fallbacks_without_core(self, monkeypatch: pytest.MonkeyPatch):
         import importlib
 
         module = importlib.import_module("dcc_mcp_core.server_base")
 
-        assert "create_skill_server" not in module.__dict__
+        assert "create_skill_server" in module.__dict__
         assert "create_adapter_server" in module.__dict__
+        assert module._PKG_VERSION == "0.0.0-dev"
 
 
 @pytest.mark.skipif(is_core_extension_available(), reason="only meaningful on py37-lite profile")

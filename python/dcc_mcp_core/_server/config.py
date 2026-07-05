@@ -24,8 +24,19 @@ from dcc_mcp_core._server.options import _StandaloneMainThreadExecution
 from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
 
 try:
+    from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
+except ImportError:
+
+    def resolve_mcp_http_config_class() -> type:
+        from dcc_mcp_core._core import McpHttpConfig
+
+        return McpHttpConfig
+
+
+try:
     from dcc_mcp_core._core import McpHttpConfig
 except ImportError:
+
     @dataclass
     class McpHttpConfig:
         """Pure-Python fallback for the core HTTP config."""
@@ -62,6 +73,7 @@ except ImportError:
             if normalized not in {"drop", "requeue"}:
                 raise ValueError(f"Unsupported job_recovery value: {value!r}")
             self._job_recovery = normalized
+
 
 if TYPE_CHECKING:
     from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher

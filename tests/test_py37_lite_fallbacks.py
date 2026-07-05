@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import os
+from pathlib import Path
 import sys
 
 
@@ -63,7 +64,7 @@ def test_server_and_skill_helpers_fallback_without_core(monkeypatch, tmp_path) -
 
     monkeypatch.setenv("DCC_MCP_SKILL_PATHS", os.pathsep.join([str(tmp_path / "a"), str(tmp_path / "b")]))
     assert skill_discovery.get_skill_paths_from_env() == [str(tmp_path / "a"), str(tmp_path / "b")]
-    assert skill_discovery.get_local_skills_dir("maya").endswith(os.path.join(".dcc-mcp", "maya", "skills"))
-    assert skill_discovery.get_skills_dir("maya").endswith(os.path.join(".dcc-mcp", "skills", "maya"))
+    assert skill_discovery.get_local_skills_dir("maya").endswith(str(Path(".dcc-mcp") / "maya" / "skills"))
+    assert skill_discovery.get_skills_dir("maya").endswith(str(Path(".dcc-mcp") / "skills" / "maya"))
 
     assert server_base._PKG_VERSION == "0.0.0-dev"
