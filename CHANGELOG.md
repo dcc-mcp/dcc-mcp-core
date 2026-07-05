@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.8](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.7...v0.19.8) (2026-07-05)
+
+
+### Features
+
+* add py37-lite Python fallbacks ([db602a1](https://github.com/dcc-mcp/dcc-mcp-core/commit/db602a1f8f8acef2cdd362cb8a0559fcb5a40b4f))
+* **py37-lite:** add pure-Python wheel for Python 3.7 compatibility ([5a0b996](https://github.com/dcc-mcp/dcc-mcp-core/commit/5a0b9969ac15a4b1c704677855a4d606c49086fa))
+* **py37-lite:** route DccServerBase HTTP/MCP through sidecar when _core absent ([3168c7d](https://github.com/dcc-mcp/dcc-mcp-core/commit/3168c7d0e9da956d890b4154c5d35e570d7628e6))
+* **py37-lite:** wire sidecar options and lazy execution_bridge _core ([4ed92d0](https://github.com/dcc-mcp/dcc-mcp-core/commit/4ed92d0f8540cd896b0bf9740cbf9f3a21222746))
+
+
+### Bug Fixes
+
+* accept accumulated kwarg in create_skill_server ([df5b8ed](https://github.com/dcc-mcp/dcc-mcp-core/commit/df5b8eddc75be365d2ac0f11fcc5b36ecb25de85))
+* align py37 sidecar factory test ([6dff80e](https://github.com/dcc-mcp/dcc-mcp-core/commit/6dff80e5822b9594f615eafbeb0243bd86cc6237))
+* align py37-lite fallback contracts ([448ea92](https://github.com/dcc-mcp/dcc-mcp-core/commit/448ea921d89b4f2af3bcde6b32c5f3a0e65ea859))
+* align py37-lite host smoke test ([d8c58d1](https://github.com/dcc-mcp/dcc-mcp-core/commit/d8c58d1501191c3fc4b61c0ae519367f51577206))
+* **ci:** repair py37-lite job YAML quoting in ci.yml ([9e7defb](https://github.com/dcc-mcp/dcc-mcp-core/commit/9e7defba08276650630ff036aca6e527cdd67d5c))
+* fall back package version when metadata lookup raises ([8afdc45](https://github.com/dcc-mcp/dcc-mcp-core/commit/8afdc45d954bf66b9884b07fd0ce430626a13456))
+* **lint:** resolve McpHttpConfig forward ref and import order ([abf5f40](https://github.com/dcc-mcp/dcc-mcp-core/commit/abf5f40c7f8f668eb1f1d021ba3de66c03e16da7))
+* **py37-lite:** add typing compat for _server import chain ([0a97775](https://github.com/dcc-mcp/dcc-mcp-core/commit/0a97775b94de8a133b7e087ed033ff6837bc135b))
+* **py37-lite:** add typing.Protocol fallback for host _protocols ([079fdb7](https://github.com/dcc-mcp/dcc-mcp-core/commit/079fdb715adb7cf8fe3efbae416e767b9296cf4a))
+* **py37-lite:** address PR [#1806](https://github.com/dcc-mcp/dcc-mcp-core/issues/1806) NACK — wheel tag, tests, lint ([0a40a5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/0a40a5a0d135bfc3e069599389757949b28cc650))
+* **py37-lite:** assemble py3-none-any wheel without maturin ([2a8b3d1](https://github.com/dcc-mcp/dcc-mcp-core/commit/2a8b3d1ca931ea5b8c10066793e11fcd153a78df))
+* **py37-lite:** build py3-none-any wheel without cdylib artifact ([b790994](https://github.com/dcc-mcp/dcc-mcp-core/commit/b79099437ef61c805ec2568b5c78b0b2a8670d33))
+* **py37-lite:** make Literal fallback subscriptable on 3.7 ([19d4ee1](https://github.com/dcc-mcp/dcc-mcp-core/commit/19d4ee12ee6276ac6687f09e42f950ebfeaa5206))
+* **py37-lite:** route cancellation Protocol through typing compat ([583460b](https://github.com/dcc-mcp/dcc-mcp-core/commit/583460bcf380156626b70779e37b7d38411a802f))
+* resolve CI failures in py37-lite fallback PR ([60052b9](https://github.com/dcc-mcp/dcc-mcp-core/commit/60052b9d2ca647c702557b540c2f60e2501bd6de))
+* restore create_skill_server compatibility ([ba6f1ee](https://github.com/dcc-mcp/dcc-mcp-core/commit/ba6f1eef85a68bde0d9a0326bab035c4c840b81e))
+* restore create_skill_server compatibility ([3adf5ae](https://github.com/dcc-mcp/dcc-mcp-core/commit/3adf5ae111c8d83ef8fbabc80429911788fd2644))
+* restore package version and skill discovery seams ([653aec5](https://github.com/dcc-mcp/dcc-mcp-core/commit/653aec50a62776c53f1a3d4fdd62bf6ec7451fb6))
+* restore server_base core availability hook ([1bf680c](https://github.com/dcc-mcp/dcc-mcp-core/commit/1bf680ce3cc787023ff1b2f56021aef2889c036b))
+* wrap QueueDispatcher test in StandaloneHost for py37-lite CI ([63a3353](https://github.com/dcc-mcp/dcc-mcp-core/commit/63a335345cef1e3ffbadeacb9e83d448bf304812))
+
 ## [0.19.7](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.6...v0.19.7) (2026-07-04)
 
 
