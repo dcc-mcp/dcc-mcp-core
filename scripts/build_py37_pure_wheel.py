@@ -1,48 +1,69 @@
-"""Build the py37-lite ``py3-none-any`` wheel without a ``_core`` extension.
-
-Maturin packages a platform wheel whenever ``Cargo.toml`` lists ``cdylib`` in
-``crate-type``, even when the PyO3 module is absent. For Maya 2022 / Python 3.7
-we need a pure-Python wheel, so this helper temporarily restricts the root
-crate to ``rlib`` only for the duration of ``maturin build``.
-"""
+"""Build the py37-lite ``py3-none-any`` wheel without maturin or ``_core``."""
 
 from __future__ import annotations
 
+from email.message import EmailMessage
 from pathlib import Path
-import shutil
+import re
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-CARGO_TOML = ROOT / "Cargo.toml"
-CARGO_BACKUP = ROOT / "Cargo.toml.py37.bak"
-CRATE_TYPE_FROM = 'crate-type = ["cdylib", "rlib"]'
-CRATE_TYPE_TO = 'crate-type = ["rlib"]'
+PYTHON_ROOT = ROOT / "python"
+PACKAGE_DIR = PYTHON_ROOT / "dcc_mcp_core"
+DIST = ROOT / "dist"
+
+
+def _ensure_wheel() -> None:
+    try:
+        import wheel.wheelfile  # noqa: F401
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "wheel"])
+
+
+def _read_version() -> str:
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
+    if not match:
+        raise RuntimeError("could not read project version from pyproject.toml")
+    return match.group(1)
 
 
 def main() -> int:
-    """Patch ``Cargo.toml``, invoke maturin, and restore the manifest."""
-    text = CARGO_TOML.read_text(encoding="utf-8")
-    if CRATE_TYPE_FROM not in text:
-        sys.stderr.write(f"build_py37_pure_wheel: expected {CRATE_TYPE_FROM!r} in Cargo.toml\n")
-        return 1
+    """Assemble a pure-Python wheel from ``python/dcc_mcp_core``."""
+    _ensure_wheel()
+    from wheel.wheelfile import WheelFile
 
-    shutil.copy2(CARGO_TOML, CARGO_BACKUP)
-    try:
-        CARGO_TOML.write_text(text.replace(CRATE_TYPE_FROM, CRATE_TYPE_TO), encoding="utf-8")
-        cmd = [
-            "maturin",
-            "build",
-            "--release",
-            "--out",
-            "dist",
-            "--no-default-features",
-            "-F",
-            "py37-lite",
-        ]
-        subprocess.check_call(cmd, cwd=str(ROOT))
-    finally:
-        shutil.move(str(CARGO_BACKUP), str(CARGO_TOML))
+    version = _read_version()
+    dist_name = "dcc_mcp_core"
+    dist_info = f"{dist_name}-{version}.dist-info"
+    wheel_name = f"{dist_name}-{version}-py3-none-any.whl"
+    DIST.mkdir(parents=True, exist_ok=True)
+    wheel_path = DIST / wheel_name
+
+    metadata = EmailMessage()
+    metadata["Metadata-Version"] = "2.1"
+    metadata["Name"] = "dcc-mcp-core"
+    metadata["Version"] = version
+    metadata["Requires-Python"] = ">=3.7"
+    metadata["License"] = "MIT"
+    metadata["Summary"] = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
+
+    wheel_meta = "Wheel-Version: 1.0\nGenerator: build_py37_pure_wheel\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+
+    with WheelFile(str(wheel_path), "w") as wf:
+        for file_path in sorted(PACKAGE_DIR.rglob("*")):
+            if not file_path.is_file():
+                continue
+            if "__pycache__" in file_path.parts:
+                continue
+            arcname = file_path.relative_to(PYTHON_ROOT).as_posix()
+            wf.write(str(file_path), arcname)
+
+        wf.writestr(f"{dist_info}/METADATA", metadata.as_string())
+        wf.writestr(f"{dist_info}/WHEEL", wheel_meta)
+
+    print(f"Built wheel: {wheel_path}")
     return 0
 
 
