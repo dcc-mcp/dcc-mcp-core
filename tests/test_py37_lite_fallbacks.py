@@ -218,6 +218,7 @@ def test_fallback_imports_from_top_level(monkeypatch) -> None:
     """Top-level imports resolve via _py37_fallback when _core is absent."""
     monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", None)
     import dcc_mcp_core
+
     dcc_mcp_core.__dict__.pop("_core", None)
 
     # Clear the fallback module cache so it re-imports without _core

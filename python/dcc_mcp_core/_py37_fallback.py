@@ -230,10 +230,7 @@ else:
             return DccCapabilities(bridge_kind="websocket", bridge_endpoint=endpoint)
 
         def __repr__(self) -> str:
-            return (
-                f"DccCapabilities(embedded_python={self.has_embedded_python}, "
-                f"bridge={self.bridge_kind})"
-            )
+            return f"DccCapabilities(embedded_python={self.has_embedded_python}, bridge={self.bridge_kind})"
 
     class PyPumpedDispatcher:
         """Pure-Python fallback for the Rust ``PyPumpedDispatcher``.
