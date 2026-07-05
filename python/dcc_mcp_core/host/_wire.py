@@ -8,9 +8,8 @@ try:
     from dcc_mcp_core._core import normalize_tool_arguments as _normalize_tool_arguments
     from dcc_mcp_core._core import normalize_tool_meta as _normalize_tool_meta
 except ImportError:
-    # py37-lite: _core not available, runtime will raise if called.
-    _normalize_tool_arguments = None  # type: ignore[assignment]
-    _normalize_tool_meta = None  # type: ignore[assignment]
+    from dcc_mcp_core.host._fallback import normalize_tool_arguments as _normalize_tool_arguments
+    from dcc_mcp_core.host._fallback import normalize_tool_meta as _normalize_tool_meta
 
 
 def normalize_tool_arguments(arguments: Any = None) -> dict[str, Any]:

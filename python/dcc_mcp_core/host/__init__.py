@@ -23,9 +23,7 @@ from the host's native idle primitive (``bpy.app.timers.register``,
 # Import future modules
 from __future__ import annotations
 
-# Import local modules — Rust-backed primitives live in _core.
-# Wrap in try/except so the module is importable on py37-lite
-# (pure-Python wheel without the compiled _core extension).
+# Import local modules — Rust-backed primitives live in _core when available.
 try:
     from dcc_mcp_core._core import BlockingDispatcher
     from dcc_mcp_core._core import DispatchError
@@ -33,12 +31,11 @@ try:
     from dcc_mcp_core._core import QueueDispatcher
     from dcc_mcp_core._core import TickOutcome
 except ImportError:
-    BlockingDispatcher = None  # type: ignore[assignment,misc]
-    DispatchError = None  # type: ignore[assignment,misc]
-    PostHandle = None  # type: ignore[assignment,misc]
-    QueueDispatcher = None  # type: ignore[assignment,misc]
-    TickOutcome = None  # type: ignore[assignment,misc]
-
+    from dcc_mcp_core.host._fallback import BlockingDispatcher
+    from dcc_mcp_core.host._fallback import DispatchError
+    from dcc_mcp_core.host._fallback import PostHandle
+    from dcc_mcp_core.host._fallback import QueueDispatcher
+    from dcc_mcp_core.host._fallback import TickOutcome
 from dcc_mcp_core.host._adapter import HostAdapter
 from dcc_mcp_core.host._adapter import TickableDispatcher
 from dcc_mcp_core.host._standalone import StandaloneHost

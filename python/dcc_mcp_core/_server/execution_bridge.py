@@ -17,6 +17,15 @@ from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core.script_execution import allow_script_materialization_root
 
+try:
+    from dcc_mcp_core._core import SandboxContext
+except ImportError:
+    class SandboxContext:  # type: ignore[no-redef]
+        """Fallback stub used when the native sandbox context is unavailable."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise NotImplementedError("SandboxContext requires dcc_mcp_core._core")
+
 logger = logging.getLogger(__name__)
 
 

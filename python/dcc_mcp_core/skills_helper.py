@@ -152,7 +152,10 @@ SENSITIVE_HTTP_HEADERS = {
 
 
 def _core_symbol(name: str) -> Any:
-    from dcc_mcp_core import _core
+    try:
+        from dcc_mcp_core import _core
+    except ImportError as exc:
+        raise ModuleNotFoundError("No module named 'dcc_mcp_core._core'", name="dcc_mcp_core._core") from exc
 
     return getattr(_core, name)
 
@@ -617,6 +620,140 @@ def skill_error_from_exception(
     )
 
 
+@dataclass(frozen=True)
+class ToolValidator:
+    """Validate JSON-encoded tool parameters against a JSON Schema subset."""
+
+    _schema: Mapping[str, Any] | None = None
+
+    @staticmethod
+    def from_schema_json(schema_json: str) -> ToolValidator:
+        try:
+            schema = _json.loads(schema_json)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(str(exc)) from exc
+        if not isinstance(schema, Mapping):
+            raise ValueError("schema_json must decode to a JSON object")
+        return ToolValidator(_schema=dict(schema))
+
+    @staticmethod
+    def from_action_registry(registry: Any, action_name: str, dcc_name: str | None = None) -> ToolValidator:
+        action = _lookup_registry_action(registry, action_name, dcc_name)
+        schema_json = _extract_action_input_schema(action)
+        if not schema_json:
+            return ToolValidator()
+        return ToolValidator.from_schema_json(schema_json)
+
+    def validate(self, params_json: str) -> tuple[bool, list[str]]:
+        try:
+            params = _json.loads(params_json)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(str(exc)) from exc
+        errors: list[str] = []
+        if self._schema is not None:
+            _validate_schema_value(self._schema, params, path="$", errors=errors)
+        return (not errors, errors)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(schema={self._schema!r})"
+
+
+def _lookup_registry_action(registry: Any, action_name: str, dcc_name: str | None) -> Any:
+    getter = getattr(registry, "get_action", None)
+    if callable(getter):
+        try:
+            action = getter(action_name, dcc_name)
+        except TypeError:
+            action = getter(action_name)
+        if action is None:
+            raise KeyError(action_name)
+        return action
+    try:
+        action = registry[action_name]
+    except Exception as exc:  # noqa: BLE001
+        raise KeyError(action_name) from exc
+    if action is None:
+        raise KeyError(action_name)
+    return action
+
+
+def _extract_action_input_schema(action: Any) -> str | None:
+    if isinstance(action, Mapping):
+        schema = action.get("input_schema")
+        return schema if isinstance(schema, str) and schema.strip() else None
+    schema = getattr(action, "input_schema", None)
+    if isinstance(schema, str) and schema.strip():
+        return schema
+    return None
+
+
+def _validate_schema_value(schema: Mapping[str, Any], value: Any, *, path: str, errors: list[str]) -> None:
+    schema_type = schema.get("type")
+    if isinstance(schema_type, (list, tuple, set)):
+        if not any(_schema_type_matches(str(expected), value) for expected in schema_type):
+            errors.append(f"{path}: expected one of {sorted(str(t) for t in schema_type)}, got {type(value).__name__}")
+            return
+    elif isinstance(schema_type, str):
+        if not _schema_type_matches(schema_type, value):
+            errors.append(f"{path}: expected {schema_type}, got {type(value).__name__}")
+            return
+
+    enum_values = schema.get("enum")
+    if isinstance(enum_values, list) and value not in enum_values:
+        errors.append(f"{path}: value {value!r} is not in enum")
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        if isinstance(minimum, (int, float)) and value < minimum:
+            errors.append(f"{path}: value {value!r} is less than minimum {minimum!r}")
+        maximum = schema.get("maximum")
+        if isinstance(maximum, (int, float)) and value > maximum:
+            errors.append(f"{path}: value {value!r} is greater than maximum {maximum!r}")
+
+    if schema_type == "object" or (schema_type is None and isinstance(schema.get("properties"), Mapping)):
+        if not isinstance(value, Mapping):
+            errors.append(f"{path}: expected object, got {type(value).__name__}")
+            return
+        required = schema.get("required")
+        if isinstance(required, (list, tuple, set)):
+            for name in required:
+                if name not in value:
+                    errors.append(f"{path}.{name}: is required")
+        properties = schema.get("properties")
+        if isinstance(properties, Mapping):
+            for name, subschema in properties.items():
+                if name in value and isinstance(subschema, Mapping):
+                    _validate_schema_value(subschema, value[name], path=f"{path}.{name}", errors=errors)
+        return
+
+    if schema_type == "array":
+        if not isinstance(value, list):
+            errors.append(f"{path}: expected array, got {type(value).__name__}")
+            return
+        items = schema.get("items")
+        if isinstance(items, Mapping):
+            for index, item in enumerate(value):
+                _validate_schema_value(items, item, path=f"{path}[{index}]", errors=errors)
+
+
+def _schema_type_matches(expected: str, value: Any) -> bool:
+    if expected == "object":
+        return isinstance(value, Mapping)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "null":
+        return value is None
+    return True
+
+
 _LAZY_EXPORTS: dict[str, str] = {
     # Result envelopes and validation from the Rust extension.
     "deserialize_result": "dcc_mcp_core._core",
@@ -624,7 +761,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "from_exception": "dcc_mcp_core._core",
     "serialize_result": "dcc_mcp_core._core",
     "success_result": "dcc_mcp_core._core",
-    "ToolValidator": "dcc_mcp_core._core",
+    "ToolValidator": "dcc_mcp_core.skills_helper",
     "validate_action_result": "dcc_mcp_core._core",
     # Shared MCP/REST call envelope normalization.
     "normalize_tool_arguments": "dcc_mcp_core.host",
@@ -668,6 +805,7 @@ _DIRECT_EXPORTS = [
     "SkillCodecError",
     "SkillHelperError",
     "SkillHttpError",
+    "ToolValidator",
     "atomic_write_bytes",
     "atomic_write_text",
     "bytes_digest",

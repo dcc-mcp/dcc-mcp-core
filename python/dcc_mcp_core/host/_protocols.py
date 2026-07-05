@@ -9,15 +9,10 @@ from __future__ import annotations
 from dcc_mcp_core._typing_compat import Protocol
 from dcc_mcp_core._typing_compat import runtime_checkable
 
-# Import local modules
 try:
     from dcc_mcp_core._core import TickOutcome
 except ImportError:
-    # py37-lite wheel: pure-Python fallback when _core is absent.
-    class TickOutcome:  # type: ignore[no-redef]
-        """Duck-typed fallback for TickOutcome (py37-lite)."""
-
-        more_pending: bool
+    from dcc_mcp_core.host._fallback import TickOutcome
 
 
 @runtime_checkable
