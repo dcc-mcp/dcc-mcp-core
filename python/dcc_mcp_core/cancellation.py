@@ -51,8 +51,8 @@ if TYPE_CHECKING:
 # `cancelled` attribute contract; concrete impls don't need to inherit
 # from it either way (the `current_job` ContextVar is annotated, so the
 # type is only used for static analysis and runtime `isinstance` on 3.8+).
-from typing import Protocol
-from typing import runtime_checkable
+from dcc_mcp_core._typing_compat import Protocol
+from dcc_mcp_core._typing_compat import runtime_checkable
 
 __all__ = [
     "CancelToken",
