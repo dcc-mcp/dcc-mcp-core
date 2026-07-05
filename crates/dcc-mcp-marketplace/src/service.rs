@@ -4,7 +4,6 @@
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -12,7 +11,9 @@ use dcc_mcp_catalog::{self, CatalogEntry, CatalogInstall};
 use sha2::{Digest, Sha256};
 
 use crate::add_repo::collect_skill_dirs;
+use crate::bundle::{bundle_package_dir, install_staged_package, remove_installed_path};
 use crate::error::MarketplaceError;
+use crate::git_command;
 use crate::source::{builtin_source, dedupe_sources, normalise_source};
 use crate::types::{
     InstalledMarketplacePackage, MarketplaceHit, MarketplaceInspectResult,
@@ -250,6 +251,14 @@ impl MarketplaceService {
                 path: dest.display().to_string(),
             });
         }
+        let bundle_dest = bundle_package_dir(&dcc_root, &package_name);
+        if bundle_dest.exists() && !force {
+            return Err(MarketplaceError::AlreadyInstalled {
+                name: package_name.clone(),
+                dcc: dcc.clone(),
+                path: bundle_dest.display().to_string(),
+            });
+        }
         fs::create_dir_all(&dcc_root)
             .map_err(|err| MarketplaceError::ConfigIo(dcc_root.display().to_string(), err))?;
 
@@ -259,7 +268,7 @@ impl MarketplaceService {
         }
 
         let install_result = match install.install_type.as_str() {
-            "git" => install_from_git(&install, &staging),
+            "git" => self.install_from_git(&install, &staging).await,
             "path" => install_from_path(&install, &staging),
             "zip" => self.install_from_zip(&install, &staging).await,
             other => return Err(MarketplaceError::UnsupportedInstallType(other.into())),
@@ -269,38 +278,20 @@ impl MarketplaceService {
             return Err(err);
         }
 
-        if let Err(err) = promote_single_nested_skill_directory(&staging) {
-            let _ = remove_path(&staging);
-            return Err(err);
-        }
-
-        let skill_md = staging.join("SKILL.md");
-        if !skill_md.is_file() {
-            let _ = remove_path(&staging);
-            return Err(MarketplaceError::MissingSkill(
-                skill_md.display().to_string(),
-            ));
-        }
-
-        if dest.exists() {
-            if !force {
-                let _ = remove_path(&staging);
-                return Err(MarketplaceError::AlreadyInstalled {
-                    name: package_name.clone(),
-                    dcc: dcc.clone(),
-                    path: dest.display().to_string(),
-                });
-            }
-            remove_path(&dest)?;
-        }
-        fs::rename(&staging, &dest)
-            .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
+        let final_path =
+            match install_staged_package(&staging, &dest, &dcc_root, &package_name, &dcc, force) {
+                Ok(path) => path,
+                Err(err) => {
+                    let _ = remove_path(&staging);
+                    return Err(err);
+                }
+            };
 
         let package = InstalledMarketplacePackage {
             name: package_name.clone(),
             dcc: dcc.clone(),
             version: hit.entry.version.clone(),
-            path: dest.display().to_string(),
+            path: final_path.display().to_string(),
             source_name: hit.source.name.clone(),
             source_url: hit.source.url.clone(),
             install_type: install.install_type.clone(),
@@ -315,7 +306,7 @@ impl MarketplaceService {
             name: package_name,
             dcc,
             version: hit.entry.version.clone(),
-            path: dest.display().to_string(),
+            path: final_path.display().to_string(),
             skill_search_path: dcc_root.display().to_string(),
             source: hit.source,
             entry: hit.entry,
@@ -331,9 +322,15 @@ impl MarketplaceService {
     ) -> Result<MarketplaceUninstallResult, MarketplaceError> {
         let name = path_component("package name", name)?;
         let dcc_root = self.dcc_dir(dcc);
-        let dest = dcc_root.join(&name);
+        let dest = self
+            .load_installed_state()?
+            .packages
+            .into_iter()
+            .find(|package| package.name == name && package.dcc.eq_ignore_ascii_case(dcc))
+            .map(|package| PathBuf::from(package.path))
+            .unwrap_or_else(|| dcc_root.join(&name));
         let removed_files = if dest.exists() {
-            remove_path(&dest)?;
+            remove_installed_path(&dcc_root, &dest)?;
             true
         } else {
             false
@@ -622,6 +619,28 @@ impl MarketplaceService {
         Ok(())
     }
 
+    async fn install_from_git(
+        &self,
+        install: &CatalogInstall,
+        dest: &Path,
+    ) -> Result<(), MarketplaceError> {
+        if let Some(url) = github_archive_url(install) {
+            let archive_install = CatalogInstall {
+                install_type: "zip".into(),
+                url: Some(url),
+                ref_: None,
+                sha256: None,
+                pip_package: None,
+                pip_extras: None,
+                python_path: None,
+                entry_point: None,
+                instructions_url: None,
+            };
+            return self.install_from_zip(&archive_install, dest).await;
+        }
+        install_from_git_command(install, dest)
+    }
+
     async fn load_archive(
         &self,
         install: &CatalogInstall,
@@ -825,7 +844,7 @@ static WRITE_LOCK: Mutex<()> = Mutex::new(());
 /// Same pattern as `FileRegistry::write_atomic` in `dcc-mcp-transport`.
 /// Callers are serialised by [`WRITE_LOCK`] so same-target-path writes
 /// cannot clobber one another.
-fn write_atomic(path: &Path, content: &str) -> Result<(), MarketplaceError> {
+pub(crate) fn write_atomic(path: &Path, content: &str) -> Result<(), MarketplaceError> {
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let pid = std::process::id();
@@ -970,12 +989,12 @@ fn resolve_install_dcc(
 
 // ── install backends ─────────────────────────────────────────────────────────
 
-fn install_from_git(install: &CatalogInstall, dest: &Path) -> Result<(), MarketplaceError> {
+fn install_from_git_command(install: &CatalogInstall, dest: &Path) -> Result<(), MarketplaceError> {
     let url = install
         .url
         .as_deref()
         .ok_or_else(|| MarketplaceError::MissingInstall("git.url".into()))?;
-    let mut command = Command::new("git");
+    let mut command = git_command();
     command.arg("clone").arg("--depth").arg("1");
     if let Some(ref_) = install.ref_.as_deref().filter(|v| !v.trim().is_empty()) {
         command.arg("--branch").arg(ref_);
@@ -994,6 +1013,28 @@ fn install_from_git(install: &CatalogInstall, dest: &Path) -> Result<(), Marketp
     )))
 }
 
+fn github_archive_url(install: &CatalogInstall) -> Option<String> {
+    let url = install.url.as_deref()?.trim().trim_end_matches('/');
+    let path = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))?;
+    let mut parts = path.split('/');
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim().trim_end_matches(".git");
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    let ref_ = install
+        .ref_
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("HEAD");
+    Some(format!(
+        "https://github.com/{owner}/{repo}/archive/{ref_}.zip"
+    ))
+}
+
 fn install_from_path(install: &CatalogInstall, dest: &Path) -> Result<(), MarketplaceError> {
     let url = install
         .url
@@ -1003,14 +1044,14 @@ fn install_from_path(install: &CatalogInstall, dest: &Path) -> Result<(), Market
         .strip_prefix("file://")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(url));
-    if !src.join("SKILL.md").is_file() {
+    if !src.join("SKILL.md").is_file() && collect_skill_dirs(&src).is_empty() {
         return Err(MarketplaceError::MissingSkill(src.display().to_string()));
     }
     copy_dir_recursive(&src, dest)
 }
 
 fn git_fetch_and_checkout(repo_path: &Path, ref_: &str) -> Result<(), MarketplaceError> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["fetch", "origin", "--tags"])
         .current_dir(repo_path)
         .output()
@@ -1021,7 +1062,7 @@ fn git_fetch_and_checkout(repo_path: &Path, ref_: &str) -> Result<(), Marketplac
             String::from_utf8_lossy(&output.stderr)
         )));
     }
-    let output = Command::new("git")
+    let output = git_command()
         .args(["checkout", ref_])
         .current_dir(repo_path)
         .output()
@@ -1036,7 +1077,7 @@ fn git_fetch_and_checkout(repo_path: &Path, ref_: &str) -> Result<(), Marketplac
 }
 
 fn git_pull(repo_path: &Path) -> Result<(), MarketplaceError> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["pull", "--ff-only"])
         .current_dir(repo_path)
         .output()
@@ -1051,7 +1092,7 @@ fn git_pull(repo_path: &Path) -> Result<(), MarketplaceError> {
 }
 
 fn git_remote_url(repo_path: &Path) -> Result<String, MarketplaceError> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["remote", "get-url", "origin"])
         .current_dir(repo_path)
         .output()
@@ -1151,8 +1192,8 @@ fn extract_zip_archive(bytes: &[u8], dest: &Path) -> Result<(), MarketplaceError
 
 /// If the extracted directory already has a SKILL.md at the top, nothing to do.
 ///
-/// Otherwise, if there is exactly one child directory that contains a SKILL.md,
-/// flatten that child's contents into `dest`.
+/// Otherwise, if there is exactly one child directory, flatten that archive
+/// wrapper into `dest`.
 fn flatten_single_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
     if dest.join("SKILL.md").is_file() {
         return Ok(());
@@ -1174,9 +1215,6 @@ fn flatten_single_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
     let [child] = child_dirs.as_slice() else {
         return Ok(());
     };
-    if !child.join("SKILL.md").is_file() {
-        return Ok(());
-    }
 
     let flatten_root = dest.join(format!(".flattening-{}", now_ms()));
     fs::rename(child, &flatten_root)
@@ -1198,7 +1236,7 @@ fn flatten_single_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
     Ok(())
 }
 
-fn promote_single_nested_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
+pub(crate) fn promote_single_nested_skill_directory(dest: &Path) -> Result<(), MarketplaceError> {
     if dest.join("SKILL.md").is_file() {
         return Ok(());
     }
@@ -1228,7 +1266,7 @@ fn promote_single_nested_skill_directory(dest: &Path) -> Result<(), MarketplaceE
 
 // ── fs helpers ───────────────────────────────────────────────────────────────
 
-fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), MarketplaceError> {
+pub(crate) fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), MarketplaceError> {
     fs::create_dir_all(dest)
         .map_err(|err| MarketplaceError::ConfigIo(dest.display().to_string(), err))?;
     for entry in fs::read_dir(src)
@@ -1324,6 +1362,43 @@ mod tests {
         let list = svc.list_installed(None).unwrap();
         assert_eq!(list.count, 1);
         assert_eq!(list.packages[0].name, "test-skill");
+    }
+
+    #[test]
+    fn github_archive_url_converts_https_git_url() {
+        let install = CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear.git".into()),
+            ref_: Some("main".into()),
+            sha256: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        };
+
+        assert_eq!(
+            github_archive_url(&install).as_deref(),
+            Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear/archive/main.zip")
+        );
+    }
+
+    #[test]
+    fn github_archive_url_leaves_ssh_git_for_git_command() {
+        let install = CatalogInstall {
+            install_type: "git".into(),
+            url: Some("git@github.com:dcc-mcp/private-pack.git".into()),
+            ref_: Some("main".into()),
+            sha256: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        };
+
+        assert_eq!(github_archive_url(&install), None);
     }
 
     #[test]

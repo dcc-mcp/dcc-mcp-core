@@ -7,10 +7,10 @@
 //! - `--list` to enumerate available skills without installing
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::MarketplaceError;
+use crate::git_command;
 use crate::path_component;
 use crate::types::{RepoInstallResult, RepoSkillInfo, RepoSkillList};
 
@@ -79,7 +79,7 @@ fn looks_like_github_slug(value: &str) -> bool {
 
 /// Clone a repo to a staging directory.
 fn clone_repo(url: &str, dest: &Path) -> Result<(), MarketplaceError> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["clone", "--depth", "1", url])
         .arg(dest)
         .output()

@@ -292,6 +292,107 @@ fn marketplace_install_git_package_promotes_single_nested_skill_dir() {
 }
 
 #[test]
+fn marketplace_install_path_package_expands_multi_skill_pack() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("multi-pack");
+    write_skill(
+        &pack,
+        "skill/maya-first",
+        "---\nname: maya-first\ndescription: First pack skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+    );
+    write_skill(
+        &pack,
+        "skill/maya-second",
+        "---\nname: maya-second\ndescription: Second pack skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+    );
+    write_skill(
+        &pack,
+        "examples/skills/example-skill",
+        "---\nname: example-skill\ndescription: Example skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+    );
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "multi-skill-pack",
+            "description": "Multi skill pack",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": pack.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "multi-skill-pack",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["installed"], true);
+    let dcc_root = std::path::Path::new(&install_root).join("maya");
+    assert!(dcc_root.join("maya-first").join("SKILL.md").is_file());
+    assert!(dcc_root.join("maya-second").join("SKILL.md").is_file());
+    assert!(!dcc_root.join("example-skill").exists());
+
+    let mut scanner = dcc_mcp_skills::SkillScanner::new();
+    let found = scanner.scan(
+        Some(&[dcc_root.to_string_lossy().to_string()]),
+        Some("maya"),
+        true,
+    );
+    assert!(found.iter().any(|path| path.ends_with("maya-first")));
+    assert!(found.iter().any(|path| path.ends_with("maya-second")));
+    assert!(!found.iter().any(|path| path.ends_with("example-skill")));
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "multi-skill-pack",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert!(!dcc_root.join("maya-first").exists());
+    assert!(!dcc_root.join("maya-second").exists());
+}
+
+#[test]
 fn marketplace_install_zip_package_verifies_sha256_and_flattens_archive_root() {
     let tmp = TempDir::new().unwrap();
     let zip_path = tmp.path().join("zip-skill.zip");
