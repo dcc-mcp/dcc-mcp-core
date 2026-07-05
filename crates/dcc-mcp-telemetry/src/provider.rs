@@ -3,8 +3,8 @@
 //! Call [`TelemetryProvider::init`] early in your application (e.g. `main`).
 //! Afterwards use [`tracer`] / [`meter`] helper functions anywhere in the crate.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use opentelemetry::metrics::Meter;
 use opentelemetry::trace::{Tracer, TracerProvider as _};
