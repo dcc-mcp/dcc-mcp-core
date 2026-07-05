@@ -200,9 +200,11 @@ mod tests {
 
     #[test]
     fn test_build_single_doc() {
-        let mut ft = FieldTokens::default();
-        ft.name = vec!["polygon".to_string(), "bevel".to_string()];
-        ft.description = vec!["polygon".to_string(), "tools".to_string()];
+        let ft = FieldTokens {
+            name: vec!["polygon".to_string(), "bevel".to_string()],
+            description: vec!["polygon".to_string(), "tools".to_string()],
+            ..Default::default()
+        };
 
         let idx = InvertedIndex::build(&[("test-skill", &ft)]);
         assert!(idx.token_count() >= 3);
@@ -220,13 +222,17 @@ mod tests {
 
     #[test]
     fn test_build_multi_doc() {
-        let mut ft0 = FieldTokens::default();
-        ft0.name = vec!["polygon".to_string()];
-        ft0.tags = vec!["modeling".to_string()];
+        let ft0 = FieldTokens {
+            name: vec!["polygon".to_string()],
+            tags: vec!["modeling".to_string()],
+            ..Default::default()
+        };
 
-        let mut ft1 = FieldTokens::default();
-        ft1.name = vec!["render".to_string()];
-        ft1.tags = vec!["modeling".to_string()];
+        let ft1 = FieldTokens {
+            name: vec!["render".to_string()],
+            tags: vec!["modeling".to_string()],
+            ..Default::default()
+        };
 
         let idx = InvertedIndex::build(&[("skill-a", &ft0), ("skill-b", &ft1)]);
         assert_eq!(idx.doc_freq("polygon"), 1);

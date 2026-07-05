@@ -12,11 +12,28 @@
 //! - A unified [`MarketplaceError`] covering all known failure modes.
 
 pub mod add_repo;
+pub(crate) mod bundle;
 pub mod error;
 pub mod path;
 pub mod service;
 pub mod source;
 pub mod types;
+
+pub(crate) fn git_command() -> std::process::Command {
+    let mut command = std::process::Command::new("git");
+    hide_command_window(&mut command);
+    command
+}
+
+#[cfg(windows)]
+fn hide_command_window(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_command_window(_: &mut std::process::Command) {}
 
 // Re-export the public API for convenience.
 pub use add_repo::{install_from_repo, list_repo_skills, parse_repo_ref};
