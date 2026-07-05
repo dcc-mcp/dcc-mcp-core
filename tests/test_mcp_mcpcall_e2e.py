@@ -47,6 +47,9 @@ from typing import Any
 # Import third-party modules
 import pytest
 
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
+
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
@@ -104,21 +107,7 @@ def _run_mcpcall(*args: str, timeout: int | None = None) -> subprocess.Completed
 
 def _pick_free_port() -> int:
     """Reserve a free localhost port for a short-lived test server."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-def _wait_tcp_reachable(host: str, port: int, budget: float = 5.0) -> bool:
-    """Return True once ``host:port`` accepts TCP connections."""
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.3):
-                return True
-        except OSError:
-            time.sleep(0.05)
-    return False
+    return allocate_gateway_port()
 
 
 # ---------------------------------------------------------------------------
@@ -366,11 +355,11 @@ def gateway_with_catalog(tmp_path_factory):
     handle = server.start()
 
     try:
-        if not _wait_tcp_reachable("127.0.0.1", handle.port):
+        if not wait_tcp_reachable("127.0.0.1", handle.port):
             pytest.skip(f"backend port {handle.port} is not reachable")
         if not handle.is_gateway:
             pytest.skip(f"backend did not win gateway election on {gateway_port}")
-        if not _wait_tcp_reachable("127.0.0.1", gateway_port):
+        if not wait_tcp_reachable("127.0.0.1", gateway_port):
             pytest.skip(f"gateway port {gateway_port} is not reachable")
 
         yield server, handle, f"http://127.0.0.1:{gateway_port}/mcp", "mcpcall-gateway-e2e"

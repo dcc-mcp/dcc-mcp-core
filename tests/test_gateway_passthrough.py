@@ -20,11 +20,12 @@ from __future__ import annotations
 
 # Import built-in modules
 import contextlib
-import socket
 import time
 
 # Import third-party modules
 import pytest
+
+from conftest import allocate_gateway_port
 
 # Import local modules
 from dcc_mcp_core import McpHttpConfig
@@ -62,26 +63,6 @@ def test_mcp_http_config_setters_round_trip():
     assert cfg.gateway_wait_terminal_timeout_ms == 30_000
 
 
-# ── Gateway startup does not regress ──────────────────────────────────────
-
-
-def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_reachable(port: int, budget: float = 5.0) -> bool:
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                return True
-        except (OSError, socket.timeout):
-            time.sleep(0.05)
-    return False
-
-
 def test_gateway_starts_with_custom_passthrough_timeouts(tmp_path):
     """Regression: the new config fields don't break gateway election.
 
@@ -91,7 +72,7 @@ def test_gateway_starts_with_custom_passthrough_timeouts(tmp_path):
     """
     registry_dir = tmp_path / "registry"
     registry_dir.mkdir()
-    gw_port = _pick_free_port()
+    gw_port = allocate_gateway_port()
 
     reg = ToolRegistry()
     cfg = McpHttpConfig(
@@ -109,10 +90,12 @@ def test_gateway_starts_with_custom_passthrough_timeouts(tmp_path):
     server = McpHttpServer(reg, cfg)
     handle = server.start()
     try:
-        assert _wait_reachable(handle.port), "instance port must be reachable"
+        from conftest import wait_tcp_reachable
+
+        assert wait_tcp_reachable("127.0.0.1", handle.port), "instance port must be reachable"
         if not handle.is_gateway:
             pytest.skip(f"another process holds gateway port {gw_port} — cannot verify gateway startup invariants here")
-        assert _wait_reachable(gw_port), "gateway port must be reachable"
+        assert wait_tcp_reachable("127.0.0.1", gw_port), "gateway port must be reachable"
         # Sanity: the config the server ran with reflects the overrides.
         assert cfg.gateway_async_dispatch_timeout_ms == 45_000
         assert cfg.gateway_wait_terminal_timeout_ms == 30_000

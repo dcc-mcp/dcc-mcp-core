@@ -65,6 +65,7 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import wait_tcp_reachable
 
 # Import local modules
 import dcc_mcp_core
@@ -128,18 +129,6 @@ def _mcp_post(
 def _tool_text(response: dict[str, Any]) -> str:
     """Extract the text payload of the first content item in a tools/call result."""
     return response["result"]["content"][0]["text"]
-
-
-def _wait_tcp_reachable(host: str, port: int, budget: float = 3.0) -> bool:
-    """Poll until TCP connect succeeds or the budget expires."""
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.3):
-                return True
-        except OSError:
-            time.sleep(0.05)
-    return False
 
 
 # ── Upstream clone helper ──────────────────────────────────────────────────
@@ -249,7 +238,7 @@ def forgecad_live_server(forgecad_upstream_skills_dir: Path):
 
     server.set_in_process_executor(_executor)
     handle = server.start()
-    assert _wait_tcp_reachable("127.0.0.1", handle.port), (
+    assert wait_tcp_reachable("127.0.0.1", handle.port), (
         f"forgecad-live-upstream port {handle.port} did not become reachable"
     )
     try:

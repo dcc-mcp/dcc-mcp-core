@@ -30,15 +30,15 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
+from conftest import register_shutdown_handle
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
 
 
 def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return allocate_gateway_port()
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:
@@ -115,11 +115,13 @@ def _split_gateway_prefixed_uri(uri: str) -> tuple[str, str, str] | None:
 def two_backend_cluster(tmp_path_factory):
     """Spin up 2 backends + gateway, yield a dict with the urls + handles."""
     registry_dir = tmp_path_factory.mktemp("resources-e2e-registry")
-    gw_port = _pick_free_port()
+    gw_port = allocate_gateway_port()
 
     _server_a, handle_a = _make_backend("maya", registry_dir, gw_port)
+    register_shutdown_handle(handle_a)
     time.sleep(0.3)  # let A bind the gateway port before B registers
     _server_b, handle_b = _make_backend("blender", registry_dir, gw_port)
+    register_shutdown_handle(handle_b)
 
     if not handle_a.is_gateway:
         pytest.skip(f"backend A did not win the gateway port competition on {gw_port}; another process may hold it")
@@ -302,7 +304,7 @@ class TestResourcesReadBlobRoundTrip:
         # Reuse a fresh cluster instead of the module-scoped one so the
         # audit log starts empty and the assertions are stable.
         registry_dir = tmp_path_factory.mktemp("blob-e2e-registry")
-        gw_port = _pick_free_port()
+        gw_port = allocate_gateway_port()
         _server_a, handle_a = _make_backend("maya", registry_dir, gw_port)
         time.sleep(0.3)
         _server_b, handle_b = _make_backend("blender", registry_dir, gw_port)
@@ -360,7 +362,7 @@ class TestResourcesListFailSoft:
 
     def test_healthy_backend_resources_still_returned_when_peer_is_down(self, tmp_path_factory):
         registry_dir = tmp_path_factory.mktemp("fail-soft-e2e-registry")
-        gw_port = _pick_free_port()
+        gw_port = allocate_gateway_port()
 
         # Start the gateway-owning backend first.
         _server_a, handle_a = _make_backend("maya", registry_dir, gw_port)

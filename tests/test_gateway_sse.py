@@ -35,6 +35,9 @@ import time
 import urllib.request
 import uuid
 
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
+
 import pytest
 
 from dcc_mcp_core import McpHttpConfig
@@ -44,17 +47,9 @@ from dcc_mcp_core import ToolRegistry
 SSE_READ_BUDGET_S = 6.0
 
 
-def _pick_free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    try:
-        return s.getsockname()[1]
-    finally:
-        s.close()
-
-
 def _wait_reachable(port: int, budget: float = 5.0) -> bool:
-    deadline = time.time() + budget
+    """Return True once the local gateway port is reachable."""
+    return wait_tcp_reachable("127.0.0.1", port, budget=budget)
     while time.time() < deadline:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.2):
@@ -134,7 +129,7 @@ def gateway_backend(tmp_path):
     registry_dir = tmp_path / "registry"
     registry_dir.mkdir()
 
-    gw_port = _pick_free_port()
+    gw_port = allocate_gateway_port()
 
     reg = ToolRegistry()
     cfg = McpHttpConfig(port=0, server_name="gateway-sse-test")

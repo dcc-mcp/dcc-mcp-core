@@ -16,6 +16,7 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -71,9 +72,7 @@ REZ_CONTEXT_CASES = [
 
 
 def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    return allocate_gateway_port()
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:

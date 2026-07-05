@@ -24,6 +24,8 @@ import time
 
 import pytest
 
+from conftest import allocate_gateway_port
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -42,11 +44,7 @@ def _find_exe() -> Path | None:
 
 def _allocate_port() -> int:
     """Return an OS-picked ephemeral port; release it immediately."""
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+    return allocate_gateway_port()
 
 
 @pytest.mark.skipif(_find_exe() is None, reason="dcc-mcp-server binary not built")

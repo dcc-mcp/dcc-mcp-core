@@ -80,11 +80,17 @@ def _get(url: str, headers: dict | None = None) -> tuple[int, dict]:
 
 
 def _allocate_port() -> int:
-    """Return an OS-picked ephemeral port; release it immediately."""
+    """Return an OS-picked ephemeral port; release it immediately.
+
+    Note: this still has a close-then-rebind TOCTOU gap, but for
+    subprocess binary tests the OS releases the port fast enough.
+    Gateways should use ``conftest.allocate_gateway_port()`` instead.
+    """
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
     s.close()
+    time.sleep(0.05)
     return port
 
 

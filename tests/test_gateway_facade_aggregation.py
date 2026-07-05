@@ -35,6 +35,7 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
 
 # Import local modules
 from dcc_mcp_core import McpHttpConfig
@@ -45,15 +46,8 @@ from dcc_mcp_core import ToolRegistry
 
 
 def _pick_free_port() -> int:
-    """Return a port that is currently free on 127.0.0.1.
-
-    We bind to port 0, read the assigned port, close, and return.  Small race
-    window is acceptable for tests — the gateway/backend binds again inside
-    ``start()`` and pytest runs serially per module.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    """Return a port that is currently free on 127.0.0.1."""
+    return allocate_gateway_port()
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:
@@ -163,7 +157,7 @@ def _make_backend(dcc: str, tool_names: list[str], registry_dir: Path, gw_port: 
 def facade_cluster(tmp_path_factory):
     """Spin up 2 backends + gateway, yield the gateway URL + handles."""
     registry_dir = tmp_path_factory.mktemp("facade-registry")
-    gw_port = _pick_free_port()
+    gw_port = allocate_gateway_port()
 
     # First server wins the gateway election and hosts the facade /mcp.
     # The server reference is retained inside the handle; we keep the local

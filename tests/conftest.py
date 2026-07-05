@@ -1,12 +1,22 @@
-"""Shared fixtures for dcc-mcp-core tests."""
+"""Shared fixtures for dcc-mcp-core tests.
+
+Auto-use fixtures in this file provide:
+- Session-scoped registry directory isolation (``DCC_MCP_REGISTRY_DIR``)
+- Env-var restore guard that snapshots env before the session and restores
+  on teardown, preventing env-var-based test-order dependency.
+- Global server/shutdown tracking (``register_shutdown_handle`` +
+  ``pytest_runtest_teardown`` cleanup).
+"""
 
 # Import future modules
 from __future__ import annotations
 
-# Import built-in modules
+import contextlib
 import json
 import os
 from pathlib import Path
+import socket as _socket
+import time
 import typing
 from typing import Any
 import urllib.error
@@ -250,3 +260,127 @@ class McpClient:
                 return resp.status, json.loads(resp.read()), resp_headers
         except urllib.error.HTTPError as e:
             return e.code, {}, None
+
+
+# ── Shared port allocation & TCP reachability helpers ──────────────────
+# Every gateway/e2e test module needs these; putting them in conftest.py
+# avoids per-file redefinition and allows a single retry fix to benefit
+# all callers.
+#
+# The retry-based ``allocate_gateway_port`` mitigates the TIME_WAIT race
+# inherent in the ``bind→close→rebind`` pattern used by earlier per-file
+# ``_pick_free_port()`` helpers.
+
+
+def allocate_gateway_port() -> int:
+    """Return a free TCP port on 127.0.0.1 with retry.
+
+    Retries mitigate the case where a concurrently-released port is
+    still in ``TIME_WAIT`` (common on macOS). However, the definitive
+    fix for inter-module port conflicts is file-level process isolation
+    via ``pytest-xdist --dist loadfile`` (see ``just test-suite``).
+    """
+    last_err: OSError | None = None
+    for _ in range(10):
+        try:
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:  # noqa: F841
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+        except OSError as exc:
+            last_err = exc
+            with contextlib.suppress(Exception):
+                time.sleep(0.1)
+    raise RuntimeError("could not allocate a free TCP port after 10 retries") from last_err
+
+
+def wait_tcp_reachable(host: str, port: int, budget: float = 3.0) -> bool:
+    """Poll until a TCP connect to ``(host, port)`` succeeds or budget expires."""
+    deadline = time.time() + budget
+    while time.time() < deadline:
+        try:
+            with _socket.create_connection((host, port), timeout=0.3):
+                return True
+        except OSError:
+            time.sleep(0.05)
+    return False
+
+
+def wait_tcp_unreachable(host: str, port: int, budget: float = 2.0) -> None:
+    """Poll until the endpoint becomes unreachable or budget expires.
+
+    Raises ``AssertionError`` if the endpoint is still reachable after
+    the budget.
+    """
+    deadline = time.time() + budget
+    while time.time() < deadline:
+        try:
+            with _socket.create_connection((host, port), timeout=0.2):
+                time.sleep(0.05)
+        except OSError:
+            return
+    raise AssertionError(f"endpoint {host}:{port} still reachable after {budget}s")
+
+
+# ── Session-scoped env-var snapshot & restore ─────────────────────────
+# Prevents env-var-based test-order dependency: every test module sees
+# the same baseline, and any env-var mutations during a test module are
+# reverted at session teardown (belt-and-suspenders on top of the lower-
+# level monkeypatch each fixture ought to use).
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _env_snapshot():
+    """Snapshot ``os.environ`` before the first test and restore on teardown.
+
+    Every module-scoped fixture that sets ``DCC_MCP_*`` env vars
+    (e.g. ``_isolated_registry_dir``, ``gateway_with_skill_backend``)
+    mutates the process-global environment.  Without this guard, a
+    module that sets env var X and then fails to tear down cleanly
+    poisons the environment for every subsequent module.
+    """
+    snapshot = os.environ.copy()
+    yield
+    # Restore any env var that was added, changed, or removed.
+    for key in set(os.environ) | set(snapshot):
+        old = snapshot.get(key)
+        cur = os.environ.get(key)
+        if cur != old:
+            if old is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old
+
+
+# ── Global server handle registry & teardown cleanup ─────────────────
+# If a test crashes before its ``finally`` block, the server process
+# stays bound to its port. ``allocate_gateway_port`` handles the retry,
+# but the orphaned process leaks resources and keeps the registry dirty.
+# This registry provides a safety net: any handle registered here is
+# force-shutdown by ``pytest_runtest_teardown`` after every test.
+# Over time, migrations should push registration into automatic hooks.
+
+_SHUTDOWN_HANDLES: list[Any] = []
+
+
+def register_shutdown_handle(handle: Any) -> None:
+    """Register a server handle for automatic teardown cleanup.
+
+    Call in a test's setup (or the first line after ``server.start()``)
+    to ensure the server is shut down even if the test body raises an
+    unhandled exception before the ``finally`` block.
+    """
+    _SHUTDOWN_HANDLES.append(handle)
+
+
+def _force_shutdown_handles() -> None:
+    """Shut down every handle in the registry and clear the list."""
+    while _SHUTDOWN_HANDLES:
+        handle = _SHUTDOWN_HANDLES.pop()
+        if hasattr(handle, "shutdown"):
+            with contextlib.suppress(Exception):
+                handle.shutdown()
+
+
+def pytest_runtest_teardown() -> None:
+    """Force-shutdown any server handles registered but not yet cleaned up."""
+    _force_shutdown_handles()

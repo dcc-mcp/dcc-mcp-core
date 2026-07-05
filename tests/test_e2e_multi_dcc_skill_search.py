@@ -37,6 +37,7 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
 
 # Import local modules
 import dcc_mcp_core
@@ -118,9 +119,7 @@ def _rest_base(mcp_url: str) -> str:
 
 
 def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return allocate_gateway_port()
 
 
 # ── Fixture helpers ──────────────────────────────────────────────────────

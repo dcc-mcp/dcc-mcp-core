@@ -28,6 +28,8 @@ import time
 import urllib.request
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import PromptHandle
@@ -35,12 +37,6 @@ from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import create_skill_server
 
 # ── helpers ──────────────────────────────────────────────────────────
-
-
-def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1, timeout: float = 10.0) -> dict:
@@ -52,23 +48,12 @@ def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1
     return resp
 
 
-def _wait_tcp_reachable(host: str, port: int, budget: float = 3.0) -> bool:
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.3):
-                return True
-        except OSError:
-            time.sleep(0.05)
-    return False
-
-
 # ── test ─────────────────────────────────────────────────────────────────
 
 
 def test_python_prompt_registration_e2e():
     """Register prompt from Python → list → get → rendered."""
-    port = _pick_free_port()
+    port = allocate_gateway_port()
     cfg = McpHttpConfig(port=port)
     cfg.enable_prompts = True
 
@@ -92,7 +77,7 @@ def test_python_prompt_registration_e2e():
 
     # Start the server
     server_handle = server.start()
-    assert _wait_tcp_reachable("127.0.0.1", server_handle.port, budget=3.0), (
+    assert wait_tcp_reachable("127.0.0.1", server_handle.port, budget=3.0), (
         f"server port {server_handle.port} unreachable"
     )
 
@@ -170,12 +155,12 @@ metadata:
         encoding="utf-8",
     )
 
-    port = _pick_free_port()
+    port = allocate_gateway_port()
     cfg = McpHttpConfig(port=port)
     cfg.enable_prompts = True
     server = create_skill_server("maya", cfg, extra_paths=[str(skill_parent)], accumulated=False)
     server_handle = server.start()
-    assert _wait_tcp_reachable("127.0.0.1", server_handle.port, budget=3.0), (
+    assert wait_tcp_reachable("127.0.0.1", server_handle.port, budget=3.0), (
         f"server port {server_handle.port} unreachable"
     )
 
