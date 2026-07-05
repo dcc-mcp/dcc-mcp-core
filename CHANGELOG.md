@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.10](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.9...v0.19.10) (2026-07-05)
+
+
+### Features
+
+* add marketplace pack publish commands ([7c526e1](https://github.com/dcc-mcp/dcc-mcp-core/commit/7c526e1fcd5dd76b586e56e6cf985ea6fe8d66e7))
+* py37-lite pure-Python fallbacks for _core-only exports ([9b7ee27](https://github.com/dcc-mcp/dcc-mcp-core/commit/9b7ee27e1b9dcbe94f6c5b3208a19eb19348244b))
+
+
+### Bug Fixes
+
+* apply ruff format to _py37_fallback.py and test file ([4feb68f](https://github.com/dcc-mcp/dcc-mcp-core/commit/4feb68ffa550f7b7344d4d77e8230e5714bf262d))
+* install marketplace skills without git ([836617e](https://github.com/dcc-mcp/dcc-mcp-core/commit/836617e915a2fc6c74f1a39829ff06b5c9d3a5e0))
+* ruff lint violations in _py37_fallback.py ([851ee23](https://github.com/dcc-mcp/dcc-mcp-core/commit/851ee23f6a796402a07cf39775d8a5329921214a))
+
+
+### Documentation
+
+* add py37-lite architecture decision runbook ([16d2fa9](https://github.com/dcc-mcp/dcc-mcp-core/commit/16d2fa90b754a467d2a229393202e7c2f6439952))
+* fix dead links in py37-lite-architecture runbook ([e802b16](https://github.com/dcc-mcp/dcc-mcp-core/commit/e802b16ef23802764afaf494df02951ecd73b5b6))
+
 ## [0.19.9](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.8...v0.19.9) (2026-07-05)
 
 
