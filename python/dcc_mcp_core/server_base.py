@@ -92,7 +92,7 @@ def _package_version() -> str:
 
     try:
         return importlib_metadata.version("dcc-mcp-core")
-    except importlib_metadata.PackageNotFoundError:
+    except Exception:
         return _PKG_VERSION
 
 
