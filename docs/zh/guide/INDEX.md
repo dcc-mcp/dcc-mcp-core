@@ -79,13 +79,14 @@
 | [capabilities.md](capabilities.md) | DccCapabilities 与功能检测 |
 | [faq.md](faq.md) | 常见问题解答 |
 
-## 线程安全与并发
+## 线程安全、并发与 Python 3.7 兼容
 
 | 文档 | 用途 |
 |------|------|
 | [dcc-thread-safety.md](dcc-thread-safety.md) | DCC 主线程分发、协作式取消 |
 | [host-adapter.md](host-adapter.md) | `HostAdapter` 基类，用于每个 DCC 的分发器接线 |
 | [cross-dcc-verification.md](cross-dcc-verification.md) | 生产者→文件→验证者往返的 `SceneStats` 契约 |
+| [py37-lite-architecture.md](../../guide/py37-lite-architecture.md) | **py37-lite**：Rust/Python 解耦、try/except import fallback、纯 Python wheel、维护指南 |
 
 ## 集成
 
