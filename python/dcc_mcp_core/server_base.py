@@ -42,6 +42,9 @@ try:
     from dcc_mcp_core import _core
 except ImportError:
     _core = None
+    create_skill_server = create_adapter_server
+else:
+    create_skill_server = _core.create_skill_server
 
 _PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev") if _core is not None else "0.0.0-dev"
 
