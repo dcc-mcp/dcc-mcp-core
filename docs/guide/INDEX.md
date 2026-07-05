@@ -86,7 +86,7 @@ document without scanning every file.
 | [capabilities.md](capabilities.md) | DccCapabilities and feature detection |
 | [faq.md](faq.md) | Frequently asked questions |
 
-## Thread Safety & Concurrency
+## Thread Safety, Concurrency & Python 3.7 Compatibility
 
 | Document | Purpose |
 |----------|---------|
@@ -94,6 +94,7 @@ document without scanning every file.
 | [host-adapter.md](host-adapter.md) | `HostAdapter` base class for per-DCC dispatcher wiring |
 | [adapter-dispatcher-migration.md](adapter-dispatcher-migration.md) | Dispatcher migration decision table, fake adapter conformance fixtures, and adapter-specific checklist |
 | [cross-dcc-verification.md](cross-dcc-verification.md) | `SceneStats` contract for producer→file→verifier round-trips |
+| [py37-lite-architecture.md](py37-lite-architecture.md) | **py37-lite**: Rust/Python decoupling, try/except import fallback, pure-Python wheel, maintenance guide |
 
 ## Adapter Release Train & Onboarding
 
