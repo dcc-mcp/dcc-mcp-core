@@ -14,9 +14,12 @@ except ImportError:  # pragma: no cover - Python 3.7 only
     class Protocol:  # type: ignore[no-redef]
         """Duck-typed Protocol stand-in for Python 3.7."""
 
-    def Literal(*_args):  # type: ignore[misc]
+    class _LiteralMeta(type):
+        def __getitem__(cls, item):
+            return cls
+
+    class Literal(metaclass=_LiteralMeta):  # type: ignore[no-redef]
         """Literal stand-in for Python 3.7 static analysis only."""
-        return str
 
 
 __all__ = ["Literal", "Protocol", "runtime_checkable"]
