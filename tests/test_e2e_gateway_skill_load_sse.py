@@ -89,7 +89,7 @@ def _pick_free_port() -> int:
     return allocate_gateway_port()
 
 
-def _post_mcp
+def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:
     """POST a JSON-RPC 2.0 request to an MCP endpoint and return the parsed body."""
     client = McpClient(url)
     body: dict[str, Any] = {"jsonrpc": "2.0", "id": rpc_id, "method": method}

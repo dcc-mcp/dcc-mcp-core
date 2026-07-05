@@ -35,11 +35,10 @@ import time
 import urllib.request
 import uuid
 
-from conftest import allocate_gateway_port
-from conftest import wait_tcp_reachable
-
 import pytest
 
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry

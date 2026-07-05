@@ -24,9 +24,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_SKILLS_DIR = REPO_ROOT / "python" / "dcc_mcp_core" / "skills"
 
 
-
-
-
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:
     body: dict[str, Any] = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
     if params is not None:
