@@ -102,6 +102,27 @@ class TestToolValidatorFromToolRegistry:
         ok, _ = av.validate(json.dumps({"radius": 2.0}))
         assert ok is True
 
+    def test_from_registry_accepts_dict_input_schema(self):
+        class _Registry:
+            def get_action(self, action_name, dcc_name=None):
+                if action_name != "create_sphere":
+                    return None
+                return {
+                    "input_schema": {
+                        "type": "object",
+                        "required": ["radius"],
+                        "properties": {"radius": {"type": "number"}},
+                    }
+                }
+
+        av = ToolValidator.from_action_registry(_Registry(), "create_sphere")
+        ok, errors = av.validate(json.dumps({"radius": 2.0}))
+        assert ok is True
+        assert errors == []
+        ok, errors = av.validate(json.dumps({}))
+        assert ok is False
+        assert any("radius" in error for error in errors)
+
     def test_from_registry_no_schema_action(self):
         """Action registered without schema: validate should accept anything."""
         reg = ToolRegistry()
