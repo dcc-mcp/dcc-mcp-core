@@ -174,6 +174,7 @@ class TestExecutionBridgeLazyCore:
         assert _sandbox_context(MagicMock()) is None
 
 
+@pytest.mark.skipif(is_core_extension_available(), reason="only meaningful on py37-lite profile")
 class TestServerBaseImportLight:
     def test_server_base_imports_fallbacks_without_core(self, monkeypatch: pytest.MonkeyPatch):
         import importlib
