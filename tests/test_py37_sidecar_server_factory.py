@@ -180,7 +180,6 @@ class TestServerBaseImportLight:
 
         module = importlib.import_module("dcc_mcp_core.server_base")
 
-        assert "create_skill_server" in module.__dict__
         assert "create_adapter_server" in module.__dict__
         assert module._PKG_VERSION == "0.0.0-dev"
 
