@@ -639,10 +639,16 @@ class ToolValidator:
     @staticmethod
     def from_action_registry(registry: Any, action_name: str, dcc_name: str | None = None) -> ToolValidator:
         action = _lookup_registry_action(registry, action_name, dcc_name)
-        schema_json = _extract_action_input_schema(action)
-        if not schema_json:
+        schema = _extract_action_input_schema(action)
+        if schema is None:
             return ToolValidator()
-        return ToolValidator.from_schema_json(schema_json)
+        if isinstance(schema, Mapping):
+            return ToolValidator(_schema=dict(schema))
+        if isinstance(schema, str):
+            text = schema.strip()
+            if text:
+                return ToolValidator.from_schema_json(text)
+        return ToolValidator()
 
     def validate(self, params_json: str) -> tuple[bool, list[str]]:
         try:
@@ -677,20 +683,10 @@ def _lookup_registry_action(registry: Any, action_name: str, dcc_name: str | Non
     return action
 
 
-def _extract_action_input_schema(action: Any) -> str | None:
+def _extract_action_input_schema(action: Any) -> Any | None:
     if isinstance(action, Mapping):
-        schema = action.get("input_schema")
-        if isinstance(schema, str) and schema.strip():
-            return schema
-        if isinstance(schema, (dict, list, tuple, set)):
-            import json
-
-            return json.dumps(schema)
-        return None
-    schema = getattr(action, "input_schema", None)
-    if isinstance(schema, str) and schema.strip():
-        return schema
-    return None
+        return action.get("input_schema")
+    return getattr(action, "input_schema", None)
 
 
 def _validate_schema_value(schema: Mapping[str, Any], value: Any, *, path: str, errors: list[str]) -> None:

@@ -14,6 +14,7 @@ import os
 from typing import TYPE_CHECKING
 from typing import Any
 
+from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.options import DiagnosticsOptions
 from dcc_mcp_core._server.options import ExecutionMode
