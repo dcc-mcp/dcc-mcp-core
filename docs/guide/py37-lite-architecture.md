@@ -386,17 +386,17 @@ Python 3.7 is not available in the `actions/setup-python` tool cache on `ubuntu-
 
 ## References
 
-- [CLAUDE.md](../../CLAUDE.md) — Red line: Python 3.7 support through 2026-12-31.
-- [Cargo.toml](../../Cargo.toml#L266-L269) — `py37-lite` feature definition.
-- [scripts/build_py37_pure_wheel.py](../../scripts/build_py37_pure_wheel.py) — Wheel builder.
-- [scripts/check_py37_syntax.py](../../scripts/check_py37_syntax.py) — Syntax gate.
-- [scripts/run_with_py37.py](../../scripts/run_with_py37.py) — Local 3.7 runner helper.
-- [host/_fallback.py](../../python/dcc_mcp_core/host/_fallback.py) — Pure-Python dispatcher fallback.
-- [host/__init__.py](../../python/dcc_mcp_core/host/__init__.py) — Re-export with fallback to `None`.
-- [host/_standalone.py](../../python/dcc_mcp_core/host/_standalone.py) — Import fallback at use site.
-- [host/_protocols.py](../../python/dcc_mcp_core/host/_protocols.py) — `TickOutcome` fallback.
-- [_typing_compat.py](../../python/dcc_mcp_core/_typing_compat.py) — Protocol/Literal backport.
-- [_server/config.py](../../python/dcc_mcp_core/_server/config.py) — `McpHttpConfig` fallback `@dataclass`.
+- [CLAUDE.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CLAUDE.md) — Red line: Python 3.7 support through 2026-12-31.
+- [Cargo.toml](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/Cargo.toml#L266-L269) — `py37-lite` feature definition.
+- [scripts/build_py37_pure_wheel.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/scripts/build_py37_pure_wheel.py) — Wheel builder.
+- [scripts/check_py37_syntax.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/scripts/check_py37_syntax.py) — Syntax gate.
+- [scripts/run_with_py37.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/scripts/run_with_py37.py) — Local 3.7 runner helper.
+- [host/_fallback.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_fallback.py) — Pure-Python dispatcher fallback.
+- [host/__init__.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/__init__.py) — Re-export with fallback to `None`.
+- [host/_standalone.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_standalone.py) — Import fallback at use site.
+- [host/_protocols.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_protocols.py) — `TickOutcome` fallback.
+- [_typing_compat.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/_typing_compat.py) — Protocol/Literal backport.
+- [_server/config.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/_server/config.py) — `McpHttpConfig` fallback `@dataclass`.
 - [ADR 002: DCC Main-Thread Affinity](../adr/002-dcc-main-thread-affinity.md) — Why dispatchers exist.
 - [Adapter Compatibility Matrix](./adapter-compatibility-matrix.md) — Per-adapter version tracking.
 - [agents-reference.md](./agents-reference.md) — Full agent integration guide.
