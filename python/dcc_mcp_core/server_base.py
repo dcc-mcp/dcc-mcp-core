@@ -21,7 +21,6 @@ from typing import Any
 from typing import Callable
 
 from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
-from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.server_factory import create_adapter_server
 from dcc_mcp_core._server import ExecutionBridgeBinder
 from dcc_mcp_core._server import LifecycleController
@@ -49,17 +48,36 @@ _PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev") if _core is not N
 logger = logging.getLogger(__name__)
 
 
-def create_skill_server(dcc_name: str, config: Any, *args: Any, **kwargs: Any) -> Any:
-    """Compatibility wrapper for the historical public factory name."""
-    if is_core_extension_available():
-        from dcc_mcp_core._core import create_skill_server as _create_skill_server
-
-        return _create_skill_server(dcc_name, config, *args, **kwargs)
-    return create_adapter_server(dcc_name, config, kwargs.get("options"))
+def create_skill_server(
+    app_name: str,
+    config: Any | None = None,
+    extra_paths: list[str] | None = None,
+    dcc_name: str | None = None,
+) -> Any:
+    """Public one-call Skills-First server factory."""
+    if _core is not None:
+        return _core.create_skill_server(app_name, config, extra_paths, dcc_name)
+    return create_adapter_server(dcc_name or app_name, config, None)
 
 
 def _package_version() -> str:
-    return _PKG_VERSION
+    try:
+        from dcc_mcp_core import __version__
+
+        return __version__
+    except Exception:
+        try:
+            from importlib import metadata as importlib_metadata
+        except ImportError:
+            try:
+                import importlib_metadata  # type: ignore[import-not-found]
+            except ImportError:
+                return _PKG_VERSION
+
+        try:
+            return importlib_metadata.version("dcc-mcp-core")
+        except importlib_metadata.PackageNotFoundError:
+            return _PKG_VERSION
 
 
 class DccServerBase:
