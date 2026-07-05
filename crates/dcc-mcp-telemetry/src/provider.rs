@@ -3,8 +3,8 @@
 //! Call [`TelemetryProvider::init`] early in your application (e.g. `main`).
 //! Afterwards use [`tracer`] / [`meter`] helper functions anywhere in the crate.
 
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use opentelemetry::metrics::Meter;
 use opentelemetry::trace::{Tracer, TracerProvider as _};
@@ -53,7 +53,7 @@ impl TelemetryHandle {
     }
 }
 
-static HANDLE: OnceLock<TelemetryHandle> = OnceLock::new();
+static HANDLE: Mutex<Option<TelemetryHandle>> = Mutex::new(None);
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static DIRECT_SPAN_FALLBACK: AtomicBool = AtomicBool::new(false);
 
@@ -62,9 +62,12 @@ static DIRECT_SPAN_FALLBACK: AtomicBool = AtomicBool::new(false);
 /// Initialise the global telemetry provider from a [`TelemetryConfig`].
 ///
 /// May be called at most once per process. Returns `Err(AlreadyInitialized)`
-/// if called a second time.
+/// if called while the provider is already active.  After [`shutdown`] the
+/// provider can be initialised again — this is necessary for xdist worker
+/// process reuse where each test file runs in the same worker and must
+/// init → shutdown → re-init the telemetry provider.
 pub fn init(cfg: &TelemetryConfig) -> Result<(), TelemetryError> {
-    if HANDLE.get().is_some() {
+    if ACTIVE.load(Ordering::Acquire) {
         return Err(TelemetryError::AlreadyInitialized);
     }
 
@@ -141,9 +144,8 @@ pub fn init(cfg: &TelemetryConfig) -> Result<(), TelemetryError> {
         global::set_meter_provider(mp.clone());
     }
 
-    HANDLE
-        .set(handle)
-        .map_err(|_| TelemetryError::AlreadyInitialized)?;
+    let mut handle_lock = HANDLE.lock().unwrap();
+    *handle_lock = Some(handle);
     ACTIVE.store(true, Ordering::Release);
     DIRECT_SPAN_FALLBACK.store(direct_span_fallback, Ordering::Release);
 
@@ -151,8 +153,13 @@ pub fn init(cfg: &TelemetryConfig) -> Result<(), TelemetryError> {
 }
 
 /// Shut down the global telemetry provider, flushing all pending data.
+///
+/// After shutdown the provider can be initialised again via [`init`].
+/// This is necessary for xdist worker process reuse where multiple test
+/// files run in the same worker and need independent init/shutdown cycles.
 pub fn shutdown() {
-    if let Some(h) = HANDLE.get() {
+    let handle = HANDLE.lock().unwrap().take();
+    if let Some(h) = handle {
         h.shutdown();
     }
     ACTIVE.store(false, Ordering::Release);
@@ -192,7 +199,7 @@ pub fn direct_span_fallback_enabled() -> bool {
 /// dcc_mcp_telemetry::provider::try_init_default().ok();
 /// ```
 pub fn try_init_default() -> Result<(), TelemetryError> {
-    if HANDLE.get().is_some() {
+    if ACTIVE.load(Ordering::Acquire) {
         return Ok(());
     }
     let cfg = TelemetryConfig {
