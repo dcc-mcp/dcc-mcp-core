@@ -533,13 +533,15 @@ jobs:
         shell: bash
         run: |
           python -c "
-          import dcc_mcp_core.host
-          assert dcc_mcp_core.host.BlockingDispatcher is not None
-          assert dcc_mcp_core.host.QueueDispatcher is not None
-          dispatcher = dcc_mcp_core.host.QueueDispatcher()
-          assert dispatcher.post(lambda: 42).wait(timeout=2.0) == 42
+          from dcc_mcp_core.host import BlockingDispatcher
+          from dcc_mcp_core.host import QueueDispatcher
+          from dcc_mcp_core.host import StandaloneHost
+          assert BlockingDispatcher is not None
+          assert QueueDispatcher is not None
+          dispatcher = QueueDispatcher()
+          with StandaloneHost(dispatcher):
+              assert dispatcher.post(lambda: 42).wait(timeout=2.0) == 42
           from dcc_mcp_core.host._adapter import HostAdapter, TickableDispatcher
-          from dcc_mcp_core.host._standalone import StandaloneHost
           print('OK: dcc_mcp_core.host imports without _core')
           "
       - name: Verify lazy _core fallback (skill._serialize_result)
