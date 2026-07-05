@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field
 import os
 from typing import TYPE_CHECKING
 from typing import Any
 
-from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.options import DiagnosticsOptions
 from dcc_mcp_core._server.options import ExecutionMode
@@ -22,6 +22,46 @@ from dcc_mcp_core._server.options import _BridgeExecution
 from dcc_mcp_core._server.options import _DispatcherExecution
 from dcc_mcp_core._server.options import _StandaloneMainThreadExecution
 from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
+
+try:
+    from dcc_mcp_core._core import McpHttpConfig
+except ImportError:
+    @dataclass
+    class McpHttpConfig:
+        """Pure-Python fallback for the core HTTP config."""
+
+        port: int
+        server_name: str = "dcc-mcp-server"
+        server_version: str | None = None
+        host: str = "127.0.0.1"
+        endpoint_path: str = "/mcp"
+        max_sessions: int = 100
+        enable_cors: bool = False
+        request_timeout_ms: int = 120_000
+        gateway_port: int = 9765
+        registry_dir: str | None = None
+        dcc_version: str | None = None
+        scene: str | None = None
+        dcc_type: str = ""
+        instance_metadata: dict[str, str] = field(default_factory=dict)
+        standalone_main_thread_execution: bool = False
+        sandbox_policy: Any = None
+        exclude_skill_stubs_from_tools_list: bool = False
+        exclude_group_stubs_from_tools_list: bool = False
+        job_storage_path: str | None = None
+        backend_timeout_ms: int = 120_000
+        _job_recovery: str = field(default="drop", repr=False)
+
+        @property
+        def job_recovery(self) -> str:
+            return self._job_recovery
+
+        @job_recovery.setter
+        def job_recovery(self, value: str) -> None:
+            normalized = value.strip().lower()
+            if normalized not in {"drop", "requeue"}:
+                raise ValueError(f"Unsupported job_recovery value: {value!r}")
+            self._job_recovery = normalized
 
 if TYPE_CHECKING:
     from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher

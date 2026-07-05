@@ -72,8 +72,8 @@ from dcc_mcp_core.host._protocols import TickableDispatcher
 
 if TYPE_CHECKING:
     # Import local modules
-    from dcc_mcp_core._core import BlockingDispatcher
-    from dcc_mcp_core._core import QueueDispatcher
+    from dcc_mcp_core.host import BlockingDispatcher
+    from dcc_mcp_core.host import QueueDispatcher
 
 
 __all__ = ["HostAdapter", "TickableDispatcher"]

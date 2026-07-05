@@ -21,8 +21,6 @@ from typing import Any
 from typing import Callable
 
 from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
-from dcc_mcp_core._runtime.core_availability import is_core_extension_available
-from dcc_mcp_core._runtime.server_factory import create_adapter_server
 from dcc_mcp_core._server import ExecutionBridgeBinder
 from dcc_mcp_core._server import LifecycleController
 from dcc_mcp_core._server import ObservabilityFacade
@@ -39,26 +37,18 @@ from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.options import DccServerOptions
 
-_PKG_VERSION: str = "0.0.0-dev"
+try:
+    from dcc_mcp_core import _core
+except ImportError:
+    _core = None
 
+try:
+    from dcc_mcp_core._core import create_skill_server
+except ImportError:
+    def create_skill_server(*args: Any, **kwargs: Any) -> Any:
+        raise ImportError("dcc_mcp_core._core is not available")
 
-def _package_version() -> str:
-    if is_core_extension_available():
-        from dcc_mcp_core import _core
-
-        return str(getattr(_core, "__version__", "0.0.0-dev"))
-    try:
-        from importlib import metadata as importlib_metadata
-    except ImportError:
-        try:
-            import importlib_metadata  # type: ignore[import-not-found]
-        except ImportError:
-            return _PKG_VERSION
-    try:
-        return importlib_metadata.version("dcc-mcp-core")
-    except Exception:
-        return _PKG_VERSION
-
+_PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev") if _core is not None else "0.0.0-dev"
 
 logger = logging.getLogger(__name__)
 

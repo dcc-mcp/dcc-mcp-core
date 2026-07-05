@@ -13,16 +13,36 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-
-from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
-from dcc_mcp_core._runtime.skill_paths import get_local_skills_dir
-from dcc_mcp_core._runtime.skill_paths import get_skill_paths_from_env
-from dcc_mcp_core._runtime.skill_paths import get_skills_dir
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.skill import get_bundled_skill_paths
 from dcc_mcp_core.skills.builtin import register_all_builtin_skills
+
+try:
+    from dcc_mcp_core._core import get_app_skill_paths_from_env
+    from dcc_mcp_core._core import get_local_skills_dir
+    from dcc_mcp_core._core import get_skill_paths_from_env
+    from dcc_mcp_core._core import get_skills_dir
+except ImportError:
+    def _split_skill_paths(raw: str) -> list[str]:
+        return [part for part in (piece.strip() for piece in raw.split(os.pathsep)) if part]
+
+    def get_app_skill_paths_from_env(dcc_name: str) -> list[str]:
+        env_name = f"DCC_MCP_{dcc_name.upper()}_SKILL_PATHS"
+        return _split_skill_paths(os.environ.get(env_name, ""))
+
+    def get_local_skills_dir(dcc_name: str) -> str:
+        return str(Path.home() / ".dcc-mcp" / dcc_name.lower() / "skills")
+
+    def get_skill_paths_from_env() -> list[str]:
+        return _split_skill_paths(os.environ.get("DCC_MCP_SKILL_PATHS", ""))
+
+    def get_skills_dir(dcc_name: str | None = None) -> str:
+        base = Path.home() / ".dcc-mcp" / "skills"
+        if dcc_name:
+            return str(base / dcc_name.lower())
+        return str(base)
 
 logger = logging.getLogger(__name__)
 
