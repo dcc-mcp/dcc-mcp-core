@@ -201,7 +201,7 @@ build *EXTRA:
 # sources — no compiled _core extension. The wheel is tagged py3-none-any
 # and installable on Python 3.7 (Maya 2022 / Blender 2.83).
 build-py37:
-    maturin build --release --out dist --no-default-features -F py37-lite
+    python scripts/build_py37_pure_wheel.py
 
 # Install dev/test dependencies
 install-dev-deps:
