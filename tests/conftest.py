@@ -283,7 +283,7 @@ def allocate_gateway_port() -> int:
     last_err: OSError | None = None
     for _ in range(10):
         try:
-            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:  # noqa: F841
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
                 s.bind(("127.0.0.1", 0))
                 return s.getsockname()[1]
         except OSError as exc:

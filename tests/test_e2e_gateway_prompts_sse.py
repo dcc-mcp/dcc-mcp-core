@@ -166,9 +166,7 @@ def gateway_with_prompts_skill(tmp_path):
         f"backend port {handle.port} unreachable after start()"
     )
     if handle.is_gateway:
-        assert wait_tcp_reachable("127.0.0.1", gw_port, budget=3.0), (
-            f"gateway port {gw_port} unreachable after start()"
-        )
+        assert wait_tcp_reachable("127.0.0.1", gw_port, budget=3.0), f"gateway port {gw_port} unreachable after start()"
 
     try:
         yield {
