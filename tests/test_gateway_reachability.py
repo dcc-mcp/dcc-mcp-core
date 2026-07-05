@@ -26,6 +26,10 @@ import urllib.request
 
 import pytest
 
+from conftest import allocate_gateway_port
+from conftest import McpClient
+from conftest import wait_tcp_reachable
+
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -42,25 +46,11 @@ def _tcp_reachable(host: str, port: int, timeout: float = 0.5) -> bool:
 
 def _wait_reachable(host: str, port: int, budget: float = 2.0) -> bool:
     """Poll until reachable or budget expires."""
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        if _tcp_reachable(host, port, timeout=0.2):
-            return True
-        time.sleep(0.02)
-    return False
+    return wait_tcp_reachable(host, port, budget)
 
 
 def _empty_registry() -> ToolRegistry:
     return ToolRegistry()
-
-
-def _pick_free_port() -> int:
-    probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))
-    port = probe.getsockname()[1]
-    probe.close()
-    time.sleep(0.05)
-    return port
 
 
 def _http_status(url: str) -> int:
@@ -88,7 +78,7 @@ class TestAdminDefaults:
         assert config.admin_path == "/dcc-admin"
 
     def test_elected_python_gateway_serves_admin_by_default(self, tmp_path):
-        gateway_port = _pick_free_port()
+        gateway_port = allocate_gateway_port()
         config = McpHttpConfig(port=0, server_name="admin-on")
         config.gateway_port = gateway_port
         config.registry_dir = str(tmp_path)
@@ -106,7 +96,7 @@ class TestAdminDefaults:
             handle.shutdown()
 
     def test_elected_python_gateway_can_disable_admin(self, tmp_path):
-        gateway_port = _pick_free_port()
+        gateway_port = allocate_gateway_port()
         config = McpHttpConfig(port=0, server_name="admin-off")
         config.gateway_port = gateway_port
         config.admin_enabled = False
@@ -212,15 +202,7 @@ class TestGatewayReachable:
 
     def test_gateway_listener_reachable_when_won(self, tmp_path):
         """If we win the gateway election, the gateway port must answer."""
-        # Use an ephemeral gateway port via a pre-bound-then-released socket.
-        # Pre-binding to :0, reading the port, then closing lets us claim a
-        # port that almost certainly is free for a moment.
-        probe = socket.socket()
-        probe.bind(("127.0.0.1", 0))
-        gateway_port = probe.getsockname()[1]
-        probe.close()
-        # Short sleep to let Windows release the port fully.
-        time.sleep(0.05)
+        gateway_port = allocate_gateway_port()
 
         config = McpHttpConfig(port=0, server_name="reach-py-gateway")
         config.gateway_port = gateway_port

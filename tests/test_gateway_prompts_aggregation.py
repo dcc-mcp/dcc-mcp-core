@@ -36,6 +36,7 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -52,9 +53,7 @@ BLENDER_SKILL_PARENT = str(FIXTURE_SKILLS_DIR / "blender-only")
 
 def _pick_free_port() -> int:
     """Return a port that is currently free on 127.0.0.1."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return allocate_gateway_port()
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1, timeout: float = 10.0) -> dict:
@@ -167,7 +166,7 @@ def empty_gateway(tmp_path):
     """
     registry_dir = tmp_path / "registry"
     registry_dir.mkdir()
-    gw_port = _pick_free_port()
+    gw_port = allocate_gateway_port()
 
     # "python" backend with no fixture skill — nothing to aggregate.
     cfg = McpHttpConfig(port=0, server_name="empty-gateway-host")
@@ -209,7 +208,7 @@ def prompts_cluster(tmp_path_factory):
         pytest.skip(f"fixture skill missing at {blender_parent}")
 
     registry_dir = tmp_path_factory.mktemp("prompts-registry")
-    gw_port = _pick_free_port()
+    gw_port = allocate_gateway_port()
 
     # First backend wins the gateway election.
     handle_a = _start_backend("maya", maya_parent, registry_dir, gw_port)

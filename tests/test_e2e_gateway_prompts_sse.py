@@ -49,6 +49,8 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 
@@ -64,12 +66,6 @@ AGGREGATOR_TICK_S = 3.0
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1, timeout: float = 10.0) -> dict:
     client = McpClient(url)
     body: dict[str, Any] = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
@@ -77,17 +73,6 @@ def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1
         body["params"] = params
     _, resp = client.post(body)
     return resp
-
-
-def _wait_tcp_reachable(host: str, port: int, budget: float = 3.0) -> bool:
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.3):
-                return True
-        except OSError:
-            time.sleep(0.05)
-    return False
 
 
 class _SseSubscriber(threading.Thread):
@@ -160,7 +145,7 @@ def gateway_with_prompts_skill(tmp_path):
     if not (Path(FIXTURE_SKILL_PARENT) / "maya-prompts-demo" / "prompts.yaml").exists():
         pytest.skip(f"fixture skill not present at {FIXTURE_SKILL_PARENT}")
 
-    gw_port = _pick_free_port()
+    gw_port = allocate_gateway_port()
 
     cfg = McpHttpConfig(port=0, server_name="prompts-backend")
     cfg.gateway_port = gw_port
@@ -177,11 +162,11 @@ def gateway_with_prompts_skill(tmp_path):
     )
     handle = server.start()
 
-    assert _wait_tcp_reachable("127.0.0.1", handle.port, budget=3.0), (
+    assert wait_tcp_reachable("127.0.0.1", handle.port, budget=3.0), (
         f"backend port {handle.port} unreachable after start()"
     )
     if handle.is_gateway:
-        assert _wait_tcp_reachable("127.0.0.1", gw_port, budget=3.0), (
+        assert wait_tcp_reachable("127.0.0.1", gw_port, budget=3.0), (
             f"gateway port {gw_port} unreachable after start()"
         )
 

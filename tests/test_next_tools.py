@@ -25,6 +25,7 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
 import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -104,9 +105,7 @@ next-tools:
 
 
 def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return allocate_gateway_port()
 
 
 def _post(url: str, body: dict[str, Any]) -> dict[str, Any]:

@@ -36,6 +36,8 @@ import pytest
 
 from conftest import REPO_ROOT
 from conftest import McpClient
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 
@@ -70,20 +72,7 @@ STARTUP_BUDGET_S = 5.0
 
 
 def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_tcp_reachable(host: str, port: int, budget: float = STARTUP_BUDGET_S) -> bool:
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.3):
-                return True
-        except OSError:
-            time.sleep(0.05)
-    return False
+    return allocate_gateway_port()
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1, timeout: float = 10.0) -> dict:
@@ -263,11 +252,11 @@ def maya_gateway(tmp_path_factory: pytest.TempPathFactory):
     handle = server.start()
 
     try:
-        if not _wait_tcp_reachable("127.0.0.1", handle.port):
+        if not wait_tcp_reachable("127.0.0.1", handle.port):
             pytest.skip(f"Backend port {handle.port} not reachable")
         if not handle.is_gateway:
             pytest.skip(f"Backend did not win gateway election on {gateway_port}")
-        if not _wait_tcp_reachable("127.0.0.1", gateway_port):
+        if not wait_tcp_reachable("127.0.0.1", gateway_port):
             pytest.skip(f"Gateway port {gateway_port} not reachable")
 
         gateway_url = f"http://127.0.0.1:{gateway_port}/mcp"

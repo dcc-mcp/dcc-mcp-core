@@ -53,8 +53,8 @@ jobs:
       - name: Install wheel + test deps
         run: |
           pip install dist/*.whl
-          pip install pytest
+          pip install pytest pytest-xdist
         shell: bash
-      - name: Test
-        run: vx just test
+      - name: Test (file-level process isolation)
+        run: vx just test-suite
         shell: bash

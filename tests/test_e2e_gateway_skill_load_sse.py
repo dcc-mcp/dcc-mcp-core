@@ -64,6 +64,8 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -84,12 +86,10 @@ AGGREGATOR_TICK_S = 3.0
 
 def _pick_free_port() -> int:
     """Return a TCP port that is currently free on 127.0.0.1."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return allocate_gateway_port()
 
 
-def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1, timeout: float = 10.0) -> dict:
+def _post_mcp
     """POST a JSON-RPC 2.0 request to an MCP endpoint and return the parsed body."""
     client = McpClient(url)
     body: dict[str, Any] = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
@@ -117,14 +117,7 @@ def _list_all_tools(url: str) -> list[dict[str, Any]]:
 
 def _wait_tcp_reachable(host: str, port: int, budget: float = 3.0) -> bool:
     """Poll until TCP connect succeeds or budget expires."""
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.3):
-                return True
-        except OSError:
-            time.sleep(0.05)
-    return False
+    return wait_tcp_reachable(host, port, budget)
 
 
 class _SseSubscriber(threading.Thread):
@@ -234,7 +227,7 @@ def gateway_with_skill_backend(tmp_path, monkeypatch):
     gw_port = 0
     last_start_error: RuntimeError | None = None
     for _ in range(8):
-        gw_port = _pick_free_port()
+        gw_port = allocate_gateway_port()
 
         # Backend = gateway winner (single-backend cluster is sufficient for
         # this invariant; multi-backend aggregation is already covered by

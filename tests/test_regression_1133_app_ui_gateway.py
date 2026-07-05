@@ -15,6 +15,8 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from conftest import allocate_gateway_port
+from conftest import wait_tcp_reachable
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 
@@ -22,21 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_SKILLS_DIR = REPO_ROOT / "python" / "dcc_mcp_core" / "skills"
 
 
-def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
-
-def _wait_tcp_reachable(host: str, port: int, budget: float = 3.0) -> bool:
-    deadline = time.time() + budget
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.3):
-                return True
-        except OSError:
-            time.sleep(0.05)
-    return False
 
 
 def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1) -> dict:
@@ -76,7 +64,7 @@ def app_ui_gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("DCC_MCP_PYTHON_EXECUTABLE", sys.executable)
     monkeypatch.setenv("DCC_MCP_PYTHON_SKILL_PATHS", str(BUNDLED_SKILLS_DIR))
 
-    gateway_port = _pick_free_port()
+    gateway_port = allocate_gateway_port()
     cfg = McpHttpConfig(port=0, server_name="app-ui-backend")
     cfg.gateway_port = gateway_port
     cfg.registry_dir = str(registry_dir)
@@ -86,9 +74,9 @@ def app_ui_gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     server = create_skill_server("python", cfg)
     handle = server.start()
 
-    assert _wait_tcp_reachable("127.0.0.1", handle.port), f"backend port {handle.port} unreachable"
+    assert wait_tcp_reachable("127.0.0.1", handle.port), f"backend port {handle.port} unreachable"
     if handle.is_gateway:
-        assert _wait_tcp_reachable("127.0.0.1", gateway_port), f"gateway port {gateway_port} unreachable"
+        assert wait_tcp_reachable("127.0.0.1", gateway_port), f"gateway port {gateway_port} unreachable"
 
     try:
         yield {

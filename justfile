@@ -209,9 +209,17 @@ install-dev-deps:
 
 # ── Python tests ──────────────────────────────────────────────────────────────
 
-# Run Python test suite
+# Run Python test suite (single-process, fastest for local iteration)
 test:
     pytest tests/ -q --tb=short --show-capture=no
+
+# Run full Python test suite with file-level process isolation (CI).
+# ``--dist loadfile`` runs each test file in its own subprocess, preventing
+# Rust ``OnceLock`` singleton conflicts, env-var leaks, and port TIME_WAIT
+# cascades between test modules. Use this for the authoritative CI gate.
+# ``-n 4`` caps workers to avoid OOM on smaller CI runners.
+test-suite:
+    pytest tests/ -q --tb=short --show-capture=no -n 4 --dist loadfile
 
 # Run Python tests with coverage report
 test-cov:

@@ -44,6 +44,7 @@ dependencies = [
 test = [
     "pytest>=8.3.0",  # CVE-2025-71176: fix tmpdir handling vulnerability
     "pytest-cov>=4.0",
+    "pytest-xdist>=3.0",
     "rez",
     "zipp>=3.19.1",  # CVE-2024-5569: fix DoS vulnerability in zipfile path handling
     # Qt UI inspector live-Qt tests (issue #1332); skipped on Py<3.9 / when missing
