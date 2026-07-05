@@ -6,17 +6,8 @@ from __future__ import annotations
 # `typing.Protocol` and `typing.runtime_checkable` are 3.8+. For Python 3.7
 # (Maya 2022, Blender 2.83), expose duck-typed fallbacks with the same
 # attribute contracts; concrete dispatchers do not need to inherit either way.
-try:
-    from typing import Protocol
-    from typing import runtime_checkable
-except ImportError:  # pragma: no cover - Python 3.7 only
-
-    def runtime_checkable(cls):  # type: ignore[misc]
-        return cls
-
-    class Protocol:  # type: ignore[no-redef]
-        """Duck-typed Protocol stand-in for Python 3.7."""
-
+from dcc_mcp_core._typing_compat import Protocol
+from dcc_mcp_core._typing_compat import runtime_checkable
 
 # Import local modules
 try:
