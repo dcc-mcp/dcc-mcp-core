@@ -381,6 +381,10 @@ def _force_shutdown_handles() -> None:
                 handle.shutdown()
 
 
-def pytest_runtest_teardown() -> None:
-    """Force-shutdown any server handles registered but not yet cleaned up."""
-    _force_shutdown_handles()
+# NOTE: pytest_runtest_teardown is intentionally omitted.
+# With xdist --dist loadfile, each test file runs in its own worker process,
+# so any leaked server handles are cleaned up by process exit.
+# A per-test teardown hook that calls _force_shutdown_handles() would
+# prematurely kill module-scoped fixture servers after the first test
+# in the module completes, causing Connection refused errors in subsequent
+# tests.
