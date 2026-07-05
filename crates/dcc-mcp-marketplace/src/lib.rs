@@ -14,6 +14,7 @@
 pub mod add_repo;
 pub(crate) mod bundle;
 pub mod error;
+pub mod package;
 pub mod path;
 pub mod service;
 pub mod source;
@@ -38,6 +39,10 @@ fn hide_command_window(_: &mut std::process::Command) {}
 // Re-export the public API for convenience.
 pub use add_repo::{install_from_repo, list_repo_skills, parse_repo_ref};
 pub use error::MarketplaceError;
+pub use package::{
+    MarketplacePackOptions, MarketplacePackResult, MarketplacePublishOptions,
+    MarketplacePublishResult, pack_marketplace_package, publish_marketplace_package,
+};
 pub use path::{default_config_path, home_dir, marketplace_root, marketplace_root_or_default};
 pub use service::{MarketplaceService, default_sources_disabled, env_sources, path_component};
 pub use source::{builtin_source, dedupe_sources, normalise_source};

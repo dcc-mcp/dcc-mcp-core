@@ -80,6 +80,8 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
 | `marketplace update [name] --all`         | Upgrade installed packages                     |
 | `marketplace add-repo <repo> [--dcc]`     | Install directly from a GitHub repo            |
+| `marketplace pack <path> --out dist/`     | Build a zip package and SHA-256 digest         |
+| `marketplace publish <path> --catalog <file>` | Upsert a catalog entry for a package       |
 
 Full argument reference: [cli-reference.md](cli-reference.md#marketplace).
 
@@ -131,6 +133,47 @@ tooling.
   install:
     type: path
     url: "/share/skills/my-internal-skills"
+```
+
+## Release Packaging (`pack` / `publish`)
+
+Use `pack` in package repositories to build a zip and digest, then upload the
+zip with GitHub's release tooling and use `publish` to update a local
+`marketplace.json` checkout:
+
+```bash
+dcc-mcp-cli marketplace pack . --out dist/
+gh release upload v0.1.0 dist/my-skill.zip --clobber
+dcc-mcp-cli marketplace publish . \
+  --catalog ../marketplace/marketplace.json \
+  --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
+  --sha256 sha256:<digest>
+```
+
+This is the recommended path for stable packages. Development packages can
+still use `install.type: git` entries.
+
+Minimal GitHub Actions shape for package repositories:
+
+```yaml
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack marketplace package
+        run: dcc-mcp-cli marketplace pack . --out dist/
+      - name: Upload release asset
+        run: gh release upload "${GITHUB_REF_NAME}" dist/*.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
 ```
 
 ## Direct GitHub Install (`add-repo`)
