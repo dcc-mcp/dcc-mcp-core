@@ -13,16 +13,12 @@ equivalent elsewhere in the tree.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
 
 # ── Probe whether _core is available ─────────────────────────────────
 
-_HAS_CORE: Optional[bool] = None  # tri-state: None=unchecked, True/False
+_HAS_CORE: bool | None = None  # tri-state: None=unchecked, True/False
 
 
 def _probe_core() -> bool:
@@ -52,13 +48,13 @@ if _probe_core():
     PyPumpedDispatcher = _core.PyPumpedDispatcher
     parse_skill_md = _core.parse_skill_md
 
-    def __dir__() -> List[str]:
+    def __dir__() -> list[str]:
         return ["DccCapabilities", "PyPumpedDispatcher", "parse_skill_md"]
 
 else:
     # ── Pure-Python fallbacks (only when _core is absent) ────────────
 
-    def _parse_yaml_frontmatter(text: str) -> Dict[str, Any]:
+    def _parse_yaml_frontmatter(text: str) -> dict[str, Any]:
         """Parse agentskills.io YAML frontmatter from SKILL.md content.
 
         Returns an empty dict when there is no frontmatter or the YAML is
@@ -68,7 +64,7 @@ else:
         if not lines or lines[0].strip() != "---":
             return {}
 
-        end_idx: Optional[int] = None
+        end_idx: int | None = None
         for i in range(1, len(lines)):
             if lines[i].strip() == "---":
                 end_idx = i
@@ -78,7 +74,7 @@ else:
             return {}
 
         yaml_lines = lines[1:end_idx]
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         for line in yaml_lines:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
@@ -91,7 +87,7 @@ else:
 
         return result
 
-    def _parse_yaml_list(value: Any) -> List[str]:
+    def _parse_yaml_list(value: Any) -> list[str]:
         """Parse a YAML list value from frontmatter into a list of strings."""
         if isinstance(value, list):
             return [str(v).strip() for v in value]
@@ -110,8 +106,17 @@ else:
         etc. without branching on ``_core`` availability.
         """
 
-        __slots__ = ("name", "description", "dcc", "version", "tags", "depends",
-                     "tools", "prompts", "path")
+        __slots__ = (
+            "dcc",
+            "depends",
+            "description",
+            "name",
+            "path",
+            "prompts",
+            "tags",
+            "tools",
+            "version",
+        )
 
         def __init__(
             self,
@@ -119,10 +124,10 @@ else:
             description: str = "",
             dcc: str = "",
             version: str = "0.1.0",
-            tags: Optional[List[str]] = None,
-            depends: Optional[List[str]] = None,
-            tools: Optional[List[str]] = None,
-            prompts: Optional[List[str]] = None,
+            tags: list[str] | None = None,
+            depends: list[str] | None = None,
+            tools: list[str] | None = None,
+            prompts: list[str] | None = None,
             path: str = "",
         ) -> None:
             self.name = name
@@ -138,7 +143,7 @@ else:
         def __repr__(self) -> str:
             return f"SkillMetadata(name={self.name!r}, dcc={self.dcc!r})"
 
-    def parse_skill_md(skill_dir: str) -> Optional[Any]:
+    def parse_skill_md(skill_dir: str) -> Any | None:
         """Parse a SKILL.md file from a skill directory.
 
         Returns a ``_SkillMetadataFallback`` object or ``None`` when the
@@ -181,7 +186,7 @@ else:
 
         def __init__(
             self,
-            script_languages: Optional[List[Any]] = None,
+            script_languages: list[Any] | None = None,
             scene_info: bool = False,
             snapshot: bool = False,
             undo_redo: bool = False,
@@ -193,11 +198,11 @@ else:
             render_capture: bool = False,
             hierarchy: bool = False,
             has_embedded_python: bool = True,
-            bridge_kind: Optional[str] = None,
-            bridge_endpoint: Optional[str] = None,
-            extensions: Optional[Dict[str, bool]] = None,
+            bridge_kind: str | None = None,
+            bridge_endpoint: str | None = None,
+            extensions: dict[str, bool] | None = None,
         ) -> None:
-            self.script_languages: List[Any] = script_languages or []
+            self.script_languages: list[Any] = script_languages or []
             self.scene_info = scene_info
             self.snapshot = snapshot
             self.undo_redo = undo_redo
@@ -211,17 +216,17 @@ else:
             self.has_embedded_python = has_embedded_python
             self.bridge_kind = bridge_kind
             self.bridge_endpoint = bridge_endpoint
-            self.extensions: Dict[str, bool] = dict(extensions or {})
+            self.extensions: dict[str, bool] = dict(extensions or {})
 
         def uses_bridge(self) -> bool:
             return self.bridge_kind is not None
 
         @staticmethod
-        def http_bridge(endpoint: str) -> "DccCapabilities":
+        def http_bridge(endpoint: str) -> DccCapabilities:
             return DccCapabilities(bridge_kind="http", bridge_endpoint=endpoint)
 
         @staticmethod
-        def websocket_bridge(endpoint: str) -> "DccCapabilities":
+        def websocket_bridge(endpoint: str) -> DccCapabilities:
             return DccCapabilities(bridge_kind="websocket", bridge_endpoint=endpoint)
 
         def __repr__(self) -> str:
@@ -243,18 +248,18 @@ else:
             self.total_dispatched: int = 0
             self.total_processed: int = 0
 
-        def pump(self) -> Dict[str, int]:
+        def pump(self) -> dict[str, int]:
             return {"processed": 0, "remaining": 0}
 
-        def pump_with_budget(self, budget_ms: int) -> Dict[str, int]:
+        def pump_with_budget(self, budget_ms: int) -> dict[str, int]:
             return {"processed": 0, "remaining": 0}
 
         def submit(
             self,
             action_name: str,
-            payload: Optional[str] = None,
+            payload: str | None = None,
             affinity: str = "any",
-        ) -> Dict[str, Any]:
+        ) -> dict[str, Any]:
             self.total_dispatched += 1
             self.total_processed += 1
             return {
@@ -266,10 +271,10 @@ else:
         def pending(self) -> int:
             return 0
 
-        def supported(self) -> List[str]:
+        def supported(self) -> list[str]:
             return ["any", "main"]
 
-        def capabilities(self) -> Dict[str, Any]:
+        def capabilities(self) -> dict[str, Any]:
             return {
                 "pumped": True,
                 "supports_main_thread": True,
