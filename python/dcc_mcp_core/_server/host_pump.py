@@ -14,11 +14,11 @@ import time
 from typing import Any
 from typing import Callable
 from typing import Optional
-from typing import Protocol
-from typing import runtime_checkable
 
 from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpPolicy
 from dcc_mcp_core._server.callable_dispatcher import DrainStats
+from dcc_mcp_core._typing_compat import Protocol
+from dcc_mcp_core._typing_compat import runtime_checkable
 
 __all__ = [
     "HostPumpController",

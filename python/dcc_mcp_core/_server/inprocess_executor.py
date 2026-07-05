@@ -45,11 +45,9 @@ if TYPE_CHECKING:
     pass
 
 # `typing.Protocol` / `typing.runtime_checkable` are 3.8+. For Python 3.7
-# (Maya 2022), expose `BaseDccCallableDispatcher` as a duck-typed class
-# with the same `dispatch_callable` attribute contract; concrete
-# dispatchers do not need to inherit from it either way.
-from typing import Protocol
-from typing import runtime_checkable
+# (Maya 2022), expose duck-typed fallbacks with the same attribute contracts.
+from dcc_mcp_core._typing_compat import Protocol
+from dcc_mcp_core._typing_compat import runtime_checkable
 
 logger = logging.getLogger(__name__)
 
