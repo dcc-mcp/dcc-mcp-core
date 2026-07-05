@@ -30,7 +30,7 @@ class TickOutcome:
 class PostHandle:
     """Handle for a posted callable."""
 
-    def __init__(self, dispatcher: "QueueDispatcher", job_id: int) -> None:
+    def __init__(self, dispatcher: QueueDispatcher, job_id: int) -> None:
         self._dispatcher = dispatcher
         self._job_id = job_id
         self._event = threading.Event()
@@ -100,7 +100,7 @@ class QueueDispatcher:
                 continue
             try:
                 handle._resolve(result=fn())
-            except BaseException as exc:  # noqa: BLE001
+            except BaseException as exc:
                 panicked += 1
                 handle._resolve(exc=exc)
             executed += 1

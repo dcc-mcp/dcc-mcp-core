@@ -534,8 +534,10 @@ jobs:
         run: |
           python -c "
           import dcc_mcp_core.host
-          assert dcc_mcp_core.host.BlockingDispatcher is None
-          assert dcc_mcp_core.host.QueueDispatcher is None
+          assert dcc_mcp_core.host.BlockingDispatcher is not None
+          assert dcc_mcp_core.host.QueueDispatcher is not None
+          dispatcher = dcc_mcp_core.host.QueueDispatcher()
+          assert dispatcher.post(lambda: 42).wait(timeout=2.0) == 42
           from dcc_mcp_core.host._adapter import HostAdapter, TickableDispatcher
           from dcc_mcp_core.host._standalone import StandaloneHost
           print('OK: dcc_mcp_core.host imports without _core')

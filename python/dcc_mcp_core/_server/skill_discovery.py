@@ -13,6 +13,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core.hotreload import DccSkillHotReloader
@@ -25,6 +26,7 @@ try:
     from dcc_mcp_core._core import get_skill_paths_from_env
     from dcc_mcp_core._core import get_skills_dir
 except ImportError:
+
     def _split_skill_paths(raw: str) -> list[str]:
         return [part for part in (piece.strip() for piece in raw.split(os.pathsep)) if part]
 
@@ -43,6 +45,7 @@ except ImportError:
         if dcc_name:
             return str(base / dcc_name.lower())
         return str(base)
+
 
 logger = logging.getLogger(__name__)
 

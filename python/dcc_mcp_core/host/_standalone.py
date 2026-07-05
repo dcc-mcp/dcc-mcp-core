@@ -22,6 +22,7 @@ import threading
 
 # Import local modules
 from dcc_mcp_core.host._protocols import TickableDispatcher
+
 try:
     from dcc_mcp_core._core import BlockingDispatcher
     from dcc_mcp_core._core import QueueDispatcher

@@ -630,7 +630,7 @@ class ToolValidator:
     def from_schema_json(schema_json: str) -> ToolValidator:
         try:
             schema = _json.loads(schema_json)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ValueError(str(exc)) from exc
         if not isinstance(schema, Mapping):
             raise ValueError("schema_json must decode to a JSON object")
@@ -647,7 +647,7 @@ class ToolValidator:
     def validate(self, params_json: str) -> tuple[bool, list[str]]:
         try:
             params = _json.loads(params_json)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ValueError(str(exc)) from exc
         errors: list[str] = []
         if self._schema is not None:
@@ -670,7 +670,7 @@ def _lookup_registry_action(registry: Any, action_name: str, dcc_name: str | Non
         return action
     try:
         action = registry[action_name]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise KeyError(action_name) from exc
     if action is None:
         raise KeyError(action_name)
@@ -680,7 +680,13 @@ def _lookup_registry_action(registry: Any, action_name: str, dcc_name: str | Non
 def _extract_action_input_schema(action: Any) -> str | None:
     if isinstance(action, Mapping):
         schema = action.get("input_schema")
-        return schema if isinstance(schema, str) and schema.strip() else None
+        if isinstance(schema, str) and schema.strip():
+            return schema
+        if isinstance(schema, (dict, list, tuple, set)):
+            import json
+
+            return json.dumps(schema)
+        return None
     schema = getattr(action, "input_schema", None)
     if isinstance(schema, str) and schema.strip():
         return schema
@@ -693,10 +699,9 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, *, path: str, 
         if not any(_schema_type_matches(str(expected), value) for expected in schema_type):
             errors.append(f"{path}: expected one of {sorted(str(t) for t in schema_type)}, got {type(value).__name__}")
             return
-    elif isinstance(schema_type, str):
-        if not _schema_type_matches(schema_type, value):
-            errors.append(f"{path}: expected {schema_type}, got {type(value).__name__}")
-            return
+    elif isinstance(schema_type, str) and not _schema_type_matches(schema_type, value):
+        errors.append(f"{path}: expected {schema_type}, got {type(value).__name__}")
+        return
 
     enum_values = schema.get("enum")
     if isinstance(enum_values, list) and value not in enum_values:
