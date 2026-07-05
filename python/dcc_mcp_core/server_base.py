@@ -21,6 +21,7 @@ from typing import Any
 from typing import Callable
 
 from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
+from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.server_factory import create_adapter_server
 from dcc_mcp_core._server import ExecutionBridgeBinder
 from dcc_mcp_core._server import LifecycleController
@@ -53,10 +54,19 @@ def create_skill_server(
     config: Any | None = None,
     extra_paths: list[str] | None = None,
     dcc_name: str | None = None,
+    accumulated: bool = True,
+    **kwargs: Any,
 ) -> Any:
     """Public one-call Skills-First server factory."""
-    if _core is not None:
-        return _core.create_skill_server(app_name, config, extra_paths, dcc_name)
+    if _core is not None and is_core_extension_available():
+        return _core.create_skill_server(
+            app_name,
+            config=config,
+            extra_paths=extra_paths,
+            dcc_name=dcc_name,
+            accumulated=accumulated,
+            **kwargs,
+        )
     return create_adapter_server(dcc_name or app_name, config, None)
 
 
