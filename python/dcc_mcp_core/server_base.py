@@ -26,7 +26,6 @@ from dcc_mcp_core._runtime.server_factory import create_adapter_server
 from dcc_mcp_core._server import ExecutionBridgeBinder
 from dcc_mcp_core._server import LifecycleController
 from dcc_mcp_core._server import ObservabilityFacade
-from dcc_mcp_core._server import SkillDiscoveryController
 from dcc_mcp_core._server import SkillQueryClient
 from dcc_mcp_core._server import WindowResolver
 from dcc_mcp_core._server import build_mcp_http_config
@@ -38,6 +37,7 @@ from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.options import DccServerOptions
+from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
 
 try:
     from dcc_mcp_core import _core
@@ -72,22 +72,28 @@ def create_skill_server(
 
 def _package_version() -> str:
     try:
-        from dcc_mcp_core import __version__
-
-        return __version__
+        import dcc_mcp_core
     except Exception:
-        try:
-            from importlib import metadata as importlib_metadata
-        except ImportError:
-            try:
-                import importlib_metadata  # type: ignore[import-not-found]
-            except ImportError:
-                return _PKG_VERSION
+        dcc_mcp_core = None
 
+    if is_core_extension_available() and dcc_mcp_core is not None:
+        core = getattr(dcc_mcp_core, "_core", None)
+        version = getattr(core, "__version__", None)
+        if version is not None:
+            return str(version)
+
+    try:
+        from importlib import metadata as importlib_metadata
+    except ImportError:
         try:
-            return importlib_metadata.version("dcc-mcp-core")
-        except importlib_metadata.PackageNotFoundError:
+            import importlib_metadata  # type: ignore[import-not-found]
+        except ImportError:
             return _PKG_VERSION
+
+    try:
+        return importlib_metadata.version("dcc-mcp-core")
+    except importlib_metadata.PackageNotFoundError:
+        return _PKG_VERSION
 
 
 class DccServerBase:
