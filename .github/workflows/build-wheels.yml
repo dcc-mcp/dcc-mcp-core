@@ -142,12 +142,12 @@ jobs:
         shell: bash
         run: |
           wheel=$(ls dist/*.whl | head -1)
-          if unzip -l "$wheel" | grep -q "_core"; then
-            echo "::error::py37-lite wheel should not contain _core extension, but found:"
-            unzip -l "$wheel" | grep "_core"
+          # Match compiled extensions only; _core.pyi stub is expected in py37-lite wheels.
+          if unzip -l "$wheel" | grep -E '_core\.(so|pyd|dll|dylib)'; then
+            echo "::error::py37-lite wheel should not contain compiled _core extension"
             exit 1
           fi
-          echo "OK: no _core extension in py37-lite wheel"
+          echo "OK: no compiled _core extension in py37-lite wheel"
       - name: Upload py37-lite wheel artifact
         uses: actions/upload-artifact@v7
         with:
