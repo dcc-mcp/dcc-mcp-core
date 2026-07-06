@@ -545,12 +545,7 @@ else:
             self._main_thread_executor = bool(ready)
 
         def is_ready(self) -> bool:
-            return (
-                self._process
-                and self._dcc
-                and self._skill_catalog
-                and self._dispatcher
-            )
+            return self._process and self._dcc and self._skill_catalog and self._dispatcher
 
         def report(self) -> dict[str, bool]:
             return {
