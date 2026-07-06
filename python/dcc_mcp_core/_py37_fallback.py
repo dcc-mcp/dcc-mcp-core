@@ -3,7 +3,8 @@
 When ``dcc_mcp_core._core`` is available (full Rust build), this module
 re-exports the compiled versions.  When ``_core`` is absent (py37-lite
 wheel), it provides pure-Python implementations of ``parse_skill_md``,
-``DccCapabilities``, ``PyPumpedDispatcher``, and ``scan_and_load_strict``
+``DccCapabilities``, ``PyPumpedDispatcher``, ``scan_and_load_strict``,
+``GuiExecutableHint``, ``is_gui_executable``, and ``correct_python_executable``
 so that downstream adapters such as ``dcc_mcp_maya`` can import successfully.
 
 Convention: every symbol exported here is an ``_core``-only symbol that
@@ -13,9 +14,12 @@ equivalent elsewhere in the tree.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
+from typing import Optional
 from typing import Sequence
+from typing import Tuple
 
 # ── Probe whether _core is available ─────────────────────────────────
 
@@ -44,16 +48,22 @@ if _probe_core():
 
     _core = importlib.import_module("dcc_mcp_core._core")
 
-    # Re-export the three symbols from _core
+    # Re-export py37-lite symbols from _core when the extension is present.
     DccCapabilities = _core.DccCapabilities
     PyPumpedDispatcher = _core.PyPumpedDispatcher
+    GuiExecutableHint = _core.GuiExecutableHint
     parse_skill_md = _core.parse_skill_md
     scan_and_load_strict = _core.scan_and_load_strict
+    correct_python_executable = _core.correct_python_executable
+    is_gui_executable = _core.is_gui_executable
 
     def __dir__() -> list[str]:
         return [
             "DccCapabilities",
+            "GuiExecutableHint",
             "PyPumpedDispatcher",
+            "correct_python_executable",
+            "is_gui_executable",
             "parse_skill_md",
             "scan_and_load_strict",
         ]
@@ -392,3 +402,92 @@ else:
                 )
             )
         return ordered, []
+
+    # ── DCC GUI executable detection (issue #524 / maya#125) ─────────
+
+    _GUI_BINARY_ROWS: Tuple[Tuple[Tuple[str, ...], str, Tuple[str, ...]], ...] = (
+        (("maya", "maya.bin"), "maya", ("mayapy",)),
+        (("houdini", "houdinifx", "houdinicore"), "houdini", ("hython",)),
+        (("unrealeditor",), "unreal", ("unrealeditor-cmd",)),
+        (("blender",), "blender", ()),
+        (("3dsmax",), "3dsmax", ()),
+        (("nuke", "nukestudio"), "nuke", ()),
+        (("modo",), "modo", ()),
+        (("motionbuilder",), "motionbuilder", ()),
+        (("cinema4d", "c4d"), "c4d", ()),
+        (("katana",), "katana", ()),
+    )
+
+    def _lowercase_stem(path: Path) -> Optional[str]:
+        stem = path.stem
+        if not stem:
+            return None
+        return stem.lower()
+
+    def _real_case(parent: Path, candidate: Path) -> Optional[Path]:
+        target_name = candidate.name.lower()
+        try:
+            entries = os.listdir(str(parent))
+        except OSError:
+            return None
+        for entry in entries:
+            if entry.lower() == target_name:
+                return parent / entry
+        return None
+
+    def _locate_sibling(gui_path: Path, stems: Sequence[str]) -> Optional[Path]:
+        if not stems:
+            return None
+        parent = gui_path.parent
+        if not parent.is_dir():
+            return None
+        extension = gui_path.suffix
+        for stem in stems:
+            candidate = parent / stem
+            if extension:
+                candidate = candidate.with_suffix(extension)
+            if candidate.exists():
+                return _real_case(parent, candidate) or candidate
+            found = _real_case(parent, candidate)
+            if found is not None:
+                return found
+        return None
+
+    class GuiExecutableHint:
+        """Pure-Python fallback for the Rust ``GuiExecutableHint``."""
+
+        __slots__ = ("dcc_kind", "gui_path", "recommended_replacement")
+
+        def __init__(
+            self,
+            gui_path: Path,
+            dcc_kind: str,
+            recommended_replacement: Optional[Path] = None,
+        ) -> None:
+            self.gui_path = gui_path
+            self.dcc_kind = dcc_kind
+            self.recommended_replacement = recommended_replacement
+
+    def is_gui_executable(path: str) -> Optional[GuiExecutableHint]:
+        """Return a hint when ``path`` looks like a known DCC GUI binary."""
+        probe = Path(path)
+        stem = _lowercase_stem(probe)
+        if stem is None:
+            return None
+        for stems, dcc_kind, sibling_stems in _GUI_BINARY_ROWS:
+            if stem in stems:
+                replacement = _locate_sibling(probe, sibling_stems)
+                return GuiExecutableHint(
+                    gui_path=probe,
+                    dcc_kind=dcc_kind,
+                    recommended_replacement=replacement,
+                )
+        return None
+
+    def correct_python_executable(path: str) -> Path:
+        """Return a headless-Python sibling when one exists, else ``path``."""
+        probe = Path(path)
+        hint = is_gui_executable(path)
+        if hint is not None and hint.recommended_replacement is not None:
+            return hint.recommended_replacement
+        return probe
