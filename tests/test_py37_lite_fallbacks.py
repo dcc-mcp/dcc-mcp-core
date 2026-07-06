@@ -235,3 +235,42 @@ def test_fallback_imports_from_top_level(monkeypatch) -> None:
     # PyPumpedDispatcher should come from _py37_fallback
     disp = dcc_mcp_core.PyPumpedDispatcher()
     assert disp.budget_ms == 8
+
+    # scan_and_load_strict should come from _py37_fallback
+    strict = dcc_mcp_core.scan_and_load_strict
+    assert callable(strict)
+
+
+def test_scan_and_load_strict_fallback(monkeypatch, tmp_path) -> None:
+    """scan_and_load_strict works without _core (py37-lite)."""
+    modules = _import_without_core(
+        monkeypatch,
+        "dcc_mcp_core._py37_fallback",
+    )
+    fallback = modules["dcc_mcp_core._py37_fallback"]
+
+    good = tmp_path / "good-skill"
+    good.mkdir()
+    (good / "SKILL.md").write_text(
+        "---\nname: good-skill\ndescription: ok\ndcc: maya\n---\n# Good\n",
+        encoding="utf-8",
+    )
+
+    bad = tmp_path / "bad-skill"
+    bad.mkdir()
+    (bad / "SKILL.md").write_text("# missing frontmatter\n", encoding="utf-8")
+
+    skills, skipped = fallback.scan_and_load_strict(extra_paths=[str(good)])
+    assert len(skills) == 1
+    assert skills[0].name == "good-skill"
+    assert skipped == []
+
+    try:
+        fallback.scan_and_load_strict(extra_paths=[str(tmp_path)])
+    except ValueError as exc:
+        message = str(exc)
+        assert "Strict scan rejected 1 directory" in message
+        assert "bad-skill" in message
+        assert "scan_and_load_lenient" in message
+    else:
+        raise AssertionError("Expected ValueError for bad-skill directory")
