@@ -15,10 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from typing import List
-from typing import Optional
 from typing import Sequence
-from typing import Set
 
 # ── Probe whether _core is available ─────────────────────────────────
 
@@ -293,9 +290,9 @@ else:
         def __repr__(self) -> str:
             return f"PyPumpedDispatcher(pending=0, budget_ms={self.budget_ms})"
 
-    def _discover_skill_directories(extra_paths: Optional[Sequence[str]]) -> List[str]:
-        discovered: List[str] = []
-        seen: Set[str] = set()
+    def _discover_skill_directories(extra_paths: Sequence[str] | None) -> list[str]:
+        discovered: list[str] = []
+        seen: set[str] = set()
         for raw in extra_paths or ():
             root = Path(raw)
             if not root.is_dir():
@@ -314,8 +311,8 @@ else:
                 discovered.append(str(candidate))
         return discovered
 
-    def _missing_explicit_child_skill_md(extra_paths: Optional[Sequence[str]]) -> List[str]:
-        missing: List[str] = []
+    def _missing_explicit_child_skill_md(extra_paths: Sequence[str] | None) -> list[str]:
+        missing: list[str] = []
         for raw in extra_paths or ():
             root = Path(raw)
             if not root.is_dir() or (root / "SKILL.md").is_file():
@@ -325,7 +322,7 @@ else:
                     missing.append(str(child))
         return missing
 
-    def _resolve_dependencies_ordered(skills: List[Any]) -> List[Any]:
+    def _resolve_dependencies_ordered(skills: list[Any]) -> list[Any]:
         if not skills:
             return []
         by_name = {skill.name: skill for skill in skills}
@@ -333,11 +330,8 @@ else:
             for dep in skill.depends:
                 if dep not in by_name:
                     raise ValueError(
-                        "Skill '{0}' depends on '{1}', but it was not found. "
-                        "Ensure '{1}' is available in one of the skill search paths.".format(
-                            skill.name,
-                            dep,
-                        )
+                        f"Skill '{skill.name}' depends on '{dep}', but it was not found. "
+                        f"Ensure '{dep}' is available in one of the skill search paths."
                     )
         in_degree = {skill.name: 0 for skill in skills}
         dependents = {skill.name: [] for skill in skills}
@@ -347,7 +341,7 @@ else:
                     in_degree[skill.name] += 1
                     dependents[dep].append(skill.name)
         queue = sorted(name for name, degree in in_degree.items() if degree == 0)
-        ordered_names: List[str] = []
+        ordered_names: list[str] = []
         while queue:
             name = queue.pop(0)
             ordered_names.append(name)
@@ -361,12 +355,12 @@ else:
         return [by_name[name] for name in ordered_names]
 
     def scan_and_load_strict(
-        extra_paths: Optional[Sequence[str]] = None,
-        dcc_name: Optional[str] = None,
-    ) -> tuple[List[Any], List[str]]:
+        extra_paths: Sequence[str] | None = None,
+        dcc_name: str | None = None,
+    ) -> tuple[list[Any], list[str]]:
         dirs = _discover_skill_directories(extra_paths)
-        skills: List[Any] = []
-        skipped: List[str] = []
+        skills: list[Any] = []
+        skipped: list[str] = []
         for dir_str in dirs:
             lines = (Path(dir_str) / "SKILL.md").read_text(encoding="utf-8").splitlines()
             if not lines or lines[0].strip() != "---":
@@ -390,7 +384,7 @@ else:
                 skipped.append(dir_str)
         if skipped:
             raise ValueError(
-                "Strict scan rejected {0} directory/directories that failed to load: {1}. "
+                "Strict scan rejected {} directory/directories that failed to load: {}. "
                 "Inspect the SKILL.md files for missing/invalid YAML frontmatter or "
                 "re-run with scan_and_load_lenient to tolerate them.".format(
                     len(skipped),
