@@ -228,7 +228,7 @@ _LAZY: dict[str, str] = {
     "resolve_dependencies": "dcc_mcp_core._core",
     "scan_and_load": "dcc_mcp_core._core",
     "scan_and_load_lenient": "dcc_mcp_core._core",
-    "scan_and_load_strict": "dcc_mcp_core._core",
+    "scan_and_load_strict": "dcc_mcp_core._py37_fallback",
     "scan_and_load_team": "dcc_mcp_core._core",
     "scan_and_load_team_lenient": "dcc_mcp_core._core",
     "scan_and_load_user": "dcc_mcp_core._core",

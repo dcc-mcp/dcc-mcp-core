@@ -3,8 +3,8 @@
 When ``dcc_mcp_core._core`` is available (full Rust build), this module
 re-exports the compiled versions.  When ``_core`` is absent (py37-lite
 wheel), it provides pure-Python implementations of ``parse_skill_md``,
-``DccCapabilities``, and ``PyPumpedDispatcher`` so that downstream
-adapters such as ``dcc_mcp_maya`` can import successfully.
+``DccCapabilities``, ``PyPumpedDispatcher``, and ``scan_and_load_strict``
+so that downstream adapters such as ``dcc_mcp_maya`` can import successfully.
 
 Convention: every symbol exported here is an ``_core``-only symbol that
 the Maya adapter imports at package load time and that has no pure-Python
@@ -15,6 +15,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from typing import List
+from typing import Optional
+from typing import Sequence
+from typing import Set
 
 # ── Probe whether _core is available ─────────────────────────────────
 
@@ -47,9 +51,15 @@ if _probe_core():
     DccCapabilities = _core.DccCapabilities
     PyPumpedDispatcher = _core.PyPumpedDispatcher
     parse_skill_md = _core.parse_skill_md
+    scan_and_load_strict = _core.scan_and_load_strict
 
     def __dir__() -> list[str]:
-        return ["DccCapabilities", "PyPumpedDispatcher", "parse_skill_md"]
+        return [
+            "DccCapabilities",
+            "PyPumpedDispatcher",
+            "parse_skill_md",
+            "scan_and_load_strict",
+        ]
 
 else:
     # ── Pure-Python fallbacks (only when _core is absent) ────────────
@@ -282,3 +292,109 @@ else:
 
         def __repr__(self) -> str:
             return f"PyPumpedDispatcher(pending=0, budget_ms={self.budget_ms})"
+
+    def _discover_skill_directories(extra_paths: Optional[Sequence[str]]) -> List[str]:
+        discovered: List[str] = []
+        seen: Set[str] = set()
+        for raw in extra_paths or ():
+            root = Path(raw)
+            if not root.is_dir():
+                continue
+            if (root / "SKILL.md").is_file():
+                candidates = [root]
+            else:
+                candidates = [child for child in root.iterdir() if child.is_dir()]
+            for candidate in sorted(candidates, key=lambda path: path.name):
+                if not (candidate / "SKILL.md").is_file():
+                    continue
+                key = str(candidate.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                discovered.append(str(candidate))
+        return discovered
+
+    def _missing_explicit_child_skill_md(extra_paths: Optional[Sequence[str]]) -> List[str]:
+        missing: List[str] = []
+        for raw in extra_paths or ():
+            root = Path(raw)
+            if not root.is_dir() or (root / "SKILL.md").is_file():
+                continue
+            for child in root.iterdir():
+                if child.is_dir() and not (child / "SKILL.md").is_file():
+                    missing.append(str(child))
+        return missing
+
+    def _resolve_dependencies_ordered(skills: List[Any]) -> List[Any]:
+        if not skills:
+            return []
+        by_name = {skill.name: skill for skill in skills}
+        for skill in skills:
+            for dep in skill.depends:
+                if dep not in by_name:
+                    raise ValueError(
+                        "Skill '{0}' depends on '{1}', but it was not found. "
+                        "Ensure '{1}' is available in one of the skill search paths.".format(
+                            skill.name,
+                            dep,
+                        )
+                    )
+        in_degree = {skill.name: 0 for skill in skills}
+        dependents = {skill.name: [] for skill in skills}
+        for skill in skills:
+            for dep in skill.depends:
+                if dep in by_name:
+                    in_degree[skill.name] += 1
+                    dependents[dep].append(skill.name)
+        queue = sorted(name for name, degree in in_degree.items() if degree == 0)
+        ordered_names: List[str] = []
+        while queue:
+            name = queue.pop(0)
+            ordered_names.append(name)
+            for child in dependents[name]:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    queue.append(child)
+            queue.sort()
+        if len(ordered_names) != len(skills):
+            raise ValueError("Circular dependency detected")
+        return [by_name[name] for name in ordered_names]
+
+    def scan_and_load_strict(
+        extra_paths: Optional[Sequence[str]] = None,
+        dcc_name: Optional[str] = None,
+    ) -> tuple[List[Any], List[str]]:
+        dirs = _discover_skill_directories(extra_paths)
+        skills: List[Any] = []
+        skipped: List[str] = []
+        for dir_str in dirs:
+            lines = (Path(dir_str) / "SKILL.md").read_text(encoding="utf-8").splitlines()
+            if not lines or lines[0].strip() != "---":
+                skipped.append(dir_str)
+                continue
+            try:
+                meta = parse_skill_md(dir_str)
+            except Exception:
+                skipped.append(dir_str)
+                continue
+            if meta is None:
+                skipped.append(dir_str)
+                continue
+            if dcc_name and meta.dcc and meta.dcc != dcc_name:
+                continue
+            skills.append(meta)
+
+        ordered = _resolve_dependencies_ordered(skills)
+        for dir_str in _missing_explicit_child_skill_md(extra_paths):
+            if dir_str not in skipped:
+                skipped.append(dir_str)
+        if skipped:
+            raise ValueError(
+                "Strict scan rejected {0} directory/directories that failed to load: {1}. "
+                "Inspect the SKILL.md files for missing/invalid YAML frontmatter or "
+                "re-run with scan_and_load_lenient to tolerate them.".format(
+                    len(skipped),
+                    ", ".join(skipped),
+                )
+            )
+        return ordered, []
