@@ -244,6 +244,57 @@ def test_fallback_imports_from_top_level(monkeypatch) -> None:
     assert callable(dcc_mcp_core.is_gui_executable)
     assert callable(dcc_mcp_core.correct_python_executable)
 
+    # ReadinessProbe should come from _py37_fallback
+    probe = dcc_mcp_core.ReadinessProbe()
+    assert probe.report()["process"] is True
+    assert probe.is_ready() is False
+
+
+def test_readiness_probe_fallback_without_core(monkeypatch) -> None:
+    """ReadinessProbe and AdapterReadinessBinder work without _core (py37-lite)."""
+    modules = _import_without_core(
+        monkeypatch,
+        "dcc_mcp_core._py37_fallback",
+        "dcc_mcp_core.readiness",
+    )
+    fallback = modules["dcc_mcp_core._py37_fallback"]
+    readiness = modules["dcc_mcp_core.readiness"]
+
+    probe = fallback.ReadinessProbe()
+    report = probe.report()
+    assert report["process"] is True
+    assert report["dcc"] is False
+    assert report["skill_catalog"] is True
+    assert report["dispatcher"] is False
+    assert report["host_execution_bridge"] is False
+    assert report["main_thread_executor"] is False
+    assert probe.is_ready() is False
+
+    probe.set_dispatcher_ready(True)
+    probe.set_dcc_ready(True)
+    assert probe.is_ready() is True
+
+    probe.set_host_execution_bridge_ready(True)
+    probe.set_main_thread_executor_ready(True)
+    report = probe.report()
+    assert report["host_execution_bridge"] is True
+    assert report["main_thread_executor"] is True
+
+    full = fallback.ReadinessProbe.fully_ready()
+    assert all(full.report().values())
+
+    class _FakeServer:
+        def __init__(self) -> None:
+            self.probe = None
+
+        def set_readiness_probe(self, probe_obj: object) -> None:
+            self.probe = probe_obj
+
+    server = _FakeServer()
+    binder = readiness.AdapterReadinessBinder.bind_inline(server)
+    assert binder.probe.is_ready() is True
+    assert server.probe is binder.probe
+
 
 def test_gui_executable_fallback(monkeypatch, tmp_path) -> None:
     """is_gui_executable / correct_python_executable work without _core."""

@@ -96,7 +96,7 @@ _LAZY: dict[str, str] = {
     "PySharedSceneBuffer": "dcc_mcp_core._core",
     "PyStandaloneDispatcher": "dcc_mcp_core._core",
     "RateLimitMiddleware": "dcc_mcp_core._core",
-    "ReadinessProbe": "dcc_mcp_core._core",
+    "ReadinessProbe": "dcc_mcp_core._py37_fallback",
     "AdapterReadinessBinder": "dcc_mcp_core.readiness",
     "RecordingGuard": "dcc_mcp_core._core",
     "RenderOutput": "dcc_mcp_core._core",

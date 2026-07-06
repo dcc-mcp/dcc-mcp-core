@@ -191,10 +191,13 @@ except ImportError:
 | `_runtime/config_bridge.py` | Various | (check per import) |
 | `dcc_server.py` | `SandboxContext`, `SandboxPolicy`, `ToolRecorder`, `TransportAddress` | Graceful `ImportError` — feature degrades |
 | `skill.py` | Various | (check per import) |
+| `_exports.py` | `ReadinessProbe` | `_py37_fallback` |
+| `readiness.py` | `ReadinessProbe` (via `_new_probe`) | `_py37_fallback` |
 
 **Fallback implementations**:
 
 - `host/_fallback.py` — `QueueDispatcher`, `BlockingDispatcher`, `PostHandle`, `TickOutcome`, `DispatchError`, utility functions. A fully functional pure-Python replacement used when `_core` is absent.
+- `_py37_fallback.py` — `ReadinessProbe`, `DccCapabilities`, `PyPumpedDispatcher`, `parse_skill_md`, `scan_and_load_strict`, GUI executable helpers. Re-exports from `_core` when the compiled extension is present.
 - `_typing_compat.py` — `Protocol`, `runtime_checkable`, `Literal` backports for Python 3.7 (where `typing.Protocol` is unavailable).
 - Inline `@dataclass` definitions — simple value types like `McpHttpConfig` are redefined as pure-Python `@dataclass` in the fallback path.
 
