@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.13](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.12...v0.19.13) (2026-07-06)
+
+
+### Bug Fixes
+
+* **host:** re-export _fallback dispatchers on ImportError ([#1826](https://github.com/dcc-mcp/dcc-mcp-core/issues/1826)) ([7a13528](https://github.com/dcc-mcp/dcc-mcp-core/commit/7a1352801a9519fe5a4be42e3ec9b12ff018cc12))
+
 ## [0.19.12](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.11...v0.19.12) (2026-07-06)
 
 
