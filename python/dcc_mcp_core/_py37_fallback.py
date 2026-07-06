@@ -7,6 +7,9 @@ wheel), it provides pure-Python implementations of ``parse_skill_md``,
 ``GuiExecutableHint``, ``is_gui_executable``, and ``correct_python_executable``
 so that downstream adapters such as ``dcc_mcp_maya`` can import successfully.
 
+Also provides ``ReadinessProbe`` so adapter readiness binders can start
+without importing the compiled extension.
+
 Convention: every symbol exported here is an ``_core``-only symbol that
 the Maya adapter imports at package load time and that has no pure-Python
 equivalent elsewhere in the tree.
@@ -53,12 +56,14 @@ if _probe_core():
     scan_and_load_strict = _core.scan_and_load_strict
     correct_python_executable = _core.correct_python_executable
     is_gui_executable = _core.is_gui_executable
+    ReadinessProbe = _core.ReadinessProbe
 
     def __dir__() -> list[str]:
         return [
             "DccCapabilities",
             "GuiExecutableHint",
             "PyPumpedDispatcher",
+            "ReadinessProbe",
             "correct_python_executable",
             "is_gui_executable",
             "parse_skill_md",
@@ -488,3 +493,79 @@ else:
         if hint is not None and hint.recommended_replacement is not None:
             return hint.recommended_replacement
         return probe
+
+    class ReadinessProbe:
+        """Pure-Python fallback for the Rust ``ReadinessProbe``.
+
+        Matches ``StaticReadiness`` defaults and ``is_ready()`` semantics from
+        ``dcc_mcp_skill_rest::readiness``.
+        """
+
+        def __init__(
+            self,
+            *,
+            process: bool = True,
+            dcc: bool = False,
+            skill_catalog: bool = True,
+            dispatcher: bool = False,
+            host_execution_bridge: bool = False,
+            main_thread_executor: bool = False,
+        ) -> None:
+            self._process = process
+            self._dcc = dcc
+            self._skill_catalog = skill_catalog
+            self._dispatcher = dispatcher
+            self._host_execution_bridge = host_execution_bridge
+            self._main_thread_executor = main_thread_executor
+
+        @staticmethod
+        def fully_ready() -> ReadinessProbe:
+            return ReadinessProbe(
+                process=True,
+                dcc=True,
+                skill_catalog=True,
+                dispatcher=True,
+                host_execution_bridge=True,
+                main_thread_executor=True,
+            )
+
+        def set_dispatcher_ready(self, ready: bool) -> None:
+            self._dispatcher = bool(ready)
+
+        def set_dcc_ready(self, ready: bool) -> None:
+            self._dcc = bool(ready)
+
+        def set_skill_catalog_ready(self, ready: bool) -> None:
+            self._skill_catalog = bool(ready)
+
+        def set_host_execution_bridge_ready(self, ready: bool) -> None:
+            self._host_execution_bridge = bool(ready)
+
+        def set_main_thread_executor_ready(self, ready: bool) -> None:
+            self._main_thread_executor = bool(ready)
+
+        def is_ready(self) -> bool:
+            return (
+                self._process
+                and self._dcc
+                and self._skill_catalog
+                and self._dispatcher
+            )
+
+        def report(self) -> dict[str, bool]:
+            return {
+                "process": self._process,
+                "dcc": self._dcc,
+                "skill_catalog": self._skill_catalog,
+                "dispatcher": self._dispatcher,
+                "host_execution_bridge": self._host_execution_bridge,
+                "main_thread_executor": self._main_thread_executor,
+            }
+
+        def __repr__(self) -> str:
+            report = self.report()
+            return (
+                "ReadinessProbe(process={process}, dcc={dcc}, skill_catalog={skill_catalog}, "
+                "dispatcher={dispatcher}, host_execution_bridge={host_execution_bridge}, "
+                "main_thread_executor={main_thread_executor})"
+            ).format(**report)

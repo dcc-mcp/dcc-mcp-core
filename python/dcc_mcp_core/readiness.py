@@ -24,7 +24,7 @@ DEFAULT_FIRST_PUMP_TIMEOUT_SECS = 2.0
 
 
 def _new_probe() -> Any:
-    from dcc_mcp_core import ReadinessProbe
+    from dcc_mcp_core._py37_fallback import ReadinessProbe
 
     return ReadinessProbe()
 
