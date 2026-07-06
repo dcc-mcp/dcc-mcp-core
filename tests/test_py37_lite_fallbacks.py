@@ -5,6 +5,15 @@ import os
 from pathlib import Path
 import sys
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_py37_fallback_module_after_stub_core():
+    """Drop cached ``_py37_fallback`` so xdist workers do not keep py37 bindings."""
+    yield
+    sys.modules.pop("dcc_mcp_core._py37_fallback", None)
+
 
 def _import_without_core(monkeypatch, *module_names: str):
     monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", None)
