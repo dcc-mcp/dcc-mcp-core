@@ -14,12 +14,9 @@ equivalent elsewhere in the tree.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
-from typing import Optional
 from typing import Sequence
-from typing import Tuple
 
 # ── Probe whether _core is available ─────────────────────────────────
 
@@ -405,7 +402,7 @@ else:
 
     # ── DCC GUI executable detection (issue #524 / maya#125) ─────────
 
-    _GUI_BINARY_ROWS: Tuple[Tuple[Tuple[str, ...], str, Tuple[str, ...]], ...] = (
+    _GUI_BINARY_ROWS: tuple[tuple[tuple[str, ...], str, tuple[str, ...]], ...] = (
         (("maya", "maya.bin"), "maya", ("mayapy",)),
         (("houdini", "houdinifx", "houdinicore"), "houdini", ("hython",)),
         (("unrealeditor",), "unreal", ("unrealeditor-cmd",)),
@@ -418,16 +415,16 @@ else:
         (("katana",), "katana", ()),
     )
 
-    def _lowercase_stem(path: Path) -> Optional[str]:
+    def _lowercase_stem(path: Path) -> str | None:
         stem = path.stem
         if not stem:
             return None
         return stem.lower()
 
-    def _real_case(parent: Path, candidate: Path) -> Optional[Path]:
+    def _real_case(parent: Path, candidate: Path) -> Path | None:
         target_name = candidate.name.lower()
         try:
-            entries = os.listdir(str(parent))
+            entries = [entry.name for entry in parent.iterdir()]
         except OSError:
             return None
         for entry in entries:
@@ -435,7 +432,7 @@ else:
                 return parent / entry
         return None
 
-    def _locate_sibling(gui_path: Path, stems: Sequence[str]) -> Optional[Path]:
+    def _locate_sibling(gui_path: Path, stems: Sequence[str]) -> Path | None:
         if not stems:
             return None
         parent = gui_path.parent
@@ -462,13 +459,13 @@ else:
             self,
             gui_path: Path,
             dcc_kind: str,
-            recommended_replacement: Optional[Path] = None,
+            recommended_replacement: Path | None = None,
         ) -> None:
             self.gui_path = gui_path
             self.dcc_kind = dcc_kind
             self.recommended_replacement = recommended_replacement
 
-    def is_gui_executable(path: str) -> Optional[GuiExecutableHint]:
+    def is_gui_executable(path: str) -> GuiExecutableHint | None:
         """Return a hint when ``path`` looks like a known DCC GUI binary."""
         probe = Path(path)
         stem = _lowercase_stem(probe)
