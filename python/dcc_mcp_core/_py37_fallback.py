@@ -29,16 +29,19 @@ _HAS_CORE: bool | None = None  # tri-state: None=unchecked, True/False
 def _probe_core() -> bool:
     """Return ``True`` when the compiled ``_core`` extension is importable."""
     global _HAS_CORE
-    if _HAS_CORE is None:
-        import importlib
+    if _HAS_CORE is True:
+        return True
 
-        try:
-            importlib.import_module("dcc_mcp_core._core")
-        except ImportError:
-            _HAS_CORE = False
-        else:
-            _HAS_CORE = True
-    return _HAS_CORE
+    import importlib
+
+    try:
+        importlib.import_module("dcc_mcp_core._core")
+    except ImportError:
+        _HAS_CORE = False
+        return False
+
+    _HAS_CORE = True
+    return True
 
 
 # ── Re-export from _core when available ──────────────────────────────
