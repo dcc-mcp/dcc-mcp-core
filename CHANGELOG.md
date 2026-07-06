@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.14](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.13...v0.19.14) (2026-07-06)
+
+
+### Bug Fixes
+
+* **py37-lite:** add ReadinessProbe pure-Python fallback ([5e6d9a1](https://github.com/dcc-mcp/dcc-mcp-core/commit/5e6d9a1576c64940546cf8cec45980d73a5dec90))
+* **readiness:** prefer _core ReadinessProbe for PyO3 server wiring ([871ed90](https://github.com/dcc-mcp/dcc-mcp-core/commit/871ed907a45bdbc73d22199f2344f678ad498fd2))
+* **tests:** reset py37 fallback cache to avoid xdist probe pollution ([9ec9add](https://github.com/dcc-mcp/dcc-mcp-core/commit/9ec9add82a0fee30ba6a67a78d7ba4b5976f1600))
+
 ## [0.19.13](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.12...v0.19.13) (2026-07-06)
 
 
