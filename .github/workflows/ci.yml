@@ -525,12 +525,14 @@ jobs:
           from dcc_mcp_core.host import StandaloneHost
           from dcc_mcp_core.host._fallback import BlockingDispatcher as FallbackBlockingDispatcher
           from dcc_mcp_core.host._fallback import QueueDispatcher as FallbackQueueDispatcher
-          assert BlockingDispatcher is None
-          assert QueueDispatcher is None
-          dispatcher = FallbackQueueDispatcher()
+          assert BlockingDispatcher is FallbackBlockingDispatcher, \
+              f"BlockingDispatcher should re-export _fallback, got {BlockingDispatcher}"
+          assert QueueDispatcher is FallbackQueueDispatcher, \
+              f"QueueDispatcher should re-export _fallback, got {QueueDispatcher}"
+          dispatcher = BlockingDispatcher()
           with StandaloneHost(dispatcher):
               assert dispatcher.post(lambda: 42).wait(timeout=2.0) == 42
-          blocking = FallbackBlockingDispatcher()
+          blocking = QueueDispatcher()
           with StandaloneHost(blocking):
               assert blocking.post(lambda: 'ok').wait(timeout=2.0) == 'ok'
           from dcc_mcp_core.host._adapter import HostAdapter, TickableDispatcher
