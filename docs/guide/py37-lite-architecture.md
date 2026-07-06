@@ -121,14 +121,18 @@ There are two acceptable variants, depending on whether the module wants to surf
 try:
     from dcc_mcp_core._core import BlockingDispatcher
     from dcc_mcp_core._core import DispatchError
+    from dcc_mcp_core._core import PostHandle
     from dcc_mcp_core._core import QueueDispatcher
+    from dcc_mcp_core._core import TickOutcome
 except ImportError:
-    BlockingDispatcher = None
-    DispatchError = None
-    QueueDispatcher = None
+    from dcc_mcp_core.host._fallback import BlockingDispatcher
+    from dcc_mcp_core.host._fallback import DispatchError
+    from dcc_mcp_core.host._fallback import PostHandle
+    from dcc_mcp_core.host._fallback import QueueDispatcher
+    from dcc_mcp_core.host._fallback import TickOutcome
 ```
 
-Callers check `is None` to detect absence.
+Callers import from the public surface and get working classes on py37-lite.
 
 **B. Internal fallback (for implementation modules)**:
 
@@ -174,7 +178,7 @@ except ImportError:
 
 | File | Imports from `_core` | Fallback source |
 |------|---------------------|-----------------|
-| `host/__init__.py` | `BlockingDispatcher`, `DispatchError`, `PostHandle`, `QueueDispatcher`, `TickOutcome` | Sets to `None` |
+| `host/__init__.py` | `BlockingDispatcher`, `DispatchError`, `PostHandle`, `QueueDispatcher`, `TickOutcome` | `host/_fallback` |
 | `host/_standalone.py` | `BlockingDispatcher`, `QueueDispatcher` | `host/_fallback` |
 | `host/_protocols.py` | `TickOutcome` | `host/_fallback` |
 | `host/_wire.py` | `normalize_tool_arguments`, `normalize_tool_meta` | Inline pure-Python functions |
@@ -392,7 +396,7 @@ Python 3.7 is not available in the `actions/setup-python` tool cache on `ubuntu-
 - [scripts/check_py37_syntax.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/scripts/check_py37_syntax.py) — Syntax gate.
 - [scripts/run_with_py37.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/scripts/run_with_py37.py) — Local 3.7 runner helper.
 - [host/_fallback.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_fallback.py) — Pure-Python dispatcher fallback.
-- [host/__init__.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/__init__.py) — Re-export with fallback to `None`.
+- [host/__init__.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/__init__.py) — Re-export with `_fallback` on `ImportError`.
 - [host/_standalone.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_standalone.py) — Import fallback at use site.
 - [host/_protocols.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_protocols.py) — `TickOutcome` fallback.
 - [_typing_compat.py](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/_typing_compat.py) — Protocol/Literal backport.

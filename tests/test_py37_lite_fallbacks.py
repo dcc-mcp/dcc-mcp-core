@@ -29,19 +29,19 @@ def test_host_namespace_falls_back_without_core(monkeypatch) -> None:
     host = modules["dcc_mcp_core.host"]
     fallback = modules["dcc_mcp_core.host._fallback"]
 
-    assert host.BlockingDispatcher is None
-    assert host.QueueDispatcher is None
-    assert host.PostHandle is None
-    assert host.TickOutcome is None
-    assert host.DispatchError is None
+    assert host.BlockingDispatcher is fallback.BlockingDispatcher
+    assert host.QueueDispatcher is fallback.QueueDispatcher
+    assert host.PostHandle is fallback.PostHandle
+    assert host.TickOutcome is fallback.TickOutcome
+    assert host.DispatchError is fallback.DispatchError
 
-    dispatcher = fallback.QueueDispatcher()
+    dispatcher = host.QueueDispatcher()
     assert dispatcher.tick().jobs_executed == 0
 
     with host.StandaloneHost(dispatcher):
         assert dispatcher.post(lambda: 42).wait(timeout=2.0) == 42
 
-    blocking = fallback.BlockingDispatcher()
+    blocking = host.BlockingDispatcher()
     with host.StandaloneHost(blocking):
         assert blocking.post(lambda: "ok").wait(timeout=2.0) == "ok"
 

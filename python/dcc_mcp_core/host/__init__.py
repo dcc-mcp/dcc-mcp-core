@@ -31,11 +31,11 @@ try:
     from dcc_mcp_core._core import QueueDispatcher
     from dcc_mcp_core._core import TickOutcome
 except ImportError:
-    BlockingDispatcher = None
-    DispatchError = None
-    PostHandle = None
-    QueueDispatcher = None
-    TickOutcome = None
+    from dcc_mcp_core.host._fallback import BlockingDispatcher
+    from dcc_mcp_core.host._fallback import DispatchError
+    from dcc_mcp_core.host._fallback import PostHandle
+    from dcc_mcp_core.host._fallback import QueueDispatcher
+    from dcc_mcp_core.host._fallback import TickOutcome
 from dcc_mcp_core.host._adapter import HostAdapter
 from dcc_mcp_core.host._adapter import TickableDispatcher
 from dcc_mcp_core.host._standalone import StandaloneHost
