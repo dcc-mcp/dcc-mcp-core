@@ -240,6 +240,34 @@ def test_fallback_imports_from_top_level(monkeypatch) -> None:
     strict = dcc_mcp_core.scan_and_load_strict
     assert callable(strict)
 
+    # GUI executable helpers should come from _py37_fallback
+    assert callable(dcc_mcp_core.is_gui_executable)
+    assert callable(dcc_mcp_core.correct_python_executable)
+
+
+def test_gui_executable_fallback(monkeypatch, tmp_path) -> None:
+    """is_gui_executable / correct_python_executable work without _core."""
+    modules = _import_without_core(
+        monkeypatch,
+        "dcc_mcp_core._py37_fallback",
+    )
+    fallback = modules["dcc_mcp_core._py37_fallback"]
+
+    maya = tmp_path / "maya.exe"
+    mayapy = tmp_path / "mayapy.exe"
+    maya.write_text("", encoding="utf-8")
+    mayapy.write_text("", encoding="utf-8")
+
+    hint = fallback.is_gui_executable(str(maya))
+    assert hint is not None
+    assert hint.dcc_kind == "maya"
+    assert hint.recommended_replacement == mayapy
+    assert fallback.correct_python_executable(str(maya)) == mayapy
+
+    assert fallback.is_gui_executable(str(mayapy)) is None
+    assert fallback.is_gui_executable("python.exe") is None
+    assert fallback.correct_python_executable("/usr/bin/python3") == Path("/usr/bin/python3")
+
 
 def test_scan_and_load_strict_fallback(monkeypatch, tmp_path) -> None:
     """scan_and_load_strict works without _core (py37-lite)."""
