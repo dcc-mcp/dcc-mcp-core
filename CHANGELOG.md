@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.12](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.11...v0.19.12) (2026-07-06)
+
+
+### Bug Fixes
+
+* **py37-lite:** add gui executable fallbacks for mayapy import chain ([7923613](https://github.com/dcc-mcp/dcc-mcp-core/commit/7923613d33ef6874857c175fd1bf7fea4619e7d8))
+
 ## [0.19.11](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.10...v0.19.11) (2026-07-06)
 
 
