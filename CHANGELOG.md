@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.11](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.10...v0.19.11) (2026-07-06)
+
+
+### Features
+
+* **py37-lite:** add scan_and_load_strict pure-Python fallback ([1236ccd](https://github.com/dcc-mcp/dcc-mcp-core/commit/1236ccda26e7c0f0e8806dffd124a10aa43aa17e))
+
+
+### Bug Fixes
+
+* guard TelemetryConfig setup with is_telemetry_initialized check ([fa257a5](https://github.com/dcc-mcp/dcc-mcp-core/commit/fa257a59c047b8af425a7144d6628ff18a0ceb8f))
+* make OTel tracer test self-contained for xdist process isolation ([eb012b2](https://github.com/dcc-mcp/dcc-mcp-core/commit/eb012b2f878c43d3c70bb04ce10e6f1f38a71221))
+* resolve test isolation CI failures — teardown hook and py37 skip ([39613de](https://github.com/dcc-mcp/dcc-mcp-core/commit/39613dee75bfcffaae6e3077f4140aa565aaaa13))
+* **telemetry:** replace OnceLock with Mutex so init after shutdown works ([82cdb59](https://github.com/dcc-mcp/dcc-mcp-core/commit/82cdb596260c2b62351b96600ab3beb2ad2524e3))
+* **telemetry:** replace OnceLock with Mutex so init after shutdown works ([62c5283](https://github.com/dcc-mcp/dcc-mcp-core/commit/62c52830bbef120d46551c387591b358bfa67c67))
+* **tests:** centralize port allocation, add xdist CI isolation, and plug env-var leaks ([3b41c09](https://github.com/dcc-mcp/dcc-mcp-core/commit/3b41c09cce2fc9ef24caa0c8f15306277923246b))
+* **tests:** resolve ruff lint, format, and syntax errors blocking CI ([5dfaeb9](https://github.com/dcc-mcp/dcc-mcp-core/commit/5dfaeb9cd3584d5b4811e46c94cd77b654221a09))
+
 ## [0.19.10](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.9...v0.19.10) (2026-07-05)
 
 
