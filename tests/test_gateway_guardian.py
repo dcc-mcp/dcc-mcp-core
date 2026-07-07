@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
@@ -29,6 +30,15 @@ class _Resp:
 
     def __exit__(self, *_exc):
         return False
+
+
+class _JsonResp(_Resp):
+    def __init__(self, payload, status: int = 200):
+        self._payload = payload
+        self.status = status
+
+    def read(self):
+        return json.dumps(self._payload).encode("utf-8")
 
 
 def test_ensure_gateway_daemon_reports_existing_health(monkeypatch):
@@ -931,6 +941,52 @@ def test_write_and_read_sentinel_entry(tmp_path):
     assert ver == "0.18.15"
 
 
+def test_read_gateway_version_from_registry_filters_host_and_port(tmp_path):
+    """Only the sentinel for the probed gateway endpoint is authoritative."""
+    reg = tmp_path / "dcc-mcp-registry"
+    reg.mkdir()
+    (reg / "services.json").write_text(
+        json.dumps(
+            [
+                {
+                    "dcc_type": "__gateway__",
+                    "host": "127.0.0.1",
+                    "port": 9766,
+                    "version": "9.9.9",
+                },
+                {
+                    "dcc_type": "__gateway__",
+                    "host": "127.0.0.1",
+                    "port": 9765,
+                    "version": "0.18.20",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        gg._read_gateway_version_from_registry(
+            str(reg),
+            gateway_host="127.0.0.1",
+            gateway_port=9765,
+        )
+        == "0.18.20"
+    )
+
+
+def test_read_gateway_version_from_admin_health(monkeypatch):
+    """Use admin health when the registry sentinel is missing or stale."""
+
+    def _urlopen(req, **_kwargs):
+        assert req == "http://127.0.0.1:9765/admin/api/health"
+        return _JsonResp({"gateway": {"current": {"version": "0.18.20"}}})
+
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+
+    assert gg._read_gateway_version_from_admin_health("127.0.0.1", 9765) == "0.18.20"
+
+
 def test_read_gateway_version_missing_registry():
     """P0-3: _read_gateway_version_from_registry returns None for missing file."""
     assert (
@@ -985,6 +1041,45 @@ def test_try_version_takeover_returns_none_when_dev_version(monkeypatch, tmp_pat
         server_bin=None,
     )
     assert result is None
+
+
+def test_try_version_takeover_uses_admin_health_and_cooperative_yield(monkeypatch, tmp_path):
+    """A healthy old gateway without a registry sentinel can still be replaced."""
+    yield_requests = []
+    launches = []
+
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "0.19.14")
+    monkeypatch.setattr(gg, "_read_gateway_version_from_registry", lambda *a, **k: None)
+    monkeypatch.setattr(gg, "_read_gateway_version_from_admin_health", lambda *a, **k: "0.18.20")
+    monkeypatch.setattr(gg, "_request_gateway_yield", lambda *a, **k: yield_requests.append(k) or True)
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "_wait_gateway_ready", lambda *a, **k: True)
+
+    def _launch_detached(cmd, **kwargs):
+        launches.append((cmd, kwargs))
+        return {"ok": True, "pid": 4242}
+
+    monkeypatch.setattr(gg, "launch_detached", _launch_detached)
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="houdini",
+        timeout_secs=15.0,
+        gateway_persist=False,
+        gateway_idle_timeout_secs=None,
+        server_bin=None,
+    )
+
+    assert result is not None
+    assert result["ok"] is True
+    assert result["reason"] == "version_takeover_spawned"
+    assert result["old_version"] == "0.18.20"
+    assert result["new_version"] == "0.19.14"
+    assert yield_requests[0]["challenger_version"] == "0.19.14"
+    assert launches[0][0][:2] == ["dcc-mcp-server", "gateway"]
 
 
 # ---------------------------------------------------------------------------

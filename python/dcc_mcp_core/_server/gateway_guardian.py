@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 from typing import Callable
 from urllib.error import HTTPError
 from urllib.error import URLError
+from urllib.request import Request
 from urllib.request import urlopen
 
 from dcc_mcp_core.daemon_launch import launch_detached
@@ -38,6 +40,71 @@ def _is_healthy(host: str, port: int, timeout: float) -> bool:
             return int(getattr(resp, "status", 0)) == 200
     except HTTPError as err:
         return int(getattr(err, "code", 0)) == 200
+    except (URLError, OSError, ValueError):
+        return False
+
+
+def _read_gateway_version_from_admin_health(
+    gateway_host: str,
+    gateway_port: int,
+    *,
+    timeout: float = 0.5,
+) -> str | None:
+    """Best-effort version probe from the running gateway's admin health API."""
+    url = f"http://{gateway_host}:{gateway_port}/admin/api/health"
+    try:
+        with urlopen(url, timeout=timeout) as resp:
+            if int(getattr(resp, "status", 0)) != 200:
+                return None
+            raw = resp.read()
+        payload = json.loads(raw.decode("utf-8")) if raw else {}
+    except (HTTPError, URLError, OSError, ValueError, AttributeError, UnicodeDecodeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    version = payload.get("version")
+    if isinstance(version, str) and version.strip():
+        return version.strip()
+    gateway = payload.get("gateway")
+    if isinstance(gateway, dict):
+        current = gateway.get("current")
+        if isinstance(current, dict):
+            version = current.get("version")
+            if isinstance(version, str) and version.strip():
+                return version.strip()
+    return None
+
+
+def _request_gateway_yield(
+    gateway_host: str,
+    gateway_port: int,
+    *,
+    challenger_version: str,
+    reason: str,
+    timeout: float = 1.0,
+) -> bool:
+    """Ask a running gateway to voluntarily release its port."""
+    url = f"http://{gateway_host}:{gateway_port}/gateway/yield"
+    body = json.dumps(
+        {
+            "challenger_version": challenger_version,
+            "reason": reason,
+            "suggested_successor": "python-gateway-guardian",
+        }
+    ).encode("utf-8")
+    req = Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            status = int(getattr(resp, "status", 0))
+            return 200 <= status < 300
+    except HTTPError as err:
+        return 200 <= int(getattr(err, "code", 0)) < 300
     except (URLError, OSError, ValueError):
         return False
 
@@ -242,6 +309,11 @@ def _try_version_takeover(
         gateway_host=gateway_host,
         gateway_port=gateway_port,
     )
+    if gateway_version is None:
+        gateway_version = _read_gateway_version_from_admin_health(
+            gateway_host,
+            gateway_port,
+        )
     if gateway_version is None or not _is_newer_version(our_version, gateway_version):
         # Running gateway is same or newer — no takeover needed.
         return None
@@ -252,7 +324,15 @@ def _try_version_takeover(
         gateway_version,
     )
 
-    # Write sentinel entry so the gateway's 15 s cleanup loop triggers a yield.
+    cooperative_yield_requested = _request_gateway_yield(
+        gateway_host,
+        gateway_port,
+        challenger_version=our_version,
+        reason="python_gateway_guardian_version_takeover",
+    )
+
+    # Write sentinel entry so gateways without /gateway/yield can still notice
+    # the newer challenger from their 15 s cleanup loop.
     sentinel_ok = _write_sentinel_entry(
         registry_dir,
         gateway_host=gateway_host,
@@ -260,8 +340,8 @@ def _try_version_takeover(
         crate_version=our_version,
         adapter_dcc=dcc_type if dcc_type else None,
     )
-    if not sentinel_ok:
-        logger.warning("version takeover: failed to write sentinel entry; skipping takeover")
+    if not cooperative_yield_requested and not sentinel_ok:
+        logger.warning("version takeover: failed to request yield or write sentinel; skipping takeover")
         return None
 
     # Wait for the old gateway to yield (up to ~20 s for the 15 s cleanup interval + grace).
@@ -746,6 +826,13 @@ def _read_gateway_version_from_registry(
             if not isinstance(entry, dict):
                 continue
             if entry.get("dcc_type") == "__gateway__":
+                if entry.get("host") != gateway_host:
+                    continue
+                try:
+                    if int(entry.get("port", 0)) != int(gateway_port):
+                        continue
+                except (TypeError, ValueError):
+                    continue
                 version = entry.get("version")
                 if isinstance(version, str):
                     return version
