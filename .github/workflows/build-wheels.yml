@@ -38,9 +38,33 @@ concurrency:
 
 permissions:
   contents: write
+  packages: read
+
+env:
+  PY37_CI_IMAGE: ghcr.io/dcc-mcp/dcc-mcp-py37@sha256:1dd8fba0da3f2a70ce44f55aee7cf08ee3d67768367deb3985a4f70779687ac5
+  PY37_WHEEL_FEATURES: python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite,admin
 
 jobs:
   # ── ABI3 builds (Python 3.8+) — one wheel works for all 3.8+ ──
+
+  admin-ui-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
+      - name: Build admin UI bundle
+        shell: bash
+        run: scripts/release/prebuild_admin_ui.sh
+      - name: Upload admin UI bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
   linux:
     runs-on: ubuntu-latest
@@ -107,51 +131,50 @@ jobs:
           tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
-  # ── py37-lite: pure-Python wheel (py3-none-any) for Python 3.7 ──
-  # Maya 2022 / Blender 2.83 embed Python 3.7 and cannot load cp38-abi3
-  # wheels. scripts/build_py37_pure_wheel.py assembles a py3-none-any wheel
-  # from python/dcc_mcp_core without maturin, Rust, or just (just>=1.0 is
-  # unavailable on Python 3.7 and previously blocked release PyPI publish).
-  py37-lite:
-    runs-on: ubuntu-22.04
+  # ── Native Linux cp37 wheel for supported Python 3.7 DCC hosts ──
+  # Built in the canonical GHCR image pinned by digest. The py37-lite fallback
+  # remains tested below, but release uploads must come from this native lane.
+  linux-py37:
+    runs-on: ubuntu-latest
+    needs: [admin-ui-bundle]
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.checkout-ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - name: Download admin UI bundle
+        uses: actions/download-artifact@v8
         with:
-          python-version: "3.7"
-      - name: Build py37-lite pure-Python wheel
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build native py37 wheel
         run: |
-          python -m pip install --upgrade pip wheel
-          python scripts/build_py37_pure_wheel.py
+          docker run --rm \
+            -v "$PWD:/io" \
+            -w /io \
+            -e DCC_MCP_ADMIN_UI_PREBUILT=1 \
+            -e PY37_WHEEL_FEATURES \
+            "$PY37_CI_IMAGE" \
+            sh -lc 'maturin build --release --out dist --features "$PY37_WHEEL_FEATURES" -i python3.7'
         shell: bash
-      - name: Verify wheel tag is py3-none-any
+      - name: Verify wheel tag is native cp37
         shell: bash
         run: |
           wheel=$(ls dist/*.whl | head -1)
           echo "Built wheel: $wheel"
-          if [[ "$wheel" != *py3-none-any* ]]; then
-            echo "::error::Expected py3-none-any wheel tag, got: $wheel"
+          if [[ "$wheel" != *cp37-cp37m* ]]; then
+            echo "::error::Expected native cp37-cp37m wheel tag, got: $wheel"
             exit 1
           fi
-          echo "OK: py3-none-any wheel tag confirmed"
-      - name: Verify _core extension is NOT present in the wheel
-        shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          # Match compiled extensions only; _core.pyi stub is expected in py37-lite wheels.
-          if unzip -l "$wheel" | grep -E '_core\.(so|pyd|dll|dylib)'; then
-            echo "::error::py37-lite wheel should not contain compiled _core extension"
-            exit 1
-          fi
-          echo "OK: no compiled _core extension in py37-lite wheel"
-      - name: Upload py37-lite wheel artifact
+          unzip -l "$wheel" | grep -E '_core\..*\.so'
+          echo "OK: native cp37 wheel tag and _core extension confirmed"
+      - name: Upload native py37 wheel artifact
         uses: actions/upload-artifact@v7
         with:
-          name: wheels-py37-lite
+          name: wheels-linux-x86_64-py37
           path: dist/
           retention-days: 30
       - name: Upload wheel to GitHub Release
@@ -160,6 +183,43 @@ jobs:
         with:
           tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
+
+  py37-lite-fallback:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - name: Build py37-lite fallback wheel
+        run: |
+          python -m pip install --upgrade pip wheel
+          python scripts/build_py37_pure_wheel.py
+        shell: bash
+      - name: Verify fallback wheel has no compiled _core
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *py3-none-any* ]]; then
+            echo "::error::Expected py3-none-any fallback wheel tag, got: $wheel"
+            exit 1
+          fi
+          if unzip -l "$wheel" | grep -E '_core\.(so|pyd|dll|dylib)'; then
+            echo "::error::py37-lite fallback wheel should not contain compiled _core extension"
+            exit 1
+          fi
+          echo "OK: py37-lite fallback wheel remains pure Python"
+      - name: Upload py37-lite fallback wheel artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-py37-lite-fallback
+          path: dist/
+          retention-days: 30
 
   macos:
     runs-on: macos-latest
