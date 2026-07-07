@@ -187,6 +187,14 @@ canonical tags. For example, Autodesk Product Help should use `docs`,
 production-tracking search unless the user explicitly asks for help or reference
 material.
 
+### Python 3.7 Policy
+
+All authored skills must declare `compatibility: "Python 3.7+"` in their
+frontmatter until the policy deadline (`2026-12-31`). This applies to every
+skill that is installed into a DCC host embedding Python 3.7 (Maya 2022,
+Blender 2.83, 3ds Max 2022, etc.). `py37-lite` fallback builds do NOT
+satisfy release gates — only native py37 compatibility counts.
+
 **Skill SKILL.md example** (frontmatter excerpt):
 
 ```yaml

@@ -589,7 +589,7 @@ docs/            # human-readable guides + API reference
 - Don't extend the JSON-RPC `match` arm in `dispatch.rs` → **register a `MethodHandler` on `MethodRouter`** (#492)
 - Don't hand-roll JSON-RPC envelopes → **`NotificationBuilder` / `JsonRpcRequestBuilder`** (#484)
 - Don't add per-crate `*Error` enums → **return `DccMcpError` via `From` impls** (#488)
-- Don't add Python runtime deps → **zero-dep by design**
+- Don't break Python 3.7 support → **supported until 2026-12-31; py37-lite is NOT valid evidence for release gates; PyO3 upgrades frozen until deadline is lifted**
 - Don't manually bump versions → **Release Please handles this**
 - Don't hardcode scope strings → **use `SkillScope` when introspecting from Python and `SkillMetadata` methods for policy checks**
 - Don't add a generic `utils` / `common` / `helpers` crate → **route helpers to their owner: domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`** ([rationale](docs/guide/agents-reference.md#workspace-boundary-rationale))

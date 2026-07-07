@@ -1775,3 +1775,53 @@ A single error enum with `From<HttpError>`, `From<ProcessError>`, … impls.
 Crates keep their domain-specific enums (`HttpError`, `ProcessError`, …) and
 convert to `DccMcpError` at the public boundary. New top-level helpers should
 return `Result<T, DccMcpError>` rather than introducing yet another error type.
+
+---
+
+## Python 3.7 Support Policy
+
+**dcc-mcp supports Python 3.7 until `2026-12-31`** unless hallong explicitly
+lifts the deadline. This constraint exists because Maya 2022, Blender 2.83,
+3ds Max 2022, and many other DCC hosts embed Python 3.7.
+
+### Why This Matters for Review/Release Agents
+
+| Role | What to check |
+|------|---------------|
+| **Merge/review gate** | Verify py37 CI is green before approving. Reject if py37 CI was skipped or replaced by `py37-lite`. |
+| **Release** | Confirm py37 wheels are built (not just py38+ wheels). Check that `requires-python = ">=3.7"` in `pyproject.toml` has not been bumped. |
+| **PR author** | Run `vx just test` on Python 3.7 before opening PR if touching Rust/PyO3/maturin wiring, Python API surface, or packaging. |
+| **Skill creator** | Set `compatibility: "dcc-mcp-core <version>, Python 3.7+"` in SKILL.md frontmatter. |
+
+### What is NOT valid
+
+- `py37-lite` / fallback wheels — native py37 builds are required for release
+  gates. A lite wheel that drops Rust extensions to support py37 without
+  compiling native code does **not** count as py37 compliance.
+- py38-only CI passing — all changes that affect the Python surface must
+  have a passing py37 CI job.
+- "Nobody uses py37 anymore" — the deadline is fixed. If you think it should
+  be lifted, raise it with hallong.
+
+### PyO3 / Maturin Constraints
+
+- **PyO3 upgrades are frozen** until the py37 deadline is lifted.
+- Any `Cargo.toml` change touching `pyo3` or `maturin` version pins requires
+  explicit py37 CI validation in the same PR.
+- When adding a new Rust extension to an existing adapter, verify that
+  `maturin build` succeeds on Python 3.7 with the current PyO3 pin.
+
+### CI Configuration
+
+The CI workflow (`.github/workflows/`) must include a Python 3.7 job for PRs
+that touch:
+
+1. `Cargo.toml` / `Cargo.lock` — workspace-level or per-crate dependency changes
+2. `pyproject.toml` — build system, dependencies, classifiers
+3. `python/` — any Python source or stub file
+4. `.github/workflows/` — CI workflow changes that could affect test matrix
+5. `crates/` — Rust source that affects the PyO3 bridge
+
+The py37 job must run the full test suite (`vx just test`), not a subset.
+If a test genuinely cannot run on 3.7 (e.g. depends on Python 3.8+ only
+features), it should be marked with `@pytest.mark.skipif(sys.version_info < (3, 8), ...)` and the skip must be documented in the PR.

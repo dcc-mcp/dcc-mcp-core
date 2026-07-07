@@ -55,6 +55,13 @@ push the change.
 - Write access to the target marketplace catalog path
 - Git (if using commit+push mode)
 
+## Release Gate — Python 3.7
+
+- **Verify py37 wheels exist** and py37 CI is green before publishing.
+- `py37-lite` fallback wheels do NOT satisfy the release gate. Native py37
+  builds are required until `2026-12-31`.
+- Confirm `requires-python = ">=3.7"` in `pyproject.toml` is unchanged.
+
 ## Workflow
 
 1. Point the tool at a local extension directory containing `SKILL.md`.
