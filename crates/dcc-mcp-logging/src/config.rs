@@ -54,7 +54,8 @@ pub fn init_logging() {
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_target(true)
-            .with_thread_names(true);
+            .with_thread_names(true)
+            .with_ansi(false);
 
         // The slot is `None` until a caller opts into file logging.
         let (file_layer, handle) =
