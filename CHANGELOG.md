@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.15](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.14...v0.19.15) (2026-07-07)
+
+
+### Bug Fixes
+
+* **ci:** add Sync ClawHub Skills to release guard workflow_run triggers ([6cf77c7](https://github.com/dcc-mcp/dcc-mcp-core/commit/6cf77c7cddc2fa6b91cfa7b06f113b44683bc541))
+* handle stale gateway takeover ([f05dcdd](https://github.com/dcc-mcp/dcc-mcp-core/commit/f05dcdd3576cb428d6796db03149784e705ad175))
+
+
+### Documentation
+
+* propagate Python 3.7 support policy to agent guidance layer ([c4b3c3f](https://github.com/dcc-mcp/dcc-mcp-core/commit/c4b3c3f1dc76dffe9c7cd8557992e005eeba5355))
+
 ## [0.19.14](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.13...v0.19.14) (2026-07-06)
 
 
