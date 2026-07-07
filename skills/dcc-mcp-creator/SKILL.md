@@ -55,6 +55,7 @@ skill taxonomy), load `dcc-mcp-skills-creator` instead.
    - [HOST_PATTERN_MATRIX.md](references/HOST_PATTERN_MATRIX.md) for host-specific wiring.
    - [CORE_ESCALATION_CHECKLIST.md](references/CORE_ESCALATION_CHECKLIST.md) before adding adapter-local glue.
     - [TESTING_AND_RELEASE.md](references/TESTING_AND_RELEASE.md) before validating or publishing.
+    - **Python 3.7 policy**: native py37 support is required until `2026-12-31`. Verify py37 CI is green and `requires-python = ">=3.7"` is unchanged before any release. `py37-lite` fallback does NOT satisfy release gates.
     - [docs/guide/gateway.md](../../docs/guide/gateway.md) for gateway daemon lifecycle details.
     - [docs/guide/adapter-install-lifecycle.md](../../docs/guide/adapter-install-lifecycle.md) for sidecar launch/readiness details.
     - [docs/guide/adapter-release-checklist.md](../../docs/guide/adapter-release-checklist.md) for release train compliance.
