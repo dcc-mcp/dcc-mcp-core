@@ -4,7 +4,7 @@
 CPython 3.7 lane:
 
 ```text
-ghcr.io/dcc-mcp/dcc-mcp-py37@sha256:1dd8fba0da3f2a70ce44f55aee7cf08ee3d67768367deb3985a4f70779687ac5
+ghcr.io/dcc-mcp/dcc-mcp-py37@sha256:cb56feaca373ce2ade71ac4855dbf8eb14653bf3bfac33ce0ad79caa31fa6e35
 ```
 
 The image is built from `.github/docker/py37-ci/Dockerfile` and must be
