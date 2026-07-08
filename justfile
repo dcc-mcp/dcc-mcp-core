@@ -19,6 +19,9 @@ DEV_FEATURES := "python-bindings,ext-module," + OPT_FEATURES
 # Feature set for abi3 release wheels (Python 3.8+)
 WHEEL_FEATURES := "python-bindings,ext-module,abi3-py38," + OPT_FEATURES
 
+# Feature set for Python 3.7 native wheels (non-abi3 — PyO3 requires >=3.8 for abi3)
+WHEEL_FEATURES_PY37 := "python-bindings,ext-module," + OPT_FEATURES
+
 default:
     @just --list
 
@@ -45,6 +48,9 @@ print-dev-features:
 
 print-wheel-features:
     @echo "{{WHEEL_FEATURES}}"
+
+print-wheel-features-py37:
+    @echo "{{WHEEL_FEATURES_PY37}}"
 
 # ── Admin UI ──────────────────────────────────────────────────────────────────
 #
@@ -200,8 +206,14 @@ build *EXTRA:
 # Uses no PyO3 features so maturin produces a wheel with only pure-Python
 # sources — no compiled _core extension. The wheel is tagged py3-none-any
 # and installable on Python 3.7 (Maya 2022 / Blender 2.83).
-build-py37:
+build-py37-lite:
     python scripts/build_py37_pure_wheel.py
+
+# Build Python 3.7 native wheel (non-abi3, compiled _core extension).
+# EXTRA is forwarded to maturin (e.g. `-i python3.7`, `--target x86_64`).
+build-py37 *EXTRA:
+    just stubgen
+    maturin build --release --out dist --features {{WHEEL_FEATURES_PY37}} {{EXTRA}}
 
 # Install dev/test dependencies
 install-dev-deps:

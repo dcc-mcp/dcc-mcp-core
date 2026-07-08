@@ -161,6 +161,77 @@ jobs:
           tag_name: ${{ inputs.release-tag-name }}
           files: dist/*.whl
 
+  # ── Native Python 3.7 builds (non-abi3, compiled _core extension) ──
+  # These produce cp37-cp37m wheels with a compiled _core extension
+  # for Maya 2022 / Blender 2.83 embedded Python 3.7 hosts.
+  # Uses WHEEL_FEATURES_PY37 (no abi3-py38) via build-wheel action py37 branch.
+
+  linux-py37:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
+      - uses: ./.github/actions/build-wheel
+        with:
+          target: x86_64
+          python-version: '3.7'
+          maturin-extra-args: '-i python3.7'
+          artifact-name: wheels-linux-x86_64-py37
+      - name: Verify wheel tag is cp37 (not abi3)
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *cp37* ]]; then
+            echo "::error::Expected cp37 wheel tag, got: $wheel"
+            exit 1
+          fi
+          if [[ "$wheel" == *cp38-abi3* ]]; then
+            echo "::error::cp37 wheel must NOT be abi3, got: $wheel"
+            exit 1
+          fi
+          echo "OK: native cp37 wheel tag confirmed"
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag-name }}
+          files: dist/*.whl
+
+  windows-py37:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
+      - uses: ./.github/actions/build-wheel
+        with:
+          target: x64
+          python-version: '3.7'
+          maturin-extra-args: '-i python3.7'
+          artifact-name: wheels-windows-x64-py37
+      - name: Verify wheel tag is cp37 (not abi3)
+        shell: bash
+        run: |
+          wheel=$(ls dist/*.whl | head -1)
+          echo "Built wheel: $wheel"
+          if [[ "$wheel" != *cp37* ]]; then
+            echo "::error::Expected cp37 wheel tag, got: $wheel"
+            exit 1
+          fi
+          echo "OK: native cp37 wheel tag confirmed"
+      - name: Upload wheel to GitHub Release
+        if: inputs.release-tag-name != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag-name }}
+          files: dist/*.whl
+
   macos:
     runs-on: macos-latest
     permissions:
