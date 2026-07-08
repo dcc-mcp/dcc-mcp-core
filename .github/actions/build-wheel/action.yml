@@ -15,7 +15,7 @@ inputs:
     required: false
     default: '1.95.0'
   maturin-extra-args:
-    description: 'Extra maturin args (e.g. --sdist). Features
+    description: 'Extra maturin args (e.g. --sdist, -i python3.7). Features
       and --release/--out are set by this action from the justfile.'
     required: false
     default: '--find-interpreter'
@@ -44,9 +44,14 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
+      if: runner.os != 'Windows' || inputs.python-version != '3.7'
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
+
+    - name: Setup Windows Python 3.7
+      if: runner.os == 'Windows' && inputs.python-version == '3.7'
+      uses: ./.github/actions/setup-windows-python37
 
     - name: Remove pre-installed cargo-clippy (conflict workaround)
       # GitHub-hosted runners (macOS aarch64 AND ubuntu-latest) pre-install Rust
@@ -85,7 +90,12 @@ runs:
       shell: bash
       run: |
         # Single source of truth: the feature list lives in justfile.
-        features=$(vx just print-wheel-features)
+        # Python 3.7 cannot use abi3-py38 (PyO3 requires interpreter >= 3.8).
+        if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
+          features=$(vx just print-wheel-features-py37)
+        else
+          features=$(vx just print-wheel-features)
+        fi
         args="--release --out dist --features ${features} ${{ inputs.maturin-extra-args }}"
         echo "Resolved maturin args: ${args}"
         echo "value=${args}" >> "$GITHUB_OUTPUT"
@@ -150,7 +160,7 @@ runs:
         test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
 
     - name: Generate type stubs
-      if: inputs.generate-stubs == 'true'
+      if: inputs.generate-stubs == 'true' && inputs.python-version != '3.7'
       shell: bash
       env:
         DCC_MCP_ADMIN_UI_PREBUILT: "1"
@@ -182,6 +192,7 @@ runs:
       if: inputs.test-wheel == 'true'
       shell: bash
       run: |
+        # Use python -m venv for Python 3.7 (uv does not support 3.7)
         python -m venv test-env
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate

@@ -37,7 +37,7 @@ dependencies = [
     # Maya 2022 / Blender 2.83 embed Python 3.7; the py37-lite wheel ships
     # pure-Python code only and users install dcc-mcp-server separately when
     # their platform provides a compatible binary wheel.
-    "dcc-mcp-server>=0.18.17,<1.0.0; python_version >= '3.8'",
+    "dcc-mcp-server>=0.18.17,<1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -99,14 +99,14 @@ features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler
 bindings = "pyo3"
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.7"
 strict = true
 ignore_missing_imports = true
 disable_error_code = ["type-arg", "misc", "no-any-return"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py38"
+target-version = "py37"
 src = ["python/dcc_mcp_core", "tests", "examples"]
 # `_core.pyi` is regenerated from the Rust extension by `pyo3-stub-gen`
 # on every build; running ruff against it produces ~1k spurious diffs

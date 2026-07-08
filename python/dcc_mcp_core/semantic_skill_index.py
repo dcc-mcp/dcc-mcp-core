@@ -34,7 +34,7 @@ from math import log
 import re
 from threading import RLock
 from typing import Iterable
-from typing import Protocol
+from dcc_mcp_core._typing_compat import Protocol
 
 __all__ = [
     "LexicalSkillIndex",
