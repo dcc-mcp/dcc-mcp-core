@@ -41,7 +41,6 @@ Example:
 
 """
 
-# Import future modules
 from __future__ import annotations
 
 # Import built-in modules

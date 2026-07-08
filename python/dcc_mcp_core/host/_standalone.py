@@ -13,7 +13,6 @@ friction-free because every adapter satisfies the same dispatcher contract
 (LSP/OCP).
 """
 
-# Import future modules
 from __future__ import annotations
 
 # Import built-in modules

@@ -14,7 +14,6 @@ adapter install root. This keeps installer/uninstaller scripts free to inspect
 and remove bundled native artifacts before opting into Rust-backed APIs.
 """
 
-# Import future modules
 from __future__ import annotations
 
 from dcc_mcp_core._exports import _LAZY

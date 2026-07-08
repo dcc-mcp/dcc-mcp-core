@@ -31,7 +31,6 @@ Usage example::
             self._handle.shutdown()
 """
 
-# Import future modules
 from __future__ import annotations
 
 import contextlib

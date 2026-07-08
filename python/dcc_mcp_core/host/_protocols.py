@@ -1,6 +1,5 @@
 """Shared structural protocols for host dispatcher adapters."""
 
-# Import future modules
 from __future__ import annotations
 
 # `typing.Protocol` and `typing.runtime_checkable` are 3.8+. For Python 3.7
