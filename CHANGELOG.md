@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.19](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.18...v0.19.19) (2026-07-08)
+
+
+### Features
+
+* **semantic:** add Python 3.7 cp37 wheels for dcc-mcp-core-semantic ([1ceb5eb](https://github.com/dcc-mcp/dcc-mcp-core/commit/1ceb5eba459b6a8b68058f62601e87283d90cb1d))
+
 ## [0.19.18](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.17...v0.19.18) (2026-07-08)
 
 
