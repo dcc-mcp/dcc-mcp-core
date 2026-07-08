@@ -189,7 +189,7 @@ from dcc_mcp_core import (
 
 ## 版本 / 语言支持
 
-- **当前版本**：0.19.18 <!-- x-release-please-version -->
+- **当前版本**：0.19.19 <!-- x-release-please-version -->
 - **Python**：3.8–3.14（`abi3-py38` wheel）。纯 Python 模块语法兼容 Python 3.7（Maya 2022）。
 - **Rust**：Edition 2024；MSRV 见仓库根 `rust-toolchain.toml`
 - **构建**：maturin + PyO3
