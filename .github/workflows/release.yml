@@ -374,9 +374,13 @@ jobs:
   #
   # Native Rust semantic embeddings (fastembed-rs + ONNX Runtime) shipped as
   # an opt-in PyPI package. Users only pay this wheel's cost when they
-  # explicitly `pip install 'dcc-mcp-core[semantic]'`. Python 3.7 wheels were
-  # dropped when the workspace upgraded to pyo3 0.29 (which dropped 3.7
-  # support).
+  # explicitly `pip install 'dcc-mcp-core[semantic]'`.
+  #
+  # Two wheel tiers per platform:
+  #   - abi3 (cp38-abi3): single wheel for Python 3.8-3.13 via pyo3 abi3.
+  #   - py37 (cp37-cp37m): native non-abi3 wheel for DCC embedded Python 3.7
+  #     hosts (Maya 2022, Blender 2.83). Builds without abi3-py38 feature;
+  #     pyo3 0.28 (workspace) supports this path.
   #
   # IMPORTANT: ort 2.x (pulled in transitively by fastembed-rs) requires
   # glibc >= 2.27, so Linux wheels target manylinux_2_28 — NOT manylinux2014
@@ -399,6 +403,12 @@ jobs:
           - os: macos-latest
             artifact_name: semantic-wheel-macos-abi3
             target: macos-abi3
+          - os: ubuntu-latest
+            artifact_name: semantic-wheel-linux-py37
+            target: linux-py37
+          - os: windows-latest
+            artifact_name: semantic-wheel-windows-py37
+            target: windows-py37
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -408,10 +418,10 @@ jobs:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
       # Rust toolchain is only needed for non-Linux builds; the Linux
-      # builds run inside the pyo3/maturin docker image which bundles its
-      # own pinned toolchain.
+      # builds (abi3 and py37) run inside the pyo3/maturin docker image
+      # which bundles its own pinned toolchain.
       - name: Setup Rust
-        if: matrix.target != 'linux-abi3'
+        if: "!startsWith(matrix.target, 'linux-')"
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.95.0'
@@ -423,8 +433,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Setup Windows Python 3.7 (py37 build)
+        if: matrix.target == 'windows-py37'
+        uses: ./.github/actions/setup-windows-python37
+
       - name: Install maturin
-        if: matrix.target != 'linux-abi3'
+        if: "!startsWith(matrix.target, 'linux-')"
         shell: bash
         run: |
           python -m pip install --upgrade pip
@@ -462,6 +476,23 @@ jobs:
         run: |
           maturin build --release \
             --features python-bindings,ext-module,abi3-py38 \
+            --out wheels
+
+      # ── Linux (py37) — cp37-cp37m, non-abi3 for Python 3.7 DCC hosts ──
+      - name: Build wheel (Linux py37)
+        if: matrix.target == 'linux-py37'
+        shell: bash
+        run: scripts/release/build_manylinux_semantic_wheel.sh py37
+
+      # ── Windows (py37) — cp37-cp37m, non-abi3 for Python 3.7 DCC hosts ──
+      - name: Build wheel (Windows py37)
+        if: matrix.target == 'windows-py37'
+        shell: bash
+        working-directory: pkg/dcc-mcp-core-semantic
+        run: |
+          maturin build --release \
+            --features python-bindings,ext-module \
+            -i python3.7 \
             --out wheels
 
       - name: Upload semantic wheel artefact
