@@ -23,6 +23,17 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use serde::Serialize;
 
+#[cfg(windows)]
+fn hide_command_window(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_command_window(_cmd: &mut Command) {}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// How long to wait for a single `/health` probe before timing out.
@@ -537,7 +548,9 @@ pub fn is_process_alive(pid: u32) -> bool {
         // `tasklist /FI "PID eq <pid>" /NH` returns output containing the
         // PID if the process exists, or "INFO: No tasks..." on stderr if not.
         // Exit code is always 0, so we check stdout for the PID string.
-        let output = Command::new("tasklist")
+        let mut cmd = Command::new("tasklist");
+        hide_command_window(&mut cmd);
+        let output = cmd
             .args([
                 "/FI",
                 &format!("PID eq {pid}"),
@@ -571,7 +584,9 @@ pub fn is_process_alive(pid: u32) -> bool {
 pub fn stop_process(pid: u32) -> anyhow::Result<()> {
     #[cfg(windows)]
     {
-        let status = Command::new("taskkill")
+        let mut cmd = Command::new("taskkill");
+        hide_command_window(&mut cmd);
+        let status = cmd
             .args(["/PID", &pid.to_string(), "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
