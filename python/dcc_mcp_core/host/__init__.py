@@ -20,7 +20,6 @@ from the host's native idle primitive (``bpy.app.timers.register``,
 ``maya.utils.executeDeferred``, ``hou.ui.addEventLoopCallback``, etc.).
 """
 
-# Import future modules
 from __future__ import annotations
 
 # Import local modules — Rust-backed primitives live in _core when available.

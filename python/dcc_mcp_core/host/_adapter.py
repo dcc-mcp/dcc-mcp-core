@@ -55,7 +55,6 @@ See ``docs/guide/host-adapter.md`` for the full authoring guide and
 ``examples/host_adapter_template.py`` for a ready-to-copy starter.
 """
 
-# Import future modules
 from __future__ import annotations
 
 # Import built-in modules
