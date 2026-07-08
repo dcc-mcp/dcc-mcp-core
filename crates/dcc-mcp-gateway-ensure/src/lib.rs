@@ -31,9 +31,6 @@ fn hide_command_window(cmd: &mut Command) {
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
-#[cfg(not(windows))]
-fn hide_command_window(_cmd: &mut Command) {}
-
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// How long to wait for a single `/health` probe before timing out.
