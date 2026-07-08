@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.18](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.17...v0.19.18) (2026-07-08)
+
+
+### Bug Fixes
+
+* **gateway:** replace stale cross-registry daemon ([a2bc73d](https://github.com/dcc-mcp/dcc-mcp-core/commit/a2bc73d3095bd06b34ba8285e0557fb07aca28d9))
+
 ## [0.19.17](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.16...v0.19.17) (2026-07-08)
 
 
