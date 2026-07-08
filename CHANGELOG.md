@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.16](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.15...v0.19.16) (2026-07-08)
+
+
+### Features
+
+* restore native Python 3.7 wheel build support ([419c863](https://github.com/dcc-mcp/dcc-mcp-core/commit/419c863fdbe0c600de0f141f521edfd36c3c907e))
+
+
+### Bug Fixes
+
+* pin pyo3 to 0.28.3 for Python 3.7 compatibility and fix ruff import ordering ([4a47bfd](https://github.com/dcc-mcp/dcc-mcp-core/commit/4a47bfd3eaaee65417d81537051c3bfff3b11b3d))
+
 ## [0.19.15](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.14...v0.19.15) (2026-07-07)
 
 
