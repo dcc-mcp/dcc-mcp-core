@@ -16,6 +16,46 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Quote-WindowsArgument {
+    param([string]$Argument)
+
+    if ([string]::IsNullOrEmpty($Argument)) {
+        return '""'
+    }
+    if ($Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    $quoted = '"'
+    $backslashes = 0
+    foreach ($char in $Argument.ToCharArray()) {
+        if ($char -eq '\') {
+            $backslashes++
+            continue
+        }
+        if ($char -eq '"') {
+            $quoted += ('\' * ($backslashes * 2 + 1)) + '"'
+            $backslashes = 0
+            continue
+        }
+        if ($backslashes -gt 0) {
+            $quoted += ('\' * $backslashes)
+            $backslashes = 0
+        }
+        $quoted += $char
+    }
+    if ($backslashes -gt 0) {
+        $quoted += ('\' * ($backslashes * 2))
+    }
+    $quoted + '"'
+}
+
+function Join-WindowsArgumentList {
+    param([string[]]$Arguments)
+
+    ($Arguments | ForEach-Object { Quote-WindowsArgument $_ }) -join ' '
+}
+
 if (-not $RepoRoot) {
     $RepoRoot = (git -C $PSScriptRoot rev-parse --show-toplevel 2>$null)
     if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
@@ -37,11 +77,16 @@ try {
         $BaseUrl = "http://127.0.0.1:$McpPort"
         $skillPaths = Join-Path $RepoRoot "examples\skills"
         Write-Host "Starting standalone dcc-mcp-server on $BaseUrl (gateway disabled)..."
-        $serverProc = Start-Process -FilePath $Server -ArgumentList @(
+        # ponytail: Start-Process on Windows PowerShell 5.1 mangles array
+        # ArgumentList values that contain quotes. Pass one pre-quoted command
+        # line so JSON payloads survive intact.
+        $serverProc = Start-Process -FilePath $Server -ArgumentList (
+            Join-WindowsArgumentList @(
             "--app", "maya",
             "--gateway-port", "0",
             "--mcp-port", "$McpPort",
             "--skill-paths", $skillPaths
+            )
         ) -PassThru -WindowStyle Hidden
         Start-Sleep -Seconds 2
     }

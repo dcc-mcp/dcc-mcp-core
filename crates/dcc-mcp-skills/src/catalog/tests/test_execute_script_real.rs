@@ -13,6 +13,7 @@
 
 use super::*;
 use std::path::PathBuf;
+use std::process::Command;
 use tempfile::TempDir;
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -508,4 +509,109 @@ fn test_real_powershell_nonzero_exit_returns_error_with_stderr() {
         err.contains("powershell exploded"),
         "stderr must propagate: {err}"
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn test_windows_start_process_preserves_json_argument_with_quotes() {
+    let shell = if have_program("pwsh") {
+        "pwsh"
+    } else if have_program("powershell") {
+        "powershell"
+    } else {
+        return;
+    };
+
+    let parent_body = r#"$ErrorActionPreference = 'Stop'
+
+function Quote-WindowsArgument {
+    param([string]$Argument)
+
+    if ([string]::IsNullOrEmpty($Argument)) {
+        return '""'
+    }
+    if ($Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    $quoted = '"'
+    $backslashes = 0
+    foreach ($char in $Argument.ToCharArray()) {
+        if ($char -eq '\') {
+            $backslashes++
+            continue
+        }
+        if ($char -eq '"') {
+            $quoted += ('\' * ($backslashes * 2 + 1)) + '"'
+            $backslashes = 0
+            continue
+        }
+        if ($backslashes -gt 0) {
+            $quoted += ('\' * $backslashes)
+            $backslashes = 0
+        }
+        $quoted += $char
+    }
+    if ($backslashes -gt 0) {
+        $quoted += ('\' * ($backslashes * 2))
+    }
+    $quoted + '"'
+}
+
+function Join-WindowsArgumentList {
+    param([string[]]$Arguments)
+
+    ($Arguments | ForEach-Object { Quote-WindowsArgument $_ }) -join ' '
+}
+
+$json = '{"tool":"call","message":"a \"quoted\" payload"}'
+$stdout = $env:STDOUT_FILE
+$child = $env:CHILD_SCRIPT
+$argLine = Join-WindowsArgumentList @(
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    $child,
+    '--json',
+    $json
+)
+
+$proc = Start-Process -FilePath $env:POWERSHELL_EXE -ArgumentList $argLine -Wait -PassThru -RedirectStandardOutput $stdout
+if ($proc.ExitCode -ne 0) {
+    throw "child exited with code $($proc.ExitCode)"
+}
+"#;
+
+    let child_body = r#"$args[1]"#;
+    let (_parent_dir, parent_script) = write_script("parent.ps1", parent_body);
+    let (_child_dir, child_script) = write_script("child.ps1", child_body);
+    let work = TempDir::new().unwrap();
+    let stdout_path = work.path().join("stdout.txt");
+
+    let output = Command::new(shell)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            parent_script.to_str().unwrap(),
+        ])
+        .env("STDOUT_FILE", &stdout_path)
+        .env("CHILD_SCRIPT", child_script.to_str().unwrap())
+        .env("POWERSHELL_EXE", shell)
+        .output()
+        .expect("launch parent script");
+    assert!(
+        output.status.success(),
+        "parent failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let expected_json = r#"{"tool":"call","message":"a \"quoted\" payload"}"#;
+    let actual = std::fs::read_to_string(stdout_path).unwrap();
+    assert_eq!(actual.trim(), expected_json);
 }
