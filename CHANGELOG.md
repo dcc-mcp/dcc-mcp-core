@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.17](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.16...v0.19.17) (2026-07-08)
+
+
+### Bug Fixes
+
+* **release-probe:** preserve quoted json args on windows ([b6b1231](https://github.com/dcc-mcp/dcc-mcp-core/commit/b6b1231008beede51542e083af58149540b40761))
+
 ## [0.19.16](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.15...v0.19.16) (2026-07-08)
 
 
