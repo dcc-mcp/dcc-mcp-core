@@ -41,8 +41,6 @@ from typing import Callable
 from typing import get_type_hints as _typing_get_type_hints
 import uuid
 
-from dcc_mcp_core._typing_compat import Literal as CompatLiteral
-
 try:
     from typing import get_args
     from typing import get_origin
@@ -60,7 +58,7 @@ _union_type = getattr(types, "UnionType", None)
 if _union_type is not None:  # pragma: no cover - Python 3.10+
     _UNION_ORIGINS = (*_UNION_ORIGINS, _union_type)
 
-_LITERAL_TYPE = getattr(typing, "Literal", CompatLiteral)
+_LITERAL_TYPE = getattr(typing, "Literal", None)
 _TYPEDDICT_META = getattr(typing, "_TypedDictMeta", None)
 
 
@@ -132,7 +130,12 @@ def _primitive_schema(tp: Any) -> dict[str, Any] | None:
 def _literal_schema(tp: Any) -> dict[str, Any] | None:
     """Return a schema for ``Literal[...]`` or ``None`` if *tp* is not one."""
     origin = get_origin(tp)
-    if origin is _LITERAL_TYPE or getattr(origin, "_name", None) == "Literal":
+    is_literal = (
+        (_LITERAL_TYPE is not None and origin is _LITERAL_TYPE)
+        or getattr(origin, "_name", None) == "Literal"
+        or getattr(origin, "__name__", None) == "Literal"
+    )
+    if is_literal:
         values = list(get_args(tp))
         types_seen = {type(v) for v in values}
         # If all values share a single primitive type, pin it — this helps

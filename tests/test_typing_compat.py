@@ -10,6 +10,7 @@ import pytest
 from dcc_mcp_core._typing_compat import Literal
 from dcc_mcp_core._typing_compat import Protocol
 from dcc_mcp_core._typing_compat import runtime_checkable
+from dcc_mcp_core.schema import derive_schema
 
 
 @runtime_checkable
@@ -42,6 +43,13 @@ def test_literal_fallback_preserves_origin_and_arguments() -> None:
     alias = Literal["fbx", "usd"]
     assert alias.__origin__ is Literal
     assert alias.__args__ == ("fbx", "usd")
+
+
+def test_schema_recognizes_compat_literal_origin() -> None:
+    assert derive_schema(Literal["fbx", "usd"]) == {
+        "enum": ["fbx", "usd"],
+        "type": "string",
+    }
 
 
 @pytest.mark.skipif(sys.version_info[:2] != (3, 7), reason="exercises Python 3.7 get_type_hints")

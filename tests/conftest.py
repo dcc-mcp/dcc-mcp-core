@@ -31,6 +31,13 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 
+# Wheel-first CI invokes the pytest console script, which does not guarantee
+# that the repository root is importable.  Make repo-owned test helpers such
+# as ``scripts.ci`` explicit without shadowing the installed wheel package.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 if sys.version_info < (3, 8):
     # Python 3.8 added ``call.args`` and ``call.kwargs``.  Keep assertions
     # identical across the supported test matrix without coupling production
@@ -44,7 +51,6 @@ if sys.version_info < (3, 8):
     _Call.kwargs = property(lambda call: _mock_call_arguments(call)[1])
 
 # Resolve examples/skills relative to repo root
-REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
 SKILLS_DIR = str(REPO_ROOT / "skills")
 
