@@ -13,6 +13,11 @@ from unittest.mock import patch
 
 import pytest
 
+try:
+    from importlib import metadata as importlib_metadata
+except ImportError:  # Python 3.7
+    import importlib_metadata  # type: ignore[import-not-found]
+
 from dcc_mcp_core._runtime.mcp_http_config import McpHttpConfig as PureMcpHttpConfig
 from dcc_mcp_core._runtime.sidecar_skill_server import SidecarBackedSkillServer
 from dcc_mcp_core._runtime.sidecar_skill_server import SidecarServerHandle
@@ -322,10 +327,7 @@ class TestServerBasePackageVersion:
             "dcc_mcp_core.server_base.is_core_extension_available",
             lambda: False,
         )
-        monkeypatch.setattr(
-            "importlib.metadata.version",
-            lambda _name: "0.19.7",
-        )
+        monkeypatch.setattr(importlib_metadata, "version", lambda _name: "0.19.7")
         from dcc_mcp_core.server_base import _package_version
 
         assert _package_version() == "0.19.7"
@@ -339,7 +341,7 @@ class TestServerBasePackageVersion:
         def _boom(_name: str) -> str:
             raise RuntimeError("no dist")
 
-        monkeypatch.setattr("importlib.metadata.version", _boom)
+        monkeypatch.setattr(importlib_metadata, "version", _boom)
         from dcc_mcp_core.server_base import _PKG_VERSION
         from dcc_mcp_core.server_base import _package_version
 

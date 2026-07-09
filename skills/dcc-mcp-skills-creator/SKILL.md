@@ -190,10 +190,16 @@ material.
 ### Python 3.7 Policy
 
 All authored skills must declare `compatibility: "Python 3.7+"` in their
-frontmatter until the policy deadline (`2026-12-31`). This applies to every
+frontmatter when they are installed into an LTS DCC host. This applies to every
 skill that is installed into a DCC host embedding Python 3.7 (Maya 2022,
-Blender 2.83, 3ds Max 2022, etc.). `py37-lite` fallback builds do NOT
-satisfy release gates — only native py37 compatibility counts.
+Blender 2.83, 3ds Max 2022, etc.). `py37-lite` is a supported fallback but
+does not replace the native Linux and Windows cp37 compatibility gates. See
+ADR 011 and `compatibility/python.json` for the deprecation and CI contract.
+
+For hermetic CI or tests, set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` so an
+operator's local/platform defaults, marketplace installs, and Admin custom
+paths cannot alter discovery results. Explicit, bundled, and
+`DCC_MCP_*_SKILL_PATHS` paths remain active under this mode.
 
 **Skill SKILL.md example** (frontmatter excerpt):
 

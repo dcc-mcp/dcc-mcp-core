@@ -51,6 +51,7 @@
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Drive a DCC main-thread dispatcher (interactive/headless) | `HostAdapter` (subclass for your DCC) + `StandaloneHost` (pure-Python driver) + `QueueDispatcher` / `BlockingDispatcher` (Rust-backed primitives). Use public `TickableDispatcher` only for structural typing (`tick`, `shutdown`, `is_shutdown`); do not import private host protocols. Wire via `McpHttpServer.attach_dispatcher()`. See [`docs/guide/host-adapter.md`](docs/guide/host-adapter.md) |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
+| Make skill discovery hermetic | `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` omits implicit operator-owned roots (local/platform defaults, marketplace installs, and Admin custom paths) while preserving explicit, bundled, and `DCC_MCP_*_SKILL_PATHS` paths |
 | Register lifecycle hooks | `LifecycleHooks()` + `.on(HookEvent.BEFORE_TOOL_CALL, handler)` + `server.register_lifecycle_hooks(hooks)` (#1337) |
 | Veto a skill load / tool call via policy | Raise `HookDeny(reason, hint=...)` from a `BEFORE_*` handler; only works for policy events (#1337) |
 | Observe lifecycle events | `HookEvent.AFTER_SEARCH` / `AFTER_SKILL_LOAD` / `AFTER_TOOL_CALL` / `SESSION_START` / `SESSION_END` (#1337) |
@@ -2546,6 +2547,7 @@ shutdown_file_logging()
 | `ENV_SKILL_PATHS` | `"DCC_MCP_SKILL_PATHS"` | Environment variable for skill search paths |
 | `ENV_LOG_LEVEL` | `"MCP_LOG_LEVEL"` | Environment variable for log level override |
 | `ENV_DISABLE_ACCUMULATED_SKILLS` | `"DCC_MCP_DISABLE_ACCUMULATED_SKILLS"` | Set to `"1"` to disable accumulated/evolved skills discovery |
+| `ENV_DISABLE_DEFAULT_SKILL_PATHS` | `"DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"` | Set to `"1"` to omit implicit operator-owned skill roots while preserving explicit, bundled, and env paths |
 | `ENV_TEAM_SKILL_PATHS` | `"DCC_MCP_TEAM_SKILL_PATHS"` | Environment variable for team-level skill paths |
 | `ENV_USER_SKILL_PATHS` | `"DCC_MCP_USER_SKILL_PATHS"` | Environment variable for user-level skill paths |
 
@@ -2556,6 +2558,7 @@ shutdown_file_logging()
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `DCC_MCP_SKILL_PATHS` | Skill search paths (`:` on Unix, `;` on Windows) | `/skills1:/skills2` |
+| `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS` | Disable implicit operator-owned skill roots for hermetic CI/tests | `1` |
 | `MCP_LOG_LEVEL` | Log level override | `INFO` / `DEBUG` / `WARN` |
 
 ---

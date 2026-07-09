@@ -377,7 +377,7 @@ jobs:
   # explicitly `pip install 'dcc-mcp-core[semantic]'`.
   #
   # Two wheel tiers per platform:
-  #   - abi3 (cp38-abi3): single wheel for Python 3.8-3.13 via pyo3 abi3.
+  #   - abi3 (cp38-abi3): single wheel for Python 3.8-3.14 via pyo3 abi3.
   #   - py37 (cp37-cp37m): native non-abi3 wheel for DCC embedded Python 3.7
   #     hosts (Maya 2022, Blender 2.83). Builds without abi3-py38 feature;
   #     pyo3 0.28 (workspace) supports this path.
@@ -507,16 +507,12 @@ jobs:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           files: pkg/dcc-mcp-core-semantic/wheels/*.whl
 
-  # ── Build wheels only when release-please creates a release ──
+  # ── Build and validate wheels when release-please creates a release ──
   build-wheels:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/build-wheels.yml
     with:
-      # Release runs publish artefacts after PR CI has already enforced the
-      # test gates. Keep this path build-only so a tag can publish as soon as
-      # every wheel/binary is produced successfully.
-      test-wheel: ${{ 'false' }}
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
       release-tag-name: ${{ needs.release-please.outputs.tag_name }}
 

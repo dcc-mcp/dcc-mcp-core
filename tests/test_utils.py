@@ -23,6 +23,7 @@ class TestConstants:
             ("SKILL_METADATA_FILE", "SKILL.md"),
             ("SKILL_SCRIPTS_DIR", "scripts"),
             ("ENV_SKILL_PATHS", "DCC_MCP_SKILL_PATHS"),
+            ("ENV_DISABLE_DEFAULT_SKILL_PATHS", "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"),
             ("ENV_LOG_LEVEL", "MCP_LOG_LEVEL"),
             ("DEFAULT_LOG_LEVEL", "DEBUG"),
             ("DEFAULT_MIME_TYPE", "text/plain"),

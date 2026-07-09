@@ -273,6 +273,7 @@ Gateway resources/prompts:
 | Read gateway contention event history | MCP `resources/read` on `resources://gateway/events` |
 | Search public DCC-MCP adapter catalog | MCP `resources/read` on `gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search --query ...` |
 | Disable evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
+| Make skill discovery hermetic in CI/tests | `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` excludes implicit operator-owned roots (local/platform defaults, marketplace installs, and Admin custom paths) while preserving explicit, bundled, and `DCC_MCP_*_SKILL_PATHS` paths |
 | MCP HTTP (recommended) | `create_skill_server("<dcc>", McpHttpConfig(port=8765))` |
 | MCP HTTP (manual) | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
 | Full-screen capture | `Capturer.new_auto().capture()` |
@@ -589,7 +590,7 @@ docs/            # human-readable guides + API reference
 - Don't extend the JSON-RPC `match` arm in `dispatch.rs` → **register a `MethodHandler` on `MethodRouter`** (#492)
 - Don't hand-roll JSON-RPC envelopes → **`NotificationBuilder` / `JsonRpcRequestBuilder`** (#484)
 - Don't add per-crate `*Error` enums → **return `DccMcpError` via `From` impls** (#488)
-- Don't break Python 3.7 support → **supported until 2026-12-31; py37-lite is NOT valid evidence for release gates; PyO3 upgrades frozen until deadline is lifted**
+- Don't break Python 3.7 support → **it is an LTS profile; native Linux + Windows cp37 gates are required, and py37-lite is not a substitute. See ADR 011 and `compatibility/python.json`**
 - Don't manually bump versions → **Release Please handles this**
 - Don't hardcode scope strings → **use `SkillScope` when introspecting from Python and `SkillMetadata` methods for policy checks**
 - Don't add a generic `utils` / `common` / `helpers` crate → **route helpers to their owner: domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`** ([rationale](docs/guide/agents-reference.md#workspace-boundary-rationale))

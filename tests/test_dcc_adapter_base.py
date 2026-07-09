@@ -10,6 +10,8 @@ Covers:
 # Import future modules
 from __future__ import annotations
 
+# Import standard library modules
+from contextlib import ExitStack
 import logging
 from pathlib import Path
 
@@ -815,7 +817,8 @@ class TestDccServerBase:
         )
         assert nonexistent in paths
 
-    def test_collect_skill_search_paths_includes_local_default(self, tmp_path):
+    def test_collect_skill_search_paths_includes_local_default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
         server = self._make_server(tmp_path)
         local_default = tmp_path / ".dcc-mcp" / "fake-dcc" / "skills"
         with patch("dcc_mcp_core._server.skill_discovery.get_app_skill_paths_from_env", return_value=[]), patch(
@@ -829,6 +832,7 @@ class TestDccServerBase:
         assert local_default.is_dir()
 
     def test_collect_skill_search_paths_includes_marketplace_root(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
         server = self._make_server(tmp_path)
         marketplace_dcc_dir = tmp_path / "marketplace" / "fake-dcc"
         marketplace_dcc_dir.mkdir(parents=True)
@@ -837,6 +841,60 @@ class TestDccServerBase:
         paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
 
         assert str(marketplace_dcc_dir) in paths
+
+    def test_collect_skill_search_paths_hermetic_mode_excludes_operator_roots(self, tmp_path, monkeypatch):
+        server = self._make_server(tmp_path)
+        explicit = tmp_path / "explicit"
+        env_root = tmp_path / "env"
+        local = tmp_path / "local"
+        platform = tmp_path / "platform"
+        marketplace = tmp_path / "marketplace" / "fake-dcc"
+        admin = tmp_path / "admin"
+        for path in (explicit, env_root, local, platform, marketplace, admin):
+            path.mkdir(parents=True)
+
+        monkeypatch.setenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", "1")
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(tmp_path / "marketplace"))
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "dcc_mcp_core._server.skill_discovery.get_app_skill_paths_from_env",
+                    return_value=[str(env_root)],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "dcc_mcp_core._server.skill_discovery.get_skill_paths_from_env",
+                    return_value=[],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "dcc_mcp_core._server.skill_discovery.get_local_skills_dir",
+                    return_value=str(local),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "dcc_mcp_core._server.skill_discovery.get_skills_dir",
+                    return_value=str(platform),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "dcc_mcp_core.admin_sqlite_lane.read_custom_skill_paths",
+                    return_value=[str(admin)],
+                )
+            )
+            paths = server.collect_skill_search_paths(
+                extra_paths=[str(explicit)],
+                include_bundled=False,
+                filter_existing=True,
+            )
+
+        assert str(explicit) in paths
+        assert str(env_root) in paths
+        assert not {str(local), str(platform), str(marketplace), str(admin)} & set(paths)
 
     def test_enable_hot_reload_creates_reloader(self, tmp_path):
         server = self._make_server(tmp_path)

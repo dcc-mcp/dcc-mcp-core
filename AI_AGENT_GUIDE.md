@@ -375,12 +375,14 @@ tools:
 
 ## 🔴 Red Lines — Python 3.7 Support Policy
 
-**dcc-mcp supports Python 3.7 until `2026-12-31`** unless hallong explicitly lifts the deadline.
+**dcc-mcp treats Python 3.7 as a long-term-support profile.** Removing it requires
+an accepted superseding ADR, a major release, at least 180 days of notice, and
+an adapter migration path. The source of truth is `compatibility/python.json`.
 
 This is a hard requirement — Maya 2022, Blender 2.83, and many DCC hosts embed Python 3.7. Every change you make must keep this constraint in mind:
 
-1. **`py37-lite` / fallback mode is NOT valid evidence** of Python 3.7 support for release gates. Native py37 compatibility is required.
-2. **PyO3 upgrades stay frozen** until the py37 deadline is lifted. Any Cargo.toml change touching PyO3 or maturin requires explicit py37 CI validation.
+1. **`py37-lite` / fallback mode is NOT sufficient evidence** of Python 3.7 support. Native Linux and Windows cp37 gates are required as well.
+2. **PyO3 must stay on the contracted series** unless the proposed upgrade passes native py37 builds and runtime validation in the same change.
 3. **`requires-python = ">=3.7"`** in `pyproject.toml` is the canonical classifier. Do not bump it without explicit policy override.
 4. **CI must include a Python 3.7 job** for every PR that touches Rust/PyO3/maturin wiring, Python API surface, or packaging. A py37-lite or py38-only CI pass is insufficient.
 5. **Release/review agents**: verify py37 wheels exist and py37 CI is green before approving any release or merge. The `compatibility` field in SKILL.md frontmatter should include `Python 3.7+`.

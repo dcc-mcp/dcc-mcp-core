@@ -1,103 +1,153 @@
-# Maya 2022 Support Policy
+# Maya 2022 / Python 3.7 Long-Term Support
 
-> **Effective**: 2026-07-04  
-> **Expires**: 2026-12-31 (may be extended per studio demand)
+> **Policy**: Python 3.7 is an LTS compatibility profile. It has no automatic
+> calendar expiry. See [ADR 011](../adr/011-python-37-lts-compatibility-contract.md).
 
 ## Commitment
 
-dcc-mcp-core **sustains Maya 2022 compatibility through the end of 2026**. Maya 2022 ships with an embedded Python 3.7 interpreter, which imposes the following constraints on our codebase.
+Maya 2022 embeds CPython 3.7, as do other DCC releases that studios still use
+in production. `dcc-mcp-core` therefore keeps an installable, tested Python
+3.7 path until a major release completes the formal deprecation process in
+ADR 011.
 
-## What works on Maya 2022 / Python 3.7
+The machine-readable source of truth is
+[`compatibility/python.json`](../../compatibility/python.json).
 
-### Pure-Python modules
+## Supported wheel profiles
 
-All `dcc_mcp_core` pure-Python modules are **syntax-compatible with Python 3.7**. This includes:
+### Native Python 3.7
 
-- Skill scripts (`python/dcc_mcp_core/skills/`)
-- Host adapter protocols (`python/dcc_mcp_core/host/`)
-- Tool registration and dispatch (`python/dcc_mcp_core/_server/`)
-- Schema derivation (`python/dcc_mcp_core/schema.py`)
-- Installation lifecycle helpers
+Linux and Windows releases include native `cp37-cp37m` wheels built with the
+contracted PyO3 0.28 series. These wheels contain `dcc_mcp_core._core` and
+provide the normal Rust-backed package surface.
 
-Type annotations use `typing.Optional`, `typing.Dict`, `typing.List`, etc. (not PEP 604 `|` syntax or built-in generics) so the modules import cleanly on Python 3.7.
+This is the authoritative Python 3.7 compatibility profile.
 
-### Binary-only server wheel
+### py37-lite fallback
 
-The `dcc-mcp-server` companion package ships a **pure Rust binary** (no Python ABI) that runs on any host. Maya 2022 can `pip install dcc-mcp-server` and launch the gateway daemon via `DccServerBase`.
+The release also includes a `py3-none-any` wheel without `_core`. It provides
+pure-Python host, skill, configuration, and sidecar fallbacks for platforms
+where a native cp37 wheel is unavailable.
 
-## What does NOT work on Python 3.7
+`py37-lite` is supported, but it is not evidence that native compatibility is
+healthy. Merge and release gates require both profiles.
 
-### Rust extension (`_core`)
+### Python 3.8+
 
-The `dcc_mcp_core._core` native extension is built with **PyO3 0.29** targeting **abi3-py38**. It requires **Python 3.8+** and cannot be loaded by Python 3.7.
+Maintained Python versions use the `cp38-abi3` wheel. One stable-ABI build per
+platform serves Python 3.8 through the maximum version declared in the
+compatibility contract.
 
-This means:
-- `from dcc_mcp_core import ToolRegistry` works on 3.7 (pure Python)
-- `from dcc_mcp_core._core import ...` fails on 3.7 (native extension)
+## Runtime architecture
 
-### Semantic embeddings
-
-The `dcc-mcp-core-semantic` companion wheel requires **Python 3.8+** (PyO3 0.29 + ONNX Runtime).
-
-## Architecture for Maya 2022
-
-```
-┌─────────────────────────────────────────────────┐
-│ Maya 2022 (Python 3.7)                          │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ dcc-mcp-core (pure Python)                │  │
-│  │  - HostAdapter, SkillCatalog, schema.py   │  │
-│  │  - Import works, Rust extension NOT used  │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ dcc-mcp-server (binary wheel)             │  │
-│  │  - dcc-mcp-server.exe / dcc-mcp-cli       │  │
-│  │  - Pure Rust, no Python ABI               │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ dcc-mcp-maya adapter                      │  │
-│  │  - Maya-specific commands + UI            │  │
-│  │  - Communicates via HTTP to gateway       │  │
-│  └───────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
+```text
+Maya 2022 / CPython 3.7
+        |
+        +-- native cp37 wheel available
+        |      `-- Python facade + Rust _core extension
+        |
+        `-- no native wheel for the platform
+               `-- py37-lite facade + external dcc-mcp-server sidecar
 ```
 
-The gateway daemon (binary, no Python dependency) connects to Maya's embedded Python via the Maya adapter, which uses `dcc-mcp-core` pure-Python modules for protocol definitions and tool dispatch.
+The companion `dcc-mcp-server` wheel contains platform binaries rather than a
+Python extension ABI. It remains installable from Python 3.7 and lets lite
+adapters delegate gateway execution to the sidecar.
 
 ## CI enforcement
 
-| Check | Frequency | What it verifies |
-|---|---|---|
-| `python-matrix-full` | Weekly | Full Python 3.8–3.14 matrix |
-| `python-test` | Every PR | Python 3.8, 3.10, 3.13, 3.14 |
-| `check_py37_syntax` | Every PR | Pure-Python syntax compatibility with Python 3.7 |
+| Check | Frequency | Contract |
+| --- | --- | --- |
+| `Python 3.7 contract` | Every PR | Package metadata, PyO3 series, CI/release jobs, docs, and test pins match `compatibility/python.json` |
+| `Python 3.7 native (linux-x86_64)` | Every PR | Build/install native cp37 wheel, validate contents, run runtime smoke and full test suite |
+| `Python 3.7 native (windows-x86_64)` | Every PR | Build/install native cp37 wheel and run runtime smoke |
+| `Test (py37-lite)` | Every PR | Install lite wheel and prove fallback behavior without `_core` |
+| `py37 syntax check` | Every PR | Compile shipped Python and test sources with a real CPython 3.7 parser |
+| `Python 3.7 compatibility` | Every PR | Stable aggregate; fails on failed, skipped, or cancelled constituents |
 
-The `check_py37_syntax.py` script (`scripts/check_py37_syntax.py`) runs `python -m py_compile` on all `python/dcc_mcp_core/` modules using Python 3.7 to ensure no Python 3.8+ syntax leaks into the pure-Python layer.
+Repository rulesets should require the exact aggregate job name
+`Python 3.7 compatibility`.
 
-## Writing Python 3.7-compatible code
+## Authoring rules
 
-When modifying pure-Python modules:
+- Keep modules importable on Python 3.7. Use postponed annotations where
+  modern annotation expressions are present.
+- Do not use Python 3.8+ grammar such as assignment expressions,
+  positional-only parameters, debug f-strings, or `match` statements in
+  shipped Python modules.
+- Do not evaluate modern annotations on Python 3.7 without a compatibility
+  adapter. `compile()` alone is not a runtime proof.
+- Use `_typing_compat` or a documented fallback for runtime `Protocol`,
+  `Literal`, and related APIs unavailable from Python 3.7's `typing` module.
+- Do not import `_core` unconditionally on code paths that must support the
+  lite profile.
+- New public Python APIs need tests in both the native and lite profiles when
+  they cross the Rust/Python boundary.
 
-- **DO** use `typing.Optional[X]` instead of `X | None`
-- **DO** use `typing.Dict[K, V]` instead of `dict[K, V]`
-- **DO** use `typing.List[X]` instead of `list[X]`
-- **DO** use `typing.Tuple[X, ...]` instead of `tuple[X, ...]`
-- **DO** use `from __future__ import annotations` for forward references
-- **DO NOT** use walrus operator (`:=`)
-- **DO NOT** use `f"{expr=}"` debug format strings
-- **DO NOT** use positional-only parameters (`/`)
+## Local validation
 
-## End-of-life plan
+The vx-managed Python 3.7 is sufficient for the syntax gate but may not include
+`pip` or the native import library. Building and installing a native wheel
+requires a full CPython 3.7 installation with `pip` and development/import
+libraries. On Windows, the standard python.org installation provides these.
 
-- **2026-12-31**: Maya 2022 support baseline expires
-- **2026-10**: Community survey — extend or deprecate?
-- **2027-01**: If deprecated, remove Python 3.7 syntax checks and compat code
+PowerShell:
+
+```powershell
+$py37 = py -3.7 -c "import sys; print(sys.executable)"
+vx just check-python-support
+vx just check-py37-syntax
+vx just build-py37 -i $py37
+$wheel = Get-ChildItem dist/dcc_mcp_core-*-cp37-cp37m-*.whl | Select-Object -First 1
+& $py37 scripts/ci/check_python_wheel.py --profile native_py37 $wheel.FullName
+& $py37 -m pip install --force-reinstall --no-deps $wheel.FullName
+& $py37 scripts/ci/smoke_python37_runtime.py --profile native_py37
+```
+
+Bash:
+
+```bash
+PYTHON37="${PYTHON37:-python3.7}"
+vx just check-python-support
+vx just check-py37-syntax
+vx just build-py37 -i "$PYTHON37"
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile native_py37 \
+  'dist/dcc_mcp_core-*-cp37-cp37m-*.whl'
+wheel=$(ls dist/dcc_mcp_core-*-cp37-cp37m-*.whl | head -1)
+"$PYTHON37" -m pip install --force-reinstall --no-deps "$wheel"
+"$PYTHON37" scripts/ci/smoke_python37_runtime.py --profile native_py37
+```
+
+For the lite profile, use the same full interpreter. PowerShell:
+
+```powershell
+& $py37 scripts/build_py37_pure_wheel.py
+$wheel = Get-ChildItem dist/dcc_mcp_core-*-py3-none-any.whl | Select-Object -First 1
+& $py37 scripts/ci/check_python_wheel.py --profile lite_py37 $wheel.FullName
+& $py37 -m pip install --force-reinstall --no-deps $wheel.FullName
+& $py37 scripts/ci/smoke_python37_runtime.py --profile lite_py37
+```
+
+Bash:
+
+```bash
+"$PYTHON37" scripts/build_py37_pure_wheel.py
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile lite_py37 \
+  'dist/dcc_mcp_core-*-py3-none-any.whl'
+wheel=$(ls dist/dcc_mcp_core-*-py3-none-any.whl | head -1)
+"$PYTHON37" -m pip install --force-reinstall --no-deps "$wheel"
+"$PYTHON37" scripts/ci/smoke_python37_runtime.py --profile lite_py37
+```
+
+## Deprecation process
+
+Python 3.7 support can be removed only after an accepted superseding ADR, a
+major release, at least 180 days of notice, and a documented adapter migration
+path. A dependency upgrade or hosted-runner change is not, by itself, a reason
+to silently weaken the contract.
 
 ## References
 
-- [PyO3 0.29 changelog](https://github.com/PyO3/pyo3/releases/tag/v0.29.0) — dropped Python 3.7 support
-- [Maya 2022 Python API](https://help.autodesk.com/view/MAYAUL/2022/ENU/?guid=Maya_SDK_py_ref_html)
-- [ABI3 wheel specification](https://pyo3.rs/v0.23.0/building-and-distribution#py_limited_apiabi3)
+- [ADR 011: Python 3.7 LTS Compatibility Contract](../adr/011-python-37-lts-compatibility-contract.md)
+- [py37-lite Architecture](./py37-lite-architecture.md)
+- [Adapter Compatibility Matrix](./adapter-compatibility-matrix.md)

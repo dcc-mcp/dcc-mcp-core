@@ -873,6 +873,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
     }
 
     let mut skill_paths: Vec<PathBuf> = args.skill_paths.clone();
+    let default_skill_paths_disabled = dcc_mcp_skills::constants::default_skill_paths_disabled();
     skill_paths.extend(
         dcc_mcp_skills::paths::get_skill_paths_from_env()
             .into_iter()
@@ -900,7 +901,9 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
                 })
                 .map(PathBuf::from),
         );
-        if let Ok(local_default) = dcc_mcp_skills::paths::get_local_skills_dir(Some(&args.app)) {
+        if !default_skill_paths_disabled
+            && let Ok(local_default) = dcc_mcp_skills::paths::get_local_skills_dir(Some(&args.app))
+        {
             match std::fs::create_dir_all(&local_default) {
                 Ok(()) => {
                     let p = PathBuf::from(&local_default);
@@ -923,7 +926,9 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             }
         }
     }
-    if let Ok(bundled) = dcc_mcp_skills::paths::get_skills_dir(None) {
+    if !default_skill_paths_disabled
+        && let Ok(bundled) = dcc_mcp_skills::paths::get_skills_dir(None)
+    {
         let p = PathBuf::from(&bundled);
         if p.exists() {
             #[cfg(feature = "gateway-auto")]
@@ -942,16 +947,18 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
     let admin_db =
         dcc_mcp_gateway::gateway::admin::resolve_admin_db_path(None, registry_dir_path.as_ref());
     #[cfg(feature = "gateway-auto")]
-    for p in
-        dcc_mcp_gateway::gateway::admin::sqlite_lane::read_custom_skill_paths_for_startup(&admin_db)
-    {
-        if p.exists() {
-            skill_paths_snapshot.push(SkillPathEntry {
-                path: p.display().to_string(),
-                source: "admin_custom".into(),
-            });
-            if !skill_paths.iter().any(|x| x == &p) {
-                skill_paths.push(p);
+    if !default_skill_paths_disabled {
+        for p in dcc_mcp_gateway::gateway::admin::sqlite_lane::read_custom_skill_paths_for_startup(
+            &admin_db,
+        ) {
+            if p.exists() {
+                skill_paths_snapshot.push(SkillPathEntry {
+                    path: p.display().to_string(),
+                    source: "admin_custom".into(),
+                });
+                if !skill_paths.iter().any(|x| x == &p) {
+                    skill_paths.push(p);
+                }
             }
         }
     }
@@ -993,13 +1000,16 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         let base_dirs = skill_paths_for_catalog_reload.clone();
         let admin_db_path = admin_db.clone();
         let app_owned = args.app.clone();
+        let include_admin_custom = !default_skill_paths_disabled;
         Arc::new(move || {
             let mut merged = base_dirs.clone();
-            for p in
-                dcc_mcp_gateway::gateway::admin::read_custom_skill_paths_for_startup(&admin_db_path)
-            {
-                if p.exists() && !merged.iter().any(|x| x == &p) {
-                    merged.push(p);
+            if include_admin_custom {
+                for p in dcc_mcp_gateway::gateway::admin::read_custom_skill_paths_for_startup(
+                    &admin_db_path,
+                ) {
+                    if p.exists() && !merged.iter().any(|x| x == &p) {
+                        merged.push(p);
+                    }
                 }
             }
             let extra: Vec<String> = merged

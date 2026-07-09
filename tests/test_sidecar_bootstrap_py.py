@@ -272,7 +272,10 @@ def test_bootstrap_source_parses_under_python_3_7_feature_version():
     """
     src = _read_bootstrap_source()
     try:
-        ast.parse(src, filename=str(BOOTSTRAP_PATH), feature_version=(3, 7))
+        if sys.version_info[:2] == (3, 7):
+            compile(src, str(BOOTSTRAP_PATH), "exec")
+        else:
+            ast.parse(src, filename=str(BOOTSTRAP_PATH), feature_version=(3, 7))
     except SyntaxError as exc:
         pytest.fail(
             f"{BOOTSTRAP_PATH} contains Python 3.8+ syntax that would break on Maya 2020/2022 (Python 3.7): {exc}"

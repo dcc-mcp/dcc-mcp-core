@@ -39,7 +39,7 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 
 ## Requirements
 
-- **Python**: >= 3.8 (CI tests 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.14). Pure-Python modules are syntax-compatible with Python 3.7 for Maya 2022 — see [Maya 2022 Support Policy](/guide/maya2022-support).
+- **Python**: 3.7–3.14. Native CPython 3.7 wheels are gated on Linux and Windows; `py37-lite` provides a sidecar fallback on other platforms. Python 3.8+ uses `abi3-py38` — see [Python 3.7 LTS Policy](/guide/maya2022-support).
 - **Rust**: >= 1.95 (for building from source)
 - **License**: MIT
 - **Python Dependencies**: Zero — everything is in the compiled Rust extension

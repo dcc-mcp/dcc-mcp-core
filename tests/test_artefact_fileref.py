@@ -8,6 +8,7 @@ through a live ``McpHttpServer`` with ``enable_artefact_resources=True``.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 from pathlib import Path
 import tempfile
@@ -54,7 +55,8 @@ class TestFileRefType:
             got = artefact_get_bytes(fr.uri)
             assert got == b"payload-bytes"
         finally:
-            path.unlink(missing_ok=True)
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
 
     def test_get_bytes_unknown_uri_raises(self):
         with pytest.raises(IOError):
