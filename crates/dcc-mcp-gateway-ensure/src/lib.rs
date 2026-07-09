@@ -24,13 +24,6 @@ use anyhow::Context;
 use serde::Serialize;
 
 #[cfg(windows)]
-fn hide_command_window(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
-}
-
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// How long to wait for a single `/health` probe before timing out.
@@ -542,26 +535,42 @@ pub fn remove_pidfile(pidfile: Option<&Path>) {
 pub fn is_process_alive(pid: u32) -> bool {
     #[cfg(windows)]
     {
-        // `tasklist /FI "PID eq <pid>" /NH` returns output containing the
-        // PID if the process exists, or "INFO: No tasks..." on stderr if not.
-        // Exit code is always 0, so we check stdout for the PID string.
-        let mut cmd = Command::new("tasklist");
-        hide_command_window(&mut cmd);
-        let output = cmd
-            .args([
-                "/FI",
-                &format!("PID eq {pid}"),
-                "/NH", // No headers
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output();
-        match output {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                stdout.contains(&pid.to_string())
+        // Use the Windows API directly via FFI to avoid the `tasklist.exe`
+        // shell-out and its overhead (process launch, PATH dependency,
+        // locale-dependent output parsing).
+        //
+        // This uses `extern "system"` declarations rather than adding a
+        // `windows-sys` dependency — `windows-sys 0.61` is already in the
+        // workspace graph (Cargo.lock), but a direct dep adds compile-time
+        // and symbol overhead for two functions.  The raw FFI declarations
+        // below are stable and minimal.
+        unsafe extern "system" {
+            fn OpenProcess(
+                dwDesiredAccess: u32,
+                bInheritHandle: i32,
+                dwProcessId: u32,
+            ) -> isize;
+            fn GetExitCodeProcess(
+                hProcess: isize,
+                lpExitCode: *mut u32,
+            ) -> i32;
+            fn CloseHandle(hObject: isize) -> i32;
+        }
+
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+        const STILL_ACTIVE: u32 = 259;
+
+        // SAFETY: All FFI calls are guarded by null/error checks.
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle == 0 {
+                return false;
             }
-            Err(_) => false,
+            let mut exit_code: u32 = 0;
+            let ok = GetExitCodeProcess(handle, &mut exit_code);
+            CloseHandle(handle);
+            // STILL_ACTIVE (259) means the process is running.
+            ok != 0 && exit_code == STILL_ACTIVE
         }
     }
     #[cfg(unix)]
@@ -581,18 +590,35 @@ pub fn is_process_alive(pid: u32) -> bool {
 pub fn stop_process(pid: u32) -> anyhow::Result<()> {
     #[cfg(windows)]
     {
-        let mut cmd = Command::new("taskkill");
-        hide_command_window(&mut cmd);
-        let status = cmd
-            .args(["/PID", &pid.to_string(), "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .with_context(|| format!("taskkill /PID {pid}"))?;
-        if !status.success() {
-            // Exit code 128 means the process was not found — that's OK.
-            if status.code() != Some(128) {
-                anyhow::bail!("taskkill /PID {pid} exited with {status}");
+        // Use the Windows API directly to avoid the `taskkill.exe` shell-out.
+        unsafe extern "system" {
+            fn OpenProcess(
+                dwDesiredAccess: u32,
+                bInheritHandle: i32,
+                dwProcessId: u32,
+            ) -> isize;
+            fn TerminateProcess(hProcess: isize, uExitCode: u32) -> i32;
+            fn CloseHandle(hObject: isize) -> i32;
+        }
+
+        const PROCESS_TERMINATE: u32 = 0x0001;
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+        // SAFETY: All FFI calls are guarded by null/error checks.
+        unsafe {
+            let handle = OpenProcess(
+                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                0,
+                pid,
+            );
+            if handle == 0 {
+                // Process not found — that's OK, nothing to terminate.
+                return Ok(());
+            }
+            let result = TerminateProcess(handle, 1);
+            CloseHandle(handle);
+            if result == 0 {
+                anyhow::bail!("TerminateProcess({pid}) failed");
             }
         }
     }
