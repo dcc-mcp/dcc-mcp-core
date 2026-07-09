@@ -103,8 +103,8 @@ export function InstancesPanel({
                                 </div>
                                 <div className="instance-subline">
                                   <span>{t('instances.field.appType')} {instance.dcc_type}</span>
-                                  <span>PID {instance.pid ?? '-'}</span>
-                                  <span>{formatUptime(instance.uptime_secs)}</span>
+                                  {instance.pid != null ? <span>PID {instance.pid}</span> : null}
+                                  {instance.uptime_secs != null ? <span>{formatUptime(instance.uptime_secs)}</span> : null}
                                 </div>
                               </div>
                             </div>
@@ -152,7 +152,7 @@ export function InstancesPanel({
                             {instance.host_rpc_uri || instance.host_rpc_scheme ? (
                               <span className="instance-detail-item wide">
                                 <small>{t('instances.field.hostRpc')}</small>
-                                <strong title={instance.host_rpc_uri ?? undefined}>{instance.host_rpc_scheme ?? instance.host_rpc_uri}</strong>
+                                <strong title={instance.host_rpc_uri ?? undefined}>{instance.host_rpc_uri ?? instance.host_rpc_scheme}</strong>
                               </span>
                             ) : null}
                             <span className="instance-detail-item wide">

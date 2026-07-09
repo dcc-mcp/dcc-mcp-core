@@ -2211,7 +2211,7 @@ tbody tr:hover td {
   grid-template-columns: minmax(18rem, 0.92fr) minmax(24rem, 1.28fr) minmax(17rem, 0.82fr);
   line-height: 1.45;
   min-width: 0;
-  padding: 0.85rem 0.95rem;
+  padding: 0.75rem 0.95rem;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 
@@ -2339,13 +2339,13 @@ tbody tr:hover td {
   border-radius: 8px;
   display: grid;
   gap: 0.16rem;
-  min-height: 3.1rem;
+  min-height: 3.0rem;
   min-width: 0;
   padding: 0.45rem 0.55rem;
 }
 
 .instance-detail-item.wide {
-  grid-column: auto;
+  grid-column: span 3;
 }
 
 .instance-detail-item strong {
