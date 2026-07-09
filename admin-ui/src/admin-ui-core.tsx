@@ -550,7 +550,15 @@ export function compactInstanceId(value: string | null | undefined): string {
   if (typeof value !== 'string' || value.length === 0) {
     return 'unrouted';
   }
-  return value.length > 8 ? value.slice(0, 8) : value;
+  if (value.length > 8) {
+    const hyphenIdx = value.indexOf('-');
+    if (hyphenIdx !== -1 && hyphenIdx >= 7) {
+      const suffix = value.slice(hyphenIdx + 1);
+      return value.slice(0, hyphenIdx + 1) + suffix.slice(0, 4);
+    }
+    return value.slice(0, 8);
+  }
+  return value;
 }
 
 export function toolInstanceLabel(tool: ToolRow): string {
