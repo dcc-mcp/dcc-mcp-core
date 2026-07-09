@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.20](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.19...v0.19.20) (2026-07-09)
+
+
+### Bug Fixes
+
+* **admin-ui:** fix missing admin instance information and layout misalignment ([9b56b5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/9b56b5a2f1485ddcaa3175172c287fed42552670))
+* **gateway-ensure:** remove dead non-Windows hide_command_window no-op ([41a1142](https://github.com/dcc-mcp/dcc-mcp-core/commit/41a1142e4383809431bd1c979fd41639bdfd9f35))
+* **gateway:** hide Windows taskkill helper windows ([6d5be7e](https://github.com/dcc-mcp/dcc-mcp-core/commit/6d5be7e7ef6e83ad11e7dc41b90a520bd91e4f7c))
+
 ## [0.19.19](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.18...v0.19.19) (2026-07-08)
 
 
