@@ -292,6 +292,10 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ///     accumulated: Whether to also discover user/team accumulated skills (default ``True``).
 ///                  Can be disabled by setting ``DCC_MCP_DISABLE_ACCUMULATED_SKILLS=1``.
 ///
+/// Set ``DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`` for hermetic discovery that
+/// keeps explicit, bundled, and environment-provided paths but omits implicit
+/// operator-owned roots such as local/platform defaults.
+///
 /// Example::
 ///
 ///     import os
@@ -348,7 +352,9 @@ pub fn py_create_skill_server(
     // Collect paths: explicit extra_paths + env vars + local developer default.
     let mut all_paths: Vec<String> = extra_paths.unwrap_or_default();
     all_paths.extend(get_app_skill_paths_from_env(app_name));
-    if let Ok(local_dir) = get_local_skills_dir(Some(effective_dcc)) {
+    if !dcc_mcp_skills::constants::default_skill_paths_disabled()
+        && let Ok(local_dir) = get_local_skills_dir(Some(effective_dcc))
+    {
         match std::fs::create_dir_all(&local_dir) {
             Ok(()) => all_paths.push(local_dir),
             Err(err) => tracing::warn!(
@@ -369,10 +375,9 @@ pub fn py_create_skill_server(
     tracing::info!("create_skill_server({app_name}): discovered {discovered} skill(s)");
 
     // Discover accumulated user/team skills unless disabled
-    let accumulated_disabled =
-        std::env::var(dcc_mcp_skills::constants::ENV_DISABLE_ACCUMULATED_SKILLS)
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
+    let accumulated_disabled = dcc_mcp_skills::constants::env_flag_enabled(
+        dcc_mcp_skills::constants::ENV_DISABLE_ACCUMULATED_SKILLS,
+    );
     if accumulated && !accumulated_disabled {
         let acc_discovered = catalog.discover_user_and_team(Some(effective_dcc));
         tracing::info!(

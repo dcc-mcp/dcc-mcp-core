@@ -32,7 +32,7 @@ classifiers = [
 ]
 
 dependencies = [
-    # dcc-mcp-server (Python 3.8+): provides the sidecar gateway daemon binary
+    # dcc-mcp-server (Python 3.7+): provides the sidecar gateway daemon binary
     # and the packaging toolchain for standalone DCC MCP server bundles.
     # Maya 2022 / Blender 2.83 embed Python 3.7; the py37-lite wheel ships
     # pure-Python code only and users install dcc-mcp-server separately when
@@ -42,19 +42,23 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest>=8.3.0",  # CVE-2025-71176: fix tmpdir handling vulnerability
-    "pytest-cov>=4.0",
-    "pytest-xdist>=3.0",
+    "pytest>=8.3.0; python_version>='3.8'",  # CVE-2025-71176: fixed line for maintained Python runtimes
+    "pytest==7.4.4,<8.0; python_version<'3.8'",  # Last pytest line supporting the Python 3.7 LTS gate
+    "pytest-cov>=4.0; python_version>='3.8'",
+    "pytest-cov>=4.0,<5.0; python_version<'3.8'",
+    "pytest-xdist>=3.0; python_version>='3.8'",
+    "pytest-xdist==3.5.0; python_version<'3.8'",
+    "typing-extensions==4.7.1; python_version<'3.8'",
     "rez",
-    "zipp>=3.19.1",  # CVE-2024-5569: fix DoS vulnerability in zipfile path handling
+    "zipp>=3.19.1; python_version>='3.8'",  # CVE-2024-5569; fixed releases require Python 3.8+
     # Qt UI inspector live-Qt tests (issue #1332); skipped on Py<3.9 / when missing
     "pytest-qt>=4.4; python_version>='3.9'",
     "PySide6-Essentials>=6.5; python_version>='3.9'",
 ]
 dev = [
     "dcc-mcp-core[test]",
-    "ruff>=0.8.0",
-    "mypy>=1.0",
+    "ruff>=0.8.0; python_version>='3.8'",
+    "mypy>=1.0; python_version>='3.8'",
     "maturin>=1.0",
 ]
 # Optional ONNX-backed semantic embeddings for VectorSkillIndex

@@ -59,8 +59,10 @@ push the change.
 
 - **Verify py37 wheels exist** and py37 CI is green before publishing.
 - `py37-lite` fallback wheels do NOT satisfy the release gate. Native py37
-  builds are required until `2026-12-31`.
+  builds are an LTS requirement with no automatic calendar expiry.
 - Confirm `requires-python = ">=3.7"` in `pyproject.toml` is unchanged.
+- Removing native py37 requires an accepted superseding ADR, a major release,
+  and at least 180 days of notice.
 
 ## Workflow
 

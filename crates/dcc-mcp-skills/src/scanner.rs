@@ -223,26 +223,28 @@ impl SkillScanner {
             }
         }
 
-        // 3. Local developer skills directory.
-        if let Ok(local_dir) = crate::paths::get_local_skills_dir(dcc_name)
-            && Path::new(&local_dir).is_dir()
-        {
-            search_paths.push((local_dir, SkillPathSource::LocalDev));
-        }
+        if !crate::constants::default_skill_paths_disabled() {
+            // 3. Local developer skills directory.
+            if let Ok(local_dir) = crate::paths::get_local_skills_dir(dcc_name)
+                && Path::new(&local_dir).is_dir()
+            {
+                search_paths.push((local_dir, SkillPathSource::LocalDev));
+            }
 
-        // 4. Platform-specific skills directory.
-        if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name)
-            && Path::new(&platform_dir).is_dir()
-        {
-            search_paths.push((platform_dir, SkillPathSource::Platform));
-        }
+            // 4. Platform-specific skills directory.
+            if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name)
+                && Path::new(&platform_dir).is_dir()
+            {
+                search_paths.push((platform_dir, SkillPathSource::Platform));
+            }
 
-        // 5. Global (dcc-less) skills dir is also platform-installed.
-        if dcc_name.is_some()
-            && let Ok(global_dir) = crate::paths::get_skills_dir(None)
-            && Path::new(&global_dir).is_dir()
-        {
-            search_paths.push((global_dir, SkillPathSource::Platform));
+            // 5. Global (dcc-less) skills dir is also platform-installed.
+            if dcc_name.is_some()
+                && let Ok(global_dir) = crate::paths::get_skills_dir(None)
+                && Path::new(&global_dir).is_dir()
+            {
+                search_paths.push((global_dir, SkillPathSource::Platform));
+            }
         }
 
         // Deduplicate while preserving order. The first occurrence wins,

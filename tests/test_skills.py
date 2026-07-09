@@ -115,6 +115,23 @@ class TestSkillScanner:
         result = scanner.scan(extra_paths=[str(tmp_path)], dcc_name="maya")
         assert len(result) == 1
 
+    def test_disable_default_paths_keeps_explicit_and_env_paths(self, tmp_path: Path, monkeypatch) -> None:
+        explicit_root = tmp_path / "explicit"
+        env_root = tmp_path / "env"
+        explicit_root.mkdir()
+        env_root.mkdir()
+        create_skill_dir(str(explicit_root), "explicit-skill", dcc="maya")
+        create_skill_dir(str(env_root), "env-skill", dcc="maya")
+        monkeypatch.setenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", "1")
+        monkeypatch.setenv("DCC_MCP_MAYA_SKILL_PATHS", str(env_root))
+
+        result = dcc_mcp_core.SkillScanner().scan(
+            extra_paths=[str(explicit_root)],
+            dcc_name="maya",
+        )
+
+        assert {Path(path).name for path in result} == {"explicit-skill", "env-skill"}
+
     def test_scan_force_refresh(self, tmp_path: Path) -> None:
         scanner = dcc_mcp_core.SkillScanner()
         create_skill_dir(str(tmp_path), "s1")

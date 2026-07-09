@@ -5,50 +5,12 @@ name: CI
 
 on:
   workflow_dispatch: {}
+  # Required statuses and contract projections must be emitted for every
+  # pull request and main push; workflow-level path filters create blind spots.
   pull_request:
     branches: [main]
-    paths:
-      - "crates/**"
-      - "python/**"
-      - "scripts/**"
-      - "src/**"
-      - "tests/**"
-      - "examples/**"
-      - "skills/**"
-      - "admin-ui/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "justfile"
-      - "pyproject.toml"
-      - "rust-toolchain.toml"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/dcc-integration.yml"
-      - ".github/workflows/build-wheels.yml"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/rust-matrix-full.yml"
-      - ".github/actions/build-wheel/**"
   push:
     branches: [main]
-    paths:
-      - "crates/**"
-      - "python/**"
-      - "scripts/**"
-      - "src/**"
-      - "tests/**"
-      - "examples/**"
-      - "skills/**"
-      - "admin-ui/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "justfile"
-      - "pyproject.toml"
-      - "rust-toolchain.toml"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/dcc-integration.yml"
-      - ".github/workflows/build-wheels.yml"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/rust-matrix-full.yml"
-      - ".github/actions/build-wheel/**"
 
 permissions:
   contents: write
@@ -58,6 +20,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python37-contract:
+    name: Python 3.7 contract
+    runs-on: ubuntu-latest
+    outputs:
+      native-matrix: ${{ steps.validate.outputs.native-matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Validate long-term support projections
+        id: validate
+        run: python scripts/ci/check_python_support.py --github-output "$GITHUB_OUTPUT"
+
   release-metadata:
     name: Release metadata
     runs-on: ubuntu-latest
@@ -372,22 +348,54 @@ jobs:
           python -m pip install --upgrade pip wheel
           python scripts/build_py37_pure_wheel.py
         shell: bash
-      - name: Verify wheel tag is py3-none-any
+      - name: Check py37-lite wheel contract
+        run: python scripts/ci/check_python_wheel.py --profile lite_py37 dist/*.whl
         shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          echo "Built wheel: $wheel"
-          if [[ "$wheel" != *py3-none-any* ]]; then
-            echo "::error::Expected py3-none-any wheel tag, got: $wheel"
-            exit 1
-          fi
-          echo "OK: py3-none-any wheel tag confirmed"
       - name: Upload py37-lite wheel
         uses: actions/upload-artifact@v7
         with:
           name: wheel-py37-lite
           path: dist/
           retention-days: 30
+
+  # Native cp37 wheels are the authoritative compatibility proof. The lite
+  # wheel remains a sidecar fallback and must never replace this gate.
+  python37-native:
+    name: Python 3.7 native (${{ matrix.platform }})
+    needs: [admin-ui-bundle, python37-contract]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.python37-contract.outputs.native-matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download admin UI bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+      - uses: ./.github/actions/build-wheel
+        with:
+          target: ${{ matrix.target }}
+          python-version: "3.7"
+          maturin-extra-args: "-i python3.7"
+          artifact-name: wheel-py37-native-${{ matrix.platform }}
+          test-wheel: "false"
+          generate-stubs: "false"
+          prebuild-admin-ui: "false"
+      - name: Install native wheel
+        shell: bash
+        run: |
+          python -m pip install --force-reinstall dist/*.whl
+          python -m pip check
+      - name: Run native Python 3.7 runtime smoke
+        run: python scripts/ci/smoke_python37_runtime.py --profile native_py37
+      - name: Install Python 3.7 test toolchain
+        if: matrix.full_suite
+        run: python scripts/ci/install_python37_test_toolchain.py
+      - name: Run full Python 3.7 test suite
+        if: matrix.full_suite
+        run: python -m pytest tests/ -q --tb=short --show-capture=no -n 4 --dist loadfile
 
   # ── Python tests: trimmed OS × Python matrix (8 cells, was 18) ──
   # Covers representative supported Python versions on ubuntu (cheapest) +
@@ -489,65 +497,10 @@ jobs:
       - name: Install wheel + test deps
         run: |
           pip install dist/*.whl
-          pip install pytest
+          python scripts/ci/install_python37_test_toolchain.py
         shell: bash
-      - name: Verify _core raises ImportError
-        shell: bash
-        run: |
-          python -c "
-          import importlib
-          try:
-              importlib.import_module('dcc_mcp_core._core')
-              print('FAIL: _core should NOT be importable in py37-lite')
-              exit(1)
-          except ImportError:
-              print('OK: _core correctly raises ImportError')
-          "
-      - name: Verify import dcc_mcp_core works
-        shell: bash
-        run: |
-          python -c "import dcc_mcp_core; print('OK: import dcc_mcp_core')"
-      - name: Verify skill module works
-        shell: bash
-        run: |
-          python -c "
-          from dcc_mcp_core.skill import skill_entry, skill_success, skill_error
-          result = skill_success('test')
-          assert result['success'] is True
-          print('OK: dcc_mcp_core.skill works')
-          "
-      - name: Verify host module imports (without _core)
-        shell: bash
-        run: |
-          python -c "
-          from dcc_mcp_core.host import BlockingDispatcher
-          from dcc_mcp_core.host import QueueDispatcher
-          from dcc_mcp_core.host import StandaloneHost
-          from dcc_mcp_core.host._fallback import BlockingDispatcher as FallbackBlockingDispatcher
-          from dcc_mcp_core.host._fallback import QueueDispatcher as FallbackQueueDispatcher
-          assert BlockingDispatcher is FallbackBlockingDispatcher, \
-              f"BlockingDispatcher should re-export _fallback, got {BlockingDispatcher}"
-          assert QueueDispatcher is FallbackQueueDispatcher, \
-              f"QueueDispatcher should re-export _fallback, got {QueueDispatcher}"
-          dispatcher = BlockingDispatcher()
-          with StandaloneHost(dispatcher):
-              assert dispatcher.post(lambda: 42).wait(timeout=2.0) == 42
-          blocking = QueueDispatcher()
-          with StandaloneHost(blocking):
-              assert blocking.post(lambda: 'ok').wait(timeout=2.0) == 'ok'
-          from dcc_mcp_core.host._adapter import HostAdapter, TickableDispatcher
-          print('OK: dcc_mcp_core.host imports without _core')
-          "
-      - name: Verify lazy _core fallback (skill._serialize_result)
-        shell: bash
-        run: |
-          python -c "
-          from dcc_mcp_core.skill import skill_success
-          from dcc_mcp_core.skill import _serialize_result as sr
-          result = sr(skill_success('test'))
-          assert 'success' in result
-          print('OK: skill._serialize_result falls back to pure Python')
-          "
+      - name: Run py37-lite runtime smoke
+        run: python scripts/ci/smoke_python37_runtime.py --profile lite_py37
       - name: Run py37 sidecar factory tests (source tree)
         shell: bash
         run: PYTHONPATH=python pytest tests/test_py37_sidecar_server_factory.py -q
@@ -586,9 +539,9 @@ jobs:
 
   # ── Python 3.7 syntax gate ──────────────────────────────────────────────
   # Maya 2022 / Blender 2.83 embed Python 3.7; pure-Python modules must
-  # remain syntax-compatible with 3.7 through 2026-12-31. This job runs
-  # check_py37_syntax.py with a 3.7 interpreter to catch PEP 604 unions,
-  # walrus operators, and other 3.8+ syntax.
+  # remain syntax-compatible under the repository's explicit LTS policy. This
+  # job runs check_py37_syntax.py with a 3.7 interpreter to catch grammar
+  # introduced by Python 3.8 and later.
   py37-syntax-check:
     name: py37 syntax check
     runs-on: ubuntu-22.04
@@ -599,6 +552,36 @@ jobs:
           python-version: "3.7"
       - name: Run py37 syntax check
         run: python scripts/check_py37_syntax.py
+
+  # Stable aggregate status for repository rulesets. Configure this exact job
+  # name as required so a skipped or failed constituent cannot merge silently.
+  python37-gate:
+    name: Python 3.7 compatibility
+    if: always()
+    needs:
+      - python37-contract
+      - python37-native
+      - build-py37-wheel
+      - test-py37
+      - py37-syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Python 3.7 gate
+        shell: bash
+        run: |
+          results=(
+            "${{ needs.python37-contract.result }}"
+            "${{ needs.python37-native.result }}"
+            "${{ needs.build-py37-wheel.result }}"
+            "${{ needs.test-py37.result }}"
+            "${{ needs.py37-syntax-check.result }}"
+          )
+          for result in "${results[@]}"; do
+            if [[ "$result" != "success" ]]; then
+              echo "::error::Python 3.7 gate dependency finished with: $result"
+              exit 1
+            fi
+          done
 
   # -- Sentry E2E: real ingest through dcc-mcp-server init_sentry() --
   # Requires DCC_MCP_SENTRY_DSN GitHub Actions secret. Skips cleanly when

@@ -77,6 +77,28 @@ fn resolve_registry_dcc_type_impl(
 /// Environment variable to disable automatic discovery of accumulated skills.
 pub const ENV_DISABLE_ACCUMULATED_SKILLS: &str = "DCC_MCP_DISABLE_ACCUMULATED_SKILLS";
 
+/// Environment variable to disable implicit operator-owned skill paths.
+///
+/// Explicit paths and `DCC_MCP_*_SKILL_PATHS` remain active. Callers also use
+/// this policy to omit marketplace and Admin custom roots. This makes CI and
+/// other hermetic hosts independent from the operator's real skill installation
+/// without changing the default interactive behavior.
+pub const ENV_DISABLE_DEFAULT_SKILL_PATHS: &str = "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS";
+
+/// Return whether an opt-in environment flag is set to `1` or `true`.
+#[must_use]
+pub fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Return whether implicit operator-owned skill paths are disabled.
+#[must_use]
+pub fn default_skill_paths_disabled() -> bool {
+    env_flag_enabled(ENV_DISABLE_DEFAULT_SKILL_PATHS)
+}
+
 /// Subdirectory inside a skill package that holds executable scripts.
 pub const SKILL_SCRIPTS_DIR: &str = "scripts";
 
@@ -268,6 +290,10 @@ mod tests {
         assert_eq!(ENV_SKILL_PATHS, "DCC_MCP_SKILL_PATHS");
         assert_eq!(ENV_USER_SKILL_PATHS, "DCC_MCP_USER_SKILL_PATHS");
         assert_eq!(ENV_TEAM_SKILL_PATHS, "DCC_MCP_TEAM_SKILL_PATHS");
+        assert_eq!(
+            ENV_DISABLE_DEFAULT_SKILL_PATHS,
+            "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"
+        );
     }
 
     #[test]

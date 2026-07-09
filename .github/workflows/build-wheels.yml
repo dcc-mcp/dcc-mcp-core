@@ -15,10 +15,6 @@ on:
         default: ""
   workflow_call:
     inputs:
-      test-wheel:
-        required: false
-        type: string
-        default: 'true'
       checkout-ref:
         required: false
         type: string
@@ -55,16 +51,6 @@ jobs:
           target: x86_64
           python-version: '3.11'
           artifact-name: wheels-linux-x86_64
-      - name: Verify wheel tag is abi3
-        shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          echo "Built wheel: $wheel"
-          if [[ "$wheel" != *cp38-abi3* ]]; then
-            echo "::error::Expected cp38-abi3 wheel tag, got: $wheel"
-            exit 1
-          fi
-          echo "OK: abi3 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -90,16 +76,6 @@ jobs:
           # (justfile) produces the correct tag.  (PIP-2508)
           maturin-extra-args: ''
           artifact-name: wheels-windows-x64
-      - name: Verify wheel tag is abi3
-        shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          echo "Built wheel: $wheel"
-          if [[ "$wheel" != *cp38-abi3* ]]; then
-            echo "::error::Expected cp38-abi3 wheel tag, got: $wheel"
-            exit 1
-          fi
-          echo "OK: abi3 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -128,26 +104,14 @@ jobs:
           python -m pip install --upgrade pip wheel
           python scripts/build_py37_pure_wheel.py
         shell: bash
-      - name: Verify wheel tag is py3-none-any
+      - name: Check py37-lite wheel contract
+        run: python scripts/ci/check_python_wheel.py --profile lite_py37 dist/*.whl
+        shell: bash
+      - name: Test py37-lite wheel
         shell: bash
         run: |
-          wheel=$(ls dist/*.whl | head -1)
-          echo "Built wheel: $wheel"
-          if [[ "$wheel" != *py3-none-any* ]]; then
-            echo "::error::Expected py3-none-any wheel tag, got: $wheel"
-            exit 1
-          fi
-          echo "OK: py3-none-any wheel tag confirmed"
-      - name: Verify _core extension is NOT present in the wheel
-        shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          # Match compiled extensions only; _core.pyi stub is expected in py37-lite wheels.
-          if unzip -l "$wheel" | grep -E '_core\.(so|pyd|dll|dylib)'; then
-            echo "::error::py37-lite wheel should not contain compiled _core extension"
-            exit 1
-          fi
-          echo "OK: no compiled _core extension in py37-lite wheel"
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          python scripts/ci/smoke_python37_runtime.py --profile lite_py37
       - name: Upload py37-lite wheel artifact
         uses: actions/upload-artifact@v7
         with:
@@ -180,20 +144,6 @@ jobs:
           python-version: '3.7'
           maturin-extra-args: '-i python3.7'
           artifact-name: wheels-linux-x86_64-py37
-      - name: Verify wheel tag is cp37 (not abi3)
-        shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          echo "Built wheel: $wheel"
-          if [[ "$wheel" != *cp37* ]]; then
-            echo "::error::Expected cp37 wheel tag, got: $wheel"
-            exit 1
-          fi
-          if [[ "$wheel" == *cp38-abi3* ]]; then
-            echo "::error::cp37 wheel must NOT be abi3, got: $wheel"
-            exit 1
-          fi
-          echo "OK: native cp37 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -202,7 +152,7 @@ jobs:
           files: dist/*.whl
 
   windows-py37:
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
     steps:
@@ -215,16 +165,6 @@ jobs:
           python-version: '3.7'
           maturin-extra-args: '-i python3.7'
           artifact-name: wheels-windows-x64-py37
-      - name: Verify wheel tag is cp37 (not abi3)
-        shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          echo "Built wheel: $wheel"
-          if [[ "$wheel" != *cp37* ]]; then
-            echo "::error::Expected cp37 wheel tag, got: $wheel"
-            exit 1
-          fi
-          echo "OK: native cp37 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -246,16 +186,6 @@ jobs:
           python-version: '3.11'
           maturin-extra-args: '--sdist --find-interpreter'
           artifact-name: wheels-macos-universal2
-      - name: Verify wheel tag is abi3
-        shell: bash
-        run: |
-          wheel=$(ls dist/*.whl | head -1)
-          echo "Built wheel: $wheel"
-          if [[ "$wheel" != *cp38-abi3* ]]; then
-            echo "::error::Expected cp38-abi3 wheel tag, got: $wheel"
-            exit 1
-          fi
-          echo "OK: abi3 wheel tag confirmed"
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3

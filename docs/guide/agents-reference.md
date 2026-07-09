@@ -969,7 +969,7 @@ When adding a Rust type/function that needs to be callable from Python:
 - **Preflight before PR**: `vx just preflight` runs cargo check + clippy + fmt + test-rust — catch issues early.
 - **Lint auto-fix**: `vx just lint-fix` auto-fixes both Rust (cargo fmt) and Python (ruff + isort) issues.
 - **Version never manual**: Release Please owns versioning — never manually edit `CHANGELOG.md` or version strings.
-- **Docs-only changes**: Changes to `docs/`, `*.md`, `llms*.txt` skip Rust rebuild in CI — fast turnaround.
+- **Required checks on every PR**: CI intentionally runs for documentation-only changes so repository rulesets always receive stable required statuses.
 - **Branch naming**: Avoid `docs/` prefix (causes `refs/heads/docs/...` conflicts). Use flat names like `feat-xxx` or `enhance-xxx`.
 
 ---
@@ -1008,11 +1008,19 @@ When adding a Rust type/function that needs to be callable from Python:
 ## CI & Release
 
 - PRs must pass: `vx just preflight` + `vx just test` + `vx just lint`
-- CI matrix: Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.14 on Linux / macOS / Windows
+- Python 3.7 gate: native Linux and Windows wheels plus the full suite on Linux; the lite fallback is validated separately
+- Python 3.8–3.14 gate: a representative PR matrix, plus the full Linux / macOS / Windows matrix on the scheduled workflow
 - Versioning: Release Please (Conventional Commits) — never manually bump
 - PyPI: Trusted Publishing (no tokens) — **each** of `dcc-mcp-core`, `dcc-mcp-server`, and `dcc-mcp-core-semantic` needs its own PyPI Trusted Publisher; see [PyPI Trusted Publishers](https://docs.pypi.org/trusted-publishers/)
-- Docs-only changes skip Rust rebuild → CI passes quickly
+- Every PR emits the stable required statuses, including documentation-only changes
 - Squash merge convention for PRs
+
+Hermetic tests and CI that pass explicit skill roots should set
+`DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`. It excludes implicit operator-owned
+roots (local/platform defaults, marketplace installs, and Admin custom paths)
+while preserving caller-provided, bundled, and `DCC_MCP_*_SKILL_PATHS`
+environment paths. Interactive hosts retain the
+existing discovery defaults when the variable is unset.
 
 
 ---
@@ -1780,32 +1788,39 @@ return `Result<T, DccMcpError>` rather than introducing yet another error type.
 
 ## Python 3.7 Support Policy
 
-**dcc-mcp supports Python 3.7 until `2026-12-31`** unless hallong explicitly
-lifts the deadline. This constraint exists because Maya 2022, Blender 2.83,
-3ds Max 2022, and many other DCC hosts embed Python 3.7.
+**dcc-mcp treats Python 3.7 as a long-term-support profile.** There is no
+calendar expiry. Removing support requires an accepted superseding ADR, a
+major release, at least 180 days of notice, and a migration path for affected
+adapters. This constraint exists because Maya 2022, Blender 2.83,
+MotionBuilder 2022, 3ds Max releases, and studio hosts embed Python 3.7.
+
+The source of truth is `compatibility/python.json`; ADR 011 explains the
+trade-offs. Run `vx just check-python-support` after changing packaging,
+PyO3, Python metadata, CI workflows, or these policy documents.
 
 ### Why This Matters for Review/Release Agents
 
 | Role | What to check |
 |------|---------------|
-| **Merge/review gate** | Verify py37 CI is green before approving. Reject if py37 CI was skipped or replaced by `py37-lite`. |
-| **Release** | Confirm py37 wheels are built (not just py38+ wheels). Check that `requires-python = ">=3.7"` in `pyproject.toml` has not been bumped. |
-| **PR author** | Run `vx just test` on Python 3.7 before opening PR if touching Rust/PyO3/maturin wiring, Python API surface, or packaging. |
+| **Merge/review gate** | Require the stable `Python 3.7 compatibility` aggregate status. Reject skipped constituents or a lite-only proof. |
+| **Release** | Confirm native Linux + Windows cp37 wheels, the lite fallback, and `requires-python = ">=3.7"`. |
+| **PR author** | Run the contract check and real Python 3.7 smoke; CI owns native cross-platform builds and the full suite. |
 | **Skill creator** | Set `compatibility: "dcc-mcp-core <version>, Python 3.7+"` in SKILL.md frontmatter. |
 
 ### What is NOT valid
 
-- `py37-lite` / fallback wheels — native py37 builds are required for release
-  gates. A lite wheel that drops Rust extensions to support py37 without
-  compiling native code does **not** count as py37 compliance.
+- `py37-lite` alone — native py37 builds are required for merge and release
+  gates. A lite wheel that drops Rust extensions is a supported fallback, not
+  proof of the full package contract.
 - py38-only CI passing — all changes that affect the Python surface must
   have a passing py37 CI job.
-- "Nobody uses py37 anymore" — the deadline is fixed. If you think it should
-  be lifted, raise it with hallong.
+- "Nobody uses py37 anymore" — usage assumptions do not supersede ADR 011.
+  Follow the formal deprecation requirements instead.
 
 ### PyO3 / Maturin Constraints
 
-- **PyO3 upgrades are frozen** until the py37 deadline is lifted.
+- **PyO3 must remain on the series declared in `compatibility/python.json`**
+  unless the proposed upgrade passes both native Python 3.7 build/runtime jobs.
 - Any `Cargo.toml` change touching `pyo3` or `maturin` version pins requires
   explicit py37 CI validation in the same PR.
 - When adding a new Rust extension to an existing adapter, verify that
@@ -1813,7 +1828,7 @@ lifts the deadline. This constraint exists because Maya 2022, Blender 2.83,
 
 ### CI Configuration
 
-The CI workflow (`.github/workflows/`) must include a Python 3.7 job for PRs
+The CI workflow (`.github/workflows/`) must include Python 3.7 jobs for PRs
 that touch:
 
 1. `Cargo.toml` / `Cargo.lock` — workspace-level or per-crate dependency changes
@@ -1822,6 +1837,8 @@ that touch:
 4. `.github/workflows/` — CI workflow changes that could affect test matrix
 5. `crates/` — Rust source that affects the PyO3 bridge
 
-The py37 job must run the full test suite (`vx just test`), not a subset.
+The native Linux py37 job must run the full test suite. The native Windows job
+must build, install, validate wheel contents, and run the contracted import and
+behavior smoke. The lite job must separately prove fallback behavior.
 If a test genuinely cannot run on 3.7 (e.g. depends on Python 3.8+ only
 features), it should be marked with `@pytest.mark.skipif(sys.version_info < (3, 8), ...)` and the skip must be documented in the PR.

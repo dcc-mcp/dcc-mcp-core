@@ -1,103 +1,142 @@
-# Maya 2022 支持策略
+# Maya 2022 / Python 3.7 长期支持策略
 
-> **生效日期**：2026-07-04  
-> **到期日期**：2026-12-31（可根据工作室需求延长）
+> **策略**：Python 3.7 是长期支持（LTS）兼容档位，不再按固定日期自动到期。
+> 详细决策见 [ADR 011](../../adr/011-python-37-lts-compatibility-contract.md)。
 
-## 承诺
+## 支持承诺
 
-dcc-mcp-core **将持续支持 Maya 2022 至 2026 年底**。Maya 2022 内嵌 Python 3.7 解释器，这对我们的代码库施加了以下约束。
+Maya 2022 内嵌 CPython 3.7，很多仍在生产环境中的 DCC 版本也有同样约束。
+因此，在完成 ADR 011 规定的正式弃用流程之前，`dcc-mcp-core` 会持续提供
+可安装、可运行、经过门禁验证的 Python 3.7 路径。
 
-## Maya 2022 / Python 3.7 上可用的部分
+机器可读的唯一事实来源是
+[`compatibility/python.json`](../../../compatibility/python.json)。
 
-### 纯 Python 模块
+## 支持的 wheel 档位
 
-所有 `dcc_mcp_core` 纯 Python 模块**语法兼容 Python 3.7**。包括：
+### 原生 Python 3.7
 
-- Skill 脚本 (`python/dcc_mcp_core/skills/`)
-- Host 适配器协议 (`python/dcc_mcp_core/host/`)
-- 工具注册与分发 (`python/dcc_mcp_core/_server/`)
-- Schema 推导 (`python/dcc_mcp_core/schema.py`)
-- 安装生命周期辅助函数
+Linux 和 Windows 发布物包含原生 `cp37-cp37m` wheel，使用兼容契约锁定的
+PyO3 0.28 系列构建。该 wheel 包含 `dcc_mcp_core._core`，提供正常的 Rust
+加速与完整 Python API 表面。
 
-类型注解使用 `typing.Optional`、`typing.Dict`、`typing.List` 等（非 PEP 604 `|` 语法或内置泛型），确保模块在 Python 3.7 上可正常导入。
+这是 Python 3.7 兼容性的权威证明。
 
-### 二进制 server wheel
+### py37-lite 回退
 
-`dcc-mcp-server` 配套包发布**纯 Rust 二进制**（无 Python ABI），可在任何主机上运行。Maya 2022 可以 `pip install dcc-mcp-server` 并通过 `DccServerBase` 启动 gateway daemon。
+发布物同时包含不带 `_core` 的 `py3-none-any` wheel。对于没有原生 cp37
+wheel 的平台，它提供纯 Python 的 host、skill、配置与 sidecar 回退能力。
 
-## Python 3.7 上不可用的部分
+`py37-lite` 是受支持的回退档位，但不能替代原生兼容证明。合并与发布门禁
+必须同时要求原生档位和 lite 档位成功。
 
-### Rust 扩展 (`_core`)
+### Python 3.8+
 
-`dcc_mcp_core._core` 原生扩展使用 **PyO3 0.29** 构建，目标为 **abi3-py38**。它需要 **Python 3.8+**，无法在 Python 3.7 上加载。
+维护中的高版本 Python 使用 `cp38-abi3` wheel。每个平台的一份稳定 ABI
+构建覆盖 Python 3.8 到兼容契约声明的最高测试版本。
 
-这意味着：
-- `from dcc_mcp_core import ToolRegistry` 在 3.7 上可用（纯 Python）
-- `from dcc_mcp_core._core import ...` 在 3.7 上失败（原生扩展）
+## 运行架构
 
-### 语义嵌入
-
-`dcc-mcp-core-semantic` 配套 wheel 需要 **Python 3.8+**（PyO3 0.29 + ONNX Runtime）。
-
-## Maya 2022 架构
-
-```
-┌─────────────────────────────────────────────────┐
-│ Maya 2022 (Python 3.7)                          │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ dcc-mcp-core (纯 Python)                  │  │
-│  │  - HostAdapter、SkillCatalog、schema.py   │  │
-│  │  - 可正常导入，不使用 Rust 扩展            │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ dcc-mcp-server (二进制 wheel)             │  │
-│  │  - dcc-mcp-server.exe / dcc-mcp-cli       │  │
-│  │  - 纯 Rust，无 Python ABI                 │  │
-│  └───────────────────────────────────────────┘  │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │ dcc-mcp-maya 适配器                       │  │
-│  │  - Maya 专用命令 + UI                     │  │
-│  │  - 通过 HTTP 与 gateway 通信              │  │
-│  └───────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
+```text
+Maya 2022 / CPython 3.7
+        |
+        +-- 平台有原生 cp37 wheel
+        |      `-- Python facade + Rust _core 扩展
+        |
+        `-- 平台没有原生 wheel
+               `-- py37-lite facade + 外部 dcc-mcp-server sidecar
 ```
 
-Gateway daemon（二进制，无 Python 依赖）通过 Maya 适配器连接到 Maya 的嵌入式 Python，适配器使用 `dcc-mcp-core` 纯 Python 模块进行协议定义和工具分发。
+配套的 `dcc-mcp-server` wheel 携带平台二进制，而不是 Python 扩展 ABI，
+因此 Python 3.7 可以安装它，lite 适配器也可以把网关执行交给 sidecar。
 
-## CI 保障
+## CI 门禁
 
-| 检查项 | 频率 | 验证内容 |
-|---|---|---|
-| `python-matrix-full` | 每周 | 完整 Python 3.8–3.14 矩阵 |
-| `python-test` | 每个 PR | Python 3.8、3.10、3.13、3.14 |
-| `check_py37_syntax` | 每个 PR | 纯 Python 语法兼容 Python 3.7 |
+| 检查 | 频率 | 保证内容 |
+| --- | --- | --- |
+| `Python 3.7 contract` | 每个 PR | 包元数据、PyO3 系列、CI/发布任务、文档和测试版本与契约一致 |
+| `Python 3.7 native (linux-x86_64)` | 每个 PR | 构建并安装原生 cp37 wheel，校验内容，执行运行时 smoke 和完整测试套件 |
+| `Python 3.7 native (windows-x86_64)` | 每个 PR | 构建并安装原生 cp37 wheel，执行运行时 smoke |
+| `Test (py37-lite)` | 每个 PR | 安装 lite wheel，在没有 `_core` 时验证回退行为 |
+| `py37 syntax check` | 每个 PR | 使用真实 CPython 3.7 解析器编译 Python 源码与测试 |
+| `Python 3.7 compatibility` | 每个 PR | 稳定聚合门禁；任何失败、跳过或取消都会失败 |
 
-`check_py37_syntax.py` 脚本 (`scripts/check_py37_syntax.py`) 使用 Python 3.7 对所有 `python/dcc_mcp_core/` 模块运行 `python -m py_compile`，确保纯 Python 层不会引入 Python 3.8+ 语法。
+仓库 ruleset 应把精确任务名 `Python 3.7 compatibility` 配置为必需状态。
 
-## 编写 Python 3.7 兼容代码
+## 编码规则
 
-修改纯 Python 模块时：
+- 所有需要进入 Python 3.7 的模块必须可导入；使用现代注解表达式时应启用
+  postponed annotations。
+- 发布代码不能使用 assignment expression、仅限位置参数、debug f-string、
+  `match` 等 Python 3.8+ 语法。
+- `compile()` 通过不等于运行时兼容；不能在 3.7 上直接求值现代注解。
+- 对 Python 3.7 `typing` 中不存在的 `Protocol`、`Literal` 等运行时 API，
+  使用 `_typing_compat` 或明确的回退实现。
+- 需要支持 lite 档位的代码不能无条件导入 `_core`。
+- 新增跨 Rust/Python 边界的公开 API 时，应覆盖原生和 lite 两种档位。
 
-- **应使用** `typing.Optional[X]` 而非 `X | None`
-- **应使用** `typing.Dict[K, V]` 而非 `dict[K, V]`
-- **应使用** `typing.List[X]` 而非 `list[X]`
-- **应使用** `typing.Tuple[X, ...]` 而非 `tuple[X, ...]`
-- **应使用** `from __future__ import annotations` 处理前向引用
-- **不应使用** walrus 操作符 (`:=`)
-- **不应使用** `f"{expr=}"` 调试格式字符串
-- **不应使用** 仅位置参数 (`/`)
+## 本地验证
 
-## 终止计划
+vx 管理的 Python 3.7 足以执行语法门禁，但可能不包含 `pip` 或原生导入库。
+构建并安装原生 wheel 需要一套完整的 CPython 3.7（包含 `pip` 与开发/导入库）。
+Windows 上可使用 python.org 的标准安装。
 
-- **2026-12-31**：Maya 2022 支持基线到期
-- **2026-10**：社区调查 — 延长还是弃用？
-- **2027-01**：如决定弃用，移除 Python 3.7 语法检查和兼容代码
+PowerShell：
+
+```powershell
+$py37 = py -3.7 -c "import sys; print(sys.executable)"
+vx just check-python-support
+vx just check-py37-syntax
+vx just build-py37 -i $py37
+$wheel = Get-ChildItem dist/dcc_mcp_core-*-cp37-cp37m-*.whl | Select-Object -First 1
+& $py37 scripts/ci/check_python_wheel.py --profile native_py37 $wheel.FullName
+& $py37 -m pip install --force-reinstall --no-deps $wheel.FullName
+& $py37 scripts/ci/smoke_python37_runtime.py --profile native_py37
+```
+
+Bash：
+
+```bash
+PYTHON37="${PYTHON37:-python3.7}"
+vx just check-python-support
+vx just check-py37-syntax
+vx just build-py37 -i "$PYTHON37"
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile native_py37 \
+  'dist/dcc_mcp_core-*-cp37-cp37m-*.whl'
+wheel=$(ls dist/dcc_mcp_core-*-cp37-cp37m-*.whl | head -1)
+"$PYTHON37" -m pip install --force-reinstall --no-deps "$wheel"
+"$PYTHON37" scripts/ci/smoke_python37_runtime.py --profile native_py37
+```
+
+lite 档位继续使用同一个完整解释器。PowerShell：
+
+```powershell
+& $py37 scripts/build_py37_pure_wheel.py
+$wheel = Get-ChildItem dist/dcc_mcp_core-*-py3-none-any.whl | Select-Object -First 1
+& $py37 scripts/ci/check_python_wheel.py --profile lite_py37 $wheel.FullName
+& $py37 -m pip install --force-reinstall --no-deps $wheel.FullName
+& $py37 scripts/ci/smoke_python37_runtime.py --profile lite_py37
+```
+
+Bash：
+
+```bash
+"$PYTHON37" scripts/build_py37_pure_wheel.py
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile lite_py37 \
+  'dist/dcc_mcp_core-*-py3-none-any.whl'
+wheel=$(ls dist/dcc_mcp_core-*-py3-none-any.whl | head -1)
+"$PYTHON37" -m pip install --force-reinstall --no-deps "$wheel"
+"$PYTHON37" scripts/ci/smoke_python37_runtime.py --profile lite_py37
+```
+
+## 弃用流程
+
+只有在以下条件全部满足后，才能移除 Python 3.7：接受一份替代 ADR、发布主版本、
+至少提前 180 天公告，并给出受影响适配器的迁移路径。依赖升级或托管 runner
+变化本身不能成为静默削弱兼容契约的理由。
 
 ## 参考
 
-- [PyO3 0.29 更新日志](https://github.com/PyO3/pyo3/releases/tag/v0.29.0) — 移除了 Python 3.7 支持
-- [Maya 2022 Python API](https://help.autodesk.com/view/MAYAUL/2022/ENU/?guid=Maya_SDK_py_ref_html)
-- [ABI3 wheel 规范](https://pyo3.rs/v0.23.0/building-and-distribution#py_limited_apiabi3)
+- [ADR 011：Python 3.7 LTS 兼容契约](../../adr/011-python-37-lts-compatibility-contract.md)
+- [py37-lite 架构](../../guide/py37-lite-architecture.md)
+- [适配器兼容矩阵](../../guide/adapter-compatibility-matrix.md)

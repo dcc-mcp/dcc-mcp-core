@@ -2,6 +2,7 @@
 
 Auto-use fixtures in this file provide:
 - Session-scoped registry directory isolation (``DCC_MCP_REGISTRY_DIR``)
+- Default skill-path isolation (``DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS``)
 - Env-var restore guard that snapshots env before the session and restores
   on teardown, preventing env-var-based test-order dependency.
 - Global server/shutdown tracking (``register_shutdown_handle`` +
@@ -16,9 +17,11 @@ import json
 import os
 from pathlib import Path
 import socket as _socket
+import sys
 import time
 import typing
 from typing import Any
+from unittest.mock import _Call
 import urllib.error
 import urllib.request
 
@@ -28,6 +31,18 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 
+if sys.version_info < (3, 8):
+    # Python 3.8 added ``call.args`` and ``call.kwargs``.  Keep assertions
+    # identical across the supported test matrix without coupling production
+    # code to a test-framework compatibility detail.
+    def _mock_call_arguments(call: _Call):
+        if len(call) == 2:
+            return call[0], call[1]
+        return call[1], call[2]
+
+    _Call.args = property(lambda call: _mock_call_arguments(call)[0])
+    _Call.kwargs = property(lambda call: _mock_call_arguments(call)[1])
+
 # Resolve examples/skills relative to repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
@@ -36,6 +51,19 @@ SKILLS_DIR = str(REPO_ROOT / "skills")
 #: Environment variable read by the Rust GatewayRunner / McpHttpConfig to
 #: override the default shared registry directory (issue #793).
 _DCC_MCP_REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
+_DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV = "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_default_skill_paths():
+    """Keep tests independent from skills installed in the real user profile."""
+    previous = os.environ.get(_DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV)
+    os.environ[_DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV] = "1"
+    yield
+    if previous is None:
+        os.environ.pop(_DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV, None)
+    else:
+        os.environ[_DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV] = previous
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -449,7 +449,10 @@ def test_source_parses_under_python_3_7_feature_version(path: Path) -> None:
     """
     src = _read(path)
     try:
-        ast.parse(src, filename=str(path), feature_version=(3, 7))
+        if sys.version_info[:2] == (3, 7):
+            compile(src, str(path), "exec")
+        else:
+            ast.parse(src, filename=str(path), feature_version=(3, 7))
     except SyntaxError as exc:
         pytest.fail(
             f"{path} contains Python 3.8+ syntax that would break on Maya 2020/2022 "

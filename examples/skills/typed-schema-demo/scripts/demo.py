@@ -17,11 +17,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 import json
-from typing import Literal
 from typing import Tuple
 
 from dcc_mcp_core import tool_spec_from_callable
 from dcc_mcp_core._tool_registration import ToolSpec
+from dcc_mcp_core._typing_compat import Literal
 
 
 @dataclass
@@ -31,7 +31,7 @@ class ExportInput:
     scene_path: str = field(
         metadata={"description": "Absolute path to the scene file to export."},
     )
-    format: Literal["fbx", "abc", "usd"] = field(
+    format: Literal["fbx", "abc", "usd"] = field(  # noqa: F821, UP037
         default="fbx",
         metadata={"description": "Interchange format; one of fbx / abc / usd."},
     )

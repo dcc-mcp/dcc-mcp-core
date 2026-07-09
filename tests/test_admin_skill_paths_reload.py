@@ -124,10 +124,15 @@ def test_filter_new_paths_dedupes(registry_dir: Path) -> None:
     assert filter_new_paths(known, rows) == ["c", "d"]
 
 
-def test_server_base_reload_picks_up_admin_path(registry_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
+def test_server_base_reload_picks_up_admin_path(
+    registry_dir: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The key #1400 regression: a path added to admin SQLite after the
     adapter has started must become visible after ``reload_skill_paths``.
     """
+    monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
     skill_root = tmp_path_factory.mktemp("studio-skills")
     _write_skill(skill_root, "ext-rigging")
 

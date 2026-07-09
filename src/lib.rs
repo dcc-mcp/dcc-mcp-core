@@ -357,6 +357,7 @@ fn register_constants(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "ENV_USER_SKILL_PATHS" => skill_constants::ENV_USER_SKILL_PATHS,
         "ENV_TEAM_SKILL_PATHS" => skill_constants::ENV_TEAM_SKILL_PATHS,
         "ENV_DISABLE_ACCUMULATED_SKILLS" => skill_constants::ENV_DISABLE_ACCUMULATED_SKILLS,
+        "ENV_DISABLE_DEFAULT_SKILL_PATHS" => skill_constants::ENV_DISABLE_DEFAULT_SKILL_PATHS,
         "ENV_LOG_LEVEL"      => log_constants::ENV_LOG_LEVEL,
         "DEFAULT_LOG_LEVEL"  => log_constants::DEFAULT_LOG_LEVEL,
         "ENV_LOG_FILE"       => log_constants::ENV_LOG_FILE,

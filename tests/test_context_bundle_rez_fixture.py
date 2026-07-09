@@ -6,7 +6,6 @@ import contextlib
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import sys
@@ -17,6 +16,7 @@ import pytest
 
 from conftest import McpClient
 from conftest import allocate_gateway_port
+import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
@@ -398,13 +398,13 @@ def test_rez_skill_surface_stays_stubbed_until_context_load() -> None:
 
 @pytest.mark.parametrize("case", REZ_CONTEXT_CASES, ids=[case["package"] for case in REZ_CONTEXT_CASES])
 def test_rez_env_composes_loads_executes_and_unloads_single_context(tmp_path: Path, case: dict) -> None:
-    rez_env = shutil.which("rez-env")
+    executable_dir = Path(sys.executable).parent
+    rez_env = next(
+        (str(path) for path in (executable_dir / "rez-env", executable_dir / "rez-env.exe") if path.is_file()),
+        None,
+    )
     if rez_env is None:
-        local_rez_env = Path(sys.executable).with_name("rez-env.exe")
-        if local_rez_env.exists():
-            rez_env = str(local_rez_env)
-    if rez_env is None:
-        pytest.skip("rez-env is not installed")
+        pytest.skip("rez-env is not installed for the active Python interpreter")
 
     repo_root = Path(__file__).resolve().parents[1]
     examples = repo_root / "examples" / "rez-skills"
@@ -417,7 +417,9 @@ def test_rez_env_composes_loads_executes_and_unloads_single_context(tmp_path: Pa
     existing_packages = env.get("REZ_PACKAGES_PATH", "")
     env["REZ_PACKAGES_PATH"] = os.pathsep.join(item for item in [str(examples), str(stubs), existing_packages] if item)
     env["DCC_MCP_E2E_EXPECTED"] = json.dumps(case)
-    python_path = str(repo_root / "python")
+    env["DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"] = "1"
+    package_root = Path(dcc_mcp_core.__file__).resolve().parent.parent
+    python_path = str(package_root)
     if env.get("PYTHONPATH"):
         python_path = os.pathsep.join([python_path, env["PYTHONPATH"]])
     env["PYTHONPATH"] = python_path

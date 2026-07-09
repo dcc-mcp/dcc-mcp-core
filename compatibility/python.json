@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "support": {
+    "policy": "long_term_support",
+    "minimum_python": "3.7",
+    "maximum_tested_python": "3.14",
+    "tested_versions": [
+      "3.7",
+      "3.8",
+      "3.9",
+      "3.10",
+      "3.11",
+      "3.12",
+      "3.13",
+      "3.14"
+    ],
+    "deprecation": {
+      "requires_major_release": true,
+      "requires_accepted_adr": true,
+      "minimum_notice_days": 180
+    }
+  },
+  "build": {
+    "pyo3_series": "0.28",
+    "native_py37": {
+      "python": "3.7",
+      "wheel_tag": "cp37-cp37m",
+      "pr_matrix": [
+        {
+          "platform": "linux-x86_64",
+          "runner": "ubuntu-22.04",
+          "target": "x86_64",
+          "full_suite": true
+        },
+        {
+          "platform": "windows-x86_64",
+          "runner": "windows-2022",
+          "target": "x64",
+          "full_suite": false
+        }
+      ]
+    },
+    "lite_py37": {
+      "python": "3.7",
+      "wheel_tag": "py3-none-any"
+    },
+    "abi3": {
+      "minimum_python": "3.8",
+      "feature": "abi3-py38",
+      "wheel_tag": "cp38-abi3"
+    }
+  },
+  "runtime_smoke": {
+    "native_py37": [
+      "dcc_mcp_core",
+      "dcc_mcp_core._core",
+      "dcc_mcp_core.skill",
+      "dcc_mcp_core.schema",
+      "dcc_mcp_core.server_base",
+      "dcc_mcp_core.host",
+      "dcc_mcp_core._server.options",
+      "dcc_mcp_core._runtime.mcp_http_config"
+    ],
+    "lite_py37": [
+      "dcc_mcp_core",
+      "dcc_mcp_core.skill",
+      "dcc_mcp_core.schema",
+      "dcc_mcp_core.server_base",
+      "dcc_mcp_core.host",
+      "dcc_mcp_core._py37_fallback",
+      "dcc_mcp_core._runtime.mcp_http_config",
+      "dcc_mcp_core._runtime.server_factory",
+      "dcc_mcp_core._runtime.sidecar_skill_server"
+    ]
+  },
+  "test_toolchain": {
+    "pytest": "7.4.4",
+    "pytest_xdist": "3.5.0",
+    "typing_extensions": "4.7.1"
+  }
+}

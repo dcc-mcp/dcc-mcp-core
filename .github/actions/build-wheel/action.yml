@@ -188,6 +188,15 @@ runs:
       run: |
         vx uvx --python 3.12 check-wheel-contents --ignore W004 dist/*.whl
 
+    - name: Check Python compatibility wheel contract
+      shell: bash
+      run: |
+        profile="abi3"
+        if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
+          profile="native_py37"
+        fi
+        python scripts/ci/check_python_wheel.py --profile "$profile" dist/*.whl
+
     - name: Test wheel
       if: inputs.test-wheel == 'true'
       shell: bash
@@ -203,7 +212,11 @@ runs:
         pip install --force-reinstall dist/*.whl
         pip check
 
-        python tests/test_imports.py
+        if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
+          python scripts/ci/smoke_python37_runtime.py --profile native_py37
+        else
+          python tests/test_imports.py
+        fi
 
     - name: Upload wheel
       uses: actions/upload-artifact@v7

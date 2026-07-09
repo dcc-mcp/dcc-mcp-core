@@ -282,6 +282,13 @@ lint-skills: build-cli
     {{CLI_BIN}} lint --max-depth 4 skills/dcc-cli-gateway python/dcc_mcp_core/skills examples/skills examples/remote-server/skills examples/rez-skills tests/fixtures/skills tests/fixtures/prompts_skills
 
 # Verify pure-Python sources parse on Python 3.7 (cp37 wheel parity).
+check-py37-syntax:
+    vx python@3.7 scripts/check_py37_syntax.py
+
+# Verify package metadata, build profiles, CI jobs, and docs match the LTS contract.
+check-python-support:
+    python scripts/ci/check_python_support.py
+
 # Auto-fix Python lint issues and format
 lint-py-fix:
     ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/
@@ -298,8 +305,8 @@ lint-fix: fmt lint-py-fix
 # Pre-flight: Rust check + clippy + fmt + tests + docs — run before every commit
 preflight: check clippy fmt-check test-rust
 
-# Full local CI pipeline: preflight → build wheel → Python tests → lint
-ci: preflight install test lint-py
+# Full local CI pipeline: compatibility contract → preflight → wheel → tests → lint
+ci: check-python-support preflight install test lint-py
 
 # ── ClawHub (https://clawhub.ai/) ─────────────────────────────────────────────
 

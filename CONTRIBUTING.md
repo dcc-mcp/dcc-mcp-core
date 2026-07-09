@@ -54,7 +54,7 @@ vx just test
 
 - **Formatter**: `ruff format` (line length: 120)
 - **Linter**: `ruff check` (includes import sorting via `I` rules)
-- **Target**: Python 3.7+ (CI tests 3.8–3.14; py37 syntax check in dedicated CI job)
+- **Target**: Python 3.7-3.14 (native cp37 wheels on Linux/Windows, full 3.7 suite on Linux, maintained-version matrix for 3.8+)
 - **Quotes**: Double quotes (`"`)
 - **Docstrings**: Google-style
 

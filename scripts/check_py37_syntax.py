@@ -1,12 +1,15 @@
 """Verify pure-Python modules are syntax-compatible with Python 3.7 (Maya 2022).
 
 Must be invoked with a Python 3.7 interpreter (``python3.7 scripts/check_py37_syntax.py``).
-PEP 604 unions (``str | None``) and builtin generics (``dict[str, Any]``) are syntax
-errors on 3.7 even with ``from __future__ import annotations``.
+It catches grammar introduced after 3.7, including assignment expressions,
+positional-only parameters, debug f-strings, and structural pattern matching.
 
-This is enforced in CI via ``check-py37-syntax`` job. The Rust extension
-(``_core``) requires Python 3.8+, but pure-Python modules must remain
-importable on Maya 2022's embedded Python 3.7.
+PEP 604 and PEP 585 annotation expressions can still compile when postponed
+annotations are enabled, so runtime import and behavior compatibility is enforced
+separately by ``scripts/ci/smoke_python37_runtime.py``.
+
+This is enforced in CI via the ``py37-syntax-check`` job. Native and lite
+Python 3.7 wheels have separate runtime gates.
 """
 
 from __future__ import annotations

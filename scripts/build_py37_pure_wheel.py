@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from email.message import EmailMessage
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -29,6 +30,12 @@ def _read_version() -> str:
     return match.group(1)
 
 
+def _read_minimum_python_spec() -> str:
+    contract_path = ROOT / "compatibility" / "python.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    return ">={}".format(contract["support"]["minimum_python"])
+
+
 def main() -> int:
     """Assemble a pure-Python wheel from ``python/dcc_mcp_core``."""
     _ensure_wheel()
@@ -45,7 +52,7 @@ def main() -> int:
     metadata["Metadata-Version"] = "2.1"
     metadata["Name"] = "dcc-mcp-core"
     metadata["Version"] = version
-    metadata["Requires-Python"] = ">=3.7"
+    metadata["Requires-Python"] = _read_minimum_python_spec()
     metadata["License"] = "MIT"
     metadata["Summary"] = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
 

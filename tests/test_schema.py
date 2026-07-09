@@ -13,14 +13,19 @@ import sys
 from typing import Any
 from typing import Dict
 from typing import List
-from typing import Literal
 from typing import Optional
 from typing import Tuple
-from typing import TypedDict
 from typing import Union
 import uuid
 
 import pytest
+
+try:
+    from typing import Literal
+    from typing import TypedDict
+except ImportError:  # pragma: no cover - exercised by the Python 3.7 LTS gate
+    from typing_extensions import Literal
+    from typing_extensions import TypedDict
 
 from dcc_mcp_core.schema import derive_parameters_schema
 from dcc_mcp_core.schema import derive_schema

@@ -26,9 +26,9 @@ def test_check_py37_syntax_passes_on_repo_tree() -> None:
 
 
 @pytest.mark.skipif(sys.version_info[:2] != (3, 7), reason="requires Python 3.7 interpreter")
-def test_check_py37_syntax_rejects_pep604_union(tmp_path: Path) -> None:
+def test_check_py37_syntax_rejects_assignment_expression(tmp_path: Path) -> None:
     bad = tmp_path / "bad.py"
-    bad.write_text("def f(x: int | None) -> None:\n    pass\n", encoding="utf-8")
+    bad.write_text("if (value := 1):\n    pass\n", encoding="utf-8")
     source = bad.read_text(encoding="utf-8")
     with pytest.raises(SyntaxError):
         compile(source, str(bad), "exec")

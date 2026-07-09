@@ -143,6 +143,7 @@
 | Rich skill error with traceback | `skill_error_with_trace()` |
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
+| Make skill discovery hermetic | `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` omits implicit operator-owned roots (local/platform defaults, marketplace installs, and Admin custom paths) while preserving explicit, bundled, and `DCC_MCP_*_SKILL_PATHS` paths |
 | Typed Python tool handler return | `from dcc_mcp_core.result_envelope import ToolResult` → `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` (also `success_`/`error_`, plus `not_found(entity_type, name)` / `invalid_input(msg)` shortcuts). **Note**: `success`/`error` are dataclass fields, not factories; calling `ToolResult.success(...)` raises `AttributeError` (#487) |
 | Centralised metadata key constants | `from dcc_mcp_core import METADATA_RECIPES_KEY, METADATA_LAYER_KEY, LAYER_THIN_HARNESS, CATEGORY_DIAGNOSTICS, ...` — re-exported at top level; also `from dcc_mcp_core.constants import ...`. Every `"dcc-mcp.<feature>"` string lives here. Available constants: `METADATA_DCC_MCP`, `METADATA_RECIPES_KEY`, `METADATA_WORKFLOWS_KEY`, `METADATA_LAYER_KEY`, `METADATA_DCC_KEY`, `METADATA_VERSION_KEY`, `METADATA_TOOLS_KEY`, `METADATA_GROUPS_KEY`, `METADATA_SEARCH_HINT_KEY`, `METADATA_TAGS_KEY`, `METADATA_EXTERNAL_DEPS_KEY`, `LAYER_THIN_HARNESS`, `LAYER_DOMAIN`, `LAYER_INFRASTRUCTURE`, `LAYER_EXAMPLE`, `CATEGORY_DIAGNOSTICS`, `CATEGORY_FEEDBACK`, `CATEGORY_INTROSPECT`, `CATEGORY_RECIPES`, `CATEGORY_WORKFLOWS`, `CATEGORY_DOCS`, `CATEGORY_GENERAL` (#487) |
 | Custom JSON-RPC method (Rust) | `dcc_mcp_http::handler::{MethodRouter, MethodHandler, HandlerFuture}` — `router.register("ping", Arc::new(handler))`; capability gating lives in the handler, not the router (#492) |
@@ -732,7 +733,7 @@ tools:
 - `APP_NAME = "dcc-mcp"`, `APP_AUTHOR = "dcc-mcp"`
 - `DEFAULT_DCC = "python"`, `DEFAULT_LOG_LEVEL = "DEBUG"`, `DEFAULT_MIME_TYPE = "text/plain"`, `DEFAULT_VERSION = "1.0.0"`
 - `SKILL_METADATA_FILE = "SKILL.md"`, `SKILL_SCRIPTS_DIR = "scripts"`, `SKILL_METADATA_DIR = "metadata"`
-- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"`, `ENV_DISABLE_ACCUMULATED_SKILLS` — set to "1" to disable accumulated/evolved skills discovery, `ENV_TEAM_SKILL_PATHS` / `ENV_USER_SKILL_PATHS` — team-level and user-level skill path env vars
+- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"`, `ENV_DISABLE_ACCUMULATED_SKILLS` — set to "1" to disable accumulated/evolved skills discovery, `ENV_DISABLE_DEFAULT_SKILL_PATHS` — set to "1" for hermetic discovery without implicit operator-owned roots, `ENV_TEAM_SKILL_PATHS` / `ENV_USER_SKILL_PATHS` — team-level and user-level skill path env vars
 - `TOOL_NAME_RE` / `ACTION_ID_RE` — regex patterns for client-safe tool names and internal action IDs
 - `MAX_TOOL_NAME_LEN = 64` — maximum tool name length
 

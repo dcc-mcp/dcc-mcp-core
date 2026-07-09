@@ -493,8 +493,14 @@ issue #341 中采用的三层行为结构：一句现在时"是什么"摘要、
 ## CI 与发布
 
 - PR 必须通过：`vx just preflight` + `vx just test` + `vx just lint`
-- CI 矩阵：Python 3.8、3.9、3.10、3.11、3.12、3.13、3.14 on Linux / macOS / Windows
+- Python 3.7 门禁：Linux、Windows 原生 wheel，并在 Linux 运行全量测试；lite 回退单独验证
+- Python 3.8–3.14 门禁：PR 使用代表性矩阵，定时工作流覆盖 Linux / macOS / Windows 全矩阵
 - 版本管理：Release Please（Conventional Commits）— 绝不手动更新
 - PyPI：Trusted Publishing（无需令牌）
-- 仅文档变更跳过 Rust 重建 → CI 快速通过
+- 每个 PR（包括仅文档变更）都会产生稳定的必需检查状态
 - PR 采用 Squash 合并约定
+
+需要隔离真实用户技能目录的 CI 或测试应设置
+`DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`。该模式排除隐式的操作者目录（本地/平台
+默认目录、Marketplace 安装目录和 Admin 自定义目录），调用方显式路径、内置路径和
+`DCC_MCP_*_SKILL_PATHS` 环境路径仍然有效。

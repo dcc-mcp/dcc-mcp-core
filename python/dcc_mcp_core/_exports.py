@@ -31,6 +31,7 @@ _LAZY: dict[str, str] = {
     "DEFAULT_MIME_TYPE": "dcc_mcp_core._core",
     "DEFAULT_VERSION": "dcc_mcp_core._core",
     "ENV_DISABLE_ACCUMULATED_SKILLS": "dcc_mcp_core._core",
+    "ENV_DISABLE_DEFAULT_SKILL_PATHS": "dcc_mcp_core._core",
     "ENV_LOG_DIR": "dcc_mcp_core._core",
     "ENV_LOG_FILE": "dcc_mcp_core._core",
     "ENV_LOG_FILE_PREFIX": "dcc_mcp_core._core",
