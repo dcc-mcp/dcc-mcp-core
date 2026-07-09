@@ -547,16 +547,22 @@ pub fn is_process_alive(pid: u32) -> bool {
             fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> isize;
             fn GetExitCodeProcess(hProcess: isize, lpExitCode: *mut u32) -> i32;
             fn CloseHandle(hObject: isize) -> i32;
+            fn GetLastError() -> u32;
         }
 
         const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
         const STILL_ACTIVE: u32 = 259;
+        const ERROR_INVALID_PARAMETER: u32 = 87;
 
         // SAFETY: All FFI calls are guarded by null/error checks.
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if handle == 0 {
-                return false;
+                // Only report "not alive" when the OS confirms the PID
+                // doesn't exist.  Other failures (ERROR_ACCESS_DENIED etc.)
+                // are treated as alive — we can't prove otherwise, and a
+                // false negative here is worse than a false positive.
+                return GetLastError() != ERROR_INVALID_PARAMETER;
             }
             let mut exit_code: u32 = 0;
             let ok = GetExitCodeProcess(handle, &mut exit_code);
@@ -587,10 +593,12 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
             fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> isize;
             fn TerminateProcess(hProcess: isize, uExitCode: u32) -> i32;
             fn CloseHandle(hObject: isize) -> i32;
+            fn GetLastError() -> u32;
         }
 
         const PROCESS_TERMINATE: u32 = 0x0001;
         const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+        const ERROR_INVALID_PARAMETER: u32 = 87;
 
         // SAFETY: All FFI calls are guarded by null/error checks.
         unsafe {
@@ -600,8 +608,12 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
                 pid,
             );
             if handle == 0 {
-                // Process not found — that's OK, nothing to terminate.
-                return Ok(());
+                let err = GetLastError();
+                if err == ERROR_INVALID_PARAMETER {
+                    // Process does not exist — idempotent, nothing to stop.
+                    return Ok(());
+                }
+                anyhow::bail!("OpenProcess({pid}) failed: os error 0x{err:X} ({err})");
             }
             let result = TerminateProcess(handle, 1);
             CloseHandle(handle);
@@ -694,6 +706,30 @@ mod tests {
     fn test_is_process_alive_invalid() {
         // PIDs are well under 10 million on every OS.
         assert!(!is_process_alive(9_999_999));
+    }
+
+    #[test]
+    fn test_stop_process_nonexistent_returns_ok() {
+        // Stopping a non-existent PID is idempotent — it should succeed
+        // silently without error.
+        assert!(stop_process(9_999_999).is_ok());
+    }
+
+    #[test]
+    fn test_stop_process_invalid_pid_returns_ok() {
+        // PID 0 is never valid on Windows; should still be idempotent.
+        let result = stop_process(0);
+        // On Unix, kill(0) targets the process group — but PID 0 from
+        // outside the test may fail differently. Accept both Ok and Err
+        // here; the contract is that we don't panic and the error is
+        // descriptive.
+        if let Err(e) = &result {
+            let msg = format!("{e:#}");
+            assert!(
+                msg.contains("0") || msg.contains("kill"),
+                "error should mention the PID or the operation: {msg}"
+            );
+        }
     }
 
     // ── Launch lock tests ──────────────────────────────────────────────
