@@ -286,6 +286,7 @@ impl MarketplaceService {
                     return Err(err);
                 }
             };
+        let resolved_commit = resolved_git_commit(&install, &final_path);
 
         let package = InstalledMarketplacePackage {
             name: package_name.clone(),
@@ -297,6 +298,7 @@ impl MarketplaceService {
             install_type: install.install_type.clone(),
             install_url: install.url.clone(),
             install_ref: install.ref_.clone(),
+            resolved_commit: resolved_commit.clone(),
             installed_at_ms: now_ms(),
         };
         self.upsert_installed(package)?;
@@ -311,6 +313,7 @@ impl MarketplaceService {
             source: hit.source,
             entry: hit.entry,
             install_type: install.install_type.clone(),
+            resolved_commit,
             reload_required: true,
         })
     }
@@ -384,13 +387,7 @@ impl MarketplaceService {
         let mut outdated = Vec::new();
         for pkg in filtered {
             let entry = self.find_latest_entry_for_package(&sources, &pkg).await?;
-            let is_outdated = match (&entry, &pkg.version) {
-                (Some(entry), Some(installed)) => {
-                    entry.version.as_deref() != Some(installed.as_str())
-                }
-                (Some(_), None) => true,
-                (None, _) => false,
-            };
+            let (is_outdated, latest_commit) = is_entry_outdated(entry.as_ref(), &pkg);
             if is_outdated && let Some(entry) = entry {
                 let latest_install = entry.install.as_ref();
                 outdated.push(OutdatedMarketplacePackage {
@@ -409,6 +406,8 @@ impl MarketplaceService {
                     install_ref: latest_install
                         .and_then(|i| i.ref_.clone())
                         .or(pkg.install_ref),
+                    installed_commit: pkg.resolved_commit,
+                    latest_commit,
                     path: pkg.path,
                 });
             }
@@ -443,6 +442,7 @@ impl MarketplaceService {
         for pkg in outdated.packages {
             let dest = PathBuf::from(&pkg.path);
             let previous_version = pkg.installed_version.clone();
+            let previous_commit = pkg.installed_commit.clone();
 
             let update_result = match pkg.install_type.as_str() {
                 "git" => self.update_git_package(&pkg, &dest).await,
@@ -461,6 +461,8 @@ impl MarketplaceService {
                         dcc: pkg.dcc.clone(),
                         previous_version,
                         new_version: result.version,
+                        previous_commit,
+                        new_commit: result.resolved_commit,
                         path: result.path,
                         install_type: result.install_type,
                         source_name: pkg.source_name.clone(),
@@ -480,6 +482,7 @@ impl MarketplaceService {
                     install_type: update_result.install_type.clone(),
                     install_url: pkg.install_url.clone(),
                     install_ref: pkg.install_ref.clone(),
+                    resolved_commit: update_result.new_commit.clone(),
                     installed_at_ms: now_ms(),
                 })?;
             }
@@ -730,6 +733,8 @@ impl MarketplaceService {
                 dcc: pkg.dcc.clone(),
                 previous_version: pkg.installed_version.clone(),
                 new_version: result.version,
+                previous_commit: pkg.installed_commit.clone(),
+                new_commit: result.resolved_commit,
                 path: result.path,
                 install_type: result.install_type,
                 source_name: pkg.source_name.clone(),
@@ -752,6 +757,7 @@ impl MarketplaceService {
                     install_type: pkg.install_type.clone(),
                     install_url: pkg.install_url.clone(),
                     install_ref: pkg.install_ref.clone(),
+                    resolved_commit: pkg.installed_commit.clone(),
                     installed_at_ms: 0,
                 },
             )
@@ -764,6 +770,8 @@ impl MarketplaceService {
             dcc: pkg.dcc.clone(),
             previous_version: pkg.installed_version.clone(),
             new_version,
+            previous_commit: pkg.installed_commit.clone(),
+            new_commit: pkg.latest_commit.clone().or_else(|| git_head_commit(dest)),
             path: dest.display().to_string(),
             install_type: pkg.install_type.clone(),
             source_name: pkg.source_name.clone(),
@@ -1011,6 +1019,56 @@ fn install_from_git_command(install: &CatalogInstall, dest: &Path) -> Result<(),
         output.status,
         String::from_utf8_lossy(&output.stderr)
     )))
+}
+
+fn immutable_git_commit(install: &CatalogInstall) -> Option<String> {
+    if install.install_type != "git" {
+        return None;
+    }
+    let ref_ = install.ref_.as_deref()?.trim();
+    is_full_git_oid(ref_).then(|| ref_.to_ascii_lowercase())
+}
+
+fn resolved_git_commit(install: &CatalogInstall, dest: &Path) -> Option<String> {
+    immutable_git_commit(install).or_else(|| git_head_commit(dest))
+}
+
+fn is_entry_outdated(
+    entry: Option<&CatalogEntry>,
+    installed: &InstalledMarketplacePackage,
+) -> (bool, Option<String>) {
+    let Some(entry) = entry else {
+        return (false, None);
+    };
+    let version_changed = match (&entry.version, &installed.version) {
+        (Some(latest), Some(current)) => latest != current,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    let latest_commit = entry.install.as_ref().and_then(immutable_git_commit);
+    let commit_changed = latest_commit
+        .as_deref()
+        .is_some_and(|latest| installed.resolved_commit.as_deref() != Some(latest));
+    (version_changed || commit_changed, latest_commit)
+}
+
+fn is_full_git_oid(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn git_head_commit(repo_path: &Path) -> Option<String> {
+    let output = git_command()
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let revision = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_ascii_lowercase();
+    is_full_git_oid(&revision).then_some(revision)
 }
 
 fn github_archive_url(install: &CatalogInstall) -> Option<String> {
@@ -1356,12 +1414,89 @@ mod tests {
             install_type: "git".into(),
             install_url: None,
             install_ref: None,
+            resolved_commit: None,
             installed_at_ms: 1000,
         };
         svc.upsert_installed(pkg.clone()).unwrap();
         let list = svc.list_installed(None).unwrap();
         assert_eq!(list.count, 1);
         assert_eq!(list.packages[0].name, "test-skill");
+    }
+
+    #[test]
+    fn pinned_git_revision_marks_unchanged_version_as_outdated() {
+        let entry = CatalogEntry {
+            name: "test-skill".into(),
+            description: "desc".into(),
+            dcc: vec!["maya".into()],
+            url: None,
+            tags: vec![],
+            version: Some("1.0.0".into()),
+            min_core_version: None,
+            install: Some(CatalogInstall {
+                install_type: "git".into(),
+                url: Some("https://example.invalid/skill".into()),
+                ref_: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into()),
+                sha256: None,
+                pip_package: None,
+                pip_extras: None,
+                python_path: None,
+                entry_point: None,
+                instructions_url: None,
+            }),
+            maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
+            icon: None,
+        };
+        let installed = InstalledMarketplacePackage {
+            name: "test-skill".into(),
+            dcc: "maya".into(),
+            version: Some("1.0.0".into()),
+            path: "/tmp/test".into(),
+            source_name: "official".into(),
+            source_url: "https://example.invalid/catalog.json".into(),
+            install_type: "git".into(),
+            install_url: entry
+                .install
+                .as_ref()
+                .and_then(|install| install.url.clone()),
+            install_ref: entry
+                .install
+                .as_ref()
+                .and_then(|install| install.ref_.clone()),
+            resolved_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()),
+            installed_at_ms: 1,
+        };
+
+        let (outdated, latest_commit) = is_entry_outdated(Some(&entry), &installed);
+        assert!(outdated);
+        assert_eq!(
+            latest_commit.as_deref(),
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
+    }
+
+    #[test]
+    fn immutable_git_commit_only_accepts_full_object_ids() {
+        let mut install = CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://example.invalid/skill".into()),
+            ref_: Some("main".into()),
+            sha256: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        };
+        assert_eq!(immutable_git_commit(&install), None);
+        install.ref_ = Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into());
+        assert_eq!(
+            immutable_git_commit(&install).as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
     }
 
     #[test]

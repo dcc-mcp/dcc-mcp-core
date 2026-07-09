@@ -29,7 +29,8 @@ tools:
           type: string
           description: >-
             Install source URL (Git repo URL, zip download URL, or local path).
-            Written into the CatalogEntry `install.url` field.
+            Written into the CatalogEntry install metadata and serialized as
+            `source.url` for v1 marketplace catalogs.
         install_type:
           type: string
           enum:
@@ -41,8 +42,9 @@ tools:
         install_ref:
           type: string
           description: >-
-            Git ref, branch name, or tag for git-type installs. Written into
-            the CatalogEntry `install.ref` field.
+            Git revision for git-type installs. Official catalogs require a
+            complete immutable 40-character commit SHA; custom catalogs may
+            use a studio-managed release tag.
         version:
           type: string
           description: >-
@@ -70,7 +72,8 @@ tools:
           type: string
           description: >-
             Minimum dcc-mcp-core version required by this extension. Written
-            into the CatalogEntry `min_core_version` field.
+            into the CatalogEntry `min_core_version` field and serialized as
+            `minCoreVersion` for v1 marketplace catalogs.
         extension_url:
           type: string
           description: >-

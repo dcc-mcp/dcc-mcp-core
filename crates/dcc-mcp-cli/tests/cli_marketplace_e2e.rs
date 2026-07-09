@@ -97,6 +97,58 @@ fn marketplace_add_list_search_and_inspect_local_source() {
 }
 
 #[test]
+fn marketplace_v1_catalog_preserves_curation_and_runtime_metadata() {
+    let tmp = TempDir::new().unwrap();
+    let catalog_path = tmp.path().join("marketplace.json");
+    std::fs::write(
+        &catalog_path,
+        r#"
+{
+  "name": "dcc-mcp-official",
+  "schemaVersion": "1",
+  "version": "1.0.0",
+  "skills": [{
+    "name": "maya-rig-tools",
+    "description": "Rigging helpers for Maya",
+    "dcc": ["maya"],
+    "tags": ["rigging", "domain"],
+    "version": "1.2.3",
+    "minCoreVersion": "0.19.0",
+    "category": "Skills",
+    "maintainer": "dcc-mcp",
+    "source": {
+      "type": "git",
+      "url": "https://github.com/dcc-mcp/maya-rig-tools",
+      "ref": "0123456789012345678901234567890123456789"
+    },
+    "policy": { "installation": "available" },
+    "requires": { "env": ["RIG_TOKEN"], "bins": ["rigctl"] }
+  }]
+}
+"#,
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let inspect = run_json(&[
+        "marketplace",
+        "inspect",
+        "maya-rig-tools",
+        "--source",
+        &source,
+    ]);
+    let entry = &inspect["matches"][0]["entry"];
+    assert_eq!(entry["min_core_version"], "0.19.0");
+    assert_eq!(entry["category"], "Skills");
+    assert_eq!(entry["policy"]["installation"], "available");
+    assert_eq!(entry["requires"]["env"], json!(["RIG_TOKEN"]));
+    assert_eq!(
+        entry["install"]["ref"],
+        "0123456789012345678901234567890123456789"
+    );
+}
+
+#[test]
 fn marketplace_pack_and_publish_updates_catalog() {
     let tmp = TempDir::new().unwrap();
     let skill_dir = write_skill(
@@ -129,6 +181,8 @@ fn marketplace_pack_and_publish_updates_catalog() {
         &sha256,
         "--maintainer",
         "dcc-mcp",
+        "--min-core-version",
+        "0.19.0",
         "--tag",
         "extra",
     ]);
@@ -138,6 +192,11 @@ fn marketplace_pack_and_publish_updates_catalog() {
     assert_eq!(published["entry"]["version"], "0.2.0");
     assert_eq!(published["entry"]["install"]["type"], "zip");
     assert_eq!(published["entry"]["install"]["sha256"], sha256);
+    let catalog =
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
+    assert_eq!(catalog["schemaVersion"], "1");
+    assert_eq!(catalog["skills"][0]["minCoreVersion"], "0.19.0");
+    assert_eq!(catalog["skills"][0]["source"]["type"], "zip");
 
     let updated = run_json(&[
         "marketplace",
@@ -147,6 +206,8 @@ fn marketplace_pack_and_publish_updates_catalog() {
         &catalog_s,
         "--install-url",
         "https://github.com/dcc-mcp/release-skill/releases/download/v0.3.0/release-skill.zip",
+        "--sha256",
+        &sha256,
         "--version",
         "0.3.0",
     ]);

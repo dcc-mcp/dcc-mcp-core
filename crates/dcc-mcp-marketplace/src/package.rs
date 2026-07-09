@@ -2,9 +2,9 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
-use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
+use dcc_mcp_catalog::{CatalogEntry, CatalogInstall, CatalogPolicy};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 
@@ -145,18 +145,21 @@ pub fn publish_marketplace_package(
             string_at(&skill_meta, &["metadata", "dcc-mcp", "maintainer"])
                 .or_else(|| string_at(&skill_meta, &["maintainer"]))
         }),
+        category: Some("Skills".into()),
+        policy: Some(CatalogPolicy {
+            installation: "available".into(),
+        }),
+        requires: None,
         icon: options.icon,
     };
     dcc_mcp_catalog::validate_entry(&entry)?;
 
-    let mut catalog = load_catalog_doc(&options.catalog_path)?;
-    let action = upsert_entry(&mut catalog.entries, entry.clone());
-    save_catalog_doc(&options.catalog_path, &catalog)?;
+    let (action, count) = upsert_catalog_entry(&options.catalog_path, entry.clone())?;
     Ok(MarketplacePublishResult {
         catalog_path: options.catalog_path.display().to_string(),
         entry,
         action,
-        count: catalog.entries.len(),
+        count,
     })
 }
 
@@ -247,17 +250,223 @@ fn should_skip_path(path: &Path, name: &str, out_path: &Path) -> bool {
         )
 }
 
-fn load_catalog_doc(path: &Path) -> Result<CatalogDoc, MarketplaceError> {
+fn upsert_catalog_entry(
+    path: &Path,
+    entry: CatalogEntry,
+) -> Result<(String, usize), MarketplaceError> {
+    let mut raw = load_catalog_value(path)?;
+    if raw.get("skills").is_some() || !path.exists() {
+        let skills = raw
+            .get_mut("skills")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| {
+                MarketplaceError::ConfigParse(
+                    path.display().to_string(),
+                    serde_json::Error::io(std::io::Error::other(
+                        "marketplace v1 catalog must contain a skills array",
+                    )),
+                )
+            })?;
+        let entry_value = marketplace_v1_entry_value(&entry)?;
+        let action = upsert_entry_value(skills, entry_value, &entry.name)?;
+        let count = skills.len();
+        save_catalog_value(path, &raw)?;
+        return Ok((action, count));
+    }
+
+    let mut catalog: CatalogDoc = serde_json::from_value(raw)
+        .map_err(|err| MarketplaceError::ConfigParse(path.display().to_string(), err))?;
+    let action = upsert_entry(&mut catalog.entries, entry);
+    let count = catalog.entries.len();
+    save_catalog_doc(path, &catalog)?;
+    Ok((action, count))
+}
+
+fn load_catalog_value(path: &Path) -> Result<Value, MarketplaceError> {
     if !path.exists() {
-        return Ok(CatalogDoc {
-            version: default_catalog_version(),
-            entries: Vec::new(),
-        });
+        return Ok(json!({
+            "name": "dcc-mcp-local",
+            "schemaVersion": "1",
+            "version": "1.0.0",
+            "skills": []
+        }));
     }
     let text = fs::read_to_string(path)
         .map_err(|err| MarketplaceError::ConfigIo(path.display().to_string(), err))?;
     serde_json::from_str(&text)
         .map_err(|err| MarketplaceError::ConfigParse(path.display().to_string(), err))
+}
+
+fn save_catalog_value(path: &Path, catalog: &Value) -> Result<(), MarketplaceError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| MarketplaceError::ConfigIo(parent.display().to_string(), err))?;
+    }
+    let text = serde_json::to_string_pretty(catalog)
+        .expect("marketplace catalog serialization should not fail");
+    fs::write(path, format!("{text}\n"))
+        .map_err(|err| MarketplaceError::ConfigIo(path.display().to_string(), err))
+}
+
+fn marketplace_v1_entry_value(entry: &CatalogEntry) -> Result<Value, MarketplaceError> {
+    let version = required_entry_value(entry, "version", entry.version.as_deref())?;
+    if entry.dcc.is_empty() {
+        return Err(MarketplaceError::CommandFailed(format!(
+            "marketplace v1 entry '{}' requires at least one DCC target",
+            entry.name
+        )));
+    }
+    if entry.tags.is_empty() {
+        return Err(MarketplaceError::CommandFailed(format!(
+            "marketplace v1 entry '{}' requires at least one tag",
+            entry.name
+        )));
+    }
+    let install = entry
+        .install
+        .as_ref()
+        .ok_or_else(|| MarketplaceError::MissingInstall(entry.name.clone()))?;
+    if install.url.as_deref().is_none_or(str::is_empty) {
+        return Err(MarketplaceError::MissingInstall("source.url".into()));
+    }
+    if install.install_type == "git" && install.ref_.as_deref().is_none_or(str::is_empty) {
+        return Err(MarketplaceError::MissingInstall("source.ref".into()));
+    }
+    if install.install_type == "zip" && install.sha256.as_deref().is_none_or(str::is_empty) {
+        return Err(MarketplaceError::MissingInstall("source.sha256".into()));
+    }
+
+    let mut value = json!({
+        "name": entry.name,
+        "description": entry.description,
+        "version": version,
+        "dcc": entry.dcc,
+        "tags": entry.tags,
+        "category": entry.category.as_deref().unwrap_or("Skills"),
+        "source": install,
+        "policy": entry.policy.as_ref().unwrap_or(&CatalogPolicy {
+            installation: "available".into()
+        })
+    });
+    let object = value
+        .as_object_mut()
+        .expect("json object literal should remain an object");
+    if let Some(requires) = entry.requires.as_ref() {
+        object.insert("requires".into(), serde_json::to_value(requires).unwrap());
+    }
+    if let Some(min_core_version) = entry.min_core_version.as_ref() {
+        object.insert(
+            "minCoreVersion".into(),
+            Value::String(min_core_version.clone()),
+        );
+    }
+    if let Some(maintainer) = entry.maintainer.as_ref() {
+        object.insert("maintainer".into(), Value::String(maintainer.clone()));
+    }
+    if let Some(docs) = entry.url.as_ref() {
+        object.insert("docs".into(), Value::String(docs.clone()));
+    }
+    if let Some(icon) = entry.icon.as_ref() {
+        object.insert("icon".into(), Value::String(icon.clone()));
+    }
+    Ok(value)
+}
+
+fn required_entry_value<'a>(
+    entry: &CatalogEntry,
+    field: &str,
+    value: Option<&'a str>,
+) -> Result<&'a str, MarketplaceError> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            MarketplaceError::CommandFailed(format!(
+                "marketplace v1 entry '{}' requires {field}",
+                entry.name
+            ))
+        })
+}
+
+fn upsert_entry_value(
+    entries: &mut Vec<Value>,
+    mut entry: Value,
+    name: &str,
+) -> Result<String, MarketplaceError> {
+    for existing in entries.iter_mut() {
+        if existing.get("name").and_then(Value::as_str) == Some(name) {
+            preserve_marketplace_v1_metadata(&mut entry, existing);
+            validate_marketplace_v1_entry(&entry)?;
+            *existing = entry;
+            return Ok("updated".to_string());
+        }
+    }
+    validate_marketplace_v1_entry(&entry)?;
+    entries.push(entry);
+    Ok("created".to_string())
+}
+
+fn preserve_marketplace_v1_metadata(entry: &mut Value, existing: &Value) {
+    let Some(entry_object) = entry.as_object_mut() else {
+        return;
+    };
+    let Some(existing_object) = existing.as_object() else {
+        return;
+    };
+    for key in [
+        "minCoreVersion",
+        "maintainer",
+        "category",
+        "policy",
+        "requires",
+        "docs",
+        "icon",
+        "license",
+        "lifecycle",
+        "replacedBy",
+    ] {
+        if !entry_object.contains_key(key)
+            && let Some(value) = existing_object.get(key)
+        {
+            entry_object.insert(key.to_string(), value.clone());
+        }
+    }
+}
+
+fn validate_marketplace_v1_entry(entry: &Value) -> Result<(), MarketplaceError> {
+    for key in [
+        "name",
+        "description",
+        "version",
+        "maintainer",
+        "minCoreVersion",
+        "source",
+        "policy",
+    ] {
+        if entry.get(key).is_none() {
+            return Err(MarketplaceError::CommandFailed(format!(
+                "marketplace v1 entry is missing required field '{key}'"
+            )));
+        }
+    }
+    if entry
+        .get("dcc")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty)
+    {
+        return Err(MarketplaceError::CommandFailed(
+            "marketplace v1 entry requires at least one DCC target".into(),
+        ));
+    }
+    if entry
+        .get("tags")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty)
+    {
+        return Err(MarketplaceError::CommandFailed(
+            "marketplace v1 entry requires at least one tag".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn save_catalog_doc(path: &Path, catalog: &CatalogDoc) -> Result<(), MarketplaceError> {
@@ -422,14 +631,14 @@ mod tests {
             install_url: "https://example.com/my-skill.zip".into(),
             install_type: "zip".into(),
             install_ref: None,
-            sha256: Some("sha256:abc".into()),
+            sha256: Some(format!("sha256:{}", "a".repeat(64))),
             name: None,
             description: None,
             dcc: Vec::new(),
             version: None,
             maintainer: Some("dcc-mcp".into()),
             tags: vec!["extra".into()],
-            min_core_version: None,
+            min_core_version: Some("0.19.0".into()),
             homepage_url: None,
             icon: None,
         })
@@ -440,6 +649,9 @@ mod tests {
         assert_eq!(result.entry.dcc, vec!["maya", "blender"]);
         assert_eq!(result.entry.version.as_deref(), Some("0.1.0"));
         let text = fs::read_to_string(catalog_path).unwrap();
-        assert!(text.contains("\"sha256\": \"sha256:abc\""));
+        assert!(text.contains("\"schemaVersion\": \"1\""));
+        assert!(text.contains("\"skills\": ["));
+        assert!(text.contains("\"minCoreVersion\": \"0.19.0\""));
+        assert!(text.contains("\"source\": {"));
     }
 }

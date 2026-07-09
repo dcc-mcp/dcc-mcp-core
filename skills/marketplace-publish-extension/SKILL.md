@@ -38,7 +38,8 @@ dcc-mcp-cli marketplace pack ./my-extension --out dist/
 dcc-mcp-cli marketplace publish ./my-extension \
   --catalog ./marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-extension.zip \
-  --sha256 sha256:<digest>
+  --sha256 sha256:<digest> \
+  --min-core-version 0.19.0
 ```
 
 ## Tools
@@ -69,5 +70,18 @@ push the change.
 3. Additional CLI-supplied fields (install url, ref, tags, maintainer, icon,
    etc.) are merged in.
 4. A `CatalogEntry` is built and upserted into the target `marketplace.json`.
+   New catalogs use the v1 `skills` layout and preserve v1-only fields when an
+   existing entry is updated.
 5. If the catalog source is a git repo and `--commit` is passed, the updated
    `marketplace.json` is committed and pushed.
+
+## Official catalog requirements
+
+- Pass `--min-core-version`; v1 entries require an explicit compatibility floor.
+- Git sources in the official catalog must use a complete 40-character commit
+  SHA in `--install-ref`, never a mutable branch name.
+- Zip sources require a 64-character SHA-256 digest. When the archive URL
+  changes, provide the new digest rather than reusing old metadata.
+- The publisher preserves v1 curation fields such as `requires` and `policy`
+  when updating an existing entry, but new official entries must provide the
+  complete marketplace metadata required by the catalog schema.

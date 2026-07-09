@@ -45,7 +45,11 @@ pub struct CatalogEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     /// Minimum dcc-mcp-core version required by this package.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "minCoreVersion"
+    )]
     pub min_core_version: Option<String>,
     /// Installation metadata for CLI-driven marketplace installs.
     ///
@@ -57,9 +61,36 @@ pub struct CatalogEntry {
     /// Maintainer or publishing organization.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maintainer: Option<String>,
+    /// Marketplace category used for curation and browse UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Installation availability policy declared by the marketplace publisher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<CatalogPolicy>,
+    /// External runtime prerequisites declared by the package publisher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires: Option<CatalogRequirements>,
     /// Icon path or URL (e.g. `"icon.png"` for repo-relative, or an absolute URL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+}
+
+/// Installation policy attached to a marketplace package.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CatalogPolicy {
+    /// Whether a package may be installed by the current marketplace.
+    pub installation: String,
+}
+
+/// External prerequisites needed to use a marketplace package.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CatalogRequirements {
+    /// Required environment variable names. Values are never stored in the catalog.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<String>,
+    /// Required executable names that must be available on PATH.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bins: Vec<String>,
 }
 
 /// Installation metadata for a marketplace catalog entry.
@@ -286,6 +317,23 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
         "version":          { "type": "string" },
         "min_core_version": { "type": "string" },
         "maintainer":       { "type": "string" },
+        "category":         { "type": "string" },
+        "policy": {
+          "type": "object",
+          "required": ["installation"],
+          "properties": {
+            "installation": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "requires": {
+          "type": "object",
+          "properties": {
+            "env": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "bins": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+          },
+          "additionalProperties": false
+        },
         "icon":        { "type": "string" },
         "install": {
           "type": "object",
@@ -499,6 +547,9 @@ entries:
             min_core_version: None,
             install: None,
             maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
             icon: None,
         }];
         let hits = search_hits(&entries, "maya");
@@ -558,6 +609,60 @@ entries:
         assert_eq!(install.ref_.as_deref(), Some("v0.1.0"));
     }
 
+    #[test]
+    fn marketplace_v1_aliases_preserve_curation_and_runtime_metadata() {
+        let json = r#"
+{
+  "name": "dcc-mcp-official",
+  "version": "1.0.0",
+  "skills": [{
+    "name": "maya-rig-tools",
+    "description": "Rigging tools for Maya",
+    "dcc": ["maya"],
+    "tags": ["rigging", "domain"],
+    "version": "1.2.3",
+    "minCoreVersion": "0.19.0",
+    "category": "Skills",
+    "maintainer": "dcc-mcp",
+    "source": {
+      "type": "git",
+      "url": "https://github.com/dcc-mcp/maya-rig-tools",
+      "ref": "0123456789012345678901234567890123456789"
+    },
+    "policy": { "installation": "available" },
+    "requires": { "env": ["RIG_TOKEN"], "bins": ["rigctl"] }
+  }]
+}
+"#;
+
+        let entries = load_from_str(json).unwrap();
+        let entry = entries.first().unwrap();
+        assert_eq!(entry.min_core_version.as_deref(), Some("0.19.0"));
+        assert_eq!(entry.category.as_deref(), Some("Skills"));
+        assert_eq!(
+            entry
+                .policy
+                .as_ref()
+                .map(|policy| policy.installation.as_str()),
+            Some("available")
+        );
+        assert_eq!(
+            entry
+                .requires
+                .as_ref()
+                .map(|requires| requires.env.as_slice()),
+            Some(["RIG_TOKEN".to_string()].as_slice())
+        );
+        assert_eq!(
+            entry
+                .install
+                .as_ref()
+                .and_then(|install| install.ref_.as_deref()),
+            Some("0123456789012345678901234567890123456789")
+        );
+        assert!(validate_entry(entry).is_ok());
+    }
+
     // -- schema validation tests ------------------------------------------------
 
     fn make_entry(name: &str, description: &str) -> CatalogEntry {
@@ -571,6 +676,9 @@ entries:
             min_core_version: None,
             install: None,
             maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
             icon: None,
         }
     }
@@ -612,6 +720,9 @@ entries:
             version: Some("0.1.0".into()),
             min_core_version: Some("0.17.0".into()),
             maintainer: Some("dcc-mcp".into()),
+            category: None,
+            policy: None,
+            requires: None,
             install: Some(CatalogInstall {
                 install_type: "zip".into(),
                 url: Some("https://example.com/skill.zip".into()),
@@ -639,6 +750,9 @@ entries:
             version: Some("0.3.0".into()),
             min_core_version: Some("0.18.0".into()),
             maintainer: Some("dcc-mcp".into()),
+            category: None,
+            policy: None,
+            requires: None,
             install: Some(CatalogInstall {
                 install_type: "pip".into(),
                 url: None,
@@ -714,6 +828,9 @@ entries:
             version: None,
             min_core_version: None,
             maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
             install: Some(CatalogInstall {
                 install_type: "pip".into(),
                 url: None,
@@ -742,6 +859,9 @@ entries:
             min_core_version: None,
             install: None,
             maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
             icon: Some("icon.png".into()),
         };
         assert!(validate_entry(&entry).is_ok());
