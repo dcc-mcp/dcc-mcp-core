@@ -538,6 +538,9 @@ mod tests {
             min_core_version: None,
             install,
             maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
             icon: None,
         }
     }

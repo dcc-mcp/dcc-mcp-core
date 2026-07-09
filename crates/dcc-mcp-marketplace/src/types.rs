@@ -76,6 +76,9 @@ pub struct MarketplaceInstallResult {
     pub source: MarketplaceSource,
     pub entry: CatalogEntry,
     pub install_type: String,
+    /// Immutable git revision that was actually installed, when the source supplies one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_commit: Option<String>,
     pub reload_required: bool,
 }
 
@@ -103,6 +106,11 @@ pub struct InstalledMarketplacePackage {
     pub install_type: String,
     pub install_url: Option<String>,
     pub install_ref: Option<String>,
+    /// Immutable git revision resolved during installation.
+    ///
+    /// Older state files omit this field and remain readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_commit: Option<String>,
     pub installed_at_ms: u128,
 }
 
@@ -132,6 +140,10 @@ pub struct OutdatedMarketplacePackage {
     pub install_type: String,
     pub install_url: Option<String>,
     pub install_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed_commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_commit: Option<String>,
     pub path: String,
 }
 
@@ -149,6 +161,10 @@ pub struct MarketplaceUpdateResult {
     pub dcc: String,
     pub previous_version: Option<String>,
     pub new_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_commit: Option<String>,
     pub path: String,
     pub install_type: String,
     pub source_name: String,
@@ -216,6 +232,9 @@ mod tests {
             min_core_version: None,
             install: None,
             maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
             icon: None,
         };
         assert!(entry_targets_dcc(&entry, "Maya"));

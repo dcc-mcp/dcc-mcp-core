@@ -792,6 +792,9 @@ mod tests {
                 min_core_version: None,
                 install: None,
                 maintainer: None,
+                category: None,
+                policy: None,
+                requires: None,
                 icon: None,
             },
             steps: vec![

@@ -527,6 +527,9 @@ mod tests {
             min_core_version: None,
             install: None,
             maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
             icon: None,
         };
         assert!(dcc_mcp_marketplace::entry_targets_dcc(&entry, "Maya"));
