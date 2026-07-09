@@ -23,7 +23,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use serde::Serialize;
 
-#[cfg(windows)]
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// How long to wait for a single `/health` probe before timing out.
