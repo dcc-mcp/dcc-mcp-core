@@ -545,15 +545,8 @@ pub fn is_process_alive(pid: u32) -> bool {
         // and symbol overhead for two functions.  The raw FFI declarations
         // below are stable and minimal.
         unsafe extern "system" {
-            fn OpenProcess(
-                dwDesiredAccess: u32,
-                bInheritHandle: i32,
-                dwProcessId: u32,
-            ) -> isize;
-            fn GetExitCodeProcess(
-                hProcess: isize,
-                lpExitCode: *mut u32,
-            ) -> i32;
+            fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> isize;
+            fn GetExitCodeProcess(hProcess: isize, lpExitCode: *mut u32) -> i32;
             fn CloseHandle(hObject: isize) -> i32;
         }
 
@@ -592,11 +585,7 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
     {
         // Use the Windows API directly to avoid the `taskkill.exe` shell-out.
         unsafe extern "system" {
-            fn OpenProcess(
-                dwDesiredAccess: u32,
-                bInheritHandle: i32,
-                dwProcessId: u32,
-            ) -> isize;
+            fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> isize;
             fn TerminateProcess(hProcess: isize, uExitCode: u32) -> i32;
             fn CloseHandle(hObject: isize) -> i32;
         }
