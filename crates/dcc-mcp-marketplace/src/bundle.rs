@@ -24,9 +24,16 @@ pub(crate) fn install_staged_package(
     dcc_root: &Path,
     package_name: &str,
     dcc: &str,
+    skill_roots: Option<&[String]>,
     force: bool,
 ) -> Result<PathBuf, MarketplaceError> {
     let all_skill_dirs = collect_skill_dirs(staging);
+    if let Some(skill_roots) = skill_roots {
+        let skill_dirs = select_configured_skill_dirs(staging, skill_roots)?;
+        let bundle_dest = install_skill_bundle(&skill_dirs, dcc_root, package_name, dcc, force)?;
+        remove_path(staging)?;
+        return Ok(bundle_dest);
+    }
     if all_skill_dirs.len() > 1 {
         let skill_dirs = select_bundle_skill_dirs(staging, &all_skill_dirs);
         let bundle_dest = install_skill_bundle(&skill_dirs, dcc_root, package_name, dcc, force)?;
@@ -85,6 +92,86 @@ fn select_bundle_skill_dirs(root: &Path, skill_dirs: &[PathBuf]) -> Vec<PathBuf>
     } else {
         preferred
     }
+}
+
+fn select_configured_skill_dirs(
+    staging: &Path,
+    skill_roots: &[String],
+) -> Result<Vec<PathBuf>, MarketplaceError> {
+    if skill_roots.is_empty() {
+        return Err(MarketplaceError::CommandFailed(
+            "marketplace skillRoots must not be empty".into(),
+        ));
+    }
+
+    let source_root = source_root(staging, skill_roots)?;
+    let mut selected = Vec::new();
+    for skill_root in skill_roots {
+        let relative = safe_relative_skill_root(skill_root)?;
+        let root = source_root.join(relative);
+        if !root.is_dir() {
+            return Err(MarketplaceError::CommandFailed(format!(
+                "marketplace skillRoot '{skill_root}' does not exist in package"
+            )));
+        }
+        let skill_dirs = collect_skill_dirs(&root);
+        if skill_dirs.is_empty() {
+            return Err(MarketplaceError::MissingSkill(root.display().to_string()));
+        }
+        for skill_dir in skill_dirs {
+            if !selected.contains(&skill_dir) {
+                selected.push(skill_dir);
+            }
+        }
+    }
+    Ok(selected)
+}
+
+fn source_root(staging: &Path, skill_roots: &[String]) -> Result<PathBuf, MarketplaceError> {
+    if skill_roots
+        .iter()
+        .filter_map(|root| safe_relative_skill_root(root).ok())
+        .any(|root| staging.join(root).is_dir())
+    {
+        return Ok(staging.to_path_buf());
+    }
+
+    let children: Vec<PathBuf> = fs::read_dir(staging)
+        .map_err(|err| MarketplaceError::ConfigIo(staging.display().to_string(), err))?
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|kind| kind.is_dir())
+                .map(|_| entry.path())
+        })
+        .collect();
+    let [child] = children.as_slice() else {
+        return Ok(staging.to_path_buf());
+    };
+    Ok(child.clone())
+}
+
+fn safe_relative_skill_root(value: &str) -> Result<PathBuf, MarketplaceError> {
+    let path = Path::new(value);
+    if value.trim().is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::CurDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err(MarketplaceError::CommandFailed(format!(
+            "marketplace skillRoot '{value}' must be a safe relative path"
+        )));
+    }
+    Ok(path.to_path_buf())
 }
 
 fn is_preferred_bundle_skill_dir(root: &Path, skill_dir: &Path) -> bool {
@@ -203,5 +290,51 @@ fn read_bundle_manifest(
 fn cleanup_paths(paths: &[PathBuf]) {
     for path in paths {
         let _ = remove_path(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_skill(path: &Path) {
+        fs::create_dir_all(path).unwrap();
+        fs::write(
+            path.join("SKILL.md"),
+            "---\nname: test\ndescription: Test\n---\n",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn configured_skill_roots_install_only_allowlisted_skills() {
+        let tmp = tempfile::tempdir().unwrap();
+        let staging = tmp.path().join("staging");
+        write_skill(&staging.join("repo").join("skill").join("allowed"));
+        write_skill(&staging.join("repo").join("examples").join("unwanted"));
+        let dcc_root = tmp.path().join("marketplace").join("maya");
+        fs::create_dir_all(&dcc_root).unwrap();
+        let roots = vec!["skill".to_string()];
+
+        let installed = install_staged_package(
+            &staging,
+            &dcc_root.join("package"),
+            &dcc_root,
+            "package",
+            "maya",
+            Some(&roots),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(installed, bundle_package_dir(&dcc_root, "package"));
+        assert!(dcc_root.join("allowed").join("SKILL.md").is_file());
+        assert!(!dcc_root.join("unwanted").exists());
+        assert!(!staging.exists());
+    }
+
+    #[test]
+    fn skill_roots_reject_parent_traversal() {
+        assert!(safe_relative_skill_root("../examples").is_err());
     }
 }

@@ -28,6 +28,9 @@ pub(crate) struct MarketplacePublishArgs {
     /// Git ref/tag for git installs.
     #[arg(long = "install-ref")]
     pub(crate) install_ref: Option<String>,
+    /// Skill directories to install from the source. Repeat for multi-skill packages.
+    #[arg(long = "skill-root")]
+    pub(crate) skill_roots: Vec<String>,
     /// Archive SHA-256, optionally prefixed with sha256:.
     #[arg(long)]
     pub(crate) sha256: Option<String>,
@@ -73,6 +76,7 @@ pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value>
             install_url: args.install_url,
             install_type: args.install_type,
             install_ref: args.install_ref,
+            skill_roots: args.skill_roots,
             sha256: args.sha256,
             name: args.name,
             description: args.description,

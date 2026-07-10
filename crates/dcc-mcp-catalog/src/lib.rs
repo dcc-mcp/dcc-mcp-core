@@ -108,6 +108,14 @@ pub struct CatalogInstall {
     /// Optional content hash for archive installs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// Repository-relative roots that contain the skills this package is allowed to install.
+    #[serde(
+        default,
+        rename = "skillRoots",
+        alias = "skill_roots",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub skill_roots: Option<Vec<String>>,
     /// Pip package name (required when type is `pip`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pip_package: Option<String>,
@@ -343,6 +351,7 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
             "url":         { "type": "string" },
             "ref":         { "type": "string" },
             "sha256":      { "type": "string" },
+            "skillRoots":  { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
             "pip_package": { "type": "string" },
             "pip_extras":  { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
             "python_path": { "type": "string" },
@@ -627,7 +636,8 @@ entries:
     "source": {
       "type": "git",
       "url": "https://github.com/dcc-mcp/maya-rig-tools",
-      "ref": "0123456789012345678901234567890123456789"
+      "ref": "0123456789012345678901234567890123456789",
+      "skillRoots": ["skill/maya-rig-tools"]
     },
     "policy": { "installation": "available" },
     "requires": { "env": ["RIG_TOKEN"], "bins": ["rigctl"] }
@@ -659,6 +669,13 @@ entries:
                 .as_ref()
                 .and_then(|install| install.ref_.as_deref()),
             Some("0123456789012345678901234567890123456789")
+        );
+        assert_eq!(
+            entry
+                .install
+                .as_ref()
+                .and_then(|install| install.skill_roots.as_deref()),
+            Some(["skill/maya-rig-tools".to_string()].as_slice())
         );
         assert!(validate_entry(entry).is_ok());
     }
@@ -728,6 +745,7 @@ entries:
                 url: Some("https://example.com/skill.zip".into()),
                 ref_: Some("v0.1.0".into()),
                 sha256: Some("abc123".into()),
+                skill_roots: None,
                 pip_package: None,
                 pip_extras: None,
                 python_path: None,
@@ -758,6 +776,7 @@ entries:
                 url: None,
                 ref_: None,
                 sha256: None,
+                skill_roots: None,
                 pip_package: Some("dcc-mcp-maya".into()),
                 pip_extras: Some(vec!["maya".into()]),
                 python_path: Some("/usr/autodesk/maya2026/bin/mayapy".into()),
@@ -836,6 +855,7 @@ entries:
                 url: None,
                 ref_: None,
                 sha256: None,
+                skill_roots: None,
                 pip_package: Some("dcc-mcp-core".into()),
                 pip_extras: None,
                 python_path: None,

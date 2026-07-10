@@ -45,6 +45,15 @@ tools:
             Git revision for git-type installs. Official catalogs require a
             complete immutable 40-character commit SHA; custom catalogs may
             use a studio-managed release tag.
+        skill_roots:
+          type: array
+          description: >-
+            Relative skill directories to install from the source. Repeatable
+            CLI flag: --skill-root. Official catalogs must declare every
+            installed root so examples and development-only skills stay out.
+          items:
+            type: string
+          default: []
         version:
           type: string
           description: >-
