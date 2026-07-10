@@ -1147,7 +1147,7 @@ def test_watchdog_immediate_retry_on_guardian_death(monkeypatch):
         new_g = getattr(owner, "_gateway_guardian", None)
         if new_g is not None:
             original_probe = new_g.probe_once
-            new_g.probe_once = lambda: probe_calls.append(1) or original_probe()
+            new_g.probe_once = lambda **kw: probe_calls.append(1) or original_probe(**kw)
 
     ctrl.start_gateway_guardian_if_needed = _start_and_track
 
