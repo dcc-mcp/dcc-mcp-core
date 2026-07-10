@@ -76,9 +76,13 @@ def _parse_skill_fields(skill_dir: str | Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
 
-    name = fields.get("name", "")
+    name = fields.get("name")
+    if name is None:
+        return None
+    if not name:
+        name = skill_dir_path.name
     description = fields.get("description", "")
-    if not _SKILL_NAME.fullmatch(name) or not description:
+    if not _SKILL_NAME.fullmatch(name):
         return None
 
     implicit_invocation = _bool_value(
@@ -146,6 +150,8 @@ def _frontmatter_fields(lines: list[str]) -> dict[str, str]:
             continue
         public_key = key in {"name", "description"} and top_level
         metadata_key = key in _DCC_METADATA_KEYS and in_dcc_metadata
+        if public_key and value is None:
+            raise ValueError(f"invalid SKILL.md {key} value")
         if value is not None and (public_key or metadata_key):
             fields[key] = value
         if not raw_value:
@@ -170,7 +176,7 @@ def _multiline_value(lines: list[str], start: int, *, literal: bool) -> tuple[st
 def _scalar_value(raw_value: str) -> str | None:
     value = _strip_inline_comment(raw_value).strip()
     if not value:
-        return ""
+        return None
     if value[0] in ("'", '"'):
         if len(value) < 2 or value[-1] != value[0]:
             return None

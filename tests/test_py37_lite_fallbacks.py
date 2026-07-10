@@ -7,12 +7,27 @@ import sys
 
 import pytest
 
+_FALLBACK_PUBLIC_NAMES = (
+    "DccCapabilities",
+    "GuiExecutableHint",
+    "PyPumpedDispatcher",
+    "ReadinessProbe",
+    "correct_python_executable",
+    "is_gui_executable",
+    "parse_skill_md",
+    "scan_and_load_strict",
+)
+
 
 @pytest.fixture(autouse=True)
 def _reset_py37_fallback_module_after_stub_core():
     """Drop cached ``_py37_fallback`` so xdist workers do not keep py37 bindings."""
     yield
     sys.modules.pop("dcc_mcp_core._py37_fallback", None)
+    package = sys.modules.get("dcc_mcp_core")
+    if package is not None:
+        for name in _FALLBACK_PUBLIC_NAMES:
+            package.__dict__.pop(name, None)
 
 
 def _import_without_core(monkeypatch, *module_names: str):
