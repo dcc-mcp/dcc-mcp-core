@@ -306,16 +306,20 @@ class TestResourcesReadBlobRoundTrip:
         registry_dir = tmp_path_factory.mktemp("blob-e2e-registry")
         gw_port = allocate_gateway_port()
         _server_a, handle_a = _make_backend("maya", registry_dir, gw_port)
+        register_shutdown_handle(handle_a)
         time.sleep(0.3)
         _server_b, handle_b = _make_backend("blender", registry_dir, gw_port)
-        time.sleep(2.2)
+        register_shutdown_handle(handle_b)
 
         if not handle_a.is_gateway:
-            handle_b.shutdown()
-            handle_a.shutdown()
             pytest.skip("gateway port contention — blob round-trip test")
 
         gw_url = f"http://127.0.0.1:{gw_port}/mcp"
+
+        # Wait for the gateway watcher to merge backend resources —
+        # a fixed sleep was flaky on slower macOS runners.
+        _wait_for_forwarded_backend_resources(gw_url)
+
         try:
             list_resp = _post_mcp(gw_url, "resources/list")
             prefixed_audit = next(
