@@ -278,14 +278,21 @@ impl MarketplaceService {
             return Err(err);
         }
 
-        let final_path =
-            match install_staged_package(&staging, &dest, &dcc_root, &package_name, &dcc, force) {
-                Ok(path) => path,
-                Err(err) => {
-                    let _ = remove_path(&staging);
-                    return Err(err);
-                }
-            };
+        let final_path = match install_staged_package(
+            &staging,
+            &dest,
+            &dcc_root,
+            &package_name,
+            &dcc,
+            install.skill_roots.as_deref(),
+            force,
+        ) {
+            Ok(path) => path,
+            Err(err) => {
+                let _ = remove_path(&staging);
+                return Err(err);
+            }
+        };
         let resolved_commit = resolved_git_commit(&install, &final_path);
 
         let package = InstalledMarketplacePackage {
@@ -633,6 +640,7 @@ impl MarketplaceService {
                 url: Some(url),
                 ref_: None,
                 sha256: None,
+                skill_roots: None,
                 pip_package: None,
                 pip_extras: None,
                 python_path: None,
@@ -1434,6 +1442,7 @@ mod tests {
             url: Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear.git".into()),
             ref_: Some("main".into()),
             sha256: None,
+            skill_roots: None,
             pip_package: None,
             pip_extras: None,
             python_path: None,
@@ -1454,6 +1463,7 @@ mod tests {
             url: Some("git@github.com:dcc-mcp/private-pack.git".into()),
             ref_: Some("main".into()),
             sha256: None,
+            skill_roots: None,
             pip_package: None,
             pip_extras: None,
             python_path: None,

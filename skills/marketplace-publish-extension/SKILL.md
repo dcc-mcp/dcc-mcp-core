@@ -39,7 +39,8 @@ dcc-mcp-cli marketplace publish ./my-extension \
   --catalog ./marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-extension.zip \
   --sha256 sha256:<digest> \
-  --min-core-version 0.19.0
+  --min-core-version 0.19.0 \
+  --skill-root skill/my-extension
 ```
 
 ## Tools
@@ -69,7 +70,7 @@ push the change.
 
 1. Point the tool at a local extension directory containing `SKILL.md`.
 2. The tool reads the SKILL.md frontmatter and any accompanying metadata.
-3. Additional CLI-supplied fields (install url, ref, tags, maintainer, icon,
+3. Additional CLI-supplied fields (install url, ref, skill roots, tags, maintainer, icon,
    etc.) are merged in.
 4. A `CatalogEntry` is built and upserted into the target `marketplace.json`.
    New catalogs use the v1 `skills` layout and preserve v1-only fields when an
@@ -82,6 +83,9 @@ push the change.
 - Pass `--min-core-version`; v1 entries require an explicit compatibility floor.
 - Git sources in the official catalog must use a complete 40-character commit
   SHA in `--install-ref`, never a mutable branch name.
+- Declare every installed skill directory with `--skill-root`. The installer
+  only loads declared roots, so multi-skill repositories do not accidentally
+  expose examples or development-only skills.
 - Zip sources require a 64-character SHA-256 digest. When the archive URL
   changes, provide the new digest rather than reusing old metadata.
 - The publisher preserves v1 curation fields such as `requires` and `policy`

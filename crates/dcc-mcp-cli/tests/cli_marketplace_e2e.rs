@@ -183,6 +183,8 @@ fn marketplace_pack_and_publish_updates_catalog() {
         "dcc-mcp",
         "--min-core-version",
         "0.19.0",
+        "--skill-root",
+        "skill/release-skill",
         "--tag",
         "extra",
     ]);
@@ -197,6 +199,10 @@ fn marketplace_pack_and_publish_updates_catalog() {
     assert_eq!(catalog["schemaVersion"], "1");
     assert_eq!(catalog["skills"][0]["minCoreVersion"], "0.19.0");
     assert_eq!(catalog["skills"][0]["source"]["type"], "zip");
+    assert_eq!(
+        catalog["skills"][0]["source"]["skillRoots"],
+        json!(["skill/release-skill"])
+    );
 
     let updated = run_json(&[
         "marketplace",
@@ -412,7 +418,7 @@ fn marketplace_install_git_package_promotes_single_nested_skill_dir() {
 }
 
 #[test]
-fn marketplace_install_path_package_expands_multi_skill_pack() {
+fn marketplace_install_path_package_uses_declared_skill_roots() {
     let tmp = TempDir::new().unwrap();
     let pack = tmp.path().join("multi-pack");
     write_skill(
@@ -442,7 +448,8 @@ fn marketplace_install_path_package_expands_multi_skill_pack() {
             "version": "0.1.0",
             "install": {
                 "type": "path",
-                "url": pack.to_string_lossy()
+                "url": pack.to_string_lossy(),
+                "skillRoots": ["skill/maya-first"]
             }
         }]
     });
@@ -484,7 +491,7 @@ fn marketplace_install_path_package_expands_multi_skill_pack() {
     assert_eq!(installed["installed"], true);
     let dcc_root = std::path::Path::new(&install_root).join("maya");
     assert!(dcc_root.join("maya-first").join("SKILL.md").is_file());
-    assert!(dcc_root.join("maya-second").join("SKILL.md").is_file());
+    assert!(!dcc_root.join("maya-second").exists());
     assert!(!dcc_root.join("example-skill").exists());
 
     let mut scanner = dcc_mcp_skills::SkillScanner::new();
@@ -494,7 +501,7 @@ fn marketplace_install_path_package_expands_multi_skill_pack() {
         true,
     );
     assert!(found.iter().any(|path| path.ends_with("maya-first")));
-    assert!(found.iter().any(|path| path.ends_with("maya-second")));
+    assert!(!found.iter().any(|path| path.ends_with("maya-second")));
     assert!(!found.iter().any(|path| path.ends_with("example-skill")));
 
     let uninstalled = run_json_with_env(
@@ -509,7 +516,6 @@ fn marketplace_install_path_package_expands_multi_skill_pack() {
     );
     assert_eq!(uninstalled["uninstalled"], true);
     assert!(!dcc_root.join("maya-first").exists());
-    assert!(!dcc_root.join("maya-second").exists());
 }
 
 #[test]

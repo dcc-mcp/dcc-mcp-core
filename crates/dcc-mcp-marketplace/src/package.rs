@@ -31,6 +31,7 @@ pub struct MarketplacePublishOptions {
     pub install_url: String,
     pub install_type: String,
     pub install_ref: Option<String>,
+    pub skill_roots: Vec<String>,
     pub sha256: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -135,6 +136,7 @@ pub fn publish_marketplace_package(
             url: Some(options.install_url),
             ref_: options.install_ref,
             sha256: options.sha256,
+            skill_roots: (!options.skill_roots.is_empty()).then_some(options.skill_roots),
             pip_package: None,
             pip_extras: None,
             python_path: None,
@@ -631,6 +633,7 @@ mod tests {
             install_url: "https://example.com/my-skill.zip".into(),
             install_type: "zip".into(),
             install_ref: None,
+            skill_roots: vec!["skill/my-skill".into()],
             sha256: Some(format!("sha256:{}", "a".repeat(64))),
             name: None,
             description: None,
@@ -653,5 +656,6 @@ mod tests {
         assert!(text.contains("\"skills\": ["));
         assert!(text.contains("\"minCoreVersion\": \"0.19.0\""));
         assert!(text.contains("\"source\": {"));
+        assert!(text.contains("\"skillRoots\": ["));
     }
 }
