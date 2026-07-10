@@ -384,7 +384,7 @@ workspace 通过 `maturin` 构建为单一 PyO3 原生扩展（`dcc_mcp_core._co
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.8"
+requires-python = ">=3.7"
 dependencies = [
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]  # daemon-backed gateway 启动所需的配套二进制 wheel

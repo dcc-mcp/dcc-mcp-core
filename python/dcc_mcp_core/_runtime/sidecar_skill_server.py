@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 import logging
 import os
+from pathlib import Path
 from typing import Any
 from typing import Callable
 
 from dcc_mcp_core._install_lifecycle_sidecar import build_sidecar_command
 from dcc_mcp_core._install_lifecycle_sidecar import launch_sidecar
+from dcc_mcp_core._runtime.pure_skill_catalog import PurePythonSkillCatalog
+from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
+from dcc_mcp_core._runtime.skill_paths import get_local_skills_dir
+from dcc_mcp_core._runtime.skill_paths import get_skill_paths_from_env
+from dcc_mcp_core._runtime.skill_paths import skill_env_slug
 from dcc_mcp_core._runtime.tool_registry_py import PurePythonToolRegistry
+from dcc_mcp_core.constants import ENV_DISABLE_ACCUMULATED_SKILLS
+from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_TEAM_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_USER_SKILL_PATHS
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +77,9 @@ class SidecarBackedSkillServer:
         self._wait_ready_timeout_secs = float(wait_ready_timeout_secs)
         self._server_bin = str(server_bin).strip() if server_bin else None
         self._extra_args = tuple(str(arg) for arg in (extra_args or ()))
+        self._accumulated = True
         self._registry = PurePythonToolRegistry()
+        self._catalog = PurePythonSkillCatalog(self._dcc_name)
         self._pending_skill_paths: list[str] = []
         self._handle: SidecarServerHandle | None = None
         self._launch_result: dict[str, Any] = {}
@@ -74,19 +88,45 @@ class SidecarBackedSkillServer:
     def registry(self) -> PurePythonToolRegistry:
         return self._registry
 
-    def discover(self, extra_paths: list[str] | None = None) -> int:
-        paths = [str(path) for path in (extra_paths or []) if str(path).strip()]
-        self._pending_skill_paths = paths
-        if paths:
-            existing = os.environ.get("DCC_MCP_SKILL_PATHS", "")
-            merged = os.pathsep.join([existing, *paths]) if existing else os.pathsep.join(paths)
-            os.environ["DCC_MCP_SKILL_PATHS"] = merged
+    def discover(self, extra_paths: list[str] | None = None, *, accumulated: bool | None = None) -> int:
+        paths = [str(path).strip() for path in (extra_paths or []) if str(path).strip()]
+        self._pending_skill_paths = list(dict.fromkeys(paths))
+        if accumulated is not None:
+            self._accumulated = bool(accumulated)
+        discovered = self._catalog.discover(self._skill_search_paths())
         logger.info(
-            "[%s] sidecar discover recorded %d path(s); HTTP/MCP is owned by dcc-mcp-server sidecar",
+            "[%s] lite metadata catalog discovered %d skill(s) from %d path(s)",
             self._dcc_name,
-            len(paths),
+            discovered,
+            len(self._pending_skill_paths),
         )
-        return len(paths)
+        return discovered
+
+    def _skill_search_paths(self) -> list[tuple[str, str]]:
+        paths = [(path, "repo") for path in self._pending_skill_paths]
+        paths.extend((path, "repo") for path in get_app_skill_paths_from_env(self._dcc_name))
+        paths.extend((path, "repo") for path in get_skill_paths_from_env())
+        if self._accumulated and not _env_flag_enabled(ENV_DISABLE_ACCUMULATED_SKILLS):
+            paths.extend(_accumulated_skill_paths(self._dcc_name))
+        if not _env_flag_enabled(ENV_DISABLE_DEFAULT_SKILL_PATHS):
+            local = Path(get_local_skills_dir(self._dcc_name))
+            with suppress(OSError):
+                local.mkdir(parents=True, exist_ok=True)
+            paths.append((str(local), "repo"))
+        return list(dict.fromkeys((path, scope) for path, scope in paths if str(path).strip()))
+
+    def _launch_environment(self) -> dict[str, str]:
+        """Build sidecar-only overrides without mutating the DCC process."""
+        overrides: dict[str, str] = {}
+        paths = list(self._pending_skill_paths)
+        existing = os.environ.get(ENV_SKILL_PATHS, "")
+        if existing:
+            paths.extend(part.strip() for part in existing.split(os.pathsep) if part.strip())
+        if paths:
+            overrides[ENV_SKILL_PATHS] = os.pathsep.join(dict.fromkeys(paths))
+        if not self._accumulated:
+            overrides[ENV_DISABLE_ACCUMULATED_SKILLS] = "1"
+        return overrides
 
     def start(self) -> SidecarServerHandle:
         if self._handle is not None:
@@ -99,6 +139,7 @@ class SidecarBackedSkillServer:
 
         gateway_port = int(getattr(self._config, "gateway_port", 0) or 0)
         registry_dir = getattr(self._config, "registry_dir", None)
+        launch_env = self._launch_environment()
         command = build_sidecar_command(
             dcc_type=self._dcc_name,
             host_rpc=self._host_rpc,
@@ -108,6 +149,7 @@ class SidecarBackedSkillServer:
             adapter_version=self._adapter_version,
             gateway_port=gateway_port if gateway_port > 0 else None,
             require_dispatch_capable=True,
+            env=launch_env or None,
         )
         if not command.get("success"):
             raise RuntimeError(command.get("message") or "failed to build sidecar launch command")
@@ -124,6 +166,7 @@ class SidecarBackedSkillServer:
             require_dispatch_capable=True,
             server_bin=self._server_bin,
             extra_args=self._extra_args or None,
+            env=launch_env or None,
         )
         self._launch_result = dict(launch)
         if not launch.get("success"):
@@ -143,31 +186,32 @@ class SidecarBackedSkillServer:
         self._handle = SidecarServerHandle(port=port, mcp_url=mcp_url, shutdown=_shutdown)
         return self._handle
 
-    # SkillQueryClient compatibility stubs ---------------------------------
+    # Metadata discovery is local; activation remains unsupported because the
+    # Rust sidecar intentionally exposes dispatch-only tools/call.
 
     def list_skills(self) -> list[Any]:
-        return []
+        return self._catalog.list_skills()
 
     def search_skills(self, **kwargs: Any) -> list[Any]:
-        return []
+        return self._catalog.search_skills(**kwargs)
 
     def load_skill(self, name: str) -> None:
-        logger.debug("[%s] load_skill(%r) delegated to sidecar", self._dcc_name, name)
+        raise RuntimeError(_activation_error(name))
 
     def get_skill(self, name: str) -> Any:
-        return None
+        return self._catalog.get_skill(name)
 
     def load_skill_object(self, skill: Any) -> None:
-        logger.debug("[%s] load_skill_object delegated to sidecar", self._dcc_name)
+        raise RuntimeError(_activation_error(getattr(skill, "name", "<object>")))
 
     def unload_skill(self, name: str) -> None:
-        logger.debug("[%s] unload_skill(%r) delegated to sidecar", self._dcc_name, name)
+        raise RuntimeError(_activation_error(name))
 
     def is_loaded(self, name: str) -> bool:
         return False
 
     def get_skill_info(self, name: str) -> Any:
-        return None
+        return self._catalog.get_skill(name)
 
     def set_in_process_executor(self, executor: Any) -> None:
         logger.debug("[%s] set_in_process_executor stored for host-rpc dispatch", self._dcc_name)
@@ -194,6 +238,33 @@ def _resolve_mcp_url(launch: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return "http://127.0.0.1:0/mcp"
+
+
+def _env_flag_enabled(name: str) -> bool:
+    value = os.environ.get(name, "")
+    return value == "1" or value.lower() == "true"
+
+
+def _accumulated_skill_paths(dcc_name: str) -> list[tuple[str, str]]:
+    app = skill_env_slug(dcc_name or "dcc")
+    names = (
+        (f"DCC_MCP_USER_{app}_SKILL_PATHS", "user"),
+        (ENV_USER_SKILL_PATHS, "user"),
+        (f"DCC_MCP_TEAM_{app}_SKILL_PATHS", "team"),
+        (ENV_TEAM_SKILL_PATHS, "team"),
+    )
+    paths: list[tuple[str, str]] = []
+    for name, scope in names:
+        paths.extend((part.strip(), scope) for part in os.environ.get(name, "").split(os.pathsep) if part.strip())
+    return paths
+
+
+def _activation_error(name: Any) -> str:
+    return (
+        f"py37-lite discovered skill metadata for {str(name)!r}, but skill activation is unavailable: "
+        "dcc-mcp-server sidecar is dispatch-only; install a native Python 3.7 wheel "
+        "for load_skill and declarative skill execution"
+    )
 
 
 def _port_from_url(url: str) -> int:

@@ -85,7 +85,7 @@ dev = [
 # pin both explicitly.
 semantic = [
     "dcc-mcp-core-semantic>=0.17.37",
-    "fastembed>=0.3",
+    "fastembed>=0.3; python_version>='3.8'",
 ]
 
 [project.urls]

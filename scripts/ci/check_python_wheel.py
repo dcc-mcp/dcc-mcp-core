@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from email.parser import Parser
+import fnmatch
 from pathlib import Path
 import re
 import sys
@@ -17,9 +18,6 @@ except ImportError:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from python_support_contract import load_contract
     from python_support_contract import minimum_python_spec
-
-
-_CORE_EXTENSION = re.compile(r"(?:^|/)dcc_mcp_core/_core(?:\.[^/]+)?\.(?:pyd|so)$")
 
 
 def _read_single_member(archive: zipfile.ZipFile, suffix: str) -> str:
@@ -43,27 +41,53 @@ def _expanded_filename_tags(path: Path) -> set[str]:
     }
 
 
-def validate_wheel(path: Path, profile: str, contract: dict[str, Any]) -> list[str]:
+def _contains_extension(names: list[str], module_path: str | None) -> bool:
+    if not module_path:
+        return False
+    extension = re.compile(rf"(?:^|/){re.escape(module_path)}(?:\.[^/]+)?\.(?:pyd|so)$")
+    return any(extension.search(name) for name in names)
+
+
+def _platform_tag_allowed(platform_tag: str, policy: dict[str, Any]) -> bool:
+    allowed = policy.get("allowed_platform_tags", [])
+    patterns = policy.get("allowed_platform_tag_patterns", [])
+    return platform_tag in allowed or any(fnmatch.fnmatchcase(platform_tag, pattern) for pattern in patterns)
+
+
+def validate_wheel(
+    path: Path,
+    profile: str,
+    platform: str,
+    contract: dict[str, Any],
+) -> list[str]:
     """Return every violation for one wheel and compatibility profile."""
     errors: list[str] = []
-    profile_contract = contract["build"][profile]
+    profile_contract = contract["wheel_profiles"].get(profile)
+    if profile_contract is None:
+        return [f"unknown wheel profile {profile!r}"]
+    platform_policy = profile_contract["platforms"].get(platform)
+    if platform_policy is None:
+        return [f"profile {profile!r} does not support platform {platform!r}"]
     expected_tag = profile_contract["wheel_tag"]
-    tag_marker = f"-{expected_tag}.whl" if profile == "lite_py37" else f"-{expected_tag}-"
-    if tag_marker not in path.name:
-        errors.append(f"filename must contain wheel tag {expected_tag}")
 
     try:
         with zipfile.ZipFile(str(path)) as archive:
             names = archive.namelist()
-            has_core = any(_CORE_EXTENSION.search(name) for name in names)
+            has_extension = _contains_extension(names, profile_contract.get("extension_module"))
             metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/METADATA"))
             wheel_metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/WHEEL"))
     except (OSError, ValueError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
         return [f"cannot inspect wheel: {exc}"]
 
-    expects_core = profile != "lite_py37"
-    if has_core != expects_core:
-        errors.append(f"compiled dcc_mcp_core._core presence is {has_core}, expected {expects_core}")
+    expected_distribution = profile_contract["distribution"]
+    actual_distribution = str(metadata.get("Name", "")).lower().replace("_", "-")
+    if actual_distribution != expected_distribution:
+        errors.append(f"Name is {actual_distribution!r}, expected {expected_distribution!r}")
+
+    expects_extension = profile_contract["expects_extension"]
+    if has_extension != expects_extension:
+        module = profile_contract.get("extension_module", "compiled extension")
+        errors.append(f"compiled {module} presence is {has_extension}, expected {expects_extension}")
 
     requires_python = metadata.get("Requires-Python")
     expected_python = minimum_python_spec(contract)
@@ -71,22 +95,35 @@ def validate_wheel(path: Path, profile: str, contract: dict[str, Any]) -> list[s
         errors.append(f"Requires-Python is {requires_python!r}, expected {expected_python!r}")
 
     root_is_pure = str(wheel_metadata.get("Root-Is-Purelib", "")).lower()
-    expected_pure = "true" if profile == "lite_py37" else "false"
+    expected_pure = "true" if profile_contract["root_is_purelib"] else "false"
     if root_is_pure != expected_pure:
         errors.append(f"Root-Is-Purelib is {root_is_pure!r}, expected {expected_pure!r}")
 
     tags = wheel_metadata.get_all("Tag") or []
     filename_tags = _expanded_filename_tags(path)
-    incompatible_tags = []
+    incompatible_tags: list[str] = []
+    incompatible_platform_tags: list[str] = []
+    observed_platform_tags: list[str] = []
     for tag in tags:
         value = str(tag)
-        compatible = value == expected_tag if profile == "lite_py37" else value.startswith(f"{expected_tag}-")
-        if not compatible:
+        components = value.split("-", 2)
+        if len(components) != 3 or "-".join(components[:2]) != expected_tag:
             incompatible_tags.append(value)
+            continue
+        if not _platform_tag_allowed(components[2], platform_policy):
+            incompatible_platform_tags.append(components[2])
+        observed_platform_tags.append(components[2])
     if not tags:
         errors.append("WHEEL metadata must declare at least one Tag")
     elif incompatible_tags:
         errors.append(f"WHEEL metadata tags {incompatible_tags!r} do not match {expected_tag}")
+    if incompatible_platform_tags:
+        errors.append(
+            f"WHEEL platform tags {sorted(set(incompatible_platform_tags))!r} are not allowed for {profile}/{platform}"
+        )
+    for pattern in platform_policy.get("required_platform_tag_patterns", []):
+        if not any(fnmatch.fnmatchcase(tag, pattern) for tag in observed_platform_tags):
+            errors.append(f"WHEEL platform tags must include a tag matching {pattern!r}")
     metadata_tags = set(tags)
     if tags and metadata_tags != filename_tags:
         errors.append(
@@ -99,7 +136,8 @@ def validate_wheel(path: Path, profile: str, contract: dict[str, Any]) -> list[s
 def main(argv: list[str] | None = None) -> int:
     """Validate all wheel paths supplied on the command line."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", choices=("native_py37", "lite_py37", "abi3"), required=True)
+    parser.add_argument("--profile", required=True)
+    parser.add_argument("--platform", required=True)
     parser.add_argument("wheels", nargs="+")
     args = parser.parse_args(argv)
 
@@ -110,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         matches = list(raw.parent.glob(raw.name))
         paths = matches or [raw]
         for path in paths:
-            errors = validate_wheel(path, args.profile, contract)
+            errors = validate_wheel(path, args.profile, args.platform, contract)
             if errors:
                 failed = True
                 for error in errors:

@@ -23,6 +23,7 @@ from typing import Callable
 from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.server_factory import create_adapter_server
+from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
 from dcc_mcp_core._server import ExecutionBridgeBinder
 from dcc_mcp_core._server import LifecycleController
 from dcc_mcp_core._server import ObservabilityFacade
@@ -55,7 +56,6 @@ def create_skill_server(
     extra_paths: list[str] | None = None,
     dcc_name: str | None = None,
     accumulated: bool = True,
-    **kwargs: Any,
 ) -> Any:
     """Public one-call Skills-First server factory."""
     if _core is not None and is_core_extension_available():
@@ -65,9 +65,12 @@ def create_skill_server(
             extra_paths=extra_paths,
             dcc_name=dcc_name,
             accumulated=accumulated,
-            **kwargs,
         )
-    return create_adapter_server(dcc_name or app_name, config, None)
+    server = create_adapter_server(dcc_name or app_name, config, None)
+    discovery_paths = list(extra_paths or [])
+    discovery_paths.extend(get_app_skill_paths_from_env(app_name))
+    server.discover(extra_paths=list(dict.fromkeys(discovery_paths)), accumulated=accumulated)
+    return server
 
 
 def _package_version() -> str:

@@ -96,7 +96,13 @@ runs:
         else
           features=$(vx just print-wheel-features)
         fi
-        args="--release --out dist --features ${features} ${{ inputs.maturin-extra-args }}"
+        maturin_args="${{ inputs.maturin-extra-args }}"
+        if [[ "${{ runner.os }}" == "Windows" && "${{ inputs.python-version }}" != "3.7" && "$maturin_args" == "--find-interpreter" ]]; then
+          # A concrete Windows interpreter overrides the abi3-py38 feature and
+          # can silently downgrade the output to a version-specific wheel.
+          maturin_args=""
+        fi
+        args="--release --out dist --features ${features} ${maturin_args}"
         echo "Resolved maturin args: ${args}"
         echo "value=${args}" >> "$GITHUB_OUTPUT"
 
@@ -180,7 +186,10 @@ runs:
         args: ${{ steps.resolve-features.outputs.value }}
         rust-toolchain: ${{ inputs.rust-version }}
         sccache: ${{ inputs.use-sccache == 'true' }}
-        manylinux: auto
+        # Core Python 3.7 wheels are part of the old-DCC compatibility surface.
+        # Pin Linux builds to the manylinux2014 / glibc 2.17 baseline instead
+        # of allowing the runner image to select a newer platform tag.
+        manylinux: ${{ runner.os == 'Linux' && '2014' || 'auto' }}
         docker-options: -e DCC_MCP_ADMIN_UI_PREBUILT=1
 
     - name: Check wheel contents
@@ -192,10 +201,35 @@ runs:
       shell: bash
       run: |
         profile="abi3"
+        case "${{ runner.os }}" in
+          Linux) platform="linux-x86_64" ;;
+          Windows) platform="windows-x86_64" ;;
+          macOS)
+            if [[ "${{ inputs.target }}" == *universal2* ]]; then
+              platform="macos-universal2"
+            else
+              platform="macos-native"
+            fi
+            ;;
+          *)
+            echo "::error::Unsupported wheel platform: ${{ runner.os }}"
+            exit 1
+            ;;
+        esac
         if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
           profile="native_py37"
+          case "${{ runner.os }}" in
+            Linux|Windows) ;;
+            *)
+              echo "::error::Native Python 3.7 wheels are not contracted for ${{ runner.os }}"
+              exit 1
+              ;;
+          esac
         fi
-        python scripts/ci/check_python_wheel.py --profile "$profile" dist/*.whl
+        python scripts/ci/check_python_wheel.py \
+          --profile "$profile" \
+          --platform "$platform" \
+          dist/*.whl
 
     - name: Test wheel
       if: inputs.test-wheel == 'true'

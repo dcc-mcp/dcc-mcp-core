@@ -195,6 +195,10 @@ skill that is installed into a DCC host embedding Python 3.7 (Maya 2022,
 Blender 2.83, 3ds Max 2022, etc.). `py37-lite` is a supported fallback but
 does not replace the native Linux and Windows cp37 compatibility gates. See
 ADR 011 and `compatibility/python.json` for the deprecation and CI contract.
+In lite mode, `create_skill_server()` supports local metadata discovery
+(`list_skills`, `search_skills`, and `get_skill`) only. The Rust sidecar is
+dispatch-only, so gateway discovery and declarative `load_skill` execution
+require a native Python 3.7 wheel; lite activation fails explicitly.
 
 For hermetic CI or tests, set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` so an
 operator's local/platform defaults, marketplace installs, and Admin custom

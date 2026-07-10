@@ -34,6 +34,7 @@ import datetime
 import enum
 import inspect
 import pathlib
+import sys
 import types
 import typing
 from typing import Any
@@ -60,6 +61,29 @@ if _union_type is not None:  # pragma: no cover - Python 3.10+
 
 _LITERAL_TYPE = getattr(typing, "Literal", None)
 _TYPEDDICT_META = getattr(typing, "_TypedDictMeta", None)
+
+
+def _literal_origins() -> tuple[Any, ...]:
+    """Return known Literal origins by identity without importing packages."""
+    candidates = [_LITERAL_TYPE]
+    for module_name in ("typing_extensions", "dcc_mcp_core._typing_compat"):
+        module = sys.modules.get(module_name)
+        if module is not None:
+            candidates.append(getattr(module, "Literal", None))
+
+    origins: list[Any] = []
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if not any(candidate is known for known in origins):
+            origins.append(candidate)
+        try:
+            alias_origin = get_origin(candidate[None])
+        except (AttributeError, TypeError):
+            continue
+        if alias_origin is not None and not any(alias_origin is known for known in origins):
+            origins.append(alias_origin)
+    return tuple(origins)
 
 
 def _get_type_hints(obj: Any, *, include_extras: bool = False) -> dict[str, Any]:
@@ -130,12 +154,7 @@ def _primitive_schema(tp: Any) -> dict[str, Any] | None:
 def _literal_schema(tp: Any) -> dict[str, Any] | None:
     """Return a schema for ``Literal[...]`` or ``None`` if *tp* is not one."""
     origin = get_origin(tp)
-    is_literal = (
-        (_LITERAL_TYPE is not None and origin is _LITERAL_TYPE)
-        or getattr(origin, "_name", None) == "Literal"
-        or getattr(origin, "__name__", None) == "Literal"
-    )
-    if is_literal:
+    if any(origin is literal_origin for literal_origin in _literal_origins()):
         values = list(get_args(tp))
         types_seen = {type(v) for v in values}
         # If all values share a single primitive type, pin it — this helps

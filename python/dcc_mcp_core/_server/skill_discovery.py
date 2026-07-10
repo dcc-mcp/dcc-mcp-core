@@ -14,8 +14,10 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dcc_mcp_core._runtime.skill_paths import skill_env_slug
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
+from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.skill import get_bundled_skill_paths
 from dcc_mcp_core.skills.builtin import register_all_builtin_skills
@@ -31,7 +33,7 @@ except ImportError:
         return [part for part in (piece.strip() for piece in raw.split(os.pathsep)) if part]
 
     def get_app_skill_paths_from_env(dcc_name: str) -> list[str]:
-        env_name = f"DCC_MCP_{dcc_name.upper()}_SKILL_PATHS"
+        env_name = f"DCC_MCP_{skill_env_slug(dcc_name)}_SKILL_PATHS"
         return _split_skill_paths(os.environ.get(env_name, ""))
 
     def get_local_skills_dir(dcc_name: str) -> str:
@@ -48,11 +50,10 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
-_ENV_DISABLE_DEFAULT_SKILL_PATHS = "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"
 
 
 def _default_skill_paths_disabled() -> bool:
-    value = os.environ.get(_ENV_DISABLE_DEFAULT_SKILL_PATHS, "")
+    value = os.environ.get(ENV_DISABLE_DEFAULT_SKILL_PATHS, "")
     return value == "1" or value.lower() == "true"
 
 

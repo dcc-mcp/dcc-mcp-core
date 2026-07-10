@@ -179,7 +179,7 @@ class TestSidecarSkillServerCoverage:
         handle.shutdown()
         shutdown.assert_called_once()
 
-    def test_discover_merges_into_existing_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_discover_keeps_host_env_isolated(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         existing = str(tmp_path / "existing")
         extra = str(tmp_path / "extra")
         monkeypatch.setenv("DCC_MCP_SKILL_PATHS", existing)
@@ -188,10 +188,9 @@ class TestSidecarSkillServerCoverage:
             PureMcpHttpConfig(),
             host_rpc="commandport://127.0.0.1:6000",
         )
-        assert server.discover(extra_paths=[extra]) == 1
-        merged = os.environ["DCC_MCP_SKILL_PATHS"]
-        assert existing in merged
-        assert extra in merged
+        assert server.discover(extra_paths=[extra]) == 0
+        assert os.environ["DCC_MCP_SKILL_PATHS"] == existing
+        assert server._launch_environment()["DCC_MCP_SKILL_PATHS"].split(os.pathsep) == [extra, existing]
 
     def test_discover_empty_paths_is_noop(self) -> None:
         server = SidecarBackedSkillServer(
@@ -264,7 +263,7 @@ class TestSidecarSkillServerCoverage:
         handle = server.start()
         handle.shutdown()
 
-    def test_skill_query_client_stubs_are_safe(self) -> None:
+    def test_skill_activation_fails_in_dispatch_only_mode(self) -> None:
         server = SidecarBackedSkillServer(
             "maya",
             PureMcpHttpConfig(),
@@ -272,10 +271,13 @@ class TestSidecarSkillServerCoverage:
         )
         assert server.list_skills() == []
         assert server.search_skills(query="x") == []
-        server.load_skill("demo")
+        with pytest.raises(RuntimeError, match="dispatch-only"):
+            server.load_skill("demo")
         assert server.get_skill("demo") is None
-        server.load_skill_object(object())
-        server.unload_skill("demo")
+        with pytest.raises(RuntimeError, match="dispatch-only"):
+            server.load_skill_object(object())
+        with pytest.raises(RuntimeError, match="dispatch-only"):
+            server.unload_skill("demo")
         assert server.is_loaded("demo") is False
         assert server.get_skill_info("demo") is None
         server.set_in_process_executor(object())
