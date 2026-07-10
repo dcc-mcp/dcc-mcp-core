@@ -10,6 +10,7 @@ description = "Shared gateway ensure primitives: health check, launch lock, spaw
 
 [dependencies]
 anyhow.workspace = true
+libc.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
