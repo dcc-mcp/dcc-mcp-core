@@ -308,7 +308,7 @@ class TestResourcesReadBlobRoundTrip:
         _server_a, handle_a = _make_backend("maya", registry_dir, gw_port)
         time.sleep(0.3)
         _server_b, handle_b = _make_backend("blender", registry_dir, gw_port)
-        time.sleep(2.2)
+        _wait_for_forwarded_backend_resources(f"http://127.0.0.1:{gw_port}/mcp")
 
         if not handle_a.is_gateway:
             handle_b.shutdown()
