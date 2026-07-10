@@ -629,7 +629,8 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
             return Ok(());
         }
         // Use libc::kill() directly instead of shelling out to /bin/kill.
-        // SAFETY: libc::kill is a thin wrapper over the POSIX kill(2) syscall.
+        // This lets us distinguish "no such process" (ESRCH) from real errors.
+        // SAFETY: kill(2) is async-signal-safe; passing a known PID is safe.
         let ret = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         if ret != 0 {
             let err = std::io::Error::last_os_error();
