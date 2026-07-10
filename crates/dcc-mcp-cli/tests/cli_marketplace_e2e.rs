@@ -327,7 +327,7 @@ fn marketplace_install_list_and_uninstall_path_package() {
 }
 
 #[test]
-fn marketplace_install_rejects_incompatible_core_version() {
+fn marketplace_install_rejects_incompatible_or_unavailable_entries() {
     let tmp = TempDir::new().unwrap();
     let skill_dir = write_skill(
         tmp.path(),
@@ -381,6 +381,37 @@ fn marketplace_install_rejects_incompatible_core_version() {
         &envs,
     );
     assert!(stderr.contains("requires dcc-mcp-core >= 999.0.0"));
+    assert!(!std::path::Path::new(&install_root).exists());
+
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&json!({
+            "version": "1",
+            "entries": [{
+                "name": "incompatible-skill",
+                "description": "Unavailable skill",
+                "dcc": ["maya"],
+                "tags": ["test"],
+                "policy": {"installation": "not_available"},
+                "install": {"type": "path", "url": skill_dir.to_string_lossy()}
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "incompatible-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("is not available for installation"));
     assert!(!std::path::Path::new(&install_root).exists());
 }
 
