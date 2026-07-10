@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_catalog::{self, CatalogEntry, CatalogInstall};
+use semver::Version;
 use sha2::{Digest, Sha256};
 
 use crate::add_repo::collect_skill_dirs;
@@ -234,6 +235,7 @@ impl MarketplaceService {
         let hit = self
             .resolve_install_hit(&name, dcc.as_deref(), explicit_sources, skip_validation)
             .await?;
+        ensure_core_version_compatible(&hit.entry)?;
         let dcc = resolve_install_dcc(&hit.entry, dcc.as_deref())?;
         let install = hit
             .entry
@@ -712,6 +714,28 @@ impl MarketplaceService {
         pkg: &OutdatedMarketplacePackage,
         dest: &Path,
     ) -> Result<MarketplaceUpdateResult, MarketplaceError> {
+        let latest_entry = self
+            .find_latest_entry_for_package(
+                &self.list_sources()?,
+                &InstalledMarketplacePackage {
+                    name: pkg.name.clone(),
+                    dcc: pkg.dcc.clone(),
+                    version: pkg.installed_version.clone(),
+                    path: pkg.path.clone(),
+                    source_name: pkg.source_name.clone(),
+                    source_url: pkg.source_url.clone(),
+                    install_type: pkg.install_type.clone(),
+                    install_url: pkg.install_url.clone(),
+                    install_ref: pkg.install_ref.clone(),
+                    resolved_commit: pkg.installed_commit.clone(),
+                    installed_at_ms: 0,
+                },
+            )
+            .await?;
+        if let Some(entry) = latest_entry.as_ref() {
+            ensure_core_version_compatible(entry)?;
+        }
+
         let git_dir = dest.join(".git");
         let install_url_changed = pkg.install_url.as_deref().is_some_and(|url| {
             git_remote_url(dest)
@@ -751,26 +775,7 @@ impl MarketplaceService {
             });
         }
 
-        let sources = self.list_sources()?;
-        let new_version = self
-            .find_latest_entry_for_package(
-                &sources,
-                &InstalledMarketplacePackage {
-                    name: pkg.name.clone(),
-                    dcc: pkg.dcc.clone(),
-                    version: pkg.installed_version.clone(),
-                    path: pkg.path.clone(),
-                    source_name: pkg.source_name.clone(),
-                    source_url: pkg.source_url.clone(),
-                    install_type: pkg.install_type.clone(),
-                    install_url: pkg.install_url.clone(),
-                    install_ref: pkg.install_ref.clone(),
-                    resolved_commit: pkg.installed_commit.clone(),
-                    installed_at_ms: 0,
-                },
-            )
-            .await?
-            .and_then(|entry| entry.version);
+        let new_version = latest_entry.and_then(|entry| entry.version);
 
         Ok(MarketplaceUpdateResult {
             updated: true,
@@ -1001,6 +1006,28 @@ fn resolve_install_dcc(
             name: entry.name.clone(),
         }),
     }
+}
+
+fn ensure_core_version_compatible(entry: &CatalogEntry) -> Result<(), MarketplaceError> {
+    let Some(required) = entry.min_core_version.as_deref() else {
+        return Ok(());
+    };
+    let required_version =
+        Version::parse(required).map_err(|_| MarketplaceError::InvalidMinCoreVersion {
+            name: entry.name.clone(),
+            required: required.to_string(),
+        })?;
+    let current = env!("CARGO_PKG_VERSION");
+    let current_version =
+        Version::parse(current).expect("workspace package version must be SemVer");
+    if current_version < required_version {
+        return Err(MarketplaceError::IncompatibleCoreVersion {
+            name: entry.name.clone(),
+            required: required.to_string(),
+            current: current.to_string(),
+        });
+    }
+    Ok(())
 }
 
 // ── install backends ─────────────────────────────────────────────────────────

@@ -1511,6 +1511,7 @@ dependencies = [
  "dcc-mcp-catalog",
  "dcc-mcp-test-utils",
  "reqwest 0.13.4",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml_ng",

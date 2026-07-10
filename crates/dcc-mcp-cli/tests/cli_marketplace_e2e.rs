@@ -327,6 +327,64 @@ fn marketplace_install_list_and_uninstall_path_package() {
 }
 
 #[test]
+fn marketplace_install_rejects_incompatible_core_version() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: incompatible-skill\ndescription: Incompatible\n---\n",
+    );
+    let catalog_path = tmp.path().join("marketplace.json");
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&json!({
+            "version": "1",
+            "entries": [{
+                "name": "incompatible-skill",
+                "description": "Requires a newer core",
+                "dcc": ["maya"],
+                "tags": ["test"],
+                "min_core_version": "999.0.0",
+                "install": {"type": "path", "url": skill_dir.to_string_lossy()}
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "incompatible-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("requires dcc-mcp-core >= 999.0.0"));
+    assert!(!std::path::Path::new(&install_root).exists());
+}
+
+#[test]
 fn marketplace_install_git_package_promotes_single_nested_skill_dir() {
     let tmp = TempDir::new().unwrap();
     let repo = tmp.path().join("nested-git-skill-repo");
