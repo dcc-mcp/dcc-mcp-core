@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.22](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.21...v0.19.22) (2026-07-10)
+
+
+### Features
+
+* enforce marketplace core version requirements ([a11a28f](https://github.com/dcc-mcp/dcc-mcp-core/commit/a11a28f185d02eb2464341229a469a9a6c864681))
+* harden marketplace catalog contracts ([ab64433](https://github.com/dcc-mcp/dcc-mcp-core/commit/ab64433223c34935a231c96bc765d2bc05bbc8b1))
+* install declared marketplace skill roots ([dd5ef77](https://github.com/dcc-mcp/dcc-mcp-core/commit/dd5ef777b5f252d30fbb5cb96bac5e0737c72864))
+
+
+### Bug Fixes
+
+* add marketplace/service.rs to file-size-exemptions ([#1858](https://github.com/dcc-mcp/dcc-mcp-core/issues/1858)) ([917aaa7](https://github.com/dcc-mcp/dcc-mcp-core/commit/917aaa71ad893bd6310c2b1683ea0da801ef304a))
+* add missing service_internals.rs file ([bb84949](https://github.com/dcc-mcp/dcc-mcp-core/commit/bb849495b65fa82e695ff2aac940c3718b9d1bae))
+* enforce marketplace install availability ([#1860](https://github.com/dcc-mcp/dcc-mcp-core/issues/1860)) ([b3780a7](https://github.com/dcc-mcp/dcc-mcp-core/commit/b3780a77bb1bc3686f500ce9e7a49a8a0a368e81))
+
+
+### Code Refactoring
+
+* split service.rs free functions into service_internals.rs ([b925129](https://github.com/dcc-mcp/dcc-mcp-core/commit/b925129b8915dacef402a3c6c016476bdfdde2c1))
+
 ## [0.19.21](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.20...v0.19.21) (2026-07-10)
 
 
