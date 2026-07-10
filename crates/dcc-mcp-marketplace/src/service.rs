@@ -233,7 +233,7 @@ impl MarketplaceService {
         let hit = self
             .resolve_install_hit(&name, dcc.as_deref(), explicit_sources, skip_validation)
             .await?;
-        ensure_core_version_compatible(&hit.entry)?;
+        ensure_entry_installable(&hit.entry)?;
         let dcc = resolve_install_dcc(&hit.entry, dcc.as_deref())?;
         let install = hit
             .entry
@@ -731,7 +731,7 @@ impl MarketplaceService {
             )
             .await?;
         if let Some(entry) = latest_entry.as_ref() {
-            ensure_core_version_compatible(entry)?;
+            ensure_entry_installable(entry)?;
         }
 
         let git_dir = dest.join(".git");

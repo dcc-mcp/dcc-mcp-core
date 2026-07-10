@@ -31,6 +31,9 @@ pub enum MarketplaceError {
     #[error("marketplace entry '{0}' does not declare install metadata")]
     MissingInstall(String),
 
+    #[error("marketplace entry '{0}' is not available for installation")]
+    NotAvailable(String),
+
     #[error("marketplace entry '{name}' has an invalid minCoreVersion '{required}'")]
     InvalidMinCoreVersion { name: String, required: String },
 

@@ -181,7 +181,14 @@ pub fn resolve_install_dcc(
     }
 }
 
-pub fn ensure_core_version_compatible(entry: &CatalogEntry) -> Result<(), MarketplaceError> {
+pub fn ensure_entry_installable(entry: &CatalogEntry) -> Result<(), MarketplaceError> {
+    if entry
+        .policy
+        .as_ref()
+        .is_some_and(|policy| policy.installation == "not_available")
+    {
+        return Err(MarketplaceError::NotAvailable(entry.name.clone()));
+    }
     let Some(required) = entry.min_core_version.as_deref() else {
         return Ok(());
     };

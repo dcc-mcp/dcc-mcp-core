@@ -97,16 +97,41 @@ fn core_version_gate_rejects_too_new_or_invalid_requirements() {
     };
 
     assert!(matches!(
-        ensure_core_version_compatible(&entry),
+        ensure_entry_installable(&entry),
         Err(MarketplaceError::IncompatibleCoreVersion { .. })
     ));
     entry.min_core_version = Some("not-semver".into());
     assert!(matches!(
-        ensure_core_version_compatible(&entry),
+        ensure_entry_installable(&entry),
         Err(MarketplaceError::InvalidMinCoreVersion { .. })
     ));
     entry.min_core_version = Some("0.19.0".into());
-    assert!(ensure_core_version_compatible(&entry).is_ok());
+    assert!(ensure_entry_installable(&entry).is_ok());
     entry.min_core_version = None;
-    assert!(ensure_core_version_compatible(&entry).is_ok());
+    assert!(ensure_entry_installable(&entry).is_ok());
+}
+
+#[test]
+fn install_policy_rejects_unavailable_entries() {
+    let entry = CatalogEntry {
+        name: "retired-skill".into(),
+        description: "desc".into(),
+        dcc: vec!["maya".into()],
+        url: None,
+        tags: vec![],
+        version: None,
+        min_core_version: None,
+        install: None,
+        maintainer: None,
+        category: None,
+        policy: Some(dcc_mcp_catalog::CatalogPolicy {
+            installation: "not_available".into(),
+        }),
+        requires: None,
+        icon: None,
+    };
+    assert!(matches!(
+        ensure_entry_installable(&entry),
+        Err(MarketplaceError::NotAvailable(name)) if name == "retired-skill"
+    ));
 }
