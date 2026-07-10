@@ -13,10 +13,9 @@ use crate::source::{builtin_source, dedupe_sources, normalise_source};
 use crate::types::{
     InstalledMarketplacePackage, MarketplaceHit, MarketplaceInspectResult,
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
-    MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource,
-    MarketplaceSourceOrigin, MarketplaceUninstallResult, MarketplaceUpdateResult,
-    OutdatedMarketplacePackage, RepoInstallResult, RepoSkillList, StoredMarketplaceSource,
-    entry_targets_dcc,
+    MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceOrigin,
+    MarketplaceUninstallResult, MarketplaceUpdateResult, OutdatedMarketplacePackage,
+    RepoInstallResult, RepoSkillList, StoredMarketplaceSource, entry_targets_dcc,
 };
 
 #[path = "service_internals.rs"]
@@ -850,7 +849,6 @@ impl MarketplaceService {
         Ok(changed)
     }
 }
-
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
