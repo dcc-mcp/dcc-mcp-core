@@ -536,7 +536,7 @@ The workspace builds a single PyO3 native extension (`dcc_mcp_core._core`) via `
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.8"
+requires-python = ">=3.7"
 dependencies = [
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]  # Companion binary wheel for daemon-backed gateway startup

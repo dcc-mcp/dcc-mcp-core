@@ -12,9 +12,11 @@ from pathlib import Path
 import sys
 from typing import Any
 from typing import Dict
+from typing import Generic
 from typing import List
 from typing import Optional
 from typing import Tuple
+from typing import TypeVar
 from typing import Union
 import uuid
 
@@ -157,6 +159,23 @@ class TestUnionAndLiterals:
         result = derive_schema(Literal["on", 1, True])
         assert result["enum"] == ["on", 1, True]
         assert "type" not in result  # mixed types → no `type` pin
+
+    def test_typing_extensions_literal(self) -> None:
+        typing_extensions = pytest.importorskip("typing_extensions")
+
+        assert derive_schema(typing_extensions.Literal["fbx", "usd"]) == {
+            "enum": ["fbx", "usd"],
+            "type": "string",
+        }
+
+    def test_generic_named_literal_is_not_treated_as_typing_literal(self) -> None:
+        item_type = TypeVar("item_type")
+
+        class Literal(Generic[item_type]):
+            pass
+
+        with pytest.raises(TypeError, match="derive_schema: unsupported type"):
+            derive_schema(Literal[str])
 
     def test_string_enum(self) -> None:
         class Colour(enum.Enum):

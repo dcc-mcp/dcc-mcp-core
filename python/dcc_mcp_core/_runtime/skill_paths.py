@@ -8,6 +8,11 @@ from pathlib import Path
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 
 
+def skill_env_slug(dcc_name: str) -> str:
+    """Match the Rust env-key normalization for known and custom DCC names."""
+    return str(dcc_name or "").upper().replace("-", "_")
+
+
 def get_skill_paths_from_env() -> list[str]:
     if is_core_extension_available():
         from dcc_mcp_core._core import get_skill_paths_from_env as _impl
@@ -24,7 +29,7 @@ def get_app_skill_paths_from_env(dcc_name: str) -> list[str]:
         from dcc_mcp_core._core import get_app_skill_paths_from_env as _impl
 
         return list(_impl(dcc_name))
-    env_name = "DCC_MCP_{}_SKILL_PATHS".format(str(dcc_name or "").upper())
+    env_name = f"DCC_MCP_{skill_env_slug(dcc_name)}_SKILL_PATHS"
     raw = os.environ.get(env_name, "")
     if not raw.strip():
         return []

@@ -51,6 +51,22 @@ jobs:
           target: x86_64
           python-version: '3.11'
           artifact-name: wheels-linux-x86_64
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+      - name: Check wheel contract from workflow ref
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_python_wheel.py
+          --profile abi3
+          --platform linux-x86_64
+          dist/*.whl
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -76,6 +92,22 @@ jobs:
           # (justfile) produces the correct tag.  (PIP-2508)
           maturin-extra-args: ''
           artifact-name: wheels-windows-x64
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+      - name: Check wheel contract from workflow ref
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_python_wheel.py
+          --profile abi3
+          --platform windows-x86_64
+          dist/*.whl
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -104,14 +136,33 @@ jobs:
           python -m pip install --upgrade pip wheel
           python scripts/build_py37_pure_wheel.py
         shell: bash
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
       - name: Check py37-lite wheel contract
-        run: python scripts/ci/check_python_wheel.py --profile lite_py37 dist/*.whl
+        run: >-
+          python .workflow-tools/scripts/ci/check_python_wheel.py
+          --profile lite_py37
+          --platform any
+          dist/*.whl
         shell: bash
       - name: Test py37-lite wheel
         shell: bash
         run: |
           python -m pip install --force-reinstall --no-deps dist/*.whl
-          python scripts/ci/smoke_python37_runtime.py --profile lite_py37
+          if [[ -f compatibility/python.json ]]; then
+            python .workflow-tools/scripts/ci/smoke_python37_runtime.py --profile lite_py37
+          else
+            # Historical tags predate the public API contract exercised by the
+            # current smoke. Keep release backfills install/import compatible.
+            python -c "import dcc_mcp_core"
+          fi
       - name: Upload py37-lite wheel artifact
         uses: actions/upload-artifact@v7
         with:
@@ -144,6 +195,31 @@ jobs:
           python-version: '3.7'
           maturin-extra-args: '-i python3.7'
           artifact-name: wheels-linux-x86_64-py37
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+      - name: Check native Python 3.7 wheel contract
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_python_wheel.py
+          --profile native_py37
+          --platform linux-x86_64
+          dist/*.whl
+      - name: Test native Python 3.7 wheel with workflow smoke
+        shell: bash
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          if [[ -f compatibility/python.json ]]; then
+            python .workflow-tools/scripts/ci/smoke_python37_runtime.py --profile native_py37
+          else
+            python -c "import dcc_mcp_core"
+          fi
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -165,6 +241,31 @@ jobs:
           python-version: '3.7'
           maturin-extra-args: '-i python3.7'
           artifact-name: wheels-windows-x64-py37
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+      - name: Check native Python 3.7 wheel contract
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_python_wheel.py
+          --profile native_py37
+          --platform windows-x86_64
+          dist/*.whl
+      - name: Test native Python 3.7 wheel with workflow smoke
+        shell: bash
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          if [[ -f compatibility/python.json ]]; then
+            python .workflow-tools/scripts/ci/smoke_python37_runtime.py --profile native_py37
+          else
+            python -c "import dcc_mcp_core"
+          fi
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3
@@ -186,6 +287,22 @@ jobs:
           python-version: '3.11'
           maturin-extra-args: '--sdist --find-interpreter'
           artifact-name: wheels-macos-universal2
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+      - name: Check wheel contract from workflow ref
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_python_wheel.py
+          --profile abi3
+          --platform macos-universal2
+          dist/*.whl
       - name: Upload wheel to GitHub Release
         if: inputs.release-tag-name != ''
         uses: softprops/action-gh-release@v3

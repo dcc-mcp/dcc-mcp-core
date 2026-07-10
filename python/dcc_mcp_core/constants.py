@@ -12,6 +12,12 @@ whole codebase.
 
 from __future__ import annotations
 
+ENV_DISABLE_ACCUMULATED_SKILLS: str = "DCC_MCP_DISABLE_ACCUMULATED_SKILLS"
+ENV_DISABLE_DEFAULT_SKILL_PATHS: str = "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"
+ENV_SKILL_PATHS: str = "DCC_MCP_SKILL_PATHS"
+ENV_TEAM_SKILL_PATHS: str = "DCC_MCP_TEAM_SKILL_PATHS"
+ENV_USER_SKILL_PATHS: str = "DCC_MCP_USER_SKILL_PATHS"
+
 # ── SKILL.md metadata keys (per agentskills.io spec) ────────────────────────
 # All extension keys must live under ``metadata.dcc-mcp.<feature>``.
 METADATA_DCC_MCP: str = "dcc-mcp"
@@ -54,6 +60,11 @@ __all__ = [
     "CATEGORY_INTROSPECT",
     "CATEGORY_RECIPES",
     "CATEGORY_WORKFLOWS",
+    "ENV_DISABLE_ACCUMULATED_SKILLS",
+    "ENV_DISABLE_DEFAULT_SKILL_PATHS",
+    "ENV_SKILL_PATHS",
+    "ENV_TEAM_SKILL_PATHS",
+    "ENV_USER_SKILL_PATHS",
     "LAYER_DOMAIN",
     "LAYER_EXAMPLE",
     "LAYER_INFRASTRUCTURE",

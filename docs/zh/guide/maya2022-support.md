@@ -89,7 +89,7 @@ vx just check-python-support
 vx just check-py37-syntax
 vx just build-py37 -i $py37
 $wheel = Get-ChildItem dist/dcc_mcp_core-*-cp37-cp37m-*.whl | Select-Object -First 1
-& $py37 scripts/ci/check_python_wheel.py --profile native_py37 $wheel.FullName
+& $py37 scripts/ci/check_python_wheel.py --profile native_py37 --platform windows-x86_64 $wheel.FullName
 & $py37 -m pip install --force-reinstall --no-deps $wheel.FullName
 & $py37 scripts/ci/smoke_python37_runtime.py --profile native_py37
 ```
@@ -101,7 +101,7 @@ PYTHON37="${PYTHON37:-python3.7}"
 vx just check-python-support
 vx just check-py37-syntax
 vx just build-py37 -i "$PYTHON37"
-"$PYTHON37" scripts/ci/check_python_wheel.py --profile native_py37 \
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile native_py37 --platform linux-x86_64 \
   'dist/dcc_mcp_core-*-cp37-cp37m-*.whl'
 wheel=$(ls dist/dcc_mcp_core-*-cp37-cp37m-*.whl | head -1)
 "$PYTHON37" -m pip install --force-reinstall --no-deps "$wheel"
@@ -113,7 +113,7 @@ lite 档位继续使用同一个完整解释器。PowerShell：
 ```powershell
 & $py37 scripts/build_py37_pure_wheel.py
 $wheel = Get-ChildItem dist/dcc_mcp_core-*-py3-none-any.whl | Select-Object -First 1
-& $py37 scripts/ci/check_python_wheel.py --profile lite_py37 $wheel.FullName
+& $py37 scripts/ci/check_python_wheel.py --profile lite_py37 --platform any $wheel.FullName
 & $py37 -m pip install --force-reinstall --no-deps $wheel.FullName
 & $py37 scripts/ci/smoke_python37_runtime.py --profile lite_py37
 ```
@@ -122,7 +122,7 @@ Bash：
 
 ```bash
 "$PYTHON37" scripts/build_py37_pure_wheel.py
-"$PYTHON37" scripts/ci/check_python_wheel.py --profile lite_py37 \
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile lite_py37 --platform any \
   'dist/dcc_mcp_core-*-py3-none-any.whl'
 wheel=$(ls dist/dcc_mcp_core-*-py3-none-any.whl | head -1)
 "$PYTHON37" -m pip install --force-reinstall --no-deps "$wheel"

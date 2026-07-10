@@ -495,6 +495,46 @@ jobs:
             -i python3.7 \
             --out wheels
 
+      # Backfills intentionally build the tagged source, but compatibility
+      # policy belongs to the workflow revision being executed. Fetch only
+      # the current validator and contract so old tags do not need to contain
+      # scripts introduced by a later workflow.
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+
+      - name: Validate semantic wheel contract
+        shell: bash
+        run: |
+          profile="semantic_abi3"
+          case "${{ matrix.target }}" in
+            linux-abi3) platform="linux-x86_64" ;;
+            windows-abi3) platform="windows-x86_64" ;;
+            macos-abi3) platform="macos-native" ;;
+            linux-py37)
+              profile="semantic_native_py37"
+              platform="linux-x86_64"
+              ;;
+            windows-py37)
+              profile="semantic_native_py37"
+              platform="windows-x86_64"
+              ;;
+            *)
+              echo "::error::Unknown semantic wheel target: ${{ matrix.target }}"
+              exit 1
+              ;;
+          esac
+          python .workflow-tools/scripts/ci/check_python_wheel.py \
+            --profile "$profile" \
+            --platform "$platform" \
+            pkg/dcc-mcp-core-semantic/wheels/*.whl
+
       - name: Upload semantic wheel artefact
         uses: actions/upload-artifact@v4
         with:

@@ -18,8 +18,208 @@ equivalent elsewhere in the tree.
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 from typing import Sequence
+
+_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_SPEC_TOP_LEVEL_KEYS = {
+    "allowed-tools",
+    "allowed_tools",
+    "compatibility",
+    "description",
+    "license",
+    "metadata",
+    "name",
+}
+_DCC_METADATA_KEYS = {
+    "allow-implicit-invocation",
+    "allow_implicit_invocation",
+    "dcc",
+    "depends",
+    "layer",
+    "prompts",
+    "search-hint",
+    "search_hint",
+    "stage",
+    "tags",
+    "tools",
+    "version",
+}
+
+
+def _parse_skill_fields(skill_dir: str | Path) -> dict[str, Any] | None:
+    """Return canonical import-light metadata from one ``SKILL.md``.
+
+    This is the single parser used by both the public py37-lite
+    ``parse_skill_md`` fallback and the metadata-only sidecar catalog. It
+    intentionally supports only the scalar/list fields needed for discovery;
+    native skill activation still requires the Rust extension.
+    """
+    raw_path = Path(skill_dir)
+    if raw_path.is_file():
+        skill_md_path = raw_path
+        skill_dir_path = raw_path.parent
+    elif raw_path.is_dir():
+        skill_md_path = raw_path / "SKILL.md"
+        skill_dir_path = raw_path
+    else:
+        raise FileNotFoundError(f"parse_skill_md: path does not exist: {skill_dir}")
+
+    if not skill_md_path.is_file():
+        return None
+    try:
+        frontmatter = _frontmatter_lines(skill_md_path.read_text(encoding="utf-8"))
+        if frontmatter is None:
+            return None
+        fields = _frontmatter_fields(frontmatter)
+    except (OSError, ValueError):
+        return None
+
+    name = fields.get("name", "")
+    description = fields.get("description", "")
+    if not _SKILL_NAME.fullmatch(name) or not description:
+        return None
+
+    implicit_invocation = _bool_value(
+        fields.get("allow-implicit-invocation", fields.get("allow_implicit_invocation", "")),
+        default=True,
+    )
+    return {
+        "name": name,
+        "description": description,
+        "dcc": fields.get("dcc") or "python",
+        "version": fields.get("version") or "1.0.0",
+        "tags": _list_value(fields.get("tags", "")),
+        "depends": _list_value(fields.get("depends", "")),
+        "tools": _list_value(fields.get("tools", "")),
+        "prompts": _list_value(fields.get("prompts", "")),
+        "search_hint": fields.get("search-hint", fields.get("search_hint", "")),
+        "layer": fields.get("layer") or None,
+        "stage": fields.get("stage") or None,
+        "implicit_invocation": implicit_invocation,
+        "path": str(skill_dir_path),
+    }
+
+
+def _frontmatter_lines(text: str) -> list[str] | None:
+    lines = text.splitlines()
+    if not lines or lines[0].rstrip() != "---":
+        return None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.rstrip() == "---":
+            return lines[1:index]
+    return None
+
+
+def _frontmatter_fields(lines: list[str]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    parents: list[tuple[int, str]] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            index += 1
+            continue
+        if ":" not in stripped:
+            if line[0].isspace():
+                index += 1
+                continue
+            raise ValueError("invalid SKILL.md frontmatter entry")
+        indent = len(line) - len(line.lstrip())
+        while parents and indent <= parents[-1][0]:
+            parents.pop()
+        key, _, raw_value = stripped.partition(":")
+        key = key.strip()
+        raw_value = raw_value.strip()
+        top_level = indent == 0
+        if top_level and key not in _SPEC_TOP_LEVEL_KEYS:
+            raise ValueError(f"non-spec top-level SKILL.md key: {key}")
+        in_dcc_metadata = [parent[1] for parent in parents[-2:]] == ["metadata", "dcc-mcp"]
+        if key == "description" and raw_value in (">", ">-", ">+", "|", "|-", "|+"):
+            value, index = _multiline_value(lines, index, literal=raw_value.startswith("|"))
+        else:
+            value = _scalar_value(raw_value)
+            index += 1
+        if key in {"name", "description"} and not top_level:
+            continue
+        public_key = key in {"name", "description"} and top_level
+        metadata_key = key in _DCC_METADATA_KEYS and in_dcc_metadata
+        if value is not None and (public_key or metadata_key):
+            fields[key] = value
+        if not raw_value:
+            parents.append((indent, key))
+    return fields
+
+
+def _multiline_value(lines: list[str], start: int, *, literal: bool) -> tuple[str, int]:
+    values: list[str] = []
+    index = start + 1
+    while index < len(lines):
+        line = lines[index]
+        if line and not line[0].isspace():
+            break
+        if line.strip():
+            values.append(line.strip())
+        index += 1
+    separator = "\n" if literal else " "
+    return separator.join(values).strip(), index
+
+
+def _scalar_value(raw_value: str) -> str | None:
+    value = _strip_inline_comment(raw_value).strip()
+    if not value:
+        return ""
+    if value[0] in ("'", '"'):
+        if len(value) < 2 or value[-1] != value[0]:
+            return None
+        return value[1:-1].strip()
+    if value.startswith("["):
+        return value if value.endswith("]") else None
+    if value.startswith(("{", "|", ">", "*", "&", "!")):
+        return None
+    return value
+
+
+def _strip_inline_comment(value: str) -> str:
+    quote = ""
+    escaped = False
+    for index, character in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote:
+            escaped = True
+            continue
+        if quote:
+            if character == quote:
+                quote = ""
+            continue
+        if character in ("'", '"'):
+            quote = character
+        elif character == "#" and (index == 0 or value[index - 1].isspace()):
+            return value[:index].rstrip()
+    return value
+
+
+def _list_value(value: str) -> list[str]:
+    text = value.strip()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    if not text:
+        return []
+    return [part.strip().strip("'\"") for part in text.split(",") if part.strip().strip("'\"")]
+
+
+def _bool_value(value: str, *, default: bool) -> bool:
+    normalized = value.strip().casefold()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return default
+
 
 # ── Probe whether _core is available ─────────────────────────────────
 
@@ -76,50 +276,6 @@ if _probe_core():
 else:
     # ── Pure-Python fallbacks (only when _core is absent) ────────────
 
-    def _parse_yaml_frontmatter(text: str) -> dict[str, Any]:
-        """Parse agentskills.io YAML frontmatter from SKILL.md content.
-
-        Returns an empty dict when there is no frontmatter or the YAML is
-        unparseable.
-        """
-        lines = text.splitlines()
-        if not lines or lines[0].strip() != "---":
-            return {}
-
-        end_idx: int | None = None
-        for i in range(1, len(lines)):
-            if lines[i].strip() == "---":
-                end_idx = i
-                break
-
-        if end_idx is None:
-            return {}
-
-        yaml_lines = lines[1:end_idx]
-        result: dict[str, Any] = {}
-        for line in yaml_lines:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if ":" in stripped:
-                key, _, value = stripped.partition(":")
-                key = key.strip()
-                value = value.strip().strip("'").strip('"')
-                result[key] = value
-
-        return result
-
-    def _parse_yaml_list(value: Any) -> list[str]:
-        """Parse a YAML list value from frontmatter into a list of strings."""
-        if isinstance(value, list):
-            return [str(v).strip() for v in value]
-        if isinstance(value, str):
-            text = value.strip().strip("[]")
-            if not text:
-                return []
-            return [v.strip().strip("'").strip('"') for v in text.split(",")]
-        return []
-
     class _SkillMetadataFallback:
         """Pure-Python fallback for ``SkillMetadata``.
 
@@ -132,9 +288,14 @@ else:
             "dcc",
             "depends",
             "description",
+            "implicit_invocation",
+            "layer",
             "name",
             "path",
             "prompts",
+            "search_hint",
+            "skill_path",
+            "stage",
             "tags",
             "tools",
             "version",
@@ -144,13 +305,17 @@ else:
             self,
             name: str,
             description: str = "",
-            dcc: str = "",
-            version: str = "0.1.0",
+            dcc: str = "python",
+            version: str = "1.0.0",
             tags: list[str] | None = None,
             depends: list[str] | None = None,
             tools: list[str] | None = None,
             prompts: list[str] | None = None,
             path: str = "",
+            search_hint: str = "",
+            layer: str | None = None,
+            stage: str | None = None,
+            implicit_invocation: bool = True,
         ) -> None:
             self.name = name
             self.description = description
@@ -161,6 +326,11 @@ else:
             self.tools = tools or []
             self.prompts = prompts or []
             self.path = path
+            self.skill_path = path
+            self.search_hint = search_hint
+            self.layer = layer
+            self.stage = stage
+            self.implicit_invocation = implicit_invocation
 
         def __repr__(self) -> str:
             return f"SkillMetadata(name={self.name!r}, dcc={self.dcc!r})"
@@ -184,20 +354,8 @@ else:
         if not skill_md_path.is_file():
             return None
 
-        raw = skill_md_path.read_text(encoding="utf-8")
-        frontmatter = _parse_yaml_frontmatter(raw)
-
-        return _SkillMetadataFallback(
-            name=frontmatter.get("name", skill_dir_path.name),
-            description=frontmatter.get("description", ""),
-            dcc=frontmatter.get("dcc", ""),
-            version=frontmatter.get("version", "0.1.0"),
-            tags=_parse_yaml_list(frontmatter.get("tags", "")),
-            depends=_parse_yaml_list(frontmatter.get("depends", "")),
-            tools=_parse_yaml_list(frontmatter.get("tools", "")),
-            prompts=_parse_yaml_list(frontmatter.get("prompts", "")),
-            path=str(skill_dir_path),
-        )
+        fields = _parse_skill_fields(skill_dir_path)
+        return _SkillMetadataFallback(**fields) if fields is not None else None
 
     class DccCapabilities:
         """Pure-Python fallback for the Rust ``DccCapabilities``.
@@ -388,8 +546,6 @@ else:
                 continue
             if meta is None:
                 skipped.append(dir_str)
-                continue
-            if dcc_name and meta.dcc and meta.dcc != dcc_name:
                 continue
             skills.append(meta)
 

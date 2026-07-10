@@ -18,8 +18,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-wheel:
+    name: Build reusable wheel (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: python-matrix-wheel-linux
+            maturin_args: "--find-interpreter"
+          - os: windows-2022
+            artifact: python-matrix-wheel-windows
+            # --find-interpreter can override abi3-py38 with a concrete
+            # interpreter and silently produce a non-ABI3 Windows wheel.
+            maturin_args: ""
+          - os: macos-latest
+            artifact: python-matrix-wheel-macos
+            maturin_args: "--find-interpreter"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build ABI3 wheel once per platform
+        uses: ./.github/actions/build-wheel
+        with:
+          python-version: "3.11"
+          generate-stubs: "false"
+          test-wheel: "false"
+          artifact-name: ${{ matrix.artifact }}
+          maturin-extra-args: ${{ matrix.maturin_args }}
+
   python-test-full:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+    needs: build-wheel
     strategy:
       fail-fast: false
       matrix:
@@ -34,27 +64,25 @@ jobs:
           - os: windows-2022
             python-version: "3.8"
     runs-on: ${{ matrix.os }}
+    env:
+      MCP_LOG_LEVEL: warn
+      # Avoid Python 3.13+'s interactive REPL on headless Windows runners.
+      PYTHON_BASIC_REPL: "1"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: loonghao/vx@v0.9.11
+      - name: Download reusable ABI3 wheel
+        uses: actions/download-artifact@v8
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install maturin
-        run: pip install "maturin>=1.5,<2.0"
-        shell: bash
-      - name: Build wheel
-        run: vx just build
-        shell: bash
+          name: ${{ startsWith(matrix.os, 'windows') && 'python-matrix-wheel-windows' || matrix.os == 'macos-latest' && 'python-matrix-wheel-macos' || 'python-matrix-wheel-linux' }}
+          path: dist
       - name: Install wheel + test deps
         run: |
           pip install dist/*.whl
           pip install pytest pytest-xdist
         shell: bash
       - name: Test (file-level process isolation)
-        run: vx just test-suite
+        run: python -m pytest tests/ -q --tb=short --show-capture=no -n 4 --dist loadfile
         shell: bash

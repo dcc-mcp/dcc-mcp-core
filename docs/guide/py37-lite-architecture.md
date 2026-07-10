@@ -43,6 +43,14 @@ entry points select pure-Python or sidecar-backed implementations when `_core`
 is absent. It is a portability fallback, not a replacement for the native
 profile.
 
+The lite factory provides local metadata discovery through `list_skills()`,
+`search_skills()`, and `get_skill()` so explicit and environment-provided
+`SKILL.md` paths remain observable. The Rust sidecar is dispatch-only: it does
+not host a `SkillCatalog`, advertise those skills to the gateway, or activate
+declarative skill packages. Calls to `load_skill()`/`unload_skill()` therefore
+fail explicitly instead of reporting false success. Use a native Python 3.7
+wheel when gateway discovery or declarative skill activation is required.
+
 ### `abi3`
 
 The modern profile enables `abi3-py38`. One wheel per platform serves all
@@ -141,12 +149,12 @@ vx just check-py37-syntax
 # Native wheel
 PYTHON37="${PYTHON37:-python3.7}"
 vx just build-py37 -i "$PYTHON37"
-"$PYTHON37" scripts/ci/check_python_wheel.py --profile native_py37 \
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile native_py37 --platform linux-x86_64 \
   'dist/dcc_mcp_core-*-cp37-cp37m-*.whl'
 
 # Lite wheel
 "$PYTHON37" scripts/build_py37_pure_wheel.py
-"$PYTHON37" scripts/ci/check_python_wheel.py --profile lite_py37 \
+"$PYTHON37" scripts/ci/check_python_wheel.py --profile lite_py37 --platform any \
   'dist/dcc_mcp_core-*-py3-none-any.whl'
 ```
 

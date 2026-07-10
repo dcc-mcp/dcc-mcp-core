@@ -87,24 +87,33 @@ def test_server_and_skill_helpers_fallback_without_core(monkeypatch, tmp_path) -
     assert server_base._PKG_VERSION == "0.0.0-dev"
 
 
-def test_parse_skill_md_fallback(monkeypatch, tmp_path) -> None:
-    """parse_skill_md works without _core (py37-lite)."""
+@pytest.mark.parametrize("allowed_tools_key", ["allowed-tools", "allowed_tools"])
+def test_parse_skill_md_fallback(monkeypatch, tmp_path, allowed_tools_key: str) -> None:
+    """The public parser and lite catalog share canonical metadata semantics."""
     modules = _import_without_core(
         monkeypatch,
         "dcc_mcp_core._py37_fallback",
+        "dcc_mcp_core._runtime.pure_skill_catalog",
     )
     fallback = modules["dcc_mcp_core._py37_fallback"]
+    catalog_module = modules["dcc_mcp_core._runtime.pure_skill_catalog"]
 
-    # Create a minimal SKILL.md
     skill_dir = tmp_path / "test-skill"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
         "---\n"
         "name: test-skill\n"
-        "description: A test skill\n"
-        "dcc: maya\n"
-        "version: '1.0.0'\n"
-        "tags: [modeling, test]\n"
+        "description: >-\n"
+        "  A test skill with #quoted content\n"
+        "  for shared discovery.\n"
+        f"{allowed_tools_key}: [Read]\n"
+        "metadata:\n"
+        "  dcc-mcp:\n"
+        "    dcc: maya\n"
+        '    version: "1.0.0"  # release version\n'
+        "    tags: [modeling, test]\n"
+        "    depends: [base-skill]\n"
+        "    allow-implicit-invocation: false\n"
         "---\n"
         "# Test Skill\n"
         "This is a test skill body.\n",
@@ -114,10 +123,18 @@ def test_parse_skill_md_fallback(monkeypatch, tmp_path) -> None:
     meta = fallback.parse_skill_md(str(skill_dir))
     assert meta is not None
     assert meta.name == "test-skill"
-    assert meta.description == "A test skill"
+    assert meta.description == "A test skill with #quoted content for shared discovery."
     assert meta.dcc == "maya"
     assert meta.version == "1.0.0"
-    assert "modeling" in meta.tags
+    assert meta.tags == ["modeling", "test"]
+    assert meta.depends == ["base-skill"]
+    assert meta.implicit_invocation is False
+
+    catalog = catalog_module.PurePythonSkillCatalog("maya")
+    assert catalog.discover([(str(skill_dir), "repo")]) == 1
+    summary = catalog.get_skill("test-skill")
+    for field in ("name", "description", "dcc", "version", "tags", "depends", "implicit_invocation"):
+        assert getattr(summary, field) == getattr(meta, field)
 
     # Non-existent path raises FileNotFoundError
     try:
@@ -136,6 +153,98 @@ def test_parse_skill_md_fallback(monkeypatch, tmp_path) -> None:
     result = fallback.parse_skill_md(str(skill_dir / "SKILL.md"))
     assert result is not None
     assert result.name == "test-skill"
+
+
+def test_shared_lite_parser_rejects_legacy_top_level_extensions(monkeypatch, tmp_path) -> None:
+    modules = _import_without_core(
+        monkeypatch,
+        "dcc_mcp_core._py37_fallback",
+        "dcc_mcp_core._runtime.pure_skill_catalog",
+    )
+    fallback = modules["dcc_mcp_core._py37_fallback"]
+    catalog_module = modules["dcc_mcp_core._runtime.pure_skill_catalog"]
+    skill_dir = tmp_path / "legacy-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: legacy-skill\ndescription: Legacy metadata\ndcc: maya\n---\n",
+        encoding="utf-8",
+    )
+
+    assert fallback.parse_skill_md(str(skill_dir)) is None
+    catalog = catalog_module.PurePythonSkillCatalog("maya")
+    assert catalog.discover([(str(skill_dir), "repo")]) == 0
+
+    missing_description = tmp_path / "missing-description"
+    missing_description.mkdir()
+    (missing_description / "SKILL.md").write_text(
+        "---\nname: missing-description\ndescription: # missing\n---\n",
+        encoding="utf-8",
+    )
+    assert fallback.parse_skill_md(str(missing_description)) is None
+    assert catalog.discover([(str(missing_description), "repo")]) == 0
+
+    indented_opening = tmp_path / "indented-opening"
+    indented_opening.mkdir()
+    (indented_opening / "SKILL.md").write_text(
+        "  ---\nname: indented-opening\ndescription: Invalid delimiter\n---\n",
+        encoding="utf-8",
+    )
+    assert fallback.parse_skill_md(str(indented_opening)) is None
+    assert catalog.discover([(str(indented_opening), "repo")]) == 0
+
+
+def test_shared_lite_parser_keeps_indented_markdown_separator(monkeypatch, tmp_path) -> None:
+    modules = _import_without_core(
+        monkeypatch,
+        "dcc_mcp_core._py37_fallback",
+        "dcc_mcp_core._runtime.pure_skill_catalog",
+    )
+    fallback = modules["dcc_mcp_core._py37_fallback"]
+    catalog_module = modules["dcc_mcp_core._runtime.pure_skill_catalog"]
+    skill_dir = tmp_path / "markdown-separator"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: markdown-separator\n"
+        "description: |-\n"
+        "  First paragraph\n"
+        "  ---\n"
+        "  Final paragraph\n"
+        "metadata:\n"
+        "  dcc-mcp:\n"
+        "    dcc: maya\n"
+        "    tags: [rule]\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    parsed = fallback.parse_skill_md(str(skill_dir))
+    catalog = catalog_module.PurePythonSkillCatalog("maya")
+    assert catalog.discover([(str(skill_dir), "repo")]) == 1
+    discovered = catalog.get_skill("markdown-separator")
+    assert parsed.description == "First paragraph\n---\nFinal paragraph"
+    assert discovered.description == parsed.description
+    assert discovered.dcc == parsed.dcc == "maya"
+    assert discovered.tags == parsed.tags == ["rule"]
+
+
+def test_shared_lite_parser_matches_real_repo_skill(monkeypatch) -> None:
+    modules = _import_without_core(
+        monkeypatch,
+        "dcc_mcp_core._py37_fallback",
+        "dcc_mcp_core._runtime.pure_skill_catalog",
+    )
+    fallback = modules["dcc_mcp_core._py37_fallback"]
+    catalog_module = modules["dcc_mcp_core._runtime.pure_skill_catalog"]
+    skill_dir = Path(__file__).resolve().parents[1] / "skills" / "dcc-cli-gateway"
+
+    parsed = fallback.parse_skill_md(str(skill_dir))
+    catalog = catalog_module.PurePythonSkillCatalog("python")
+    assert catalog.discover([(str(skill_dir), "repo")]) == 1
+    discovered = catalog.get_skill("dcc-cli-gateway")
+    assert parsed is not None
+    for field in ("name", "description", "dcc", "version", "tags", "depends"):
+        assert getattr(discovered, field) == getattr(parsed, field)
 
 
 def test_dcc_capabilities_fallback(monkeypatch) -> None:
@@ -340,7 +449,7 @@ def test_scan_and_load_strict_fallback(monkeypatch, tmp_path) -> None:
     good = tmp_path / "good-skill"
     good.mkdir()
     (good / "SKILL.md").write_text(
-        "---\nname: good-skill\ndescription: ok\ndcc: maya\n---\n# Good\n",
+        "---\nname: good-skill\ndescription: ok\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n# Good\n",
         encoding="utf-8",
     )
 
@@ -351,6 +460,17 @@ def test_scan_and_load_strict_fallback(monkeypatch, tmp_path) -> None:
     skills, skipped = fallback.scan_and_load_strict(extra_paths=[str(good)])
     assert len(skills) == 1
     assert skills[0].name == "good-skill"
+    assert skipped == []
+
+    generic = tmp_path / "generic-skill"
+    generic.mkdir()
+    (generic / "SKILL.md").write_text(
+        "---\nname: generic-skill\ndescription: Cross-DCC infrastructure\n---\n",
+        encoding="utf-8",
+    )
+    skills, skipped = fallback.scan_and_load_strict(extra_paths=[str(generic)], dcc_name="maya")
+    assert [skill.name for skill in skills] == ["generic-skill"]
+    assert skills[0].dcc == "python"
     assert skipped == []
 
     try:

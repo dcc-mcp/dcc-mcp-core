@@ -30,9 +30,24 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
       - name: Validate long-term support projections
         id: validate
         run: python scripts/ci/check_python_support.py --github-output "$GITHUB_OUTPUT"
+      - name: Resolve semantic extra for Python 3.7
+        shell: bash
+        run: |
+          for platform in windows x86_64-manylinux_2_28; do
+            vx uv pip compile pyproject.toml \
+              --extra semantic \
+              --python-version 3.7 \
+              --python-platform "$platform" \
+              --no-cache \
+              --quiet
+          done
 
   release-metadata:
     name: Release metadata
@@ -349,7 +364,7 @@ jobs:
           python scripts/build_py37_pure_wheel.py
         shell: bash
       - name: Check py37-lite wheel contract
-        run: python scripts/ci/check_python_wheel.py --profile lite_py37 dist/*.whl
+        run: python scripts/ci/check_python_wheel.py --profile lite_py37 --platform any dist/*.whl
         shell: bash
       - name: Upload py37-lite wheel
         uses: actions/upload-artifact@v7
