@@ -628,27 +628,16 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
         if pid == 0 {
             return Ok(());
         }
-        // Check existence first so we can be idempotent for non-existent PIDs,
-        // matching the Windows ERROR_INVALID_PARAMETER → Ok(()) branch above.
-        let exists = Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !exists {
-            return Ok(());
-        }
-        // Process exists — send SIGTERM.
-        let status = Command::new("kill")
-            .arg(pid.to_string())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .with_context(|| format!("kill {pid}"))?;
-        if !status.success() {
-            anyhow::bail!("kill {pid} exited with {status}");
+        // Use libc::kill() directly instead of shelling out to /bin/kill.
+        // SAFETY: libc::kill is a thin wrapper over the POSIX kill(2) syscall.
+        let ret = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ESRCH) {
+                // No such process — idempotent, nothing to stop.
+                return Ok(());
+            }
+            anyhow::bail!("kill({pid}, SIGTERM) failed: {err}");
         }
     }
     Ok(())
