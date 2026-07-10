@@ -624,6 +624,23 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
     }
     #[cfg(unix)]
     {
+        // PID 0 refers to the process group on Unix — never valid to stop.
+        if pid == 0 {
+            return Ok(());
+        }
+        // Check existence first so we can be idempotent for non-existent PIDs,
+        // matching the Windows ERROR_INVALID_PARAMETER → Ok(()) branch above.
+        let exists = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !exists {
+            return Ok(());
+        }
+        // Process exists — send SIGTERM.
         let status = Command::new("kill")
             .arg(pid.to_string())
             .stdout(Stdio::null())
