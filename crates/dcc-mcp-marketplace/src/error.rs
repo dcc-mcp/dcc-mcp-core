@@ -31,6 +31,18 @@ pub enum MarketplaceError {
     #[error("marketplace entry '{0}' does not declare install metadata")]
     MissingInstall(String),
 
+    #[error("marketplace entry '{name}' has an invalid minCoreVersion '{required}'")]
+    InvalidMinCoreVersion { name: String, required: String },
+
+    #[error(
+        "marketplace entry '{name}' requires dcc-mcp-core >= {required}, but this CLI is {current}"
+    )]
+    IncompatibleCoreVersion {
+        name: String,
+        required: String,
+        current: String,
+    },
+
     #[error("marketplace entry '{name}' targets multiple DCCs; pass --dcc")]
     AmbiguousDcc { name: String },
 

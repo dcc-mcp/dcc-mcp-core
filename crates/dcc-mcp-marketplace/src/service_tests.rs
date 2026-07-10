@@ -77,3 +77,36 @@ fn immutable_git_commit_only_accepts_full_object_ids() {
         Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     );
 }
+
+#[test]
+fn core_version_gate_rejects_too_new_or_invalid_requirements() {
+    let mut entry = CatalogEntry {
+        name: "test-skill".into(),
+        description: "desc".into(),
+        dcc: vec!["maya".into()],
+        url: None,
+        tags: vec![],
+        version: None,
+        min_core_version: Some("999.0.0".into()),
+        install: None,
+        maintainer: None,
+        category: None,
+        policy: None,
+        requires: None,
+        icon: None,
+    };
+
+    assert!(matches!(
+        ensure_core_version_compatible(&entry),
+        Err(MarketplaceError::IncompatibleCoreVersion { .. })
+    ));
+    entry.min_core_version = Some("not-semver".into());
+    assert!(matches!(
+        ensure_core_version_compatible(&entry),
+        Err(MarketplaceError::InvalidMinCoreVersion { .. })
+    ));
+    entry.min_core_version = Some("0.19.0".into());
+    assert!(ensure_core_version_compatible(&entry).is_ok());
+    entry.min_core_version = None;
+    assert!(ensure_core_version_compatible(&entry).is_ok());
+}

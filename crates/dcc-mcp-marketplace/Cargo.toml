@@ -14,6 +14,7 @@ reqwest.workspace = true
 serde.workspace = true
 serde_yaml_ng.workspace = true
 serde_json.workspace = true
+semver.workspace = true
 sha2 = "0.11"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs"] }
