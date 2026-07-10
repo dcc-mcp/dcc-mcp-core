@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.21](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.20...v0.19.21) (2026-07-10)
+
+
+### Features
+
+* harden Python 3.7 compatibility gates ([fe8b945](https://github.com/dcc-mcp/dcc-mcp-core/commit/fe8b945ced087bc081ff2fe42ce273ba9c0cf2c7))
+
+
+### Bug Fixes
+
+* align lite skill parsing ([ed13c95](https://github.com/dcc-mcp/dcc-mcp-core/commit/ed13c9522f7c38f9c6838d4c07f9e305a8e1ea60))
+* close Python compatibility gaps ([ae9b3cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/ae9b3ccfd3fc75217bc23f9b08dff12f31aab09d))
+* forward **kw through the lambda to the original probe_once. ([7cbf397](https://github.com/dcc-mcp/dcc-mcp-core/commit/7cbf397ebe72c7e20e5c7f238b8087b8d4b3def9))
+* **gateway-ensure:** distinguish OpenProcess failure reasons in stop_process ([87d3dd4](https://github.com/dcc-mcp/dcc-mcp-core/commit/87d3dd45c6d3b2912d0d60382bc5d52baeb62cae))
+* **gateway-ensure:** make stop_process idempotent on Unix for non-existent/invalid PIDs ([1d59410](https://github.com/dcc-mcp/dcc-mcp-core/commit/1d59410d3d2c6a754b87ab43b0d8a061e6be852b))
+* **gateway-ensure:** remove orphaned #[cfg(windows)] guarding cross-platform constants ([47ae0d4](https://github.com/dcc-mcp/dcc-mcp-core/commit/47ae0d4f22d77295bd7a10da5d338256c74b44c2))
+* **gateway-ensure:** use libc::kill() for Unix stop_process with ESRCH guard ([e25ffdd](https://github.com/dcc-mcp/dcc-mcp-core/commit/e25ffdd732952df32eac821e5cb321ff2d80b597))
+* preserve standalone Python compatibility ([984cb14](https://github.com/dcc-mcp/dcc-mcp-core/commit/984cb146c3ce4d73cac070d314fcc8ecaf5e9050))
+* **test:** accept kwargs in probe_once mock lambda for guardian watchdog test ([7cbf397](https://github.com/dcc-mcp/dcc-mcp-core/commit/7cbf397ebe72c7e20e5c7f238b8087b8d4b3def9))
+* **test:** replace time.sleep(2.2) with _wait_for_forwarded_backend_resources polling ([2520034](https://github.com/dcc-mcp/dcc-mcp-core/commit/2520034fceff347686b48ca8d0ea42670e405629))
+
+
+### Code Refactoring
+
+* **gateway-ensure:** replace tasklist.exe shell-out with Windows API ([7d39e4d](https://github.com/dcc-mcp/dcc-mcp-core/commit/7d39e4dd25c48e88d3ecc1eedc973c7eac38165a))
+
 ## [0.19.20](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.19...v0.19.20) (2026-07-09)
 
 
