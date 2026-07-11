@@ -1,7 +1,8 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { MarketplaceEntry } from '../../admin-types';
+import { resolveDccIcon } from '../../platform';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -22,6 +23,7 @@ export function MarketplaceDetailModal({
   onClose,
   t,
 }: MarketplaceDetailModalProps) {
+  const [failedIcon, setFailedIcon] = useState<string | null>(null);
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -47,6 +49,8 @@ export function MarketplaceDetailModal({
   const sourceLabel = entry.source_name ?? null;
   const sourceUrl = entry.source_url ?? null;
   const hasUrl = Boolean(entry.url);
+  const dccIcon = entry.dcc.length === 1 ? resolveDccIcon(entry.dcc[0]) : null;
+  const icon = entry.icon && entry.icon !== failedIcon ? entry.icon : dccIcon;
   const requirements = [
     ...(entry.requires?.env ?? []).map((value) => `${value} · env`),
     ...(entry.requires?.bins ?? []).map((value) => `${value} · bin`),
@@ -81,11 +85,13 @@ export function MarketplaceDetailModal({
         </button>
 
         <div className="marketplace-detail-header">
-          {entry.icon ? (
+          {icon ? (
             <img
               className="marketplace-detail-icon"
-              src={entry.icon}
-              alt={entry.name}
+              src={icon}
+              alt=""
+              aria-hidden
+              onError={() => { if (icon === entry.icon) setFailedIcon(icon); }}
             />
           ) : (
             <span className="marketplace-detail-icon-fallback">

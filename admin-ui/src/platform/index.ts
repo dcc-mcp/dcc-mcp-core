@@ -9,14 +9,21 @@ import type {
   OpenApiSpec,
 } from '../admin-types';
 
-import mayaIcon from '../assets/icons/autodesk.svg';
-import blenderIcon from '../assets/icons/blender.svg';
-import gimpIcon from '../assets/icons/gimp.svg';
-import inkscapeIcon from '../assets/icons/inkscape.svg';
-import kritaIcon from '../assets/icons/krita.svg';
-import unityIcon from '../assets/icons/unity.svg';
-import unrealIcon from '../assets/icons/unrealengine.svg';
-import substancePainterIcon from '../assets/icons/photoshop.svg';
+import mayaIcon from '../assets/dcc-icons/maya.png';
+import blenderIcon from '../assets/dcc-icons/blender.png';
+import houdiniIcon from '../assets/dcc-icons/houdini.png';
+import maxIcon from '../assets/dcc-icons/3dsmax.png';
+import cinema4dIcon from '../assets/dcc-icons/cinema4d.png';
+import photoshopIcon from '../assets/dcc-icons/photoshop.png';
+import zbrushIcon from '../assets/dcc-icons/zbrush.png';
+import unrealIcon from '../assets/dcc-icons/unreal.png';
+import unityIcon from '../assets/dcc-icons/unity.png';
+import figmaIcon from '../assets/dcc-icons/figma.png';
+import nukeIcon from '../assets/dcc-icons/nuke.png';
+import substancePainterIcon from '../assets/dcc-icons/substance_painter.png';
+import gimpIcon from '../assets/dcc-icons/gimp.png';
+import inkscapeIcon from '../assets/dcc-icons/inkscape.png';
+import kritaIcon from '../assets/dcc-icons/krita.png';
 import puzzleIcon from '../assets/icons/puzzle.svg';
 import claudeIcon from '../assets/icons/claude.svg';
 import clineIcon from '../assets/icons/cline.svg';
@@ -30,22 +37,37 @@ import vscodeIcon from '../assets/icons/vscode.svg';
 export const DCC_ICON_MAP: Record<string, string> = {
   maya: mayaIcon,
   blender: blenderIcon,
+  houdini: houdiniIcon,
+  '3dsmax': maxIcon,
+  c4d: cinema4dIcon,
+  photoshop: photoshopIcon,
+  zbrush: zbrushIcon,
+  unreal: unrealIcon,
+  unity: unityIcon,
+  figma: figmaIcon,
+  nuke: nukeIcon,
+  substance_painter: substancePainterIcon,
   gimp: gimpIcon,
   inkscape: inkscapeIcon,
   krita: kritaIcon,
-  unity: unityIcon,
-  unreal: unrealIcon,
-  substance_painter: substancePainterIcon,
 };
 export const DCC_ICON_FALLBACK = puzzleIcon;
 
+const DCC_ICON_ALIASES: Record<string, string> = {
+  max: '3dsmax',
+  threedsmax: '3dsmax',
+  cinema4d: 'c4d',
+  ps: 'photoshop',
+  ue: 'unreal',
+  ue5: 'unreal',
+  unrealengine: 'unreal',
+  substancepainter: 'substance_painter',
+};
+
 export function resolveDccIcon(dccType: string): string {
-  const key = dccType.toLowerCase();
-  if (DCC_ICON_MAP[key]) return DCC_ICON_MAP[key];
-  for (const [k, url] of Object.entries(DCC_ICON_MAP)) {
-    if (key.includes(k)) return url;
-  }
-  return DCC_ICON_FALLBACK;
+  const key = dccType.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const canonical = DCC_ICON_ALIASES[key] ?? key;
+  return DCC_ICON_MAP[canonical] ?? DCC_ICON_FALLBACK;
 }
 
 // ── API base ──────────────────────────────────────────────────────────────────
