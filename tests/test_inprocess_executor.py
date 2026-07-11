@@ -80,6 +80,21 @@ def test_run_skill_script_calls_main_with_params(tmp_path: Path) -> None:
     assert run_skill_script(str(p), {"a": 5}) == {"sum": 7}
 
 
+def test_run_skill_script_strips_reserved_metadata(tmp_path: Path) -> None:
+    p = _write_script(
+        tmp_path,
+        "def main(**kwargs):\n    return sorted(kwargs)\n",
+    )
+    assert run_skill_script(str(p), {"color": "red", "_meta": {"session": "test"}}) == ["color"]
+
+
+def test_run_skill_script_supports_sibling_imports(tmp_path: Path) -> None:
+    (tmp_path / "_helper.py").write_text("VALUE = 42\n", encoding="utf-8")
+    p = _write_script(tmp_path, "from _helper import VALUE\ndef main(): return VALUE\n")
+    assert run_skill_script(str(p), {}) == 42
+    assert str(tmp_path) not in __import__("sys").path
+
+
 def test_run_skill_script_supports_single_dict_main(tmp_path: Path) -> None:
     p = _write_script(
         tmp_path,

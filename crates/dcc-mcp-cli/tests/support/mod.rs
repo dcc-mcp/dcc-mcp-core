@@ -626,6 +626,22 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
             }),
         )
         .route(
+            "/v1/describe",
+            post(|Json(body): Json<Value>| async move {
+                Json(json!({
+                    "entry": {"slug": body["tool_slug"], "loaded": true},
+                    "description": "Dynamically loaded workflow tool",
+                    "input_schema": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {"name": {"type": "string"}}
+                    },
+                    "annotations": {"loaded": true},
+                    "metadata": {"dcc": {"affinity": "main"}}
+                }))
+            }),
+        )
+        .route(
             "/safe-stop",
             post(|Json(body): Json<Value>| async move {
                 Json(json!({

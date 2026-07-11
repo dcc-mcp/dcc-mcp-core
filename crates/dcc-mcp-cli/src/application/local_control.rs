@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 
 use crate::application::local_instance;
 use crate::domain::rest::{
-    ReloadSkillsRequest, SearchRequest, StopInstanceRequest, WaitReadyRequest,
+    Endpoint, ReloadSkillsRequest, SearchRequest, StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::HttpGateway;
 
@@ -92,18 +92,35 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
 pub async fn describe_local(registry_dir: PathBuf, tool_slug: String) -> anyhow::Result<Value> {
     let route = resolve_tool_route(&registry_dir, &tool_slug, None, None)?;
     let gateway = HttpGateway::default();
-    let tools = list_mcp_tools(&gateway, &local_instance::mcp_url(&route.entry)).await?;
-    let Some(tool) = tools.into_iter().find(|tool| {
+    let mcp_url = local_instance::mcp_url(&route.entry);
+    let tools = list_mcp_tools(&gateway, &mcp_url).await?;
+    let tool = if let Some(tool) = tools.into_iter().find(|tool| {
         tool.get("name")
             .and_then(Value::as_str)
             .is_some_and(|name| name == route.backend_tool)
-    }) else {
-        anyhow::bail!(
-            "tool '{}' was not found on local {} instance {}",
-            route.backend_tool,
-            route.entry.dcc_type,
-            local_instance::instance_short(&route.entry)
-        );
+    }) {
+        tool
+    } else {
+        let endpoint = Endpoint::from_mcp_url(mcp_url);
+        let described = gateway
+            .post_json(
+                &endpoint.path("/v1/describe"),
+                &json!({"tool_slug": route.backend_tool, "include_schema": true}),
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "tool '{}' was not found in tools/list and the local describe fallback failed",
+                    route.backend_tool
+                )
+            })?;
+        json!({
+            "name": route.backend_tool,
+            "description": described.get("description").cloned().unwrap_or(Value::Null),
+            "inputSchema": described.get("input_schema").cloned().unwrap_or_else(|| json!({"type": "object"})),
+            "annotations": described.get("annotations").cloned().unwrap_or_else(|| json!({})),
+            "_meta": described.get("metadata").cloned().unwrap_or(Value::Null),
+        })
     };
 
     Ok(json!({

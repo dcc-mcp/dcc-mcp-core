@@ -585,7 +585,7 @@ class HostExecutionBridge:
 
 def _call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> Any:
     """Invoke a skill ``main`` using the best supported calling convention."""
-    params_dict = dict(params)
+    params_dict = {key: value for key, value in params.items() if not key.startswith("_")}
     try:
         signature = inspect.signature(main)
     except (TypeError, ValueError):
@@ -649,6 +649,10 @@ def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
         raise ImportError(f"Cannot create import spec for {script_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[mod_name] = module
+    script_dir = str(path.parent)
+    added_script_dir = script_dir not in sys.path
+    if added_script_dir:
+        sys.path.insert(0, script_dir)
     try:
         try:
             spec.loader.exec_module(module)
@@ -665,6 +669,8 @@ def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
             return getattr(module, "__mcp_result__", None)
     finally:
         sys.modules.pop(mod_name, None)
+        if added_script_dir and script_dir in sys.path:
+            sys.path.remove(script_dir)
 
 
 def build_inprocess_executor(
