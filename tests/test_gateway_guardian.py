@@ -419,6 +419,7 @@ def test_gateway_daemon_guardian_jitter_skips_when_peer_recovers(monkeypatch):
 def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
     checks = iter([False, True])
     monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: next(checks))
+    monkeypatch.setattr(gg, "_try_version_takeover", lambda **_kwargs: None)
     guardian = gg.GatewayDaemonGuardian(
         gateway_host="127.0.0.1",
         gateway_port=9765,
@@ -433,6 +434,42 @@ def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
     assert first["reason"] == "probe_failed"
     assert second["reason"] == "healthy"
     assert second["consecutive_failures"] == 0
+
+
+def test_gateway_daemon_guardian_audits_version_when_endpoint_is_healthy(monkeypatch, tmp_path):
+    """A healthy stale gateway must still enter the version takeover path."""
+    monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: True)
+    calls = []
+
+    def _takeover(**kwargs):
+        calls.append(kwargs)
+        return {"ok": True, "reason": "version_takeover_spawned"}
+
+    monkeypatch.setattr(gg, "_try_version_takeover", _takeover)
+    guardian = gg.GatewayDaemonGuardian(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="houdini",
+        restart_timeout_secs=17.0,
+    )
+
+    result = guardian.probe_once()
+
+    assert result["reason"] == "version_takeover_spawned"
+    assert result["restart_attempts"] == 1
+    assert calls == [
+        {
+            "gateway_host": "127.0.0.1",
+            "gateway_port": 9765,
+            "registry_dir": str(tmp_path),
+            "dcc_type": "houdini",
+            "timeout_secs": 17.0,
+            "gateway_persist": None,
+            "gateway_idle_timeout_secs": None,
+            "server_bin": None,
+        }
+    ]
 
 
 def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
@@ -999,6 +1036,49 @@ def test_read_gateway_version_missing_registry():
     )
 
 
+def test_wait_managed_gateway_ready_rejects_health_only_challenger(monkeypatch, tmp_path):
+    """A temporary challenger sentinel cannot prove gateway ownership."""
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+    gg._write_sentinel_entry(
+        str(tmp_path),
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        crate_version="0.19.23",
+    )
+
+    assert not gg._wait_managed_gateway_ready(
+        "127.0.0.1",
+        9765,
+        registry_dir=str(tmp_path),
+        minimum_version="0.19.23",
+        timeout_secs=0.01,
+    )
+
+
+def test_wait_managed_gateway_ready_accepts_owned_same_version(monkeypatch, tmp_path):
+    """A healthy process-owned sentinel satisfies the takeover contract."""
+    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+    services = [
+        {
+            "dcc_type": "__gateway__",
+            "instance_id": "gateway-instance",
+            "host": "127.0.0.1",
+            "port": 9765,
+            "version": "0.19.23",
+            "pid": 4242,
+        }
+    ]
+    (tmp_path / "services.json").write_text(json.dumps(services), encoding="utf-8")
+
+    assert gg._wait_managed_gateway_ready(
+        "127.0.0.1",
+        9765,
+        registry_dir=str(tmp_path),
+        minimum_version="0.19.23",
+        timeout_secs=0.2,
+    )
+
+
 def test_ensure_gateway_daemon_skips_takeover_when_gateway_newer(monkeypatch, tmp_path):
     """P0-3: No takeover when running gateway version is same or newer."""
     monkeypatch.setattr(gg, "urlopen", lambda *args, **kwargs: _Resp())
@@ -1053,7 +1133,7 @@ def test_try_version_takeover_uses_admin_health_and_cooperative_yield(monkeypatc
     monkeypatch.setattr(gg, "_read_gateway_version_from_admin_health", lambda *a, **k: "0.18.20")
     monkeypatch.setattr(gg, "_request_gateway_yield", lambda *a, **k: yield_requests.append(k) or True)
     monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
-    monkeypatch.setattr(gg, "_wait_gateway_ready", lambda *a, **k: True)
+    monkeypatch.setattr(gg, "_wait_managed_gateway_ready", lambda *a, **k: True)
 
     def _launch_detached(cmd, **kwargs):
         launches.append((cmd, kwargs))
