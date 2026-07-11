@@ -5,6 +5,7 @@
 //! instance's advertised MCP endpoint; remote profiles use gateway REST.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -18,6 +19,7 @@ use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest,
     ReloadSkillsRequest, SearchRequest, StopInstanceRequest, WaitReadyRequest,
 };
+use crate::infra::http::HttpGateway;
 
 const RELOAD_SKILLS_TOOL: &str = "dcc_admin__reload_skills";
 
@@ -89,6 +91,7 @@ impl DccControlPlane {
         instance_id: Option<String>,
         arguments: Value,
         meta: Option<Value>,
+        timeout: Duration,
     ) -> anyhow::Result<Value> {
         if self.target.is_local() {
             return local_control::call_local(
@@ -98,11 +101,13 @@ impl DccControlPlane {
                 instance_id,
                 arguments,
                 meta,
+                timeout,
             )
             .await;
         }
 
-        let client = self.gateway_client();
+        let client =
+            DccMcpClient::with_gateway(self.endpoint.clone(), HttpGateway::with_timeout(timeout));
         match (dcc_type, instance_id) {
             (Some(dcc_type), Some(instance_id)) => client
                 .direct_call(DirectCallRequest {
