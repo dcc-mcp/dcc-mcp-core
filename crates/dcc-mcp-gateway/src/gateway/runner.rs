@@ -13,6 +13,100 @@ fn panic_message(info: &dyn std::any::Any) -> String {
     }
 }
 
+fn apply_live_snapshot(entry: &mut ServiceEntry, snapshot: &LiveSnapshot) {
+    if let Some(scene) = &snapshot.scene {
+        entry.scene = (!scene.is_empty()).then(|| scene.clone());
+    }
+    if let Some(version) = &snapshot.version {
+        entry.version = (!version.is_empty()).then(|| version.clone());
+    }
+    if !snapshot.documents.is_empty() {
+        entry.documents = snapshot
+            .documents
+            .iter()
+            .filter(|document| !document.is_empty())
+            .cloned()
+            .collect();
+        if let Some(display_name) = &snapshot.display_name {
+            entry.display_name = (!display_name.is_empty()).then(|| display_name.clone());
+        }
+    }
+    for (name, value) in &snapshot.metadata {
+        if value.is_empty() {
+            entry.metadata.remove(name);
+        } else {
+            entry.metadata.insert(name.clone(), value.clone());
+        }
+    }
+    entry.touch();
+}
+
+fn refresh_or_republish_registration(
+    registry: &FileRegistry,
+    key: &ServiceKey,
+    template: &ServiceEntry,
+    provider: Option<&MetadataProvider>,
+    registration_active: &std::sync::atomic::AtomicBool,
+) {
+    let (refresh_result, snapshot) = if let Some(provider) = provider {
+        let snapshot = provider();
+        let primary_result = if snapshot.documents.is_empty() {
+            registry.update_metadata(key, snapshot.scene.as_deref(), snapshot.version.as_deref())
+        } else {
+            registry.update_documents(
+                key,
+                snapshot.scene.as_deref(),
+                &snapshot.documents,
+                snapshot.display_name.as_deref(),
+            )
+        };
+        let refresh_result = match primary_result {
+            Ok(true) if !snapshot.metadata.is_empty() => {
+                registry.update_instance_metadata(key, &snapshot.metadata)
+            }
+            other => other,
+        };
+        (refresh_result, Some(snapshot))
+    } else {
+        (registry.heartbeat(key), None)
+    };
+
+    match refresh_result {
+        Ok(true) => {}
+        Ok(false) if registration_active.load(std::sync::atomic::Ordering::Acquire) => {
+            let mut recovered = template.clone();
+            if let Some(snapshot) = &snapshot {
+                apply_live_snapshot(&mut recovered, snapshot);
+            } else {
+                recovered.touch();
+            }
+            if !registration_active.load(std::sync::atomic::Ordering::Acquire) {
+                return;
+            }
+            match registry.register(recovered) {
+                Ok(()) => tracing::warn!(
+                    dcc_type = %key.dcc_type,
+                    instance_id = %key.instance_id,
+                    "FileRegistry row disappeared; heartbeat re-registered the live instance"
+                ),
+                Err(error) => tracing::warn!(
+                    error = %error,
+                    dcc_type = %key.dcc_type,
+                    instance_id = %key.instance_id,
+                    "heartbeat failed to re-register the missing FileRegistry row"
+                ),
+            }
+        }
+        Ok(false) => {}
+        Err(error) => tracing::warn!(
+            error = %error,
+            dcc_type = %key.dcc_type,
+            instance_id = %key.instance_id,
+            "FileRegistry heartbeat refresh failed"
+        ),
+    }
+}
+
 /// Orchestrates FileRegistry registration, heartbeat, stale cleanup, and the
 /// optional gateway HTTP server.
 pub struct GatewayRunner {
@@ -86,6 +180,8 @@ impl GatewayRunner {
         metadata_provider: Option<MetadataProvider>,
     ) -> Result<GatewayHandle, Box<dyn std::error::Error + Send + Sync>> {
         let service_key = entry.key();
+        let registration_template = entry.clone();
+        let registration_active = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         // ── Register in FileRegistry ─────────────────────────────────────
         {
@@ -108,42 +204,30 @@ impl GatewayRunner {
             let key = service_key.clone();
             let secs = self.config.heartbeat_secs;
             let provider = metadata_provider;
+            let template = registration_template;
+            let active = registration_active.clone();
             let h = tokio::spawn(async move {
                 loop {
                     let reg = reg.clone();
                     let key_inner = key.clone();
                     let provider = provider.clone();
+                    let template = template.clone();
+                    let active = active.clone();
                     let result = std::panic::AssertUnwindSafe(async move {
                         let mut tick = tokio::time::interval(Duration::from_secs(secs));
                         loop {
                             tick.tick().await;
-                            let r = reg.read().await;
-                            if let Some(ref prov) = provider {
-                                let snap = prov();
-                                if !snap.documents.is_empty() {
-                                    // Multi-document DCC (Photoshop, After Effects…):
-                                    // update active document + full open-document list + label.
-                                    let _ = r.update_documents(
-                                        &key_inner,
-                                        snap.scene.as_deref(),
-                                        &snap.documents,
-                                        snap.display_name.as_deref(),
-                                    );
-                                } else {
-                                    // Single-document DCC (Maya, Blender, Houdini…):
-                                    // update scene path and version only.
-                                    let _ = r.update_metadata(
-                                        &key_inner,
-                                        snap.scene.as_deref(),
-                                        snap.version.as_deref(),
-                                    );
-                                }
-                                if !snap.metadata.is_empty() {
-                                    let _ = r.update_instance_metadata(&key_inner, &snap.metadata);
-                                }
-                            } else {
-                                let _ = r.heartbeat(&key_inner);
+                            if !active.load(std::sync::atomic::Ordering::Acquire) {
+                                break;
                             }
+                            let r = reg.read().await;
+                            refresh_or_republish_registration(
+                                &r,
+                                &key_inner,
+                                &template,
+                                provider.as_ref(),
+                                &active,
+                            );
                         }
                     })
                     .catch_unwind()
@@ -211,6 +295,7 @@ impl GatewayRunner {
             challenger_abort,
             registry: self.registry.clone(),
             pending_deregister,
+            registration_active,
         })
     }
 

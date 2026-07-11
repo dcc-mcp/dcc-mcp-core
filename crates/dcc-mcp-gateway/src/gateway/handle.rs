@@ -62,6 +62,9 @@ pub struct GatewayHandle {
     /// sentinel key for winners); `Drop` drains the vector so a second
     /// call is a no-op. See issue #718.
     pub(crate) pending_deregister: Vec<ServiceKey>,
+    /// Prevents a concurrent heartbeat from republishing the instance after
+    /// clean shutdown has started.
+    pub(crate) registration_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl GatewayHandle {
@@ -116,6 +119,11 @@ impl GatewayHandle {
     /// succeeds. On the rare contention case we log and leave the row —
     /// the existing `stale_timeout_secs` cleanup path still purges it.
     pub fn deregister_all(&mut self) {
+        self.registration_active
+            .store(false, std::sync::atomic::Ordering::Release);
+        if let Some(heartbeat) = self.heartbeat_abort.take() {
+            heartbeat.abort();
+        }
         if self.pending_deregister.is_empty() {
             return;
         }
