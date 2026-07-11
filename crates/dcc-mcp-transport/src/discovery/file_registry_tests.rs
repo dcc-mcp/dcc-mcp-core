@@ -663,6 +663,27 @@ fn test_missing_registry_file_during_transaction_clears_snapshot() {
 }
 
 #[test]
+fn test_register_same_owned_key_reuses_sentinel_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let mut entry = ServiceEntry::new("blender", "127.0.0.1", 61142);
+    let key = entry.key();
+    registry.register(entry.clone()).unwrap();
+
+    std::fs::remove_file(registry.registry_file_path()).unwrap();
+    entry.version = Some("5.0.1".to_string());
+    registry.register(entry).unwrap();
+
+    let recovered = FileRegistry::new(dir.path())
+        .unwrap()
+        .get(&key)
+        .expect("same process should republish its missing row");
+    assert_eq!(recovered.version.as_deref(), Some("5.0.1"));
+    assert_eq!(registry.sentinel_handles.len(), 1);
+}
+
+#[test]
 fn test_empty_registry_file_during_transaction_clears_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
