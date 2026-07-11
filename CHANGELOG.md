@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.23](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.22...v0.19.23) (2026-07-11)
+
+
+### Features
+
+* surface marketplace dependencies ([#1863](https://github.com/dcc-mcp/dcc-mcp-core/issues/1863)) ([f4872c5](https://github.com/dcc-mcp/dcc-mcp-core/commit/f4872c53b74d41c01c1aa2682a7a074e7a2f4e4a))
+
+
+### Bug Fixes
+
+* audit healthy gateway versions in guardian ([#1867](https://github.com/dcc-mcp/dcc-mcp-core/issues/1867)) ([8685149](https://github.com/dcc-mcp/dcc-mcp-core/commit/868514996d3d28e7d487b428c1fceedce9c7fcdf))
+* describe loaded tools and execute skill scripts ([11f54ef](https://github.com/dcc-mcp/dcc-mcp-core/commit/11f54ef1707e5dbe1ad4971a96a15183f8a3efb7))
+* make CLI call timeout configurable ([#1866](https://github.com/dcc-mcp/dcc-mcp-core/issues/1866)) ([29f736b](https://github.com/dcc-mcp/dcc-mcp-core/commit/29f736b0c877d267927328246e9ffe0de7a80f7c))
+
+
+### Documentation
+
+* clarify README and documentation contracts ([f745d5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/f745d5a8f51a3e3778d053cc14687dd959ed1a17))
+
 ## [0.19.22](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.21...v0.19.22) (2026-07-10)
 
 
