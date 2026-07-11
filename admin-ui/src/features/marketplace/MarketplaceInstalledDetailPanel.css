@@ -58,7 +58,7 @@
   justify-content: center;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--muted-foreground);
   cursor: pointer;
   font-size: 18px;
@@ -150,7 +150,7 @@
 .marketplace-installed-detail-summary-grid span {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--foreground);
   min-width: 0;
   overflow-wrap: anywhere;

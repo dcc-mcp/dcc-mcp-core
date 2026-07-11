@@ -142,7 +142,7 @@
 .skill-detail-summary-grid span {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--foreground);
   min-width: 0;
   overflow-wrap: anywhere;
@@ -160,7 +160,7 @@
 
 .skill-tool-list {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   margin: 0.75rem 0;
   overflow: hidden;
 }
@@ -275,7 +275,7 @@
 
 .skill-table-wrap {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   margin: 0.8rem 0;
   max-width: 100%;
   overflow-x: auto;
@@ -322,7 +322,7 @@
 .skill-code-card {
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   margin: 0.75rem 0;
   max-width: 100%;
   overflow: hidden;
@@ -373,7 +373,7 @@
 .skill-frontmatter pre {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   max-height: 14rem;
   padding: 0.75rem;
 }

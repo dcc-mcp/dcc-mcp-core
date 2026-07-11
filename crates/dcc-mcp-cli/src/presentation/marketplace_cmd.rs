@@ -56,6 +56,21 @@ pub(crate) struct MarketplacePublishArgs {
     pub(crate) homepage_url: Option<String>,
     #[arg(long)]
     pub(crate) icon: Option<String>,
+    /// Marketplace showcase image path or absolute URL.
+    #[arg(long)]
+    pub(crate) showcase: Option<String>,
+    /// Required environment variable name. Declared only; never installed. Repeat as needed.
+    #[arg(long = "requires-env")]
+    pub(crate) requires_env: Vec<String>,
+    /// Required executable name on PATH. Declared only; never installed. Repeat as needed.
+    #[arg(long = "requires-bin")]
+    pub(crate) requires_bin: Vec<String>,
+    /// Required Python package or import name. Declared only; never installed. Repeat as needed.
+    #[arg(long = "requires-python")]
+    pub(crate) requires_python: Vec<String>,
+    /// Required DCC-MCP skill name. Declared only; never installed. Repeat as needed.
+    #[arg(long = "requires-skill")]
+    pub(crate) requires_skill: Vec<String>,
 }
 
 pub(crate) fn run_pack(args: MarketplacePackArgs) -> anyhow::Result<Value> {
@@ -87,6 +102,11 @@ pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value>
             min_core_version: args.min_core_version,
             homepage_url: args.homepage_url,
             icon: args.icon,
+            showcase: args.showcase,
+            requires_env: args.requires_env,
+            requires_bin: args.requires_bin,
+            requires_python: args.requires_python,
+            requires_skill: args.requires_skill,
         },
     )?;
     to_json(result)

@@ -53,6 +53,8 @@ pub struct MarketplaceEntryResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub showcase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub install: Option<InstallMetadataResponse>,
 }
 
@@ -267,6 +269,10 @@ pub async fn handle_marketplace_catalog(State(_s): State<AdminState>) -> impl In
                     icon: resolve_icon_url(
                         hit.entry.icon.as_deref(),
                         Some(hit.source.url.as_str()),
+                    ),
+                    showcase: dcc_mcp_marketplace::resolve_catalog_asset_url(
+                        hit.entry.showcase.as_deref(),
+                        hit.entry.install.as_ref(),
                     ),
                     source_name: Some(hit.source.name),
                     source_url: Some(hit.source.url),
@@ -534,6 +540,7 @@ mod tests {
             policy: None,
             requires: None,
             icon: None,
+            showcase: None,
         };
         assert!(dcc_mcp_marketplace::entry_targets_dcc(&entry, "Maya"));
         assert!(dcc_mcp_marketplace::entry_targets_dcc(&entry, "BLENDER"));

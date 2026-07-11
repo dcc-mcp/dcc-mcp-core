@@ -1,5 +1,7 @@
 //! Marketplace source resolution and normalisation.
 
+use dcc_mcp_catalog::CatalogInstall;
+
 use crate::types::{MarketplaceSource, MarketplaceSourceOrigin, OFFICIAL_MARKETPLACE_SOURCE};
 
 /// Build a built-in source pointing to the official marketplace.
@@ -50,6 +52,56 @@ pub fn dedupe_sources(sources: Vec<MarketplaceSource>) -> Vec<MarketplaceSource>
     result
 }
 
+/// Resolve a repository-relative catalog asset at the entry's declared git ref.
+///
+/// Absolute HTTP(S) URLs remain supported for custom catalogs. Official entries
+/// use relative paths so media and installable content share one immutable pin.
+pub fn resolve_catalog_asset_url(
+    asset: Option<&str>,
+    install: Option<&CatalogInstall>,
+) -> Option<String> {
+    let asset = asset?;
+    if asset.starts_with("http://") || asset.starts_with("https://") {
+        return Some(asset.to_string());
+    }
+    if !asset.split('/').all(is_safe_path_segment) {
+        return None;
+    }
+
+    let install = install?;
+    if install.install_type != "git" {
+        return None;
+    }
+    let repo_url = install.url.as_deref()?;
+    let ref_ = install.ref_.as_deref()?;
+    if ref_.len() != 40 || !ref_.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let repo = repo_url
+        .strip_prefix("https://github.com/")?
+        .trim_end_matches('/')
+        .trim_end_matches(".git");
+    let mut parts = repo.split('/');
+    let owner = parts.next()?;
+    let name = parts.next()?;
+    if !is_safe_path_segment(owner) || !is_safe_path_segment(name) || parts.next().is_some() {
+        return None;
+    }
+
+    Some(format!(
+        "https://raw.githubusercontent.com/{owner}/{name}/{ref_}/{asset}"
+    ))
+}
+
+fn is_safe_path_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment != "."
+        && segment != ".."
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -85,5 +137,74 @@ mod tests {
     fn normalises_absolute_path_passthrough() {
         let source = normalise_source("/tmp/catalog.json", MarketplaceSourceOrigin::Explicit);
         assert_eq!(source.url, "/tmp/catalog.json");
+    }
+
+    fn github_install() -> CatalogInstall {
+        CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/dcc-example.git".into()),
+            ref_: Some("0123456789012345678901234567890123456789".into()),
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        }
+    }
+
+    #[test]
+    fn resolves_catalog_asset_at_pinned_github_revision() {
+        assert_eq!(
+            resolve_catalog_asset_url(
+                Some("docs/images/example-showcase.webp"),
+                Some(&github_install())
+            ),
+            Some(
+                "https://raw.githubusercontent.com/dcc-mcp/dcc-example/0123456789012345678901234567890123456789/docs/images/example-showcase.webp".into()
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_catalog_asset_parent_traversal() {
+        assert_eq!(
+            resolve_catalog_asset_url(Some("../secret.png"), Some(&github_install())),
+            None
+        );
+    }
+
+    #[test]
+    fn rejects_catalog_asset_without_immutable_revision() {
+        let mut install = github_install();
+        for unsafe_ref in [
+            "main",
+            "refs/heads/main",
+            "../0123456789012345678901234567890123456789",
+        ] {
+            install.ref_ = Some(unsafe_ref.into());
+            assert_eq!(
+                resolve_catalog_asset_url(Some("docs/showcase.webp"), Some(&install)),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_catalog_asset_separator_and_encoding_attacks() {
+        for asset in [
+            "/secret.png",
+            "docs\\secret.png",
+            "docs//secret.png",
+            "docs/./secret.png",
+            "docs/%2e%2e/secret.png",
+            "docs/secret.png?raw=1",
+        ] {
+            assert_eq!(
+                resolve_catalog_asset_url(Some(asset), Some(&github_install())),
+                None
+            );
+        }
     }
 }

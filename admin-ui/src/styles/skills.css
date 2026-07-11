@@ -11,7 +11,7 @@
   --skill-brand: #059669;
   --skill-brand-soft: rgba(5, 150, 105, 0.12);
   --skill-brand-strong: #047857;
-  --skill-card-radius: 14px;
+  --skill-card-radius: var(--radius-lg);
 }
 
 .skill-card-grid {
@@ -144,7 +144,7 @@
   flex: 0 0 auto;
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--skill-accent, var(--skill-brand)) 18%, var(--card));
   border: 1px solid color-mix(in srgb, var(--skill-accent, var(--skill-brand)) 32%, var(--border));
   display: flex;
@@ -445,7 +445,7 @@
   justify-content: center;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--muted-foreground);
   cursor: pointer;
   font-size: 18px;

@@ -1278,6 +1278,7 @@ export type MarketplaceEntry = {
     skills?: string[];
   } | null;
   icon?: string | null;
+  showcase?: string | null;
   source_name?: string;
   source_url?: string;
   install?: {

@@ -9,6 +9,8 @@ type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 export type MarketplaceDetailModalProps = {
   entry: MarketplaceEntry | null;
   coreVersion?: string | null;
+  installDcc?: string | null;
+  onConfirmInstall?: () => void;
   onClose: () => void;
   t: Translator;
 };
@@ -20,10 +22,13 @@ export type MarketplaceDetailModalProps = {
 export function MarketplaceDetailModal({
   entry,
   coreVersion,
+  installDcc,
+  onConfirmInstall,
   onClose,
   t,
 }: MarketplaceDetailModalProps) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
+  const [failedShowcase, setFailedShowcase] = useState<string | null>(null);
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -51,6 +56,7 @@ export function MarketplaceDetailModal({
   const hasUrl = Boolean(entry.url);
   const dccIcon = entry.dcc.length === 1 ? resolveDccIcon(entry.dcc[0]) : null;
   const icon = entry.icon && entry.icon !== failedIcon ? entry.icon : dccIcon;
+  const showcase = entry.showcase && entry.showcase !== failedShowcase ? entry.showcase : null;
   const requirements = [
     ...(entry.requires?.env ?? []).map((value) => `${value} · env`),
     ...(entry.requires?.bins ?? []).map((value) => `${value} · bin`),
@@ -83,6 +89,19 @@ export function MarketplaceDetailModal({
         >
           &times;
         </button>
+
+        {showcase ? (
+          <div className="marketplace-detail-showcase">
+            <img
+              src={showcase}
+              alt=""
+              aria-hidden
+              decoding="async"
+              referrerPolicy="no-referrer"
+              onError={() => setFailedShowcase(showcase)}
+            />
+          </div>
+        ) : null}
 
         <div className="marketplace-detail-header">
           {icon ? (
@@ -225,6 +244,20 @@ export function MarketplaceDetailModal({
                     {requirement}
                   </code>
                 ))}
+              </div>
+            </div>
+          ) : null}
+
+          {installDcc && requirements.length > 0 && onConfirmInstall ? (
+            <div className="marketplace-detail-install-confirm" role="alert">
+              <p>{t('marketplace.install.requirementsNotice')}</p>
+              <div className="marketplace-detail-install-actions">
+                <button type="button" className="marketplace-detail-install-cancel" onClick={onClose}>
+                  {t('marketplace.install.cancel')}
+                </button>
+                <button type="button" className="marketplace-detail-install-continue" onClick={onConfirmInstall}>
+                  {t('marketplace.install.continue', { dcc: installDcc })}
+                </button>
               </div>
             </div>
           ) : null}

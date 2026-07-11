@@ -50,6 +50,14 @@ export type MarketplacePanelProps = {
 
 type MarketplaceTab = 'browse' | 'installed' | 'sources';
 
+function hasDeclaredRequirements(entry: MarketplaceEntry): boolean {
+  const requires = entry.requires;
+  return Boolean(
+    requires
+    && (requires.env?.length || requires.bins?.length || requires.python?.length || requires.skills?.length),
+  );
+}
+
 /// Top-level orchestrator for the `/admin#marketplace` panel.
 ///
 /// Three tabs: Browse (searchable catalog with per-DCC install), Installed
@@ -75,6 +83,7 @@ export function MarketplacePanel({
   const [tab, setTab] = useState<MarketplaceTab>('browse');
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [detailEntry, setDetailEntry] = useState<MarketplaceEntry | null>(null);
+  const [pendingInstall, setPendingInstall] = useState<{ entry: MarketplaceEntry; dcc: string } | null>(null);
   const [installedDetail, setInstalledDetail] = useState<{
     pkg: InstalledMarketplacePackage;
     catalogEntry?: MarketplaceEntry | null;
@@ -297,7 +306,7 @@ export function MarketplacePanel({
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleInstall = useCallback(
+  const performInstall = useCallback(
     async (entry: MarketplaceEntry, dcc: string) => {
       const key = `${entry.name}:${dcc}`;
       setInstallingKey(key);
@@ -322,6 +331,18 @@ export function MarketplacePanel({
       }
     },
     [installMut, installedQuery, forceInstall, onError, marketplaceErrorMessage],
+  );
+
+  const handleInstall = useCallback(
+    (entry: MarketplaceEntry, dcc: string) => {
+      if (hasDeclaredRequirements(entry)) {
+        setDetailEntry(entry);
+        setPendingInstall({ entry, dcc });
+        return;
+      }
+      void performInstall(entry, dcc);
+    },
+    [performInstall],
   );
 
   const handleUninstall = useCallback(
@@ -373,12 +394,22 @@ export function MarketplacePanel({
   );
 
   const handleOpenDetail = useCallback((entry: MarketplaceEntry) => {
+    setPendingInstall(null);
     setDetailEntry(entry);
   }, []);
 
   const handleCloseDetail = useCallback(() => {
     setDetailEntry(null);
+    setPendingInstall(null);
   }, []);
+
+  const handleConfirmInstall = useCallback(() => {
+    if (!pendingInstall) return;
+    const { entry, dcc } = pendingInstall;
+    setPendingInstall(null);
+    setDetailEntry(null);
+    void performInstall(entry, dcc);
+  }, [pendingInstall, performInstall]);
 
   const handleOpenInstalledDetail = useCallback(
     (pkg: InstalledMarketplacePackage, catalogEntry?: MarketplaceEntry | null) => {
@@ -677,6 +708,8 @@ export function MarketplacePanel({
       <MarketplaceDetailModal
         entry={detailEntry}
         coreVersion={coreVersion}
+        installDcc={pendingInstall?.dcc}
+        onConfirmInstall={pendingInstall ? handleConfirmInstall : undefined}
         onClose={handleCloseDetail}
         t={t}
       />

@@ -153,6 +153,7 @@ test.describe('Marketplace Panel', () => {
     await expect(page.getByRole('tab', { name: /Installed\\d/ })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: /Sources\\d/ })).toHaveCount(0);
     const crossDccCard = panel.locator('.marketplace-card[data-name="cross-dcc-utils"]');
+    await expect(crossDccCard.locator('.marketplace-card-media.is-fallback')).toBeVisible();
     await expect(crossDccCard.locator('.marketplace-card-icon')).toHaveCount(0);
     await expect(crossDccCard.locator('.marketplace-card-icon-fallback')).toHaveText('C');
   });
@@ -285,8 +286,8 @@ test.describe('Marketplace Panel', () => {
     const mayaCard = page.locator('.marketplace-card[data-name="maya-modeling"]');
     await expect(mayaCard).toContainText('Install maya');
 
-    // Click the install button
-    await mayaCard.locator('.marketplace-card-chip-action').first().click();
+    // Enter on the nested action must install rather than opening card details.
+    await mayaCard.getByRole('button', { name: 'Install maya' }).press('Enter');
 
     // Install success notice should appear
     const notice = page.locator('.marketplace-install-notice');
@@ -298,6 +299,42 @@ test.describe('Marketplace Panel', () => {
 
     // DCC chip should now show as installed (checkmark)
     await expect(mayaCard.locator('.marketplace-card-chip-installed')).toBeVisible();
+  });
+
+  test('confirms declared requirements before installing', async ({ page }) => {
+    const installRequests: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/marketplace/install')) {
+        installRequests.push(request.url());
+      }
+    });
+    await mockMarketplaceApi(page, {
+      catalog: [{
+        name: 'texture-pipeline',
+        description: 'Texture utilities with external prerequisites.',
+        dcc: ['maya'],
+        tags: ['texture'],
+        version: '1.0.0',
+        requires: { env: ['OPENAI_API_KEY'], bins: ['oiiotool'] },
+      }],
+      installed: [],
+      sources: [],
+      outdated: [],
+    });
+    await gotoMarketplace(page);
+
+    const card = page.locator('.marketplace-card[data-name="texture-pipeline"]');
+    await card.getByRole('button', { name: 'Install maya' }).click();
+
+    const modal = page.locator('.marketplace-detail-backdrop');
+    await expect(modal).toContainText('Requirements');
+    await expect(modal).toContainText('OPENAI_API_KEY · env');
+    await expect(modal).toContainText('reported only');
+    expect(installRequests).toHaveLength(0);
+
+    await modal.getByRole('button', { name: 'Install for maya' }).click();
+    await expect.poll(() => installRequests.length).toBe(1);
+    await expect(card.locator('.marketplace-card-chip-installed')).toBeVisible();
   });
 
   test('shows DCC filter chips and filters the catalog grid', async ({ page }) => {
@@ -358,6 +395,13 @@ test.describe('Marketplace Panel', () => {
   });
 
   test('opens detail modal on card click and shows package metadata', async ({ page }) => {
+    await page.route('**/marketplace-showcase.webp', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#0b1f45"/><path d="M180 600 560 220l310 270 250-210 300 320" fill="none" stroke="#16b9e6" stroke-width="36"/></svg>',
+      });
+    });
     await mockMarketplaceApi(page, {
       catalog: [
         {
@@ -369,6 +413,7 @@ test.describe('Marketplace Panel', () => {
           min_core_version: '0.15.0',
           maintainer: 'td-core',
           icon: '/missing-marketplace-icon.png',
+          showcase: '/marketplace-showcase.webp',
           url: 'https://github.com/dcc-mcp/maya-modeling',
           source_name: 'builtin',
           install: { type: 'git', url: 'https://github.com/dcc-mcp/maya-modeling.git' },
@@ -381,15 +426,19 @@ test.describe('Marketplace Panel', () => {
     await gotoMarketplace(page);
 
     const card = page.locator('.marketplace-card[data-name="maya-modeling"]');
+    await expect(card.locator('.marketplace-card-showcase')).toBeVisible();
+    await expect.poll(() => card.locator('.marketplace-card-showcase').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     await expect(card.locator('.marketplace-card-icon')).toBeVisible();
     await expect(card.locator('.marketplace-card-icon-fallback')).toHaveCount(0);
     await expect.poll(() => card.locator('.marketplace-card-icon').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
 
     // Click the card to open detail modal
-    await card.click();
+    await card.locator('.marketplace-card-media-trigger').click();
 
     const modal = page.locator('.marketplace-detail-modal');
     await expect(modal).toBeVisible();
+    await expect(modal.locator('.marketplace-detail-showcase img')).toBeVisible();
+    await expect.poll(() => modal.locator('.marketplace-detail-showcase img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     await expect(modal.locator('.marketplace-detail-icon')).toBeVisible();
     await expect(modal.locator('.marketplace-detail-icon-fallback')).toHaveCount(0);
     await expect.poll(() => modal.locator('.marketplace-detail-icon').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);

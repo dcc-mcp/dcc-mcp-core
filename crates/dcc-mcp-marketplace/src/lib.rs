@@ -45,7 +45,7 @@ pub use package::{
 };
 pub use path::{default_config_path, home_dir, marketplace_root, marketplace_root_or_default};
 pub use service::{MarketplaceService, default_sources_disabled, env_sources, path_component};
-pub use source::{builtin_source, dedupe_sources, normalise_source};
+pub use source::{builtin_source, dedupe_sources, normalise_source, resolve_catalog_asset_url};
 pub use types::{
     InstalledMarketplacePackage, MarketplaceHit, MarketplaceInspectResult,
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,

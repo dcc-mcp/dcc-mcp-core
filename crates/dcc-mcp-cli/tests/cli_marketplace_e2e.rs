@@ -187,6 +187,16 @@ fn marketplace_pack_and_publish_updates_catalog() {
         "skill/release-skill",
         "--tag",
         "extra",
+        "--showcase",
+        "docs/images/showcase.webp",
+        "--requires-env",
+        "RELEASE_TOKEN",
+        "--requires-bin",
+        "release-cli",
+        "--requires-python",
+        "release_skill",
+        "--requires-skill",
+        "dcc-base",
     ]);
     assert_eq!(published["action"], "created");
     assert_eq!(published["entry"]["name"], "release-skill");
@@ -194,6 +204,11 @@ fn marketplace_pack_and_publish_updates_catalog() {
     assert_eq!(published["entry"]["version"], "0.2.0");
     assert_eq!(published["entry"]["install"]["type"], "zip");
     assert_eq!(published["entry"]["install"]["sha256"], sha256);
+    assert_eq!(published["entry"]["showcase"], "docs/images/showcase.webp");
+    assert_eq!(
+        published["entry"]["requires"]["env"],
+        json!(["RELEASE_TOKEN"])
+    );
     let catalog =
         serde_json::from_str::<Value>(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
     assert_eq!(catalog["schemaVersion"], "1");
@@ -202,6 +217,14 @@ fn marketplace_pack_and_publish_updates_catalog() {
     assert_eq!(
         catalog["skills"][0]["source"]["skillRoots"],
         json!(["skill/release-skill"])
+    );
+    assert_eq!(
+        catalog["skills"][0]["showcase"],
+        "docs/images/showcase.webp"
+    );
+    assert_eq!(
+        catalog["skills"][0]["requires"]["bins"],
+        json!(["release-cli"])
     );
 
     let updated = run_json(&[
@@ -216,10 +239,55 @@ fn marketplace_pack_and_publish_updates_catalog() {
         &sha256,
         "--version",
         "0.3.0",
+        "--requires-env",
+        "UPDATED_RELEASE_TOKEN",
     ]);
     assert_eq!(updated["action"], "updated");
     assert_eq!(updated["count"], 1);
     assert_eq!(updated["entry"]["version"], "0.3.0");
+    let catalog =
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
+    assert_eq!(
+        catalog["skills"][0]["showcase"],
+        "docs/images/showcase.webp"
+    );
+    assert_eq!(
+        catalog["skills"][0]["requires"]["env"],
+        json!(["UPDATED_RELEASE_TOKEN"])
+    );
+    assert_eq!(
+        catalog["skills"][0]["requires"]["python"],
+        json!(["release_skill"])
+    );
+    assert_eq!(
+        catalog["skills"][0]["requires"]["skills"],
+        json!(["dcc-base"])
+    );
+
+    let updated_without_metadata = run_json(&[
+        "marketplace",
+        "publish",
+        &skill_dir_s,
+        "--catalog",
+        &catalog_s,
+        "--install-url",
+        "https://github.com/dcc-mcp/release-skill/releases/download/v0.4.0/release-skill.zip",
+        "--sha256",
+        &sha256,
+        "--version",
+        "0.4.0",
+    ]);
+    assert_eq!(updated_without_metadata["action"], "updated");
+    let catalog =
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
+    assert_eq!(
+        catalog["skills"][0]["requires"]["env"],
+        json!(["UPDATED_RELEASE_TOKEN"])
+    );
+    assert_eq!(
+        catalog["skills"][0]["showcase"],
+        "docs/images/showcase.webp"
+    );
 }
 
 #[test]
