@@ -648,13 +648,13 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 - **屏幕捕获** —— 全屏或单窗口（HWND `PrintWindow`）视口捕获，供 AI 视觉反馈。
 - **USD 集成** —— Universal Scene Description 读写桥。
 - **结构化遥测** —— 追踪、录制，可选 Prometheus `/metrics` 导出器。
-- **380+ 个公开 Python 符号** —— 通过顶层重导出提供；`_core.pyi` 是 stub-gen/dev 构建后的生成产物，不是手写源码。
+- **完整的公开 Python API** —— 通过顶层重导出提供；`_core.pyi` 是 stub-gen/dev 构建后的生成产物，不是手写源码。
 
 ---
 
-## 架构总览 —— 47 个 Workspace 包
+## 架构总览
 
-`dcc-mcp-core` 组织为 **47 个包的 Rust workspace**（46 个功能包 + `workspace-hack`）。大多数库 crate 通过 PyO3 / maturin 编译进原生 Python 扩展（`_core`），`dcc-mcp-cli`、`dcc-mcp-server` 与 tunnel 二进制也会作为面向用户的 release assets 发布。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
+`dcc-mcp-core` 是由根 `Cargo.toml` 定义成员的 Rust workspace。大多数库 crate 通过 PyO3 / maturin 编译进原生 Python 扩展（`_core`），`dcc-mcp-cli`、`dcc-mcp-server` 与 tunnel 二进制也会作为面向用户的 release assets 发布。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|
@@ -882,7 +882,7 @@ MIT —— 详情见 [LICENSE](LICENSE)。
 - [AGENTS.md](AGENTS.md) —— AI Agent 导航图（入口、决策表、Top traps）。
 - [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) —— Agent 详细规则、陷阱、代码风格与项目专属架构约束。
 - [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md) —— 完整 API skill 定义。
-- [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) —— 完整公开 API（380+ 符号）。
+- [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) —— 完整公开 API。
 - [`python/dcc_mcp_core/_core.pyi`](python/dcc_mcp_core/_core.pyi) —— 真实类型 stub（参数名、类型、签名）。
 - [`llms.txt`](llms.txt) —— LLM 优化的简洁 API 参考。
 - [`llms-full.txt`](llms-full.txt) —— LLM 优化的完整 API 参考。
