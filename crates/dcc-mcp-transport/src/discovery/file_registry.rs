@@ -561,9 +561,18 @@ impl FileRegistry {
                 port = entry.port,
                 "registering service"
             );
-            let (sentinel_path, sentinel_file) = self.create_sentinel(&key)?;
-            entry.sentinel_path = Some(sentinel_path);
-            self.sentinel_handles.insert(key.clone(), sentinel_file);
+            if self.sentinel_handles.contains_key(&key) {
+                // Re-registering a row owned by this process must reuse the
+                // existing sentinel handle. On Windows, opening the same file
+                // again and taking an exclusive lock is not re-entrant and
+                // would deadlock while this transaction still owns the global
+                // registry lock.
+                entry.sentinel_path = Some(self.sentinel_path_for(&key));
+            } else {
+                let (sentinel_path, sentinel_file) = self.create_sentinel(&key)?;
+                entry.sentinel_path = Some(sentinel_path);
+                self.sentinel_handles.insert(key.clone(), sentinel_file);
+            }
             self.services.insert(key, entry);
             Ok(((), true))
         })
