@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.25](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.24...v0.19.25) (2026-07-11)
+
+
+### Bug Fixes
+
+* reuse owned registry sentinel on republish ([#1870](https://github.com/dcc-mcp/dcc-mcp-core/issues/1870)) ([e2a819c](https://github.com/dcc-mcp/dcc-mcp-core/commit/e2a819c6d95a038d8e15258aa8db98dcde5e601c))
+
 ## [0.19.24](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.23...v0.19.24) (2026-07-11)
 
 
