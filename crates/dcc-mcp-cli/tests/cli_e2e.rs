@@ -394,6 +394,38 @@ fn local_search_without_query_lists_tools_for_dcc_filter() {
 }
 
 #[test]
+fn local_describe_uses_rest_for_loaded_tool_missing_from_tools_list() {
+    let fixture = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    let instance_short = entry.instance_id.to_string()[..8].to_string();
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), fixture.mcp_url());
+    file_registry.register(entry).unwrap();
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles_s = registry
+        .path()
+        .join("gateway-profiles.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
+    ];
+    let slug = format!("maya.{instance_short}.dynamic__run");
+    let describe = run_json_with_env(&["describe", &slug], &envs);
+    assert_eq!(describe["source"], "local_mcp");
+    assert_eq!(describe["tool"]["name"], "dynamic__run");
+    assert_eq!(describe["tool"]["inputSchema"]["required"][0], "name");
+}
+
+#[test]
 fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();
