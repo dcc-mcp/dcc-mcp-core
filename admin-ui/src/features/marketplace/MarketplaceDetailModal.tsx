@@ -47,6 +47,12 @@ export function MarketplaceDetailModal({
   const sourceLabel = entry.source_name ?? null;
   const sourceUrl = entry.source_url ?? null;
   const hasUrl = Boolean(entry.url);
+  const requirements = [
+    ...(entry.requires?.env ?? []).map((value) => `${value} · env`),
+    ...(entry.requires?.bins ?? []).map((value) => `${value} · bin`),
+    ...(entry.requires?.python ?? []).map((value) => `${value} · python`),
+    ...(entry.requires?.skills ?? []).map((value) => `${value} · skill`),
+  ];
 
   // Compatibility check: warn if min_core_version > current core version
   const compatWarning =
@@ -197,6 +203,20 @@ export function MarketplaceDetailModal({
                 {entry.tags.map((tag) => (
                   <code key={tag} className="marketplace-card-chip marketplace-card-chip-tag">
                     {tag}
+                  </code>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {requirements.length > 0 ? (
+            <div className="marketplace-detail-section">
+              <h4>{t('marketplace.detail.requirements')}</h4>
+              <p className="muted">{t('marketplace.detail.requirementsHint')}</p>
+              <div className="marketplace-detail-chip-row">
+                {requirements.map((requirement) => (
+                  <code key={requirement} className="marketplace-card-chip marketplace-card-chip-tag">
+                    {requirement}
                   </code>
                 ))}
               </div>

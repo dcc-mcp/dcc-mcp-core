@@ -88,6 +88,12 @@ format:
   "version": "0.1.0",
   "maintainer": "Author Name",
   "tags": ["modeling", "maya"],
+  "requires": {
+    "env": ["OPENAI_API_KEY"],
+    "bins": ["maketx"],
+    "python": ["MaterialX"],
+    "skills": ["openusd-validate"]
+  },
   "install": {
     "type": "git",
     "url": "https://github.com/user/my-extension",
@@ -97,3 +103,8 @@ format:
 ```
 
 Supported install types: `git`, `path`, `zip`.
+
+`requires` is declarative preflight metadata. The marketplace surfaces missing
+requirements, but never installs packages, binaries, credentials, or other
+skills. The extension must fail with an actionable message when a required
+dependency is unavailable at runtime.

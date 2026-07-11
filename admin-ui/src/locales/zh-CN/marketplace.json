@@ -69,6 +69,8 @@
   "detail.visitProject": "访问 →",
   "detail.compatibilityWarning": "⚠ 此包要求 dcc-mcp-core ≥ {min}。您当前版本为 {current}。部分功能可能无法正常工作。",
   "detail.noMaintainer": "—",
+  "detail.requirements": "依赖要求",
+  "detail.requirementsHint": "使用 Skill 前请单独安装或配置这些依赖；商城不会自动安装。",
   "filter.dccAll": "全部",
   "filter.dccLabel": "DCC：",
   "install.success": "✓ {name} 已安装到 {dcc}",

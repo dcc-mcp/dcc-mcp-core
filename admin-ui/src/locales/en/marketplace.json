@@ -69,6 +69,8 @@
   "detail.visitProject": "Visit →",
   "detail.compatibilityWarning": "⚠ This package requires dcc-mcp-core ≥ {min}. Your current version is {current}. Some features may not work correctly.",
   "detail.noMaintainer": "—",
+  "detail.requirements": "Requirements",
+  "detail.requirementsHint": "Install or configure these prerequisites separately before using the skill.",
   "filter.dccAll": "All",
   "filter.dccLabel": "DCC:",
   "install.success": "✓ {name} installed for {dcc}",

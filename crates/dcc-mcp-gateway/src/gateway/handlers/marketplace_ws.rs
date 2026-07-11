@@ -393,6 +393,7 @@ async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> S
                         "version": hit.entry.version,
                         "min_core_version": hit.entry.min_core_version,
                         "maintainer": hit.entry.maintainer,
+                        "requires": hit.entry.requires,
                         "source_name": hit.source.name,
                         "source_url": hit.source.url,
                     })
