@@ -20,7 +20,7 @@
   align-items: center;
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -40,7 +40,7 @@
 .command-center-aside {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   min-width: 0;
 }
 
@@ -112,7 +112,7 @@
 .command-status-cell {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 0.18rem;
   min-height: 5rem;
@@ -159,7 +159,7 @@
   align-items: stretch;
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 0.3rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -172,7 +172,7 @@
   appearance: none;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--muted-foreground);
   cursor: pointer;
   display: grid;
@@ -223,7 +223,7 @@
 .command-agent-prompt {
   background: color-mix(in srgb, var(--card) 84%, var(--muted));
   border: 1px solid color-mix(in srgb, var(--border) 84%, var(--primary));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   display: grid;
   gap: 0.75rem;
@@ -257,7 +257,7 @@
 .command-agent-prompt pre {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 0.78rem;
@@ -325,7 +325,7 @@
   align-items: center;
   background: color-mix(in srgb, var(--card) 84%, var(--muted));
   border: 1px solid color-mix(in srgb, var(--border) 88%, var(--command-accent));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   display: grid;
   gap: 0.75rem;
@@ -349,7 +349,7 @@
   align-items: center;
   background: color-mix(in srgb, var(--command-accent) 12%, var(--card));
   border: 1px solid color-mix(in srgb, var(--command-accent) 24%, var(--border));
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: color-mix(in srgb, var(--command-accent) 72%, var(--foreground));
   display: inline-flex;
   font-family: var(--font-mono);
@@ -444,7 +444,7 @@
 .command-aside-block > code {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -465,7 +465,7 @@
 .command-aside-summary div {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   display: grid;
   gap: 0.1rem;
   min-width: 0;
@@ -507,7 +507,7 @@
   align-items: center;
   background: color-mix(in srgb, var(--primary) 12%, var(--card));
   border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--border));
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--primary);
   display: inline-flex;
   font-family: var(--font-mono);
@@ -576,7 +576,7 @@
   align-items: center;
   background: color-mix(in srgb, var(--primary) 14%, var(--card));
   border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--primary);
   display: inline-flex;
   height: 2.2rem;
@@ -644,7 +644,7 @@
   align-items: center;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: inline-flex;
   gap: 0.25rem;
   padding: 0.25rem;
@@ -653,7 +653,7 @@
 .setup-mode {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--muted-foreground);
   cursor: pointer;
   font-size: 0.84rem;
@@ -696,7 +696,7 @@
 .setup-url-box code {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--foreground);
   flex: 1 1 auto;
   font-family: var(--font-mono);
@@ -723,7 +723,7 @@
 .ide-card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -749,7 +749,7 @@
 .ide-icon {
   background: #f8fafc;
   border: 1px solid var(--ring);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: inset 0 0 0 1px rgba(15, 20, 30, 0.04);
   display: block;
   height: 2.55rem;
@@ -765,7 +765,7 @@
 .ide-config-preview {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--foreground);
   flex: 1 1 auto;
   font-family: var(--font-mono);

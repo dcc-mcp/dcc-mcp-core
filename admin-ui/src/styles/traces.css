@@ -130,7 +130,7 @@
 .agent-swimlane-track {
   background: color-mix(in srgb, var(--muted) 82%, var(--card));
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   min-height: 2.1rem;
   min-width: 0;
   overflow: hidden;
@@ -276,7 +276,7 @@
   background: var(--muted);
   border: 1px solid var(--border);
   border-left: 3px solid color-mix(in srgb, var(--timeline-accent) 62%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 0.18rem;
   min-width: 0;

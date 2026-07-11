@@ -38,7 +38,8 @@
   --chart-3: #10b981;
   --chart-4: #059669;
   --chart-5: #047857;
-  --radius: 0.5rem;
+  /* Compact surface geometry; pills and circular controls keep their explicit radii. */
+  --radius: 0.25rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #0a0a0a;
   --sidebar-primary: #059669;
@@ -68,10 +69,10 @@
     'Segoe UI', Roboto, ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'Libre Baskerville', georgia, 'Times New Roman', serif;
   --font-mono: 'SF Mono', SFMono-Regular, 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
   /* OAI shadow scale. */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
@@ -260,7 +261,7 @@ select {
 .sidebar-preferences {
   background: color-mix(in srgb, var(--sidebar-accent) 76%, transparent);
   border: 1px solid var(--sidebar-border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 0;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -275,7 +276,7 @@ select {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--muted-foreground);
   display: grid;
   gap: 0.1rem;
@@ -395,7 +396,7 @@ select {
   align-items: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--muted-foreground);
   cursor: pointer;
   display: flex;
@@ -2206,7 +2207,7 @@ tbody tr:hover td {
   align-items: stretch;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: inset 3px 0 0 var(--instance-accent);
   display: grid;
   gap: 0.8rem;
@@ -2300,7 +2301,7 @@ tbody tr:hover td {
   align-items: center;
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--foreground);
   display: inline-flex;
   gap: 0.38rem;
@@ -2338,7 +2339,7 @@ tbody tr:hover td {
 .instance-detail-item {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 0.16rem;
   min-height: 3.0rem;
@@ -2380,7 +2381,7 @@ tbody tr:hover td {
 .instance-link-groups > span {
   background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 0.18rem;
   min-height: 3.45rem;
@@ -2446,7 +2447,7 @@ tbody tr:hover td {
   align-items: flex-start;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--foreground);
   display: grid;
   gap: 0.42rem;
@@ -2537,7 +2538,7 @@ tbody tr:hover td {
   --log-soft: rgba(154, 167, 184, 0.14);
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--foreground);
   cursor: pointer;
   display: grid;
@@ -2578,7 +2579,7 @@ tbody tr:hover td {
   background: color-mix(in oklab, var(--log-soft) 65%, transparent);
   border: 1px solid var(--border);
   border-left: 3px solid var(--log-accent);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   margin-bottom: 0.45rem;
@@ -2604,7 +2605,7 @@ tbody tr:hover td {
   background: var(--card);
   border: 1px solid var(--border);
   border-left: 4px solid var(--log-accent);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 

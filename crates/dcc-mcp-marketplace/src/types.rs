@@ -236,6 +236,7 @@ mod tests {
             policy: None,
             requires: None,
             icon: None,
+            showcase: None,
         };
         assert!(entry_targets_dcc(&entry, "Maya"));
         assert!(entry_targets_dcc(&entry, "BLENDER"));

@@ -163,11 +163,14 @@ the DCC-MCP marketplace catalog. It exposes the same capabilities as the CLI
 
 ![Admin Marketplace panel](../assets/admin-ui/admin-marketplace.png)
 
+![Admin Marketplace panel in light theme](../assets/admin-ui/admin-marketplace-light.png)
+
 ### Browse Tab
 
-The Browse tab displays available skill packages in a searchable catalog grid.
-Each card shows the package name, description, DCC type badges, current version,
-and an Install button.
+The Browse tab displays available skill packages in a searchable visual catalog.
+Cards use the package's pinned 16:9 workflow showcase when available, then keep
+the package name, description, DCC actions, version, and tags compact below it.
+The image falls back to the package or DCC icon when no showcase is published.
 
 Users can filter the catalog by:
 - **Search query**: text search across name, description, and tags.

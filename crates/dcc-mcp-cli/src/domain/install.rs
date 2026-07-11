@@ -542,6 +542,7 @@ mod tests {
             policy: None,
             requires: None,
             icon: None,
+            showcase: None,
         }
     }
 

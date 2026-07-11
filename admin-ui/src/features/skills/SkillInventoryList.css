@@ -64,7 +64,7 @@
   align-items: center;
   background: color-mix(in srgb, var(--skill-accent, var(--skill-brand)) 14%, var(--card));
   border: 1px solid color-mix(in srgb, var(--skill-accent, var(--skill-brand)) 30%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--skill-accent, var(--skill-brand));
   display: flex;
   flex: 0 0 auto;

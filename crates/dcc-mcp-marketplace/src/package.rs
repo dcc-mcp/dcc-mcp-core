@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
-use dcc_mcp_catalog::{CatalogEntry, CatalogInstall, CatalogPolicy};
+use dcc_mcp_catalog::{CatalogEntry, CatalogInstall, CatalogPolicy, CatalogRequirements};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -42,6 +42,11 @@ pub struct MarketplacePublishOptions {
     pub min_core_version: Option<String>,
     pub homepage_url: Option<String>,
     pub icon: Option<String>,
+    pub showcase: Option<String>,
+    pub requires_env: Vec<String>,
+    pub requires_bin: Vec<String>,
+    pub requires_python: Vec<String>,
+    pub requires_skill: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -98,6 +103,7 @@ pub fn publish_marketplace_package(
     options: MarketplacePublishOptions,
 ) -> Result<MarketplacePublishResult, MarketplaceError> {
     let skill_meta = read_skill_frontmatter(&options.package_dir)?;
+    let requirements = requirements_from_options(&options);
     let name = required_value(
         "name",
         options
@@ -151,8 +157,11 @@ pub fn publish_marketplace_package(
         policy: Some(CatalogPolicy {
             installation: "available".into(),
         }),
-        requires: None,
+        requires: requirements,
         icon: options.icon,
+        showcase: options
+            .showcase
+            .or_else(|| string_at(&skill_meta, &["metadata", "dcc-mcp", "showcase"])),
     };
     dcc_mcp_catalog::validate_entry(&entry)?;
 
@@ -371,6 +380,9 @@ fn marketplace_v1_entry_value(entry: &CatalogEntry) -> Result<Value, Marketplace
     if let Some(icon) = entry.icon.as_ref() {
         object.insert("icon".into(), Value::String(icon.clone()));
     }
+    if let Some(showcase) = entry.showcase.as_ref() {
+        object.insert("showcase".into(), Value::String(showcase.clone()));
+    }
     Ok(value)
 }
 
@@ -414,6 +426,7 @@ fn preserve_marketplace_v1_metadata(entry: &mut Value, existing: &Value) {
     let Some(existing_object) = existing.as_object() else {
         return;
     };
+    preserve_requirement_fields(entry_object, existing_object);
     for key in [
         "minCoreVersion",
         "maintainer",
@@ -422,6 +435,7 @@ fn preserve_marketplace_v1_metadata(entry: &mut Value, existing: &Value) {
         "requires",
         "docs",
         "icon",
+        "showcase",
         "license",
         "lifecycle",
         "replacedBy",
@@ -483,8 +497,13 @@ fn save_catalog_doc(path: &Path, catalog: &CatalogDoc) -> Result<(), Marketplace
 }
 
 fn upsert_entry(entries: &mut Vec<CatalogEntry>, entry: CatalogEntry) -> String {
+    let mut entry = entry;
     for existing in entries.iter_mut() {
         if existing.name == entry.name {
+            preserve_requirements(&mut entry.requires, existing.requires.as_ref());
+            if entry.showcase.is_none() {
+                entry.showcase.clone_from(&existing.showcase);
+            }
             *existing = entry;
             return "updated".to_string();
         }
@@ -563,6 +582,71 @@ fn merge_unique(first: Vec<String>, second: Vec<String>) -> Vec<String> {
     out
 }
 
+fn requirements_from_options(options: &MarketplacePublishOptions) -> Option<CatalogRequirements> {
+    let requirements = CatalogRequirements {
+        env: merge_unique(Vec::new(), options.requires_env.clone()),
+        bins: merge_unique(Vec::new(), options.requires_bin.clone()),
+        python: merge_unique(Vec::new(), options.requires_python.clone()),
+        skills: merge_unique(Vec::new(), options.requires_skill.clone()),
+    };
+    (!requirements.env.is_empty()
+        || !requirements.bins.is_empty()
+        || !requirements.python.is_empty()
+        || !requirements.skills.is_empty())
+    .then_some(requirements)
+}
+
+fn preserve_requirements(
+    incoming: &mut Option<CatalogRequirements>,
+    existing: Option<&CatalogRequirements>,
+) {
+    let Some(existing) = existing else {
+        return;
+    };
+    let Some(incoming) = incoming.as_mut() else {
+        *incoming = Some(existing.clone());
+        return;
+    };
+    if incoming.env.is_empty() {
+        incoming.env.clone_from(&existing.env);
+    }
+    if incoming.bins.is_empty() {
+        incoming.bins.clone_from(&existing.bins);
+    }
+    if incoming.python.is_empty() {
+        incoming.python.clone_from(&existing.python);
+    }
+    if incoming.skills.is_empty() {
+        incoming.skills.clone_from(&existing.skills);
+    }
+}
+
+fn preserve_requirement_fields(
+    incoming: &mut serde_json::Map<String, Value>,
+    existing: &serde_json::Map<String, Value>,
+) {
+    let Some(existing_requires) = existing.get("requires") else {
+        return;
+    };
+    let Some(incoming_requires) = incoming.get_mut("requires") else {
+        incoming.insert("requires".into(), existing_requires.clone());
+        return;
+    };
+    let (Some(incoming_requires), Some(existing_requires)) = (
+        incoming_requires.as_object_mut(),
+        existing_requires.as_object(),
+    ) else {
+        return;
+    };
+    for key in ["env", "bins", "python", "skills"] {
+        if !incoming_requires.contains_key(key)
+            && let Some(value) = existing_requires.get(key)
+        {
+            incoming_requires.insert(key.into(), value.clone());
+        }
+    }
+}
+
 fn required_value(kind: &str, value: Option<String>) -> Result<String, MarketplaceError> {
     value.ok_or_else(|| {
         MarketplaceError::CommandFailed(format!(
@@ -622,7 +706,7 @@ mod tests {
         fs::create_dir_all(&src).unwrap();
         fs::write(
             src.join("SKILL.md"),
-            "---\nname: my-skill\ndescription: Test skill\nmetadata:\n  dcc-mcp:\n    dcc: maya, blender\n    version: 0.1.0\n    tags: modeling, test\n---\n",
+            "---\nname: my-skill\ndescription: Test skill\nmetadata:\n  dcc-mcp:\n    dcc: maya, blender\n    version: 0.1.0\n    tags: modeling, test\n    showcase: docs/images/showcase.webp\n---\n",
         )
         .unwrap();
         let catalog_path = tmp.path().join("marketplace.json");
@@ -644,6 +728,11 @@ mod tests {
             min_core_version: Some("0.19.0".into()),
             homepage_url: None,
             icon: None,
+            showcase: None,
+            requires_env: vec!["MY_SKILL_TOKEN".into(), "MY_SKILL_TOKEN".into()],
+            requires_bin: vec!["my-skill-cli".into()],
+            requires_python: vec!["my_skill".into()],
+            requires_skill: vec!["dcc-base".into()],
         })
         .unwrap();
 
@@ -651,11 +740,54 @@ mod tests {
         assert_eq!(result.entry.name, "my-skill");
         assert_eq!(result.entry.dcc, vec!["maya", "blender"]);
         assert_eq!(result.entry.version.as_deref(), Some("0.1.0"));
+        assert_eq!(
+            result.entry.showcase.as_deref(),
+            Some("docs/images/showcase.webp")
+        );
+        let requires = result.entry.requires.as_ref().unwrap();
+        assert_eq!(requires.env, vec!["MY_SKILL_TOKEN"]);
+        assert_eq!(requires.bins, vec!["my-skill-cli"]);
+        assert_eq!(requires.python, vec!["my_skill"]);
+        assert_eq!(requires.skills, vec!["dcc-base"]);
         let text = fs::read_to_string(catalog_path).unwrap();
         assert!(text.contains("\"schemaVersion\": \"1\""));
         assert!(text.contains("\"skills\": ["));
         assert!(text.contains("\"minCoreVersion\": \"0.19.0\""));
         assert!(text.contains("\"source\": {"));
         assert!(text.contains("\"skillRoots\": ["));
+        assert!(text.contains("\"showcase\": \"docs/images/showcase.webp\""));
+        assert!(text.contains("\"MY_SKILL_TOKEN\""));
+    }
+
+    #[test]
+    fn typed_catalog_update_preserves_unset_requirements_and_showcase() {
+        let existing = serde_json::from_value(json!({
+            "name": "my-skill",
+            "description": "Existing",
+            "requires": {
+                "env": ["OLD_TOKEN"],
+                "bins": ["existing-cli"],
+                "python": ["existing_module"],
+                "skills": ["dcc-base"]
+            },
+            "showcase": "docs/images/existing.webp"
+        }))
+        .unwrap();
+        let incoming = serde_json::from_value(json!({
+            "name": "my-skill",
+            "description": "Updated",
+            "requires": { "env": ["NEW_TOKEN"] }
+        }))
+        .unwrap();
+        let mut entries = vec![existing];
+
+        assert_eq!(upsert_entry(&mut entries, incoming), "updated");
+        let entry = &entries[0];
+        let requires = entry.requires.as_ref().unwrap();
+        assert_eq!(requires.env, vec!["NEW_TOKEN"]);
+        assert_eq!(requires.bins, vec!["existing-cli"]);
+        assert_eq!(requires.python, vec!["existing_module"]);
+        assert_eq!(requires.skills, vec!["dcc-base"]);
+        assert_eq!(entry.showcase.as_deref(), Some("docs/images/existing.webp"));
     }
 }

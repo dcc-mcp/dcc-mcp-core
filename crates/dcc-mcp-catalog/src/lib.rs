@@ -73,6 +73,9 @@ pub struct CatalogEntry {
     /// Icon path or URL (e.g. `"icon.png"` for repo-relative, or an absolute URL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// 16:9 showcase image path relative to the repository root, or an absolute URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub showcase: Option<String>,
 }
 
 /// Installation policy attached to a marketplace package.
@@ -351,6 +354,10 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
           "additionalProperties": false
         },
         "icon":        { "type": "string" },
+        "showcase": {
+          "type": "string",
+          "pattern": "^(https?://[^\\s]+|[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*\\.(png|jpg|jpeg|webp|avif))$"
+        },
         "install": {
           "type": "object",
           "required": ["type"],
@@ -568,6 +575,7 @@ entries:
             policy: None,
             requires: None,
             icon: None,
+            showcase: None,
         }];
         let hits = search_hits(&entries, "maya");
         assert_eq!(hits.len(), 1);
@@ -724,6 +732,7 @@ entries:
             policy: None,
             requires: None,
             icon: None,
+            showcase: None,
         }
     }
 
@@ -780,6 +789,7 @@ entries:
                 instructions_url: Some("https://example.com/install.md".into()),
             }),
             icon: None,
+            showcase: None,
         };
         assert!(validate_entry(&entry).is_ok());
     }
@@ -811,6 +821,7 @@ entries:
                 instructions_url: None,
             }),
             icon: None,
+            showcase: None,
         };
         assert!(validate_entry(&entry).is_ok());
     }
@@ -890,6 +901,7 @@ entries:
                 instructions_url: None,
             }),
             icon: None,
+            showcase: None,
         };
         assert!(validate_entry(&entry).is_ok());
     }
@@ -910,8 +922,32 @@ entries:
             policy: None,
             requires: None,
             icon: Some("icon.png".into()),
+            showcase: None,
         };
         assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_load_and_validate_entry_with_showcase_passes() {
+        let entries = load_from_str(
+            r#"{
+              "skills": [{
+                "name": "showcase-skill",
+                "description": "A skill with a marketplace cover",
+                "showcase": "https://raw.githubusercontent.com/dcc-mcp/example/0123456789012345678901234567890123456789/docs/images/showcase.webp"
+              }]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].showcase.as_deref(),
+            Some(
+                "https://raw.githubusercontent.com/dcc-mcp/example/0123456789012345678901234567890123456789/docs/images/showcase.webp"
+            )
+        );
+        assert!(validate_entry(&entries[0]).is_ok());
     }
 
     #[test]

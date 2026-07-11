@@ -70,7 +70,7 @@
 .marketplace-summary-item {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 0.15rem;
   min-height: 4.25rem;
@@ -99,8 +99,9 @@
 
 .marketplace-grid {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-items: stretch;
+  gap: 1.15rem;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   margin-bottom: 1rem;
 }
 
@@ -110,6 +111,9 @@
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
@@ -120,34 +124,170 @@
 .marketplace-card:hover {
   border-color: var(--accent-line);
   box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+  transform: translateY(-3px);
+}
+
+.marketplace-card:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 30%, transparent), var(--shadow-md);
+  outline: none;
 }
 
 .marketplace-card-installed {
   border-color: rgba(56, 193, 114, 0.35);
 }
 
+.marketplace-card-media {
+  aspect-ratio: 16 / 9;
+  background: #07162f;
+  border: 0;
+  cursor: pointer;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  text-align: inherit;
+  width: 100%;
+}
+
+.marketplace-card-media:focus-visible {
+  box-shadow: inset 0 0 0 3px var(--ring);
+  outline: none;
+}
+
+.marketplace-card-showcase {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s cubic-bezier(0.2, 0.75, 0.2, 1);
+  width: 100%;
+}
+
+.marketplace-card:hover .marketplace-card-showcase {
+  transform: scale(1.025);
+}
+
+.marketplace-card-media-fallback {
+  align-items: center;
+  background:
+    radial-gradient(circle at 78% 18%, rgba(22, 185, 230, 0.28), transparent 34%),
+    linear-gradient(145deg, #0b1f45 0%, #07162f 58%, #102b54 100%);
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.marketplace-card-media-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 22px 22px;
+  inset: 0;
+  mask-image: linear-gradient(110deg, rgba(0, 0, 0, 0.8), transparent 76%);
+  position: absolute;
+}
+
+.marketplace-card-media-icon {
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.32));
+  height: 38%;
+  max-height: 76px;
+  max-width: 76px;
+  object-fit: contain;
+  position: relative;
+  width: 38%;
+  z-index: 1;
+}
+
+.marketplace-card-media-monogram {
+  align-items: center;
+  border: 1px solid rgba(103, 232, 249, 0.45);
+  border-radius: var(--radius-lg);
+  color: #dff8ff;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 800;
+  height: 72px;
+  justify-content: center;
+  position: relative;
+  width: 72px;
+  z-index: 1;
+}
+
+.marketplace-card-media-shade {
+  background: linear-gradient(180deg, transparent 44%, rgba(3, 10, 24, 0.72) 100%);
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.marketplace-card-media-meta {
+  align-items: center;
+  bottom: 0.65rem;
+  display: flex;
+  gap: 0.35rem;
+  left: 0.7rem;
+  position: absolute;
+  right: 0.7rem;
+  z-index: 3;
+}
+
+.marketplace-card-version,
+.marketplace-card-state {
+  backdrop-filter: blur(10px);
+  background: rgba(4, 12, 26, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #f4fbff;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.3rem 0.5rem;
+}
+
+.marketplace-card-state-installed {
+  background: rgba(5, 92, 70, 0.82);
+  border-color: rgba(110, 231, 183, 0.34);
+  margin-left: auto;
+}
+
+.marketplace-card-state-outdated {
+  background: rgba(146, 64, 14, 0.86);
+  border-color: rgba(253, 186, 116, 0.38);
+  margin-left: auto;
+}
+
+.marketplace-card-state-installed + .marketplace-card-state-outdated {
+  margin-left: 0;
+}
+
 .marketplace-card-body {
-  display: grid;
-  gap: 0.55rem;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.65rem;
   min-width: 0;
-  padding: 1rem 1.1rem 0.75rem;
+  padding: 0.95rem 1rem 1rem;
 }
 
 .marketplace-card-head {
   align-items: center;
   display: flex;
   gap: 0.65rem;
-  justify-content: space-between;
   min-width: 0;
 }
 
 .marketplace-card-icon,
 .marketplace-card-icon-fallback {
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   flex-shrink: 0;
-  height: 40px;
-  width: 40px;
+  height: 34px;
+  width: 34px;
 }
 
 .marketplace-card-icon {
@@ -160,17 +300,32 @@
   color: var(--muted-foreground);
   display: flex;
   font-family: var(--font-mono);
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   justify-content: center;
+}
+
+.marketplace-card-title-group {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
 }
 
 .marketplace-card-name {
   color: var(--foreground);
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 750;
   line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketplace-card-publisher {
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -179,24 +334,13 @@
 .marketplace-card-desc {
   color: var(--muted-foreground);
   font-size: 0.8125rem;
-  line-height: 1.45;
+  line-height: 1.5;
+  margin: 0;
+  min-height: 2.45rem;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-}
-
-.marketplace-card-meta {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.75rem;
-}
-
-.marketplace-card-meta-item {
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
 }
 
 .marketplace-card-chips {
@@ -282,6 +426,7 @@
   align-items: flex-start;
   display: grid;
   gap: 0.35rem;
+  margin-top: auto;
 }
 
 .marketplace-card-tags-label {
@@ -370,7 +515,7 @@
   display: flex;
   flex-direction: column;
   max-height: min(85vh, 640px);
-  max-width: 560px;
+  max-width: 720px;
   overflow-y: auto;
   padding: 1.5rem;
   width: 100%;
@@ -413,7 +558,7 @@
 
 .marketplace-detail-icon,
 .marketplace-detail-icon-fallback {
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
   height: 52px;
   width: 52px;
@@ -784,4 +929,82 @@
 .marketplace-tab-count-warn {
   background: rgba(245, 158, 11, 0.15);
   color: #d97706;
+}
+
+.marketplace-detail-showcase {
+  aspect-ratio: 16 / 9;
+  background: #07162f;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.1rem;
+  overflow: hidden;
+}
+
+.marketplace-detail-showcase img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.marketplace-detail-install-confirm {
+  background: color-mix(in srgb, var(--warn-soft) 64%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--border));
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.85rem;
+}
+
+.marketplace-detail-install-confirm p {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.marketplace-detail-install-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.marketplace-detail-install-cancel,
+.marketplace-detail-install-continue {
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.48rem 0.7rem;
+}
+
+.marketplace-detail-install-cancel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+}
+
+.marketplace-detail-install-continue {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: var(--primary-foreground);
+}
+
+@media (max-width: 720px) {
+  .marketplace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketplace-card,
+  .marketplace-card-showcase {
+    transition: none;
+  }
+
+  .marketplace-card:hover,
+  .marketplace-card:hover .marketplace-card-showcase {
+    transform: none;
+  }
 }

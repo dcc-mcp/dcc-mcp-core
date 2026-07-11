@@ -27,6 +27,7 @@ fn pinned_git_revision_marks_unchanged_version_as_outdated() {
         policy: None,
         requires: None,
         icon: None,
+        showcase: None,
     };
     let installed = InstalledMarketplacePackage {
         name: "test-skill".into(),
@@ -94,6 +95,7 @@ fn core_version_gate_rejects_too_new_or_invalid_requirements() {
         policy: None,
         requires: None,
         icon: None,
+        showcase: None,
     };
 
     assert!(matches!(
@@ -129,6 +131,7 @@ fn install_policy_rejects_unavailable_entries() {
         }),
         requires: None,
         icon: None,
+        showcase: None,
     };
     assert!(matches!(
         ensure_entry_installable(&entry),

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import './MarketplaceCard.css';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { MarketplaceEntry, InstalledMarketplacePackage } from '../../admin-types';
-import { Badge } from '../../components/ui/badge';
 import { resolveDccIcon } from '../../platform';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
@@ -16,7 +15,7 @@ export type MarketplaceCardProps = {
   onInstall: (entry: MarketplaceEntry, dcc: string) => void;
   onUninstall: (pkg: InstalledMarketplacePackage) => void;
   onUpdate?: (pkgName: string, dcc: string) => void;
-  onOpenDetail?: (entry: MarketplaceEntry) => void;
+  onOpenDetail: (entry: MarketplaceEntry) => void;
   /** Whether this installed package has a newer version available. */
   isOutdated?: boolean;
   t: Translator;
@@ -44,19 +43,66 @@ export function MarketplaceCard({
   const maintainer = entry.maintainer ?? undefined;
   const isInstalling = installingKeyName(installingKey) === entry.name;
   const [iconFailed, setIconFailed] = useState(false);
+  const [showcaseFailed, setShowcaseFailed] = useState(false);
   const dccIcon = entry.dcc.length === 1 ? resolveDccIcon(entry.dcc[0]) : null;
   const icon = entry.icon && !iconFailed ? entry.icon : dccIcon;
+  const showcase = entry.showcase && !showcaseFailed ? entry.showcase : null;
 
   return (
     <article
       className={`marketplace-card${isOutdated ? ' marketplace-card-outdated' : ''}`}
       data-name={entry.name}
-      role={onOpenDetail ? 'button' : undefined}
-      tabIndex={onOpenDetail ? 0 : undefined}
-      aria-label={onOpenDetail ? entry.name : undefined}
-      onClick={onOpenDetail ? () => onOpenDetail(entry) : undefined}
-      onKeyDown={onOpenDetail ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(entry); } } : undefined}
     >
+      <button
+        type="button"
+        className={`marketplace-card-media marketplace-card-media-trigger${showcase ? ' has-showcase' : ' is-fallback'}`}
+        aria-label={`${t('marketplace.card.detail')}: ${entry.name}`}
+        onClick={() => onOpenDetail(entry)}
+      >
+        {showcase ? (
+          <img
+            className="marketplace-card-showcase"
+            src={showcase}
+            alt=""
+            aria-hidden
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setShowcaseFailed(true)}
+          />
+        ) : (
+          <div className="marketplace-card-media-fallback" aria-hidden="true">
+            <span className="marketplace-card-media-grid" />
+            {icon ? (
+              <img
+                className="marketplace-card-media-icon"
+                src={icon}
+                alt=""
+                onError={() => setIconFailed(true)}
+              />
+            ) : (
+              <span className="marketplace-card-media-monogram">
+                {entry.name.charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="marketplace-card-media-shade" aria-hidden="true" />
+        <div className="marketplace-card-media-meta">
+          <span className="marketplace-card-version">v{version}</span>
+          {installedDccs.size > 0 ? (
+            <span className="marketplace-card-state marketplace-card-state-installed">
+              {t('marketplace.tab.installed')} {installedDccs.size}/{entry.dcc.length}
+            </span>
+          ) : null}
+          {isOutdated ? (
+            <span className="marketplace-card-state marketplace-card-state-outdated">
+              {t('marketplace.card.outdated')}
+            </span>
+          ) : null}
+        </div>
+      </button>
+
       <div className="marketplace-card-body">
         <div className="marketplace-card-head">
           {icon ? (
@@ -72,31 +118,19 @@ export function MarketplaceCard({
               {entry.name.charAt(0).toUpperCase()}
             </span>
           )}
-          <h3 className="marketplace-card-name" title={entry.name}>
-            {entry.name}
-          </h3>
+          <div className="marketplace-card-title-group">
+            <h3 className="marketplace-card-name" title={entry.name}>
+              {entry.name}
+            </h3>
+            {maintainer ? (
+              <span className="marketplace-card-publisher">{maintainer}</span>
+            ) : null}
+          </div>
         </div>
 
         <p className="marketplace-card-desc" title={entry.description}>
           {entry.description || t('marketplace.card.noDescription')}
         </p>
-
-        {isOutdated ? (
-          <Badge variant="outline" className="marketplace-card-outdated-badge">
-            {t('marketplace.card.outdated')}
-          </Badge>
-        ) : null}
-
-        <div className="marketplace-card-meta">
-          <span className="marketplace-card-meta-item">
-            {t('marketplace.card.version', { version })}
-          </span>
-          {maintainer ? (
-            <span className="marketplace-card-meta-item">
-              {t('marketplace.card.author', { author: maintainer })}
-            </span>
-          ) : null}
-        </div>
 
         {entry.dcc.length > 0 ? (
           <div className="marketplace-card-dcc-list">
@@ -167,14 +201,14 @@ export function MarketplaceCard({
           <div className="marketplace-card-tags">
             <span className="marketplace-card-tags-label">{t('marketplace.card.tags')}:</span>
             <div className="marketplace-card-chips">
-              {entry.tags.slice(0, 6).map((tag) => (
+              {entry.tags.slice(0, 3).map((tag) => (
                 <code key={tag} className="marketplace-card-chip marketplace-card-chip-tag">
                   {tag}
                 </code>
               ))}
-              {entry.tags.length > 6 ? (
+              {entry.tags.length > 3 ? (
                 <code className="marketplace-card-chip marketplace-card-chip-tag">
-                  +{entry.tags.length - 6}
+                  +{entry.tags.length - 3}
                 </code>
               ) : null}
             </div>

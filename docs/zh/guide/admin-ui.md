@@ -135,10 +135,13 @@ vx git diff --check
 
 ![Admin Marketplace 面板](../../assets/admin-ui/admin-marketplace.png)
 
+![亮色主题下的 Admin Marketplace 面板](../../assets/admin-ui/admin-marketplace-light.png)
+
 ### 浏览标签页
 
-浏览标签页以可搜索的目录网格展示可用技能包。每个卡片显示：
-包名、描述、DCC 类型徽章、当前版本和安装按钮。
+浏览标签页以可搜索的视觉目录展示可用技能包。卡片会优先显示随固定
+`source.ref` 发布的 16:9 工作流展示图，并在下方紧凑呈现包名、描述、
+DCC 操作、版本和标签；未发布展示图时自动回退到包或 DCC 图标。
 
 用户可通过以下方式筛选目录：
 - **搜索查询**：按名称、描述和标签进行文本搜索。
