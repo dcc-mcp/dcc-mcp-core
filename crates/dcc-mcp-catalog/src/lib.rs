@@ -91,6 +91,12 @@ pub struct CatalogRequirements {
     /// Required executable names that must be available on PATH.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bins: Vec<String>,
+    /// Required Python package or import-module names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub python: Vec<String>,
+    /// Required DCC-MCP skill names supplied by another package or adapter.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<String>,
 }
 
 /// Installation metadata for a marketplace catalog entry.
@@ -338,7 +344,9 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
           "type": "object",
           "properties": {
             "env": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-            "bins": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+            "bins": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "python": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "skills": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
           },
           "additionalProperties": false
         },
@@ -640,7 +648,12 @@ entries:
       "skillRoots": ["skill/maya-rig-tools"]
     },
     "policy": { "installation": "available" },
-    "requires": { "env": ["RIG_TOKEN"], "bins": ["rigctl"] }
+    "requires": {
+      "env": ["RIG_TOKEN"],
+      "bins": ["rigctl"],
+      "python": ["MaterialX"],
+      "skills": ["maya-rigging"]
+    }
   }]
 }
 "#;
@@ -662,6 +675,20 @@ entries:
                 .as_ref()
                 .map(|requires| requires.env.as_slice()),
             Some(["RIG_TOKEN".to_string()].as_slice())
+        );
+        assert_eq!(
+            entry
+                .requires
+                .as_ref()
+                .map(|requires| requires.python.as_slice()),
+            Some(["MaterialX".to_string()].as_slice())
+        );
+        assert_eq!(
+            entry
+                .requires
+                .as_ref()
+                .map(|requires| requires.skills.as_slice()),
+            Some(["maya-rigging".to_string()].as_slice())
         );
         assert_eq!(
             entry

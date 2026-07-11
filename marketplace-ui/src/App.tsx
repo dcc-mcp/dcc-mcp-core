@@ -3,6 +3,16 @@ import { locales } from './locales';
 
 type Lang = 'en' | 'zh';
 
+function requirementLabels(entry: any | null): string[] {
+  if (!entry?.requires) return [];
+  return [
+    ...(entry.requires.env || []).map((value: string) => `${value} · env`),
+    ...(entry.requires.bins || []).map((value: string) => `${value} · bin`),
+    ...(entry.requires.python || []).map((value: string) => `${value} · python`),
+    ...(entry.requires.skills || []).map((value: string) => `${value} · skill`),
+  ];
+}
+
 export default function App() {
   const [lang, setLang] = useState<Lang>(() => {
     const navLang = navigator.language;
@@ -369,6 +379,8 @@ export default function App() {
       </div>
     );
   }
+
+  const detailRequirements = requirementLabels(detailEntry);
 
   return (
     <div className="marketplace-container">
@@ -764,6 +776,17 @@ export default function App() {
                   ))}
                 </div>
               </div>
+              {detailRequirements.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t('detail.requirements')}</h4>
+                  <p className="text-slate-500 text-sm mt-1">{t('detail.requirementsHint')}</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {detailRequirements.map((requirement: string) => (
+                      <code key={requirement} className="px-2.5 py-1 rounded bg-amber-50 text-amber-800 text-xs">{requirement}</code>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

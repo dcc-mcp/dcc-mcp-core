@@ -69,6 +69,8 @@
   "detail.visitProject": "アクセス →",
   "detail.compatibilityWarning": "⚠ このパッケージは dcc-mcp-core ≥ {min} が必要です。現在のバージョンは {current} です。一部の機能が正常に動作しない可能性があります。",
   "detail.noMaintainer": "—",
+  "detail.requirements": "依存要件",
+  "detail.requirementsHint": "Skill を使用する前に、これらの依存関係を別途インストールまたは設定してください。",
   "filter.dccAll": "すべて",
   "filter.dccLabel": "DCC:",
   "install.success": "✓ {name} を {dcc} にインストールしました",

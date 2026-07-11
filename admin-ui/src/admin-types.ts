@@ -1271,6 +1271,12 @@ export type MarketplaceEntry = {
   version?: string | null;
   min_core_version?: string | null;
   maintainer?: string | null;
+  requires?: {
+    env?: string[];
+    bins?: string[];
+    python?: string[];
+    skills?: string[];
+  } | null;
   icon?: string | null;
   source_name?: string;
   source_url?: string;
