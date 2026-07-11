@@ -3,6 +3,7 @@ import './MarketplaceCard.css';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import type { MarketplaceEntry, InstalledMarketplacePackage } from '../../admin-types';
 import { Badge } from '../../components/ui/badge';
+import { resolveDccIcon } from '../../platform';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
@@ -43,6 +44,8 @@ export function MarketplaceCard({
   const maintainer = entry.maintainer ?? undefined;
   const isInstalling = installingKeyName(installingKey) === entry.name;
   const [iconFailed, setIconFailed] = useState(false);
+  const dccIcon = entry.dcc.length === 1 ? resolveDccIcon(entry.dcc[0]) : null;
+  const icon = entry.icon && !iconFailed ? entry.icon : dccIcon;
 
   return (
     <article
@@ -56,11 +59,12 @@ export function MarketplaceCard({
     >
       <div className="marketplace-card-body">
         <div className="marketplace-card-head">
-          {entry.icon && !iconFailed ? (
+          {icon ? (
             <img
               className="marketplace-card-icon"
-              src={entry.icon}
-              alt={entry.name}
+              src={icon}
+              alt=""
+              aria-hidden
               onError={() => setIconFailed(true)}
             />
           ) : (

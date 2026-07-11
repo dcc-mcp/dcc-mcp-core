@@ -152,6 +152,9 @@ test.describe('Marketplace Panel', () => {
     await expect(page.getByRole('tab', { name: 'Sources' })).toHaveCount(1);
     await expect(page.getByRole('tab', { name: /Installed\\d/ })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: /Sources\\d/ })).toHaveCount(0);
+    const crossDccCard = panel.locator('.marketplace-card[data-name="cross-dcc-utils"]');
+    await expect(crossDccCard.locator('.marketplace-card-icon')).toHaveCount(0);
+    await expect(crossDccCard.locator('.marketplace-card-icon-fallback')).toHaveText('C');
   });
 
   test('shows a localized gateway diagnostic when catalog returns HTML', async ({ page }) => {
@@ -365,6 +368,7 @@ test.describe('Marketplace Panel', () => {
           version: '2.1.0',
           min_core_version: '0.15.0',
           maintainer: 'td-core',
+          icon: '/missing-marketplace-icon.png',
           url: 'https://github.com/dcc-mcp/maya-modeling',
           source_name: 'builtin',
           install: { type: 'git', url: 'https://github.com/dcc-mcp/maya-modeling.git' },
@@ -376,11 +380,19 @@ test.describe('Marketplace Panel', () => {
     });
     await gotoMarketplace(page);
 
+    const card = page.locator('.marketplace-card[data-name="maya-modeling"]');
+    await expect(card.locator('.marketplace-card-icon')).toBeVisible();
+    await expect(card.locator('.marketplace-card-icon-fallback')).toHaveCount(0);
+    await expect.poll(() => card.locator('.marketplace-card-icon').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+
     // Click the card to open detail modal
-    await page.locator('.marketplace-card[data-name="maya-modeling"]').click();
+    await card.click();
 
     const modal = page.locator('.marketplace-detail-modal');
     await expect(modal).toBeVisible();
+    await expect(modal.locator('.marketplace-detail-icon')).toBeVisible();
+    await expect(modal.locator('.marketplace-detail-icon-fallback')).toHaveCount(0);
+    await expect.poll(() => modal.locator('.marketplace-detail-icon').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     await expect(modal.locator('.marketplace-detail-name')).toContainText('maya-modeling');
     await expect(modal.locator('.marketplace-detail-desc')).toContainText(
       'A collection of modeling tools for Maya.',

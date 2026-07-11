@@ -161,6 +161,8 @@ the DCC-MCP marketplace catalog. It exposes the same capabilities as the CLI
 `marketplace` subcommand through three tabs: **Browse**, **Installed**, and
 **Sources**.
 
+![Admin Marketplace panel](../assets/admin-ui/admin-marketplace.png)
+
 ### Browse Tab
 
 The Browse tab displays available skill packages in a searchable catalog grid.

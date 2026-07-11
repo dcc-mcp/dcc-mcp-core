@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { AdminApiError, adminApiBase, adminJsonResponse, adminOkResponse } from './index';
+import {
+  AdminApiError,
+  DCC_ICON_FALLBACK,
+  DCC_ICON_MAP,
+  adminApiBase,
+  adminJsonResponse,
+  adminOkResponse,
+  resolveDccIcon,
+} from './index';
 
 const originalHref = window.location.href;
 
@@ -19,6 +27,43 @@ function mockLocation(href: string) {
 
 afterEach(() => {
   mockLocation(originalHref);
+});
+
+describe('resolveDccIcon', () => {
+  it.each([
+    'maya',
+    'blender',
+    'houdini',
+    '3dsmax',
+    'c4d',
+    'photoshop',
+    'zbrush',
+    'unreal',
+    'unity',
+    'figma',
+    'nuke',
+    'substance_painter',
+    'gimp',
+    'inkscape',
+    'krita',
+  ])('resolves the %s icon', (dcc) => {
+    expect(resolveDccIcon(dcc)).toBe(DCC_ICON_MAP[dcc]);
+  });
+
+  it.each([
+    ['3Ds Max', '3dsmax'],
+    ['Cinema-4D', 'c4d'],
+    ['PS', 'photoshop'],
+    ['UE5', 'unreal'],
+    ['Unreal Engine', 'unreal'],
+    ['Substance Painter', 'substance_painter'],
+  ])('normalizes %s to %s', (alias, canonical) => {
+    expect(resolveDccIcon(alias)).toBe(DCC_ICON_MAP[canonical]);
+  });
+
+  it.each(['', 'notmaya', 'custom-host'])('uses the fallback for %s', (dcc) => {
+    expect(resolveDccIcon(dcc)).toBe(DCC_ICON_FALLBACK);
+  });
 });
 
 describe('adminApiBase', () => {

@@ -133,6 +133,8 @@ vx git diff --check
 它与 CLI `marketplace` 子命令共享同一套后端能力，通过三个标签页展现：
 **浏览（Browse）**、**已安装（Installed）** 和 **来源（Sources）**。
 
+![Admin Marketplace 面板](../../assets/admin-ui/admin-marketplace.png)
+
 ### 浏览标签页
 
 浏览标签页以可搜索的目录网格展示可用技能包。每个卡片显示：
