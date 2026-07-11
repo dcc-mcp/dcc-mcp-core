@@ -219,6 +219,39 @@ def _wait_gateway_ready(host: str, port: int, *, timeout_secs: float, probe_time
     return False
 
 
+def _wait_managed_gateway_ready(
+    host: str,
+    port: int,
+    *,
+    registry_dir: str | None,
+    minimum_version: str,
+    timeout_secs: float,
+    probe_timeout: float = 0.5,
+) -> bool:
+    """Wait for a healthy gateway with a formal ownership sentinel.
+
+    A healthy port alone is insufficient during takeover: an older guardian
+    can win the bind race and make the endpoint look ready. The Rust gateway
+    sentinel includes process ownership fields that the temporary Python
+    challenger row deliberately lacks.
+    """
+    deadline = time.time() + max(timeout_secs, 0.2)
+    while time.time() < deadline:
+        managed_version = _read_managed_gateway_version_from_registry(
+            registry_dir,
+            gateway_host=host,
+            gateway_port=port,
+        )
+        version_is_acceptable = managed_version is not None and not _is_newer_version(
+            minimum_version,
+            managed_version,
+        )
+        if version_is_acceptable and _is_healthy(host, port, timeout=probe_timeout):
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def _resolve_gateway_persist(gateway_persist: bool | None) -> bool:
     if gateway_persist is not None:
         return bool(gateway_persist)
@@ -365,7 +398,13 @@ def _try_version_takeover(
 
     if not acquired:
         # Another process is spawning — wait for it.
-        if _wait_gateway_ready(gateway_host, gateway_port, timeout_secs=timeout_secs):
+        if _wait_managed_gateway_ready(
+            gateway_host,
+            gateway_port,
+            registry_dir=str(registry_path),
+            minimum_version=our_version,
+            timeout_secs=timeout_secs,
+        ):
             return {"ok": True, "reason": "takeover_spawned_by_peer"}
         return {"ok": False, "reason": "takeover_lock_in_progress_timeout"}
 
@@ -391,7 +430,13 @@ def _try_version_takeover(
         except Exception as exc:
             return {"ok": False, "reason": "takeover_spawn_failed", "error": str(exc), "command": cmd}
 
-        if _wait_gateway_ready(gateway_host, gateway_port, timeout_secs=timeout_secs):
+        if _wait_managed_gateway_ready(
+            gateway_host,
+            gateway_port,
+            registry_dir=str(registry_path),
+            minimum_version=our_version,
+            timeout_secs=timeout_secs,
+        ):
             return {
                 "ok": True,
                 "reason": "version_takeover_spawned",
@@ -402,7 +447,7 @@ def _try_version_takeover(
                 "new_version": our_version,
             }
 
-        return {"ok": False, "reason": "takeover_spawn_timeout", "command": cmd}
+        return {"ok": False, "reason": "takeover_managed_ready_timeout", "command": cmd}
     finally:
         launch_lock.release()
 
@@ -605,6 +650,19 @@ class GatewayDaemonGuardian:
 
         if _is_healthy(self.gateway_host, self.gateway_port, timeout=self.probe_timeout_secs):
             self._consecutive_failures = 0
+            takeover_result = _try_version_takeover(
+                gateway_host=self.gateway_host,
+                gateway_port=self.gateway_port,
+                registry_dir=self.registry_dir,
+                dcc_type=self.dcc_type,
+                timeout_secs=self.restart_timeout_secs,
+                gateway_persist=None,
+                gateway_idle_timeout_secs=None,
+                server_bin=None,
+            )
+            if takeover_result is not None:
+                self._restart_attempts += 1
+                return self._publish(takeover_result)
             return self._publish({"ok": True, "reason": "healthy", "consecutive_failures": 0})
 
         self._consecutive_failures += 1
@@ -836,6 +894,49 @@ def _read_gateway_version_from_registry(
                 version = entry.get("version")
                 if isinstance(version, str):
                     return version
+    return None
+
+
+def _read_managed_gateway_version_from_registry(
+    registry_dir: str | None,
+    *,
+    gateway_host: str,
+    gateway_port: int,
+) -> str | None:
+    """Return the version only for a process-owned Rust gateway sentinel."""
+    import json as _json
+
+    try:
+        services_file = _resolve_registry_dir(registry_dir) / "services.json"
+        raw = services_file.read_text(encoding="utf-8")
+        data = _json.loads(raw) if raw.strip() else []
+    except Exception:
+        return None
+
+    entries: list[object]
+    if isinstance(data, dict):
+        sentinel_key = f"__gateway__:{gateway_host}:{gateway_port}"
+        entries = [data.get(sentinel_key)]
+    elif isinstance(data, list):
+        entries = data
+    else:
+        return None
+
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("dcc_type") != "__gateway__":
+            continue
+        if entry.get("host") != gateway_host:
+            continue
+        try:
+            if int(entry.get("port", 0)) != int(gateway_port):
+                continue
+            pid = int(entry.get("pid", 0))
+        except (TypeError, ValueError):
+            continue
+        instance_id = entry.get("instance_id")
+        version = entry.get("version")
+        if pid > 0 and isinstance(instance_id, str) and instance_id and isinstance(version, str):
+            return version
     return None
 
 
