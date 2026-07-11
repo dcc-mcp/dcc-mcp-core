@@ -190,6 +190,7 @@ pub async fn call_local(
     instance_id: Option<String>,
     arguments: Value,
     meta: Option<Value>,
+    timeout: Duration,
 ) -> anyhow::Result<Value> {
     let route = resolve_tool_route(
         &registry_dir,
@@ -197,7 +198,7 @@ pub async fn call_local(
         dcc_type.as_deref(),
         instance_id.as_deref(),
     )?;
-    let gateway = HttpGateway::default();
+    let gateway = HttpGateway::with_timeout(timeout);
     let result = mcp_call_tool(
         &gateway,
         &local_instance::mcp_url(&route.entry),
