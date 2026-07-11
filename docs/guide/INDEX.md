@@ -3,6 +3,18 @@
 Quick-reference index for the `docs/guide/` directory. Use this to find the right
 document without scanning every file.
 
+Documentation contract:
+
+- Keep onboarding and one working quick start in `README.md` and
+  `getting-started.md`.
+- Keep CLI flags and command behavior in `cli-reference.md`.
+- Keep gateway and REST request contracts in `gateway.md` and
+  `rest-api-surface.md`.
+- Keep API details next to the relevant guide or under `docs/api/`.
+- Treat `Cargo.toml`, package metadata, and generated stubs as sources of truth;
+  do not copy volatile package counts, symbol counts, or version numbers into
+  navigation pages.
+
 ## AI Agent Quick Path
 
 **Start here if you're an AI agent** — read these documents in order:
@@ -57,6 +69,14 @@ document without scanning every file.
 | [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
 | [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |
 | [adapter-install-lifecycle.md](adapter-install-lifecycle.md) | Import-light adapter install/uninstall helpers for registry query, sidecar stop, and Windows native-file lock handling |
+
+## Operator & deployment
+
+| Document | Purpose |
+|----------|---------|
+| [cli-reference.md](cli-reference.md) | Canonical CLI commands, flags, profiles, install, marketplace, and update behavior |
+| [gateway-diagnostics.md](gateway-diagnostics.md) | Gateway health, readiness, registry, contention, and failure diagnosis |
+| [production-deployment.md](production-deployment.md) | Deployment checklist, probes, logging, and monitoring |
 
 ## Core Subsystems
 

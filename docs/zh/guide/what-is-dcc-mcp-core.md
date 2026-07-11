@@ -67,7 +67,7 @@ flowchart LR
 
 ## 架构
 
-仓库是一个 43 个包的 Rust workspace（42 个功能包 + `workspace-hack`；根 `Cargo.toml` 是成员列表的唯一来源），由 maturin 编译成单一 Python 扩展 `dcc_mcp_core._core`：
+仓库是一个由根 `Cargo.toml` 定义成员的 Rust workspace，由 maturin 编译成单一 Python 扩展 `dcc_mcp_core._core`：
 
 ```
 dcc-mcp-core/
