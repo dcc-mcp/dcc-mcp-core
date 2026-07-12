@@ -5,6 +5,21 @@ use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 pub use super::relay_registration::RelaySourceConfig;
 
+fn official_update_manifest_url() -> Option<String> {
+    let platform = if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        "windows-x86_64"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "linux-x86_64"
+    } else if cfg!(target_os = "macos") {
+        "macos-universal2"
+    } else {
+        return None;
+    };
+    Some(format!(
+        "https://github.com/dcc-mcp/dcc-mcp-core/releases/latest/download/dcc-mcp-update-manifest-{platform}.json"
+    ))
+}
+
 /// Admin persistence configuration (SQLite + skill-path reload hook).
 ///
 /// Grouped to satisfy the Open/Closed Principle: adding new admin-persist
@@ -198,8 +213,9 @@ pub struct GatewayConfig {
     ///   }
     /// }
     /// ```
-    /// `None` (default) disables the `/v1/update/*` endpoints (returns 501).
-    /// Override with `DCC_MCP_UPDATE_MANIFEST_URL`.
+    /// Supported release platforms default to the official GitHub release
+    /// manifest. Override with `DCC_MCP_UPDATE_MANIFEST_URL`; explicit `None`
+    /// disables the `/v1/update/*` endpoints (returns 501).
     pub update_manifest_url: Option<String>,
 
     /// Keep the standalone gateway daemon alive even when no backend
@@ -261,10 +277,35 @@ impl Default for GatewayConfig {
             health_check_failures: 2,
             admin_persist: AdminPersistConfig::default(),
             auth: super::security::GatewayAuth::disabled(),
-            update_manifest_url: None,
+            update_manifest_url: std::env::var("DCC_MCP_UPDATE_MANIFEST_URL")
+                .ok()
+                .or_else(official_update_manifest_url),
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
             semantic_search_enabled: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::official_update_manifest_url;
+
+    #[test]
+    fn official_update_manifest_targets_latest_release() {
+        let url = official_update_manifest_url();
+        if cfg!(any(
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            target_os = "macos"
+        )) {
+            assert!(
+                url.unwrap().starts_with(
+                    "https://github.com/dcc-mcp/dcc-mcp-core/releases/latest/download/"
+                )
+            );
+        } else {
+            assert!(url.is_none());
         }
     }
 }

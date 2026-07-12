@@ -1026,19 +1026,20 @@ fn update_check_auto_starts_builtin_local_gateway() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !output.status.success(),
-        "manifest-free gateway should return a structured update error"
-    );
+    assert!(output.status.success(), "{stderr}");
     assert!(
         stderr.contains("auto-started gateway"),
         "update check should auto-start the local gateway before querying updates: {stderr}"
     );
     let update: Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(update["status"], "not_configured");
-    assert_eq!(update["error"], "update_manifest_url_not_configured");
-    assert_eq!(update["binary_name"], "dcc-mcp-server");
     assert_eq!(update["current_version"], "0.0.0");
+    assert_eq!(update["update_available"], true);
+    assert!(
+        update["download_url"]
+            .as_str()
+            .unwrap()
+            .contains("dcc-mcp-server")
+    );
 }
 
 #[test]
