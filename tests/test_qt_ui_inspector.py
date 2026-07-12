@@ -116,9 +116,9 @@ class TestRegisterQtUiInspector:
         register_qt_ui_inspector(server)
         handler = server.handlers["qt_ui_inspector__list_windows"]
         # dict form
-        r_dict = handler({"include_hidden": True})
+        r_dict = handler({"include_hidden": True, "_meta": {"trace_id": "dict"}})
         # json-string form
-        r_json = handler('{"include_hidden": true}')
+        r_json = handler('{"include_hidden": true, "_meta": {"trace_id": "json"}}')
         # Both must fail with qt-binding-unavailable (Qt is forced missing)
         _assert_unavailable(r_dict)
         _assert_unavailable(r_json)
