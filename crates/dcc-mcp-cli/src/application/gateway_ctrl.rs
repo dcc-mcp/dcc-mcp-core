@@ -153,8 +153,22 @@ pub async fn gateway_stop(
         }
     }
 
+    prune_stopped_gateway_registry(args)?;
     gateway_ensure::remove_pidfile(Some(&args.pidfile));
     Ok(gateway_status(args).await)
+}
+
+fn prune_stopped_gateway_registry(args: &GatewayCtrlArgs) -> anyhow::Result<usize> {
+    let registry = FileRegistry::new(args.registry_dir.clone()).with_context(|| {
+        format!(
+            "opening gateway FileRegistry at {} after shutdown",
+            args.registry_dir.display()
+        )
+    })?;
+    let (_, evicted) = registry
+        .read_alive()
+        .context("pruning stopped gateway sentinel rows")?;
+    Ok(evicted)
 }
 
 /// Query the gateway status: health check + PID liveness.
@@ -490,6 +504,33 @@ mod tests {
         registry.register(sentinel).unwrap();
 
         verify_gateway_pid_ownership(&args, pid).unwrap();
+    }
+
+    #[test]
+    fn stopped_gateway_registry_prunes_dead_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = gateway_ctrl_args(
+            "127.0.0.1".to_string(),
+            19765,
+            Some(dir.path().to_path_buf()),
+            None,
+        );
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
+        sentinel.pid = Some(u32::MAX);
+        sentinel
+            .metadata
+            .insert("gateway_process_pid".to_string(), u32::MAX.to_string());
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(sentinel).unwrap();
+        drop(registry);
+
+        assert_eq!(prune_stopped_gateway_registry(&args).unwrap(), 1);
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        assert!(
+            registry
+                .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+                .is_empty()
+        );
     }
 
     #[test]
