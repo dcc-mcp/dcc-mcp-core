@@ -439,10 +439,11 @@ enum GatewayDaemonAction {
 }
 
 pub async fn run() -> anyhow::Result<()> {
+    apply_staged_update();
     run_with_args(Args::parse()).await
 }
 
-async fn run_with_args(args: Args) -> anyhow::Result<()> {
+fn apply_staged_update() {
     // Apply any staged binary update before running commands (CLI restart
     // is the user's next invocation after `update apply`).
     match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
@@ -450,7 +451,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         Ok(false) => { /* no update was staged */ }
         Err(e) => eprintln!("warning: failed to apply staged binary update: {e}"),
     }
+}
 
+async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let Args {
         base_url,
         gateway,
