@@ -11,6 +11,7 @@ import logging
 from typing import Any
 from typing import Callable
 
+from dcc_mcp_core.admin_tools import register_admin_tools
 from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
 from dcc_mcp_core.feedback import register_feedback_tool
 from dcc_mcp_core.introspect import register_introspect_tools
@@ -29,6 +30,7 @@ def register_all_builtin_skills(
     dcc_window_handle: int | None = None,
     dcc_window_title: str | None = None,
     gateway_failover_resolver: Callable[[], dict[str, Any]] | None = None,
+    reload_skills: Callable[[], int] | None = None,
     skills: list[Any] | None = None,
 ) -> None:
     """Register all standard built-in tools on *server*.
@@ -52,6 +54,9 @@ def register_all_builtin_skills(
     populated set (registration is idempotent).
     """
     logger.debug("[%s] Registering all built-in skills", dcc_name)
+
+    if reload_skills is not None:
+        register_admin_tools(server, dcc_name=dcc_name, reload_skills=reload_skills)
 
     # 1. Diagnostics (audit log, metrics, screenshot, gateway failover)
     register_diagnostic_mcp_tools(
