@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.27](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.26...v0.19.27) (2026-07-12)
+
+
+### Bug Fixes
+
+* keep update e2e offline ([#1878](https://github.com/dcc-mcp/dcc-mcp-core/issues/1878)) ([e72bcbc](https://github.com/dcc-mcp/dcc-mcp-core/commit/e72bcbc6fbe677e3d037468407d3a9bb89ec3fe3))
+
 ## [0.19.26](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.25...v0.19.26) (2026-07-12)
 
 
