@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.26](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.25...v0.19.26) (2026-07-12)
+
+
+### Features
+
+* enable cli self updates by default ([#1875](https://github.com/dcc-mcp/dcc-mcp-core/issues/1875)) ([a715828](https://github.com/dcc-mcp/dcc-mcp-core/commit/a715828480a9927855c750900b94595c92a67362))
+* modernize marketplace cards ([a856d6a](https://github.com/dcc-mcp/dcc-mcp-core/commit/a856d6a78b88a6f671fb47e906640a5940759bdb))
+* unify admin dcc icons ([7df20e8](https://github.com/dcc-mcp/dcc-mcp-core/commit/7df20e82fa9eddce5a53fbca1f1a573ba5458232))
+
+
+### Bug Fixes
+
+* recreate missing registry sentinels ([#1876](https://github.com/dcc-mcp/dcc-mcp-core/issues/1876)) ([36e8449](https://github.com/dcc-mcp/dcc-mcp-core/commit/36e8449ae79a206721007b27b127286bba547f9e))
+* register adapter skill reload tool ([#1873](https://github.com/dcc-mcp/dcc-mcp-core/issues/1873)) ([776d652](https://github.com/dcc-mcp/dcc-mcp-core/commit/776d652ce1546634be95b56c7cf2050477b5d400))
+* resolve gateway pid from live sentinel ([#1874](https://github.com/dcc-mcp/dcc-mcp-core/issues/1874)) ([e8b60fc](https://github.com/dcc-mcp/dcc-mcp-core/commit/e8b60fc4b5852ac7493886b350bc2555eee3522c))
+
+
+### Performance Improvements
+
+* deduplicate marketplace catalog fetches ([#1877](https://github.com/dcc-mcp/dcc-mcp-core/issues/1877)) ([2846432](https://github.com/dcc-mcp/dcc-mcp-core/commit/2846432b2286a8d28d654a7c177ec19e91d2a2fd))
+
 ## [0.19.25](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.24...v0.19.25) (2026-07-11)
 
 
