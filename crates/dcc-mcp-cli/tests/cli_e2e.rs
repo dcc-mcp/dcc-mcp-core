@@ -987,6 +987,8 @@ fn doctor_summarizes_local_direct_control_readiness() {
 
 #[test]
 fn update_check_auto_starts_builtin_local_gateway() {
+    let manifest_fixture = spawn_gateway_fixture();
+    let manifest_url = format!("{}/update-manifest.json", manifest_fixture.base_url);
     let port = unused_loopback_port();
     let base_url = format!("http://127.0.0.1:{port}");
     let registry = TempDir::new().unwrap();
@@ -995,6 +997,7 @@ fn update_check_auto_starts_builtin_local_gateway() {
     let envs = [
         ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
         ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
+        ("DCC_MCP_UPDATE_MANIFEST_URL", manifest_url.as_str()),
     ];
     let _cleanup = AutoGatewayCleanup {
         host: "127.0.0.1",
