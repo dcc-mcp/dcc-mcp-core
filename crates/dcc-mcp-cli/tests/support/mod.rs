@@ -82,6 +82,19 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
             get(|| async { Json(json!({"ok": true, "service": "dcc-mcp-gateway"})) }),
         )
         .route(
+            "/update-manifest.json",
+            get(|| async {
+                Json(json!({
+                    "dcc-mcp-server": {
+                        "version": "9.9.9",
+                        "url": "https://example.invalid/dcc-mcp-server.zip",
+                        "sha256": "abc123",
+                        "release_notes": "Fixture update"
+                    }
+                }))
+            }),
+        )
+        .route(
             "/mcp",
             post(|headers: HeaderMap, Json(body): Json<Value>| async move {
                 let accept = headers
