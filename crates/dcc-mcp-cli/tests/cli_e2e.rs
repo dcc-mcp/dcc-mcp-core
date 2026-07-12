@@ -1046,6 +1046,49 @@ fn update_check_auto_starts_builtin_local_gateway() {
 }
 
 #[test]
+fn staged_update_applies_before_version_short_circuit() {
+    let temp = TempDir::new().unwrap();
+    let source = std::path::Path::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
+    let cli = temp.path().join(source.file_name().unwrap());
+    std::fs::copy(source, &cli).unwrap();
+
+    let appdata = temp.path().join("appdata");
+    let xdg_data = temp.path().join("xdg-data");
+    let home = temp.path().join("home");
+    #[cfg(target_os = "windows")]
+    let data_root = appdata.clone();
+    #[cfg(target_os = "linux")]
+    let data_root = xdg_data.clone();
+    #[cfg(target_os = "macos")]
+    let data_root = home.join("Library").join("Application Support");
+
+    let staging = data_root.join("update").join("dcc-mcp-cli");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::copy(source, staging.join("pending.bin")).unwrap();
+    let marker = staging.join("pending.marker");
+    std::fs::write(&marker, "pending").unwrap();
+
+    let output = std::process::Command::new(&cli)
+        .arg("--version")
+        .env("APPDATA", &appdata)
+        .env("XDG_DATA_HOME", &xdg_data)
+        .env("HOME", &home)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !marker.exists(),
+        "--version must apply a staged update before clap exits; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn smoke_with_explicit_url_does_not_auto_start_gateway() {
     let port = unused_loopback_port();
     let port_s = port.to_string();
