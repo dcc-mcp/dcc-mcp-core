@@ -483,6 +483,7 @@ def register_qt_ui_inspector(server: Any, *, dcc_name: str = "dcc") -> None:
     def _handler(fn):
         def wrapper(params: Any) -> Any:
             args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
+            args.pop("_meta", None)
             return fn(**args)
 
         return wrapper
