@@ -1,6 +1,7 @@
 //! Shared [`MarketplaceService`] — catalog fetch, install/uninstall, source
 //! management, installed state persistence, and integrity verification.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -391,9 +392,28 @@ impl MarketplaceService {
                 .collect()
         };
         let sources = self.list_sources()?;
+        let mut catalogs_by_url = HashMap::new();
+        for pkg in &filtered {
+            if catalogs_by_url.contains_key(&pkg.source_url) {
+                continue;
+            }
+            let source = sources
+                .iter()
+                .find(|source| source.url == pkg.source_url)
+                .cloned()
+                .unwrap_or_else(|| MarketplaceSource {
+                    name: pkg.source_name.clone(),
+                    url: pkg.source_url.clone(),
+                    origin: MarketplaceSourceOrigin::Explicit,
+                });
+            let entries = self.load_source_entries(&source).await?;
+            catalogs_by_url.insert(pkg.source_url.clone(), entries);
+        }
         let mut outdated = Vec::new();
         for pkg in filtered {
-            let entry = self.find_latest_entry_for_package(&sources, &pkg).await?;
+            let entry = catalogs_by_url
+                .get(&pkg.source_url)
+                .and_then(|entries| dcc_mcp_catalog::describe(entries, &pkg.name));
             let (is_outdated, latest_commit) = is_entry_outdated(entry.as_ref(), &pkg);
             if is_outdated && let Some(entry) = entry {
                 let latest_install = entry.install.as_ref();
