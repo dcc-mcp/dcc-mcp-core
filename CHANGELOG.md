@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.29](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.28...v0.19.29) (2026-07-12)
+
+
+### Bug Fixes
+
+* ignore transport metadata in Qt inspector calls ([#1882](https://github.com/dcc-mcp/dcc-mcp-core/issues/1882)) ([fe176d8](https://github.com/dcc-mcp/dcc-mcp-core/commit/fe176d8e6b3484f3034803d625960369e106f812))
+
 ## [0.19.28](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.27...v0.19.28) (2026-07-12)
 
 
