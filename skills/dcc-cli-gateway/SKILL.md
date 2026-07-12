@@ -408,6 +408,10 @@ patterns and common errors.
 
 Use the gateway update manifest for binary checks:
 
+Official release builds use the platform-specific manifest from the latest
+GitHub release by default. Set `DCC_MCP_UPDATE_MANIFEST_URL` only to override
+that source for a studio mirror or pinned deployment.
+
 ```bash
 # Check whether the local CLI has an update.
 dcc-mcp-cli update check
