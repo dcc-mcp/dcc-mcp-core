@@ -160,7 +160,7 @@ pub async fn gateway_stop(
 /// Query the gateway status: health check + PID liveness.
 pub async fn gateway_status(args: &GatewayCtrlArgs) -> GatewayStatus {
     let healthy = gateway_ensure::gateway_health_ok(&args.host, args.port).await;
-    let pid = gateway_ensure::read_pid_from_pidfile(Some(&args.pidfile));
+    let pid = resolve_gateway_pid(args, healthy);
     let alive = pid.is_some_and(gateway_ensure::is_process_alive);
     GatewayStatus {
         host: args.host.clone(),
@@ -174,6 +174,41 @@ pub async fn gateway_status(args: &GatewayCtrlArgs) -> GatewayStatus {
         pidfile: args.pidfile.clone(),
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+fn resolve_gateway_pid(args: &GatewayCtrlArgs, healthy: bool) -> Option<u32> {
+    resolve_gateway_pid_with(args, healthy, gateway_ensure::is_process_alive)
+}
+
+fn resolve_gateway_pid_with(
+    args: &GatewayCtrlArgs,
+    healthy: bool,
+    is_alive: impl Fn(u32) -> bool + Copy,
+) -> Option<u32> {
+    let pidfile_pid = gateway_ensure::read_pid_from_pidfile(Some(&args.pidfile));
+    if pidfile_pid.is_some_and(is_alive) || !healthy {
+        return pidfile_pid;
+    }
+
+    live_gateway_sentinel_pid(args, is_alive).or(pidfile_pid)
+}
+
+fn live_gateway_sentinel_pid(
+    args: &GatewayCtrlArgs,
+    is_alive: impl Fn(u32) -> bool,
+) -> Option<u32> {
+    let registry = FileRegistry::new(args.registry_dir.clone()).ok()?;
+    let (entries, _) = registry.read_alive().ok()?;
+    let mut pids = entries
+        .into_iter()
+        .filter(|entry| entry.dcc_type == GATEWAY_SENTINEL_DCC_TYPE)
+        .filter(|entry| gateway_sentinel_targets(entry, &args.host, args.port))
+        .filter_map(|entry| gateway_sentinel_pid(&entry))
+        .filter(|pid| is_alive(*pid))
+        .collect::<Vec<_>>();
+    pids.sort_unstable();
+    pids.dedup();
+    (pids.len() == 1).then(|| pids[0])
 }
 
 pub async fn run_gateway_daemon(request: GatewayDaemonRequest) -> anyhow::Result<Value> {
@@ -507,5 +542,63 @@ mod tests {
 
         let err = verify_gateway_pid_ownership(&args, pid).unwrap_err();
         assert!(err.to_string().contains("no live __gateway__ sentinel"));
+    }
+
+    #[test]
+    fn gateway_pid_falls_back_to_unique_live_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = gateway_ctrl_args(
+            "127.0.0.1".to_string(),
+            19765,
+            Some(dir.path().to_path_buf()),
+            None,
+        );
+        let stale_pid = 42;
+        std::fs::write(&args.pidfile, stale_pid.to_string()).unwrap();
+        let pid = std::process::id();
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
+        sentinel.metadata.insert(
+            "gateway_health_url".to_string(),
+            "http://127.0.0.1:19765/health".to_string(),
+        );
+        sentinel
+            .metadata
+            .insert("gateway_process_pid".to_string(), pid.to_string());
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(sentinel).unwrap();
+
+        assert_eq!(
+            resolve_gateway_pid_with(&args, true, |candidate| candidate == pid),
+            Some(pid)
+        );
+    }
+
+    #[test]
+    fn gateway_pid_keeps_stale_pid_without_matching_live_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = gateway_ctrl_args(
+            "127.0.0.1".to_string(),
+            19765,
+            Some(dir.path().to_path_buf()),
+            None,
+        );
+        let stale_pid = 42;
+        std::fs::write(&args.pidfile, stale_pid.to_string()).unwrap();
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19766);
+        sentinel.metadata.insert(
+            "gateway_health_url".to_string(),
+            "http://127.0.0.1:19766/health".to_string(),
+        );
+        sentinel.metadata.insert(
+            "gateway_process_pid".to_string(),
+            std::process::id().to_string(),
+        );
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(sentinel).unwrap();
+
+        assert_eq!(
+            resolve_gateway_pid_with(&args, true, |candidate| candidate == std::process::id()),
+            Some(stale_pid)
+        );
     }
 }
