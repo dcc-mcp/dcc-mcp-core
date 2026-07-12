@@ -249,6 +249,28 @@ fn test_file_registry_sentinel_survives_dead_pid_while_lock_held() {
 }
 
 #[test]
+fn test_reregister_recreates_missing_owned_sentinel() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let entry = ServiceEntry::new("blender", "127.0.0.1", 18812);
+    let key = entry.key();
+    registry.register(entry.clone()).unwrap();
+
+    let sentinel_path = registry.sentinel_path_for(&key);
+    let (_, stale_handle) = registry.sentinel_handles.remove(&key).unwrap();
+    stale_handle.unlock().unwrap();
+    std::fs::remove_file(&sentinel_path).unwrap();
+    registry.sentinel_handles.insert(key.clone(), stale_handle);
+
+    registry.register(entry).unwrap();
+
+    assert!(sentinel_path.exists());
+    let reader = FileRegistry::new(dir.path()).unwrap();
+    assert_eq!(reader.prune_dead_entries().unwrap(), 0);
+    assert!(reader.get(&key).is_some());
+}
+
+#[test]
 fn test_file_registry_sentinel_prunes_after_owner_drops_lock() {
     let dir = tempfile::tempdir().unwrap();
     let key = {
