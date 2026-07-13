@@ -11,6 +11,7 @@ import sys
 from typing import Any
 
 from conftest import REPO_ROOT
+from dcc_mcp_core._server.inprocess_executor import run_skill_script
 
 _SKILL_DIR = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "app-ui"
 _SCRIPTS = _SKILL_DIR / "scripts"
@@ -78,6 +79,54 @@ def test_app_ui_skill_metadata_and_tool_names() -> None:
     action_names = {action["name"] for action in registry.list_actions()}
     assert "app_ui__snapshot" in action_names
     assert "app_ui__wait_for" in action_names
+
+
+def test_app_ui_entrypoints_accept_inprocess_parameters(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """Sidecar hosts must not require subprocess stdin for bundled app-ui."""
+    monkeypatch.setenv("DCC_MCP_APP_UI_BACKEND", "mock")
+    monkeypatch.setenv("DCC_MCP_APP_UI_MOCK_STATE_DIR", str(tmp_path))
+
+    snapshot = run_skill_script(
+        str(_SCRIPTS / "snapshot.py"),
+        {"session_id": "inprocess"},
+    )
+    snapshot_id = snapshot["context"]["snapshot_id"]
+
+    found = run_skill_script(
+        str(_SCRIPTS / "find.py"),
+        {"session_id": "inprocess", "label": "Project name"},
+    )
+    assert found["context"]["matches"][0]["id"] == "project-name"
+
+    changed = run_skill_script(
+        str(_SCRIPTS / "act.py"),
+        {
+            "session_id": "inprocess",
+            "control_id": "project-name",
+            "action": "set_text",
+            "text": "Signal Forge",
+            "snapshot_id": snapshot_id,
+        },
+    )
+    assert changed["success"] is True
+
+    waited = run_skill_script(
+        str(_SCRIPTS / "wait_for.py"),
+        {
+            "session_id": "inprocess",
+            "condition": {
+                "kind": "value_equals",
+                "control_id": "project-name",
+                "value": "Signal Forge",
+                "timeout_ms": 200,
+                "interval_ms": 10,
+            },
+        },
+    )
+    assert waited["success"] is True
 
 
 def test_app_ui_mock_observe_act_wait_verify_loop(tmp_path: Path) -> None:
@@ -369,6 +418,36 @@ def test_app_ui_windows_uia_requires_explicit_scope(tmp_path: Path) -> None:
     assert result["success"] is False
     assert result["error"] == "missing_window"
     assert "whole-desktop snapshots are disabled" in result["message"]
+
+
+def test_app_ui_windows_uia_accepts_process_id_scope() -> None:
+    """PowerShell's read-only $PID automatic variable must not be shadowed."""
+    backend = _load_windows_uia_module()
+    script = backend._dedent_for_tests()
+
+    assert "foreach ($pid in" not in script.lower()
+    assert "foreach ($processId in As-Array $payload.scope.process_ids)" in script
+
+
+def test_app_ui_windows_uia_uses_main_window_handle_for_single_process() -> None:
+    """Heavy DCC providers should not require a whole-desktop UIA scan."""
+    backend = _load_windows_uia_module()
+    script = backend._dedent_for_tests()
+
+    assert "function Find-Process-Root" in script
+    assert "[System.Windows.Automation.AutomationElement]::FromHandle" in script
+    assert "$proc.MainWindowHandle" in script
+
+
+def test_app_ui_windows_uia_click_has_native_button_fallback() -> None:
+    """Native dialogs can expose an InvokePattern that still rejects Invoke()."""
+    backend = _load_windows_uia_module()
+    script = backend._dedent_for_tests()
+
+    assert "function Invoke-NativeButtonClick" in script
+    assert "[DccMcpNativeUi]::SendMessage" in script
+    assert "0x00F5" in script
+    assert "invoked native button" in script
 
 
 def test_app_ui_chrome_cdp_preset_aliases(monkeypatch: Any) -> None:
