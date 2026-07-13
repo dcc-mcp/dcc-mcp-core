@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.31](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.30...v0.19.31) (2026-07-13)
+
+
+### Bug Fixes
+
+* propagate reload skill failures ([#1886](https://github.com/dcc-mcp/dcc-mcp-core/issues/1886)) ([113f09b](https://github.com/dcc-mcp/dcc-mcp-core/commit/113f09b4c482084faf8d5ccfa79ee41ffede0c07))
+
 ## [0.19.30](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.29...v0.19.30) (2026-07-12)
 
 
