@@ -302,6 +302,16 @@ class HostExecutionBridge:
             return self.host_dispatcher
         if _is_host_queue_dispatcher(self.dispatcher):
             return self.dispatcher
+        attach_http_dispatcher = getattr(self.dispatcher, "attach_http_dispatcher", None)
+        if callable(attach_http_dispatcher):
+            try:
+                from dcc_mcp_core._core import QueueDispatcher
+            except ImportError:
+                return None
+            native_dispatcher = QueueDispatcher()
+            attach_http_dispatcher(native_dispatcher)
+            self.host_dispatcher = native_dispatcher
+            return native_dispatcher
         return None
 
     def execution_context(
@@ -396,6 +406,9 @@ class HostExecutionBridge:
 
         try:
             if self.dispatcher is None:
+                return _invoke()
+            is_host_thread = getattr(self.dispatcher, "is_host_thread", None)
+            if callable(is_host_thread) and is_host_thread():
                 return _invoke()
             dispatch_callable = getattr(self.dispatcher, "dispatch_callable", None)
             if callable(dispatch_callable):

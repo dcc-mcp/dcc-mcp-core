@@ -226,6 +226,8 @@ class HostUiDispatcherBase:
         self._lock = threading.Lock()
         self._cancelled: Set[str] = set()
         self._active: Dict[str, HostUiJobEntry] = {}
+        self._http_dispatcher: Optional[Any] = None
+        self._host_thread_id: Optional[int] = None
         self._shutdown = False
         self._fail_fast_on_main_queue_busy = fail_fast_on_main_queue_busy
         self._label = label or type(self).__name__
@@ -373,6 +375,22 @@ class HostUiDispatcherBase:
             "error": None,
         }
 
+    def attach_http_dispatcher(self, dispatcher: Any) -> None:
+        """Attach the native queue used by HTTP main-affinity routing.
+
+        The host's existing UI timer drains this queue together with the
+        Python jobs owned by :class:`HostUiDispatcherBase`.
+        """
+        if not callable(getattr(dispatcher, "tick", None)) or not callable(getattr(dispatcher, "pending", None)):
+            raise TypeError("HTTP dispatcher must expose tick() and pending()")
+        if self._http_dispatcher is not None and self._http_dispatcher is not dispatcher:
+            raise RuntimeError("an HTTP dispatcher is already attached")
+        self._http_dispatcher = dispatcher
+
+    def is_host_thread(self) -> bool:
+        """Return whether the caller is the thread that pumps host work."""
+        return self._host_thread_id == threading.get_ident()
+
     def cancel(self, request_id: str) -> bool:
         with self._lock:
             self._cancelled.add(request_id)
@@ -395,7 +413,11 @@ class HostUiDispatcherBase:
         return False
 
     def pending_count(self) -> int:
-        return self.queue_size()
+        pending = self.queue_size()
+        dispatcher = self._http_dispatcher
+        if dispatcher is not None:
+            pending += int(dispatcher.pending())
+        return pending
 
     def queue_size(self) -> int:
         """Return the number of queued main-thread jobs."""
@@ -437,6 +459,9 @@ class HostUiDispatcherBase:
                 signalled,
                 reason,
             )
+        dispatcher = self._http_dispatcher
+        if dispatcher is not None:
+            dispatcher.shutdown()
         return signalled
 
     @property
@@ -456,14 +481,22 @@ class HostUiDispatcherBase:
 
     def drain_queue(self, budget_ms: float) -> Tuple[int, int]:
         """Drain the main-thread queue for up to *budget_ms* milliseconds."""
+        self._host_thread_id = threading.get_ident()
         executed = 0
         start = time.monotonic()
         deadline = start + (budget_ms / 1000.0)
 
         while time.monotonic() < deadline:
+            http_executed = 0
+            if self._http_dispatcher is not None and self._http_dispatcher.pending() > 0:
+                http_executed = int(self._http_dispatcher.tick(1).jobs_executed)
+                executed += http_executed
+
             job = self._dequeue()
             if job is None:
-                break
+                if http_executed == 0:
+                    break
+                continue
 
             with self._lock:
                 if job.request_id in self._cancelled:
@@ -489,7 +522,7 @@ class HostUiDispatcherBase:
                 self._notify_job_finished(job)
             executed += 1
 
-        return executed, len(self._main_queue)
+        return executed, self.pending_count()
 
     @staticmethod
     def run_on_any_thread(request_id: str, task: Callable[[], Any], affinity: str) -> Dict[str, Any]:

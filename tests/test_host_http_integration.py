@@ -36,6 +36,8 @@ import urllib.request
 import pytest
 
 from conftest import McpClient
+from dcc_mcp_core import HostExecutionBridge
+from dcc_mcp_core import HostUiDispatcherBase
 
 # Import local modules
 from dcc_mcp_core import McpHttpConfig
@@ -176,6 +178,77 @@ def test_tools_call_routes_through_dispatcher() -> None:
     finally:
         handle.shutdown()
         host.stop()
+
+
+def test_host_ui_dispatcher_routes_async_main_affinity_jobs() -> None:
+    """A Python UI dispatcher must back async MCP jobs through its host pump."""
+
+    class _PumpedUiDispatcher(HostUiDispatcherBase):
+        def poke_host_pump(self) -> None:
+            pass
+
+    reg = ToolRegistry()
+    reg.register(
+        "ui_async_probe",
+        description="Return the thread id handling the async UI call.",
+        category="test",
+        dcc="test",
+        version="1.0.0",
+        execution="async",
+        thread_affinity="main",
+        enforce_thread_affinity=True,
+    )
+    server = McpHttpServer(reg, McpHttpConfig(port=0, server_name="python-ui-routing"))
+    captured: dict[str, int | None] = {"tid": None}
+
+    def _probe(_params: dict) -> dict:
+        captured["tid"] = threading.get_ident()
+        return {"ok": True, "tid": captured["tid"]}
+
+    server.register_handler("ui_async_probe", _probe, thread_affinity="main")
+    dispatcher = _PumpedUiDispatcher()
+    http_dispatcher = HostExecutionBridge(dispatcher=dispatcher).resolve_host_dispatcher()
+    assert http_dispatcher is not None
+    server.attach_dispatcher(http_dispatcher)
+
+    stop = threading.Event()
+
+    def _pump() -> None:
+        while not stop.is_set():
+            dispatcher.drain_queue(8)
+            time.sleep(0.002)
+
+    pump = threading.Thread(target=_pump, daemon=True)
+    pump.start()
+    handle = server.start()
+    try:
+        time.sleep(0.2)
+        response = _call_tool(handle.mcp_url(), "ui_async_probe")
+        envelope = response["result"]["structuredContent"]
+        assert envelope["status"] == "pending", response
+
+        deadline = time.monotonic() + 5
+        final: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            poll = _call_tool(
+                handle.mcp_url(),
+                "jobs_get_status",
+                {"job_id": envelope["job_id"], "include_result": True},
+            )
+            final = poll["result"]["structuredContent"]
+            if final["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+                break
+            time.sleep(0.02)
+
+        assert final is not None
+        assert final["status"] == "completed", final
+        assert captured["tid"] == pump.ident
+        assert "THREAD_AFFINITY_UNAVAILABLE" not in json.dumps(final)
+    finally:
+        handle.shutdown()
+        stop.set()
+        pump.join(timeout=1)
+        dispatcher.shutdown()
 
 
 def test_attach_dispatcher_rejects_second_call() -> None:

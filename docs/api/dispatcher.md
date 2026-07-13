@@ -36,6 +36,12 @@ into reusable contracts so each adapter only supplies host-specific glue.
 | Per-job cancellation handle reachable from skill scripts | `current_callable_job` ContextVar |
 | Declarative progressive skill loading at startup | `MinimalModeConfig` (#525) |
 
+When a `HostUiDispatcherBase` subclass is passed to
+`HostExecutionBridge(dispatcher=...)`, core automatically attaches the native
+HTTP main-affinity queue. The host timer must keep calling `drain_queue()`;
+that single pump drains both in-process Python jobs and MCP/REST jobs. Adapters
+must not create a second `QueueDispatcher` for this path.
+
 ## Universal Qt Dispatcher
 
 Qt-bearing DCCs (Maya, Houdini, 3ds Max, Nuke, Cinema 4D, Substance Painter,
