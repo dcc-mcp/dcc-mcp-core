@@ -36,29 +36,16 @@ from dcc_mcp_core.adapter_contracts import UiWaitResult
 from dcc_mcp_core.skill import skill_error
 from dcc_mcp_core.skill import skill_success
 
-_POLICY_KEYS = {
-    "allow_snapshot",
-    "allow_find",
-    "allow_mutating_actions",
-    "allow_text_entry",
-    "allow_keyboard_shortcuts",
-    "allow_raw_coordinates",
-    "allowed_window_titles",
-    "allowed_process_ids",
-    "audit_sensitive_values",
-}
-_CONDITION_KEYS = {
-    "kind",
-    "control_id",
-    "query",
-    "role",
-    "label",
-    "text",
-    "value",
-    "checked",
-    "timeout_ms",
-    "interval_ms",
-}
+
+def _key_set(value: str) -> frozenset:
+    return frozenset(value.split())
+
+
+_POLICY_KEYS = _key_set(
+    "allow_snapshot allow_find allow_mutating_actions allow_text_entry allow_keyboard_shortcuts "
+    "allow_raw_coordinates allowed_window_titles allowed_process_ids audit_sensitive_values"
+)
+_CONDITION_KEYS = _key_set("kind control_id query role label text value checked timeout_ms interval_ms")
 
 _UIA_SCRIPT = r"""
 $ErrorActionPreference = "Stop"
@@ -71,6 +58,7 @@ if ([string]::IsNullOrWhiteSpace($rawInput)) {
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+# DCC_MCP_UIA_HELPERS
 
 $ChildScope = [System.Windows.Automation.TreeScope]::Children
 $TrueCondition = [System.Windows.Automation.Condition]::TrueCondition
@@ -161,8 +149,8 @@ function Candidate-Windows() {
 
 function Scope-Process-Ids() {
   $ids = @()
-  foreach ($pid in As-Array $payload.scope.process_ids) {
-    if ($pid -ne $null -and [int]$pid -gt 0) { $ids += [int]$pid }
+  foreach ($processId in As-Array $payload.scope.process_ids) {
+    if ($processId -ne $null -and [int]$processId -gt 0) { $ids += [int]$processId }
   }
   foreach ($name in As-Array $payload.scope.process_names) {
     if (-not [string]::IsNullOrWhiteSpace([string]$name)) {
@@ -195,6 +183,11 @@ function Match-Scope($element, $processIds) {
 
 function Find-Scoped-Root() {
   $processIds = Scope-Process-Ids
+  $titles = As-Array $payload.scope.window_titles
+  if ($titles.Count -eq 0) {
+    $processRoot = Find-Process-Root $processIds
+    if ($null -ne $processRoot) { return $processRoot }
+  }
   $windows = Candidate-Windows
   for ($i = 0; $i -lt $windows.Count; $i++) {
     $candidate = $windows.Item($i)
@@ -252,12 +245,21 @@ function Invoke-Action($element) {
   if ($action -eq "click") {
     $pattern = $null
     if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
-      $pattern.Invoke()
-      return @{ok = $true; message = "invoked control"}
+      try {
+        $pattern.Invoke()
+        return @{ok = $true; message = "invoked control"}
+      } catch {
+        if (Invoke-NativeButtonClick $element) {
+          return @{ok = $true; message = "invoked native button"}
+        }
+      }
     }
     if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
       $pattern.Toggle()
       return @{ok = $true; message = "toggled control"}
+    }
+    if (Invoke-NativeButtonClick $element) {
+      return @{ok = $true; message = "invoked native button"}
     }
     try {
       $element.SetFocus()
@@ -308,6 +310,9 @@ try {
     ConvertTo-Json -Depth 64 -Compress
 }
 """
+
+_UIA_HELPERS = Path(__file__).with_name("_windows_uia_helpers.ps1").read_text(encoding="utf-8")
+_UIA_SCRIPT = _UIA_SCRIPT.replace("# DCC_MCP_UIA_HELPERS", _UIA_HELPERS)
 
 
 def _read_params() -> Dict[str, Any]:
@@ -440,7 +445,7 @@ def _run_uia(payload: Dict[str, Any]) -> Dict[str, Any]:
             input=json.dumps(payload),
             capture_output=True,
             text=True,
-            timeout=float(os.environ.get("DCC_MCP_APP_UI_UIA_TIMEOUT_SECS", "8")),
+            timeout=float(os.environ.get("DCC_MCP_APP_UI_UIA_TIMEOUT_SECS", "12")),
         )
     finally:
         with suppress(OSError):
@@ -658,8 +663,8 @@ def _error_from_capture(capture: Dict[str, Any]) -> Dict[str, Any]:
     return skill_error(message, error, error_code=error, backend="windows-uia")
 
 
-def snapshot_tool() -> Dict[str, Any]:
-    params = _read_params()
+def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    params = dict(params) if params is not None else _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     if not policy.allow_snapshot:
@@ -681,8 +686,8 @@ def snapshot_tool() -> Dict[str, Any]:
     )
 
 
-def find_tool() -> Dict[str, Any]:
-    params = _read_params()
+def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    params = dict(params) if params is not None else _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     if not policy.allow_find:
@@ -759,8 +764,8 @@ def _stale_result(control_id: str, session_id: str, requested: str, current: str
     )
 
 
-def act_tool() -> Dict[str, Any]:
-    params = _read_params()
+def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    params = dict(params) if params is not None else _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     action = str(params.get("action") or "")
@@ -894,8 +899,8 @@ def _condition_matches(snapshot: Dict[str, Any], condition: UiWaitCondition) -> 
     return False
 
 
-def wait_for_tool() -> Dict[str, Any]:
-    params = _read_params()
+def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    params = dict(params) if params is not None else _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     condition = _condition_from_params(params.get("condition") or {})
