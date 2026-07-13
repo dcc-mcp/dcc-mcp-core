@@ -71,15 +71,6 @@ if ([string]::IsNullOrWhiteSpace($rawInput)) {
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-
-public static class DccMcpNativeUi {
-  [DllImport("user32.dll", CharSet = CharSet.Auto)]
-  public static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
-}
-"@
 
 $ChildScope = [System.Windows.Automation.TreeScope]::Children
 $TrueCondition = [System.Windows.Automation.Condition]::TrueCondition
@@ -170,8 +161,8 @@ function Candidate-Windows() {
 
 function Scope-Process-Ids() {
   $ids = @()
-  foreach ($processId in As-Array $payload.scope.process_ids) {
-    if ($processId -ne $null -and [int]$processId -gt 0) { $ids += [int]$processId }
+  foreach ($pid in As-Array $payload.scope.process_ids) {
+    if ($pid -ne $null -and [int]$pid -gt 0) { $ids += [int]$pid }
   }
   foreach ($name in As-Array $payload.scope.process_names) {
     if (-not [string]::IsNullOrWhiteSpace([string]$name)) {
@@ -183,17 +174,6 @@ function Scope-Process-Ids() {
     }
   }
   return $ids
-}
-
-function Find-Process-Root($processIds) {
-  if ($processIds.Count -ne 1) { return $null }
-  try {
-    $proc = Get-Process -Id ([int]$processIds[0]) -ErrorAction Stop
-    if ($proc.MainWindowHandle -eq [IntPtr]::Zero) { return $null }
-    return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
-  } catch {
-    return $null
-  }
 }
 
 function Match-Scope($element, $processIds) {
@@ -215,11 +195,6 @@ function Match-Scope($element, $processIds) {
 
 function Find-Scoped-Root() {
   $processIds = Scope-Process-Ids
-  $titles = As-Array $payload.scope.window_titles
-  if ($titles.Count -eq 0) {
-    $processRoot = Find-Process-Root $processIds
-    if ($null -ne $processRoot) { return $processRoot }
-  }
   $windows = Candidate-Windows
   for ($i = 0; $i -lt $windows.Count; $i++) {
     $candidate = $windows.Item($i)
@@ -244,17 +219,6 @@ function Find-By-Id($element, [string]$controlId, [int]$depth, [string]$path) {
     }
   } catch {}
   return $null
-}
-
-function Invoke-NativeButtonClick($element) {
-  try {
-    $handle = [IntPtr]::new([long]$element.Current.NativeWindowHandle)
-    if ($handle -eq [IntPtr]::Zero) { return $false }
-    [void][DccMcpNativeUi]::SendMessage($handle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
-    return $true
-  } catch {
-    return $false
-  }
 }
 
 function Invoke-Action($element) {
@@ -288,21 +252,12 @@ function Invoke-Action($element) {
   if ($action -eq "click") {
     $pattern = $null
     if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
-      try {
-        $pattern.Invoke()
-        return @{ok = $true; message = "invoked control"}
-      } catch {
-        if (Invoke-NativeButtonClick $element) {
-          return @{ok = $true; message = "invoked native button"}
-        }
-      }
+      $pattern.Invoke()
+      return @{ok = $true; message = "invoked control"}
     }
     if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
       $pattern.Toggle()
       return @{ok = $true; message = "toggled control"}
-    }
-    if (Invoke-NativeButtonClick $element) {
-      return @{ok = $true; message = "invoked native button"}
     }
     try {
       $element.SetFocus()
@@ -703,8 +658,8 @@ def _error_from_capture(capture: Dict[str, Any]) -> Dict[str, Any]:
     return skill_error(message, error, error_code=error, backend="windows-uia")
 
 
-def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def snapshot_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     if not policy.allow_snapshot:
@@ -726,8 +681,8 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
-def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def find_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     if not policy.allow_find:
@@ -804,8 +759,8 @@ def _stale_result(control_id: str, session_id: str, requested: str, current: str
     )
 
 
-def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def act_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     action = str(params.get("action") or "")
@@ -939,8 +894,8 @@ def _condition_matches(snapshot: Dict[str, Any], condition: UiWaitCondition) -> 
     return False
 
 
-def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def wait_for_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     condition = _condition_from_params(params.get("condition") or {})

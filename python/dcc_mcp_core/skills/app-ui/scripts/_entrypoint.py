@@ -7,7 +7,6 @@ import os
 from typing import Any
 from typing import Callable
 from typing import Dict
-from typing import Optional
 
 from dcc_mcp_core.skill import skill_error
 
@@ -44,7 +43,7 @@ def _load_backend() -> Any:
     return None
 
 
-def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _call(name: str) -> Dict[str, Any]:
     backend = _load_backend()
     if backend is None:
         selected = os.environ.get("DCC_MCP_APP_UI_BACKEND", "mock")
@@ -62,25 +61,25 @@ def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                 "windows-uia",
             ],
         )
-    func: Callable[[Optional[Dict[str, Any]]], Dict[str, Any]] = getattr(backend, name)
-    return func(params)
+    func: Callable[[], Dict[str, Any]] = getattr(backend, name)
+    return func()
 
 
-def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def snapshot_tool() -> Dict[str, Any]:
     """Dispatch app_ui__snapshot to the selected backend."""
-    return _call("snapshot_tool", params)
+    return _call("snapshot_tool")
 
 
-def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def find_tool() -> Dict[str, Any]:
     """Dispatch app_ui__find to the selected backend."""
-    return _call("find_tool", params)
+    return _call("find_tool")
 
 
-def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def act_tool() -> Dict[str, Any]:
     """Dispatch app_ui__act to the selected backend."""
-    return _call("act_tool", params)
+    return _call("act_tool")
 
 
-def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def wait_for_tool() -> Dict[str, Any]:
     """Dispatch app_ui__wait_for to the selected backend."""
-    return _call("wait_for_tool", params)
+    return _call("wait_for_tool")

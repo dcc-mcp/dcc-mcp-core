@@ -533,8 +533,8 @@ def _backend_unavailable(exc: Exception, state: Optional[Dict[str, Any]] = None)
     )
 
 
-def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def snapshot_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     state = _load_state(session_id)
     policy = _policy_from_params(params)
@@ -559,8 +559,8 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
-def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def find_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     state = _load_state(session_id)
     policy = _policy_from_params(params)
@@ -585,8 +585,8 @@ def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
-def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def act_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     state = _load_state(session_id)
     try:
@@ -704,8 +704,8 @@ def _condition_matches(snapshot: Dict[str, Any], condition: UiWaitCondition) -> 
     return False
 
 
-def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+def wait_for_tool() -> Dict[str, Any]:
+    params = _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     condition = _condition_from_params(params.get("condition") or {})
