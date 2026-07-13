@@ -85,6 +85,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/gateway-rest-describe-unknown-slug.jsonl` | No | Well-formed unknown slug → `404`, `error.kind` = `unknown-slug`. |
 | `traces/gateway-rest-call-missing-tool-slug.jsonl` | No | `POST /v1/call` without `tool_slug` → `400`, `bad-request`. |
 | `traces/gateway-rest-call-unknown-slug.jsonl` | No | Unknown slug on call path → `404`, `unknown-slug` (matches refresh-retry semantics). |
+| `traces/core-openapi-call-request-aliases.jsonl` | No | Per-DCC OpenAPI `CallRequest` declares canonical `arguments` and the backward-compatible `params` alias for generated clients. |
 | `traces/core-1153-rest-compact-errors.jsonl` | No | Compact TOON negotiation on `/v1/describe` and `/v1/call_batch` preserves bad-request details; `/v1/call` can still force JSON. |
 | `traces/core-1157-rest-compact-default.jsonl` | No | REST defaults to compact TOON, explicit JSON opt-out still works, and token accounting headers are present. |
 | `traces/maya-215-execute-python-regression.jsonl` | Yes (Maya) | After harmless `execute_python`, triggers `TypeError` via bad `polySphere` arg; follow-up call must still succeed (maya#215 / #199 class). |

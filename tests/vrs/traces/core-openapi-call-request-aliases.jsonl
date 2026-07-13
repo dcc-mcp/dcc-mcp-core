@@ -1,0 +1,2 @@
+{"_vrs":{"version":1,"trace_id":"core-openapi-call-request-aliases"}}
+{"id":"openapi-declares-canonical-and-compatible-call-arguments","http":{"method":"GET","path":"/v1/openapi.json"},"expect":{"status":200,"json_subset":{"openapi":"3.1.0","components":{"schemas":{"CallRequest":{"properties":{"arguments":{"type":"object"},"params":{"type":"object"}}}}}}}}

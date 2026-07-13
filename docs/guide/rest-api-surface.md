@@ -192,6 +192,10 @@ as `/admin?panel=traces&trace=<request_id>` and historical
 | `params` | ❌ | Backward-compatible alias for `arguments`. Prefer `arguments` in new clients so REST and MCP examples stay identical. |
 | `meta` | ❌ | MCP-style sidecar. Missing / `null` normalizes to absent. If provided, it must be an object (or an object-shaped JSON string). Honored keys: `progressToken`, `dcc.async`, `dcc.wait_for_terminal`. |
 
+The OpenAPI `CallRequest` schema declares both `arguments` and `params` so
+generated clients can use the canonical field without breaking integrations
+that still emit the compatibility alias.
+
 The canonical normalization rules live in `dcc-mcp-wire`; Python host wrappers can reuse them via `dcc_mcp_core.host.normalize_tool_arguments()` and `normalize_tool_meta()` instead of hand-rolling JSON coercion.
 
 ### Wrapper payloads and object-shaped arguments

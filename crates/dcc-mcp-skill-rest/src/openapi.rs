@@ -109,7 +109,17 @@ pub fn build_openapi_document(server_title: &str, server_version: &str) -> Value
     let mut doc = SkillRestApiDoc::openapi();
     doc.info.title = server_title.to_owned();
     doc.info.version = server_version.to_owned();
-    serde_json::to_value(&doc).unwrap_or_else(|_| serde_json::json!({}))
+    let mut value = serde_json::to_value(&doc).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(properties) = value
+        .pointer_mut("/components/schemas/CallRequest/properties")
+        .and_then(Value::as_object_mut)
+        && let Some(arguments_schema) = properties.get("params").cloned()
+    {
+        // `serde(alias = "arguments")` is accepted at runtime but is not
+        // represented by utoipa, so publish both wire-compatible field names.
+        properties.insert("arguments".to_owned(), arguments_schema);
+    }
+    value
 }
 
 /// Build the Scalar HTML API reference for the generated OpenAPI document.
@@ -201,7 +211,7 @@ mod tests {
         let props = schema["properties"]
             .as_object()
             .expect("CallRequest must declare properties");
-        for field in ["tool_slug", "params"] {
+        for field in ["tool_slug", "arguments", "params"] {
             assert!(
                 props.contains_key(field),
                 "CallRequest is missing property {field}: {props:#?}"
