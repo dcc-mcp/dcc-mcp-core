@@ -33,7 +33,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # ── ABI3 builds (Python 3.8+) — one wheel works for all 3.8+ ──
@@ -41,7 +41,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -67,17 +67,10 @@ jobs:
           --profile abi3
           --platform linux-x86_64
           dist/*.whl
-      - name: Upload wheel to GitHub Release
-        if: inputs.release-tag-name != ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ inputs.release-tag-name }}
-          files: dist/*.whl
-
   windows:
     runs-on: windows-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -108,13 +101,6 @@ jobs:
           --profile abi3
           --platform windows-x86_64
           dist/*.whl
-      - name: Upload wheel to GitHub Release
-        if: inputs.release-tag-name != ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ inputs.release-tag-name }}
-          files: dist/*.whl
-
   # ── py37-lite: pure-Python wheel (py3-none-any) for Python 3.7 ──
   # Maya 2022 / Blender 2.83 embed Python 3.7 and cannot load cp38-abi3
   # wheels. scripts/build_py37_pure_wheel.py assembles a py3-none-any wheel
@@ -123,7 +109,7 @@ jobs:
   py37-lite:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -169,13 +155,6 @@ jobs:
           name: wheels-py37-lite
           path: dist/
           retention-days: 30
-      - name: Upload wheel to GitHub Release
-        if: inputs.release-tag-name != ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ inputs.release-tag-name }}
-          files: dist/*.whl
-
   # ── Native Python 3.7 builds (non-abi3, compiled _core extension) ──
   # These produce cp37-cp37m wheels with a compiled _core extension
   # for Maya 2022 / Blender 2.83 embedded Python 3.7 hosts.
@@ -184,7 +163,7 @@ jobs:
   linux-py37:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -220,17 +199,10 @@ jobs:
           else
             python -c "import dcc_mcp_core"
           fi
-      - name: Upload wheel to GitHub Release
-        if: inputs.release-tag-name != ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ inputs.release-tag-name }}
-          files: dist/*.whl
-
   windows-py37:
     runs-on: windows-2022
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -266,17 +238,10 @@ jobs:
           else
             python -c "import dcc_mcp_core"
           fi
-      - name: Upload wheel to GitHub Release
-        if: inputs.release-tag-name != ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ inputs.release-tag-name }}
-          files: dist/*.whl
-
   macos:
     runs-on: macos-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -303,9 +268,27 @@ jobs:
           --profile abi3
           --platform macos-universal2
           dist/*.whl
-      - name: Upload wheel to GitHub Release
-        if: inputs.release-tag-name != ''
-        uses: softprops/action-gh-release@v3
+  publish-release:
+    needs:
+      - linux
+      - windows
+      - py37-lite
+      - linux-py37
+      - windows-py37
+      - macos
+    if: inputs.release-tag-name != ''
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
         with:
-          tag_name: ${{ inputs.release-tag-name }}
-          files: dist/*.whl
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - name: Upload wheels to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release upload "${{ inputs.release-tag-name }}" dist/*.whl --clobber
