@@ -5,7 +5,6 @@ from __future__ import annotations
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
-
 BUILD_WHEELS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "build-wheels.yml"
 BUILD_JOB_IDS = {
     "linux",
