@@ -200,9 +200,11 @@ impl DccControlPlane {
             }));
         }
 
+        let reloaded = results.iter().all(local_control::reload_result_succeeded);
+
         Ok(json!({
-            "ok": true,
-            "reloaded": true,
+            "ok": reloaded,
+            "reloaded": reloaded,
             "count": results.len(),
             "results": results,
             "source": "gateway",

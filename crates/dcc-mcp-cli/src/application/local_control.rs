@@ -330,14 +330,28 @@ pub async fn reload_skills_local(
         results.push(payload);
     }
 
+    let reloaded = results.iter().all(reload_result_succeeded);
+
     Ok(json!({
-        "ok": true,
-        "reloaded": true,
+        "ok": reloaded,
+        "reloaded": reloaded,
         "count": results.len(),
         "results": results,
         "source": "local_mcp",
         "registry_dir": registry_dir,
     }))
+}
+
+pub(crate) fn reload_result_succeeded(value: &Value) -> bool {
+    if value.get("success").and_then(Value::as_bool) == Some(false)
+        || value.get("ok").and_then(Value::as_bool) == Some(false)
+        || value.get("reloaded").and_then(Value::as_bool) == Some(false)
+        || value.get("isError").and_then(Value::as_bool) == Some(true)
+        || value.get("error").is_some_and(|error| !error.is_null())
+    {
+        return false;
+    }
+    value.get("result").is_none_or(reload_result_succeeded)
 }
 
 pub async fn stop_instance_local(
@@ -784,5 +798,13 @@ mod tests {
                 "activate_groups": false
             })
         );
+    }
+
+    #[test]
+    fn reload_result_rejects_backend_failure_envelope() {
+        assert!(!reload_result_succeeded(&json!({
+            "success": false,
+            "error": "no-source-file"
+        })));
     }
 }
