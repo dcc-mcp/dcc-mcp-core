@@ -615,7 +615,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 dcc_type,
                 instance_id,
             };
-            control.reload_skills(request).await?
+            let result = control.reload_skills(request).await?;
+            failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            result
         }
         Command::StopInstance {
             dcc_type,
