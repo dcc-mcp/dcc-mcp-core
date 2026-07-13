@@ -584,8 +584,8 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
         decorated function).
     argv:
         If given, overrides ``sys.argv[1:]`` for argument parsing.  When
-        ``None`` (default) the function is called with no arguments, which
-        causes each parameter's default value to be used.
+        ``None`` (default), parameters are read from the JSON object written
+        to stdin by the skill subprocess executor.
 
     Notes
     -----
@@ -596,13 +596,24 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
     * Falls back to ``json.dumps`` in DCC environments where only the pure-Python
       wheel is installed.
     * The function currently ignores *argv* (no CLI arg parser is bundled).
-      Future versions may parse ``--key=value`` pairs into kwargs.
+        The subprocess executor's complete stdin JSON payload is authoritative.
     * Exit code ``0`` on success, ``1`` on failure (``result["success"] is False``).
 
     """
     result: ResultDict = {}
     try:
-        result = main_fn()
+        params: dict[str, Any] = {}
+        if not sys.stdin.isatty():
+            try:
+                raw_params = sys.stdin.read()
+            except (OSError, ValueError):
+                raw_params = ""
+            if raw_params.strip():
+                decoded = json.loads(raw_params)
+                if not isinstance(decoded, dict):
+                    raise TypeError("Skill stdin payload must be a JSON object")
+                params = decoded
+        result = main_fn(**params)
     except Exception as exc:
         result = skill_exception(exc)
 
