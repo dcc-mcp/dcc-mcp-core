@@ -371,6 +371,49 @@ def test_host_execution_bridge_reuses_queue_dispatcher_for_direct_callable() -> 
     assert bridge.resolve_host_dispatcher() is dispatcher
 
 
+def test_host_execution_bridge_exposes_host_ui_dispatcher_to_http_routing() -> None:
+    """Core UI dispatchers must also satisfy HTTP main-affinity routing."""
+    from dcc_mcp_core import HostUiDispatcherBase
+
+    class _UiDispatcher(HostUiDispatcherBase):
+        def poke_host_pump(self) -> None:
+            pass
+
+        def dispatch_callable(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+            result = self.submit_callable("nested", lambda: func(*args), timeout_ms=10)
+            if not result["success"]:
+                raise RuntimeError(result["error"])
+            return result["output"]
+
+    dispatcher = _UiDispatcher()
+    bridge = HostExecutionBridge(dispatcher=dispatcher)
+
+    http_dispatcher = bridge.resolve_host_dispatcher()
+
+    assert http_dispatcher is not None
+    assert callable(http_dispatcher.post)
+    assert callable(http_dispatcher.tick)
+
+    result = http_dispatcher.post(lambda: 42)
+    assert dispatcher.pending_count() == 1
+    executed, pending = dispatcher.drain_queue(8)
+
+    assert executed == 1
+    assert pending == 0
+    assert result.wait(timeout=1) == 42
+
+    nested = http_dispatcher.post(
+        lambda: bridge.dispatch_callable(
+            lambda: 42,
+            thread_affinity="main",
+            timeout_hint_secs=0.01,
+        )
+    )
+    dispatcher.drain_queue(8)
+
+    assert nested.wait(timeout=1) == 42
+
+
 def test_host_execution_bridge_as_inprocess_executor_uses_runner() -> None:
     seen: list[tuple[str, Mapping[str, Any]]] = []
 

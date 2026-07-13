@@ -49,6 +49,10 @@ class MyDccServer(DccServerBase):
         return "unknown"
 ```
 
+For `HostUiDispatcherBase` subclasses, the bridge creates and attaches the
+native HTTP main-affinity queue automatically. Keep the host timer calling the
+subclass's `drain_queue()`; do not wire a second queue in the adapter.
+
 ## 3. Add Progressive Skills
 
 Use `MinimalModeConfig` for startup policy:
