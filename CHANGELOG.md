@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.34](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.33...v0.19.34) (2026-07-13)
+
+
+### Bug Fixes
+
+* serialize wheel release publication ([#1893](https://github.com/dcc-mcp/dcc-mcp-core/issues/1893)) ([acfefdc](https://github.com/dcc-mcp/dcc-mcp-core/commit/acfefdc36ebabb0de5e81556f7438324e10e0a30))
+* support in-process app ui calls ([#1894](https://github.com/dcc-mcp/dcc-mcp-core/issues/1894)) ([cf5d64e](https://github.com/dcc-mcp/dcc-mcp-core/commit/cf5d64e78ba941830c670e9cfc58763f8fff629b))
+
 ## [0.19.33](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.32...v0.19.33) (2026-07-13)
 
 
