@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.38](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.37...v0.19.38) (2026-07-14)
+
+
+### Bug Fixes
+
+* shut down DCC bridge event loop gracefully ([#1908](https://github.com/dcc-mcp/dcc-mcp-core/issues/1908)) ([0924388](https://github.com/dcc-mcp/dcc-mcp-core/commit/09243886b86e2b296fddef166764dadd7ea05134))
+
 ## [0.19.37](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.36...v0.19.37) (2026-07-14)
 
 
