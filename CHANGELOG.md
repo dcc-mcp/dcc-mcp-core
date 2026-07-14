@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.37](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.36...v0.19.37) (2026-07-14)
+
+
+### Features
+
+* **gateway:** add compact filtered instance query  ([12ce29e](https://github.com/dcc-mcp/dcc-mcp-core/commit/12ce29ee24605910673e85f01b15f8ca88c0e74f))
+
+
+### Bug Fixes
+
+* **gateway:** include metadata in compact instance projection ([55ad0e4](https://github.com/dcc-mcp/dcc-mcp-core/commit/55ad0e43f11cc7d066d0ab2ac427d88bf0023a79))
+* **gateway:** resolve clippy lints in instances.rs  ([2aa27cb](https://github.com/dcc-mcp/dcc-mcp-core/commit/2aa27cbb59c8faeb878636b36a384893c7684b19))
+* **gateway:** use verbose instance query in rez fixture test to include metadata ([58c92b1](https://github.com/dcc-mcp/dcc-mcp-core/commit/58c92b17704225c81e2b07405d9fdf45c2da3372))
+* return jobs for async REST calls ([bdffc95](https://github.com/dcc-mcp/dcc-mcp-core/commit/bdffc950cc811e33716e074fdb7bbe198863bd24))
+* unify log level environment variable ([2d607e2](https://github.com/dcc-mcp/dcc-mcp-core/commit/2d607e22f7490e0670c7c749fbd50057684aeda8))
+
 ## [0.19.36](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.35...v0.19.36) (2026-07-14)
 
 
