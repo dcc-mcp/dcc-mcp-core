@@ -20,6 +20,9 @@ from dcc_mcp_core._exports import _LAZY
 from dcc_mcp_core._exports import _OPTIONAL
 from dcc_mcp_core._exports import PUBLIC_EXPORTS as __all__
 from dcc_mcp_core._lazy import resolve_lazy_symbol
+from dcc_mcp_core._windows_dll_search import prepare_embedded_python_dll_search
+
+prepare_embedded_python_dll_search()
 
 
 def _metadata_value(name: str, default: str) -> str:
