@@ -540,11 +540,16 @@ pub async fn call_service(
         )
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
-    let url = entry_mcp_url(entry);
+    let use_discovery_dispatch = app_ui_uses_discovery_dispatch(entry, &record);
+    let url = if use_discovery_dispatch {
+        entry_discovery_mcp_url(entry)
+    } else {
+        entry_mcp_url(entry)
+    };
     let entry = entry.clone();
     drop(reg);
 
-    let call_result = if entry_uses_sidecar_dispatch(&entry) {
+    let call_result = if entry_uses_sidecar_dispatch(&entry) && !use_discovery_dispatch {
         // _meta is intentionally NOT forwarded into sidecar params.
         // The sidecar tools/call contract expects only {name, arguments};
         // injecting _meta at the params level leaks gateway-internal
@@ -620,6 +625,12 @@ pub async fn call_service(
             .with_backend(backend_attachment))
         }
     }
+}
+
+fn app_ui_uses_discovery_dispatch(entry: &ServiceEntry, record: &CapabilityRecord) -> bool {
+    entry_uses_sidecar_dispatch(entry)
+        && record.callable_id.starts_with("app_ui__")
+        && !entry_discovery_mcp_url(entry).is_empty()
 }
 
 /// Shared helper for both MCP and REST search paths.
