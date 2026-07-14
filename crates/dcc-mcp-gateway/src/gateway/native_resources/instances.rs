@@ -346,6 +346,7 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
         "status":         status_str,
         "stale":          stale,
         "scene":          e.scene,
+        "metadata":       &e.metadata,
         "dispatch": {
             "reported": dispatch_status.is_some(),
             "ready":    dispatch_ready_value,
@@ -653,7 +654,7 @@ mod tests {
         // Compact projection must NOT include verbose fields
         assert!(json.get("lifecycle").is_none());
         assert!(json.get("gateway").is_none());
-        assert!(json.get("metadata").is_none());
+        // metadata is now included in compact projection for backward compatibility
         assert!(json.get("diagnostics").is_none());
         assert!(json.get("pool").is_none());
         assert!(json.get("host_execution").is_none());
