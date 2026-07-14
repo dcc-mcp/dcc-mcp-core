@@ -292,7 +292,7 @@ def test_rez_context_bundle_fixture_exposes_distinct_instance_metadata(tmp_path:
         gateway_url = f"http://127.0.0.1:{gateway_port}/mcp"
         # #813 phase 1: list_dcc_instances was replaced by the gateway://instances resource.
         # Retry with backoff — rez fixture backends may still be registering on slow runners.
-        resp = _post_mcp_retry(gateway_url, "resources/read", {"uri": "gateway://instances"})
+        resp = _post_mcp_retry(gateway_url, "resources/read", {"uri": "gateway://instances?verbose=true"})
         instances = json.loads(resp["result"]["contents"][0]["text"])["instances"]
         by_task = {item["metadata"]["task"]: item for item in instances}
 
