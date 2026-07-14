@@ -96,9 +96,7 @@ fn should_dispatch_async(meta: Option<&Value>, action: &CatalogAction) -> bool {
             || value.get("progressToken").is_some()
             || value.get("progress_token").is_some()
     });
-    request_opt_in
-        || matches!(action.execution, ExecutionMode::Async)
-        || action.timeout_hint_secs.unwrap_or(0) > 0
+    request_opt_in || matches!(action.execution, ExecutionMode::Async)
 }
 
 /// A single search hit — deliberately compact.
@@ -1233,7 +1231,7 @@ impl SkillRestService {
     ///
     /// Existing embedders that do not implement [`ToolInvoker::invoke_async`]
     /// retain synchronous behavior. Runtimes with a job-aware invoker return
-    /// a pending envelope immediately for async or long-running tools.
+    /// a pending envelope immediately for explicitly asynchronous tools.
     pub fn dispatch_call(&self, req: &CallRequest) -> Result<CallDispatchOutcome, ServiceError> {
         let action = self.resolve_callable_action(&req.tool_slug)?;
         if should_dispatch_async(req.meta.as_ref(), &action)
