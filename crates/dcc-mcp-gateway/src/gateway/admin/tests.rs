@@ -332,6 +332,67 @@ filters:
         (port, tx, calls)
     }
 
+    async fn spawn_discovery_dispatch_backend(
+        hits: Value,
+    ) -> (u16, oneshot::Sender<()>, Arc<Mutex<Vec<Value>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let calls_for_rest = calls.clone();
+        let calls_for_route = calls.clone();
+        let app = Router::new()
+            .route(
+                "/v1/search",
+                axum::routing::post(move || {
+                    let hits = hits.clone();
+                    async move { axum::Json(json!({ "hits": hits })) }
+                }),
+            )
+            .route(
+                "/v1/call",
+                axum::routing::post(move |axum::Json(req): axum::Json<Value>| {
+                    let calls = calls_for_rest.clone();
+                    async move {
+                        calls.lock().push(req);
+                        axum::Json(json!({
+                            "isError": false,
+                            "output": {"success": true, "snapshot_id": "snapshot-1"}
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/mcp",
+                axum::routing::post(move |axum::Json(req): axum::Json<Value>| {
+                    let calls = calls_for_route.clone();
+                    async move {
+                        calls.lock().push(req.clone());
+                        let id = req.get("id").cloned().unwrap_or(json!("test"));
+                        axum::Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{
+                                    "type": "text",
+                                    "text": "{\"success\":true,\"snapshot_id\":\"snapshot-1\"}"
+                                }],
+                                "isError": false
+                            }
+                        }))
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        (port, tx, calls)
+    }
+
     async fn spawn_skill_detail_backend(hits: Value, detail: Value) -> (u16, oneshot::Sender<()>) {
         let app = Router::new()
             .route("/health", axum::routing::get(|| async { StatusCode::OK }))
@@ -586,6 +647,67 @@ filters:
         assert_eq!(
             calls[0].pointer("/params/arguments/name"),
             Some(&json!("random_sphere_1"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_gateway_call_routes_app_ui_to_sidecar_discovery_endpoint() {
+        let gs = make_gateway_state();
+        let (discovery_port, stop_discovery, discovery_calls) =
+            spawn_discovery_dispatch_backend(json!([{
+                "skill": "core",
+                "action": "app_ui__snapshot",
+                "summary": "Capture a bounded app UI snapshot",
+                "loaded": true,
+                "has_schema": true
+            }]))
+            .await;
+        let (sidecar_port, stop_sidecar, sidecar_calls) = spawn_sidecar_dispatch_backend().await;
+        let mut entry = make_service_entry("3dsmax", "127.0.0.1", sidecar_port, None);
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{sidecar_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{discovery_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::ROLE_METADATA_KEY.to_string(),
+            crate::gateway::http_registration::ROLE_PER_DCC_SIDECAR.to_string(),
+        );
+        let instance_id = entry.instance_id;
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+
+        crate::gateway::capability_service::refresh_all_live_backends(
+            &gs,
+            crate::gateway::capability::RefreshReason::Periodic,
+        )
+        .await;
+        let slug =
+            crate::gateway::capability::tool_slug("3dsmax", &instance_id, "app_ui__snapshot");
+
+        let result = crate::gateway::capability_service::call_service(
+            &gs,
+            &slug,
+            json!({}),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("app-ui calls should use the in-process discovery endpoint");
+        let _ = stop_discovery.send(());
+        let _ = stop_sidecar.send(());
+
+        assert_eq!(result["isError"], false);
+        assert_eq!(discovery_calls.lock().len(), 1);
+        assert!(
+            sidecar_calls.lock().is_empty(),
+            "app-ui calls must not be sent to the sidecar action dispatcher"
         );
     }
 
