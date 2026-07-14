@@ -82,15 +82,42 @@ def _no_application() -> dict[str, Any]:
 # ── Widget identifier ─────────────────────────────────────────────────
 
 
+def _native_object_address(widget: Any) -> int | None:
+    """Return the wrapped C++ QObject address when the binding exposes it."""
+    binding_name = next(
+        (
+            cls.__module__.split(".", 1)[0]
+            for cls in widget.__class__.__mro__
+            if cls.__module__.split(".", 1)[0] in ("PySide6", "PySide2", "PyQt6", "PyQt5")
+        ),
+        "",
+    )
+    try:
+        if binding_name in ("PySide6", "PySide2"):
+            shiboken_name = "shiboken6" if binding_name == "PySide6" else "shiboken2"
+            shiboken = __import__(shiboken_name)
+            pointer = int(shiboken.getCppPointer(widget)[0])
+        elif binding_name in ("PyQt6", "PyQt5"):
+            sip = __import__(f"{binding_name}.sip", fromlist=["sip"])
+            pointer = int(sip.unwrapinstance(widget))
+        else:
+            return None
+    except Exception:
+        return None
+    return pointer if pointer > 0 else None
+
+
 def _widget_id(widget: Any) -> str:
-    """Stable identifier ``class:object_name:fingerprint``."""
+    """Wrapper-stable identifier ``class:object_name:fingerprint``."""
     try:
         obj_name = widget.objectName() or ""
     except Exception:
         obj_name = ""
     klass = widget.__class__.__name__
-    fingerprint = id(widget) & 0xFFFFFFFF
-    return f"{klass}:{obj_name}:{fingerprint:08x}"
+    fingerprint = _native_object_address(widget)
+    if fingerprint is None:
+        fingerprint = id(widget)
+    return f"{klass}:{obj_name}:{fingerprint & 0xFFFFFFFFFFFFFFFF:016x}"
 
 
 def _safe_call(fn: Any, default: Any) -> Any:
