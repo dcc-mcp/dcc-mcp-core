@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.36](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.35...v0.19.36) (2026-07-14)
+
+
+### Bug Fixes
+
+* load ABI3 wheels in embedded Windows Python ([#1901](https://github.com/dcc-mcp/dcc-mcp-core/issues/1901)) ([a5943ad](https://github.com/dcc-mcp/dcc-mcp-core/commit/a5943ad188be6109b475052fe6d5aa9fdbaf9ea8))
+
 ## [0.19.35](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.34...v0.19.35) (2026-07-14)
 
 
