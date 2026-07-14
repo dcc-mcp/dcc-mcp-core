@@ -205,10 +205,11 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                 .iter()
                 .filter(|e| {
                     // dcc_type exact match (case-insensitive)
-                    if let Some(dt) = dcc_type {
-                        if !e.dcc_type.eq_ignore_ascii_case(dt) {
-                            return false;
-                        }
+                    if dcc_type
+                        .as_ref()
+                        .is_some_and(|dt| !e.dcc_type.eq_ignore_ascii_case(dt))
+                    {
+                        return false;
                     }
                     // staleness filter
                     let stale = e.is_stale(stale_timeout);
@@ -221,29 +222,24 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                     // status filter
                     if let Some(ref s) = status_lower {
                         match s.as_str() {
-                            "available" => {
-                                if e.status.to_string() != "available" || stale {
-                                    return false;
-                                }
+                            "available" if e.status.to_string() != "available" || stale => {
+                                return false;
                             }
-                            "busy" => {
-                                if e.status.to_string() != "busy" || stale {
-                                    return false;
-                                }
+                            "busy" if e.status.to_string() != "busy" || stale => {
+                                return false;
                             }
-                            "stale" => {
-                                if !stale {
-                                    return false;
-                                }
+                            "stale" if !stale => {
+                                return false;
                             }
                             _ => {} // unknown status values pass through
                         }
                     }
                     // substring query filter
-                    if let Some(ref q) = query_lower {
-                        if !instance_matches_query(e, q) {
-                            return false;
-                        }
+                    if query_lower
+                        .as_ref()
+                        .is_some_and(|q| !instance_matches_query(e, q))
+                    {
+                        return false;
                     }
                     true
                 })
@@ -324,7 +320,7 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
         .get("dispatch_status")
         .map(|s| s.trim().to_ascii_lowercase());
     let dispatch_ready = dispatch_status.as_deref() == Some("ready")
-        && e.metadata.get("mcp_url").is_some()
+        && e.metadata.contains_key("mcp_url")
         && matches!(
             e.status,
             dcc_mcp_transport::discovery::types::ServiceStatus::Available
@@ -395,11 +391,6 @@ pub fn compute_index_health(
     // The caller (build_payload) already tracks stale_count; if needed,
     // a future iteration can thread that through.
     "healthy"
-}
-
-/// Parse a usize from a query parameter value, returning None on failure.
-fn parse_usize_param(params: &std::collections::HashMap<&str, &str>, key: &str) -> Option<usize> {
-    params.get(key).and_then(|v| v.parse::<usize>().ok())
 }
 
 #[cfg(test)]
