@@ -494,8 +494,9 @@ async fn handle_call(
         return service_error_to_response(err);
     }
     let started = std::time::Instant::now();
-    match cfg.service.call(&req) {
-        Ok(out) => {
+    match cfg.service.dispatch_call(&req) {
+        Ok(disposition) => {
+            let (out, pending) = disposition.into_parts();
             emit_audit(
                 &cfg,
                 &rid,
@@ -511,7 +512,12 @@ async fn handle_call(
                 "validation_skipped": out.validation_skipped,
                 "request_id": rid,
             });
-            (StatusCode::OK, Json(body)).into_response()
+            let status = if pending {
+                StatusCode::ACCEPTED
+            } else {
+                StatusCode::OK
+            };
+            (status, Json(body)).into_response()
         }
         Err(err) => {
             emit_audit(
@@ -1043,6 +1049,7 @@ pub fn op_describe_path() {}
     request_body = CallRequest,
     responses(
         (status = 200, description = "successful invocation", body = CallOutcome),
+        (status = 202, description = "async invocation accepted; output contains pending job", body = CallOutcome),
         (status = 400, description = "bad request or invalid params", body = ServiceError),
         (status = 401, description = "unauthorized", body = ServiceError),
         (status = 404, description = "unknown slug", body = ServiceError),

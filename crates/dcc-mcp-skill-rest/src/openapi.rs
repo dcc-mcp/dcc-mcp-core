@@ -17,10 +17,10 @@ use super::errors::{ServiceError, ServiceErrorKind};
 use super::readiness::ReadinessReport;
 use super::service::{
     CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse, JobEvent,
-    LoadSkillRequest, ProgressiveNextStep, PromptArgumentSpec, PromptContent, PromptGetResponse,
-    PromptListEntry, PromptMessage, ResourceContent, ResourceEvent, ResourceListEntry,
-    ResourceReadResponse, SearchRequest, SearchResponse, SkillLifecycleResponse, SkillListEntry,
-    ToolSlug, UnloadSkillRequest,
+    LoadSkillRequest, PendingCall, ProgressiveNextStep, PromptArgumentSpec, PromptContent,
+    PromptGetResponse, PromptListEntry, PromptMessage, ResourceContent, ResourceEvent,
+    ResourceListEntry, ResourceReadResponse, SearchRequest, SearchResponse, SkillLifecycleResponse,
+    SkillListEntry, ToolSlug, UnloadSkillRequest,
 };
 
 /// Compile-time `ToSchema` registry for the REST skill API surface.
@@ -74,6 +74,7 @@ use super::service::{
         DescribeResponse,
         CallRequest,
         CallOutcome,
+        PendingCall,
         ContextSnapshot,
         // #818 phase 1
         ResourceListEntry,
@@ -238,6 +239,16 @@ mod tests {
                 props.contains_key(field),
                 "CallOutcome is missing property {field}: {props:#?}"
             );
+        }
+    }
+
+    #[test]
+    fn async_call_contract_publishes_accepted_response_and_pending_job() {
+        let doc = build_openapi_document("x", "1.0.0");
+        assert!(doc["paths"]["/v1/call"]["post"]["responses"]["202"].is_object());
+        let pending = &doc["components"]["schemas"]["PendingCall"];
+        for field in ["job_id", "status"] {
+            assert!(pending["properties"].get(field).is_some());
         }
     }
 }

@@ -196,6 +196,14 @@ The OpenAPI `CallRequest` schema declares both `arguments` and `params` so
 generated clients can use the canonical field without breaking integrations
 that still emit the compatibility alias.
 
+Direct per-DCC REST returns `200` for completed synchronous calls. When the
+tool declares `execution: async`, has a positive timeout hint, or the request
+sets `meta.dcc.async=true`, it returns `202` immediately with the same envelope
+and `output: {"job_id":"...","status":"pending","parent_job_id":null}`.
+Follow progress through `GET /v1/jobs/{id}/events` or cancel with
+`DELETE /v1/jobs/{id}`; the DCC HTTP worker remains responsive while the host
+main thread performs the job.
+
 The canonical normalization rules live in `dcc-mcp-wire`; Python host wrappers can reuse them via `dcc_mcp_core.host.normalize_tool_arguments()` and `normalize_tool_meta()` instead of hand-rolling JSON coercion.
 
 ### Wrapper payloads and object-shaped arguments
@@ -846,7 +854,7 @@ dashboards.
 
 | Concern | MCP `call` (JSON-RPC) | REST `POST /v1/call` | Parity? |
 |---|---|---|---|
-| Success body | `result.content[].text` (str JSON) | `{slug, output, validation_skipped, request_id}` | ✅ same underlying `CallOutcome` |
+| Success body | `result.content[].text` (str JSON) | `200 {slug, output, validation_skipped, request_id}` or `202` with `output.status=pending` | ✅ same completed/pending lifecycle |
 | Error body | `result.content[].text` (str JSON) with `isError: true` | `{kind, message, hint?, request_id, candidates?}` | ✅ same `ServiceError`; MCP wraps it into the MCP `CallToolResult` shape |
 | `request_id` | `_meta.request_id` | top-level field | ✅ same value |
 | Cancellation | `notifications/cancelled` | `DELETE /v1/jobs/{id}` for async jobs | ✅ both reach the cooperative-cancellation path |
