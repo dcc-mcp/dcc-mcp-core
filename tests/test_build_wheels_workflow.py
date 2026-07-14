@@ -43,4 +43,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
 
     upload = publish["steps"][1]
     assert upload["env"] == {"GH_TOKEN": "${{ github.token }}"}
-    assert 'gh release upload "${{ inputs.release-tag-name }}" dist/*.whl --clobber' in upload["run"]
+    command = upload["run"]
+    assert 'gh release upload "${{ inputs.release-tag-name }}" dist/*.whl' in command
+    assert '--repo "${{ github.repository }}"' in command
+    assert command.endswith("--clobber")
