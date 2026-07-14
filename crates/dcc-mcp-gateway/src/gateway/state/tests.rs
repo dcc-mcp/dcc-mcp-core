@@ -1204,6 +1204,12 @@ async fn gateway_instances_resource_lists_many_dcc_rows_without_gateway_sentinel
         &crate::gateway::native_resources::instances::Query::List {
             include_stale: true,
             include_dead: false,
+            dcc_type: None,
+            query: None,
+            status: None,
+            limit: 200,
+            offset: 0,
+            verbose: true,
         },
     )
     .await

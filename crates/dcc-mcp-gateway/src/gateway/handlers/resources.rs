@@ -408,7 +408,7 @@ mod tests {
             registry.register(entry).unwrap();
         }
 
-        let req = make_read_req("gateway://instances");
+        let req = make_read_req("gateway://instances?verbose=true&limit=200");
         let resp = handle_resources_read(&gs, json!(1), &req).await;
         let text = resp["result"]["contents"][0]["text"]
             .as_str()
