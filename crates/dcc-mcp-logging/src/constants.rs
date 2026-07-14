@@ -3,7 +3,9 @@
 /// Default log level when [`ENV_LOG_LEVEL`] is not set.
 pub const DEFAULT_LOG_LEVEL: &str = "DEBUG";
 /// Environment variable name for overriding the log level.
-pub const ENV_LOG_LEVEL: &str = "MCP_LOG_LEVEL";
+pub const ENV_LOG_LEVEL: &str = "DCC_MCP_LOG_LEVEL";
+/// Deprecated environment variable accepted for backward compatibility.
+pub const LEGACY_ENV_LOG_LEVEL: &str = "MCP_LOG_LEVEL";
 
 /// Environment variable toggling file-logging. Any non-empty, non-`0`/`false`
 /// value enables it (defaults to disabled).
@@ -43,7 +45,8 @@ mod tests {
 
     #[test]
     fn env_var_names_are_stable() {
-        assert_eq!(ENV_LOG_LEVEL, "MCP_LOG_LEVEL");
+        assert_eq!(ENV_LOG_LEVEL, "DCC_MCP_LOG_LEVEL");
+        assert_eq!(LEGACY_ENV_LOG_LEVEL, "MCP_LOG_LEVEL");
         assert_eq!(ENV_LOG_FILE, "DCC_MCP_LOG_FILE");
         assert_eq!(ENV_LOG_DIR, "DCC_MCP_LOG_DIR");
         assert_eq!(ENV_LOG_FILE_PREFIX, "DCC_MCP_LOG_FILE_PREFIX");

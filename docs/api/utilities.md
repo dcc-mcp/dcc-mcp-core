@@ -203,7 +203,7 @@ Available as module-level attributes:
 | `APP_AUTHOR` | `"dcc-mcp"` | App author |
 | `DEFAULT_DCC` | `"python"` | Default DCC name |
 | `DEFAULT_LOG_LEVEL` | `"DEBUG"` | Default log level |
-| `ENV_LOG_LEVEL` | `"MCP_LOG_LEVEL"` | Env var for log level |
+| `ENV_LOG_LEVEL` | `"DCC_MCP_LOG_LEVEL"` | Env var for log level |
 | `ENV_SKILL_PATHS` | `"DCC_MCP_SKILL_PATHS"` | Env var for global skill paths |
 | `ENV_APP_SKILL_PATHS` | `"DCC_MCP_{APP}_SKILL_PATHS"` | Template for per-app skill paths env var |
 | `SKILL_METADATA_FILE` | `"SKILL.md"` | Skill metadata filename |
@@ -215,7 +215,7 @@ Available as module-level attributes:
 |----------|-------------|
 | `DCC_MCP_SKILL_PATHS` | Global skill search paths (`;` on Windows, `:` on Unix) |
 | `DCC_MCP_{APP}_SKILL_PATHS` | Per-app skill paths, e.g. `DCC_MCP_MAYA_SKILL_PATHS` for Maya |
-| `MCP_LOG_LEVEL` | Log level override (DEBUG, INFO, WARN, ERROR) |
+| `DCC_MCP_LOG_LEVEL` | Log level override (DEBUG, INFO, WARN, ERROR) |
 | `DCC_MCP_LOG_DIR` | Directory for rolling log files (falls back to platform log dir) |
 | `DCC_MCP_LOG_FILE_PREFIX` | Log file stem (default: `dcc-mcp`) |
 | `DCC_MCP_LOG_MAX_SIZE` | Max bytes per file before size-triggered rotation (default: 10 MiB) |

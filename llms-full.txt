@@ -2545,7 +2545,7 @@ shutdown_file_logging()
 | `SKILL_SCRIPTS_DIR` | `"scripts"` | Skill scripts subdirectory name |
 | `SKILL_METADATA_DIR` | `"metadata"` | Skill metadata subdirectory name |
 | `ENV_SKILL_PATHS` | `"DCC_MCP_SKILL_PATHS"` | Environment variable for skill search paths |
-| `ENV_LOG_LEVEL` | `"MCP_LOG_LEVEL"` | Environment variable for log level override |
+| `ENV_LOG_LEVEL` | `"DCC_MCP_LOG_LEVEL"` | Environment variable for log level override |
 | `ENV_DISABLE_ACCUMULATED_SKILLS` | `"DCC_MCP_DISABLE_ACCUMULATED_SKILLS"` | Set to `"1"` to disable accumulated/evolved skills discovery |
 | `ENV_DISABLE_DEFAULT_SKILL_PATHS` | `"DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"` | Set to `"1"` to omit implicit operator-owned skill roots while preserving explicit, bundled, and env paths |
 | `ENV_TEAM_SKILL_PATHS` | `"DCC_MCP_TEAM_SKILL_PATHS"` | Environment variable for team-level skill paths |
@@ -2559,7 +2559,7 @@ shutdown_file_logging()
 |----------|-------------|---------|
 | `DCC_MCP_SKILL_PATHS` | Skill search paths (`:` on Unix, `;` on Windows) | `/skills1:/skills2` |
 | `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS` | Disable implicit operator-owned skill roots for hermetic CI/tests | `1` |
-| `MCP_LOG_LEVEL` | Log level override | `INFO` / `DEBUG` / `WARN` |
+| `DCC_MCP_LOG_LEVEL` | Log level override | `INFO` / `DEBUG` / `WARN` |
 
 ---
 

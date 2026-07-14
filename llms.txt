@@ -733,7 +733,7 @@ tools:
 - `APP_NAME = "dcc-mcp"`, `APP_AUTHOR = "dcc-mcp"`
 - `DEFAULT_DCC = "python"`, `DEFAULT_LOG_LEVEL = "DEBUG"`, `DEFAULT_MIME_TYPE = "text/plain"`, `DEFAULT_VERSION = "1.0.0"`
 - `SKILL_METADATA_FILE = "SKILL.md"`, `SKILL_SCRIPTS_DIR = "scripts"`, `SKILL_METADATA_DIR = "metadata"`
-- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"`, `ENV_DISABLE_ACCUMULATED_SKILLS` — set to "1" to disable accumulated/evolved skills discovery, `ENV_DISABLE_DEFAULT_SKILL_PATHS` — set to "1" for hermetic discovery without implicit operator-owned roots, `ENV_TEAM_SKILL_PATHS` / `ENV_USER_SKILL_PATHS` — team-level and user-level skill path env vars
+- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "DCC_MCP_LOG_LEVEL"`, `ENV_DISABLE_ACCUMULATED_SKILLS` — set to "1" to disable accumulated/evolved skills discovery, `ENV_DISABLE_DEFAULT_SKILL_PATHS` — set to "1" for hermetic discovery without implicit operator-owned roots, `ENV_TEAM_SKILL_PATHS` / `ENV_USER_SKILL_PATHS` — team-level and user-level skill path env vars
 - `TOOL_NAME_RE` / `ACTION_ID_RE` — regex patterns for client-safe tool names and internal action IDs
 - `MAX_TOOL_NAME_LEN = 64` — maximum tool name length
 
