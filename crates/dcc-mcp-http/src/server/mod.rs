@@ -506,7 +506,7 @@ impl McpHttpServer {
 
         let catalog_source =
             std::sync::Arc::new(dcc_mcp_skill_rest::CatalogSource::new(catalog.clone()));
-        let invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> =
+        let base_invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> =
             match (self.executor.clone(), self.host_bridge_runtime.clone()) {
                 (Some(executor), Some(bridge_runtime)) => {
                     std::sync::Arc::new(dcc_mcp_http_server::ThreadRoutedInvoker::new(
@@ -536,6 +536,9 @@ impl McpHttpServer {
                     self.dispatcher.clone(),
                 )),
             };
+        let invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> = std::sync::Arc::new(
+            dcc_mcp_http_server::JobAwareInvoker::new(base_invoker, jobs.clone()),
+        );
         let rest_service = dcc_mcp_skill_rest::SkillRestService::new(catalog_source, invoker)
             .with_resources(std::sync::Arc::new(
                 crate::rest_providers::ResourceRegistryAdapter::new(
@@ -545,6 +548,9 @@ impl McpHttpServer {
             ))
             .with_prompts(std::sync::Arc::new(
                 crate::rest_providers::PromptRegistryAdapter::new(prompts.clone(), catalog.clone()),
+            ))
+            .with_jobs(std::sync::Arc::new(
+                crate::rest_providers::JobManagerAdapter::new(jobs.clone()),
             ));
 
         let mut rest_config = dcc_mcp_skill_rest::SkillRestConfig::new(rest_service)

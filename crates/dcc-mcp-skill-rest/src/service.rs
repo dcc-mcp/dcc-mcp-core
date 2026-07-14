@@ -87,6 +87,18 @@ fn default_true() -> bool {
     true
 }
 
+fn should_dispatch_async(meta: Option<&Value>, action: &CatalogAction) -> bool {
+    let request_opt_in = meta.is_some_and(|value| {
+        value
+            .pointer("/dcc/async")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || value.get("progressToken").is_some()
+            || value.get("progress_token").is_some()
+    });
+    request_opt_in || matches!(action.execution, ExecutionMode::Async)
+}
+
 /// A single search hit — deliberately compact.
 ///
 /// Notice the **absence** of `input_schema`. That is the whole point:
@@ -292,6 +304,44 @@ pub struct CallOutcome {
     pub validation_skipped: bool,
 }
 
+/// A background invocation accepted by the runtime job controller.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PendingCall {
+    pub job_id: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_job_id: Option<String>,
+}
+
+impl PendingCall {
+    #[must_use]
+    pub fn new(job_id: impl Into<String>, parent_job_id: Option<String>) -> Self {
+        Self {
+            job_id: job_id.into(),
+            status: "pending".to_string(),
+            parent_job_id,
+        }
+    }
+}
+
+/// REST call disposition. Pending calls are acknowledged with HTTP 202;
+/// completed calls preserve the historical HTTP 200 response.
+#[derive(Debug, Clone)]
+pub enum CallDispatchOutcome {
+    Completed(CallOutcome),
+    Pending(CallOutcome),
+}
+
+impl CallDispatchOutcome {
+    #[must_use]
+    pub fn into_parts(self) -> (CallOutcome, bool) {
+        match self {
+            Self::Completed(outcome) => (outcome, false),
+            Self::Pending(outcome) => (outcome, true),
+        }
+    }
+}
+
 /// Snapshot returned by `/v1/context`.
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
 pub struct ContextSnapshot {
@@ -373,6 +423,20 @@ pub trait ToolInvoker: Send + Sync {
         params: Value,
         meta: Option<Value>,
     ) -> Result<CallOutcome, ServiceError>;
+
+    /// Queue a background invocation when the runtime owns a job manager.
+    ///
+    /// Returning `Ok(None)` preserves synchronous behavior for embedders
+    /// that have not wired async jobs yet.
+    fn invoke_async(
+        &self,
+        _tool_slug: &ToolSlug,
+        _action_name: &str,
+        _params: Value,
+        _meta: Option<Value>,
+    ) -> Result<Option<PendingCall>, ServiceError> {
+        Ok(None)
+    }
 }
 
 // ── Resource & prompt providers (#818 phase 1) ───────────────────────
@@ -1159,7 +1223,51 @@ impl SkillRestService {
 
     /// Invoke a tool by slug.
     pub fn call(&self, req: &CallRequest) -> Result<CallOutcome, ServiceError> {
-        let action = self.resolve_slug(&req.tool_slug)?;
+        let action = self.resolve_callable_action(&req.tool_slug)?;
+        self.invoke_resolved(req, &action)
+    }
+
+    /// Dispatch a REST call according to its declared execution contract.
+    ///
+    /// Existing embedders that do not implement [`ToolInvoker::invoke_async`]
+    /// retain synchronous behavior. Runtimes with a job-aware invoker return
+    /// a pending envelope immediately for explicitly asynchronous tools.
+    pub fn dispatch_call(&self, req: &CallRequest) -> Result<CallDispatchOutcome, ServiceError> {
+        let action = self.resolve_callable_action(&req.tool_slug)?;
+        if should_dispatch_async(req.meta.as_ref(), &action)
+            && let Some(pending) = self.invoker.invoke_async(
+                &req.tool_slug,
+                &action.action_name,
+                req.params.clone(),
+                req.meta.clone(),
+            )?
+        {
+            return Ok(CallDispatchOutcome::Pending(CallOutcome {
+                slug: req.tool_slug.clone(),
+                output: serde_json::to_value(pending).unwrap_or_else(|_| serde_json::json!({})),
+                validation_skipped: false,
+            }));
+        }
+        self.invoke_resolved(req, &action)
+            .map(CallDispatchOutcome::Completed)
+    }
+
+    fn invoke_resolved(
+        &self,
+        req: &CallRequest,
+        action: &CatalogAction,
+    ) -> Result<CallOutcome, ServiceError> {
+        // Dispatcher registers under the action name, not the slug.
+        let mut outcome =
+            self.invoker
+                .invoke(&action.action_name, req.params.clone(), req.meta.clone())?;
+        // Normalise the outcome to report the slug the caller used.
+        outcome.slug = req.tool_slug.clone();
+        Ok(outcome)
+    }
+
+    fn resolve_callable_action(&self, slug: &ToolSlug) -> Result<CatalogAction, ServiceError> {
+        let action = self.resolve_slug(slug)?;
         if !action.loaded {
             return Err(ServiceError::new(
                 ServiceErrorKind::SkillNotLoaded,
@@ -1171,13 +1279,7 @@ impl SkillRestService {
             )
             .with_hint("call load_skill first"));
         }
-        // Dispatcher registers under the action name, not the slug.
-        let mut outcome =
-            self.invoker
-                .invoke(&action.action_name, req.params.clone(), req.meta.clone())?;
-        // Normalise the outcome to report the slug the caller used.
-        outcome.slug = req.tool_slug.clone();
-        Ok(outcome)
+        Ok(action)
     }
 
     /// Invoke a backend action by bare `backend_tool` name with a DCC-bucket guard.

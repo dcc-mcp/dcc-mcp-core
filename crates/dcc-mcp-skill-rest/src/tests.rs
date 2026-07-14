@@ -23,15 +23,19 @@ use serde_json::{Value, json};
 
 use dcc_mcp_actions::dispatcher::ToolDispatcher;
 use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
-use dcc_mcp_models::SkillMetadata;
+use dcc_mcp_models::{ExecutionMode, SkillMetadata};
 use dcc_mcp_skills::SkillCatalog;
 
 use super::SEARCH_HIT_BUDGET_BYTES;
+use super::ServiceError;
 use super::audit::{AuditOutcome, VecAuditSink};
 use super::auth::{AllowLocalhostGate, BearerTokenGate};
 use super::readiness::StaticReadiness;
 use super::router::{SkillRestConfig, build_skill_rest_router};
-use super::service::SkillRestService;
+use super::service::{
+    CallOutcome, CatalogSource, DispatcherInvoker, PendingCall, SkillRestService, ToolInvoker,
+    ToolSlug,
+};
 
 // ── Fixture ──────────────────────────────────────────────────────────
 
@@ -142,6 +146,93 @@ async fn search_describe_call_round_trip() {
     assert_eq!(out["slug"], slug);
     assert_eq!(out["output"]["name"], "pSphere1");
     assert_eq!(out["output"]["radius"], 2.5);
+}
+
+struct ImmediatePendingInvoker {
+    inner: DispatcherInvoker,
+}
+
+impl ToolInvoker for ImmediatePendingInvoker {
+    fn invoke(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<CallOutcome, ServiceError> {
+        self.inner.invoke(action_name, params, meta)
+    }
+
+    fn invoke_async(
+        &self,
+        _tool_slug: &ToolSlug,
+        _action_name: &str,
+        _params: Value,
+        _meta: Option<Value>,
+    ) -> Result<Option<PendingCall>, ServiceError> {
+        Ok(Some(PendingCall::new("test-job", None)))
+    }
+}
+
+/// Async tools must acknowledge the REST request without waiting for the
+/// host-side work to finish. This keeps CLI callers and health probes
+/// responsive while a DCC main thread is rendering.
+#[tokio::test]
+async fn async_call_returns_pending_job_immediately() {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_action(ToolMeta {
+        name: "render_sequence".into(),
+        dcc: "nuke".into(),
+        description: "Render a frame sequence".into(),
+        input_schema: json!({"type": "object"}),
+        skill_name: Some("layered_compositing".into()),
+        execution: ExecutionMode::Async,
+        enabled: true,
+        ..Default::default()
+    });
+
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+    dispatcher.register_handler("render_sequence", |_| {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        Ok(json!({"rendered": true}))
+    });
+    let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+        registry,
+        dispatcher.clone(),
+    ));
+    catalog.add_skill(SkillMetadata {
+        name: "layered_compositing".into(),
+        dcc: "nuke".into(),
+        description: "Layered compositing".into(),
+        ..Default::default()
+    });
+    let _ = catalog.load_skill("layered_compositing");
+
+    let service = SkillRestService::new(
+        Arc::new(CatalogSource::new(catalog)),
+        Arc::new(ImmediatePendingInvoker {
+            inner: DispatcherInvoker::new(dispatcher),
+        }),
+    );
+    let (server, _audit) = build_server(service);
+    let started = std::time::Instant::now();
+    let response = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "nuke.layered_compositing.render_sequence",
+            "params": {}
+        }))
+        .await;
+
+    assert_eq!(response.status_code().as_u16(), 202);
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(150),
+        "async REST acknowledgement blocked for {:?}",
+        started.elapsed()
+    );
+    let body: Value = response.json();
+    assert_eq!(body["slug"], "nuke.layered_compositing.render_sequence");
+    assert_eq!(body["output"]["status"], "pending");
+    assert!(body["output"]["job_id"].is_string());
 }
 
 /// Goal #2 — MCP and REST must yield identical envelopes for the same

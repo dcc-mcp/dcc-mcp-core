@@ -83,12 +83,12 @@ pub use errors::{ServiceError, ServiceErrorKind};
 pub use readiness::{ReadinessProbe, ReadinessReport, StaticReadiness};
 pub use router::{SkillRestConfig, build_skill_rest_router};
 pub use service::{
-    CallOutcome, CallRequest, CatalogSource, ContextSnapshot, DescribeRequest, DescribeResponse,
-    DispatcherInvoker, EmptyPromptProvider, EmptyResourceProvider, PromptArgumentSpec,
-    PromptContent, PromptGetResponse, PromptListEntry, PromptMessage, PromptProvider,
-    ResourceContent, ResourceListEntry, ResourceProvider, ResourceReadResponse, SearchRequest,
-    SearchResponse, SkillCatalogSource, SkillListEntry, SkillRestService, ToolInvoker, ToolSlug,
-    dispatch_error_to_service_error,
+    CallDispatchOutcome, CallOutcome, CallRequest, CatalogSource, ContextSnapshot, DescribeRequest,
+    DescribeResponse, DispatcherInvoker, EmptyPromptProvider, EmptyResourceProvider, EventStream,
+    JobController, JobEvent, PendingCall, PromptArgumentSpec, PromptContent, PromptGetResponse,
+    PromptListEntry, PromptMessage, PromptProvider, ResourceContent, ResourceListEntry,
+    ResourceProvider, ResourceReadResponse, SearchRequest, SearchResponse, SkillCatalogSource,
+    SkillListEntry, SkillRestService, ToolInvoker, ToolSlug, dispatch_error_to_service_error,
 };
 
 /// Upper bound on per-hit serialised bytes produced by `/v1/search` —
