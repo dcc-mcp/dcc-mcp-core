@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import sys
+from types import SimpleNamespace
 
 # Force headless Qt platform before any binding is loaded by pytest-qt.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -78,6 +80,31 @@ class TestInputValidationRunsBeforeBindingLoad:
         r = qt_wait_for_widget()
         assert r["success"] is False
         assert r["error"] == "invalid_input"
+
+
+class TestWidgetIdentifiers:
+    def test_pyside6_wrappers_for_same_native_widget_share_id(self, monkeypatch) -> None:
+        from dcc_mcp_core.skills.qt_ui_inspector import _widget_id
+
+        class FakePySide6Widget:
+            __module__ = "PySide6.QtWidgets"
+
+        class MaterialView(FakePySide6Widget):
+            def objectName(self) -> str:
+                return "material_view"
+
+        monkeypatch.setitem(
+            sys.modules,
+            "shiboken6",
+            SimpleNamespace(getCppPointer=lambda _widget: (0x1234_5678_9ABC_DEF0,)),
+        )
+
+        first_wrapper = MaterialView()
+        second_wrapper = MaterialView()
+
+        assert id(first_wrapper) != id(second_wrapper)
+        assert _widget_id(first_wrapper) == _widget_id(second_wrapper)
+        assert _widget_id(first_wrapper).endswith(":123456789abcdef0")
 
 
 class _FakeRegistry:
