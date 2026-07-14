@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.39](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.38...v0.19.39) (2026-07-14)
+
+
+### Bug Fixes
+
+* allow long gateway backend calls ([#1910](https://github.com/dcc-mcp/dcc-mcp-core/issues/1910)) ([879e4ca](https://github.com/dcc-mcp/dcc-mcp-core/commit/879e4ca9f1660708cb1620022f5fa5ee4b722281))
+
 ## [0.19.38](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.37...v0.19.38) (2026-07-14)
 
 
