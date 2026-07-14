@@ -5,6 +5,10 @@ use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 pub use super::relay_registration::RelaySourceConfig;
 
+// Keep aligned with dcc_mcp_http_types::config::GatewayConfig. Render and
+// simulation tools routinely exceed the former 10-second gateway default.
+const DEFAULT_BACKEND_TIMEOUT_MS: u64 = 120_000;
+
 fn official_update_manifest_url() -> Option<String> {
     let platform = if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         "windows-x86_64"
@@ -104,7 +108,7 @@ pub struct GatewayConfig {
     /// when they need faster failover without changing the overall timeout.
     pub challenger_poll_interval_secs: u64,
     /// Per-backend request timeout (milliseconds) used for fan-out calls
-    /// from the gateway to each live DCC instance. Default: `10_000`.
+    /// from the gateway to each live DCC instance. Default: `120_000`.
     /// Issue #314.
     pub backend_timeout_ms: u64,
     /// Longer timeout applied when the outbound `tools/call` is async-
@@ -258,7 +262,7 @@ impl Default for GatewayConfig {
             registry_dir: None,
             challenger_timeout_secs: 120,
             challenger_poll_interval_secs: 10,
-            backend_timeout_ms: 10_000,
+            backend_timeout_ms: DEFAULT_BACKEND_TIMEOUT_MS,
             async_dispatch_timeout_ms: 60_000,
             wait_terminal_timeout_ms: 600_000,
             route_ttl_secs: 60 * 60 * 24,
@@ -289,7 +293,12 @@ impl Default for GatewayConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::official_update_manifest_url;
+    use super::{GatewayConfig, official_update_manifest_url};
+
+    #[test]
+    fn default_backend_timeout_allows_long_dcc_operations() {
+        assert_eq!(GatewayConfig::default().backend_timeout_ms, 120_000);
+    }
 
     #[test]
     fn official_update_manifest_targets_latest_release() {
