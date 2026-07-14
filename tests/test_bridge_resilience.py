@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +15,7 @@ from dcc_mcp_core import BridgeFallbackClient
 from dcc_mcp_core import BridgeRetryPolicy
 from dcc_mcp_core import BridgeRpcError
 from dcc_mcp_core import BridgeTransportStrategy
+from dcc_mcp_core import DccBridge
 from dcc_mcp_core import ReverseBridgeSession
 
 
@@ -46,6 +50,17 @@ class _Strategy(BridgeTransportStrategy):
         return {"strategy": self.name, "method": method, "params": params}
 
 
+class _ServerContext:
+    def __init__(self) -> None:
+        self.closed = threading.Event()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        self.closed.set()
+
+
 def test_bridge_resilience_symbols_exported() -> None:
     for name in (
         "BridgeFallbackClient",
@@ -56,6 +71,21 @@ def test_bridge_resilience_symbols_exported() -> None:
     ):
         assert hasattr(dcc_mcp_core, name)
         assert name in dcc_mcp_core.__all__
+
+
+def test_dcc_bridge_disconnect_closes_server_without_crashing_event_loop(monkeypatch, caplog) -> None:
+    server = _ServerContext()
+    monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(serve=lambda *_args, **_kwargs: server))
+    bridge = DccBridge(host="127.0.0.1", port=0)
+
+    with caplog.at_level(logging.ERROR, logger="dcc_mcp_core.bridge"):
+        bridge.connect()
+        loop = bridge._loop
+        bridge.disconnect()
+
+    assert server.closed.wait(timeout=1.0)
+    assert loop is not None and loop.is_closed()
+    assert "DccBridge event loop crashed" not in caplog.text
 
 
 def test_retry_policy_retries_operation() -> None:

@@ -377,6 +377,7 @@ class DccBridge:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._ws_server = None  # asyncio-ws server handle
+        self._shutdown_event: asyncio.Event | None = None
 
         # Set once the TCP server is bound and accepting connections.
         self._server_ready = threading.Event()
@@ -433,8 +434,10 @@ class DccBridge:
         """Shut down the WebSocket server and close any active connection."""
         self._closed = True
         self._connected = False
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        loop = self._loop
+        shutdown_event = self._shutdown_event
+        if loop is not None and shutdown_event is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(shutdown_event.set)
         if self._thread is not None:
             self._thread.join(timeout=5.0)
             self._thread = None
@@ -514,12 +517,15 @@ class DccBridge:
         # Do NOT call asyncio.set_event_loop(): it was deprecated in 3.10 and
         # removed in Python 3.14.  The loop was created in __init__ via
         # asyncio.new_event_loop() and is fully self-contained in this thread.
+        loop = self._loop
+        if loop is None:
+            return
         try:
-            self._loop.run_until_complete(self._serve())
+            loop.run_until_complete(self._serve())
         except Exception:
             logger.exception("DccBridge event loop crashed")
         finally:
-            self._loop.close()
+            loop.close()
 
     async def _serve(self) -> None:
         try:
@@ -529,12 +535,17 @@ class DccBridge:
                 "The 'websockets' package is required for DccBridge. Install it with: pip install websockets"
             ) from exc
 
-        async with websockets.serve(self._handle_dcc, self._host, self._port) as server:
-            self._ws_server = server
-            self._server_ready.set()
-            logger.debug("DccBridge listening on %s", self.endpoint)
-            # Run until stop() is called.
-            await asyncio.get_running_loop().create_future()
+        shutdown_event = asyncio.Event()
+        self._shutdown_event = shutdown_event
+        try:
+            async with websockets.serve(self._handle_dcc, self._host, self._port) as server:
+                self._ws_server = server
+                self._server_ready.set()
+                logger.debug("DccBridge listening on %s", self.endpoint)
+                await shutdown_event.wait()
+        finally:
+            self._shutdown_event = None
+            self._ws_server = None
 
     async def _handle_dcc(self, ws: Any) -> None:
         """Handle a single DCC plugin WebSocket connection."""
