@@ -203,7 +203,7 @@ print(all_deps)  # ["base-utils", "maya-core", "maya-geometry"]
 | `APP_AUTHOR` | `"dcc-mcp"` | 应用作者 |
 | `DEFAULT_DCC` | `"python"` | 默认 DCC 名称 |
 | `DEFAULT_LOG_LEVEL` | `"DEBUG"` | 默认日志级别 |
-| `ENV_LOG_LEVEL` | `"MCP_LOG_LEVEL"` | 日志级别环境变量 |
+| `ENV_LOG_LEVEL` | `"DCC_MCP_LOG_LEVEL"` | 日志级别环境变量 |
 | `ENV_SKILL_PATHS` | `"DCC_MCP_SKILL_PATHS"` | 全局技能路径环境变量 |
 | `ENV_APP_SKILL_PATHS` | `"DCC_MCP_{APP}_SKILL_PATHS"` | 应用专属技能路径环境变量模板 |
 | `SKILL_METADATA_FILE` | `"SKILL.md"` | 技能元数据文件名 |
@@ -215,7 +215,7 @@ print(all_deps)  # ["base-utils", "maya-core", "maya-geometry"]
 |------|------|
 | `DCC_MCP_SKILL_PATHS` | 全局技能搜索路径（Windows 使用 `;`，Unix 使用 `:` 分隔） |
 | `DCC_MCP_{APP}_SKILL_PATHS` | 应用专属技能路径，如 Maya 使用 `DCC_MCP_MAYA_SKILL_PATHS` |
-| `MCP_LOG_LEVEL` | 日志级别覆盖（DEBUG、INFO、WARN、ERROR） |
+| `DCC_MCP_LOG_LEVEL` | 日志级别覆盖（DEBUG、INFO、WARN、ERROR） |
 
 ::: tip 搜索路径优先级
 调用 `create_skill_server("maya")` 时，技能目录按以下顺序解析：

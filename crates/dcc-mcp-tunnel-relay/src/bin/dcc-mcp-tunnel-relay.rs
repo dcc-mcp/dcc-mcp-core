@@ -106,7 +106,8 @@ struct Args {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_env("MCP_LOG_LEVEL")
+    let filter = EnvFilter::try_from_env("DCC_MCP_LOG_LEVEL")
+        .or_else(|_| EnvFilter::try_from_env("MCP_LOG_LEVEL"))
         .or_else(|_| EnvFilter::try_from_env("RUST_LOG"))
         .unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();

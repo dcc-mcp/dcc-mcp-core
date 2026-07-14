@@ -13,7 +13,7 @@
 //! already been installed by the Python module-init path in
 //! `dcc_mcp_core._core`. See [`reload_handle`].
 
-use crate::constants::{DEFAULT_LOG_LEVEL, ENV_LOG_LEVEL};
+use crate::constants::{DEFAULT_LOG_LEVEL, ENV_LOG_LEVEL, LEGACY_ENV_LOG_LEVEL};
 use std::sync::OnceLock;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::reload::{self, Handle};
@@ -39,7 +39,7 @@ static RELOAD_HANDLE: OnceLock<FileLayerReloadHandle> = OnceLock::new();
 /// Initialize the tracing subscriber (called once from Python module init).
 ///
 /// Installs:
-/// - an `EnvFilter` driven by `MCP_LOG_LEVEL` (fallback [`DEFAULT_LOG_LEVEL`]);
+/// - an `EnvFilter` driven by `DCC_MCP_LOG_LEVEL` (fallback [`DEFAULT_LOG_LEVEL`]);
 /// - a stderr `fmt::Layer` (thread names, targets on);
 /// - a [`reload::Layer`] holding an `Option<BoxedLayer>` for dynamic
 ///   attachment of a rolling-file layer by
@@ -50,6 +50,7 @@ static RELOAD_HANDLE: OnceLock<FileLayerReloadHandle> = OnceLock::new();
 pub fn init_logging() {
     INIT.call_once(|| {
         let filter = EnvFilter::try_from_env(ENV_LOG_LEVEL)
+            .or_else(|_| EnvFilter::try_from_env(LEGACY_ENV_LOG_LEVEL))
             .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_LEVEL));
 
         let fmt_layer = tracing_subscriber::fmt::layer()
