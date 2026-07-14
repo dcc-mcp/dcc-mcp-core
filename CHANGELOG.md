@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.35](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.34...v0.19.35) (2026-07-14)
+
+
+### Bug Fixes
+
+* make wheel release upload repository explicit ([#1900](https://github.com/dcc-mcp/dcc-mcp-core/issues/1900)) ([92c84f4](https://github.com/dcc-mcp/dcc-mcp-core/commit/92c84f47d9876594b4780a9daaf5313e02c5156e))
+* route sidecar app ui calls through discovery ([#1898](https://github.com/dcc-mcp/dcc-mcp-core/issues/1898)) ([3973db5](https://github.com/dcc-mcp/dcc-mcp-core/commit/3973db53876b829702ff168dc9ac51c850714020))
+* stabilize Qt widget identifiers ([#1897](https://github.com/dcc-mcp/dcc-mcp-core/issues/1897)) ([1575fd9](https://github.com/dcc-mcp/dcc-mcp-core/commit/1575fd91e567bd615998010dd0a20a8631367968))
+
 ## [0.19.34](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.33...v0.19.34) (2026-07-13)
 
 
