@@ -291,4 +291,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: gh release upload "${{ inputs.release-tag-name }}" dist/*.whl --clobber
+        run: >-
+          gh release upload "${{ inputs.release-tag-name }}" dist/*.whl
+          --repo "${{ github.repository }}" --clobber
