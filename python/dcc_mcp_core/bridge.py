@@ -385,6 +385,9 @@ class DccBridge:
         self._dcc_connected = threading.Event()
         # Active WebSocket connection (asyncio transport object).
         self._ws = None  # type: Any
+        # Handshaken connections in activation order. Temporary DCC sessions
+        # may replace the active socket and later fall back to an older one.
+        self._dcc_connections: list[Any] = []
 
         # Pending futures keyed by request id.
         self._pending: dict[str | int, Future] = {}
@@ -550,25 +553,27 @@ class DccBridge:
     async def _handle_dcc(self, ws: Any) -> None:
         """Handle a single DCC plugin WebSocket connection."""
         logger.debug("DCC plugin connected from %s", ws.remote_address)
-        self._ws = ws
 
         try:
             async for raw in ws:
-                await self._dispatch(raw)
+                await self._dispatch(raw, ws)
         except Exception as exc:
             logger.debug("DCC plugin connection closed: %s", exc)
         finally:
-            self._connected = False
-            self._ws = None
-            # Fail all pending requests.
-            with self._pending_lock:
-                for fut in list(self._pending.values()):
-                    if not fut.done():
-                        fut.set_exception(BridgeConnectionError("DCC plugin disconnected."))
-                self._pending.clear()
+            self._dcc_connections = [connection for connection in self._dcc_connections if connection is not ws]
+            if self._ws is ws:
+                self._ws = self._dcc_connections[-1] if self._dcc_connections and not self._closed else None
+                self._connected = self._ws is not None
+                # Requests already sent to the disconnected active plugin
+                # cannot be completed by a fallback connection.
+                with self._pending_lock:
+                    for fut in list(self._pending.values()):
+                        if not fut.done():
+                            fut.set_exception(BridgeConnectionError("DCC plugin disconnected."))
+                    self._pending.clear()
             logger.debug("DCC plugin disconnected")
 
-    async def _dispatch(self, raw: str) -> None:
+    async def _dispatch(self, raw: str, ws: Any) -> None:
         """Parse an incoming message and route it."""
         try:
             msg = json_loads(raw)
@@ -579,14 +584,15 @@ class DccBridge:
                         "type": "parse_error",
                         "message": str(exc),
                     }
-                )
+                ),
+                ws,
             )
             return
 
         msg_type = msg.get("type")
 
         if msg_type == "hello":
-            await self._handle_hello(msg)
+            await self._handle_hello(msg, ws)
         elif msg_type == "response":
             self._handle_response(msg)
         elif msg_type == "event":
@@ -596,7 +602,7 @@ class DccBridge:
         else:
             logger.warning("Unknown bridge message type: %r", msg_type)
 
-    async def _handle_hello(self, msg: dict) -> None:
+    async def _handle_hello(self, msg: dict, ws: Any) -> None:
         client = msg.get("client", "unknown")
         version = msg.get("version", "?")
         logger.info("DCC plugin hello: client=%s version=%s", client, version)
@@ -607,7 +613,10 @@ class DccBridge:
             "version": self._server_version,
             "session_id": str(uuid.uuid4()),
         }
-        await self._send(json_dumps(ack))
+        await self._send(json_dumps(ack), ws)
+        self._dcc_connections = [connection for connection in self._dcc_connections if connection is not ws]
+        self._dcc_connections.append(ws)
+        self._ws = ws
         self._connected = True
         self._dcc_connected.set()
 
@@ -636,10 +645,11 @@ class DccBridge:
         data = msg.get("data")
         logger.debug("DCC event: %s data=%r", event, data)
 
-    async def _send(self, text: str) -> None:
-        if self._ws is not None:
+    async def _send(self, text: str, ws: Any = None) -> None:
+        target = self._ws if ws is None else ws
+        if target is not None:
             try:
-                await self._ws.send(text)
+                await target.send(text)
             except Exception as exc:
                 logger.debug("Failed to send message: %s", exc)
 

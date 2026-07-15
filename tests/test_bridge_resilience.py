@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import socket
 import sys
 import threading
 from types import SimpleNamespace
@@ -86,6 +89,45 @@ def test_dcc_bridge_disconnect_closes_server_without_crashing_event_loop(monkeyp
     assert server.closed.wait(timeout=1.0)
     assert loop is not None and loop.is_closed()
     assert "DccBridge event loop crashed" not in caplog.text
+
+
+def test_dcc_bridge_falls_back_when_newer_plugin_disconnects() -> None:
+    async def scenario() -> None:
+        import websockets
+
+        with socket.socket() as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+
+        bridge = DccBridge(host="127.0.0.1", port=port, timeout=1.0)
+        bridge.connect()
+        primary = await websockets.connect(bridge.endpoint)
+        secondary = None
+        try:
+            await primary.send(json.dumps({"type": "hello", "client": "primary", "version": "1"}))
+            assert json.loads(await primary.recv())["type"] == "hello_ack"
+
+            secondary = await websockets.connect(bridge.endpoint)
+            await secondary.send(json.dumps({"type": "hello", "client": "temporary", "version": "1"}))
+            assert json.loads(await secondary.recv())["type"] == "hello_ack"
+            await secondary.close()
+            for _ in range(100):
+                if bridge._ws is not secondary:
+                    break
+                await asyncio.sleep(0.01)
+
+            assert bridge.is_connected()
+            call = asyncio.get_running_loop().run_in_executor(None, bridge.call, "project.inspect")
+            request = json.loads(await asyncio.wait_for(primary.recv(), timeout=1.0))
+            await primary.send(json.dumps({"type": "response", "id": request["id"], "result": "primary"}))
+            assert await call == "primary"
+        finally:
+            if secondary is not None:
+                await secondary.close()
+            await primary.close()
+            bridge.disconnect()
+
+    asyncio.run(scenario())
 
 
 def test_retry_policy_retries_operation() -> None:
