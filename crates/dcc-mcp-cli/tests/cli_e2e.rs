@@ -83,6 +83,26 @@ fn list_search_describe_and_call_gateway_rest_surface() {
     assert_eq!(call["success"], true);
     assert_eq!(call["arguments"]["radius"], 2);
 
+    let mut payload = NamedTempFile::new().expect("create call payload");
+    serde_json::to_writer(
+        payload.as_file_mut(),
+        &serde_json::json!({"source": "x".repeat(40_000)}),
+    )
+    .expect("write call payload");
+    let file_call = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "call",
+        "maya.abc12345.create_sphere",
+        "--json-file",
+        payload.path().to_str().expect("UTF-8 temp path"),
+    ]);
+    assert_eq!(file_call["success"], true);
+    assert_eq!(
+        file_call["arguments"]["source"].as_str().map(str::len),
+        Some(40_000)
+    );
+
     let direct_call = run_json(&[
         "--base-url",
         &fixture.base_url,

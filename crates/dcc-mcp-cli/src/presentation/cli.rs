@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -136,6 +137,9 @@ enum Command {
         instance_id: Option<String>,
         #[arg(long = "json", default_value = "{}")]
         arguments_json: String,
+        /// Read call arguments from a UTF-8 JSON file, or '-' for stdin.
+        #[arg(long, value_name = "PATH", conflicts_with = "arguments_json")]
+        json_file: Option<PathBuf>,
         #[arg(long)]
         meta_json: Option<String>,
         /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
@@ -567,10 +571,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             dcc_type,
             instance_id,
             arguments_json,
+            json_file,
             meta_json,
             timeout_secs,
         } => {
-            let arguments = parse_json_object(&arguments_json, "--json")?;
+            let arguments = read_call_arguments(&arguments_json, json_file.as_deref())?;
             let meta = meta_json
                 .as_deref()
                 .map(|raw| parse_json_object(raw, "--meta-json"))
@@ -1047,6 +1052,23 @@ fn parse_json_object(raw: &str, flag_name: &str) -> anyhow::Result<Value> {
     } else {
         anyhow::bail!("{flag_name} must be a JSON object")
     }
+}
+
+fn read_call_arguments(raw: &str, json_file: Option<&std::path::Path>) -> anyhow::Result<Value> {
+    let Some(path) = json_file else {
+        return parse_json_object(raw, "--json");
+    };
+    let contents = if path == std::path::Path::new("-") {
+        let mut input = String::new();
+        std::io::stdin()
+            .read_to_string(&mut input)
+            .context("failed to read --json-file - from stdin")?;
+        input
+    } else {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read --json-file {}", path.display()))?
+    };
+    parse_json_object(&contents, "--json-file")
 }
 
 fn build_load_skill_request(
