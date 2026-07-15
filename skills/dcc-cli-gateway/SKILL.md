@@ -404,6 +404,17 @@ Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside
 the `--json` object. Do not pass them as top-level CLI flags unless the CLI adds
 an explicit first-class flag later.
 
+For generated scripts, binary descriptors, or other payloads that may exceed a
+shell's command-line limit, pass the JSON object through a UTF-8 file or stdin:
+
+```bash
+dcc-mcp-cli call godot_project__write_script --json-file payload.json
+generate_payload | dcc-mcp-cli call godot_project__write_script --json-file -
+```
+
+Use `--json` or `--json-file`, never both. `--json-file -` keeps large payloads
+off the process command line, which is especially important on Windows.
+
 See [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md) for command
 patterns and common errors.
 

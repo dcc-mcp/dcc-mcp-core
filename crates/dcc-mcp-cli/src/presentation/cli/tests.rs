@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn call_reads_arguments_from_json_file() {
+    use std::io::Write;
+
+    let mut file = tempfile::NamedTempFile::new().expect("create temp JSON file");
+    write!(file, r#"{{"source":"{}"}}"#, "x".repeat(40_000)).expect("write JSON file");
+    let value = read_call_arguments("{}", Some(file.path())).expect("read call arguments");
+
+    assert_eq!(value["source"].as_str().map(str::len), Some(40_000));
+}
+
+#[test]
+fn call_json_file_flag_parses_without_inline_json() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "godot_project__write_script",
+        "--json-file",
+        "payload.json",
+    ])
+    .expect("parse --json-file");
+    let Command::Call { json_file, .. } = args.command else {
+        panic!("expected call command");
+    };
+    assert_eq!(json_file, Some(PathBuf::from("payload.json")));
+}
+
+#[test]
 fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
     let local = GatewayTarget::Local;
     let remote = GatewayTarget::Remote {
@@ -82,6 +109,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 dcc_type: None,
                 instance_id: None,
                 arguments_json: "{}".to_string(),
+                json_file: None,
                 meta_json: None,
                 timeout_secs: 30,
             },
