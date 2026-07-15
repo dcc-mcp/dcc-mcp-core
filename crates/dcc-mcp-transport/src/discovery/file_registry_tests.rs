@@ -1269,3 +1269,36 @@ fn test_float_timestamp_registry_file_parses() {
         .as_secs();
     assert_eq!(got_secs, 1712345678);
 }
+
+/// Python gateway guardians before the typed sentinel migration wrote a
+/// reduced ``__gateway__`` row alongside valid Rust entries. One legacy row
+/// must not make every live DCC disappear from the registry.
+#[test]
+fn test_legacy_python_gateway_sentinel_preserves_live_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let services_json = dir.path().join(REGISTRY_FILE);
+
+    let live = ServiceEntry::new("houdini", "127.0.0.1", 9887);
+    let live_key = live.key();
+    let content = serde_json::json!([
+        live,
+        {
+            "dcc_type": GATEWAY_SENTINEL_DCC_TYPE,
+            "host": "127.0.0.1",
+            "port": 9765,
+            "version": "0.19.13",
+            "last_heartbeat": 1_714_567_678.25,
+            "adapter_dcc": "blender"
+        }
+    ]);
+    std::fs::write(&services_json, serde_json::to_string(&content).unwrap()).unwrap();
+
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    assert!(
+        registry.get(&live_key).is_some(),
+        "one legacy gateway row must not erase a valid live DCC row"
+    );
+    assert_eq!(registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE).len(), 1);
+    assert!(corrupted_registry_files(dir.path()).is_empty());
+}

@@ -14,6 +14,7 @@ use dashmap::DashMap;
 use fs4::{FileExt, TryLockError};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing;
+use uuid::Uuid;
 
 use super::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey, ServiceStatus};
 use crate::error::{TransportError, TransportResult};
@@ -96,6 +97,41 @@ fn maps_equal(left: &EntryMap, right: &EntryMap) -> bool {
         && left
             .iter()
             .all(|(key, entry)| right.get(key) == Some(entry))
+}
+
+fn parse_registry_entries(content: &str) -> Result<Vec<ServiceEntry>, serde_json::Error> {
+    serde_json::from_str::<Vec<serde_json::Value>>(content)?
+        .into_iter()
+        .map(|value| {
+            serde_json::from_value(value.clone())
+                .or_else(|error| legacy_gateway_sentinel(&value).ok_or(error))
+        })
+        .collect()
+}
+
+fn legacy_gateway_sentinel(value: &serde_json::Value) -> Option<ServiceEntry> {
+    let row = value.as_object()?;
+    (row.get("dcc_type")?.as_str()? == GATEWAY_SENTINEL_DCC_TYPE).then_some(())?;
+    let host = row.get("host")?.as_str()?;
+    let port = u16::try_from(row.get("port")?.as_u64()?).ok()?;
+    let mut entry = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, host, port);
+    entry.instance_id = Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("dcc-mcp://gateway/{host}:{port}").as_bytes(),
+    );
+    entry.version = row
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned);
+    entry.adapter_version = row
+        .get("adapter_version")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned);
+    entry.adapter_dcc = row
+        .get("adapter_dcc")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned);
+    Some(entry)
 }
 
 fn ensure_registry_dir(path: &Path) -> TransportResult<()> {
@@ -1330,7 +1366,7 @@ impl FileRegistry {
             return Ok(Vec::new());
         }
 
-        match serde_json::from_str(&content) {
+        match parse_registry_entries(&content) {
             Ok(entries) => Ok(entries),
             Err(e) => {
                 self.quarantine_corrupted_registry_file(&path, &e);
