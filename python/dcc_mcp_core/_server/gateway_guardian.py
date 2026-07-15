@@ -17,6 +17,7 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import Request
 from urllib.request import urlopen
+import uuid
 
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.install_lifecycle import default_registry_dir
@@ -364,9 +365,8 @@ def _try_version_takeover(
         reason="python_gateway_guardian_version_takeover",
     )
 
-    # Write sentinel entry so gateways without /gateway/yield can still notice
-    # the newer challenger from their 15 s cleanup loop.
-    sentinel_ok = _write_sentinel_entry(
+    # Gateways without /gateway/yield still need the registry fallback.
+    sentinel_ok = cooperative_yield_requested or _write_sentinel_entry(
         registry_dir,
         gateway_host=gateway_host,
         gateway_port=gateway_port,
@@ -787,6 +787,36 @@ def _get_core_version() -> str:
 # ── Sentinel entry helper (for version-aware takeover) ──
 
 
+@contextlib.contextmanager
+def _registry_write_lock(path: Path):
+    """Take the same first-byte lock covered by Rust ``services.lock``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+            def unlock():
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+            def unlock():
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            with contextlib.suppress(OSError):
+                unlock()
+
+
 def _write_sentinel_entry(
     registry_dir: str | None,
     *,
@@ -805,43 +835,38 @@ def _write_sentinel_entry(
     """
     import json as _json
 
-    try:
-        registry_path = _resolve_registry_dir(registry_dir)
-        services_file = registry_path / "services.json"
-        if services_file.exists():
-            raw = services_file.read_text(encoding="utf-8")
-            data = _json.loads(raw) if raw.strip() else []
-        else:
-            data = []
-    except Exception:
-        return False
-
+    registry_path = _resolve_registry_dir(registry_dir)
+    services_file = registry_path / "services.json"
+    now = time.time()
     sentinel_entry: dict[str, object] = {
         "dcc_type": "__gateway__",
+        "instance_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"dcc-mcp://gateway/{gateway_host}:{gateway_port}")),
         "host": gateway_host,
         "port": gateway_port,
         "version": crate_version,
-        "last_heartbeat": time.time(),
+        "registered_at": now,
+        "last_heartbeat": now,
+        "status": "available",
     }
     if adapter_version:
         sentinel_entry["adapter_version"] = adapter_version
     if adapter_dcc:
         sentinel_entry["adapter_dcc"] = adapter_dcc
 
-    # FileRegistry uses a list format.  Remove existing sentinels before
-    # appending the new one.
-    if isinstance(data, list):
-        data = [e for e in data if not (isinstance(e, dict) and e.get("dcc_type") == "__gateway__")]
-        data.append(sentinel_entry)
-    elif isinstance(data, dict):
-        sentinel_key = f"__gateway__:{gateway_host}:{gateway_port}"
-        data[sentinel_key] = sentinel_entry
-    else:
-        data = [sentinel_entry]
-
     try:
-        registry_path.mkdir(parents=True, exist_ok=True)
-        services_file.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+        with _registry_write_lock(registry_path / "services.lock"):
+            raw = services_file.read_text(encoding="utf-8") if services_file.exists() else ""
+            data = _json.loads(raw) if raw.strip() else []
+            if isinstance(data, list):
+                data = [e for e in data if not (isinstance(e, dict) and e.get("dcc_type") == "__gateway__")]
+                data.append(sentinel_entry)
+            elif isinstance(data, dict):
+                data[f"__gateway__:{gateway_host}:{gateway_port}"] = sentinel_entry
+            else:
+                data = [sentinel_entry]
+            temp_file = registry_path / f".tmp.{os.getpid()}.guardian.json"
+            temp_file.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+            temp_file.replace(services_file)
         return True
     except Exception:
         return False

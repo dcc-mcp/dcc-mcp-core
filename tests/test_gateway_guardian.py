@@ -957,6 +957,11 @@ def test_get_core_version_env_override(monkeypatch):
 def test_write_and_read_sentinel_entry(tmp_path):
     """P0-3: _write_sentinel_entry and _read_gateway_version_from_registry roundtrip."""
     reg = str(tmp_path / "dcc-mcp-registry")
+    Path(reg).mkdir()
+    (Path(reg) / "services.json").write_text(
+        json.dumps([{"dcc_type": "houdini", "instance_id": "live-row"}]),
+        encoding="utf-8",
+    )
     # Write a sentinel.
     ok = gg._write_sentinel_entry(
         reg,
@@ -968,6 +973,12 @@ def test_write_and_read_sentinel_entry(tmp_path):
     )
     assert ok is True
     assert (tmp_path / "dcc-mcp-registry" / "services.json").exists()
+    rows = json.loads((Path(reg) / "services.json").read_text(encoding="utf-8"))
+    assert rows[0]["instance_id"] == "live-row"
+    sentinel = rows[1]
+    assert sentinel["instance_id"]
+    assert sentinel["registered_at"] == sentinel["last_heartbeat"]
+    assert sentinel["status"] == "available"
 
     # Read it back.
     ver = gg._read_gateway_version_from_registry(
@@ -1132,6 +1143,11 @@ def test_try_version_takeover_uses_admin_health_and_cooperative_yield(monkeypatc
     monkeypatch.setattr(gg, "_read_gateway_version_from_registry", lambda *a, **k: None)
     monkeypatch.setattr(gg, "_read_gateway_version_from_admin_health", lambda *a, **k: "0.18.20")
     monkeypatch.setattr(gg, "_request_gateway_yield", lambda *a, **k: yield_requests.append(k) or True)
+    monkeypatch.setattr(
+        gg,
+        "_write_sentinel_entry",
+        lambda *a, **k: pytest.fail("cooperative yield must not rewrite FileRegistry"),
+    )
     monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
     monkeypatch.setattr(gg, "_wait_managed_gateway_ready", lambda *a, **k: True)
 
