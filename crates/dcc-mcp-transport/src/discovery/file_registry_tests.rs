@@ -1299,6 +1299,16 @@ fn test_legacy_python_gateway_sentinel_preserves_live_entries() {
         registry.get(&live_key).is_some(),
         "one legacy gateway row must not erase a valid live DCC row"
     );
-    assert_eq!(registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE).len(), 1);
+    let sentinels = registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+    assert_eq!(sentinels.len(), 1);
+    assert_eq!(
+        sentinels[0]
+            .last_heartbeat
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        1_714_567_678,
+        "compatibility parsing must not refresh an expired sentinel"
+    );
     assert!(corrupted_registry_files(dir.path()).is_empty());
 }

@@ -119,19 +119,13 @@ fn legacy_gateway_sentinel(value: &serde_json::Value) -> Option<ServiceEntry> {
         &Uuid::NAMESPACE_URL,
         format!("dcc-mcp://gateway/{host}:{port}").as_bytes(),
     );
-    entry.version = row
-        .get("version")
-        .and_then(|value| value.as_str())
-        .map(str::to_owned);
-    entry.adapter_version = row
-        .get("adapter_version")
-        .and_then(|value| value.as_str())
-        .map(str::to_owned);
-    entry.adapter_dcc = row
-        .get("adapter_dcc")
-        .and_then(|value| value.as_str())
-        .map(str::to_owned);
-    Some(entry)
+    let defaults = serde_json::to_value(entry).ok()?;
+    let mut normalized = value.clone();
+    let normalized_row = normalized.as_object_mut()?;
+    for (key, default) in defaults.as_object()? {
+        normalized_row.entry(key.clone()).or_insert(default.clone());
+    }
+    serde_json::from_value(normalized).ok()
 }
 
 fn ensure_registry_dir(path: &Path) -> TransportResult<()> {
