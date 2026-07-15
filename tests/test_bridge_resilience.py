@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import socket
 import sys
 import threading
 from types import SimpleNamespace
@@ -64,6 +63,36 @@ class _ServerContext:
         self.closed.set()
 
 
+class _MemoryWebSocket:
+    _CLOSED = object()
+
+    def __init__(self) -> None:
+        self.remote_address = ("memory", 0)
+        self._incoming: asyncio.Queue = asyncio.Queue()
+        self._outgoing: asyncio.Queue = asyncio.Queue()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        message = await self._incoming.get()
+        if message is self._CLOSED:
+            raise StopAsyncIteration
+        return message
+
+    async def send(self, message: str) -> None:
+        await self._outgoing.put(message)
+
+    async def client_send(self, message: dict) -> None:
+        await self._incoming.put(json.dumps(message))
+
+    async def client_recv(self) -> dict:
+        return json.loads(await self._outgoing.get())
+
+    async def close(self) -> None:
+        await self._incoming.put(self._CLOSED)
+
+
 def test_bridge_resilience_symbols_exported() -> None:
     for name in (
         "BridgeFallbackClient",
@@ -93,38 +122,32 @@ def test_dcc_bridge_disconnect_closes_server_without_crashing_event_loop(monkeyp
 
 def test_dcc_bridge_falls_back_when_newer_plugin_disconnects() -> None:
     async def scenario() -> None:
-        import websockets
-
-        with socket.socket() as reserved:
-            reserved.bind(("127.0.0.1", 0))
-            port = reserved.getsockname()[1]
-
-        bridge = DccBridge(host="127.0.0.1", port=port, timeout=1.0)
-        bridge.connect()
-        primary = await websockets.connect(bridge.endpoint)
-        secondary = None
+        bridge = DccBridge(timeout=1.0)
+        bridge._loop = asyncio.get_running_loop()
+        primary = _MemoryWebSocket()
+        secondary = _MemoryWebSocket()
+        primary_task = asyncio.create_task(bridge._handle_dcc(primary))
+        secondary_task = None
         try:
-            await primary.send(json.dumps({"type": "hello", "client": "primary", "version": "1"}))
-            assert json.loads(await primary.recv())["type"] == "hello_ack"
+            await primary.client_send({"type": "hello", "client": "primary", "version": "1"})
+            assert (await primary.client_recv())["type"] == "hello_ack"
 
-            secondary = await websockets.connect(bridge.endpoint)
-            await secondary.send(json.dumps({"type": "hello", "client": "temporary", "version": "1"}))
-            assert json.loads(await secondary.recv())["type"] == "hello_ack"
+            secondary_task = asyncio.create_task(bridge._handle_dcc(secondary))
+            await secondary.client_send({"type": "hello", "client": "temporary", "version": "1"})
+            assert (await secondary.client_recv())["type"] == "hello_ack"
             await secondary.close()
-            for _ in range(100):
-                if bridge._ws is not secondary:
-                    break
-                await asyncio.sleep(0.01)
+            await secondary_task
 
             assert bridge.is_connected()
             call = asyncio.get_running_loop().run_in_executor(None, bridge.call, "project.inspect")
-            request = json.loads(await asyncio.wait_for(primary.recv(), timeout=1.0))
-            await primary.send(json.dumps({"type": "response", "id": request["id"], "result": "primary"}))
+            request = await asyncio.wait_for(primary.client_recv(), timeout=1.0)
+            await primary.client_send({"type": "response", "id": request["id"], "result": "primary"})
             assert await call == "primary"
         finally:
-            if secondary is not None:
+            if secondary_task is not None and not secondary_task.done():
                 await secondary.close()
             await primary.close()
+            await primary_task
             bridge.disconnect()
 
     asyncio.run(scenario())
