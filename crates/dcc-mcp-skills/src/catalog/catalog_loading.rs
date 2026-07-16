@@ -361,6 +361,9 @@ impl SkillCatalog {
         metadata: &SkillMetadata,
         activate_groups: bool,
     ) -> Result<Vec<String>, String> {
+        // Pin one executor for the complete registration. A concurrent clear or
+        // replacement must not make later tools silently fall back to subprocesses.
+        let script_executor = self.script_executor.read().clone();
         let mut registered = Vec::new();
         let skill_base = metadata.name.replace('-', "_");
         let skill_path = std::path::Path::new(&metadata.skill_path);
@@ -390,6 +393,51 @@ impl SkillCatalog {
             return Err(err);
         }
 
+        if script_executor.is_none()
+            && let Some(tool_decl) = metadata.tools.iter().find(|tool| {
+                if !(tool.requires_in_process || tool.thread_affinity.is_main()) {
+                    return false;
+                }
+                let action_name = if tool.name.contains("__") {
+                    tool.name.clone()
+                } else {
+                    format!("{}__{}", skill_base, tool.name.replace('-', "_"))
+                };
+                self.registry.get_action(&action_name, None).is_none()
+                    && resolve_tool_script(tool, &metadata.scripts, skill_path).is_some()
+            })
+        {
+            let action_name = if tool_decl.name.contains("__") {
+                tool_decl.name.clone()
+            } else {
+                format!("{}__{}", skill_base, tool_decl.name.replace('-', "_"))
+            };
+            let err = if tool_decl.requires_in_process {
+                format!(
+                    "Tool '{}' requires a persistent in-process executor, but none is set. \
+                     Ensure the DCC adapter calls set_in_process_executor() before loading this stateful skill.",
+                    action_name
+                )
+            } else {
+                format!(
+                    "Tool '{}' requires thread_affinity='main', but no in-process executor is set. \
+                     Ensure the DCC adapter calls set_in_process_executor() before loading skills.",
+                    action_name
+                )
+            };
+            self.emit_skill_event(
+                "skill.validation_failed",
+                skill_name,
+                Some(metadata),
+                json!({
+                    "error_kind": "missing_in_process_executor",
+                    "error_message": err,
+                    "tool_name": action_name,
+                }),
+            );
+            return Err(err);
+        }
+
         if activate_groups {
             activate_skill_groups(self, metadata);
         } else {
@@ -408,26 +456,6 @@ impl SkillCatalog {
             };
 
             let script_path = resolve_tool_script(tool_decl, &metadata.scripts, skill_path);
-            let maybe_executor = self.script_executor.read().clone();
-            if tool_decl.thread_affinity.is_main() && maybe_executor.is_none() {
-                let err = format!(
-                    "Tool '{}' requires thread_affinity='main', but no in-process executor is set. \
-                     Ensure the DCC adapter calls set_in_process_executor() before loading skills.",
-                    action_name
-                );
-                self.emit_skill_event(
-                    "skill.validation_failed",
-                    skill_name,
-                    Some(metadata),
-                    json!({
-                        "error_kind": "missing_in_process_executor",
-                        "error_message": err,
-                        "tool_name": action_name,
-                    }),
-                );
-                return Err(err);
-            }
-
             // Prefer manifest schemas. Runtime Python introspection is opt-in
             // because importing arbitrary skill scripts during discovery can
             // spawn DCC host Python processes and run module-level side effects.
@@ -505,7 +533,7 @@ impl SkillCatalog {
                 let script_path_owned = script_path.clone();
                 let action_name_clone = action_name.clone();
                 let dcc_owned = metadata.dcc.clone();
-                if let Some(executor) = maybe_executor {
+                if let Some(executor) = script_executor.clone() {
                     let context = execute::ScriptExecutionContext {
                         action_name: action_name.clone(),
                         skill_name: Some(skill_name.to_string()),
@@ -568,8 +596,7 @@ impl SkillCatalog {
                     let script_path_owned = script_path.clone();
                     let action_name_clone = action_name.clone();
                     let dcc_owned = metadata.dcc.clone();
-                    let maybe_executor = self.script_executor.read().clone();
-                    if let Some(executor) = maybe_executor {
+                    if let Some(executor) = script_executor.clone() {
                         let context = execute::ScriptExecutionContext {
                             action_name: action_name.clone(),
                             skill_name: Some(skill_name.to_string()),

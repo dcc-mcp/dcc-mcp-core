@@ -610,6 +610,86 @@ mod tests {
     }
 
     #[test]
+    fn jsonl_sink_never_writes_inline_image_base64_on_any_traffic_leg() {
+        let dir = tempfile::tempdir().unwrap();
+        let path: PathBuf = dir.path().join("capture.jsonl");
+        let capture = TrafficCapture::with_jsonl_sink(&path).unwrap();
+        let frame = TrafficFrame::json(
+            basic_gateway_source(),
+            correlation(Some("req-image"), None, Some("sess-image")),
+            "outbound",
+            "adapter_to_gateway",
+            "http",
+            json!({
+                "result": {
+                    "content": [
+                        {"type": "image", "mimeType": "image/png", "data": "MCP_SECRET_BASE64"}
+                    ],
+                    "context": {
+                        "__rich__": {
+                            "kind": "image",
+                            "mime": "image/png",
+                            "data": "RICH_SECRET_BASE64"
+                        }
+                    }
+                }
+            }),
+        );
+
+        capture.emit_json_frame(frame);
+
+        let raw = std::fs::read_to_string(path).unwrap();
+        assert!(!raw.contains("MCP_SECRET_BASE64"));
+        assert!(!raw.contains("RICH_SECRET_BASE64"));
+        let value: Value = serde_json::from_str(raw.trim()).unwrap();
+        assert_eq!(
+            value["attributes"]["body"]["data"]["result"]["content"][0]["data"],
+            redaction::INLINE_IMAGE_PLACEHOLDER
+        );
+        assert_eq!(
+            value["attributes"]["body"]["data"]["result"]["context"]["__rich__"]["data"],
+            redaction::INLINE_IMAGE_PLACEHOLDER
+        );
+        let paths = value["attributes"]["body"]["redacted_paths"]
+            .as_array()
+            .unwrap();
+        assert!(paths.contains(&json!("body.data.result.content.0.data")));
+        assert!(paths.contains(&json!("body.data.result.context.__rich__.data")));
+    }
+
+    #[test]
+    fn jsonl_sink_never_writes_sensitive_tool_inputs_without_custom_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        let path: PathBuf = dir.path().join("capture.jsonl");
+        let capture = TrafficCapture::with_jsonl_sink(&path).unwrap();
+        capture.emit_json_frame(
+            TrafficFrame::json(
+                basic_gateway_source(),
+                correlation(Some("req-sensitive"), None, None),
+                "inbound",
+                "client_to_gateway",
+                "http",
+                json!({
+                    "tool_slug": "maya.abc.app_ui__act",
+                    "arguments": {
+                        "action": "set_text",
+                        "text": "traffic-private-text",
+                        "password": "traffic-password",
+                        "access_token": "traffic-token"
+                    }
+                }),
+            )
+            .with_mcp(mcp_message("request", "tools/call", None)),
+        );
+
+        let raw = std::fs::read_to_string(path).unwrap();
+        for secret in ["traffic-private-text", "traffic-password", "traffic-token"] {
+            assert!(!raw.contains(secret));
+        }
+        assert!(raw.contains("[REDACTED_SENSITIVE_INPUT]"));
+    }
+
+    #[test]
     fn config_filters_and_redacts_before_jsonl_sink_write() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("traffic_capture.yaml");

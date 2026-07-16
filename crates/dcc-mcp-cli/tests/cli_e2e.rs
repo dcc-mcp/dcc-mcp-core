@@ -157,6 +157,44 @@ fn list_search_describe_and_call_gateway_rest_surface() {
 }
 
 #[test]
+fn call_and_call_batch_exit_one_on_tool_failure_after_http_success() {
+    let fixture = spawn_gateway_fixture();
+    let single = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "call",
+            "maya.abc12345.domain_failure",
+            "--json",
+            "{}",
+        ])
+        .output()
+        .expect("run single tool failure");
+    assert_eq!(single.status.code(), Some(1));
+    let single_body: Value = serde_json::from_slice(&single.stdout).expect("single JSON output");
+    assert_eq!(single_body["output"]["success"], false);
+    assert_eq!(single_body["output"]["message"], "tool domain failure");
+
+    let steps = r#"[{"tool_slug":"maya.abc12345.domain_failure","arguments":{}}]"#;
+    let batch = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "call",
+            "--batch",
+            "--steps",
+            steps,
+        ])
+        .output()
+        .expect("run batch tool failure");
+    assert_eq!(batch.status.code(), Some(1));
+    let batch_body: Value = serde_json::from_slice(&batch.stdout).expect("batch JSON output");
+    assert_eq!(batch_body["success"], false);
+    assert_eq!(batch_body["results"][0]["ok"], false);
+    assert_eq!(batch_body["results"][0]["error"]["kind"], "tool-error");
+}
+
+#[test]
 fn local_list_reads_file_registry_after_gateway_ensure() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();

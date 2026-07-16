@@ -40,6 +40,70 @@
 
 CLI-first does **not** deprecate MCP. The gateway always exposes both MCP and REST side by side.
 
+### Computer Use is an agent-directed fallback
+
+Do not start with GUI automation. Discover and call structured DCC skills,
+host APIs, or adapter scripts first. Load `app-ui` only when that path returns
+`unsupported` or `capability_missing`. Policy denial, user interruption,
+authentication, or desktop unavailability are stop conditions, not fallback
+signals:
+
+1. `app_ui__snapshot` scoped to the exact process or window. Every Windows UIA
+   mutation requires the adapter/operator to bind its DCC with
+   `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`.
+   A request may select that exact PID/HWND or narrow it further, but cannot
+   replace the trusted runtime scope with another application.
+   The visible session and bounded native screenshot do not require raw input.
+   Native pointer or keyboard control has a second gate and additionally
+   requires `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`.
+2. One semantic action when possible, otherwise one screenshot-coordinate
+   `app_ui__act` using the returned `snapshot_id`.
+3. `app_ui__snapshot` after every action before deciding what to do next.
+4. `app_ui__stop_computer_use` when the task completes, fails, or is abandoned.
+
+Never automate the whole desktop or reuse coordinates from an older snapshot.
+The Windows session shows a click-through target border, control banner, and
+pointer-action markers. The user stops control with `Ctrl+Alt+Esc`; ordinary
+`Esc` remains available to the target DCC.
+After `user_interrupted`, stop and do not retry, change `session_id`, or
+automatically restart; Ctrl+Alt+Esc is latched across DCC adapter processes in the
+same Windows logon session.
+Resume only with `app_ui__snapshot(resume_computer_use=true)` after the user
+explicitly asks to continue and while no Computer Use owner is active.
+
+Treat `desktop_unavailable` as a Windows desktop pause, not a failed logical
+session: lock, disconnect, and secure-desktop transitions stop UIA and raw
+input without sending input. Stop UI calls, ask the user to unlock or
+reconnect, and do not poll autonomously. Keep the same `session_id`.
+Structured DCC/MCP work may continue only if the host remains ready.
+After unlock or reconnect, discard old observations and control ids and take a
+fresh exact-target snapshot; the banner returns with that successful snapshot.
+An ordinary process cannot place the banner on the Windows lock screen. Use a
+dedicated, always-unlocked VM for truly uninterrupted Windows GUI control.
+
+Computer Use runs on the adapter host in the interactive Windows logon session
+that owns the DCC. The central gateway only routes calls: never send gateway,
+other-host, or other-session coordinates to that DCC. An RDP disconnect or
+session switch preserves the logical session but returns
+`desktop_unavailable`; reconnect to the DCC session and take a fresh snapshot.
+
+Screenshots are bounded to the scoped target window, never the whole desktop.
+That target may span displays with negative virtual-desktop origins or
+different DPI. Use only coordinates from the latest returned PNG. Any monitor
+topology, resolution, or DPI/scaling change invalidates the observation and
+requires a fresh snapshot. The banner follows the scoped target within its
+owning logon session.
+
+Never target LockApp, Windows Security, credential/authentication/password
+manager windows, the Windows Run dialog, terminals, PowerShell, or `cmd`.
+These backend-enforced boundaries cannot be bypassed by switching automation
+methods. A script editor hosted by the bound DCC process remains in scope.
+
+`app_ui__act` advertises a destructive annotation so the calling host can
+apply its confirmation policy. A model-supplied `confirmed` argument or
+environment bypass is not a trusted approval. If host policy requires user
+confirmation and none is available, stop; do not use another automation path.
+
 ## 🚀 Quick Start Workflow
 
 ### Default Agent Path: CLI+REST

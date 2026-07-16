@@ -393,7 +393,7 @@ tools:
 ### MCP Protocol Types (`dcc_mcp_core`)
 
 - `ToolDefinition(name, description, input_schema, output_schema=None, annotations=None)`
-- `ToolDeclaration(name, description, input_schema, annotations=None)` — lightweight tool declaration without output schema
+- `ToolDeclaration(name, description, input_schema, annotations=None, requires_in_process=False)` — lightweight tool declaration; stateful tools set `requires_in_process=True` so loading fails instead of falling back to per-call subprocesses
 - `ToolSpec(name, description, input_schema, output_schema=None, annotations=None)` — full tool specification for registry use
 - `ToolAnnotations(title=None, read_only_hint=None, destructive_hint=None, idempotent_hint=None, open_world_hint=None, deferred_hint=None)`
 - `ResourceAnnotations(audience=None, priority=None)`
@@ -496,9 +496,21 @@ tools:
 - `Capturer.backend_name() -> str`, `.backend_kind() -> CaptureBackendKind`, `.stats() -> tuple[int, int, int]`
 - `CaptureFrame` — `.width`, `.height`, `.data`, `.format`, `.mime_type`, `.timestamp_ms`, `.dpi_scale`, `.window_rect` (tuple or None), `.window_title` (str or None), `.byte_len()`
 - `CaptureTarget` — factories: `.primary_display()`, `.monitor_index(i)`, `.process_id(pid)`, `.window_title(title)`, `.window_handle(handle)`
-- `CaptureBackendKind` — enum: `DxgiDesktopDuplication`, `ScreenCaptureKit`, `X11Xshm`, `PipeWire`, `HwndPrintWindow`, `Mock`
+- `CaptureBackendKind` — enum: `DxgiDesktopDuplication`, `WindowsGraphicsCapture`, `ScreenCaptureKit`, `X11Xshm`, `PipeWire`, `HwndPrintWindow`, `Mock`; window capture reports the backend that actually produced the latest frame when WGC falls back to GDI
 - `WindowFinder()` — `.find(target) -> Optional[WindowInfo]`, `.enumerate() -> List[WindowInfo]`
 - `WindowInfo` — `.handle`, `.pid`, `.title`, `.rect`
+
+### Scoped Computer Use (`dcc_mcp_core`, Windows)
+
+- `ComputerUseSession(process_id=None, window_handle=None, window_title=None, app_name=None)` — persistent exact-window native input session with visible border/banner, pointer effects, and a Windows-logon-session-wide Ctrl+Alt+Esc stop latch shared across DCC adapter processes; ordinary Esc remains available to the target app
+- `.start() -> str`, `.screenshot() -> tuple[str, bytes|None]`, `.act(request_json) -> str`, `.status() -> str`, `.stop() -> str`
+- `.resume_after_user_approval() -> str` clears the Ctrl+Alt+Esc latch only after an explicit user instruction and only when the named input owner is idle; the historically named `ComputerUseSession.process_user_interrupted() -> bool` inspects the shared Windows logon-session latch
+- `UiPoint(x, y)` and `UiActionRequest(..., path=[UiPoint(...)])` use coordinates relative to the latest (possibly scaled) screenshot
+- Prefer bundled `app-ui`: structured DCC tool first, then semantic UIA, then one screenshot-coordinate action. `app-ui` requires a persistent in-process executor and must end with `app_ui__stop_computer_use`.
+- Windows lock, disconnect, or secure desktop returns `desktop_unavailable` before UIA/raw input. Keep the logical session; structured DCC/MCP work may continue subject to host readiness. Never automate LockApp. After unlock, discard old ids and take a fresh snapshot so the banner returns.
+- A normal process cannot show the banner on the Windows lock screen. Use a dedicated always-unlocked VM for uninterrupted GUI control. Public `openai/codex` `codex-rs` exposes policy/plugin wiring, not its desktop helper implementation.
+- Computer Use runs on the adapter host in the interactive Windows logon session that owns the DCC; the gateway only routes calls. Never reuse coordinates across hosts or sessions. RDP disconnect/session switch retains the logical session but requires reconnect plus a fresh snapshot.
+- Multi-monitor observations remain bounded to the scoped target window; that window may use a negative virtual-desktop origin or span monitors with different DPI values. Topology, resolution, or DPI/scaling changes invalidate the observation. The banner follows the scoped target in its owning session.
 
 ### Instance-Bound Diagnostics (`dcc_mcp_core`)
 

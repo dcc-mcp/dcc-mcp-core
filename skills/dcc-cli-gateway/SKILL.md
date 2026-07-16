@@ -65,6 +65,45 @@ MCP when they can run shell.
 4. **Zero instances** — stop, explain, ask consent before bootstrap; see
    [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md).
 
+### Computer Use fallback
+
+Do not choose `app-ui` first. Search, describe, and call the structured DCC
+skill, host API, or adapter script that owns the operation. If the operation is
+reported as unsupported, no suitable tool exists, or semantic UI Automation
+cannot reach the required control, make an agent-directed transition to
+`app-ui`:
+
+1. `app_ui__snapshot` with an exact `process_id`, `window_handle`, or
+   `window_title`.
+2. `app_ui__find` and a semantic `app_ui__act` when possible; otherwise one
+   screenshot-coordinate `app_ui__act` using that snapshot.
+3. `app_ui__snapshot` after every action before choosing the next action.
+4. `app_ui__stop_computer_use` when the fallback completes, fails, or is
+   abandoned so the visible effects and input owner are released.
+
+Do not transition or retry through another UI/input path after a policy,
+authorization, authentication, security, confirmation, `desktop_unavailable`,
+or `user_interrupted` result. Those outcomes require the user or environment to
+resolve the boundary first.
+
+Never widen the scope to the desktop or reuse coordinates across snapshots.
+Native pointer or keyboard fallback requires one exact `process_id` or
+`window_handle` already bound by the adapter/operator through
+`DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; request
+scope can only narrow that trusted target. Title-only and process-name scopes
+are observation-only.
+If the user presses Ctrl+Alt+Esc and the tool returns `user_interrupted`, stop without
+retrying, changing `session_id`, or starting a new session. Only call
+`app_ui__snapshot(resume_computer_use=true)` after the user explicitly asks to
+resume Computer Use.
+
+For an exact PID/HWND, `app_ui__snapshot` automatically uses native window
+capture if Windows UIA enumeration fails or times out; treat the returned tree
+as image-only and continue with one bounded native action.
+On the CLI+REST path, rich images are materialized into a bounded local
+`artifact_path`; use the host agent's local image viewer on that absolute path
+instead of expecting base64 JSON to render in the terminal.
+
 Internal studios can fork this skill once and reuse the same CLI+REST workflow across
 agents without maintaining per-host MCP server lists.
 
