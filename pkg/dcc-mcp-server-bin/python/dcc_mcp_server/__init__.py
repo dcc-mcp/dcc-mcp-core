@@ -35,10 +35,9 @@ def binary_path() -> Path:
     1. ``DCC_MCP_SERVER_BIN`` env var — operator override.
     2. ``scripts/`` directory next to this package's installation (where
        maturin places ``bindings = "bin"`` artefacts inside the wheel).
-    3. ``shutil.which("dcc-mcp-server")`` — the system PATH lookup that
-       ``pip``'s ``console_scripts`` install path produces.
-    4. ``sys.prefix/Scripts`` (Windows) or ``sys.prefix/bin`` (POSIX) —
-       the venv-relative scripts dir for the *current* interpreter.
+    3. ``sys.prefix/Scripts`` (Windows) or ``sys.prefix/bin`` (POSIX) —
+       the scripts directory for the *current* interpreter environment.
+    4. ``shutil.which("dcc-mcp-server")`` — a final system PATH fallback.
 
     Raises:
         FileNotFoundError: if no installation of the binary is found.
@@ -55,14 +54,14 @@ def binary_path() -> Path:
     if candidate.is_file():
         return candidate
 
-    on_path = shutil.which("dcc-mcp-server")
-    if on_path:
-        return Path(on_path)
-
     scripts_dir = Path(sys.prefix) / ("Scripts" if os.name == "nt" else "bin")
     candidate = scripts_dir / _BINARY_NAME
     if candidate.is_file():
         return candidate
+
+    on_path = shutil.which("dcc-mcp-server")
+    if on_path:
+        return Path(on_path)
 
     raise FileNotFoundError(
         "dcc-mcp-server binary not found. Did you `pip install dcc-mcp-server`? "
