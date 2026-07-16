@@ -60,7 +60,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 class TestPureMcpHttpConfig:
     def test_defaults_match_rust_surface(self):
         cfg = PureMcpHttpConfig()
-        assert cfg.port == 8765
+        assert cfg.port == 0
         assert cfg.server_name == "dcc-mcp"
         assert isinstance(cfg.server_version, str)
         assert len(cfg.server_version) > 0

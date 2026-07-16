@@ -507,7 +507,7 @@ Creates a fully wired `McpHttpServer` for a specific DCC application in one call
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `app_name` | `str` | DCC name (e.g. `"maya"`, `"blender"`) — derives env var and MCP server name |
-| `config` | `McpHttpConfig \| None` | HTTP server config; defaults to port 8765 |
+| `config` | `McpHttpConfig \| None` | HTTP server config; defaults to port 0 (OS-assigned) |
 | `extra_paths` | `list[str] \| None` | Extra skill dirs in addition to env vars |
 | `dcc_name` | `str \| None` | Override DCC filter for scanning (defaults to `app_name`) |
 

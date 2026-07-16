@@ -280,7 +280,9 @@ class DccServerOptions:
     Args:
         dcc_name: Short DCC identifier (``"maya"``, ``"blender"``, …).
         builtin_skills_dir: Path to the adapter's bundled ``skills/`` directory.
-        port: TCP port for the MCP HTTP server.  ``0`` → OS picks a free port.
+        port: Resolved TCP port for the MCP HTTP server. ``0`` asks the OS for
+            a free port. :meth:`from_env` accepts ``None`` to resolve
+            ``DCC_MCP_<DCC>_PORT`` before falling back to ``0``.
         server_name: Name reported in the MCP ``initialize`` response.
         server_version: Version reported in the MCP ``initialize`` response.
             ``None`` defaults to the installed ``dcc_mcp_core`` version.
@@ -293,7 +295,7 @@ class DccServerOptions:
 
     dcc_name: str
     builtin_skills_dir: Path
-    port: int = 8765
+    port: int = 0
     server_name: str | None = None
     server_version: str | None = None
     gateway: GatewayOptions = field(default_factory=GatewayOptions)
@@ -308,7 +310,7 @@ class DccServerOptions:
         dcc_name: str,
         builtin_skills_dir: Path,
         *,
-        port: int = 8765,
+        port: int | None = None,
         server_name: str | None = None,
         server_version: str | None = None,
         # gateway kwargs
@@ -339,9 +341,9 @@ class DccServerOptions:
     ) -> DccServerOptions:
         """Build a :class:`DccServerOptions` from keyword arguments + env vars.
 
-        This is the **recommended** constructor for all adapters.  Env-var
-        resolution for gateway port and registry directory happens here once,
-        producing a fully-resolved frozen object.
+        This is the **recommended** constructor for all adapters. Env-var
+        resolution for the DCC instance port, gateway port, and registry
+        directory happens here once, producing a fully-resolved frozen object.
 
         Raises:
             ValueError: If more than one execution mode is provided.
@@ -351,6 +353,17 @@ class DccServerOptions:
             raise ValueError("Pass either dispatcher or execution_bridge, not both")
         if standalone_main_thread and (dispatcher is not None or execution_bridge is not None):
             raise ValueError("standalone_main_thread cannot be combined with dispatcher or execution_bridge")
+
+        port_env = "DCC_MCP_{}_PORT".format(
+            "".join(character if character.isalnum() else "_" for character in dcc_name.upper())
+        )
+        raw_port: object = port if port is not None else os.environ.get(port_env, "0")
+        try:
+            resolved_port = int(raw_port)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{port_env} must be an integer between 0 and 65535") from exc
+        if not 0 <= resolved_port <= 65535:
+            raise ValueError(f"{port_env} must be an integer between 0 and 65535")
 
         gateway = GatewayOptions.from_env(
             port=gateway_port,
@@ -392,7 +405,7 @@ class DccServerOptions:
         return cls(
             dcc_name=dcc_name,
             builtin_skills_dir=builtin_skills_dir,
-            port=port,
+            port=resolved_port,
             server_name=server_name,
             server_version=server_version,
             gateway=gateway,

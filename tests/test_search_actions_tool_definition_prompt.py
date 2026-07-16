@@ -578,9 +578,9 @@ class TestPromptDefinition:
 
 
 class TestMcpHttpConfigExtra:
-    def test_default_port_is_8765(self):
+    def test_default_port_is_os_assigned(self):
         cfg = McpHttpConfig()
-        assert cfg.port == 8765
+        assert cfg.port == 0
 
     def test_default_server_name(self):
         cfg = McpHttpConfig()

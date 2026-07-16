@@ -613,7 +613,7 @@ def create_skill_server(
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `app_name` | `str` | DCC 应用名（`"maya"`、`"blender"` 等）— 用于推导环境变量名和服务器名 |
-| `config` | `McpHttpConfig \| None` | HTTP 配置；默认端口 8765 |
+| `config` | `McpHttpConfig \| None` | HTTP 配置；默认端口 0（由操作系统分配） |
 | `extra_paths` | `list[str] \| None` | 额外扫描的 Skill 目录 |
 | `dcc_name` | `str \| None` | 覆盖 Skill 扫描的 DCC 过滤条件（默认与 `app_name` 相同）|
 

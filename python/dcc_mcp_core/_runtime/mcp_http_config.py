@@ -25,7 +25,7 @@ def _default_server_version() -> str:
 class McpHttpConfig:
     """Python-visible MCP HTTP server configuration without PyO3."""
 
-    port: int = 8765
+    port: int = 0
     server_name: str = "dcc-mcp"
     server_version: str = field(default_factory=_default_server_version)
     host: str = "127.0.0.1"
@@ -49,7 +49,7 @@ class McpHttpConfig:
 
     def __init__(
         self,
-        port: int = 8765,
+        port: int = 0,
         server_name: str | None = None,
         server_version: str | None = None,
         **kwargs: Any,

@@ -688,7 +688,7 @@ mod tests {
     #[test]
     fn mcp_http_config_default_composes_all_sub_configs() {
         let cfg = McpHttpConfig::default();
-        assert_eq!(cfg.server.port, 8765);
+        assert_eq!(cfg.server.port, 0);
         assert_eq!(cfg.session.session_ttl_secs, 3_600);
         assert_eq!(cfg.gateway.gateway_port, 0);
         assert_eq!(cfg.queue.deferred_queue_depth, 16);

@@ -3,9 +3,106 @@ mod support;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
 use serde_json::Value;
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::Duration;
 use tempfile::{NamedTempFile, TempDir};
 
 use support::*;
+
+#[test]
+fn two_same_type_default_port_instances_are_discoverable() {
+    use dcc_mcp_actions::ToolRegistry;
+    use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
+
+    let registry = TempDir::new().unwrap();
+
+    // The gateway remains a stable control-plane endpoint. Instance ports
+    // below are never pre-probed: both listeners bind port 0 directly.
+    let gateway_probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let gateway_port = gateway_probe.local_addr().unwrap().port();
+    drop(gateway_probe);
+
+    let make_config = || {
+        let mut config = McpHttpConfig::default();
+        assert_eq!(config.port(), 0);
+        config.set_gateway_port(gateway_port);
+        config.gateway.registry_dir = Some(registry.path().to_path_buf());
+        config.set_dcc_type(Some("nuke".to_string()));
+        config.set_heartbeat_secs(1);
+        config.set_stale_timeout_secs(10);
+        config
+    };
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let handle_a = runtime
+        .block_on(McpHttpServer::new(Arc::new(ToolRegistry::new()), make_config()).start())
+        .unwrap();
+    let handle_b = runtime
+        .block_on(McpHttpServer::new(Arc::new(ToolRegistry::new()), make_config()).start())
+        .unwrap();
+
+    assert_ne!(handle_a.port, 0);
+    assert_ne!(handle_b.port, 0);
+    assert_ne!(handle_a.port, handle_b.port);
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = registry.path().join("gateway-profiles.json");
+    let profiles_s = profiles.to_string_lossy().to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
+    ];
+    let local = run_json_with_env(&["list"], &envs);
+    assert_eq!(local["source"], "local_registry");
+    assert_eq!(local["total"], 2);
+
+    let expected_ports = HashSet::from([handle_a.port as u64, handle_b.port as u64]);
+    let expected_urls = HashSet::from([
+        format!("http://{}/mcp", handle_a.bind_addr),
+        format!("http://{}/mcp", handle_b.bind_addr),
+    ]);
+    let instances = local["instances"].as_array().unwrap();
+    assert!(instances.iter().all(|entry| entry["dcc_type"] == "nuke"));
+    assert_eq!(
+        instances
+            .iter()
+            .map(|entry| entry["port"].as_u64().unwrap())
+            .collect::<HashSet<_>>(),
+        expected_ports
+    );
+    assert_eq!(
+        instances
+            .iter()
+            .map(|entry| entry["mcp_url"].as_str().unwrap().to_string())
+            .collect::<HashSet<_>>(),
+        expected_urls
+    );
+
+    let gateway_url = format!("http://127.0.0.1:{gateway_port}");
+    let mut gateway = Value::Null;
+    for _ in 0..20 {
+        gateway = run_json(&["--base-url", &gateway_url, "list"]);
+        if gateway["total"] == 2 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    assert_eq!(gateway["total"], 2);
+    assert_eq!(
+        gateway["instances"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["mcp_url"].as_str().unwrap().to_string())
+            .collect::<HashSet<_>>(),
+        expected_urls
+    );
+
+    runtime.block_on(handle_b.shutdown());
+    runtime.block_on(handle_a.shutdown());
+}
 
 #[test]
 fn list_search_describe_and_call_gateway_rest_surface() {

@@ -15,7 +15,7 @@ from dcc_mcp_core.factory import start_embedded_dcc_server
 class _FakeServer:
     events: ClassVar[list[str]] = []
 
-    def __init__(self, port: int = 8765, **kwargs: Any) -> None:
+    def __init__(self, port: int | None = None, **kwargs: Any) -> None:
         self.port = port
         self.kwargs = kwargs
         self.is_running = False
@@ -52,6 +52,7 @@ def test_start_embedded_dcc_server_creates_dispatcher_before_skill_registration(
     )
 
     assert handle == "handle"
+    assert holder[0].port is None
     assert holder[0].kwargs["dispatcher"] is dispatcher
     assert _FakeServer.events == ["construct", "dispatcher", "register_builtin_actions", "start"]
 
@@ -82,6 +83,20 @@ def test_create_dcc_server_does_not_recreate_dispatcher_for_running_singleton() 
 
     assert calls == 1
     assert _FakeServer.events == ["construct", "dispatcher", "register_builtin_actions", "start", "start"]
+
+
+def test_create_dcc_server_preserves_explicit_zero() -> None:
+    _FakeServer.events = []
+    holder: list[Any | None] = [None]
+
+    create_dcc_server(
+        instance_holder=holder,
+        lock=threading.Lock(),
+        server_class=_FakeServer,
+        port=0,
+    )
+
+    assert holder[0].port == 0
 
 
 def test_make_start_stop_accepts_dispatcher_factory() -> None:

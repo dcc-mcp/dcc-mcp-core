@@ -357,7 +357,7 @@ from pathlib import Path
 from dcc_mcp_core import DccServerBase, DccServerOptions
 
 class BlenderMcpServer(DccServerBase):
-    def __init__(self, port: int = 8765, **kwargs):
+    def __init__(self, port: int | None = None, **kwargs):
         opts = DccServerOptions.from_env(
             "blender",
             Path(__file__).parent / "skills",

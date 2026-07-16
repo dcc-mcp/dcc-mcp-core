@@ -34,5 +34,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 axum = { version = "0.8", features = ["http1", "tokio"] }
+dcc-mcp-actions.workspace = true
+dcc-mcp-http.workspace = true
 hex = "0.4"
 tempfile = "3"

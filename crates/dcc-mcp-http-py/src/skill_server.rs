@@ -67,7 +67,7 @@ impl PyMcpHttpServer {
     ///
     /// Args:
     ///     registry: An ``ToolRegistry`` with registered DCC actions.
-    ///     config: A ``McpHttpConfig``. If omitted, defaults to port 8765.
+    ///     config: A ``McpHttpConfig``. If omitted, defaults to port 0 (OS-assigned).
     #[new]
     #[pyo3(signature = (registry, config=None))]
     fn new(registry: &ToolRegistry, config: Option<&PyMcpHttpConfig>) -> PyResult<Self> {

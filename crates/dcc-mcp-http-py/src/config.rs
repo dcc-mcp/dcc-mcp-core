@@ -56,7 +56,7 @@ impl From<McpHttpConfig> for PyMcpHttpConfig {
 impl PyMcpHttpConfig {
     /// Create a new config. ``port=0`` binds to any available port.
     #[new]
-    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=120_000, enable_prometheus=false, prometheus_basic_auth=None, gateway_async_dispatch_timeout_ms=60_000, gateway_wait_terminal_timeout_ms=600_000, gateway_route_ttl_secs=86_400, gateway_max_routes_per_session=1_000, shutdown_on_drop=false))]
+    #[pyo3(signature = (port=0, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=120_000, enable_prometheus=false, prometheus_basic_auth=None, gateway_async_dispatch_timeout_ms=60_000, gateway_wait_terminal_timeout_ms=600_000, gateway_route_ttl_secs=86_400, gateway_max_routes_per_session=1_000, shutdown_on_drop=false))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         port: u16,

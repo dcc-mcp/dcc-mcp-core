@@ -1488,7 +1488,7 @@ def create_skill_server(
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `app_name` | `str` | DCC application name (`"maya"`, `"blender"`, etc.) — derives env var and server name |
-| `config` | `McpHttpConfig \| None` | HTTP config; defaults to port 8765 |
+| `config` | `McpHttpConfig \| None` | HTTP config; defaults to port 0 (OS-assigned) |
 | `extra_paths` | `list[str] \| None` | Extra skill dirs to scan in addition to env vars |
 | `dcc_name` | `str \| None` | Override DCC filter for skill scanning (defaults to `app_name`) |
 

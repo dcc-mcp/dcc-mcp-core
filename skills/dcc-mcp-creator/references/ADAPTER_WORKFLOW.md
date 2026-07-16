@@ -34,7 +34,7 @@ from dcc_mcp_core import DccServerBase, DccServerOptions, HostExecutionBridge
 
 
 class MyDccServer(DccServerBase):
-    def __init__(self, port: int = 8765, dispatcher=None, **kwargs):
+    def __init__(self, port: int | None = None, dispatcher=None, **kwargs):
         bridge = HostExecutionBridge(dispatcher=dispatcher) if dispatcher else None
         options = DccServerOptions.from_env(
             "mydcc",
@@ -48,6 +48,12 @@ class MyDccServer(DccServerBase):
     def _version_string(self) -> str:
         return "unknown"
 ```
+
+Keep `port=None` as the adapter default. Core resolves an explicit argument
+(including `0`) first, then `DCC_MCP_<DCC>_PORT`, then `0` so the OS assigns a
+free loopback port. Clients discover the bound endpoint through FileRegistry
+or the gateway; use an explicit argument or environment value only when a
+fixed direct endpoint is required.
 
 For `HostUiDispatcherBase` subclasses, the bridge creates and attaches the
 native HTTP main-affinity queue automatically. Keep the host timer calling the

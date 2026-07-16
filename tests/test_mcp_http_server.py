@@ -540,7 +540,7 @@ class TestMcpHttpServerPythonApi:
 
     def test_config_defaults(self):
         cfg = McpHttpConfig()
-        assert cfg.port == 8765
+        assert cfg.port == 0
         assert cfg.server_name == "dcc-mcp"
 
     def test_config_custom(self):

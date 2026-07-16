@@ -32,7 +32,7 @@ cfg = McpHttpConfig(
 
 | 属性 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `port` | `int` | `8765` | 服务器监听的 TCP 端口（`0` = OS 分配） |
+| `port` | `int` | `0` | 服务器监听的 TCP 端口（`0` = OS 分配） |
 | `host` | `str` | `"127.0.0.1"` | 绑定的 IP 地址 |
 | `endpoint_path` | `str` | `"/mcp"` | MCP 端点路径 |
 | `server_name` | `str` | `"dcc-mcp"` | MCP 响应中的服务器名称 |
@@ -113,7 +113,7 @@ from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
 server = McpHttpServer(
     registry,         # ToolRegistry 实例
-    config=None,      # McpHttpConfig（默认 port=8765，无 CORS）
+    config=None,      # McpHttpConfig（默认 port=0，由操作系统分配，无 CORS）
 )
 ```
 
