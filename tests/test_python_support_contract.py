@@ -283,6 +283,10 @@ def test_wheel_action_must_pin_manylinux_and_pass_explicit_platform(tmp_path: Pa
     action.write_text(inverted, encoding="utf-8")
     assert any("manylinux2014" in error for error in collect_wheel_action_errors(tmp_path))
 
+    cached_linux = current.replace(" && runner.os != 'Linux'", "")
+    action.write_text(cached_linux, encoding="utf-8")
+    assert any("sccache must be disabled" in error for error in collect_wheel_action_errors(tmp_path))
+
     unsafe_windows = current.replace('maturin_args=""', 'maturin_args="--find-interpreter"')
     action.write_text(unsafe_windows, encoding="utf-8")
     assert any('maturin_args=""' in error for error in collect_wheel_action_errors(tmp_path))

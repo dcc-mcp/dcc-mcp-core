@@ -185,7 +185,10 @@ runs:
         target: ${{ inputs.target }}
         args: ${{ steps.resolve-features.outputs.value }}
         rust-toolchain: ${{ inputs.rust-version }}
-        sccache: ${{ inputs.use-sccache == 'true' }}
+        # sccache's background server can time out while starting inside the
+        # short-lived manylinux container. Keep host builds cached, but make
+        # Linux container builds deterministic instead of relying on a daemon.
+        sccache: ${{ inputs.use-sccache == 'true' && runner.os != 'Linux' }}
         # Core Python 3.7 wheels are part of the old-DCC compatibility surface.
         # Pin Linux builds to the manylinux2014 / glibc 2.17 baseline instead
         # of allowing the runner image to select a newer platform tag.
