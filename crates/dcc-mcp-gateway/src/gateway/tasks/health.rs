@@ -206,33 +206,47 @@ pub(crate) fn spawn_health_check_task(
 
                 if count > effective_failures {
                     let r = registry.read().await;
-                    #[cfg(feature = "admin")]
-                    let removed = r.deregister(&entry.key()).ok().flatten();
-                    #[cfg(not(feature = "admin"))]
-                    let _ = r.deregister(&entry.key());
+                    let removed = match r.deregister_if_unchanged(entry) {
+                        Ok(removed) => removed,
+                        Err(error) => {
+                            tracing::warn!(
+                                dcc_type = %entry.dcc_type,
+                                instance_id = %entry.instance_id,
+                                %error,
+                                "Health check failed to deregister unreachable instance"
+                            );
+                            None
+                        }
+                    };
                     failure_counts.remove(&key);
-                    let reason = format!("{} consecutive health-check failures", count);
-                    tracing::info!(
-                        dcc_type = %entry.dcc_type,
-                        instance_id = %entry.instance_id,
-                        consecutive_failures = count,
-                        "Auto-deregistered after consecutive health-check failures"
-                    );
-                    #[cfg(feature = "admin")]
-                    persist_deregistered_instance(
-                        &cfg.admin_sqlite_lane,
-                        removed.as_ref().unwrap_or(entry),
-                        &reason,
-                    );
-                    crate::gateway::event_log::record_event(
-                        &event_log,
-                        #[cfg(feature = "prometheus")]
-                        &cfg.metrics,
-                        crate::gateway::event_log::EventKind::AutoDeregister,
-                        &entry.dcc_type,
-                        &id8,
-                        Some(reason),
-                    );
+                    if removed.is_some() {
+                        let reason = format!("{} consecutive health-check failures", count);
+                        tracing::info!(
+                            dcc_type = %entry.dcc_type,
+                            instance_id = %entry.instance_id,
+                            consecutive_failures = count,
+                            "Auto-deregistered after consecutive health-check failures"
+                        );
+                        #[cfg(feature = "admin")]
+                        if let Some(removed) = removed.as_ref() {
+                            persist_deregistered_instance(&cfg.admin_sqlite_lane, removed, &reason);
+                        }
+                        crate::gateway::event_log::record_event(
+                            &event_log,
+                            #[cfg(feature = "prometheus")]
+                            &cfg.metrics,
+                            crate::gateway::event_log::EventKind::AutoDeregister,
+                            &entry.dcc_type,
+                            &id8,
+                            Some(reason),
+                        );
+                    } else {
+                        tracing::debug!(
+                            dcc_type = %entry.dcc_type,
+                            instance_id = %entry.instance_id,
+                            "Health-check result was stale — keeping refreshed instance"
+                        );
+                    }
                 }
             }
         }
