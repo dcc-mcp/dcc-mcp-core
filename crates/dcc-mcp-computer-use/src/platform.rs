@@ -29,6 +29,7 @@ pub(crate) struct DesktopEventBarrier {
     acknowledged_sequence: AtomicU32,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 impl DesktopEventBarrier {
     pub(crate) fn register_window(&self, window_handle: usize) {
         self.window_handle.store(window_handle, Ordering::Release);
@@ -135,7 +136,7 @@ pub(crate) fn validate_target_policy(
 
 #[cfg(not(windows))]
 pub(crate) fn desktop_interactive() -> bool {
-    false
+    true
 }
 
 #[cfg(not(windows))]
