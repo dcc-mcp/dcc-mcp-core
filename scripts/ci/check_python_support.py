@@ -418,6 +418,9 @@ def collect_wheel_action_errors(root: Path) -> list[str]:
         errors.append(f"{relative}: core Linux wheels must target manylinux2014 / glibc 2.17")
     if re.search(r"(?m)^\s*manylinux:\s*auto\s*$", text):
         errors.append(f"{relative}: manylinux auto may raise the legacy DCC glibc baseline")
+    sccache = re.search(r"(?m)^\s*sccache:\s*(.+?)\s*$", text)
+    if sccache is None or "runner.os != 'Linux'" not in sccache.group(1):
+        errors.append(f"{relative}: sccache must be disabled in manylinux container builds")
     for fragment in (
         "--platform",
         "linux-x86_64",
