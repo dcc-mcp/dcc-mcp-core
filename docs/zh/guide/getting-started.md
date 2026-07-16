@@ -57,11 +57,14 @@ from dcc_mcp_core import create_skill_server, McpHttpConfig
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-skills"
 
 # 一键：发现 Skills + 启动 MCP HTTP 服务器
-server = create_skill_server("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig())
 handle = server.start()
 print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
-# AI 客户端（Claude Desktop 等）连接到 http://127.0.0.1:8765/mcp
+# CLI 和网关会通过共享注册表发现这个实际地址。
 ```
+
+本地实例默认使用操作系统分配的端口。只有外部集成明确要求固定监听端口时，
+才传入 `port=<端口号>`。
 
 如需更多控制，可直接使用 `SkillCatalog`：
 

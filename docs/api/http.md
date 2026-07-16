@@ -97,11 +97,11 @@ registry = ToolRegistry()
 registry.register("get_scene_info", description="Get current scene info",
                   category="scene", tags=[], dcc="maya", version="1.0.0")
 
-server = McpHttpServer(registry, McpHttpConfig(port=8765))
+server = McpHttpServer(registry, McpHttpConfig())
 handle = server.start()
 
 print(f"MCP HTTP server running at {handle.mcp_url()}")
-# MCP host POSTs to http://127.0.0.1:8765/mcp
+# The handle exposes the OS-assigned listener URL.
 
 # Shutdown when done
 handle.shutdown()
