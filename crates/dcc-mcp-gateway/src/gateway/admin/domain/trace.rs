@@ -262,14 +262,14 @@ impl TracePayload {
         }
     }
 
-    /// Build an input payload with default script-source redaction.
+    /// Build an input payload with default sensitive-field redaction.
     ///
     /// The gateway stores request arguments for admin traces and audit rows.
     /// Ad-hoc script source can be large and sensitive, so default capture
     /// keeps the shape and records that source existed without storing it.
     pub fn from_input_value(v: &Value, cap: usize) -> Self {
         let mut redacted = v.clone();
-        redact_script_source_fields(&mut redacted);
+        redact_sensitive_input_fields(&mut redacted);
         Self::from_value(&redacted, cap)
     }
 
@@ -300,24 +300,40 @@ impl TracePayload {
     }
 }
 
-fn redact_script_source_fields(value: &mut Value) {
+pub(crate) const SENSITIVE_INPUT_PLACEHOLDER: &str = "[REDACTED_SENSITIVE_INPUT]";
+
+pub(crate) fn redact_sensitive_input_fields(value: &mut Value) {
     match value {
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 if is_script_source_key(key) {
-                    *child = Value::String("[REDACTED_SCRIPT_SOURCE]".to_string());
+                    if !already_redacted(child) {
+                        *child = Value::String("[REDACTED_SCRIPT_SOURCE]".to_string());
+                    }
+                } else if key.eq_ignore_ascii_case("text")
+                    || super::agent_context::is_high_sensitivity_agent_key(key)
+                {
+                    if !already_redacted(child) {
+                        *child = Value::String(SENSITIVE_INPUT_PLACEHOLDER.to_string());
+                    }
                 } else {
-                    redact_script_source_fields(child);
+                    redact_sensitive_input_fields(child);
                 }
             }
         }
         Value::Array(items) => {
             for item in items {
-                redact_script_source_fields(item);
+                redact_sensitive_input_fields(item);
             }
         }
         _ => {}
     }
+}
+
+fn already_redacted(value: &Value) -> bool {
+    value
+        .as_str()
+        .is_some_and(|value| value.starts_with("[REDACTED"))
 }
 
 fn is_script_source_key(key: &str) -> bool {

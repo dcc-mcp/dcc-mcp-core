@@ -540,6 +540,147 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rich_image_skill_result_adds_native_mcp_image_content() {
+        let registry = ToolRegistry::new();
+        let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
+        let output = json!({
+            "success": true,
+            "message": "Viewport captured",
+            "context": {
+                "__rich__": {
+                    "kind": "image",
+                    "data": "iVBORw0KGgo=",
+                    "mime": "image/png"
+                }
+            }
+        });
+
+        registry.register_action(skill_tool_meta(
+            "dcc_diagnostics__screenshot",
+            "dcc-diagnostics",
+        ));
+        dispatcher.register_handler("dcc_diagnostics__screenshot", {
+            let output = output.clone();
+            move |_| Ok(output.clone())
+        });
+
+        let registry = Arc::new(registry);
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "dcc-diagnostics__screenshot",
+            Some(json!({})),
+            None,
+        )
+        .await
+        .expect("rich image skill dispatch should succeed");
+
+        assert_eq!(
+            result
+                .structured_content
+                .as_ref()
+                .and_then(|value| value.pointer("/context/__rich__/data")),
+            Some(&json!("<omitted; see native MCP image content>"))
+        );
+        assert_eq!(result.content.len(), 2);
+        let text_output = result_text_json(&result);
+        assert_eq!(
+            text_output.pointer("/context/__rich__/data"),
+            Some(&json!("<omitted; see native MCP image content>"))
+        );
+        assert!(matches!(
+            &result.content[1],
+            ToolContent::Image { data, mime_type }
+                if data == "iVBORw0KGgo=" && mime_type == "image/png"
+        ));
+
+        let rmcp_result = crate::rmcp_adapter::call_result_to_rmcp(&result);
+        assert!(matches!(
+            &rmcp_result.content[1].raw,
+            rmcp::model::RawContent::Image(image)
+                if image.data == "iVBORw0KGgo=" && image.mime_type == "image/png"
+        ));
+    }
+
+    #[test]
+    fn malformed_rich_image_is_redacted_even_with_preexisting_artifact_path() {
+        let encoded = "%%%private-invalid-base64%%%";
+        let result = dispatch_json_result(json!({
+            "success": true,
+            "context": {
+                "__rich__": {
+                    "kind": "image",
+                    "data": encoded,
+                    "mime": "image/png",
+                    "artifact_path": "C:/existing/capture.png"
+                }
+            }
+        }));
+
+        assert_eq!(
+            result.content.len(),
+            1,
+            "invalid data must not become MCP ImageContent"
+        );
+        let safe = result.structured_content.as_ref().unwrap();
+        assert_eq!(
+            safe.pointer("/context/__rich__/data"),
+            Some(&json!("<omitted; invalid inline image data>"))
+        );
+        assert_eq!(
+            safe.pointer("/context/__rich__/native_image_error"),
+            Some(&json!("invalid base64 image data"))
+        );
+        assert_eq!(
+            safe.pointer("/context/__rich__/artifact_path"),
+            Some(&json!("C:/existing/capture.png"))
+        );
+        assert!(!serde_json::to_string(&result).unwrap().contains(encoded));
+    }
+
+    #[test]
+    fn computer_use_failure_is_mcp_error_with_sanitized_native_image() {
+        let encoded = "iVBORw0KGgo=";
+        let result = dispatch_json_result(json!({
+            "success": false,
+            "message": "Computer Use was interrupted",
+            "error": "user_interrupted",
+            "context": {
+                "__rich__": {
+                    "kind": "image",
+                    "data": encoded,
+                    "mime": "image/png"
+                }
+            }
+        }));
+
+        assert!(
+            result.is_error,
+            "success=false must use MCP error semantics"
+        );
+        assert_eq!(
+            result
+                .structured_content
+                .as_ref()
+                .and_then(|value| value.pointer("/context/__rich__/data")),
+            Some(&json!("<omitted; see native MCP image content>"))
+        );
+        assert!(!result_text(&result).contains(encoded));
+        assert!(matches!(
+            &result.content[1],
+            ToolContent::Image { data, mime_type }
+                if data == encoded && mime_type == "image/png"
+        ));
+    }
+
+    #[tokio::test]
     async fn async_main_thread_job_decodes_deferred_dispatch_wire() {
         let registry = ToolRegistry::new();
         let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));

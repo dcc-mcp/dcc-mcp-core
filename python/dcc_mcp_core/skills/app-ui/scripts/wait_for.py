@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from _entrypoint import emit
-from _entrypoint import wait_for_tool
+if __package__:
+    from ._entrypoint import emit
+    from ._entrypoint import wait_for_tool
+else:
+    from _entrypoint import emit
+    from _entrypoint import wait_for_tool
 
 
 def main(**kwargs):

@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Context;
+#[cfg(test)]
+use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
 use dcc_mcp_skills::validator::IssueSeverity;
 use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
@@ -24,6 +26,12 @@ use crate::domain::rest::{
     WaitReadyRequest,
 };
 use crate::infra::http::HttpGateway;
+
+mod image_artifacts;
+
+#[cfg(test)]
+use image_artifacts::{BASE64_STANDARD, MATERIALIZED_IMAGE_PLACEHOLDER, prune_image_artifacts};
+use image_artifacts::{default_image_artifact_root, materialize_call_images};
 
 use super::marketplace_cmd;
 
@@ -126,9 +134,19 @@ enum Command {
         #[arg(long = "json")]
         request_json: Option<String>,
     },
-    /// Invoke one tool slug.
+    /// Invoke one tool slug, or an ordered batch with --batch.
     Call {
-        tool_slug: String,
+        #[arg(value_name = "TOOL_SLUG", required_unless_present = "batch")]
+        tool_slug: Option<String>,
+        /// Invoke an ordered gateway batch instead of one tool.
+        #[arg(
+            long,
+            conflicts_with_all = ["tool_slug", "dcc_type", "instance_id", "meta_json"]
+        )]
+        batch: bool,
+        /// JSON array of batch call steps. Requires --batch.
+        #[arg(long, value_name = "JSON", requires = "batch", conflicts_with_all = ["arguments_json", "json_file"])]
+        steps: Option<String>,
         /// DCC type for direct backend-tool calls without a dotted gateway slug.
         #[arg(long)]
         dcc_type: Option<String>,
@@ -143,6 +161,18 @@ enum Command {
         #[arg(long)]
         meta_json: Option<String>,
         /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
+        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
+        timeout_secs: u64,
+    },
+    /// Compatibility alias for `call --batch`.
+    #[command(hide = true)]
+    CallBatch {
+        /// JSON object containing `calls` and optional `stop_on_error`.
+        #[arg(long = "json", default_value = "{\"calls\":[]}")]
+        request_json: String,
+        /// Read the batch request from a UTF-8 JSON file, or '-' for stdin.
+        #[arg(long, value_name = "PATH", conflicts_with = "request_json")]
+        json_file: Option<PathBuf>,
         #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
         timeout_secs: u64,
     },
@@ -568,6 +598,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
         Command::Call {
             tool_slug,
+            batch,
+            steps,
             dcc_type,
             instance_id,
             arguments_json,
@@ -575,21 +607,48 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             meta_json,
             timeout_secs,
         } => {
-            let arguments = read_call_arguments(&arguments_json, json_file.as_deref())?;
-            let meta = meta_json
-                .as_deref()
-                .map(|raw| parse_json_object(raw, "--meta-json"))
-                .transpose()?;
-            control
-                .call(
-                    tool_slug,
-                    dcc_type,
-                    instance_id,
-                    arguments,
-                    meta,
-                    Duration::from_secs(timeout_secs.max(1)),
-                )
-                .await?
+            let mut result = if batch {
+                let request =
+                    read_batch_request(&arguments_json, steps.as_deref(), json_file.as_deref())?;
+                control
+                    .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
+                    .await?
+            } else {
+                let tool_slug = tool_slug
+                    .filter(|slug| !slug.trim().is_empty())
+                    .context("call requires TOOL_SLUG unless --batch is provided")?;
+                let arguments = read_call_arguments(&arguments_json, json_file.as_deref())?;
+                let meta = meta_json
+                    .as_deref()
+                    .map(|raw| parse_json_object(raw, "--meta-json"))
+                    .transpose()?;
+                control
+                    .call(
+                        tool_slug,
+                        dcc_type,
+                        instance_id,
+                        arguments,
+                        meta,
+                        Duration::from_secs(timeout_secs.max(1)),
+                    )
+                    .await?
+            };
+            materialize_call_images(&mut result, &default_image_artifact_root());
+            failed = !crate::application::local_control::call_result_succeeded(&result);
+            result
+        }
+        Command::CallBatch {
+            request_json,
+            json_file,
+            timeout_secs,
+        } => {
+            let request = read_call_arguments(&request_json, json_file.as_deref())?;
+            let mut result = control
+                .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
+                .await?;
+            materialize_call_images(&mut result, &default_image_artifact_root());
+            failed = !crate::application::local_control::call_result_succeeded(&result);
+            result
         }
         Command::WaitReady {
             dcc_type,
@@ -928,6 +987,7 @@ fn gateway_endpoint_for_command(
         | Command::Describe { .. }
         | Command::LoadSkill { .. }
         | Command::Call { .. }
+        | Command::CallBatch { .. }
         | Command::WaitReady { .. }
         | Command::ReloadSkills { .. }
         | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
@@ -1069,6 +1129,29 @@ fn read_call_arguments(raw: &str, json_file: Option<&std::path::Path>) -> anyhow
             .with_context(|| format!("failed to read --json-file {}", path.display()))?
     };
     parse_json_object(&contents, "--json-file")
+}
+
+fn read_batch_request(
+    raw: &str,
+    steps: Option<&str>,
+    json_file: Option<&std::path::Path>,
+) -> anyhow::Result<Value> {
+    if let Some(raw_steps) = steps {
+        let calls: Value =
+            serde_json::from_str(raw_steps).context("--steps must be a valid JSON array")?;
+        if !calls.is_array() {
+            anyhow::bail!("--steps must be a JSON array");
+        }
+        return Ok(serde_json::json!({"calls": calls}));
+    }
+
+    let request = read_call_arguments(raw, json_file)?;
+    if request.get("calls").and_then(Value::as_array).is_none() {
+        anyhow::bail!(
+            "call --batch requires --steps JSON_ARRAY or a --json/--json-file object containing calls"
+        );
+    }
+    Ok(request)
 }
 
 fn build_load_skill_request(

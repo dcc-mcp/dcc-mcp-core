@@ -186,6 +186,8 @@ impl CaptureFrame {
 pub enum CaptureBackendKind {
     /// Windows DXGI Desktop Duplication API.
     DxgiDesktopDuplication,
+    /// Windows Graphics Capture single-window API.
+    WindowsGraphicsCapture,
     /// macOS ScreenCaptureKit.
     ScreenCaptureKit,
     /// Linux X11 XShmGetImage.
@@ -202,6 +204,7 @@ impl std::fmt::Display for CaptureBackendKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             CaptureBackendKind::DxgiDesktopDuplication => "DXGI Desktop Duplication",
+            CaptureBackendKind::WindowsGraphicsCapture => "Windows.Graphics.Capture",
             CaptureBackendKind::ScreenCaptureKit => "ScreenCaptureKit",
             CaptureBackendKind::X11Xshm => "X11 XShmGetImage",
             CaptureBackendKind::PipeWire => "PipeWire",

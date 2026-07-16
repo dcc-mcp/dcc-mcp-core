@@ -499,6 +499,49 @@ pub async fn describe_tool_full(
 /// Call a backend action by slug. Returns the raw backend
 /// `tools/call` envelope on success so REST and MCP wrappers can
 /// forward it verbatim.
+pub(crate) fn tool_result_reports_failure(result: &Value) -> bool {
+    tool_result_reports_failure_inner(result, 0)
+}
+
+fn tool_result_reports_failure_inner(result: &Value, depth: u8) -> bool {
+    if depth > 4 {
+        return false;
+    }
+    if result.get("isError").and_then(Value::as_bool) == Some(true)
+        || result.get("success").and_then(Value::as_bool) == Some(false)
+        || result.get("ok").and_then(Value::as_bool) == Some(false)
+    {
+        return true;
+    }
+    if [
+        "result",
+        "output",
+        "structuredContent",
+        "structured_content",
+        "results",
+    ]
+    .iter()
+    .filter_map(|key| result.get(*key))
+    .any(|nested| tool_result_reports_failure_inner(nested, depth + 1))
+    {
+        return true;
+    }
+    match result {
+        Value::Array(items) => items
+            .iter()
+            .any(|item| tool_result_reports_failure_inner(item, depth + 1)),
+        Value::Object(_) => result
+            .get("content")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.get("text").and_then(Value::as_str))
+            .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+            .any(|payload| tool_result_reports_failure_inner(&payload, depth + 1)),
+        _ => false,
+    }
+}
+
 pub async fn call_service(
     gs: &GatewayState,
     slug: &str,
@@ -1630,5 +1673,28 @@ mod unit_tests {
         assert_eq!(row["next_step"]["arguments"]["arguments"], json!({}));
         assert_eq!(row["next_step"]["rest"]["path"], "/v1/call");
         assert_eq!(row["next_step"]["mcp"]["tool"], "call");
+    }
+
+    #[test]
+    fn tool_failure_detection_preserves_transport_success_distinction() {
+        assert!(tool_result_reports_failure(&json!({"isError": true})));
+        assert!(tool_result_reports_failure(&json!({
+            "success": true,
+            "output": {"success": false, "message": "domain failure"}
+        })));
+        assert!(tool_result_reports_failure(&json!({
+            "structuredContent": {"success": false}
+        })));
+        assert!(tool_result_reports_failure(&json!({
+            "content": [{
+                "type": "text",
+                "text": r#"{"success":false,"message":"sidecar domain failure"}"#
+            }],
+            "isError": false
+        })));
+        assert!(!tool_result_reports_failure(&json!({
+            "success": true,
+            "output": {"success": true}
+        })));
     }
 }

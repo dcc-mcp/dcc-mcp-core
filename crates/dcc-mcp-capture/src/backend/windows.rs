@@ -331,7 +331,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_dxgi_capture_returns_not_supported_on_non_windows() {
-        let b = DxgiBackend::default();
+        let b = DxgiBackend::new();
         let result = b.capture(&CaptureConfig::default());
         assert!(matches!(
             result.unwrap_err(),

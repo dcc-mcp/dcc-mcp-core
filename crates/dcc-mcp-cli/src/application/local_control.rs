@@ -359,15 +359,52 @@ pub async fn reload_skills_local(
 }
 
 pub(crate) fn reload_result_succeeded(value: &Value) -> bool {
+    call_result_succeeded(value)
+        && value
+            .get("reloaded")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+}
+
+pub(crate) fn call_result_succeeded(value: &Value) -> bool {
+    call_result_succeeded_inner(value, 0)
+}
+
+fn call_result_succeeded_inner(value: &Value, depth: u8) -> bool {
+    if depth > 4 {
+        return true;
+    }
     if value.get("success").and_then(Value::as_bool) == Some(false)
         || value.get("ok").and_then(Value::as_bool) == Some(false)
-        || value.get("reloaded").and_then(Value::as_bool) == Some(false)
         || value.get("isError").and_then(Value::as_bool) == Some(true)
         || value.get("error").is_some_and(|error| !error.is_null())
     {
         return false;
     }
-    value.get("result").is_none_or(reload_result_succeeded)
+    [
+        "result",
+        "output",
+        "structuredContent",
+        "structured_content",
+        "results",
+    ]
+    .iter()
+    .filter_map(|key| value.get(*key))
+    .all(|nested| call_result_succeeded_inner(nested, depth + 1))
+        && match value {
+            Value::Array(items) => items
+                .iter()
+                .all(|item| call_result_succeeded_inner(item, depth + 1)),
+            Value::Object(_) => value
+                .get("content")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+                .all(|payload| call_result_succeeded_inner(&payload, depth + 1)),
+            _ => true,
+        }
 }
 
 pub async fn stop_instance_local(
@@ -821,6 +858,29 @@ mod tests {
         assert!(!reload_result_succeeded(&json!({
             "success": false,
             "error": "no-source-file"
+        })));
+    }
+
+    #[test]
+    fn call_result_rejects_nested_tool_failure_but_accepts_transport_success() {
+        assert!(!call_result_succeeded(&json!({
+            "success": true,
+            "output": {"success": false, "message": "domain failure"}
+        })));
+        assert!(!call_result_succeeded(&json!({
+            "success": false,
+            "results": [{"ok": false}]
+        })));
+        assert!(!call_result_succeeded(&json!({
+            "content": [{
+                "type": "text",
+                "text": r#"{"success":false,"message":"sidecar domain failure"}"#
+            }],
+            "isError": false
+        })));
+        assert!(call_result_succeeded(&json!({
+            "success": true,
+            "output": {"success": true}
         })));
     }
 }

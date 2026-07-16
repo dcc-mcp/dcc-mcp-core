@@ -28,10 +28,10 @@ class TestNewWindowAutoBackend:
         cap = dcc_mcp_core.Capturer.new_window_auto()
         assert isinstance(cap, dcc_mcp_core.Capturer)
 
-    def test_backend_kind_is_hwnd_on_windows(self) -> None:
+    def test_backend_kind_is_wgc_on_windows(self) -> None:
         cap = dcc_mcp_core.Capturer.new_window_auto()
         if sys.platform == "win32":
-            assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
+            assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.WindowsGraphicsCapture
         else:
             assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.Mock
 
@@ -238,19 +238,19 @@ def test_window_capture_apis_release_gil_while_target_paints(capture_api: str) -
         if mode == "capture":
             frame = dcc_mcp_core.Capturer.new_window_auto().capture(
                 window_title="DCC MCP capture GIL probe",
-                timeout_ms=1000,
+                timeout_ms=5000,
             )
             assert frame.width > 0 and frame.height > 0
         elif mode == "capture_window":
             frame = dcc_mcp_core.Capturer.new_window_auto().capture_window(
                 window_handle=window["hwnd"],
-                timeout_ms=1000,
+                timeout_ms=5000,
             )
             assert frame.width > 0 and frame.height > 0
         elif mode == "capture_window_png":
             png = dcc_mcp_core.Capturer.capture_window_png(
                 pid=os.getpid(),
-                timeout_ms=1000,
+                timeout_ms=5000,
             )
             assert png
         else:
@@ -260,7 +260,7 @@ def test_window_capture_apis_release_gil_while_target_paints(capture_api: str) -
                 0,
                 32,
                 32,
-                timeout_ms=1000,
+                timeout_ms=5000,
             )
             assert png
         user32.PostMessageW(window["hwnd"], 0x0010, 0, 0)
@@ -270,11 +270,13 @@ def test_window_capture_apis_release_gil_while_target_paints(capture_api: str) -
     )
 
     try:
+        # WGC may need a few seconds to initialise on a loaded hosted runner;
+        # this test's deadlock guard remains the bounded child process.
         result = subprocess.run(
             [sys.executable, "-c", script, capture_api],
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=12,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:

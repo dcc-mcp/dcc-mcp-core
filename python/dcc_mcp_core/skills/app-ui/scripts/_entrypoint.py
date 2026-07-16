@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 from typing import Any
@@ -17,30 +18,26 @@ def emit(result: Dict[str, Any]) -> None:
     print(json.dumps(result, sort_keys=True))
 
 
+def _import_sibling(name: str) -> Any:
+    if __package__:
+        return importlib.import_module(f".{name}", __package__)
+    return importlib.import_module(name)
+
+
 def _load_backend() -> Any:
     backend = os.environ.get("DCC_MCP_APP_UI_BACKEND", "mock").strip().lower()
     if backend in {"", "mock"}:
-        import _backend
-
-        return _backend
+        return _import_sibling("_backend")
     if backend in {"chrome", "chrome-cdp", "cdp"}:
-        import _chrome_backend
-
-        return _chrome_backend
+        return _import_sibling("_chrome_backend")
     if backend in {"edge", "msedge", "microsoft-edge"}:
         os.environ.setdefault("DCC_MCP_APP_UI_CDP_PRESET", "edge")
-        import _chrome_backend
-
-        return _chrome_backend
+        return _import_sibling("_chrome_backend")
     if backend in {"agent-browser", "agent_browser", "agentbrowser"}:
         os.environ.setdefault("DCC_MCP_APP_UI_CDP_PRESET", "agent-browser")
-        import _chrome_backend
-
-        return _chrome_backend
+        return _import_sibling("_chrome_backend")
     if backend in {"windows-uia", "windows_uia", "uia", "win-uia", "win32-uia"}:
-        import _windows_uia_backend
-
-        return _windows_uia_backend
+        return _import_sibling("_windows_uia_backend")
     return None
 
 
@@ -84,3 +81,8 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Dispatch app_ui__wait_for to the selected backend."""
     return _call("wait_for_tool", params)
+
+
+def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch app_ui__stop_computer_use to the selected backend."""
+    return _call("stop_computer_use_tool", params)

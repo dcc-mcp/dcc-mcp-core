@@ -5,6 +5,8 @@ use super::*;
 use crate::constants::SKILL_METADATA_FILE;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tempfile::tempdir;
 
@@ -22,6 +24,14 @@ fn write_skill(dir: &Path, name: &str) {
 mod test_new {
     use super::*;
 
+    struct DropProbe(Arc<AtomicBool>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
     #[test]
     fn create_with_default_debounce() {
         let watcher = SkillWatcher::new(Duration::from_millis(300));
@@ -32,6 +42,27 @@ mod test_new {
     fn create_with_zero_debounce() {
         let watcher = SkillWatcher::new(Duration::ZERO);
         assert!(watcher.is_ok());
+    }
+
+    #[test]
+    fn dropping_watcher_releases_reload_callbacks() {
+        let released = Arc::new(AtomicBool::new(false));
+        {
+            let watcher = SkillWatcher::new(Duration::from_millis(10)).unwrap();
+            let probe = DropProbe(Arc::clone(&released));
+            watcher.on_reload(move || {
+                let _ = &probe;
+            });
+        }
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !released.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            released.load(Ordering::Acquire),
+            "dropping SkillWatcher must release registered callbacks"
+        );
     }
 }
 
