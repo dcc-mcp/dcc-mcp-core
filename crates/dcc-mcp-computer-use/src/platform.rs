@@ -9,6 +9,7 @@ use crate::{ComputerUseAction, ComputerUseErrorCode, ComputerUseObservation, Com
 #[cfg(windows)]
 mod windows;
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) struct ControlBannerSignals {
     pub(crate) stop: Arc<AtomicBool>,
     pub(crate) interrupted: Arc<AtomicBool>,
