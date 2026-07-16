@@ -124,6 +124,7 @@ class DccServerBase:
         self._dcc_name = options.dcc_name
         self._builtin_skills_dir = options.builtin_skills_dir
         self._handle: Any | None = None
+        self._quit_hooks: list[Callable[[], Any]] = []
         self._enable_gateway_failover = options.gateway.enable_failover
         self._strict_gateway = options.gateway.strict_gateway
 
@@ -209,7 +210,6 @@ class DccServerBase:
         self._gateway_runtime_mode: str = "unknown"
         self._gateway_daemon_status: dict[str, Any] = {}
         self._snapshot_provider: Any | None = diag.snapshot_provider
-        self._quit_hooks: list[Callable[[], Any]] = []
 
     # --- seam controller accessors (lazy init for test compatibility, PIP-688) ---
 

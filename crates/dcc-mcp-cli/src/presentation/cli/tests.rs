@@ -1,6 +1,193 @@
 use super::*;
 
 #[test]
+fn call_batch_contract_parses_steps_and_timeout() {
+    let steps = r#"[{"tool_slug":"maya.abc.capture","arguments":{}}]"#;
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "--batch",
+        "--steps",
+        steps,
+        "--timeout-secs",
+        "45",
+    ])
+    .unwrap();
+
+    let Command::Call {
+        tool_slug,
+        batch,
+        steps: parsed_steps,
+        timeout_secs,
+        ..
+    } = args.command
+    else {
+        panic!("expected call command");
+    };
+    assert!(tool_slug.is_none());
+    assert!(batch);
+    assert_eq!(parsed_steps.as_deref(), Some(steps));
+    assert_eq!(timeout_secs, 45);
+}
+
+#[test]
+fn call_batch_compatibility_alias_still_parses() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call-batch",
+        "--json",
+        r#"{"calls":[{"tool_slug":"maya.abc.capture","arguments":{}}]}"#,
+    ])
+    .unwrap();
+    assert!(matches!(args.command, Command::CallBatch { .. }));
+}
+
+#[test]
+fn call_materializes_rest_rich_image_without_printing_base64() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let bytes = b"\x89PNG\r\n\x1a\ncomputer-use";
+    let encoded = BASE64_STANDARD.encode(bytes);
+    let mut value = serde_json::json!({
+        "success": true,
+        "output": {
+            "context": {
+                "__rich__": {
+                    "kind": "image",
+                    "data": encoded,
+                    "mime": "image/png"
+                }
+            }
+        }
+    });
+
+    materialize_call_images(&mut value, root.path());
+
+    let rich = value.pointer("/output/context/__rich__").unwrap();
+    let artifact = PathBuf::from(rich["artifact_path"].as_str().unwrap());
+    assert!(artifact.is_absolute());
+    assert!(artifact.starts_with(root.path()));
+    assert_eq!(
+        artifact.extension().and_then(|value| value.to_str()),
+        Some("png")
+    );
+    assert_eq!(std::fs::read(artifact).unwrap(), bytes);
+    assert_eq!(rich["data"], MATERIALIZED_IMAGE_PLACEHOLDER);
+    assert!(!serde_json::to_string(&value).unwrap().contains(&encoded));
+}
+
+#[test]
+fn call_materializes_native_mcp_image_and_reports_invalid_data_safely() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let bytes = b"native image";
+    let encoded = BASE64_STANDARD.encode(bytes);
+    let mut value = serde_json::json!({
+        "result": {
+            "content": [
+                {"type": "image", "data": encoded, "mimeType": "image/webp"},
+                {"type": "image", "data": "%%%not-base64%%%", "mimeType": "image/png"}
+            ]
+        }
+    });
+
+    materialize_call_images(&mut value, root.path());
+
+    let first = &value["result"]["content"][0];
+    let artifact = PathBuf::from(first["artifact_path"].as_str().unwrap());
+    assert_eq!(std::fs::read(artifact).unwrap(), bytes);
+    assert_eq!(first["data"], MATERIALIZED_IMAGE_PLACEHOLDER);
+    let invalid = &value["result"]["content"][1];
+    assert_eq!(invalid["data"], MATERIALIZED_IMAGE_PLACEHOLDER);
+    assert_eq!(
+        invalid["materialization_error"],
+        "invalid base64 image data"
+    );
+    assert!(
+        !serde_json::to_string(&value)
+            .unwrap()
+            .contains("%%%not-base64%%%")
+    );
+}
+
+#[test]
+fn call_redacts_malformed_data_with_preexisting_artifact_path() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let encoded = "%%%private-invalid-base64%%%";
+    let existing = root.path().join("existing.png");
+    let mut value = serde_json::json!({
+        "output": {
+            "context": {
+                "__rich__": {
+                    "kind": "image",
+                    "data": encoded,
+                    "mime": "image/png",
+                    "artifact_path": existing
+                }
+            }
+        }
+    });
+
+    materialize_call_images(&mut value, root.path());
+
+    let rich = value.pointer("/output/context/__rich__").unwrap();
+    assert_eq!(rich["data"], MATERIALIZED_IMAGE_PLACEHOLDER);
+    assert_eq!(rich["artifact_path"], existing.display().to_string());
+    assert_eq!(rich["materialization_error"], "invalid base64 image data");
+    assert!(!serde_json::to_string(&value).unwrap().contains(encoded));
+}
+
+#[test]
+fn image_artifact_pruning_removes_expired_owned_files_only() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let expired = root.path().join("computer-use-expired.png");
+    let protected = root.path().join("computer-use-current.png");
+    let unrelated = root.path().join("artist-reference.png");
+    std::fs::write(&expired, b"expired").expect("write expired artifact");
+    std::fs::write(&protected, b"current").expect("write protected artifact");
+    std::fs::write(&unrelated, b"reference").expect("write unrelated image");
+
+    let future = std::time::SystemTime::now() + std::time::Duration::from_secs(48 * 60 * 60);
+    prune_image_artifacts(
+        root.path(),
+        future,
+        std::time::Duration::from_secs(24 * 60 * 60),
+        u64::MAX,
+        Some(&protected),
+    );
+
+    assert!(!expired.exists());
+    assert!(protected.exists());
+    assert!(unrelated.exists());
+}
+
+#[test]
+fn image_artifact_pruning_bounds_total_owned_size() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    for index in 0..3 {
+        std::fs::write(
+            root.path().join(format!("computer-use-{index}.png")),
+            b"1234",
+        )
+        .expect("write image artifact");
+    }
+
+    prune_image_artifacts(
+        root.path(),
+        std::time::SystemTime::now() + std::time::Duration::from_secs(2 * 60),
+        std::time::Duration::ZERO,
+        5,
+        None,
+    );
+
+    let remaining_size: u64 = std::fs::read_dir(root.path())
+        .expect("read artifact directory")
+        .flatten()
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|metadata| metadata.len())
+        .sum();
+    assert!(remaining_size <= 5, "remaining size was {remaining_size}");
+}
+
+#[test]
 fn call_reads_arguments_from_json_file() {
     use std::io::Write;
 
@@ -105,7 +292,9 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
             &Command::Call {
-                tool_slug: "maya.abc12345.create_sphere".to_string(),
+                tool_slug: Some("maya.abc12345.create_sphere".to_string()),
+                batch: false,
+                steps: None,
                 dcc_type: None,
                 instance_id: None,
                 arguments_json: "{}".to_string(),

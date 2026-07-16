@@ -1,9 +1,6 @@
 """In-process Python skill execution for embedded DCC adapters (issue #521).
 
-Lifts the `_wire_in_process_executor` / `_run_skill_script` pattern that
-`dcc-mcp-maya` 0.2.19 implements (~150 LOC in `server.py`) into a
-DCC-neutral helper. Every embedded DCC plugin (Maya, Houdini, Unreal,
-Blender Python …) needs the exact same flow:
+Every embedded DCC plugin follows the same flow:
 
 1. Run the skill script in the live DCC interpreter (no subprocess).
 2. Route the script through a host dispatcher so it executes on the
@@ -12,47 +9,58 @@ Blender Python …) needs the exact same flow:
    ``SystemExit + __mcp_result__`` fallback used by skill authors.
 4. Return a JSON-serialisable :class:`ToolResult`-shaped dict.
 
-The actual MCP wiring stays in
-:meth:`McpHttpServer.set_in_process_executor` (already shipped, see
-issues #464/#465). This module supplies the *executor closure* that
-satisfies that callable contract and the dispatcher protocol it routes
-through.
+MCP wiring remains in :meth:`McpHttpServer.set_in_process_executor`;
+this module supplies its executor closure and dispatcher protocol.
 """
 
 # Import built-in modules
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
+import importlib.machinery
 import importlib.util
 import inspect
 import json
 import logging
+import os
 from pathlib import Path
 import sys
+import threading
 import time
-import traceback
-from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
 from typing import Mapping
 from typing import Sequence
 import uuid
 
+from dcc_mcp_core._server._inprocess_contracts import BaseDccCallableDispatcher
+from dcc_mcp_core._server._inprocess_contracts import DeferredToolResult
+from dcc_mcp_core._server._inprocess_contracts import InProcessExecutionContext
+from dcc_mcp_core._server._inprocess_contracts import attach_deferred_streams as _attach_deferred_streams
+from dcc_mcp_core._server._inprocess_contracts import context_from_kwargs as _context_from_kwargs
+from dcc_mcp_core._server._inprocess_contracts import exception_to_error_envelope
+from dcc_mcp_core._server._inprocess_contracts import is_host_queue_dispatcher as _is_host_queue_dispatcher
+from dcc_mcp_core._server._inprocess_contracts import resolve_sandbox_action_name as _resolve_sandbox_action_name
+from dcc_mcp_core._server._inprocess_contracts import sandbox_denied_envelope
 from dcc_mcp_core.script_execution import FileBackedScriptExecutionParams
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 
-if TYPE_CHECKING:
-    pass
-
-# `typing.Protocol` / `typing.runtime_checkable` are 3.8+. For Python 3.7
-# (Maya 2022), expose duck-typed fallbacks with the same attribute contracts.
-from dcc_mcp_core._typing_compat import Protocol
-from dcc_mcp_core._typing_compat import runtime_checkable
-
 logger = logging.getLogger(__name__)
 
-#: Upper bound when converting ``timeout_hint_secs`` → ``timeout_ms`` (1 hour).
 _MAX_TIMEOUT_MS = 3_600_000
+
+_SCRIPT_PACKAGE_LOCK = threading.RLock()
+_SCRIPT_PACKAGE_CONDITION = threading.Condition(_SCRIPT_PACKAGE_LOCK)
+_SCRIPT_PACKAGE_PREFIX = "_dcc_mcp_skill_"
+_SCRIPT_PACKAGE_ACTIVE_CALLS: dict[str, int] = {}
+_SCRIPT_PACKAGE_STOP_REQUESTS: dict[str, int] = {}
+_SCRIPT_PACKAGE_CLEARING: set[str] = set()
+_SCRIPT_PACKAGE_DEFERRED_CLEAR: set[str] = set()
+_SCRIPT_PATH_REFS: dict[str, tuple[int, bool]] = {}
+# ponytail: one shared deadline keeps server shutdown bounded across all owned
+# packages; add a per-host setting only if real DCCs need different ceilings.
+_SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS = 1.0
 
 
 def timeout_hint_secs_to_ms(
@@ -88,10 +96,7 @@ def timeout_hint_secs_to_ms(
         return None
     if timeout_hint_secs <= 0:
         return None
-    ms = int(timeout_hint_secs) * 1000
-    if ms > _MAX_TIMEOUT_MS:
-        return _MAX_TIMEOUT_MS
-    return ms
+    return min(int(timeout_hint_secs) * 1000, _MAX_TIMEOUT_MS)
 
 
 __all__ = [
@@ -100,171 +105,12 @@ __all__ = [
     "HostExecutionBridge",
     "InProcessExecutionContext",
     "build_inprocess_executor",
+    "clear_script_package",
     "exception_to_error_envelope",
     "run_skill_script",
     "sandbox_denied_envelope",
     "timeout_hint_secs_to_ms",
 ]
-
-
-@dataclass(frozen=True)
-class InProcessExecutionContext:
-    """Execution metadata for a single in-process skill-script call."""
-
-    action_name: str = ""
-    skill_name: str | None = None
-    thread_affinity: str = "any"
-    execution: str = "sync"
-    timeout_hint_secs: int | None = None
-
-
-@dataclass
-class DeferredToolResult:
-    """Deferred completion handle returned by long-running host operations.
-
-    A skill script or direct host callable may return this object after it
-    starts a host-native background operation. ``HostExecutionBridge`` polls
-    ``check_is_finished`` until it returns a final JSON-serialisable result.
-    Returning ``None`` means "still running".
-    """
-
-    check_is_finished: Callable[[], Any]
-    timeout_secs: float = 3600.0
-    poll_interval_secs: float = 0.1
-    stdout: str = ""
-    stderr: str = ""
-
-    def __post_init__(self) -> None:
-        if not callable(self.check_is_finished):
-            raise TypeError("check_is_finished must be callable")
-        if self.timeout_secs <= 0:
-            raise ValueError("timeout_secs must be > 0")
-        if self.poll_interval_secs <= 0:
-            raise ValueError("poll_interval_secs must be > 0")
-
-
-def _context_from_kwargs(
-    *,
-    action_name: str = "",
-    skill_name: str | None = None,
-    thread_affinity: str = "any",
-    execution: str = "sync",
-    timeout_hint_secs: int | None = None,
-) -> InProcessExecutionContext:
-    return InProcessExecutionContext(
-        action_name=action_name,
-        skill_name=skill_name,
-        thread_affinity=thread_affinity or "any",
-        execution=execution or "sync",
-        timeout_hint_secs=timeout_hint_secs,
-    )
-
-
-def sandbox_denied_envelope(exc: BaseException, *, action_name: str = "") -> dict[str, Any]:
-    """Structured denial envelope when :class:`SandboxContext` rejects an action."""
-    msg = str(exc)
-    detail = f"Sandbox denied action '{action_name}': {msg}" if action_name else f"Sandbox denied action: {msg}"
-    return {
-        "success": False,
-        "message": detail,
-        "error": {
-            "type": "SandboxDenied",
-            "message": msg,
-            "action": action_name or None,
-        },
-    }
-
-
-def _resolve_sandbox_action_name(action_name: str, script_path: str) -> str:
-    if action_name:
-        return action_name
-    return Path(script_path).stem
-
-
-def exception_to_error_envelope(exc: BaseException, *, message: str | None = None) -> dict[str, Any]:
-    """Render *exc* as a structured ``ToolResult``-shaped error dict.
-
-    The returned envelope mirrors the wire shape clients already receive
-    on success — ``success`` / ``message`` / ``error`` (issue #589) — so
-    Rust ``CallToolResult`` construction can flag ``isError: true`` from
-    the same ``success: false`` heuristic without any extra string
-    parsing on the client side.
-
-    The traceback is folded into ``error.traceback`` (single string,
-    pre-formatted) so MCP clients can render it inline. Skill authors
-    catching exceptions inside ``main`` can reuse this helper to keep
-    the envelope shape consistent across in-process and subprocess
-    execution.
-    """
-    msg = message if message is not None else f"Execution failed: {exc}"
-    return {
-        "success": False,
-        "message": msg,
-        "error": {
-            "type": type(exc).__name__,
-            "message": str(exc),
-            "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-        },
-    }
-
-
-def _attach_deferred_streams(result: Any, deferred: DeferredToolResult) -> Any:
-    """Attach initial stdout/stderr captured before deferred completion."""
-    if not deferred.stdout and not deferred.stderr:
-        return result
-
-    meta = {
-        "stdout": deferred.stdout,
-        "stderr": deferred.stderr,
-    }
-    if isinstance(result, dict):
-        enriched = dict(result)
-        existing_meta = enriched.get("_meta")
-        merged_meta = dict(existing_meta) if isinstance(existing_meta, dict) else {}
-        merged_meta["dcc.deferred"] = meta
-        enriched["_meta"] = merged_meta
-        return enriched
-
-    return {
-        "result": result,
-        "_meta": {
-            "dcc.deferred": meta,
-        },
-    }
-
-
-@runtime_checkable
-class BaseDccCallableDispatcher(Protocol):
-    """Protocol every DCC dispatcher must satisfy to receive in-process calls.
-
-    The dispatcher submits ``func`` to the DCC's UI / main thread (Maya
-    deferred queue, Houdini ``hou.session``, Unreal game thread …) and
-    returns the script's result. Implementations are free to be
-    synchronous (block on a queue) or to dispatch through a futures
-    object internally; from the executor's point of view, the call is
-    a plain ``func(*args, **kwargs)`` invocation that may take time.
-
-    Concrete dispatchers do not need to inherit from this protocol —
-    duck typing is enough — but tagging implementations explicitly
-    enables runtime ``isinstance(dispatcher, BaseDccCallableDispatcher)``
-    sanity checks.
-    """
-
-    def dispatch_callable(
-        self,
-        func: Callable[..., Any],
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        """Run *func* on the host's main / UI thread; return the result."""
-        ...
-
-
-def _is_host_queue_dispatcher(dispatcher: Any | None) -> bool:
-    """Return ``True`` for the Rust-backed host dispatcher Python surface."""
-    if dispatcher is None:
-        return False
-    return callable(getattr(dispatcher, "post", None)) and callable(getattr(dispatcher, "tick", None))
 
 
 @dataclass
@@ -288,6 +134,55 @@ class HostExecutionBridge:
     script_materialization_policy: str = "auto"
     script_materialization_root: str | Path | None = None
     trusted_script_roots: tuple[str | Path, ...] = ()
+    _package_owner: str = field(default_factory=lambda: uuid.uuid4().hex, init=False, repr=False)
+    _owned_script_dirs: set[str] = field(default_factory=set, init=False, repr=False)
+    _script_dir_cleanup_generations: dict[str, int] = field(default_factory=dict, init=False, repr=False)
+    _owned_script_dirs_lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
+    _admission: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
+    _accepting_calls: bool = field(default=True, init=False, repr=False)
+    _admission_generation: int = field(default=0, init=False, repr=False)
+
+    def close_script_admission(self) -> None:
+        """Reject new bridge calls while server shutdown drains admitted work."""
+        with self._admission:
+            if self._accepting_calls:
+                self._accepting_calls = False
+                self._admission_generation += 1
+
+    def resume_script_execution(self) -> None:
+        """Reopen bridge admission for a new server start lifecycle."""
+        with self._admission:
+            self._accepting_calls = True
+
+    def _begin_call(self) -> int | None:
+        with self._admission:
+            if not self._accepting_calls:
+                return None
+            return self._admission_generation
+
+    def _current_generation(self) -> int | None:
+        with self._admission:
+            if not self._accepting_calls:
+                return None
+            return self._admission_generation
+
+    def _is_current_generation(self, generation: int) -> bool:
+        with self._admission:
+            return self._accepting_calls and self._admission_generation == generation
+
+    @staticmethod
+    def _shutdown_error() -> dict[str, Any]:
+        return exception_to_error_envelope(
+            RuntimeError("host execution bridge is shutting down"),
+            message="Host execution bridge is shutting down; call rejected.",
+        )
+
+    @staticmethod
+    def _script_cleared_error() -> dict[str, Any]:
+        return exception_to_error_envelope(
+            RuntimeError("script package was cleared while the call was queued"),
+            message="Script package was cleared while the call was queued; call rejected.",
+        )
 
     def resolve_host_dispatcher(self) -> Any | None:
         """Return the dispatcher that should back HTTP main-thread routing.
@@ -400,8 +295,13 @@ class HostExecutionBridge:
         context: InProcessExecutionContext,
     ) -> Any:
         """Dispatch a callable without resolving DeferredToolResult values."""
+        generation = self._begin_call()
+        if generation is None:
+            return self._shutdown_error()
 
         def _invoke(*_args: Any, **_kwargs: Any) -> Any:
+            if not self._is_current_generation(generation):
+                return self._shutdown_error()
             return func(*args, **kwargs)
 
         try:
@@ -509,6 +409,10 @@ class HostExecutionBridge:
         timeout_hint_secs: int | None = None,
     ) -> Any:
         """Execute a skill script using the same bridge as direct callables."""
+        generation = self._current_generation()
+        if generation is None:
+            return self._shutdown_error()
+        script_admission = self._remember_script_dir(script_path)
         resolved_action = _resolve_sandbox_action_name(action_name, script_path)
         if self.sandbox_context is not None:
             return self._execute_script_sandboxed(
@@ -519,9 +423,11 @@ class HostExecutionBridge:
                 thread_affinity=thread_affinity,
                 execution=execution,
                 timeout_hint_secs=timeout_hint_secs,
+                admission_generation=generation,
+                script_admission=script_admission,
             )
         return self.dispatch_callable(
-            self.runner or run_skill_script,
+            self._script_runner(generation, script_admission),
             script_path,
             params,
             action_name=action_name,
@@ -530,6 +436,121 @@ class HostExecutionBridge:
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
         )
+
+    def _script_runner(
+        self,
+        generation: int,
+        script_admission: tuple[str, int] | None,
+    ) -> Callable[[str, Mapping[str, Any]], Any]:
+        if self.runner is not None and self.runner is not run_skill_script:
+            runner = self.runner
+
+            def _run_custom(script_path: str, params: Mapping[str, Any]) -> Any:
+                if not self._is_current_generation(generation):
+                    return self._shutdown_error()
+                if not self._is_current_script_generation(script_admission):
+                    return self._script_cleared_error()
+                return runner(script_path, params)
+
+            return _run_custom
+
+        def _run_owned(script_path: str, params: Mapping[str, Any]) -> Any:
+            return self._run_owned_script(script_path, params, generation, script_admission)
+
+        return _run_owned
+
+    def _remember_script_dir(self, script_path: str) -> tuple[str, int] | None:
+        path = Path(script_path).resolve()
+        if path.is_file():
+            with self._owned_script_dirs_lock:
+                location = os.path.normcase(str(path.parent))
+                self._owned_script_dirs.add(location)
+                return location, self._script_dir_cleanup_generations.get(location, 0)
+        return None
+
+    def _is_current_script_generation(self, admission: tuple[str, int] | None) -> bool:
+        if admission is None:
+            return True
+        location, generation = admission
+        with self._owned_script_dirs_lock:
+            return self._script_dir_cleanup_generations.get(location, 0) == generation
+
+    def _run_owned_script(
+        self,
+        script_path: str,
+        params: Mapping[str, Any],
+        generation: int,
+        script_admission: tuple[str, int] | None,
+    ) -> Any:
+        try:
+            return run_skill_script(
+                script_path,
+                params,
+                package_owner=self._package_owner,
+                admission_check=lambda: (
+                    self._is_current_generation(generation) and self._is_current_script_generation(script_admission)
+                ),
+            )
+        except RuntimeError:
+            if not self._is_current_generation(generation):
+                return self._shutdown_error()
+            if not self._is_current_script_generation(script_admission):
+                return self._script_cleared_error()
+            raise
+
+    def request_stop_script_packages(self) -> int:
+        """Signal cooperative cancellation without waiting for package unload."""
+        with self._owned_script_dirs_lock:
+            locations = list(self._owned_script_dirs)
+        return sum(_request_script_package_stop(location, package_owner=self._package_owner) for location in locations)
+
+    def shutdown_script_execution(self) -> int:
+        """Invalidate queued calls, request stop, then unload owned packages."""
+        self.close_script_admission()
+        return self.clear_script_packages()
+
+    def clear_script_package(
+        self,
+        script_dir: str | Path,
+        *,
+        timeout_secs: float | None = None,
+    ) -> int:
+        """Clean one private package previously executed by this bridge."""
+        location = os.path.normcase(str(Path(script_dir).resolve()))
+        with self._owned_script_dirs_lock:
+            if location not in self._owned_script_dirs:
+                return 0
+            self._script_dir_cleanup_generations[location] = self._script_dir_cleanup_generations.get(location, 0) + 1
+        return clear_script_package(
+            location,
+            package_owner=self._package_owner,
+            timeout_secs=timeout_secs,
+        )
+
+    def _clear_script_locations(self, locations: Sequence[str]) -> int:
+        deadline = time.monotonic() + _SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS
+        cleared = 0
+        for location in locations:
+            remaining = max(0.0, deadline - time.monotonic())
+            cleared += self.clear_script_package(location, timeout_secs=remaining)
+        return cleared
+
+    def clear_script_packages_under(self, skill_dir: str | Path) -> int:
+        """Clean owned script packages located inside one skill directory."""
+        root = Path(skill_dir).resolve()
+        with self._owned_script_dirs_lock:
+            locations = [
+                location
+                for location in self._owned_script_dirs
+                if Path(location) == root or root in Path(location).parents
+            ]
+        return self._clear_script_locations(locations)
+
+    def clear_script_packages(self) -> int:
+        """Clean every private script package owned by this bridge."""
+        with self._owned_script_dirs_lock:
+            locations = list(self._owned_script_dirs)
+        return self._clear_script_locations(locations)
 
     def _execute_script_sandboxed(
         self,
@@ -541,6 +562,8 @@ class HostExecutionBridge:
         thread_affinity: str | None,
         execution: str | None,
         timeout_hint_secs: int | None,
+        admission_generation: int,
+        script_admission: tuple[str, int] | None,
     ) -> Any:
         """Run a skill script inside :class:`SandboxContext` when configured."""
         context = self.execution_context(
@@ -554,7 +577,7 @@ class HostExecutionBridge:
 
         def _sandbox_handler(_params: Mapping[str, Any]) -> Any:
             return self._dispatch_raw(
-                self.runner or run_skill_script,
+                self._script_runner(admission_generation, script_admission),
                 (script_path, _params),
                 {},
                 context,
@@ -638,13 +661,233 @@ def _call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> An
     return main(**params_dict)
 
 
-def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
+def _script_package_name(script_dir: Path, package_owner: str | None = None) -> str:
+    location = os.path.normcase(str(script_dir.resolve()))
+    package_key = f"{package_owner or 'shared'}:{location}"
+    return f"{_SCRIPT_PACKAGE_PREFIX}{uuid.uuid5(uuid.NAMESPACE_URL, package_key).hex}"
+
+
+def _ensure_script_package(script_dir: Path, package_owner: str | None = None) -> str:
+    """Return the stable private package namespace for one script directory."""
+    location = os.path.normcase(str(script_dir.resolve()))
+    package_name = _script_package_name(script_dir, package_owner)
+    with _SCRIPT_PACKAGE_LOCK:
+        package = sys.modules.get(package_name)
+        if package is None:
+            spec = importlib.machinery.ModuleSpec(package_name, loader=None, is_package=True)
+            spec.submodule_search_locations = [location]
+            package = importlib.util.module_from_spec(spec)
+            sys.modules[package_name] = package
+        elif location not in tuple(getattr(package, "__path__", ())):
+            raise ImportError(f"Private skill package collision for {location}")
+        package.__dcc_mcp_script_dir__ = location
+    return package_name
+
+
+def _begin_script_call(package_name: str, script_dir: str) -> None:
+    with _SCRIPT_PACKAGE_CONDITION:
+        while package_name in _SCRIPT_PACKAGE_CLEARING:
+            _SCRIPT_PACKAGE_CONDITION.wait()
+        _SCRIPT_PACKAGE_ACTIVE_CALLS[package_name] = _SCRIPT_PACKAGE_ACTIVE_CALLS.get(package_name, 0) + 1
+
+        refs, added = _SCRIPT_PATH_REFS.get(script_dir, (0, False))
+        if refs == 0:
+            added = script_dir not in sys.path
+            if added:
+                sys.path.insert(0, script_dir)
+        _SCRIPT_PATH_REFS[script_dir] = (refs + 1, added)
+
+
+def _end_script_call(package_name: str, script_dir: str) -> None:
+    finish_deferred_clear = False
+    with _SCRIPT_PACKAGE_CONDITION:
+        active = _SCRIPT_PACKAGE_ACTIVE_CALLS.get(package_name, 0)
+        if active <= 1:
+            _SCRIPT_PACKAGE_ACTIVE_CALLS.pop(package_name, None)
+            if not _SCRIPT_PACKAGE_STOP_REQUESTS.get(package_name) and package_name in _SCRIPT_PACKAGE_DEFERRED_CLEAR:
+                _SCRIPT_PACKAGE_DEFERRED_CLEAR.remove(package_name)
+                finish_deferred_clear = True
+        else:
+            _SCRIPT_PACKAGE_ACTIVE_CALLS[package_name] = active - 1
+
+        refs, added = _SCRIPT_PATH_REFS.get(script_dir, (0, False))
+        if refs <= 1:
+            _SCRIPT_PATH_REFS.pop(script_dir, None)
+            if added and script_dir in sys.path:
+                sys.path.remove(script_dir)
+        else:
+            _SCRIPT_PATH_REFS[script_dir] = (refs - 1, added)
+        _SCRIPT_PACKAGE_CONDITION.notify_all()
+
+    if finish_deferred_clear:
+        _finish_script_package_clear(package_name)
+
+
+def _stash_legacy_modules(package_name: str, script_dir: str, before: set[str]) -> None:
+    """Move newly imported bare sibling modules under the private package."""
+    root = Path(script_dir).resolve()
+    for name in set(sys.modules).difference(before):
+        if name.startswith(f"{package_name}."):
+            continue
+        module = sys.modules.get(name)
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            continue
+        location = Path(module_file).resolve()
+        if location != root and root not in location.parents:
+            continue
+        alias_key = uuid.uuid5(uuid.NAMESPACE_URL, name).hex
+        sys.modules[f"{package_name}._legacy_{alias_key}"] = module
+        sys.modules.pop(name, None)
+
+
+def _finish_script_package_clear(package_name: str) -> int:
+    """Run cleanup hooks and unload a package after its last call returns."""
+    with _SCRIPT_PACKAGE_LOCK:
+        module_names = [name for name in sys.modules if name == package_name or name.startswith(f"{package_name}.")]
+    try:
+        for name in sorted(module_names, reverse=True):
+            module = sys.modules.get(name)
+            cleanup = getattr(module, "cleanup", None)
+            if callable(cleanup):
+                try:
+                    cleanup()
+                except Exception:
+                    logger.warning("Skill package cleanup failed for %s", name, exc_info=True)
+    finally:
+        with _SCRIPT_PACKAGE_CONDITION:
+            for name in module_names:
+                sys.modules.pop(name, None)
+            importlib.invalidate_caches()
+            _SCRIPT_PACKAGE_CLEARING.discard(package_name)
+            _SCRIPT_PACKAGE_DEFERRED_CLEAR.discard(package_name)
+            _SCRIPT_PACKAGE_STOP_REQUESTS.pop(package_name, None)
+            _SCRIPT_PACKAGE_CONDITION.notify_all()
+    return len(module_names)
+
+
+def clear_script_package(
+    script_dir: str | Path,
+    *,
+    package_owner: str | None = None,
+    timeout_secs: float | None = None,
+) -> int:
+    """Request stop and unload a private package within a bounded wait."""
+    package_name = _script_package_name(Path(script_dir), package_owner)
+    timeout = _SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS if timeout_secs is None else max(0.0, timeout_secs)
+    deadline = time.monotonic() + timeout
+    with _SCRIPT_PACKAGE_CONDITION:
+        while package_name in _SCRIPT_PACKAGE_CLEARING:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    "Skill package unload is still pending for %s; modules remain loaded until active calls return",
+                    package_name,
+                )
+                return 0
+            _SCRIPT_PACKAGE_CONDITION.wait(remaining)
+        _SCRIPT_PACKAGE_CLEARING.add(package_name)
+    _request_script_package_stop(script_dir, package_owner=package_owner)
+    with _SCRIPT_PACKAGE_CONDITION:
+        while _SCRIPT_PACKAGE_ACTIVE_CALLS.get(package_name, 0) or _SCRIPT_PACKAGE_STOP_REQUESTS.get(package_name, 0):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                active = _SCRIPT_PACKAGE_ACTIVE_CALLS.get(package_name, 0)
+                stop_requests = _SCRIPT_PACKAGE_STOP_REQUESTS.get(package_name, 0)
+                _SCRIPT_PACKAGE_DEFERRED_CLEAR.add(package_name)
+                logger.warning(
+                    "Timed out after %.3fs waiting to unload skill package %s "
+                    "(%d active call(s), %d stop request(s)); "
+                    "modules remain loaded and cleanup will run after the last call returns",
+                    timeout,
+                    package_name,
+                    active,
+                    stop_requests,
+                )
+                return 0
+            _SCRIPT_PACKAGE_CONDITION.wait(remaining)
+    return _finish_script_package_clear(package_name)
+
+
+def _request_script_package_stop(
+    script_dir: str | Path,
+    *,
+    package_owner: str | None = None,
+) -> int:
+    package_name = _script_package_name(Path(script_dir), package_owner)
+    with _SCRIPT_PACKAGE_LOCK:
+        active_modules = [
+            sys.modules[name] for name in sys.modules if name == package_name or name.startswith(f"{package_name}.")
+        ]
+        stop_hooks = []
+        for module in active_modules:
+            request_stop = getattr(module, "request_stop", None)
+            if callable(request_stop):
+                stop_hooks.append((module.__name__, request_stop))
+        if stop_hooks:
+            _SCRIPT_PACKAGE_STOP_REQUESTS[package_name] = _SCRIPT_PACKAGE_STOP_REQUESTS.get(package_name, 0) + 1
+
+    if not stop_hooks:
+        return len(active_modules)
+
+    def _invoke_stop_hooks() -> None:
+        finish_deferred_clear = False
+        try:
+            for module_name, request_stop in stop_hooks:
+                try:
+                    request_stop()
+                except Exception:
+                    logger.warning("Skill package stop request failed for %s", module_name, exc_info=True)
+        finally:
+            with _SCRIPT_PACKAGE_CONDITION:
+                pending = _SCRIPT_PACKAGE_STOP_REQUESTS.get(package_name, 0)
+                if pending <= 1:
+                    _SCRIPT_PACKAGE_STOP_REQUESTS.pop(package_name, None)
+                else:
+                    _SCRIPT_PACKAGE_STOP_REQUESTS[package_name] = pending - 1
+                if (
+                    not _SCRIPT_PACKAGE_ACTIVE_CALLS.get(package_name)
+                    and not _SCRIPT_PACKAGE_STOP_REQUESTS.get(package_name)
+                    and package_name in _SCRIPT_PACKAGE_DEFERRED_CLEAR
+                ):
+                    _SCRIPT_PACKAGE_DEFERRED_CLEAR.remove(package_name)
+                    finish_deferred_clear = True
+                _SCRIPT_PACKAGE_CONDITION.notify_all()
+            if finish_deferred_clear:
+                _finish_script_package_clear(package_name)
+
+    try:
+        threading.Thread(
+            target=_invoke_stop_hooks,
+            name="dcc-mcp-skill-stop",
+            daemon=True,
+        ).start()
+    except Exception:
+        with _SCRIPT_PACKAGE_CONDITION:
+            pending = _SCRIPT_PACKAGE_STOP_REQUESTS.get(package_name, 0)
+            if pending <= 1:
+                _SCRIPT_PACKAGE_STOP_REQUESTS.pop(package_name, None)
+            else:
+                _SCRIPT_PACKAGE_STOP_REQUESTS[package_name] = pending - 1
+            _SCRIPT_PACKAGE_CONDITION.notify_all()
+        logger.warning("Failed to start skill package stop request for %s", package_name, exc_info=True)
+    return len(active_modules)
+
+
+def run_skill_script(
+    script_path: str,
+    params: Mapping[str, Any],
+    *,
+    package_owner: str | None = None,
+    admission_check: Callable[[], bool] | None = None,
+) -> Any:
     """Lazy-import a skill script and call its ``main`` entry point.
 
     Mirrors the convention skill authors already use:
 
-    * Module is loaded with a unique synthetic name to keep import
-      caches from colliding when the same path is loaded twice.
+    * Each resolved script directory owns a stable private package, so
+      relative helper imports share state without colliding with other skills.
+      The entry module itself uses a unique transient name for every call.
     * ``main`` is the entry point; both ``main(**params)`` and legacy
       ``main(params)`` script conventions are supported.
     * ``SystemExit`` is intercepted because some DCCs raise it from
@@ -652,24 +895,48 @@ def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
       case the script is expected to publish a result via
       ``module.__mcp_result__`` before exiting.
     """
-    path = Path(script_path)
+    path = Path(script_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Skill script not found: {script_path}")
 
-    mod_name = f"_dcc_mcp_inproc_{uuid.uuid4().hex}"
-    spec = importlib.util.spec_from_file_location(mod_name, str(path))
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot create import spec for {script_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[mod_name] = module
+    package_name = _script_package_name(path.parent, package_owner)
     script_dir = str(path.parent)
-    added_script_dir = script_dir not in sys.path
-    if added_script_dir:
-        sys.path.insert(0, script_dir)
+    mod_name = ""
+    call_started = False
     try:
-        try:
-            spec.loader.exec_module(module)
-        except SystemExit:
+        module_exited = False
+        with _SCRIPT_PACKAGE_CONDITION:
+            while package_name in _SCRIPT_PACKAGE_CLEARING:
+                _SCRIPT_PACKAGE_CONDITION.wait()
+            if admission_check is not None and not admission_check():
+                raise RuntimeError("host execution bridge is shutting down")
+            _ensure_script_package(path.parent, package_owner)
+            mod_name = f"{package_name}._entry_{uuid.uuid4().hex}"
+            spec = importlib.util.spec_from_file_location(mod_name, str(path))
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Cannot create import spec for {script_path}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = module
+            _begin_script_call(package_name, script_dir)
+            call_started = True
+            before_modules = set(sys.modules)
+            original_path_index = sys.path.index(script_dir)
+            if original_path_index:
+                sys.path.pop(original_path_index)
+                sys.path.insert(0, script_dir)
+            try:
+                try:
+                    spec.loader.exec_module(module)
+                except SystemExit:
+                    module_exited = True
+            finally:
+                _stash_legacy_modules(package_name, script_dir, before_modules)
+                if original_path_index:
+                    if script_dir in sys.path:
+                        sys.path.remove(script_dir)
+                    sys.path.insert(min(original_path_index, len(sys.path)), script_dir)
+
+        if module_exited:
             return getattr(module, "__mcp_result__", None)
 
         if not hasattr(module, "main"):
@@ -681,9 +948,10 @@ def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
         except SystemExit:
             return getattr(module, "__mcp_result__", None)
     finally:
-        sys.modules.pop(mod_name, None)
-        if added_script_dir and script_dir in sys.path:
-            sys.path.remove(script_dir)
+        if call_started:
+            with _SCRIPT_PACKAGE_LOCK:
+                sys.modules.pop(mod_name, None)
+            _end_script_call(package_name, script_dir)
 
 
 def build_inprocess_executor(

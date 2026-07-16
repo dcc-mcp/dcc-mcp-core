@@ -19,15 +19,11 @@ This module provides:
 
 Note:
 ----
-The Rust-level ``McpHttpServer`` support for embedding ``rich`` content in
-``tools/call`` responses (MCP Apps extension format) is planned as a follow-up
-Rust PR (issue #409).  Until that lands:
-
-- Rich content is stored in ``result.context["__rich__"]`` as a JSON-
-  serialisable dict.  Clients that support MCP Apps can render it; others
-  ignore it gracefully.
-- Backward compatibility is guaranteed: existing plain-text clients see the
-  normal ``message`` and ``context`` fields and do not break.
+Rich content is stored in ``result.context["__rich__"]`` as a JSON-
+serialisable dict. The Rust MCP dispatcher converts image payloads into native
+MCP image content and replaces duplicate base64 in text/structured output with
+a placeholder. Other rich kinds remain available to MCP Apps clients through
+``__rich__``.
 
 DCC Opportunities
 -----------------

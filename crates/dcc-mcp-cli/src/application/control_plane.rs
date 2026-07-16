@@ -133,6 +133,15 @@ impl DccControlPlane {
         }
     }
 
+    pub async fn call_batch(&self, body: Value, timeout: Duration) -> anyhow::Result<Value> {
+        // Local mode owns and auto-starts the machine gateway, so batches use
+        // its REST endpoint even though single calls can take the direct MCP path.
+        DccMcpClient::with_gateway(self.endpoint.clone(), HttpGateway::with_timeout(timeout))
+            .call_batch(body)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn wait_ready(&self, request: WaitReadyRequest) -> anyhow::Result<Value> {
         if self.target.is_local() {
             local_control::wait_ready_local(self.registry_dir.clone(), request).await

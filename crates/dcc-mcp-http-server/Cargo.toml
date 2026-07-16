@@ -35,6 +35,7 @@ dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 # Workspace shared
 serde = { workspace = true }
 serde_json = { workspace = true }
+base64 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }

@@ -524,6 +524,13 @@ impl PyCaptureBackendKind {
     }
     #[classattr]
     #[allow(non_snake_case)]
+    fn WindowsGraphicsCapture() -> PyCaptureBackendKind {
+        PyCaptureBackendKind {
+            inner: CaptureBackendKind::WindowsGraphicsCapture,
+        }
+    }
+    #[classattr]
+    #[allow(non_snake_case)]
     fn ScreenCaptureKit() -> PyCaptureBackendKind {
         PyCaptureBackendKind {
             inner: CaptureBackendKind::ScreenCaptureKit,
