@@ -390,6 +390,11 @@ Read `tool.inputSchema` and safety annotations before calling.
 dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
   --json '{"radius":2.0}'
 
+# When the workflow reserved this instance, repeat the exact lease owner.
+dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
+  --json '{"radius":2.0}' \
+  --meta-json '{"lease_owner":"workflow-42"}'
+
 # Python fallback
 python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere \
   --json '{"radius":2.0}'
@@ -403,6 +408,18 @@ failure or retry the call, because the DCC job is already running.
 Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside
 the `--json` object. Do not pass them as top-level CLI flags unless the CLI adds
 an explicit first-class flag later.
+
+If the selected instance has an active pool lease, every `call` must carry the
+same `lease_owner` through `--meta-json`. Missing owner metadata fails with
+`instance-leased`; a different owner fails with `lease-owner-mismatch`. Do not
+retry either error without the matching workflow owner or a different instance.
+Expired leases and instances that were never leased need no owner metadata.
+The hidden compatibility lease workflow requires a non-empty owner without
+surrounding whitespace on acquire and the same owner on release; ownerless
+release never clears an active lease.
+The owner is a visible coordination label, not an authentication secret. Lease
+enforcement coordinates gateway and local CLI workflows; it does not protect a
+DCC adapter endpoint that an untrusted client can reach directly.
 
 For generated scripts, binary descriptors, or other payloads that may exceed a
 shell's command-line limit, pass the JSON object through a UTF-8 file or stdin:

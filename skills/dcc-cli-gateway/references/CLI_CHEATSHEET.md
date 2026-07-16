@@ -56,6 +56,7 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 | `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Find tools |
 | `dcc-mcp-cli describe <slug>` | Inspect schema |
 | `dcc-mcp-cli call <slug> --json '{"radius":2}'` | Invoke one tool |
+| `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42"}'` | Invoke a tool on an instance leased by this workflow |
 
 ## Install and marketplace
 
@@ -146,3 +147,4 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
 | Listed row is booting or `dispatch_status=unavailable` | Read `direct_control.recommended_next_action` and `direct_control.diagnostics`, then run `dcc-mcp-cli wait-ready --dcc-type <dcc> --instance-id <id>` or `dcc-mcp-cli doctor`; do not call tools until `direct_control.ready=true` |
 | `unknown-slug` | Re-run `search`; the instance may have restarted |
 | `invalid-params` | Fix the JSON object per `describe` output |
+| `instance-leased` / `lease-owner-mismatch` | Pass the exact workflow owner with `--meta-json`, or select another instance; do not guess another owner's value |

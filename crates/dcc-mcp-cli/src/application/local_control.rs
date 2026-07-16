@@ -5,7 +5,7 @@
 //! selected DCC instance's MCP HTTP endpoint directly.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
@@ -198,6 +198,7 @@ pub async fn call_local(
         dcc_type.as_deref(),
         instance_id.as_deref(),
     )?;
+    enforce_active_instance_lease(&route.entry, meta.as_ref())?;
     let gateway = HttpGateway::with_timeout(timeout);
     let result = mcp_call_tool(
         &gateway,
@@ -220,6 +221,21 @@ pub async fn call_local(
         "result": result,
         "source": "local_mcp",
     }))
+}
+
+fn enforce_active_instance_lease(entry: &ServiceEntry, meta: Option<&Value>) -> anyhow::Result<()> {
+    let request_owner = meta
+        .and_then(|value| value.get("lease_owner"))
+        .and_then(Value::as_str);
+    entry
+        .check_lease_owner(request_owner, SystemTime::now())
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "{}: {error} for instance {}",
+                error.kind(),
+                entry.instance_id
+            )
+        })
 }
 
 pub async fn wait_ready_local(

@@ -5,6 +5,7 @@
 //! in one place so list/search/call/wait-ready cannot drift.
 
 use std::path::Path;
+use std::time::SystemTime;
 
 use anyhow::Context;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -38,9 +39,14 @@ pub(crate) fn live_dcc_entries(registry_dir: &Path) -> anyhow::Result<(Vec<Servi
     let (entries, evicted) = registry
         .read_alive()
         .context("reading live local DCC instances")?;
+    let now = SystemTime::now();
     let mut entries: Vec<_> = entries
         .into_iter()
         .filter(|entry| entry.dcc_type != GATEWAY_SENTINEL_DCC_TYPE)
+        .map(|mut entry| {
+            entry.clear_expired_lease(now);
+            entry
+        })
         .collect();
     entries.sort_by(|left, right| {
         (left.dcc_type.as_str(), left.instance_id)

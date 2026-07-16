@@ -771,7 +771,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "backend_tool": {"type": "string"},
                     "arguments": {"type": "object", "additionalProperties": true},
                     "params": {"type": "object", "additionalProperties": true},
-                    "meta": {"type": "object", "additionalProperties": true},
+                    "meta": {"type": "object", "additionalProperties": true, "description": "Request metadata. Include lease_owner when the target instance has an active pool lease."},
                     "response_format": {"type": "string", "enum": ["toon", "json"]},
                     "compact": {"type": "boolean"}
                 },
@@ -787,7 +787,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "tool_slug": {"type": "string"},
                     "arguments": {"type": "object", "additionalProperties": true, "default": {}},
                     "params": {"type": "object", "additionalProperties": true},
-                    "meta": {"type": "object", "additionalProperties": true},
+                    "meta": {"type": "object", "additionalProperties": true, "description": "Request metadata. Include lease_owner when the target instance has an active pool lease."},
                     "calls": {
                         "type": "array",
                         "maxItems": 25,
@@ -822,7 +822,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "tool_slug": {"type": "string"},
                     "arguments": {"type": "object", "additionalProperties": true},
                     "params": {"type": "object", "additionalProperties": true},
-                    "meta": {"type": "object", "additionalProperties": true}
+                    "meta": {"type": "object", "additionalProperties": true, "description": "Per-call metadata. Include lease_owner when the target instance has an active pool lease."}
                 },
                 "additionalProperties": false,
             }),
@@ -839,7 +839,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                         "items": {"$ref": "#/components/schemas/GatewayBatchCallItem"}
                     },
                     "stop_on_error": {"type": "boolean"},
-                    "meta": {"type": "object", "additionalProperties": true},
+                    "meta": {"type": "object", "additionalProperties": true, "description": "Batch-wide fallback metadata. Include lease_owner when every target uses that active lease owner; per-call meta takes precedence."},
                     "response_format": {"type": "string", "enum": ["json", "toon"]},
                     "compact": {"type": "boolean"}
                 },
@@ -1277,6 +1277,16 @@ mod tests {
         );
         assert!(search_request["properties"].get("compact").is_some());
         let call_request = &doc["components"]["schemas"]["CallRequest"];
+        assert!(
+            call_request["properties"]["meta"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("lease_owner"))
+        );
+        assert!(
+            batch_item["properties"]["meta"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("lease_owner"))
+        );
         assert_eq!(
             call_request["properties"]["response_format"]["description"],
             "Optional response-format override. Omit for the gateway default compact TOON response; set json for legacy compatibility."

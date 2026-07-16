@@ -59,7 +59,8 @@ fn list_sort_key(value: &Value) -> (String, String) {
 mod tests {
     use super::*;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-    use dcc_mcp_transport::discovery::types::ServiceEntry;
+    use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn local_list_formats_registry_rows() {
@@ -67,6 +68,11 @@ mod tests {
         let registry = FileRegistry::new(dir.path()).unwrap();
         let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18080);
         entry.display_name = Some("Maya-Rig".to_string());
+        entry.acquire_lease(
+            "expired-workflow",
+            Some("expired-job".to_string()),
+            Some(SystemTime::now() - Duration::from_secs(1)),
+        );
         registry.register(entry).unwrap();
 
         let payload = list_local_instances(dir.path().to_path_buf()).unwrap();
@@ -77,6 +83,14 @@ mod tests {
         assert_eq!(
             payload["instances"][0]["mcp_url"],
             "http://127.0.0.1:18080/mcp"
+        );
+        assert_eq!(payload["instances"][0]["status"], "available");
+        assert_eq!(payload["instances"][0]["lease_owner"], Value::Null);
+        assert_eq!(payload["instances"][0]["current_job_id"], Value::Null);
+        assert_eq!(payload["instances"][0]["lease_expires_at"], Value::Null);
+        assert_eq!(
+            payload["instances"][0]["direct_control"]["service_status"],
+            ServiceStatus::Available.to_string()
         );
     }
 }

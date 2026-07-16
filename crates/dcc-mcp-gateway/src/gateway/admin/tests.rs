@@ -111,6 +111,24 @@ mod admin_tests {
         (status, json)
     }
 
+    async fn post_json(router: Router, uri: &str, body: Value) -> (StatusCode, Value) {
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        (status, json)
+    }
+
     async fn body_text(router: Router, uri: &str) -> (StatusCode, String) {
         let resp = router
             .oneshot(
@@ -648,6 +666,363 @@ filters:
             calls[0].pointer("/params/arguments/name"),
             Some(&json!("random_sphere_1"))
         );
+    }
+
+    #[tokio::test]
+    async fn test_gateway_call_enforces_active_lease_owner_before_dispatch() {
+        let gs = make_gateway_state();
+        let (discovery_port, stop_discovery) = spawn_search_backend(json!([
+            {
+                "skill": "maya-primitives",
+                "action": "maya_primitives__create_sphere",
+                "summary": "Create a sphere",
+                "loaded": true,
+                "has_schema": true
+            }
+        ]))
+        .await;
+        let (sidecar_port, stop_sidecar, sidecar_calls) = spawn_sidecar_dispatch_backend().await;
+        let mut entry = make_service_entry("maya", "127.0.0.1", sidecar_port, None);
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{sidecar_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{discovery_port}/mcp"),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::ROLE_METADATA_KEY.to_string(),
+            crate::gateway::http_registration::ROLE_PER_DCC_SIDECAR.to_string(),
+        );
+        entry.acquire_lease(
+            "workflow-a",
+            Some("job-a".to_string()),
+            Some(std::time::SystemTime::now() + Duration::from_secs(60)),
+        );
+        let instance_id = entry.instance_id;
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+
+        crate::gateway::capability_service::refresh_all_live_backends(
+            &gs,
+            crate::gateway::capability::RefreshReason::Periodic,
+        )
+        .await;
+        let slug = crate::gateway::capability::tool_slug(
+            "maya",
+            &instance_id,
+            "maya_primitives__create_sphere",
+        );
+
+        let error = crate::gateway::capability_service::call_service(
+            &gs,
+            &slug,
+            json!({"radius": 0.8}),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("a leased instance must require matching owner metadata");
+        assert_eq!(error.kind, "instance-leased");
+        assert!(
+            sidecar_calls.lock().is_empty(),
+            "the gateway must reject before dispatching to the DCC backend"
+        );
+
+        let error = crate::gateway::capability_service::call_service(
+            &gs,
+            &slug,
+            json!({"radius": 0.8}),
+            Some(json!({"lease_owner": "workflow-b"})),
+            None,
+            None,
+        )
+        .await
+        .expect_err("a different lease owner must not use the instance");
+        assert_eq!(error.kind, "lease-owner-mismatch");
+        assert!(
+            sidecar_calls.lock().is_empty(),
+            "owner mismatch must be rejected before DCC dispatch"
+        );
+
+        let result = crate::gateway::capability_service::call_service(
+            &gs,
+            &slug,
+            json!({"radius": 0.8}),
+            Some(json!({"lease_owner": "workflow-a"})),
+            None,
+            None,
+        )
+        .await
+        .expect("the active lease owner should reach the DCC backend");
+        assert_eq!(result["isError"], false);
+        assert_eq!(sidecar_calls.lock().len(), 1);
+
+        let router = build_gateway_router_with_admin(gs.clone(), None, "/admin");
+        let (status, body) = post_json(
+            router,
+            "/v1/call",
+            json!({
+                "tool_slug": slug,
+                "arguments": {"radius": 0.8},
+                "response_format": "json"
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"]["kind"], "instance-leased");
+        assert_eq!(sidecar_calls.lock().len(), 1);
+
+        {
+            let registry = gs.registry.write().await;
+            let key = dcc_mcp_transport::discovery::types::ServiceKey {
+                dcc_type: "maya".to_string(),
+                instance_id,
+            };
+            let mut expired = registry.get(&key).expect("leased registry row");
+            expired.acquire_lease(
+                "expired-workflow",
+                None,
+                Some(std::time::SystemTime::now() - Duration::from_secs(1)),
+            );
+            registry.register(expired).unwrap();
+        }
+        let result = crate::gateway::capability_service::call_service(
+            &gs,
+            &slug,
+            json!({"radius": 0.8}),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("an expired lease must behave like an unleased instance");
+        let _ = stop_discovery.send(());
+        let _ = stop_sidecar.send(());
+
+        assert_eq!(result["isError"], false);
+        assert_eq!(sidecar_calls.lock().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_raw_mcp_proxy_enforces_active_lease_owner_before_dispatch() {
+        let gs = make_gateway_state();
+        let (sidecar_port, stop_sidecar, sidecar_calls) = spawn_sidecar_dispatch_backend().await;
+        let mut entry = make_service_entry("maya", "127.0.0.1", sidecar_port, None);
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            format!("http://127.0.0.1:{sidecar_port}/mcp"),
+        );
+        entry.acquire_lease(
+            "workflow-a",
+            Some("job-a".to_string()),
+            Some(std::time::SystemTime::now() + Duration::from_secs(60)),
+        );
+        let instance_id = entry.instance_id;
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+        let router = build_gateway_router_with_admin(gs, None, "/admin");
+        let exact_uri = format!("/mcp/{instance_id}");
+
+        let (status, body) = post_json(
+            router.clone(),
+            &exact_uri,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "maya_scene__open_scene", "arguments": {}}
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["error"]["data"]["kind"], "instance-leased");
+        assert!(sidecar_calls.lock().is_empty());
+
+        let (status, body) = post_json(
+            router.clone(),
+            "/mcp/dcc/maya",
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "maya_scene__open_scene",
+                    "arguments": {},
+                    "_meta": {"lease_owner": "workflow-b"}
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["error"]["data"]["kind"], "lease-owner-mismatch");
+        assert!(sidecar_calls.lock().is_empty());
+
+        let (status, body) = post_json(
+            router.clone(),
+            &exact_uri,
+            json!([
+                {"jsonrpc": "2.0", "id": 20, "method": "tools/list"},
+                {
+                    "jsonrpc": "2.0",
+                    "id": 21,
+                    "method": "tools/call",
+                    "params": {"name": "maya_scene__open_scene", "arguments": {}}
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "maya_scene__open_scene", "arguments": {}}
+                }
+            ]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body.as_array().map(Vec::len), Some(2));
+        assert_eq!(body[0]["error"]["data"]["kind"], "batch-rejected");
+        assert_eq!(body[1]["error"]["data"]["kind"], "instance-leased");
+        assert!(sidecar_calls.lock().is_empty());
+
+        let (status, body) = post_json(
+            router.clone(),
+            &exact_uri,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {"name": "maya_scene__open_scene", "arguments": {}}
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(body, Value::Null);
+        assert!(sidecar_calls.lock().is_empty());
+
+        for (id, uri) in [(3, exact_uri.as_str()), (4, "/mcp/dcc/maya")] {
+            let (status, body) = post_json(
+                router.clone(),
+                uri,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "maya_scene__open_scene",
+                        "arguments": {},
+                        "_meta": {"lease_owner": "workflow-a"}
+                    }
+                }),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["result"]["isError"], false);
+        }
+
+        let (status, body) = post_json(
+            router,
+            &exact_uri,
+            json!({"jsonrpc": "2.0", "id": 5, "method": "tools/list"}),
+        )
+        .await;
+        let _ = stop_sidecar.send(());
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.get("result").is_some());
+        assert_eq!(sidecar_calls.lock().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_release_requires_matching_active_lease_owner() {
+        let gs = make_gateway_state();
+        for args in [
+            json!({"dcc_type": "maya"}),
+            json!({"dcc_type": "maya", "lease_owner": "  "}),
+            json!({"dcc_type": "maya", "lease_owner": " workflow-a "}),
+        ] {
+            let error = crate::gateway::tools::tool_acquire_instance(&gs, &args)
+                .await
+                .expect_err("acquire must require an explicit non-empty owner");
+            let error: Value = serde_json::from_str(&error).unwrap();
+            assert_eq!(error["reason"], "lease_owner_required");
+        }
+
+        let mut entry = make_service_entry("maya", "127.0.0.1", 18812, None);
+        entry.acquire_lease(
+            "workflow-a",
+            Some("job-a".to_string()),
+            Some(std::time::SystemTime::now() + Duration::from_secs(60)),
+        );
+        let instance_id = entry.instance_id;
+        let key = entry.key();
+        {
+            let registry = gs.registry.write().await;
+            registry.register(entry).unwrap();
+        }
+
+        let error =
+            crate::gateway::tools::tool_release_instance(&gs, &json!({"instance_id": instance_id}))
+                .await
+                .expect_err("ownerless release must be rejected");
+        let error: Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(error["reason"], "lease_owner_required");
+
+        let error = crate::gateway::tools::tool_release_instance(
+            &gs,
+            &json!({"instance_id": instance_id, "lease_owner": "workflow-b"}),
+        )
+        .await
+        .expect_err("a different owner must not release the lease");
+        let error: Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(error["reason"], "lease_owner_mismatch");
+        assert!(error.get("active_lease_owner").is_none());
+        {
+            let registry = gs.registry.read().await;
+            assert_eq!(
+                registry.get(&key).unwrap().lease_owner.as_deref(),
+                Some("workflow-a")
+            );
+        }
+
+        let result = crate::gateway::tools::tool_release_instance(
+            &gs,
+            &json!({"instance_id": instance_id, "lease_owner": "workflow-a"}),
+        )
+        .await
+        .expect("the matching owner should release the lease");
+        let result: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(result["success"], true);
+        {
+            let registry = gs.registry.read().await;
+            assert!(registry.get(&key).unwrap().lease_owner.is_none());
+        }
+
+        let error =
+            crate::gateway::tools::tool_release_instance(&gs, &json!({"instance_id": instance_id}))
+                .await
+                .expect_err("an unleased instance should report no active lease");
+        let error: Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(error["reason"], "no_active_lease");
+
+        {
+            let registry = gs.registry.read().await;
+            let mut expired = registry.get(&key).unwrap();
+            expired.acquire_lease(
+                "expired-workflow",
+                None,
+                Some(std::time::SystemTime::now() - Duration::from_secs(1)),
+            );
+            registry.register(expired).unwrap();
+        }
+        let error =
+            crate::gateway::tools::tool_release_instance(&gs, &json!({"instance_id": instance_id}))
+                .await
+                .expect_err("an expired lease should behave as unleased");
+        let error: Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(error["reason"], "no_active_lease");
     }
 
     #[tokio::test]

@@ -736,7 +736,8 @@ impl FileRegistry {
         })
     }
 
-    /// Release a pool lease. When `owner` is supplied it must match the holder.
+    /// Release a pool lease only when `owner` matches the current holder.
+    /// Missing owner metadata never clears an active lease.
     pub fn release_lease(
         &self,
         key: &ServiceKey,
@@ -745,7 +746,7 @@ impl FileRegistry {
         self.with_write_transaction(|| {
             let released = if let Some(mut entry) = self.services.get_mut(key) {
                 let owner_matches = owner
-                    .is_none_or(|expected| entry.value().lease_owner.as_deref() == Some(expected));
+                    .is_some_and(|expected| entry.value().lease_owner.as_deref() == Some(expected));
                 if owner_matches && entry.value().lease_owner.is_some() {
                     entry.value_mut().clear_lease();
                     Some(entry.value().clone())

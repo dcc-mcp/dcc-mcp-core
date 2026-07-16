@@ -128,6 +128,27 @@ impl std::fmt::Display for ServiceStatus {
     }
 }
 
+/// Why a caller cannot use an actively leased DCC instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LeaseOwnerError {
+    /// The caller omitted owner metadata for a leased instance.
+    #[error("active instance lease requires owner metadata")]
+    OwnerRequired,
+    /// The caller supplied an owner that does not hold the lease.
+    #[error("request owner does not match active instance lease")]
+    OwnerMismatch,
+}
+
+impl LeaseOwnerError {
+    /// Stable machine-readable error kind shared by gateway and CLI callers.
+    pub const fn kind(self) -> &'static str {
+        match self {
+            Self::OwnerRequired => "instance-leased",
+            Self::OwnerMismatch => "lease-owner-mismatch",
+        }
+    }
+}
+
 /// A discovered DCC service instance.
 ///
 /// Keyed by `(dcc_type, instance_id)` — supports multiple instances of the same DCC type.
@@ -440,13 +461,55 @@ impl ServiceEntry {
             .is_some_and(|expires_at| expires_at <= now)
     }
 
+    /// Return the current lease owner while the lease is still active.
+    pub fn active_lease_owner(&self, now: SystemTime) -> Option<&str> {
+        self.lease_owner
+            .as_deref()
+            .filter(|_| !self.lease_expired(now))
+    }
+
+    /// Check whether request owner metadata may use this instance.
+    pub fn check_lease_owner(
+        &self,
+        request_owner: Option<&str>,
+        now: SystemTime,
+    ) -> Result<(), LeaseOwnerError> {
+        let Some(active_owner) = self.active_lease_owner(now) else {
+            return Ok(());
+        };
+        match request_owner {
+            None => Err(LeaseOwnerError::OwnerRequired),
+            Some(request_owner) if request_owner != active_owner => {
+                Err(LeaseOwnerError::OwnerMismatch)
+            }
+            Some(_) => Ok(()),
+        }
+    }
+
     /// Clear any active lease and mark the instance available.
     pub fn clear_lease(&mut self) {
+        self.clear_lease_fields();
+        self.status = ServiceStatus::Available;
+        self.touch();
+    }
+
+    /// Clear an expired lease in a read-side projection without refreshing
+    /// the service heartbeat.
+    pub fn clear_expired_lease(&mut self, now: SystemTime) -> bool {
+        if !self.lease_expired(now) {
+            return false;
+        }
+        self.clear_lease_fields();
+        if self.status == ServiceStatus::Busy {
+            self.status = ServiceStatus::Available;
+        }
+        true
+    }
+
+    fn clear_lease_fields(&mut self) {
         self.lease_owner = None;
         self.current_job_id = None;
         self.lease_expires_at = None;
-        self.status = ServiceStatus::Available;
-        self.touch();
     }
 
     /// Reserve this instance for a workflow/client.
@@ -562,6 +625,40 @@ mod tests {
         assert_eq!(parsed.lease_owner.as_deref(), Some("workflow-1"));
         assert_eq!(parsed.current_job_id.as_deref(), Some("job-1"));
         assert!(parsed.lease_expires_at.is_some());
+    }
+
+    #[test]
+    fn test_service_entry_active_lease_owner_ignores_expired_lease() {
+        let now = SystemTime::now();
+        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 18812);
+        entry.acquire_lease("workflow-1", None, Some(now + Duration::from_secs(60)));
+        assert_eq!(entry.active_lease_owner(now), Some("workflow-1"));
+        assert_eq!(
+            entry.check_lease_owner(None, now),
+            Err(LeaseOwnerError::OwnerRequired)
+        );
+        assert_eq!(
+            entry.check_lease_owner(Some("workflow-2"), now),
+            Err(LeaseOwnerError::OwnerMismatch)
+        );
+        assert_eq!(entry.check_lease_owner(Some("workflow-1"), now), Ok(()));
+
+        entry.lease_expires_at = Some(now - Duration::from_secs(1));
+        assert_eq!(entry.active_lease_owner(now), None);
+        assert_eq!(entry.check_lease_owner(None, now), Ok(()));
+        let heartbeat = entry.last_heartbeat;
+        assert!(entry.clear_expired_lease(now));
+        assert_eq!(entry.lease_owner, None);
+        assert_eq!(entry.current_job_id, None);
+        assert_eq!(entry.lease_expires_at, None);
+        assert_eq!(entry.status, ServiceStatus::Available);
+        assert_eq!(entry.last_heartbeat, heartbeat);
+        assert!(!entry.clear_expired_lease(now));
+
+        entry.acquire_lease("workflow-2", None, Some(now - Duration::from_secs(1)));
+        entry.status = ServiceStatus::ShuttingDown;
+        assert!(entry.clear_expired_lease(now));
+        assert_eq!(entry.status, ServiceStatus::ShuttingDown);
     }
 
     #[test]

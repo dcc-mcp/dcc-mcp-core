@@ -184,6 +184,12 @@ async fn http_registration_wins_over_file_row_for_same_instance_id() {
         let registry = state.registry.read().await;
         let mut file_entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
         file_entry.instance_id = instance_id;
+        file_entry.acquire_lease(
+            "workflow-a",
+            Some("job-a".to_string()),
+            Some(std::time::SystemTime::now() + Duration::from_secs(60)),
+        );
+        file_entry.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(31);
         registry.register(file_entry).unwrap();
     }
     {
@@ -210,6 +216,22 @@ async fn http_registration_wins_over_file_row_for_same_instance_id() {
     let row = state.instance_json(&live[0]);
     assert_eq!(row["source"], "http");
     assert_eq!(row["mcp_url"], "http://remote.example:28812/mcp");
+    assert_eq!(row["pool"]["lease_owner"], "workflow-a");
+    assert_eq!(row["pool"]["current_job_id"], "job-a");
+    assert_eq!(row["status"], "busy");
+
+    let key = dcc_mcp_transport::discovery::types::ServiceKey {
+        dcc_type: "maya".to_string(),
+        instance_id,
+    };
+    let mut expired = registry.get(&key).unwrap();
+    expired.lease_expires_at = Some(std::time::SystemTime::now() - Duration::from_secs(1));
+    registry.register(expired).unwrap();
+    let live = state.live_instances(&registry);
+    let row = state.instance_json(&live[0]);
+    assert_eq!(row["pool"]["lease_owner"], Value::Null);
+    assert_eq!(row["pool"]["available"], true);
+    assert_eq!(row["status"], "available");
 }
 
 #[tokio::test]
