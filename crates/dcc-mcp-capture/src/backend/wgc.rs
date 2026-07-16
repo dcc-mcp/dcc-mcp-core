@@ -40,6 +40,7 @@ where
 /// Windows.Graphics.Capture window-target backend.
 #[derive(Debug)]
 pub struct WgcBackend {
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     last_capture_was_wgc: std::sync::atomic::AtomicBool,
 }
 

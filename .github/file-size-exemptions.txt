@@ -19,3 +19,5 @@ crates/dcc-mcp-skill-rest/src/service.rs
 crates/dcc-mcp-gateway/src/gateway/capability_service.rs
 # PIP-2701 — service.rs 1523L, exceeds 1500 limit by 23 lines
 crates/dcc-mcp-marketplace/src/service.rs
+# PIP-2729 — cli.rs 1571L, exceeds 1500 limit by 71 lines (computer-use-windows feature)
+crates/dcc-mcp-cli/src/presentation/cli.rs
