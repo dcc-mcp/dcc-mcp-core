@@ -58,11 +58,14 @@ from dcc_mcp_core import create_skill_server, McpHttpConfig
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-skills"
 
 # One call: discover skills + start MCP HTTP server
-server = create_skill_server("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig())
 handle = server.start()
 print(f"Maya MCP server at {handle.mcp_url()}")
-# AI clients (Claude Desktop, etc.) connect to http://127.0.0.1:8765/mcp
+# The CLI and gateway discover this resolved URL through the shared registry.
 ```
+
+The local instance port is OS-assigned by default. Pass `port=<number>` only
+when an integration explicitly requires a fixed listener.
 
 Or use `SkillCatalog` directly for more control:
 
