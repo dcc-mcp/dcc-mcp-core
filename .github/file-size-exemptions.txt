@@ -21,3 +21,11 @@ crates/dcc-mcp-gateway/src/gateway/capability_service.rs
 crates/dcc-mcp-marketplace/src/service.rs
 # PIP-2729 — cli.rs 1571L, exceeds 1500 limit by 71 lines (computer-use-windows feature)
 crates/dcc-mcp-cli/src/presentation/cli.rs
+# PIP-2730 — mcp_impl.rs 1955L, exceeds 1500 limit by 455 lines
+crates/dcc-mcp-gateway/src/gateway/handlers/mcp_impl.rs
+# PIP-2730 — rest_impl_tests.rs 2236L, exceeds 2000 test limit by 236 lines
+crates/dcc-mcp-gateway/src/gateway/handlers/rest_impl_tests.rs
+# PIP-2730 — lib.rs 1683L, exceeds 1500 limit by 183 lines (computer-use-windows)
+crates/dcc-mcp-computer-use/src/lib.rs
+# PIP-2730 — windows.rs 3351L, exceeds 1500 limit by 1851 lines (computer-use-windows)
+crates/dcc-mcp-computer-use/src/platform/windows.rs

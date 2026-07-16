@@ -15,11 +15,14 @@ pub(crate) struct ControlBannerSignals {
     pub(crate) visible: Arc<AtomicBool>,
     pub(crate) desktop_state: Arc<AtomicU64>,
     pub(crate) desktop_barrier: Arc<DesktopEventBarrier>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) target_available: Arc<AtomicBool>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) cleanup_pending: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) struct DesktopEventBarrier {
     window_handle: AtomicUsize,
     next_sequence: AtomicU32,
