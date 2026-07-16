@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.45](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.44...v0.19.45) (2026-07-16)
+
+
+### Features
+
+* default DCC instances to OS-assigned ports ([#1927](https://github.com/dcc-mcp/dcc-mcp-core/issues/1927)) ([f805d75](https://github.com/dcc-mcp/dcc-mcp-core/commit/f805d75aa18879839c75d3ec9e52715eb9b67d7d))
+
+
+### Bug Fixes
+
+* **capture:** release GIL during window capture ([fcc3ebe](https://github.com/dcc-mcp/dcc-mcp-core/commit/fcc3ebeb7875b70120df8487bfc03e221426357e))
+
 ## [0.19.44](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.43...v0.19.44) (2026-07-16)
 
 
