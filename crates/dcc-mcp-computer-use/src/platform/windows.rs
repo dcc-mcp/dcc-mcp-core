@@ -210,6 +210,22 @@ impl Drop for InputOwnerLease {
         // The public stop path bounds its join and leaves this thread holding
         // the owner fail-closed if a native input call never returns.
         self.stop.store(true, Ordering::Release);
+
+        // Bounded retry with exponential backoff. If the desktop is locked
+        // (e.g. Winlogon session) `flush_pending_input_releases_locked()` will
+        // keep failing and we must not hold the cross-process named mutex
+        // indefinitely — that would prevent any adapter process from starting a
+        // new Computer Use session until this process exits.
+        //
+        // Hard deadline: 5 seconds total. After that we accept that pending
+        // releases cannot be confirmed right now, release the owner mutex, and
+        // exit. The deferred releases remain in PENDING_INPUT_RELEASES and the
+        // next `acquire_input_owner()` call will attempt to flush them.
+        const HARD_DEADLINE: Duration = Duration::from_secs(5);
+        const MAX_SLEEP: Duration = Duration::from_millis(500);
+        let deadline = Instant::now() + HARD_DEADLINE;
+        let mut sleep_ms = 100u64;
+
         loop {
             let input_guard = INPUT_LOCK
                 .lock()
@@ -220,10 +236,23 @@ impl Drop for InputOwnerLease {
                 return;
             }
             drop(input_guard);
-            // A named Windows mutex is thread-affine. Keep this banner thread
-            // alive, and therefore keep every adapter process fenced out,
-            // until reconnect or policy changes let us confirm all releases.
-            thread::sleep(Duration::from_millis(100));
+
+            if Instant::now() >= deadline {
+                // Hard deadline exceeded — release the owner mutex unconditionally
+                // so no new session is blocked. Deferred releases will be retried
+                // by the next session's acquire_input_owner().
+                tracing::warn!(
+                    "InputOwnerLease::drop: timed out flushing pending input releases \
+                     after {}s; releasing owner mutex to unblock future sessions",
+                    HARD_DEADLINE.as_secs()
+                );
+                drop(self.owner.take());
+                return;
+            }
+
+            // Exponential backoff capped at MAX_SLEEP.
+            thread::sleep(Duration::from_millis(sleep_ms));
+            sleep_ms = (sleep_ms * 2).min(MAX_SLEEP.as_millis() as u64);
         }
     }
 }
@@ -968,7 +997,16 @@ fn run_banner(
         if !interactive {
             let desktop_changed = record_desktop_transition(&signals.desktop_state, false);
             if desktop_changed || signals.visible.load(Ordering::Acquire) {
-                overlay.set_visible(false)?;
+                // Overlay visibility is cosmetic. A transient window-manager race
+                // during a lock/disconnect transition must not kill the banner
+                // thread — the safety guarantees (hotkey, session monitoring,
+                // input owner) must survive cosmetic failures.
+                if let Err(e) = overlay.set_visible(false) {
+                    tracing::warn!(
+                        "run_banner: overlay.set_visible(false) failed on non-interactive \
+                         desktop (transient); session continues: {e}"
+                    );
+                }
                 signals.visible.store(false, Ordering::Release);
             }
             thread::sleep(Duration::from_millis(16));

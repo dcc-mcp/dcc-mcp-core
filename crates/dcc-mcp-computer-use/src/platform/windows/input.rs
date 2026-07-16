@@ -893,6 +893,30 @@ fn button_flags(button: &str) -> ComputerUseResult<(MOUSE_EVENT_FLAGS, MOUSE_EVE
     }
 }
 
+/// A mouse button held across a drag operation.
+///
+/// # Drag-only use
+///
+/// This type intentionally splits the DOWN and UP events across two separate
+/// `SendInput` calls because drag operations require meaningful time between
+/// press and release (cursor movement happens in between). For click-like
+/// operations that don't need a held period, use `click_inputs()` which batches
+/// DOWN+UP into a single atomic `SendInput` call — see `click()` above.
+///
+/// # Accepted risk and bounded cleanup
+///
+/// Because DOWN and UP are in separate calls, the desktop could become
+/// unavailable between them, leaving a button held in the kernel input state.
+/// Two mechanisms bound this risk:
+///
+/// 1. `release()` / `Drop` — attempts `SendInput` for the UP event and, on
+///    failure, defers it to `PENDING_INPUT_RELEASES` for later retry.
+/// 2. `InputOwnerLease::drop()` — on session teardown, retries
+///    `flush_pending_input_releases_locked()` with a hard 5-second deadline
+///    before unconditionally releasing the cross-process named mutex.
+///
+/// These two layers together ensure that a stuck drag cannot block new Computer
+/// Use sessions indefinitely.
 struct HeldMouseButton {
     release: Option<INPUT>,
 }
