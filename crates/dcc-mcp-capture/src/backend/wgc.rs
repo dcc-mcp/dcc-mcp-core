@@ -125,7 +125,10 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg_attr(not(target_os = "windows"), ignore = "GDI fallback only applies on Windows")]
+    #[cfg_attr(
+        not(target_os = "windows"),
+        ignore = "GDI fallback only applies on Windows"
+    )]
     fn backend_kind_is_distinct_from_gdi_fallback() {
         let backend = WgcBackend::new();
         assert_eq!(
