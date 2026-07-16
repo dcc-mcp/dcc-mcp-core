@@ -612,29 +612,137 @@ async fn test_gateway_heartbeat_merges_live_instance_metadata() {
     });
     let handle = runner.start(entry, Some(provider)).await.unwrap();
 
+    let metadata_heartbeat = wait_for_metadata_heartbeat(
+        &runner,
+        &key,
+        "gateway_guardian_enabled",
+        Some("true"),
+        None,
+        "heartbeat did not merge live metadata into FileRegistry",
+    )
+    .await;
+    {
+        let reg = runner.registry.read().await;
+        let row = reg.get(&key).expect("registered row");
+        assert_eq!(
+            row.metadata.get("gateway_runtime_mode").map(String::as_str),
+            Some("daemon-backed")
+        );
+    }
+    wait_for_metadata_heartbeat(
+        &runner,
+        &key,
+        "gateway_guardian_enabled",
+        Some("true"),
+        Some(metadata_heartbeat),
+        "stable live metadata prevented the next heartbeat refresh",
+    )
+    .await;
+
+    drop(handle);
+    drop(occupied);
+}
+
+async fn wait_for_metadata_heartbeat(
+    runner: &GatewayRunner,
+    key: &ServiceKey,
+    name: &str,
+    expected_value: Option<&str>,
+    after_heartbeat: Option<std::time::SystemTime>,
+    failure_message: &str,
+) -> std::time::SystemTime {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
         {
             let reg = runner.registry.read().await;
-            let row = reg.get(&key).expect("registered row");
-            if row
-                .metadata
-                .get("gateway_guardian_enabled")
-                .is_some_and(|value| value == "true")
-            {
-                assert_eq!(
-                    row.metadata.get("gateway_runtime_mode").map(String::as_str),
-                    Some("daemon-backed")
-                );
-                break;
+            let row = reg.get(key).expect("registered row");
+            let metadata_matches = row.metadata.get(name).map(String::as_str) == expected_value;
+            let heartbeat_advanced =
+                after_heartbeat.is_none_or(|heartbeat| row.last_heartbeat > heartbeat);
+            if metadata_matches && heartbeat_advanced {
+                return row.last_heartbeat;
             }
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "heartbeat did not merge live metadata into FileRegistry"
-        );
+        assert!(tokio::time::Instant::now() < deadline, "{failure_message}");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+#[tokio::test]
+async fn test_gateway_heartbeat_applies_dynamic_metadata_updates_and_removals() {
+    let dir = tempfile::tempdir().unwrap();
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+
+    let cfg = GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: port,
+        heartbeat_secs: 1,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    };
+    let runner = GatewayRunner::new(cfg).unwrap();
+
+    let entry = ServiceEntry::new("houdini", "127.0.0.1", 0);
+    let key = entry.key();
+    let live_metadata =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::from([(
+            "gateway_runtime_mode".to_string(),
+            "daemon-backed".to_string(),
+        )])));
+    let provider_metadata = live_metadata.clone();
+    let provider: MetadataProvider = std::sync::Arc::new(move || LiveSnapshot {
+        metadata: provider_metadata.lock().unwrap().clone(),
+        ..LiveSnapshot::default()
+    });
+    let handle = runner.start(entry, Some(provider)).await.unwrap();
+
+    let initial_heartbeat = wait_for_metadata_heartbeat(
+        &runner,
+        &key,
+        "gateway_runtime_mode",
+        Some("daemon-backed"),
+        None,
+        "heartbeat did not publish initial dynamic metadata",
+    )
+    .await;
+    let stable_heartbeat = wait_for_metadata_heartbeat(
+        &runner,
+        &key,
+        "gateway_runtime_mode",
+        Some("daemon-backed"),
+        Some(initial_heartbeat),
+        "stable dynamic metadata prevented heartbeat refresh",
+    )
+    .await;
+
+    live_metadata
+        .lock()
+        .unwrap()
+        .insert("gateway_runtime_mode".to_string(), "embedded".to_string());
+    let updated_heartbeat = wait_for_metadata_heartbeat(
+        &runner,
+        &key,
+        "gateway_runtime_mode",
+        Some("embedded"),
+        Some(stable_heartbeat),
+        "heartbeat did not publish changed dynamic metadata",
+    )
+    .await;
+
+    live_metadata
+        .lock()
+        .unwrap()
+        .insert("gateway_runtime_mode".to_string(), String::new());
+    wait_for_metadata_heartbeat(
+        &runner,
+        &key,
+        "gateway_runtime_mode",
+        None,
+        Some(updated_heartbeat),
+        "heartbeat did not remove dynamic metadata for an empty value",
+    )
+    .await;
 
     drop(handle);
     drop(occupied);
