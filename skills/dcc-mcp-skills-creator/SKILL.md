@@ -137,6 +137,38 @@ Generated `tools.yaml` entries follow the modern contract:
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
 - `call_examples`: optional list of ready-to-copy argument payloads. Each entry has `arguments` (JSON object matching `input_schema.properties`) and an optional `note`. Surfaced in describe responses at `metadata.dcc.call_examples` so agents can construct correct arguments on the first attempt.
 
+### Computer Use Fallback Contract
+
+- Reuse the bundled `app-ui` skill instead of creating another screenshot,
+  pointer, keyboard, or Windows `SendInput` tool set. Declare
+  `metadata.dcc-mcp.depends: ["app-ui"]` only when it is a hard workflow
+  dependency.
+- Keep the visual loop as `app_ui__snapshot` -> `app_ui__act` ->
+  `app_ui__snapshot`, and pass the latest `snapshot_id` unchanged. End every
+  path with `app_ui__stop_computer_use`. Screenshot coordinates belong to that
+  observation only.
+- Stateful UI tools must declare `requires_in_process: true` independently of
+  `affinity`; keep Computer Use at `affinity: any` so it does not block the DCC
+  UI thread while preserving one process-local observation. On Windows, the
+  Ctrl+Alt+Esc latch and input owner are shared across adapter processes in the same
+  logon session.
+- Prefer a `control_id` and semantic UI Automation action. Use raw coordinates
+  only when the UI does not expose a stable semantic control.
+- Never set `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT` from a skill script. It is an
+  operator-owned environment ceiling. Native input also requires the
+  adapter/operator to bind its DCC with `DCC_MCP_APP_UI_UIA_PROCESS_ID` or
+  `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; a skill request may only narrow that
+  trusted scope. Propagate `user_interrupted` immediately;
+  do not retry the action or fall back to another input path after Ctrl+Alt+Esc.
+- Never enter or retry another UI/input path after a policy, authorization,
+  authentication, security, confirmation, `desktop_unavailable`, or
+  `user_interrupted` result. Computer Use is a capability fallback, not a way
+  around a control boundary.
+- Keep mutating Computer Use tools annotated as destructive so the calling
+  host can apply its confirmation policy. Never add a model-controlled
+  `confirmed` argument or treat an environment variable as per-action user
+  approval.
+
 ## Authoring Workflow
 
 1. Decide whether the skill is infrastructure, domain, thin-harness, or example.

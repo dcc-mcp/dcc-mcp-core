@@ -888,7 +888,7 @@ fn sanitize_context_metadata(value: Value) -> Value {
     }
 }
 
-fn is_high_sensitivity_agent_key(key: &str) -> bool {
+pub(crate) fn is_high_sensitivity_agent_key(key: &str) -> bool {
     let normalised = key
         .chars()
         .filter(|ch| *ch != '_' && *ch != '-' && *ch != ' ')

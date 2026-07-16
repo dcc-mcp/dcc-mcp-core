@@ -636,18 +636,19 @@ pub async fn tool_call_tool(
     .await
     {
         Ok(result) => {
+            let is_error = crate::gateway::capability_service::tool_result_reports_failure(&result);
             record_search_followup(
                 gs,
                 search_id.as_deref(),
                 "call",
                 Some(slug),
                 None,
-                true,
+                !is_error,
                 trace_context,
             );
             (
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()),
-                false,
+                is_error,
             )
         }
         Err(err) if err.kind == "unknown-slug" => {
@@ -670,19 +671,21 @@ pub async fn tool_call_tool(
             .await
             {
                 Ok(result) => {
+                    let is_error =
+                        crate::gateway::capability_service::tool_result_reports_failure(&result);
                     record_search_followup(
                         gs,
                         search_id.as_deref(),
                         "call",
                         Some(slug),
                         None,
-                        true,
+                        !is_error,
                         trace_context,
                     );
                     (
                         serde_json::to_string_pretty(&result)
                             .unwrap_or_else(|_| result.to_string()),
-                        false,
+                        is_error,
                     )
                 }
                 Err(err2) => {
@@ -835,25 +838,37 @@ pub async fn gateway_call_batch_inner(
 
         match single_outcome {
             Ok(result) => {
+                let tool_failed =
+                    crate::gateway::capability_service::tool_result_reports_failure(&result);
                 record_search_followup(
                     gs,
                     search_id.as_deref(),
                     "call",
                     Some(slug),
                     None,
-                    true,
+                    !tool_failed,
                     trace_context,
                 );
                 let mut item = json!({
                     "index": idx,
                     "tool_slug": slug,
-                    "ok": true,
+                    "ok": !tool_failed,
                     "result": result,
                 });
+                if tool_failed {
+                    all_ok = false;
+                    item["error"] = json!({
+                        "kind": "tool-error",
+                        "message": "backend transport succeeded but the tool reported failure",
+                    });
+                }
                 if let Some(id) = item_id {
                     item["id"] = id;
                 }
                 results.push(item);
+                if tool_failed && stop_on_error {
+                    break;
+                }
             }
             Err(err) => {
                 record_search_followup(

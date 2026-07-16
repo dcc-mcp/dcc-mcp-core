@@ -100,6 +100,18 @@ class UiBounds:
 
 
 @dataclass
+class UiPoint:
+    """Point in snapshot-relative UI coordinates."""
+
+    x: float
+    y: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
+
+
+@dataclass
 class UiArtifactRef:
     """Small resource/artifact reference included in UI results."""
 
@@ -202,7 +214,13 @@ class UiActionKind:
     """Stable UI action kind strings."""
 
     CLICK = "click"
+    MOVE = "move"
+    DOUBLE_CLICK = "double_click"
+    SCROLL = "scroll"
+    DRAG = "drag"
     RAW_COORDINATE_CLICK = "raw_coordinate_click"
+    TYPE = "type"
+    KEYPRESS = "keypress"
     SET_TEXT = "set_text"
     TOGGLE = "toggle"
     SET_CHECKED = "set_checked"
@@ -225,18 +243,80 @@ class AppUiPolicy:
     allowed_window_titles: List[str] = field(default_factory=list)
     allowed_process_ids: List[int] = field(default_factory=list)
     audit_sensitive_values: bool = False
+    scope_denied: bool = False
+
+    def narrowed(self, overrides: Optional[Dict[str, Any]] = None) -> "AppUiPolicy":
+        """Apply request overrides as restrictions; never widen this policy ceiling."""
+        raw = overrides if isinstance(overrides, dict) else {}
+
+        def allowed(name: str) -> bool:
+            return bool(getattr(self, name)) and bool(raw.get(name, True))
+
+        titles = raw.get("allowed_window_titles", self.allowed_window_titles)
+        process_ids = raw.get("allowed_process_ids", self.allowed_process_ids)
+        requested_titles = [str(item) for item in titles] if isinstance(titles, list) else []
+        requested_process_ids = [int(item) for item in process_ids] if isinstance(process_ids, list) else []
+        scope_denied = self.scope_denied
+        if self.allowed_window_titles:
+            requested_titles = requested_titles or list(self.allowed_window_titles)
+            requested_titles = [item for item in requested_titles if item in self.allowed_window_titles]
+            scope_denied = scope_denied or not requested_titles
+        if self.allowed_process_ids:
+            requested_process_ids = requested_process_ids or list(self.allowed_process_ids)
+            requested_process_ids = [item for item in requested_process_ids if item in self.allowed_process_ids]
+            scope_denied = scope_denied or not requested_process_ids
+
+        return AppUiPolicy(
+            allow_snapshot=allowed("allow_snapshot"),
+            allow_find=allowed("allow_find"),
+            allow_mutating_actions=allowed("allow_mutating_actions"),
+            allow_text_entry=allowed("allow_text_entry"),
+            allow_keyboard_shortcuts=allowed("allow_keyboard_shortcuts"),
+            allow_raw_coordinates=allowed("allow_raw_coordinates"),
+            require_scoped_window=self.require_scoped_window or bool(raw.get("require_scoped_window", False)),
+            allowed_window_titles=requested_titles,
+            allowed_process_ids=requested_process_ids,
+            audit_sensitive_values=self.audit_sensitive_values and bool(raw.get("audit_sensitive_values", False)),
+            scope_denied=scope_denied,
+        )
 
     def allows_action(self, action: str) -> bool:
         """Return whether this policy permits an action kind."""
-        if action == UiActionKind.RAW_COORDINATE_CLICK and not self.allow_raw_coordinates:
+        if self.scope_denied:
             return False
-        if action == UiActionKind.KEYBOARD_SHORTCUT and not self.allow_keyboard_shortcuts:
+        if (
+            action
+            in (
+                UiActionKind.MOVE,
+                UiActionKind.DOUBLE_CLICK,
+                UiActionKind.SCROLL,
+                UiActionKind.DRAG,
+                UiActionKind.RAW_COORDINATE_CLICK,
+            )
+            and not self.allow_raw_coordinates
+        ):
             return False
-        if action == UiActionKind.SET_TEXT and not self.allow_text_entry:
+        if (
+            action
+            in (
+                UiActionKind.TYPE,
+                UiActionKind.KEYPRESS,
+                UiActionKind.KEYBOARD_SHORTCUT,
+            )
+            and not self.allow_keyboard_shortcuts
+        ):
+            return False
+        if action in (UiActionKind.TYPE, UiActionKind.SET_TEXT) and not self.allow_text_entry:
             return False
         if action in (
             UiActionKind.CLICK,
+            UiActionKind.MOVE,
+            UiActionKind.DOUBLE_CLICK,
+            UiActionKind.SCROLL,
+            UiActionKind.DRAG,
             UiActionKind.RAW_COORDINATE_CLICK,
+            UiActionKind.TYPE,
+            UiActionKind.KEYPRESS,
             UiActionKind.SET_TEXT,
             UiActionKind.TOGGLE,
             UiActionKind.SET_CHECKED,
@@ -247,6 +327,14 @@ class AppUiPolicy:
             return self.allow_mutating_actions
         return False
 
+    def allows_request(self, request: "UiActionRequest") -> bool:
+        """Return whether policy permits an action payload, including its coordinate mode."""
+        if self.scope_denied:
+            return False
+        if request.action == UiActionKind.CLICK and (request.x is not None or request.y is not None):
+            return self.allow_mutating_actions and self.allow_raw_coordinates
+        return self.allows_action(request.action)
+
     def to_dict(self) -> Dict[str, Any]:
         """Return the wire dictionary."""
         return _drop_none(asdict(self))
@@ -256,14 +344,20 @@ class AppUiPolicy:
 class UiActionRequest:
     """Request to perform one bounded UI action."""
 
-    control_id: str
+    control_id: Optional[str]
     action: str
     text: Optional[str] = None
     checked: Optional[bool] = None
     option: Optional[str] = None
     x: Optional[float] = None
     y: Optional[float] = None
+    button: Optional[str] = None
+    scroll_x: Optional[int] = None
+    scroll_y: Optional[int] = None
+    path: List[UiPoint] = field(default_factory=list)
     keys: List[str] = field(default_factory=list)
+    snapshot_id: Optional[str] = None
+    duration_ms: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -275,6 +369,7 @@ class UiErrorCode:
     """Stable UI action error code strings."""
 
     STALE_CONTROL = "stale_control"
+    STALE_OBSERVATION = "stale_observation"
     NOT_FOUND = "not_found"
     UNSUPPORTED_ACTION = "unsupported_action"
     DENIED = "denied"
@@ -282,6 +377,14 @@ class UiErrorCode:
     MISSING_WINDOW = "missing_window"
     TIMEOUT = "timeout"
     INVALID_TARGET = "invalid_target"
+    USER_INTERRUPTED = "user_interrupted"
+    FOCUS_LOST = "focus_lost"
+    DESKTOP_UNAVAILABLE = "desktop_unavailable"
+    PERMISSION_DENIED = "permission_denied"
+    BACKEND_UNAVAILABLE = "backend_unavailable"
+    INVALID_ACTION = "invalid_action"
+    INPUT_FAILED = "input_failed"
+    CAPTURE_FAILED = "capture_failed"
     BACKEND_ERROR = "backend_error"
 
 
@@ -367,6 +470,7 @@ __all__ = [
     "UiControlNode",
     "UiErrorCode",
     "UiFindRequest",
+    "UiPoint",
     "UiSnapshot",
     "UiWaitCondition",
     "UiWaitConditionKind",

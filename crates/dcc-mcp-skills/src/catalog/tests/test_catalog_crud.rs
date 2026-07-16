@@ -560,6 +560,138 @@ fn test_load_main_affinity_script_requires_in_process_executor() {
 }
 
 #[test]
+fn test_stateful_any_affinity_script_requires_in_process_executor() {
+    let (catalog, _dispatcher) = make_catalog_with_dispatcher();
+    let mut skill = make_test_skill("computer-use", "python", &[]);
+    skill.tools = vec![
+        ToolDeclaration {
+            name: "stateless".to_string(),
+            source_file: "scripts/stateless.py".to_string(),
+            ..Default::default()
+        },
+        ToolDeclaration {
+            name: "snapshot".to_string(),
+            source_file: "scripts/snapshot.py".to_string(),
+            requires_in_process: true,
+            thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
+            ..Default::default()
+        },
+    ];
+    catalog.add_skill(skill);
+
+    let err = catalog
+        .load_skill("computer-use")
+        .expect_err("stateful scripts must not fall back to one subprocess per call");
+    assert!(err.contains("persistent in-process executor"), "{err}");
+    assert!(err.contains("set_in_process_executor()"), "{err}");
+    assert!(
+        catalog
+            .registry()
+            .get_action("computer_use__snapshot", None)
+            .is_none()
+    );
+    assert!(
+        catalog
+            .registry()
+            .get_action("computer_use__stateless", None)
+            .is_none(),
+        "preflight must not leave tools registered before the stateful tool"
+    );
+}
+
+#[test]
+fn test_requires_in_process_ignores_existing_inline_and_non_script_tools() {
+    let (catalog, dispatcher) = make_catalog_with_dispatcher();
+    catalog.registry().register_action(ToolMeta {
+        name: "computer_use__snapshot".to_string(),
+        description: "Inline Computer Use snapshot".to_string(),
+        source_file: None,
+        ..Default::default()
+    });
+    dispatcher.register_handler("computer_use__snapshot", |_| {
+        Ok(serde_json::json!({"backend": "inline"}))
+    });
+
+    let mut skill = make_test_skill("computer-use", "python", &[]);
+    skill.tools = vec![
+        ToolDeclaration {
+            name: "snapshot".to_string(),
+            source_file: "scripts/snapshot.py".to_string(),
+            requires_in_process: true,
+            ..Default::default()
+        },
+        ToolDeclaration {
+            name: "status".to_string(),
+            requires_in_process: true,
+            ..Default::default()
+        },
+    ];
+    catalog.add_skill(skill);
+
+    let actions = catalog
+        .load_skill("computer-use")
+        .expect("inline and non-script tools do not need a script executor");
+    assert_eq!(actions.len(), 2);
+    assert_eq!(
+        dispatcher
+            .dispatch("computer_use__snapshot", serde_json::json!({}), None)
+            .unwrap()
+            .output,
+        serde_json::json!({"backend": "inline"})
+    );
+}
+
+#[cfg(not(feature = "python-bindings"))]
+#[test]
+fn test_skill_registration_pins_one_in_process_executor_snapshot() {
+    let (catalog, dispatcher) = make_catalog_with_dispatcher();
+    let catalog = std::sync::Arc::new(catalog);
+    catalog.set_in_process_executor(|_, _, _| Ok(serde_json::json!({"executor": "original"})));
+
+    let mut skill = make_test_skill("stateful-ui", "godot", &[]);
+    skill.tools = ["snapshot", "act"]
+        .into_iter()
+        .map(|name| ToolDeclaration {
+            name: name.to_string(),
+            source_file: format!("scripts/{name}.py"),
+            requires_in_process: true,
+            ..Default::default()
+        })
+        .collect();
+    catalog.add_skill(skill);
+
+    let loading = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let hook_barrier = std::sync::Arc::clone(&loading);
+    catalog
+        .event_bus()
+        .before("skill.loading".to_string(), move |_| {
+            hook_barrier.wait();
+            hook_barrier.wait();
+            None
+        })
+        .unwrap();
+
+    let loading_catalog = std::sync::Arc::clone(&catalog);
+    let load = std::thread::spawn(move || loading_catalog.load_skill("stateful-ui"));
+    loading.wait();
+    catalog.clear_in_process_executor();
+    catalog.set_in_process_executor(|_, _, _| Ok(serde_json::json!({"executor": "replacement"})));
+    loading.wait();
+
+    assert_eq!(load.join().unwrap().unwrap().len(), 2);
+    for action in ["stateful_ui__snapshot", "stateful_ui__act"] {
+        let output = dispatcher
+            .dispatch(action, serde_json::json!({}), None)
+            .unwrap();
+        assert_eq!(
+            output.output,
+            serde_json::json!({"executor": "original"}),
+            "all handlers must use the executor captured before registration"
+        );
+    }
+}
+
+#[test]
 fn test_unload_skill_removes_tools() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("modeling-bevel", "maya", &["bevel"]));

@@ -133,6 +133,11 @@ class DccSkillHotReloader:
 
             try:
                 self._watcher = SkillWatcher(debounce_ms=debounce_ms)
+                bridge = getattr(self._server, "_execution_bridge", None)
+                cleanup = getattr(bridge, "clear_script_packages", None)
+                on_reload = getattr(self._watcher, "on_reload", None)
+                if callable(cleanup) and callable(on_reload):
+                    on_reload(cleanup)
                 successfully_watched: list[str] = []
 
                 for path in paths_to_watch:

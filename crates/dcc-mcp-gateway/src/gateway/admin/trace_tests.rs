@@ -47,6 +47,37 @@ fn input_payload_redacts_script_source_fields() {
 }
 
 #[test]
+fn input_payload_deeply_redacts_ui_text_and_credentials() {
+    let raw = json!({
+        "calls": [{
+            "tool_slug": "maya.abc.app_ui__act",
+            "arguments": {
+                "action": "set_text",
+                "text": "private typed text",
+                "nested": {
+                    "password": "hunter2",
+                    "access_token": "token-value",
+                    "clientSecret": "secret-value"
+                }
+            }
+        }]
+    });
+
+    let payload = TracePayload::from_input_value(&raw, 4096);
+
+    for secret in [
+        "private typed text",
+        "hunter2",
+        "token-value",
+        "secret-value",
+    ] {
+        assert!(!payload.content.contains(secret));
+    }
+    assert!(payload.content.contains(SENSITIVE_INPUT_PLACEHOLDER));
+    assert!(payload.content.contains("set_text"));
+}
+
+#[test]
 fn agent_context_reads_meta_and_headers() {
     let mut headers = HeaderMap::new();
     headers.insert("x-dcc-mcp-actor-id", "user-7".parse().unwrap());

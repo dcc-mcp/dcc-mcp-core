@@ -562,6 +562,19 @@ fn test_tool_declaration_execution_default_sync() {
 }
 
 #[test]
+fn test_tool_declaration_parses_persistent_in_process_requirement() {
+    let json = r#"{"name": "s", "tools": [
+            {"name": "snapshot", "requires_in_process": true},
+            {"name": "act", "requires-in-process": true},
+            {"name": "plain"}
+        ]}"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    assert!(meta.tools[0].requires_in_process);
+    assert!(meta.tools[1].requires_in_process);
+    assert!(!meta.tools[2].requires_in_process);
+}
+
+#[test]
 fn test_tool_declaration_rejects_deferred_field() {
     let json = r#"{"name": "s", "tools": [{"name": "t", "deferred": true}]}"#;
     let err = serde_json::from_str::<SkillMetadata>(json).unwrap_err();

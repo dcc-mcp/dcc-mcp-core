@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -38,12 +38,16 @@ impl TrafficRedactor {
 
     pub(super) fn redact(&self, attributes: &mut Value) -> Vec<String> {
         let mut redacted_paths = Vec::new();
+        redact_sensitive_request_payload(attributes, &mut redacted_paths);
+        redact_inline_image_payloads(attributes, &mut Vec::new(), &mut redacted_paths);
         for rule in &self.rules {
             if replace_path(attributes, &rule.path, &rule.replacement) {
                 redacted_paths.push(rule.display_path.clone());
             }
         }
         redact_default_attribution_fields(attributes, &mut Vec::new(), &mut redacted_paths);
+        let mut seen = HashSet::new();
+        redacted_paths.retain(|path| seen.insert(path.clone()));
         redacted_paths
     }
 
@@ -56,6 +60,98 @@ impl TrafficRedactor {
                 .map(|rule| rule.display_path.clone())
                 .collect(),
         }
+    }
+}
+
+fn redact_sensitive_request_payload(attributes: &mut Value, redacted_paths: &mut Vec<String>) {
+    if attributes.pointer("/mcp/kind").and_then(Value::as_str) != Some("request") {
+        return;
+    }
+    let Some(body) = attributes.pointer_mut("/body/data") else {
+        return;
+    };
+    redact_sensitive_fields(
+        body,
+        &mut vec!["body".to_string(), "data".to_string()],
+        redacted_paths,
+    );
+}
+
+fn redact_sensitive_fields(
+    value: &mut Value,
+    path: &mut Vec<String>,
+    redacted_paths: &mut Vec<String>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                path.push(key.clone());
+                if key.eq_ignore_ascii_case("text")
+                    || crate::gateway::admin::domain::agent_context::is_high_sensitivity_agent_key(
+                        key,
+                    )
+                    || matches!(
+                        key.as_str(),
+                        "code" | "content" | "script" | "python" | "mel"
+                    )
+                {
+                    *child = Value::String("[REDACTED_SENSITIVE_INPUT]".to_string());
+                    redacted_paths.push(path.join("."));
+                } else {
+                    redact_sensitive_fields(child, path, redacted_paths);
+                }
+                path.pop();
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter_mut().enumerate() {
+                path.push(index.to_string());
+                redact_sensitive_fields(child, path, redacted_paths);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(super) const INLINE_IMAGE_PLACEHOLDER: &str = "<omitted; native image content>";
+
+fn redact_inline_image_payloads(
+    value: &mut Value,
+    path: &mut Vec<String>,
+    redacted_paths: &mut Vec<String>,
+) {
+    match value {
+        Value::Object(map) => {
+            let is_image = ["type", "kind"].iter().any(|key| {
+                map.get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| value.eq_ignore_ascii_case("image"))
+            });
+            if is_image
+                && let Some(data) = map.get_mut("data")
+                && !data.is_null()
+            {
+                *data = Value::String(INLINE_IMAGE_PLACEHOLDER.to_string());
+                path.push("data".to_string());
+                redacted_paths.push(path.join("."));
+                path.pop();
+            }
+
+            for (key, child) in map.iter_mut() {
+                path.push(key.clone());
+                redact_inline_image_payloads(child, path, redacted_paths);
+                path.pop();
+            }
+        }
+        Value::Array(items) => {
+            for (idx, child) in items.iter_mut().enumerate() {
+                path.push(idx.to_string());
+                redact_inline_image_payloads(child, path, redacted_paths);
+                path.pop();
+            }
+        }
+        _ => {}
     }
 }
 
@@ -226,5 +322,78 @@ mod tests {
                 .iter()
                 .any(|path| path.ends_with("agent_context.auth_subject"))
         );
+    }
+
+    #[test]
+    fn redacts_mcp_and_rich_inline_image_payloads_by_default() {
+        let redactor = TrafficRedactor::default();
+        let mut attrs = json!({
+            "body": {
+                "data": {
+                    "result": {
+                        "content": [
+                            {"type": "image", "mimeType": "image/png", "data": "MCP_SECRET"}
+                        ],
+                        "context": {
+                            "__rich__": {
+                                "kind": "image",
+                                "mime": "image/png",
+                                "data": "RICH_SECRET"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let redacted = redactor.redact(&mut attrs);
+
+        assert_eq!(
+            attrs["body"]["data"]["result"]["content"][0]["data"],
+            INLINE_IMAGE_PLACEHOLDER
+        );
+        assert_eq!(
+            attrs["body"]["data"]["result"]["context"]["__rich__"]["data"],
+            INLINE_IMAGE_PLACEHOLDER
+        );
+        assert!(redacted.contains(&"body.data.result.content.0.data".to_string()));
+        assert!(redacted.contains(&"body.data.result.context.__rich__.data".to_string()));
+    }
+
+    #[test]
+    fn deeply_redacts_sensitive_call_inputs_by_default() {
+        let redactor = TrafficRedactor::default();
+        let mut attrs = json!({
+            "mcp": {"kind": "request", "method": "tools/call"},
+            "body": {"data": {
+                "params": {"arguments": {
+                    "action": "type",
+                    "text": "typed-private-value",
+                    "password": "password-value",
+                    "nested": {
+                        "access_token": "token-value",
+                        "clientSecret": "secret-value"
+                    }
+                }}
+            }}
+        });
+
+        let redacted = redactor.redact(&mut attrs);
+        let encoded = serde_json::to_string(&attrs).unwrap();
+
+        for secret in [
+            "typed-private-value",
+            "password-value",
+            "token-value",
+            "secret-value",
+        ] {
+            assert!(!encoded.contains(secret));
+        }
+        assert_eq!(
+            attrs["body"]["data"]["params"]["arguments"]["text"],
+            "[REDACTED_SENSITIVE_INPUT]"
+        );
+        assert!(redacted.contains(&"body.data.params.arguments.text".to_string()));
+        assert!(redacted.contains(&"body.data.params.arguments.nested.access_token".to_string()));
     }
 }

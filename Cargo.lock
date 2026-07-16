@@ -1145,6 +1145,7 @@ version = "0.19.47"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "clap",
  "dcc-mcp-actions",
  "dcc-mcp-catalog",
@@ -1169,12 +1170,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-computer-use"
+version = "0.19.45"
+dependencies = [
+ "dcc-mcp-capture",
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "windows",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-core"
 version = "0.19.47"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
  "dcc-mcp-capture",
+ "dcc-mcp-computer-use",
  "dcc-mcp-gateway",
  "dcc-mcp-host",
  "dcc-mcp-http",
@@ -1219,6 +1236,7 @@ name = "dcc-mcp-gateway"
 version = "0.19.47"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "criterion",
  "dashmap",
@@ -1419,6 +1437,7 @@ dependencies = [
 name = "dcc-mcp-http-server"
 version = "0.19.47"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "dashmap",
  "dcc-mcp-actions",

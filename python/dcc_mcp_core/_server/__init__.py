@@ -46,6 +46,7 @@ from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
+from dcc_mcp_core._server.inprocess_executor import clear_script_package
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
 from dcc_mcp_core._server.lifecycle import ServerLifecycleController
@@ -133,6 +134,7 @@ __all__ = [
     "apply_tools_list_stub_policy",
     "build_inprocess_executor",
     "build_mcp_http_config",
+    "clear_script_package",
     "collect_context_metadata_from_env",
     "current_callable_job",
     "current_host_ui_job",

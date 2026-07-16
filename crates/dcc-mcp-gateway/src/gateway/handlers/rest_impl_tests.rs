@@ -10,7 +10,7 @@ use tokio::sync::{RwLock, broadcast, watch};
 use tower::ServiceExt;
 
 #[derive(Default)]
-struct CaptureSink(Mutex<Vec<crate::gateway::middleware::AuditEntry>>);
+pub(super) struct CaptureSink(pub(super) Mutex<Vec<crate::gateway::middleware::AuditEntry>>);
 
 impl crate::gateway::middleware::AuditSink for CaptureSink {
     fn record(&self, entry: crate::gateway::middleware::AuditEntry) {
@@ -116,7 +116,7 @@ fn test_gateway_state_with_lifecycle(
     state
 }
 
-async fn response_json(resp: Response) -> (StatusCode, Value) {
+pub(super) async fn response_json(resp: Response) -> (StatusCode, Value) {
     let status = resp.status();
     let headers = resp.headers().clone();
     let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
@@ -286,7 +286,7 @@ fn seed_unloaded_render_capability(gs: &GatewayState) {
     ]);
 }
 
-fn policy_record(
+pub(super) fn policy_record(
     dcc_type: &str,
     instance_id: uuid::Uuid,
     tool: &str,

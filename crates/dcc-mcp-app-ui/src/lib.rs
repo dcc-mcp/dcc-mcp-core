@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Rectangle in physical pixels or adapter-defined UI coordinates.
+/// Rectangle in the coordinate space declared by its enclosing snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct UiBounds {
     /// Left coordinate.
@@ -21,6 +21,15 @@ pub struct UiBounds {
     pub width: f64,
     /// Height.
     pub height: f64,
+}
+
+/// Point in screenshot-relative UI coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct UiPoint {
+    /// Horizontal screenshot coordinate.
+    pub x: f64,
+    /// Vertical screenshot coordinate.
+    pub y: f64,
 }
 
 /// Normalized UI control node.
@@ -159,6 +168,10 @@ const fn default_true() -> bool {
     true
 }
 
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// Polling condition for a bounded UI backend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiWaitCondition {
@@ -199,8 +212,20 @@ pub struct UiWaitCondition {
 pub enum UiActionKind {
     /// Click or activate a control.
     Click,
+    /// Move the pointer to raw snapshot coordinates. Disabled by policy by default.
+    Move,
+    /// Double-click at raw snapshot coordinates. Disabled by policy by default.
+    DoubleClick,
+    /// Scroll at raw snapshot coordinates. Disabled by policy by default.
+    Scroll,
+    /// Drag through raw snapshot coordinates. Disabled by policy by default.
+    Drag,
     /// Fallback click at raw coordinates. Disabled by policy by default.
     RawCoordinateClick,
+    /// Type literal text through the keyboard. Disabled by policy by default.
+    Type,
+    /// Send one or more key presses. Disabled by policy by default.
+    Keypress,
     /// Set text/value on an editable control.
     SetText,
     /// Toggle a binary control.
@@ -241,6 +266,10 @@ pub struct AppUiPolicy {
     pub allowed_process_ids: Vec<u32>,
     /// Whether audit sinks may include sensitive values such as typed text.
     pub audit_sensitive_values: bool,
+    /// Fail-closed marker when requested scope restrictions do not intersect
+    /// the runtime allow-list.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub scope_denied: bool,
 }
 
 impl Default for AppUiPolicy {
@@ -256,6 +285,7 @@ impl Default for AppUiPolicy {
             allowed_window_titles: Vec::new(),
             allowed_process_ids: Vec::new(),
             audit_sensitive_values: false,
+            scope_denied: false,
         }
     }
 }
@@ -264,12 +294,24 @@ impl AppUiPolicy {
     /// Return whether this policy permits an action kind.
     #[must_use]
     pub fn allows_action(&self, action: UiActionKind) -> bool {
+        if self.scope_denied {
+            return false;
+        }
         match action {
-            UiActionKind::RawCoordinateClick => {
+            UiActionKind::Move
+            | UiActionKind::DoubleClick
+            | UiActionKind::Scroll
+            | UiActionKind::Drag
+            | UiActionKind::RawCoordinateClick => {
                 self.allow_mutating_actions && self.allow_raw_coordinates
             }
-            UiActionKind::KeyboardShortcut => {
+            UiActionKind::Keypress | UiActionKind::KeyboardShortcut => {
                 self.allow_mutating_actions && self.allow_keyboard_shortcuts
+            }
+            UiActionKind::Type => {
+                self.allow_mutating_actions
+                    && self.allow_text_entry
+                    && self.allow_keyboard_shortcuts
             }
             UiActionKind::SetText => self.allow_mutating_actions && self.allow_text_entry,
             UiActionKind::Click
@@ -279,13 +321,29 @@ impl AppUiPolicy {
             | UiActionKind::Focus => self.allow_mutating_actions,
         }
     }
+
+    /// Return whether this policy permits a complete action request.
+    ///
+    /// A `click` with screenshot coordinates is raw input, while a `click`
+    /// with only a control id remains a semantic accessibility action.
+    #[must_use]
+    pub fn allows_request(&self, request: &UiActionRequest) -> bool {
+        if self.scope_denied {
+            return false;
+        }
+        if request.action == UiActionKind::Click && (request.x.is_some() || request.y.is_some()) {
+            return self.allow_mutating_actions && self.allow_raw_coordinates;
+        }
+        self.allows_action(request.action)
+    }
 }
 
 /// Request to perform one bounded UI action.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiActionRequest {
     /// Control id resolved from a snapshot or find operation.
-    pub control_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_id: Option<String>,
     /// Action to perform.
     pub action: UiActionKind,
     /// Text payload for `set_text`.
@@ -303,9 +361,27 @@ pub struct UiActionRequest {
     /// Y coordinate for raw-coordinate fallback actions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y: Option<f64>,
+    /// Mouse button for pointer actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub button: Option<String>,
+    /// Horizontal wheel delta for `scroll`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll_x: Option<i32>,
+    /// Vertical wheel delta for `scroll`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll_y: Option<i32>,
+    /// Ordered screenshot-relative points for `drag`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<UiPoint>,
     /// Keyboard shortcut keys for `keyboard_shortcut`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keys: Vec<String>,
+    /// Snapshot/observation id used to reject stale coordinates and controls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
+    /// Optional action duration in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
     /// Adapter-defined action metadata.
     #[serde(default)]
     pub metadata: Value,
@@ -317,6 +393,8 @@ pub struct UiActionRequest {
 pub enum UiErrorCode {
     /// The resolved control id is no longer valid.
     StaleControl,
+    /// Screenshot coordinates no longer match the scoped window generation.
+    StaleObservation,
     /// The control could not be found.
     NotFound,
     /// The backend does not support this action on this control.
@@ -331,6 +409,22 @@ pub enum UiErrorCode {
     Timeout,
     /// The target exists but is not valid for this action.
     InvalidTarget,
+    /// The user pressed the reserved stop key.
+    UserInterrupted,
+    /// The scoped application lost foreground focus before input injection.
+    FocusLost,
+    /// The Windows desktop is locked, disconnected, or otherwise not interactive.
+    DesktopUnavailable,
+    /// OS policy or process integrity denied the action.
+    PermissionDenied,
+    /// The native or semantic backend is unavailable in this runtime.
+    BackendUnavailable,
+    /// The action payload is invalid for the selected operation.
+    InvalidAction,
+    /// Native pointer or keyboard injection failed.
+    InputFailed,
+    /// The scoped window could not be captured.
+    CaptureFailed,
     /// The backend failed for an adapter-specific reason.
     BackendError,
 }
@@ -485,6 +579,19 @@ mod tests {
     }
 
     #[test]
+    fn computer_use_error_codes_have_stable_wire_names() {
+        for (code, expected) in [
+            (UiErrorCode::BackendUnavailable, "backend_unavailable"),
+            (UiErrorCode::DesktopUnavailable, "desktop_unavailable"),
+            (UiErrorCode::InvalidAction, "invalid_action"),
+            (UiErrorCode::InputFailed, "input_failed"),
+            (UiErrorCode::CaptureFailed, "capture_failed"),
+        ] {
+            assert_eq!(serde_json::to_value(code).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn app_ui_policy_blocks_high_risk_actions_by_default() {
         let policy = AppUiPolicy::default();
 
@@ -493,6 +600,96 @@ mod tests {
         assert!(!policy.allows_action(UiActionKind::RawCoordinateClick));
         assert!(!policy.allows_action(UiActionKind::KeyboardShortcut));
         assert!(policy.require_scoped_window);
+    }
+
+    #[test]
+    fn denied_scope_blocks_even_semantic_actions() {
+        let policy = AppUiPolicy {
+            scope_denied: true,
+            ..AppUiPolicy::default()
+        };
+
+        assert!(!policy.allows_action(UiActionKind::Click));
+        assert_eq!(serde_json::to_value(policy).unwrap()["scope_denied"], true);
+    }
+
+    #[test]
+    fn computer_use_actions_require_explicit_raw_input_policy() {
+        let policy = AppUiPolicy::default();
+
+        for action in [
+            UiActionKind::Move,
+            UiActionKind::DoubleClick,
+            UiActionKind::Scroll,
+            UiActionKind::Drag,
+            UiActionKind::Type,
+            UiActionKind::Keypress,
+        ] {
+            assert!(!policy.allows_action(action));
+        }
+
+        let enabled = AppUiPolicy {
+            allow_raw_coordinates: true,
+            allow_keyboard_shortcuts: true,
+            ..AppUiPolicy::default()
+        };
+        for action in [
+            UiActionKind::Move,
+            UiActionKind::DoubleClick,
+            UiActionKind::Scroll,
+            UiActionKind::Drag,
+            UiActionKind::Type,
+            UiActionKind::Keypress,
+        ] {
+            assert!(enabled.allows_action(action));
+        }
+
+        assert_eq!(
+            serde_json::to_value(UiActionKind::DoubleClick).unwrap(),
+            "double_click"
+        );
+        assert_eq!(serde_json::to_value(UiActionKind::Type).unwrap(), "type");
+    }
+
+    #[test]
+    fn coordinate_click_is_checked_as_raw_input() {
+        let request = UiActionRequest {
+            control_id: None,
+            action: UiActionKind::Click,
+            text: None,
+            checked: None,
+            option: None,
+            x: Some(10.0),
+            y: Some(20.0),
+            button: Some("left".to_owned()),
+            scroll_x: None,
+            scroll_y: None,
+            path: Vec::new(),
+            keys: Vec::new(),
+            snapshot_id: Some("godot:1".to_owned()),
+            duration_ms: None,
+            metadata: Value::Null,
+        };
+
+        assert!(!AppUiPolicy::default().allows_request(&request));
+        assert!(
+            AppUiPolicy {
+                allow_raw_coordinates: true,
+                ..AppUiPolicy::default()
+            }
+            .allows_request(&request)
+        );
+        assert!(
+            !AppUiPolicy {
+                allow_raw_coordinates: true,
+                scope_denied: true,
+                ..AppUiPolicy::default()
+            }
+            .allows_request(&request)
+        );
+        let encoded = serde_json::to_value(request).unwrap();
+        assert_eq!(encoded["button"], "left");
+        assert_eq!(encoded["snapshot_id"], "godot:1");
     }
 
     #[test]
