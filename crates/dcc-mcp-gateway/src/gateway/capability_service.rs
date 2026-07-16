@@ -540,6 +540,12 @@ pub async fn call_service(
         )
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
+    super::lease_guard::check_call_owner(entry, meta.as_ref()).map_err(|error| {
+        ServiceError::new(
+            error.kind(),
+            format!("{error} for instance {}", entry.instance_id),
+        )
+    })?;
     let use_discovery_dispatch = app_ui_uses_discovery_dispatch(entry, &record);
     let url = if use_discovery_dispatch {
         entry_discovery_mcp_url(entry)

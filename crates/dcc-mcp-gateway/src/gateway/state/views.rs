@@ -125,9 +125,9 @@ pub struct ServerState<'a> {
 impl<'a> DiscoveryState<'a> {
     /// See [`GatewayState::live_instances`].
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        let filtered: Vec<ServiceEntry> = registry
-            .list_all()
-            .into_iter()
+        let file_entries = registry.list_all();
+        let filtered: Vec<ServiceEntry> = file_entries
+            .iter()
             .filter(|e| {
                 e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
                     && !e.is_stale(self.stale_timeout)
@@ -141,22 +141,24 @@ impl<'a> DiscoveryState<'a> {
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
                     && (self.allow_unknown_tools || !e.dcc_type.eq_ignore_ascii_case("unknown"))
             })
+            .cloned()
             .collect();
 
-        prefer_live_sidecars(self.merge_remote_entries(filtered, false))
+        prefer_live_sidecars(self.merge_remote_entries(filtered, &file_entries, false))
     }
 
     /// See [`GatewayState::all_instances`].
     pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        let filtered = registry
-            .list_all()
-            .into_iter()
+        let file_entries = registry.list_all();
+        let filtered = file_entries
+            .iter()
             .filter(|e| {
                 e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
             })
+            .cloned()
             .collect();
-        self.merge_remote_entries(filtered, true)
+        self.merge_remote_entries(filtered, &file_entries, true)
     }
 
     /// See [`GatewayState::read_alive_instances`].
@@ -172,12 +174,17 @@ impl<'a> DiscoveryState<'a> {
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
             })
             .collect();
-        Ok((self.merge_remote_entries(filtered, true), evicted))
+        let file_entries = registry.list_all();
+        Ok((
+            self.merge_remote_entries(filtered, &file_entries, true),
+            evicted,
+        ))
     }
 
     fn merge_remote_entries(
         &self,
         file_entries: Vec<ServiceEntry>,
+        file_pool_entries: &[ServiceEntry],
         include_unknown: bool,
     ) -> Vec<ServiceEntry> {
         let mdns_entries = if include_unknown {
@@ -222,7 +229,14 @@ impl<'a> DiscoveryState<'a> {
                 })
                 .collect()
         };
-        merge_gateway_sources(file_entries, mdns_entries, relay_entries, http_entries)
+        let mut entries =
+            merge_gateway_sources(file_entries, mdns_entries, relay_entries, http_entries);
+        let now = SystemTime::now();
+        apply_file_pool_states(&mut entries, file_pool_entries, now);
+        for entry in &mut entries {
+            entry.clear_expired_lease(now);
+        }
+        entries
     }
 }
 
@@ -262,6 +276,60 @@ pub(crate) fn merge_gateway_sources(
     file_entries.append(&mut relay_entries);
     file_entries.extend(http_entries);
     file_entries
+}
+
+fn apply_file_pool_states(
+    entries: &mut [ServiceEntry],
+    file_entries: &[ServiceEntry],
+    now: SystemTime,
+) {
+    let file_pool_states = file_entries
+        .iter()
+        .map(|entry| (entry.instance_id, FilePoolState::from_entry(entry, now)))
+        .collect::<HashMap<_, _>>();
+    for entry in entries {
+        if let Some(pool) = file_pool_states.get(&entry.instance_id) {
+            pool.apply_to(entry);
+        }
+    }
+}
+
+/// Pool coordination lives in FileRegistry even when a remote registration
+/// supplies the preferred transport route for the same instance UUID.
+struct FilePoolState {
+    capacity: u32,
+    lease_owner: Option<String>,
+    current_job_id: Option<String>,
+    lease_expires_at: Option<SystemTime>,
+}
+
+impl FilePoolState {
+    fn from_entry(entry: &ServiceEntry, now: SystemTime) -> Self {
+        if let Some(owner) = entry.active_lease_owner(now) {
+            return Self {
+                capacity: entry.capacity,
+                lease_owner: Some(owner.to_string()),
+                current_job_id: entry.current_job_id.clone(),
+                lease_expires_at: entry.lease_expires_at,
+            };
+        }
+        Self {
+            capacity: entry.capacity,
+            lease_owner: None,
+            current_job_id: None,
+            lease_expires_at: None,
+        }
+    }
+
+    fn apply_to(&self, entry: &mut ServiceEntry) {
+        entry.capacity = self.capacity;
+        if self.lease_owner.is_some() {
+            entry.lease_owner.clone_from(&self.lease_owner);
+            entry.current_job_id.clone_from(&self.current_job_id);
+            entry.lease_expires_at = self.lease_expires_at;
+            entry.status = ServiceStatus::Busy;
+        }
+    }
 }
 
 fn is_per_dcc_sidecar(entry: &ServiceEntry) -> bool {

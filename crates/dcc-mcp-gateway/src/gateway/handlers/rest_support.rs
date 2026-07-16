@@ -392,7 +392,7 @@ pub(super) fn now_ns() -> u64 {
 pub(super) fn service_error_status(err: &ServiceError) -> StatusCode {
     match err.kind.as_str() {
         "unknown-slug" => StatusCode::NOT_FOUND,
-        "ambiguous" => StatusCode::CONFLICT,
+        "ambiguous" | "instance-leased" | "lease-owner-mismatch" => StatusCode::CONFLICT,
         "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
         "policy-denied" => StatusCode::FORBIDDEN,
         "throttled" => StatusCode::TOO_MANY_REQUESTS,

@@ -374,6 +374,84 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
 }
 
 #[test]
+fn local_call_requires_owner_metadata_for_leased_instance() {
+    let fixture = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    let instance_id = entry.instance_id;
+    let instance_short = entry.instance_id.to_string()[..8].to_string();
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), fixture.mcp_url());
+    entry.acquire_lease(
+        "workflow-a",
+        Some("job-a".to_string()),
+        Some(std::time::SystemTime::now() + std::time::Duration::from_secs(60)),
+    );
+    file_registry.register(entry).unwrap();
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles_s = registry
+        .path()
+        .join("gateway-profiles.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
+    ];
+    let slug = format!("maya.{instance_short}.maya_scene__get_session_info");
+
+    let stderr = run_failure_with_env(&["call", &slug, "--json", "{}"], &envs);
+    assert!(stderr.contains("instance-leased"), "stderr: {stderr}");
+
+    let stderr = run_failure_with_env(
+        &[
+            "call",
+            &slug,
+            "--json",
+            "{}",
+            "--meta-json",
+            r#"{"lease_owner":"workflow-b"}"#,
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("lease-owner-mismatch"), "stderr: {stderr}");
+
+    let call = run_json_with_env(
+        &[
+            "call",
+            &slug,
+            "--json",
+            "{}",
+            "--meta-json",
+            r#"{"lease_owner":"workflow-a"}"#,
+        ],
+        &envs,
+    );
+    assert_eq!(call["success"], true);
+
+    let key = dcc_mcp_transport::discovery::types::ServiceKey {
+        dcc_type: "maya".to_string(),
+        instance_id,
+    };
+    let mut expired = file_registry.get(&key).expect("leased registry row");
+    expired.acquire_lease(
+        "expired-workflow",
+        None,
+        Some(std::time::SystemTime::now() - std::time::Duration::from_secs(1)),
+    );
+    file_registry.register(expired).unwrap();
+
+    let call = run_json_with_env(&["call", &slug, "--json", "{}"], &envs);
+    assert_eq!(call["success"], true);
+}
+
+#[test]
 fn local_search_without_query_lists_tools_for_dcc_filter() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();

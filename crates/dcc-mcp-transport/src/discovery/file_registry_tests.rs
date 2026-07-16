@@ -435,6 +435,12 @@ fn test_file_registry_acquire_and_release_lease() {
         "busy leased instance must not be acquired twice"
     );
 
+    assert!(registry.release_lease(&key, None).unwrap().is_none());
+    assert_eq!(
+        registry.get(&key).unwrap().lease_owner.as_deref(),
+        Some("workflow-1")
+    );
+
     let released = registry
         .release_lease(&key, Some("workflow-1"))
         .unwrap()

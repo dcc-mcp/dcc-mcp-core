@@ -737,12 +737,42 @@ prefer registry resources plus REST orchestration around `/v1/call`:
 
 | Tool | Purpose |
 |------|---------|
-| `lease action=acquire` / `acquire_dcc_instance` | Reserve an idle instance by `dcc_type` (or a specific `instance_id`) and mark it `busy` |
-| `lease action=release` / `release_dcc_instance` | Release the lease and mark the instance `available` again |
+| `lease action=acquire` / `acquire_dcc_instance` | Reserve an idle instance with a required non-empty `lease_owner` without surrounding whitespace by `dcc_type` (or a specific `instance_id`) and mark it `busy` |
+| `lease action=release` / `release_dcc_instance` | Release the lease with the same required `lease_owner` and mark the instance `available` again |
 
 Pooling is optional. Adapters that never call these tools keep the previous
 single-instance behavior: entries default to `capacity: 1`, no lease owner, and
 `status: "available"`.
+
+An active lease is enforced on both gateway-routed calls and the local
+`dcc-mcp-cli` direct-MCP path. The lease holder must include the same owner
+label on every call:
+
+```json
+{
+  "tool_slug": "houdini.a1b2c3d4.houdini_scene__get_scene_info",
+  "arguments": {},
+  "meta": {"lease_owner": "workflow-42"}
+}
+```
+
+For CLI calls, pass the owner with
+`--meta-json '{"lease_owner":"workflow-42"}'`. A missing owner returns the
+stable error kind `instance-leased`; a different owner returns
+`lease-owner-mismatch`. The gateway rejects both before dispatching to the DCC
+backend. Expired leases behave as unleased instances, and calls to instances
+that were never leased remain backward compatible.
+
+Raw MCP proxy calls use the protocol metadata field instead:
+`params._meta.lease_owner`. Lease-rejected JSON-RPC requests are not forwarded;
+notifications receive an empty `202 Accepted`, and rejected JSON-RPC batches
+return one response per request id while omitting notification responses.
+
+This is a cooperative exclusivity fence, not an authentication boundary.
+`lease_owner` is visible in instance inventory and must not be treated as a
+secret or authorization token. Use gateway authentication and network policy
+to isolate untrusted clients; a client that connects directly to an adapter
+endpoint is outside gateway lease enforcement.
 
 Before the gateway routes REST traffic to a backend, it verifies that the target
 responds to `GET /v1/readyz` and falls back to `GET /health` only when the
