@@ -41,19 +41,6 @@ fn apply_live_snapshot(entry: &mut ServiceEntry, snapshot: &LiveSnapshot) {
     entry.touch();
 }
 
-fn metadata_patch_changes_entry(
-    entry: &ServiceEntry,
-    metadata: &std::collections::HashMap<String, String>,
-) -> bool {
-    metadata.iter().any(|(name, value)| {
-        if value.is_empty() {
-            entry.metadata.contains_key(name)
-        } else {
-            entry.metadata.get(name) != Some(value)
-        }
-    })
-}
-
 fn refresh_or_republish_registration(
     registry: &FileRegistry,
     key: &ServiceKey,
@@ -63,29 +50,26 @@ fn refresh_or_republish_registration(
 ) {
     let (refresh_result, snapshot) = if let Some(provider) = provider {
         let snapshot = provider();
-        let primary_result = if snapshot.documents.is_empty() {
-            registry.update_metadata(key, snapshot.scene.as_deref(), snapshot.version.as_deref())
+        let documents = if snapshot.documents.is_empty() {
+            None
         } else {
-            registry.update_documents(
-                key,
-                snapshot.scene.as_deref(),
-                &snapshot.documents,
-                snapshot.display_name.as_deref(),
-            )
+            Some(snapshot.documents.as_slice())
         };
-        let refresh_result = match primary_result {
-            Ok(true) if !snapshot.metadata.is_empty() => {
-                let metadata_changed = registry
-                    .get(key)
-                    .is_none_or(|entry| metadata_patch_changes_entry(&entry, &snapshot.metadata));
-                if metadata_changed {
-                    registry.update_instance_metadata(key, &snapshot.metadata)
-                } else {
-                    Ok(true)
-                }
-            }
-            other => other,
+        let display_name = if documents.is_some() {
+            snapshot.display_name.as_deref()
+        } else {
+            None
         };
+        let refresh_result = registry.update_snapshot(
+            key,
+            ServiceSnapshot {
+                scene: snapshot.scene.as_deref(),
+                version: snapshot.version.as_deref(),
+                documents,
+                display_name,
+                metadata: Some(&snapshot.metadata),
+            },
+        );
         (refresh_result, Some(snapshot))
     } else {
         (registry.heartbeat(key), None)
@@ -190,8 +174,8 @@ impl GatewayRunner {
     ///
     /// Pass `metadata_provider` to keep the `scene` and `version` fields in the
     /// `FileRegistry` in sync with the running DCC application.  The closure is
-    /// called on every heartbeat tick and the returned `(scene, version)` pair is
-    /// written via `FileRegistry::update_metadata`.  This ensures that
+    /// called on every heartbeat tick and the returned snapshot is written via
+    /// `FileRegistry::update_snapshot`. This ensures that
     /// `list_dcc_instances` always shows the currently open scene — even when the
     /// user opens a different file after the server was started.
     pub async fn start(
@@ -212,10 +196,9 @@ impl GatewayRunner {
 
         // ── Heartbeat task ────────────────────────────────────────────────
         //
-        // Besides touching the timestamp, every tick also calls update_metadata
-        // when a metadata_provider is present.  This keeps the `scene` field
-        // in FileRegistry current so that list_dcc_instances always reflects
-        // the currently open DCC scene without requiring a server restart.
+        // Besides touching the timestamp, every tick atomically applies the
+        // metadata provider's live snapshot. This keeps instance fields current
+        // without taking the cross-process registry lock more than once.
         //
         // The task is wrapped in a restart loop so that a panic does not silently
         // abort heartbeats (issue #554).
@@ -1117,58 +1100,6 @@ fn cooperative_yield_fallback_detail(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn unchanged_metadata_patch_does_not_require_registry_update() {
-        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 56693);
-        entry.metadata.insert(
-            "gateway_runtime_mode".to_string(),
-            "daemon-backed".to_string(),
-        );
-        let patch = std::collections::HashMap::from([(
-            "gateway_runtime_mode".to_string(),
-            "daemon-backed".to_string(),
-        )]);
-
-        assert!(!metadata_patch_changes_entry(&entry, &patch));
-    }
-
-    #[test]
-    fn changed_or_new_metadata_patch_requires_registry_update() {
-        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 56693);
-        entry
-            .metadata
-            .insert("gateway_runtime_mode".to_string(), "embedded".to_string());
-        let changed = std::collections::HashMap::from([(
-            "gateway_runtime_mode".to_string(),
-            "daemon-backed".to_string(),
-        )]);
-        let new = std::collections::HashMap::from([(
-            "gateway_guardian_enabled".to_string(),
-            "true".to_string(),
-        )]);
-
-        assert!(metadata_patch_changes_entry(&entry, &changed));
-        assert!(metadata_patch_changes_entry(&entry, &new));
-    }
-
-    #[test]
-    fn metadata_removal_requires_update_only_when_key_exists() {
-        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 56693);
-        entry.metadata.insert(
-            "gateway_runtime_mode".to_string(),
-            "daemon-backed".to_string(),
-        );
-        let remove_existing =
-            std::collections::HashMap::from([("gateway_runtime_mode".to_string(), String::new())]);
-        let remove_missing = std::collections::HashMap::from([(
-            "gateway_guardian_enabled".to_string(),
-            String::new(),
-        )]);
-
-        assert!(metadata_patch_changes_entry(&entry, &remove_existing));
-        assert!(!metadata_patch_changes_entry(&entry, &remove_missing));
-    }
 
     #[test]
     fn cooperative_yield_fallback_reads_structured_optional_capability() {

@@ -843,6 +843,130 @@ fn test_file_registry_update_metadata() {
 // ── read_alive auto-eviction (issue #523) ─────────────────────────────────
 
 #[test]
+fn test_file_registry_update_snapshot_persists_complete_metadata_patch() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 18812);
+    entry.last_heartbeat = std::time::UNIX_EPOCH;
+    entry.metadata.insert("preserved".into(), "yes".into());
+    entry.metadata.insert("remove_me".into(), "old".into());
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let documents = vec!["solar_system.hip".to_string(), String::new()];
+    let metadata = std::collections::HashMap::from([
+        (
+            "gateway_runtime_mode".to_string(),
+            "daemon-backed".to_string(),
+        ),
+        ("remove_me".to_string(), String::new()),
+    ]);
+    let snapshot = super::super::types::ServiceSnapshot {
+        scene: Some("solar_system.hip"),
+        version: Some("21.0"),
+        documents: Some(&documents),
+        display_name: Some("Houdini-Solar"),
+        metadata: Some(&metadata),
+    };
+    let transactions_before = registry
+        .committed_write_transactions
+        .load(std::sync::atomic::Ordering::Relaxed);
+
+    assert!(registry.update_snapshot(&key, snapshot).unwrap());
+    assert_eq!(
+        registry
+            .committed_write_transactions
+            .load(std::sync::atomic::Ordering::Relaxed)
+            - transactions_before,
+        1,
+        "a complete snapshot must commit exactly one registry write transaction"
+    );
+
+    let reread = FileRegistry::new(dir.path()).unwrap();
+    let updated = reread.get(&key).unwrap();
+    assert_eq!(updated.scene.as_deref(), Some("solar_system.hip"));
+    assert_eq!(updated.version.as_deref(), Some("21.0"));
+    assert_eq!(updated.documents, vec!["solar_system.hip"]);
+    assert_eq!(updated.display_name.as_deref(), Some("Houdini-Solar"));
+    assert_eq!(
+        updated.metadata.get("preserved").map(String::as_str),
+        Some("yes")
+    );
+    assert_eq!(
+        updated
+            .metadata
+            .get("gateway_runtime_mode")
+            .map(String::as_str),
+        Some("daemon-backed")
+    );
+    assert!(!updated.metadata.contains_key("remove_me"));
+    assert!(updated.last_heartbeat > std::time::UNIX_EPOCH);
+}
+
+#[test]
+fn test_concurrent_snapshot_writers_preserve_complete_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let seed = FileRegistry::new(dir.path()).unwrap();
+    let houdini = ServiceEntry::new("houdini", "127.0.0.1", 18812);
+    let nuke = ServiceEntry::new("nuke", "127.0.0.1", 18813);
+    let houdini_key = houdini.key();
+    let nuke_key = nuke.key();
+    seed.register(houdini).unwrap();
+    seed.register(nuke).unwrap();
+
+    let houdini_registry = FileRegistry::new(dir.path()).unwrap();
+    let nuke_registry = FileRegistry::new(dir.path()).unwrap();
+    let houdini_thread = std::thread::spawn(move || {
+        for frame in 0..25 {
+            let scene = format!("solar-{frame}.hip");
+            let metadata =
+                std::collections::HashMap::from([("frame".to_string(), frame.to_string())]);
+            houdini_registry
+                .update_snapshot(
+                    &houdini_key,
+                    super::super::types::ServiceSnapshot {
+                        scene: Some(&scene),
+                        metadata: Some(&metadata),
+                        ..super::super::types::ServiceSnapshot::default()
+                    },
+                )
+                .unwrap();
+        }
+    });
+    let nuke_thread = std::thread::spawn(move || {
+        for frame in 0..25 {
+            let scene = format!("comp-{frame}.nk");
+            let metadata =
+                std::collections::HashMap::from([("frame".to_string(), frame.to_string())]);
+            nuke_registry
+                .update_snapshot(
+                    &nuke_key,
+                    super::super::types::ServiceSnapshot {
+                        scene: Some(&scene),
+                        metadata: Some(&metadata),
+                        ..super::super::types::ServiceSnapshot::default()
+                    },
+                )
+                .unwrap();
+        }
+    });
+    houdini_thread.join().unwrap();
+    nuke_thread.join().unwrap();
+
+    let reread = FileRegistry::new(dir.path()).unwrap();
+    let houdini = reread.list_instances("houdini").pop().unwrap();
+    let nuke = reread.list_instances("nuke").pop().unwrap();
+    assert_eq!(houdini.scene.as_deref(), Some("solar-24.hip"));
+    assert_eq!(
+        houdini.metadata.get("frame").map(String::as_str),
+        Some("24")
+    );
+    assert_eq!(nuke.scene.as_deref(), Some("comp-24.nk"));
+    assert_eq!(nuke.metadata.get("frame").map(String::as_str), Some("24"));
+}
+
+#[test]
 fn test_read_alive_evicts_ghost_and_returns_live() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
