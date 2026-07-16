@@ -91,7 +91,75 @@ class ExecutionBridgeBinder:
             logger.warning("[%s] attach_dispatcher failed: %s", owner._dcc_name, exc)
             return False
 
+    # -- package lifecycle ----------------------------------------------------
+
+    def _unsubscribe_skill_unloaded(self) -> None:
+        owner = self._owner
+        subscription = getattr(owner, "_inprocess_unload_subscription", None)
+        if not subscription:
+            return
+        event_bus, subscriber_id = subscription
+        try:
+            event_bus.unsubscribe("skill.unloaded", subscriber_id)
+        except Exception as exc:
+            logger.debug("[%s] skill.unloaded unsubscribe failed: %s", owner._dcc_name, exc)
+        owner._inprocess_unload_subscription = None
+
+    def _bind_package_lifecycle(self, bridge: HostExecutionBridge) -> None:
+        owner = self._owner
+        previous_hook = getattr(owner, "_inprocess_cleanup_quit_hook", None)
+        if previous_hook is not None:
+            owner.unregister_quit_hook(previous_hook)
+
+        cleanup_hook = bridge.shutdown_script_execution
+        owner._inprocess_cleanup_quit_hook = cleanup_hook
+        self.prepare_start()
+
+        self._unsubscribe_skill_unloaded()
+        event_bus_getter = getattr(owner._server, "event_bus", None)
+        if not callable(event_bus_getter):
+            logger.debug("[%s] catalog EventBus is unavailable; unload cleanup is not bound", owner._dcc_name)
+            return
+        try:
+            event_bus = event_bus_getter()
+
+            def _on_skill_unloaded(event: Any) -> None:
+                attributes = event.get("attributes", {}) if isinstance(event, dict) else {}
+                skill_path = attributes.get("skill_path") if isinstance(attributes, dict) else None
+                if skill_path:
+                    bridge.clear_script_packages_under(str(skill_path))
+
+            subscriber_id = event_bus.subscribe("skill.unloaded", _on_skill_unloaded)
+            owner._inprocess_unload_subscription = (event_bus, subscriber_id)
+        except Exception as exc:
+            logger.debug("[%s] skill.unloaded cleanup subscription failed: %s", owner._dcc_name, exc)
+
+    def prepare_start(self) -> None:
+        """Ensure package cleanup runs once for the next start/stop lifecycle."""
+        owner = self._owner
+        bridge = getattr(owner, "_execution_bridge", None)
+        resume = getattr(bridge, "resume_script_execution", None)
+        if callable(resume):
+            resume()
+        hook = getattr(owner, "_inprocess_cleanup_quit_hook", None)
+        if hook is None:
+            return
+        hooks = getattr(owner, "_quit_hooks", ())
+        if not any(registered is hook for registered in hooks):
+            owner.register_quit_hook(hook)
+
     # -- public wiring ---------------------------------------------------------
+
+    def _active_bridge_is_same(self, bridge: HostExecutionBridge) -> bool:
+        owner = self._owner
+        if not getattr(owner, "_inprocess_executor_registered", False):
+            return False
+        if getattr(owner, "_execution_bridge", None) is bridge:
+            return True
+        raise RuntimeError(
+            "An in-process execution bridge is already active; create a new "
+            "DccServerBase instance to bind a different bridge."
+        )
 
     def register_host_execution_bridge(self, bridge: HostExecutionBridge) -> None:
         """Wire the adapter-facing host execution bridge.
@@ -103,6 +171,8 @@ class ExecutionBridgeBinder:
         MCP/REST calls share the same host-thread route.
         """
         owner = self._owner
+        if self._active_bridge_is_same(bridge):
+            return
         self._attach_sandbox_to_bridge(bridge)
         owner._execution_bridge = bridge
         owner._dcc_dispatcher = bridge.dispatcher
@@ -110,6 +180,7 @@ class ExecutionBridgeBinder:
         try:
             owner._server.set_in_process_executor(bridge.as_inprocess_executor())
             owner._inprocess_executor_registered = True
+            self._bind_package_lifecycle(bridge)
             host_dispatcher_attached = self._attach_host_dispatcher_to_http(host_dispatcher)
             logger.info(
                 "[%s] Host execution bridge registered (dispatcher=%s, host_dispatcher_attached=%s)",
@@ -136,8 +207,16 @@ class ExecutionBridgeBinder:
         (avoids the timing race documented in issue #464/#465).
         """
         owner = self._owner
-        owner._dcc_dispatcher = dispatcher
+        if getattr(owner, "_inprocess_executor_registered", False):
+            active_bridge = getattr(owner, "_execution_bridge", None)
+            if isinstance(active_bridge, HostExecutionBridge) and active_bridge.dispatcher is dispatcher:
+                return
+            raise RuntimeError(
+                "An in-process executor is already registered with a different dispatcher; "
+                "create a new DccServerBase instance to replace it."
+            )
         bridge = HostExecutionBridge(dispatcher=dispatcher)
+        owner._dcc_dispatcher = dispatcher
         self._attach_sandbox_to_bridge(bridge)
         owner._execution_bridge = bridge
         executor = bridge.as_inprocess_executor()
@@ -145,6 +224,7 @@ class ExecutionBridgeBinder:
         try:
             owner._server.set_in_process_executor(executor)
             owner._inprocess_executor_registered = True
+            self._bind_package_lifecycle(bridge)
             host_dispatcher_attached = self._attach_host_dispatcher_to_http(host_dispatcher)
             logger.info(
                 "[%s] In-process executor registered (dispatcher=%s, host_dispatcher_attached=%s)",

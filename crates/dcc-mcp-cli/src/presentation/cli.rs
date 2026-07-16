@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
-use std::io::Read;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Context;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use clap::{Parser, Subcommand, ValueEnum};
 use dcc_mcp_skills::validator::IssueSeverity;
 use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
@@ -28,6 +30,12 @@ use crate::infra::http::HttpGateway;
 use super::marketplace_cmd;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
+const MAX_INLINE_IMAGE_BASE64_BYTES: usize = 32 * 1024 * 1024;
+const IMAGE_ARTIFACT_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+const IMAGE_ARTIFACT_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+const IMAGE_ARTIFACT_SIZE_PRUNE_GRACE: Duration = Duration::from_secs(60);
+const MATERIALIZED_IMAGE_PLACEHOLDER: &str =
+    "<omitted; materialized by dcc-mcp-cli; see artifact_path>";
 
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-cli", about, version)]
@@ -126,9 +134,19 @@ enum Command {
         #[arg(long = "json")]
         request_json: Option<String>,
     },
-    /// Invoke one tool slug.
+    /// Invoke one tool slug, or an ordered batch with --batch.
     Call {
-        tool_slug: String,
+        #[arg(value_name = "TOOL_SLUG", required_unless_present = "batch")]
+        tool_slug: Option<String>,
+        /// Invoke an ordered gateway batch instead of one tool.
+        #[arg(
+            long,
+            conflicts_with_all = ["tool_slug", "dcc_type", "instance_id", "meta_json"]
+        )]
+        batch: bool,
+        /// JSON array of batch call steps. Requires --batch.
+        #[arg(long, value_name = "JSON", requires = "batch", conflicts_with_all = ["arguments_json", "json_file"])]
+        steps: Option<String>,
         /// DCC type for direct backend-tool calls without a dotted gateway slug.
         #[arg(long)]
         dcc_type: Option<String>,
@@ -143,6 +161,18 @@ enum Command {
         #[arg(long)]
         meta_json: Option<String>,
         /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
+        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
+        timeout_secs: u64,
+    },
+    /// Compatibility alias for `call --batch`.
+    #[command(hide = true)]
+    CallBatch {
+        /// JSON object containing `calls` and optional `stop_on_error`.
+        #[arg(long = "json", default_value = "{\"calls\":[]}")]
+        request_json: String,
+        /// Read the batch request from a UTF-8 JSON file, or '-' for stdin.
+        #[arg(long, value_name = "PATH", conflicts_with = "request_json")]
+        json_file: Option<PathBuf>,
         #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
         timeout_secs: u64,
     },
@@ -568,6 +598,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
         Command::Call {
             tool_slug,
+            batch,
+            steps,
             dcc_type,
             instance_id,
             arguments_json,
@@ -575,21 +607,48 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             meta_json,
             timeout_secs,
         } => {
-            let arguments = read_call_arguments(&arguments_json, json_file.as_deref())?;
-            let meta = meta_json
-                .as_deref()
-                .map(|raw| parse_json_object(raw, "--meta-json"))
-                .transpose()?;
-            control
-                .call(
-                    tool_slug,
-                    dcc_type,
-                    instance_id,
-                    arguments,
-                    meta,
-                    Duration::from_secs(timeout_secs.max(1)),
-                )
-                .await?
+            let mut result = if batch {
+                let request =
+                    read_batch_request(&arguments_json, steps.as_deref(), json_file.as_deref())?;
+                control
+                    .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
+                    .await?
+            } else {
+                let tool_slug = tool_slug
+                    .filter(|slug| !slug.trim().is_empty())
+                    .context("call requires TOOL_SLUG unless --batch is provided")?;
+                let arguments = read_call_arguments(&arguments_json, json_file.as_deref())?;
+                let meta = meta_json
+                    .as_deref()
+                    .map(|raw| parse_json_object(raw, "--meta-json"))
+                    .transpose()?;
+                control
+                    .call(
+                        tool_slug,
+                        dcc_type,
+                        instance_id,
+                        arguments,
+                        meta,
+                        Duration::from_secs(timeout_secs.max(1)),
+                    )
+                    .await?
+            };
+            materialize_call_images(&mut result, &default_image_artifact_root());
+            failed = !crate::application::local_control::call_result_succeeded(&result);
+            result
+        }
+        Command::CallBatch {
+            request_json,
+            json_file,
+            timeout_secs,
+        } => {
+            let request = read_call_arguments(&request_json, json_file.as_deref())?;
+            let mut result = control
+                .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
+                .await?;
+            materialize_call_images(&mut result, &default_image_artifact_root());
+            failed = !crate::application::local_control::call_result_succeeded(&result);
+            result
         }
         Command::WaitReady {
             dcc_type,
@@ -928,6 +987,7 @@ fn gateway_endpoint_for_command(
         | Command::Describe { .. }
         | Command::LoadSkill { .. }
         | Command::Call { .. }
+        | Command::CallBatch { .. }
         | Command::WaitReady { .. }
         | Command::ReloadSkills { .. }
         | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
@@ -1071,6 +1131,29 @@ fn read_call_arguments(raw: &str, json_file: Option<&std::path::Path>) -> anyhow
     parse_json_object(&contents, "--json-file")
 }
 
+fn read_batch_request(
+    raw: &str,
+    steps: Option<&str>,
+    json_file: Option<&std::path::Path>,
+) -> anyhow::Result<Value> {
+    if let Some(raw_steps) = steps {
+        let calls: Value =
+            serde_json::from_str(raw_steps).context("--steps must be a valid JSON array")?;
+        if !calls.is_array() {
+            anyhow::bail!("--steps must be a JSON array");
+        }
+        return Ok(serde_json::json!({"calls": calls}));
+    }
+
+    let request = read_call_arguments(raw, json_file)?;
+    if request.get("calls").and_then(Value::as_array).is_none() {
+        anyhow::bail!(
+            "call --batch requires --steps JSON_ARRAY or a --json/--json-file object containing calls"
+        );
+    }
+    Ok(request)
+}
+
 fn build_load_skill_request(
     skill_name: Option<String>,
     dcc_type: Option<String>,
@@ -1129,6 +1212,236 @@ fn endpoint_for_mcp(raw: &str) -> String {
 
 fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
     serde_json::to_value(value).context("failed to serialize command output")
+}
+
+fn default_image_artifact_root() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("dcc-mcp")
+        .join("call-artifacts")
+}
+
+fn materialize_call_images(value: &mut Value, root: &Path) {
+    match value {
+        Value::Object(object) => {
+            if object.get("kind").and_then(Value::as_str) == Some("image") {
+                materialize_image_payload(object, "mime", root);
+            } else if object.get("type").and_then(Value::as_str) == Some("image") {
+                let mime_key = if object.contains_key("mimeType") {
+                    "mimeType"
+                } else {
+                    "mime_type"
+                };
+                materialize_image_payload(object, mime_key, root);
+            }
+            for child in object.values_mut() {
+                materialize_call_images(child, root);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                materialize_call_images(item, root);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn materialize_image_payload(image: &mut Map<String, Value>, mime_key: &str, root: &Path) {
+    let has_artifact = image
+        .get("artifact_path")
+        .and_then(Value::as_str)
+        .is_some_and(|path| !path.trim().is_empty());
+    let encoded = match image.remove("data") {
+        Some(Value::String(encoded)) if encoded.starts_with("<omitted;") => {
+            image.insert("data".to_string(), Value::String(encoded));
+            return;
+        }
+        Some(Value::String(encoded)) => {
+            image.insert(
+                "data".to_string(),
+                Value::String(MATERIALIZED_IMAGE_PLACEHOLDER.to_string()),
+            );
+            encoded
+        }
+        Some(_) => {
+            image.insert(
+                "data".to_string(),
+                Value::String(MATERIALIZED_IMAGE_PLACEHOLDER.to_string()),
+            );
+            record_image_materialization_error(image, "image data must be a base64 string");
+            return;
+        }
+        None if has_artifact => return,
+        None => {
+            record_image_materialization_error(image, "missing image data");
+            return;
+        }
+    };
+
+    let Some(extension) = image
+        .get(mime_key)
+        .and_then(Value::as_str)
+        .and_then(image_extension)
+    else {
+        record_image_materialization_error(image, "unsupported or missing image MIME type");
+        return;
+    };
+    if encoded.len() > MAX_INLINE_IMAGE_BASE64_BYTES {
+        record_image_materialization_error(image, "inline image exceeds the 32 MiB base64 limit");
+        return;
+    }
+    let bytes = match BASE64_STANDARD.decode(encoded.trim()) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            record_image_materialization_error(image, "invalid base64 image data");
+            return;
+        }
+    };
+    if bytes.is_empty() {
+        record_image_materialization_error(image, "decoded image data is empty");
+        return;
+    }
+    image.remove("materialization_error");
+    if has_artifact {
+        return;
+    }
+    let path = match write_image_artifact(root, extension, &bytes) {
+        Ok(path) => path,
+        Err(err) => {
+            record_image_materialization_error(
+                image,
+                &format!("failed to write image artifact: {err}"),
+            );
+            return;
+        }
+    };
+    image.insert(
+        "artifact_path".to_string(),
+        Value::String(path.display().to_string()),
+    );
+}
+
+fn image_extension(mime: &str) -> Option<&'static str> {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "image/png" => Some("png"),
+        "image/jpeg" | "image/jpg" => Some("jpg"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        _ => None,
+    }
+}
+
+fn record_image_materialization_error(image: &mut Map<String, Value>, message: &str) {
+    image.insert(
+        "materialization_error".to_string(),
+        Value::String(message.to_string()),
+    );
+}
+
+fn write_image_artifact(root: &Path, extension: &str, bytes: &[u8]) -> anyhow::Result<PathBuf> {
+    let root = std::path::absolute(root).context("resolving image artifact directory")?;
+    std::fs::create_dir_all(&root)
+        .with_context(|| format!("creating image artifact directory {}", root.display()))?;
+    let suffix = format!(".{extension}");
+    let mut file = tempfile::Builder::new()
+        .prefix("computer-use-")
+        .suffix(&suffix)
+        .tempfile_in(&root)
+        .context("creating unique image artifact")?;
+    file.write_all(bytes)?;
+    file.as_file().sync_all()?;
+    let (_, path) = file
+        .keep()
+        .map_err(|err| err.error)
+        .context("persisting image artifact")?;
+    prune_image_artifacts(
+        &root,
+        std::time::SystemTime::now(),
+        IMAGE_ARTIFACT_RETENTION,
+        IMAGE_ARTIFACT_MAX_TOTAL_BYTES,
+        Some(&path),
+    );
+    Ok(path)
+}
+
+fn prune_image_artifacts(
+    root: &Path,
+    now: std::time::SystemTime,
+    retention: Duration,
+    max_total_bytes: u64,
+    protected: Option<&Path>,
+) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    let cutoff = (!retention.is_zero())
+        .then(|| now.checked_sub(retention))
+        .flatten();
+    let size_prune_cutoff = now.checked_sub(IMAGE_ARTIFACT_SIZE_PRUNE_GRACE);
+    let mut total_size = 0_u64;
+    let mut candidates = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if protected.is_some_and(|protected| path == protected)
+            || !is_owned_image_artifact(&path)
+            || !entry
+                .file_type()
+                .ok()
+                .is_some_and(|file_type| file_type.is_file())
+        {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
+        if cutoff.is_some_and(|cutoff| modified < cutoff) {
+            let _ = std::fs::remove_file(path);
+            continue;
+        }
+        let size = metadata.len();
+        total_size = total_size.saturating_add(size);
+        candidates.push((modified, size, path));
+    }
+
+    if let Some(protected) = protected
+        && let Ok(metadata) = std::fs::metadata(protected)
+    {
+        total_size = total_size.saturating_add(metadata.len());
+    }
+    if max_total_bytes == 0 || total_size <= max_total_bytes {
+        return;
+    }
+
+    candidates.sort_by_key(|entry| entry.0);
+    for (modified, size, path) in candidates {
+        if total_size <= max_total_bytes {
+            break;
+        }
+        if size_prune_cutoff.is_some_and(|cutoff| modified >= cutoff) {
+            continue;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            total_size = total_size.saturating_sub(size);
+        }
+    }
+}
+
+fn is_owned_image_artifact(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("computer-use-"))
+        && path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "png" | "jpg" | "webp" | "gif"
+                )
+            })
 }
 
 fn print_value(value: &Value, output: OutputFormat) -> anyhow::Result<()> {

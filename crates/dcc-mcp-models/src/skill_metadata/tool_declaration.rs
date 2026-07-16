@@ -209,6 +209,20 @@ pub struct ToolDeclaration {
     #[serde(default)]
     pub source_file: String,
 
+    /// Require a registered in-process executor for this stateful tool.
+    ///
+    /// This is independent of thread affinity: an `any`-affinity tool may
+    /// need process-local state while still being unsafe to run on the DCC UI
+    /// thread. Loading fails loudly instead of silently spawning a fresh
+    /// subprocess for every call.
+    #[serde(
+        default,
+        rename = "requires_in_process",
+        alias = "requires-in-process",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub requires_in_process: bool,
+
     /// Suggested follow-up tools for progressive discovery (issue #143).
     ///
     /// Agents can use this to chain tool calls without pre-training.
@@ -468,6 +482,8 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             #[serde(rename = "defer-loading")]
             defer_loading: bool,
             source_file: String,
+            #[serde(rename = "requires_in_process", alias = "requires-in-process")]
+            requires_in_process: bool,
             #[serde(rename = "next-tools")]
             next_tools: NextTools,
             group: String,
@@ -602,6 +618,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             idempotent: w.idempotent,
             defer_loading: w.defer_loading,
             source_file: w.source_file,
+            requires_in_process: w.requires_in_process,
             next_tools: w.next_tools,
             group: w.group,
             execution: w.execution,

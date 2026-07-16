@@ -161,6 +161,14 @@ class TestResolvedServerConfig:
         assert binding.standalone_main_thread is True
         assert binding.register_inprocess_executor is True
 
+    def test_execution_binding_keeps_inline_subprocess_isolation_by_default(self):
+        binding = resolve_execution_binding(InlineExecution)
+
+        assert binding.bridge is None
+        assert binding.dispatcher is None
+        assert binding.standalone_main_thread is False
+        assert binding.register_inprocess_executor is False
+
     def test_context_metadata_from_env_includes_dcc_specific_paths(self, monkeypatch):
         monkeypatch.setenv("DCC_MCP_PROJECT", "show-a")
         monkeypatch.setenv("DCC_MCP_HOUDINI_SKILL_PATHS", "C:/show/skills")

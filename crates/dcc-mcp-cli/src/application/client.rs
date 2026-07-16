@@ -111,6 +111,13 @@ impl DccMcpClient {
             .map_err(Into::into)
     }
 
+    pub async fn call_batch(&self, body: Value) -> Result<Value, ClientError> {
+        self.gateway
+            .post_json(&self.endpoint.path("/v1/call_batch"), &body)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn direct_call(&self, request: DirectCallRequest) -> Result<Value, ClientError> {
         let body = json!({
             "backend_tool": request.backend_tool,

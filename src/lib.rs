@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 pub use dcc_mcp_actions as actions;
 pub use dcc_mcp_artefact as artefact;
 pub use dcc_mcp_capture as capture;
+pub use dcc_mcp_computer_use as computer_use;
 pub use dcc_mcp_host as host;
 pub use dcc_mcp_http as http;
 pub use dcc_mcp_models as models;
@@ -77,6 +78,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_sandbox(m)?;
     register_shm(m)?;
     register_capture(m)?;
+    register_computer_use(m)?;
     register_usd(m)?;
     register_utils(m)?;
     register_http(m)?;
@@ -302,6 +304,11 @@ fn register_shm(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(feature = "python-bindings")]
 fn register_capture(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dcc_mcp_capture::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_computer_use(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_computer_use::python::register_classes(m)
 }
 
 #[cfg(feature = "python-bindings")]

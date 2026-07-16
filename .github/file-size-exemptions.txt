@@ -19,3 +19,17 @@ crates/dcc-mcp-skill-rest/src/service.rs
 crates/dcc-mcp-gateway/src/gateway/capability_service.rs
 # PIP-2701 — service.rs 1523L, exceeds 1500 limit by 23 lines
 crates/dcc-mcp-marketplace/src/service.rs
+# PIP-2729 — computer-use-windows PR #1925: mcp_impl.rs 1955L +540 lines
+crates/dcc-mcp-gateway/src/gateway/handlers/mcp_impl.rs
+# PIP-2729 — computer-use-windows PR #1925: rest_impl_tests.rs 2236L +264 lines
+crates/dcc-mcp-gateway/src/gateway/handlers/rest_impl_tests.rs
+# PIP-2729 — computer-use-windows PR #1925: lib.rs 1683L (new crate)
+crates/dcc-mcp-computer-use/src/lib.rs
+# PIP-2729 — computer-use-windows PR #1925: windows.rs 3351L (new platform backend)
+crates/dcc-mcp-computer-use/src/platform/windows.rs
+# PIP-2729 — computer-use-windows PR #1925: _windows_uia_backend.py 2212L +1287 lines
+python/dcc_mcp_core/skills/app-ui/scripts/_windows_uia_backend.py
+# PIP-2729 — computer-use-windows PR #1925: inprocess_executor.py 1163L +480 lines
+python/dcc_mcp_core/_server/inprocess_executor.py
+# PIP-2729 — cli.rs 1571L, exceeds 1500 limit by 71 lines (computer-use-windows feature)
+crates/dcc-mcp-cli/src/presentation/cli.rs

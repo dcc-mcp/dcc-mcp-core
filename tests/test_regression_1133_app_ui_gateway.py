@@ -19,6 +19,7 @@ from conftest import allocate_gateway_port
 from conftest import wait_tcp_reachable
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
+from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_SKILLS_DIR = REPO_ROOT / "python" / "dcc_mcp_core" / "skills"
@@ -69,6 +70,7 @@ def app_ui_gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cfg.heartbeat_secs = 1
     cfg.stale_timeout_secs = 10
     server = create_skill_server("python", cfg)
+    server.set_in_process_executor(build_inprocess_executor(None))
     handle = server.start()
 
     assert wait_tcp_reachable("127.0.0.1", handle.port), f"backend port {handle.port} unreachable"
@@ -128,11 +130,11 @@ def test_app_ui_gateway_rest_and_mcp_discovery_describe_call(app_ui_gateway: dic
 
     slug = _find_app_ui_slug(gateway_rest_url)
     describe = _post_json(f"{gateway_rest_url}/v1/describe", {"tool_slug": slug, "response_format": "json"})
-    assert describe["tool"]["annotations"]["readOnlyHint"] is True
+    assert describe["tool"]["annotations"]["readOnlyHint"] is False
     assert describe["tool"]["_meta"]["dcc"]["affinity"] == "any"
     assert describe["tool"]["_meta"]["dcc"]["execution"] == "sync"
-    assert describe["tool"]["_meta"]["dcc"]["timeoutHintSecs"] == 2
-    assert describe["tool"]["_meta"]["dcc"]["risk"] == "read-only"
+    assert "timeoutHintSecs" not in describe["tool"]["_meta"]["dcc"]
+    assert describe["tool"]["_meta"]["dcc"]["risk"] == "mutation"
 
     rest_call = _post_json(
         f"{gateway_rest_url}/v1/call",
