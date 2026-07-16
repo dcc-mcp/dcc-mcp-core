@@ -115,7 +115,7 @@ impl SkillWatcher {
             }
         })?;
 
-        let inner_poll = Arc::clone(&inner);
+        let inner_poll = Arc::downgrade(&inner);
         let debounce_ms = debounce.as_millis() as u64;
         std::thread::Builder::new()
             .name("skill-watcher-debounce".into())
@@ -125,8 +125,11 @@ impl SkillWatcher {
 
                 loop {
                     std::thread::sleep(poll_interval);
+                    let Some(inner) = inner_poll.upgrade() else {
+                        break;
+                    };
 
-                    let last_event = inner_poll.last_event_ms.load(Ordering::Acquire);
+                    let last_event = inner.last_event_ms.load(Ordering::Acquire);
                     if last_event == 0 || last_event == last_fired_ms {
                         continue;
                     }
@@ -137,7 +140,7 @@ impl SkillWatcher {
                         .as_millis() as u64;
 
                     if now_ms.saturating_sub(last_event) >= debounce_ms {
-                        inner_poll.reload();
+                        inner.reload();
                         last_fired_ms = last_event;
                     }
                 }

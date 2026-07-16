@@ -4,6 +4,8 @@ use crate::gateway::response_codec::{
     ResponseFormat, TOON_MIME, compact_call_batch_payload, compact_describe_payload,
     compact_search_payload, encode_response, explicit_format, token_telemetry_for_response,
 };
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use std::time::{Duration, Instant};
 
 /// Log when gateway `/mcp` dispatch exceeds this threshold (issue #1009).
@@ -11,6 +13,10 @@ const GATEWAY_MCP_SLOW_DISPATCH_MS: u128 = 250;
 
 /// Server-side deadline for `initialize` before returning `gateway-busy` (#1009).
 const GATEWAY_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(5);
+
+const MAX_INLINE_IMAGE_BASE64_BYTES: usize = 32 * 1024 * 1024;
+const NATIVE_IMAGE_PLACEHOLDER: &str = "<omitted; see native MCP image content>";
+const INVALID_IMAGE_PLACEHOLDER: &str = "<omitted; invalid inline image data>";
 
 fn log_gateway_mcp_slow_dispatch(started: Instant, method: &str) {
     let elapsed_ms = started.elapsed().as_millis();
@@ -21,6 +27,142 @@ fn log_gateway_mcp_slow_dispatch(started: Instant, method: &str) {
             "gateway MCP dispatch slow"
         );
     }
+}
+
+fn extract_native_rich_images(text: String) -> (String, Vec<Value>) {
+    let Ok(mut payload) = serde_json::from_str::<Value>(&text) else {
+        return (text, Vec::new());
+    };
+    let mut images = Vec::new();
+    if !extract_native_rich_images_from_value(&mut payload, &mut images) {
+        return (text, images);
+    }
+    let safe_text = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
+    (safe_text, images)
+}
+
+fn extract_native_rich_images_from_value(value: &mut Value, images: &mut Vec<Value>) -> bool {
+    match value {
+        Value::Object(object) => {
+            let mut extracted = false;
+            if object
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.eq_ignore_ascii_case("image"))
+            {
+                let mime_key = if object.contains_key("mimeType") {
+                    "mimeType"
+                } else {
+                    "mime_type"
+                };
+                extracted |= extract_native_image(object, mime_key, images);
+            }
+            if let Some(rich) = object.get_mut("__rich__").and_then(Value::as_object_mut) {
+                extracted |= extract_native_rich_image(rich, images);
+            }
+            for (key, child) in object.iter_mut() {
+                if key != "__rich__" {
+                    extracted |= extract_native_rich_images_from_value(child, images);
+                }
+            }
+            extracted
+        }
+        Value::Array(items) => {
+            let mut extracted = false;
+            for item in items {
+                extracted |= extract_native_rich_images_from_value(item, images);
+            }
+            extracted
+        }
+        _ => false,
+    }
+}
+
+fn extract_native_rich_image(
+    rich: &mut serde_json::Map<String, Value>,
+    images: &mut Vec<Value>,
+) -> bool {
+    if rich.get("kind").and_then(Value::as_str) != Some("image") {
+        return false;
+    }
+
+    extract_native_image(rich, "mime", images)
+}
+
+fn extract_native_image(
+    image: &mut serde_json::Map<String, Value>,
+    mime_key: &str,
+    images: &mut Vec<Value>,
+) -> bool {
+    let data = image.remove("data");
+    image.insert(
+        "data".to_string(),
+        Value::String(INVALID_IMAGE_PLACEHOLDER.to_string()),
+    );
+    let encoded = match data {
+        Some(Value::String(data)) => data,
+        Some(_) => {
+            record_native_image_error(image, "image data must be a base64 string");
+            return true;
+        }
+        None => {
+            record_native_image_error(image, "missing image data");
+            return true;
+        }
+    };
+    let Some(mime_type) = image
+        .get(mime_key)
+        .and_then(Value::as_str)
+        .map(|mime| mime.trim().to_ascii_lowercase())
+        .filter(|mime| {
+            matches!(
+                mime.as_str(),
+                "image/png" | "image/jpeg" | "image/jpg" | "image/webp" | "image/gif"
+            )
+        })
+    else {
+        record_native_image_error(image, "unsupported or missing image MIME type");
+        return true;
+    };
+    let encoded = encoded.trim();
+    if encoded.is_empty() {
+        record_native_image_error(image, "image data is empty");
+        return true;
+    }
+    if encoded.len() > MAX_INLINE_IMAGE_BASE64_BYTES {
+        record_native_image_error(image, "inline image exceeds the 32 MiB base64 limit");
+        return true;
+    }
+    match BASE64_STANDARD.decode(encoded) {
+        Ok(bytes) if !bytes.is_empty() => {}
+        Ok(_) => {
+            record_native_image_error(image, "decoded image data is empty");
+            return true;
+        }
+        Err(_) => {
+            record_native_image_error(image, "invalid base64 image data");
+            return true;
+        }
+    }
+
+    image.insert(
+        "data".to_string(),
+        Value::String(NATIVE_IMAGE_PLACEHOLDER.to_string()),
+    );
+    image.remove("native_image_error");
+    images.push(json!({
+        "type": "image",
+        "data": encoded,
+        "mimeType": mime_type,
+    }));
+    true
+}
+
+fn record_native_image_error(rich: &mut serde_json::Map<String, Value>, message: &str) {
+    rich.insert(
+        "native_image_error".to_string(),
+        Value::String(message.to_string()),
+    );
 }
 
 /// Minimal JSON-RPC 2.0 request shape accepted by the gateway `/mcp` endpoint.
@@ -668,7 +810,7 @@ async fn handle_tools_call(
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
 
-    let (text, is_error) = aggregator::route_tools_call(
+    let (raw_text, is_error) = aggregator::route_tools_call(
         gs,
         tool,
         &effective_args,
@@ -678,6 +820,7 @@ async fn handle_tools_call(
         ctx.agent_context.as_ref(),
     )
     .await;
+    let (text, native_images) = extract_native_rich_images(raw_text);
 
     crate::gateway::agent_telemetry::emit_mcp_tool_event(
         crate::gateway::agent_telemetry::McpToolTelemetryInput {
@@ -732,7 +875,12 @@ async fn handle_tools_call(
         });
     }
 
+    let retain_native_images = call_result.text == text && call_result.is_error == is_error;
     let (final_text, final_is_error) = call_result.into_tuple();
+    let mut content = vec![json!({"type": "text", "text": final_text})];
+    if retain_native_images {
+        content.extend(native_images);
+    }
 
     {
         let mut pending = gs.pending_calls.write().await;
@@ -741,7 +889,7 @@ async fn handle_tools_call(
 
     let response = json!({
         "jsonrpc": "2.0", "id": id,
-        "result": {"content": [{"type": "text", "text": final_text}], "isError": final_is_error}
+        "result": {"content": content, "isError": final_is_error}
     });
     emit_mcp_traffic_frame(
         gs,
@@ -879,6 +1027,61 @@ mod tests {
         }
     }
 
+    struct TransformAfter {
+        text: Option<&'static str>,
+        is_error: Option<bool>,
+    }
+
+    impl crate::gateway::middleware::AfterCallMiddleware for TransformAfter {
+        fn after_call<'a>(
+            &'a self,
+            _ctx: &'a crate::gateway::middleware::CallContext,
+            result: &'a mut crate::gateway::middleware::CallResult,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<(), crate::gateway::middleware::MiddlewareError>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                if let Some(text) = self.text {
+                    result.text = text.to_string();
+                }
+                if let Some(is_error) = self.is_error {
+                    result.is_error = is_error;
+                }
+                Ok(())
+            })
+        }
+    }
+
+    struct RejectAfter;
+
+    impl crate::gateway::middleware::AfterCallMiddleware for RejectAfter {
+        fn after_call<'a>(
+            &'a self,
+            _ctx: &'a crate::gateway::middleware::CallContext,
+            _result: &'a mut crate::gateway::middleware::CallResult,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<(), crate::gateway::middleware::MiddlewareError>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                Err(
+                    crate::gateway::middleware::MiddlewareError::PolicyViolation(
+                        "image blocked".to_string(),
+                    ),
+                )
+            })
+        }
+    }
+
     fn test_gateway_state() -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
         let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
@@ -956,6 +1159,100 @@ mod tests {
         dispatch_single_request(&gs, req, "test-session", &HeaderMap::new())
             .await
             .expect("request has id")
+    }
+
+    const TEST_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=";
+
+    async fn rich_image_gateway_state() -> (
+        GatewayState,
+        Arc<CaptureSink>,
+        tempfile::TempDir,
+        tokio::sync::oneshot::Sender<()>,
+        String,
+    ) {
+        let app = axum::Router::new()
+            .route(
+                "/health",
+                axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+            )
+            .route(
+                "/v1/call",
+                axum::routing::post(|| async {
+                    axum::Json(json!({
+                        "success": true,
+                        "output": {
+                            "success": true,
+                            "context": {
+                                "__rich__": {
+                                    "kind": "image",
+                                    "mime": "image/png",
+                                    "data": TEST_PNG_BASE64
+                                }
+                            }
+                        }
+                    }))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backend_port = listener.local_addr().unwrap().port();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        let registry_dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(registry_dir.path()).unwrap()));
+        let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        {
+            let registry = registry.read().await;
+            let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+                "maya",
+                "127.0.0.1",
+                backend_port,
+            );
+            entry.instance_id = instance_id;
+            registry.register(entry).unwrap();
+        }
+
+        let sink = Arc::new(CaptureSink::default());
+        let audit = Arc::new(crate::gateway::middleware::AuditMiddleware::new(
+            sink.clone(),
+        ));
+        let mut gs = test_gateway_state();
+        gs.registry = registry;
+        gs.middleware_chain = Arc::new(
+            crate::gateway::middleware::MiddlewareChain::new()
+                .with_before(audit.clone())
+                .with_after(audit),
+        );
+
+        let tool_slug = format!("maya.{instance_id}.app_ui__snapshot");
+        let record = crate::gateway::capability::CapabilityRecord::new(
+            tool_slug.clone(),
+            "app_ui__snapshot".to_string(),
+            "app_ui__snapshot".to_string(),
+            Some("app-ui".to_string()),
+            "Capture an application screenshot",
+            vec![],
+            "maya".to_string(),
+            instance_id,
+            true,
+            true,
+            None,
+        );
+        gs.capability_index.upsert_instance(
+            instance_id,
+            vec![record],
+            crate::gateway::capability::InstanceFingerprint(1),
+        );
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        (gs, sink, registry_dir, shutdown_tx, tool_slug)
     }
 
     fn decode_toon_result(result: &Value) -> Value {
@@ -1154,6 +1451,249 @@ mod tests {
         assert_eq!(agent.actor_id.as_deref(), Some("artist-1"));
         assert_eq!(agent.client_platform.as_deref(), Some("cursor"));
         assert_eq!(agent.source_ip.as_deref(), Some("192.0.2.44"));
+    }
+
+    #[tokio::test]
+    async fn gateway_call_routes_emit_native_image_without_audit_base64() {
+        let (gs, sink, _registry_dir, _shutdown, tool_slug) = rich_image_gateway_state().await;
+
+        for (index, route) in ["call", "call_tool"].into_iter().enumerate() {
+            let req = request(
+                "tools/call",
+                json!(format!("rich-image-{index}")),
+                Some(json!({
+                    "name": route,
+                    "arguments": {
+                        "tool_slug": tool_slug,
+                        "arguments": {}
+                    }
+                })),
+            );
+            let response = dispatch_single_request(&gs, &req, "test-session", &HeaderMap::new())
+                .await
+                .expect("request has id");
+
+            assert_eq!(response["result"]["isError"], false);
+            let content = response["result"]["content"]
+                .as_array()
+                .expect("tools/call content array");
+            assert_eq!(content[0]["type"], "text");
+            assert_eq!(content[1]["type"], "image", "route {route}");
+            assert_eq!(content[1]["mimeType"], "image/png", "route {route}");
+            assert_eq!(content[1]["data"], TEST_PNG_BASE64, "route {route}");
+
+            let safe_text = content[0]["text"].as_str().expect("text content");
+            assert!(
+                !safe_text.contains(TEST_PNG_BASE64),
+                "route {route} must remove image base64 from text"
+            );
+            let safe_payload: Value =
+                serde_json::from_str(safe_text).expect("sanitized backend JSON");
+            assert_eq!(
+                safe_payload
+                    .pointer("/output/context/__rich__/data")
+                    .and_then(Value::as_str),
+                Some(NATIVE_IMAGE_PLACEHOLDER),
+                "route {route} keeps an explicit native-content placeholder"
+            );
+        }
+
+        let entries = sink.0.lock().unwrap();
+        assert_eq!(entries.len(), 2);
+        for entry in entries.iter() {
+            assert!(!entry.result_preview.contains(TEST_PNG_BASE64));
+            assert!(
+                !entry
+                    .output_payload
+                    .as_ref()
+                    .expect("captured output payload")
+                    .content
+                    .contains(TEST_PNG_BASE64)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn after_call_transform_drops_preextracted_native_image() {
+        let (mut gs, _sink, _registry_dir, _shutdown, tool_slug) = rich_image_gateway_state().await;
+
+        for (index, middleware, expected_text, expected_error) in [
+            (
+                0,
+                TransformAfter {
+                    text: Some("filtered by policy"),
+                    is_error: None,
+                },
+                Some("filtered by policy"),
+                false,
+            ),
+            (
+                1,
+                TransformAfter {
+                    text: None,
+                    is_error: Some(true),
+                },
+                None,
+                true,
+            ),
+        ] {
+            gs.middleware_chain = Arc::new(
+                crate::gateway::middleware::MiddlewareChain::new().with_after(Arc::new(middleware)),
+            );
+            let req = request(
+                "tools/call",
+                json!(format!("rich-image-transform-{index}")),
+                Some(json!({
+                    "name": "call",
+                    "arguments": {"tool_slug": tool_slug, "arguments": {}}
+                })),
+            );
+
+            let response = dispatch_single_request(&gs, &req, "test-session", &HeaderMap::new())
+                .await
+                .expect("request has id");
+            let content = response["result"]["content"].as_array().unwrap();
+            assert_eq!(
+                content.len(),
+                1,
+                "middleware must re-approve native content"
+            );
+            assert_eq!(response["result"]["isError"], expected_error);
+            if let Some(expected_text) = expected_text {
+                assert_eq!(content[0]["text"], expected_text);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn after_call_rejection_drops_preextracted_native_image() {
+        let (mut gs, _sink, _registry_dir, _shutdown, tool_slug) = rich_image_gateway_state().await;
+        gs.middleware_chain = Arc::new(
+            crate::gateway::middleware::MiddlewareChain::new().with_after(Arc::new(RejectAfter)),
+        );
+        let req = request(
+            "tools/call",
+            json!("rich-image-rejected"),
+            Some(json!({
+                "name": "call",
+                "arguments": {"tool_slug": tool_slug, "arguments": {}}
+            })),
+        );
+
+        let response = dispatch_single_request(&gs, &req, "test-session", &HeaderMap::new())
+            .await
+            .expect("request has id");
+        let content = response["result"]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(response["result"]["isError"], true);
+        assert!(
+            content[0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("image blocked")
+        );
+        assert!(
+            !serde_json::to_string(content)
+                .unwrap()
+                .contains(TEST_PNG_BASE64)
+        );
+    }
+
+    #[test]
+    fn malformed_rich_image_is_redacted_without_native_content() {
+        let raw = json!({
+            "output": {
+                "context": {
+                    "__rich__": {
+                        "kind": "image",
+                        "mime": "image/png",
+                        "data": "not valid base64"
+                    }
+                }
+            }
+        })
+        .to_string();
+
+        let (safe_text, images) = extract_native_rich_images(raw);
+
+        assert!(images.is_empty());
+        assert!(!safe_text.contains("not valid base64"));
+        let safe: Value = serde_json::from_str(&safe_text).unwrap();
+        assert_eq!(
+            safe.pointer("/output/context/__rich__/data")
+                .and_then(Value::as_str),
+            Some(INVALID_IMAGE_PLACEHOLDER)
+        );
+        assert_eq!(
+            safe.pointer("/output/context/__rich__/native_image_error")
+                .and_then(Value::as_str),
+            Some("invalid base64 image data")
+        );
+    }
+
+    #[test]
+    fn sidecar_native_mcp_image_is_promoted_without_base64_in_outer_text() {
+        let raw = json!({
+            "content": [
+                {"type": "text", "text": "captured"},
+                {"type": "image", "mimeType": "image/png", "data": TEST_PNG_BASE64}
+            ],
+            "isError": false
+        })
+        .to_string();
+
+        let (safe_text, images) = extract_native_rich_images(raw);
+
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0]["type"], "image");
+        assert_eq!(images[0]["mimeType"], "image/png");
+        assert_eq!(images[0]["data"], TEST_PNG_BASE64);
+        assert!(!safe_text.contains(TEST_PNG_BASE64));
+        let safe: Value = serde_json::from_str(&safe_text).unwrap();
+        assert_eq!(safe["content"][1]["data"], NATIVE_IMAGE_PLACEHOLDER);
+    }
+
+    #[tokio::test]
+    async fn mcp_audit_deeply_redacts_ui_text_and_credentials_without_metadata() {
+        let sink = Arc::new(CaptureSink::default());
+        let audit = Arc::new(crate::gateway::middleware::AuditMiddleware::new(
+            sink.clone(),
+        ));
+        let mut gs = test_gateway_state();
+        gs.middleware_chain = Arc::new(
+            crate::gateway::middleware::MiddlewareChain::new()
+                .with_before(audit.clone())
+                .with_after(audit),
+        );
+        let req = request(
+            "tools/call",
+            json!("sensitive-input"),
+            Some(json!({
+                "name": "call",
+                "arguments": {
+                    "tool_slug": "maya.missing.app_ui__act",
+                    "arguments": {
+                        "action": "set_text",
+                        "text": "private typed value",
+                        "password": "password-value",
+                        "access_token": "token-value"
+                    }
+                }
+            })),
+        );
+
+        let response = dispatch_single_request(&gs, &req, "session", &HeaderMap::new())
+            .await
+            .unwrap();
+        let encoded_response = serde_json::to_string(&response).unwrap();
+        let entries = sink.0.lock().unwrap();
+        let input = &entries[0].input_payload.as_ref().unwrap().content;
+
+        for secret in ["private typed value", "password-value", "token-value"] {
+            assert!(!input.contains(secret));
+            assert!(!encoded_response.contains(secret));
+        }
+        assert!(input.contains("[REDACTED_SENSITIVE_INPUT]"));
     }
 
     #[tokio::test]

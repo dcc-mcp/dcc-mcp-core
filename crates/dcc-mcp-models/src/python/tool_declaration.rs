@@ -37,10 +37,11 @@ impl SkillGroup {
     }
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=vec![]))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=vec![], requires_in_process=false))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -58,6 +59,7 @@ impl ToolDeclaration {
         thread_affinity: String,
         enforce_thread_affinity: bool,
         search_aliases: Vec<String>,
+        requires_in_process: bool,
     ) -> pyo3::PyResult<Self> {
         let input_schema = input_schema
             .and_then(|schema| serde_json::from_str(&schema).ok())
@@ -77,6 +79,7 @@ impl ToolDeclaration {
             idempotent,
             defer_loading,
             source_file,
+            requires_in_process,
             next_tools: NextTools::default(),
             group,
             execution,
@@ -104,6 +107,16 @@ impl ToolDeclaration {
     // (read+write), plus `timeout_hint_secs` (Option<u32>) and `required_capabilities`
     // (Vec<String>) and `search_aliases` (Vec<String>). See `crate::skill_metadata::ToolDeclaration`'s
     // `#[py_wrapper(...)]` table for the canonical list.
+
+    #[getter]
+    fn requires_in_process(&self) -> bool {
+        self.requires_in_process
+    }
+
+    #[setter]
+    fn set_requires_in_process(&mut self, value: bool) {
+        self.requires_in_process = value;
+    }
 
     #[getter]
     fn execution(&self) -> &'static str {
@@ -153,73 +166,72 @@ impl ToolDeclaration {
     }
 
     #[getter]
-    fn annotations(&self, py: pyo3::Python<'_>) -> pyo3::PyResult<Py<PyAny>> {
-        use pyo3::types::PyDict;
-        let dict = PyDict::new(py);
-        if let Some(value) = &self.annotations.title {
-            dict.set_item("title", value)?;
-        }
-        if let Some(value) = self.annotations.read_only_hint {
-            dict.set_item("readOnlyHint", value)?;
-        }
-        if let Some(value) = self.annotations.destructive_hint {
-            dict.set_item("destructiveHint", value)?;
-        }
-        if let Some(value) = self.annotations.idempotent_hint {
-            dict.set_item("idempotentHint", value)?;
-        }
-        if let Some(value) = self.annotations.open_world_hint {
-            dict.set_item("openWorldHint", value)?;
-        }
-        if let Some(value) = self.annotations.deferred_hint {
-            dict.set_item("deferredHint", value)?;
-        }
-        Ok(dict.into_any().unbind())
+    fn annotations(&self) -> pyo3::PyResult<Py<PyAny>> {
+        Python::attach(|py| {
+            use pyo3::types::PyDict;
+            let dict = PyDict::new(py);
+            if let Some(value) = &self.annotations.title {
+                dict.set_item("title", value)?;
+            }
+            if let Some(value) = self.annotations.read_only_hint {
+                dict.set_item("readOnlyHint", value)?;
+            }
+            if let Some(value) = self.annotations.destructive_hint {
+                dict.set_item("destructiveHint", value)?;
+            }
+            if let Some(value) = self.annotations.idempotent_hint {
+                dict.set_item("idempotentHint", value)?;
+            }
+            if let Some(value) = self.annotations.open_world_hint {
+                dict.set_item("openWorldHint", value)?;
+            }
+            if let Some(value) = self.annotations.deferred_hint {
+                dict.set_item("deferredHint", value)?;
+            }
+            Ok(dict.into_any().unbind())
+        })
     }
 
     #[setter]
-    fn set_annotations(
-        &mut self,
-        py: pyo3::Python<'_>,
-        value: Option<Py<PyAny>>,
-    ) -> pyo3::PyResult<()> {
-        use pyo3::types::PyDict;
-        let Some(obj) = value else {
-            self.annotations = ToolAnnotations::default();
-            return Ok(());
-        };
-        let bound = obj.bind(py);
-        if bound.is_none() {
-            self.annotations = ToolAnnotations::default();
-            return Ok(());
-        }
-        let dict = bound.cast::<PyDict>().map_err(|_| {
-            pyo3::exceptions::PyTypeError::new_err("annotations must be a dict or None")
-        })?;
+    fn set_annotations(&mut self, value: Option<Py<PyAny>>) -> pyo3::PyResult<()> {
+        Python::attach(|py| {
+            use pyo3::types::PyDict;
+            let Some(obj) = value else {
+                self.annotations = ToolAnnotations::default();
+                return Ok(());
+            };
+            let bound = obj.bind(py);
+            if bound.is_none() {
+                self.annotations = ToolAnnotations::default();
+                return Ok(());
+            }
+            let dict = bound.cast::<PyDict>().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err("annotations must be a dict or None")
+            })?;
 
-        self.annotations = ToolAnnotations {
-            title: get_dict_string(dict, &["title"])?,
-            read_only_hint: get_dict_bool(dict, &["read_only_hint", "readOnlyHint"])?,
-            destructive_hint: get_dict_bool(dict, &["destructive_hint", "destructiveHint"])?,
-            idempotent_hint: get_dict_bool(dict, &["idempotent_hint", "idempotentHint"])?,
-            open_world_hint: get_dict_bool(dict, &["open_world_hint", "openWorldHint"])?,
-            deferred_hint: get_dict_bool(dict, &["deferred_hint", "deferredHint"])?,
-        };
-        Ok(())
+            self.annotations = ToolAnnotations {
+                title: get_dict_string(dict, &["title"])?,
+                read_only_hint: get_dict_bool(dict, &["read_only_hint", "readOnlyHint"])?,
+                destructive_hint: get_dict_bool(dict, &["destructive_hint", "destructiveHint"])?,
+                idempotent_hint: get_dict_bool(dict, &["idempotent_hint", "idempotentHint"])?,
+                open_world_hint: get_dict_bool(dict, &["open_world_hint", "openWorldHint"])?,
+                deferred_hint: get_dict_bool(dict, &["deferred_hint", "deferredHint"])?,
+            };
+            Ok(())
+        })
     }
 
     #[getter]
-    fn next_tools<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> pyo3::PyResult<Option<pyo3::Bound<'py, pyo3::types::PyDict>>> {
+    fn next_tools(&self) -> pyo3::PyResult<Option<Py<pyo3::types::PyDict>>> {
         if self.next_tools.on_success.is_empty() && self.next_tools.on_failure.is_empty() {
             return Ok(None);
         }
-        let dict = pyo3::types::PyDict::new(py);
-        dict.set_item("on_success", self.next_tools.on_success.clone())?;
-        dict.set_item("on_failure", self.next_tools.on_failure.clone())?;
-        Ok(Some(dict))
+        Python::attach(|py| {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("on_success", self.next_tools.on_success.clone())?;
+            dict.set_item("on_failure", self.next_tools.on_failure.clone())?;
+            Ok(Some(dict.unbind()))
+        })
     }
 
     #[setter]

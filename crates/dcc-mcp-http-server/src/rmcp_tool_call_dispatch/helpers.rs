@@ -1,5 +1,7 @@
 //! Shared helpers for rmcp `tools/call` dispatch (gates, results, notifications).
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde_json::{Value, json};
 
 use dcc_mcp_actions::registry::ToolMeta;
@@ -15,6 +17,10 @@ use crate::mcp_tool_catalog::missing_capabilities;
 use crate::rmcp_registry_context::RegistryContext;
 use crate::server_state::ServerState;
 use crate::session::SessionManager;
+
+const MAX_INLINE_IMAGE_BASE64_BYTES: usize = 32 * 1024 * 1024;
+const NATIVE_IMAGE_PLACEHOLDER: &str = "<omitted; see native MCP image content>";
+const INVALID_IMAGE_PLACEHOLDER: &str = "<omitted; invalid inline image data>";
 
 fn notify_tools_list_changed(sessions: &SessionManager, session_id: &str) {
     let event = NotificationBuilder::new("notifications/tools/list_changed")
@@ -178,13 +184,89 @@ pub(crate) fn readiness_gate_result(
 }
 
 pub(crate) fn dispatch_json_result(output: Value) -> CallToolResult {
-    let text = serde_json::to_string(&output).unwrap_or_else(|_| output.to_string());
+    let mut safe_output = output;
+    let rich_image = take_native_rich_image(&mut safe_output);
+    let is_error = safe_output.get("success").and_then(Value::as_bool) == Some(false);
+    let text = serde_json::to_string(&safe_output).unwrap_or_else(|_| safe_output.to_string());
+    let mut content = vec![ToolContent::Text { text }];
+    content.extend(rich_image);
     CallToolResult {
-        content: vec![ToolContent::Text { text }],
-        structured_content: Some(output),
-        is_error: false,
+        content,
+        structured_content: Some(safe_output),
+        is_error,
         meta: None,
     }
+}
+
+fn take_native_rich_image(output: &mut Value) -> Option<ToolContent> {
+    let rich = output.pointer_mut("/context/__rich__")?.as_object_mut()?;
+    if rich.get("kind").and_then(Value::as_str) != Some("image") {
+        return None;
+    }
+
+    let data = rich.remove("data");
+    rich.insert(
+        "data".to_string(),
+        Value::String(INVALID_IMAGE_PLACEHOLDER.to_string()),
+    );
+    let encoded = match data {
+        Some(Value::String(data)) => data,
+        Some(_) => {
+            record_native_image_error(rich, "image data must be a base64 string");
+            return None;
+        }
+        None => {
+            record_native_image_error(rich, "missing image data");
+            return None;
+        }
+    };
+    let Some(mime_type) = rich
+        .get("mime")
+        .and_then(Value::as_str)
+        .map(|mime| mime.trim().to_ascii_lowercase())
+        .filter(|mime| {
+            matches!(
+                mime.as_str(),
+                "image/png" | "image/jpeg" | "image/jpg" | "image/webp" | "image/gif"
+            )
+        })
+    else {
+        record_native_image_error(rich, "unsupported or missing image MIME type");
+        return None;
+    };
+    let encoded = encoded.trim();
+    if encoded.len() > MAX_INLINE_IMAGE_BASE64_BYTES {
+        record_native_image_error(rich, "inline image exceeds the 32 MiB base64 limit");
+        return None;
+    }
+    match BASE64_STANDARD.decode(encoded) {
+        Ok(bytes) if !bytes.is_empty() => {}
+        Ok(_) => {
+            record_native_image_error(rich, "decoded image data is empty");
+            return None;
+        }
+        Err(_) => {
+            record_native_image_error(rich, "invalid base64 image data");
+            return None;
+        }
+    }
+
+    rich.insert(
+        "data".to_string(),
+        Value::String(NATIVE_IMAGE_PLACEHOLDER.to_string()),
+    );
+    rich.remove("native_image_error");
+    Some(ToolContent::Image {
+        data: encoded.to_string(),
+        mime_type,
+    })
+}
+
+fn record_native_image_error(rich: &mut serde_json::Map<String, Value>, message: &str) {
+    rich.insert(
+        "native_image_error".to_string(),
+        Value::String(message.to_string()),
+    );
 }
 
 pub(crate) fn dispatch_err_result(tool_name: &str, msg: impl Into<String>) -> CallToolResult {

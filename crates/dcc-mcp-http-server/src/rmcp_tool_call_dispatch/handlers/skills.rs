@@ -110,27 +110,24 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_get_skill_info(
     if skill_name.is_empty() {
         return CallToolResult::error("Missing required parameter: skill_name");
     }
+    if let Some(diagnostic) = state.catalog.skipped_skill_diagnostic(skill_name) {
+        let payload = json!({
+            "error": "skill_skipped",
+            "message": format!(
+                "Skill '{skill_name}' was skipped during discovery: {}",
+                diagnostic.message
+            ),
+            "skipped": diagnostic,
+        });
+        return CallToolResult::error(serde_json::to_string_pretty(&payload).unwrap_or_default());
+    }
+
     match state.catalog.get_skill_info(skill_name) {
         Some(info) => {
             let text = serde_json::to_string_pretty(&info).unwrap_or_default();
             CallToolResult::text(text)
         }
-        None => {
-            if let Some(diagnostic) = state.catalog.skipped_skill_diagnostic(skill_name) {
-                let payload = json!({
-                    "error": "skill_skipped",
-                    "message": format!(
-                        "Skill '{skill_name}' was skipped during discovery: {}",
-                        diagnostic.message
-                    ),
-                    "skipped": diagnostic,
-                });
-                return CallToolResult::error(
-                    serde_json::to_string_pretty(&payload).unwrap_or_default(),
-                );
-            }
-            CallToolResult::error(format!("Skill '{skill_name}' not found"))
-        }
+        None => CallToolResult::error(format!("Skill '{skill_name}' not found")),
     }
 }
 

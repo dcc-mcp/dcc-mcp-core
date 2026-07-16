@@ -54,6 +54,7 @@ __all__ = [
     "CaptureResult",
     "CaptureTarget",
     "Capturer",
+    "ComputerUseSession",
     "DccCapabilities",
     "DccError",
     "DccErrorCode",
@@ -322,6 +323,7 @@ class CaptureBackendKind:
     Python wrapper for [`CaptureBackendKind`].
     """
     DxgiDesktopDuplication: CaptureBackendKind
+    WindowsGraphicsCapture: CaptureBackendKind
     ScreenCaptureKit: CaptureBackendKind
     X11Xshm: CaptureBackendKind
     PipeWire: CaptureBackendKind
@@ -508,6 +510,54 @@ class Capturer:
             (window not found, crop out of bounds, decode error, ...).
         """
     def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class ComputerUseSession:
+    r"""
+    Native, scoped DCC MCP Computer Use session.
+    """
+    def __new__(cls, *, process_id: typing.Optional[builtins.int] = None, window_handle: typing.Optional[builtins.int] = None, window_title: typing.Optional[builtins.str] = None, app_name: typing.Optional[builtins.str] = None) -> ComputerUseSession:
+        r"""
+        Create a session for exactly one application window.
+        """
+    @staticmethod
+    def process_user_interrupted() -> builtins.bool:
+        r"""
+        Return whether Ctrl+Alt+Esc stopped Computer Use in this Windows logon session.
+        """
+    @staticmethod
+    def desktop_interactive() -> builtins.bool:
+        r"""
+        Return whether this process can currently observe the interactive Windows desktop.
+        """
+    def start(self) -> builtins.str:
+        r"""
+        Start the visible banner and reserve Ctrl+Alt+Esc as the stop chord.
+        """
+    def screenshot(self) -> tuple[builtins.str, typing.Optional[bytes]]:
+        r"""
+        Return `(metadata_json, png_bytes_or_none)` for the scoped window.
+        """
+    def act(self, request_json: builtins.str) -> builtins.str:
+        r"""
+        Perform one JSON-encoded native action.
+        """
+    def request_stop(self) -> None:
+        r"""
+        Request an immediate stop without waiting for the active action.
+        """
+    def stop(self) -> builtins.str:
+        r"""
+        Stop the session and remove the banner.
+        """
+    def resume_after_user_approval(self) -> builtins.str:
+        r"""
+        Clear the Windows-logon-session stop latch after explicit user approval.
+        """
+    def status(self) -> builtins.str:
+        r"""
+        Return the current session state as JSON.
+        """
 
 @typing.final
 class DccCapabilities:
@@ -2799,6 +2849,10 @@ class SkillWatcher:
         r"""
         Manually trigger a reload.
         """
+    def on_reload(self, callback: typing.Any) -> None:
+        r"""
+        Register a callback invoked after every automatic or manual reload.
+        """
     def __repr__(self) -> builtins.str: ...
 
 @typing.final
@@ -2987,7 +3041,33 @@ class ToolDeclaration:
     without loading the skill's scripts. It carries enough information for agents
     to decide whether to load a skill.
     """
+    @property
+    def requires_in_process(self) -> builtins.bool: ...
+    @requires_in_process.setter
+    def requires_in_process(self, value: builtins.bool) -> None: ...
+    @property
+    def execution(self) -> builtins.str: ...
+    @execution.setter
+    def execution(self, value: builtins.str) -> None: ...
+    @property
+    def input_schema(self) -> builtins.str: ...
+    @input_schema.setter
+    def input_schema(self, value: builtins.str) -> None: ...
+    @property
+    def output_schema(self) -> builtins.str: ...
+    @output_schema.setter
+    def output_schema(self, value: builtins.str) -> None: ...
+    @property
+    def annotations(self) -> typing.Any: ...
+    @annotations.setter
+    def annotations(self, value: typing.Optional[typing.Any]) -> None: ...
+    @property
+    def next_tools(self) -> typing.Optional[dict]: ...
+    @next_tools.setter
+    def next_tools(self, value: typing.Optional[typing.Any]) -> None: ...
     def __eq__(self, other: builtins.object, /) -> builtins.bool: ...
+    def __new__(cls, name: builtins.str, description: builtins.str = '', input_schema: typing.Optional[builtins.str] = None, output_schema: typing.Optional[builtins.str] = None, read_only: builtins.bool = False, destructive: builtins.bool = False, idempotent: builtins.bool = False, defer_loading: builtins.bool = False, source_file: builtins.str = '', group: builtins.str = '', execution: builtins.str = 'sync', timeout_hint_secs: typing.Optional[builtins.int] = None, thread_affinity: builtins.str = 'any', enforce_thread_affinity: builtins.bool = False, search_aliases: typing.Sequence[builtins.str] = [], requires_in_process: builtins.bool = False) -> ToolDeclaration: ...
+    def __repr__(self) -> builtins.str: ...
 
 @typing.final
 class ToolDefinition:

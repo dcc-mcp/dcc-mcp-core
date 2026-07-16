@@ -3,8 +3,13 @@
 # Import built-in modules
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
+import sys
 import threading
+import time
+from types import SimpleNamespace
 from typing import Any
 from typing import Callable
 from typing import Mapping
@@ -21,6 +26,7 @@ from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
+from dcc_mcp_core._server.inprocess_executor import clear_script_package
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
 
@@ -88,11 +94,238 @@ def test_run_skill_script_strips_reserved_metadata(tmp_path: Path) -> None:
     assert run_skill_script(str(p), {"color": "red", "_meta": {"session": "test"}}) == ["color"]
 
 
-def test_run_skill_script_supports_sibling_imports(tmp_path: Path) -> None:
+def test_run_skill_script_supports_legacy_bare_sibling_imports(tmp_path: Path) -> None:
     (tmp_path / "_helper.py").write_text("VALUE = 42\n", encoding="utf-8")
     p = _write_script(tmp_path, "from _helper import VALUE\ndef main(): return VALUE\n")
     assert run_skill_script(str(p), {}) == 42
     assert str(tmp_path) not in __import__("sys").path
+
+
+def test_run_skill_script_supports_isolated_relative_sibling_imports(tmp_path: Path) -> None:
+    (tmp_path / "_helper.py").write_text("VALUE = 42\n", encoding="utf-8")
+    p = _write_script(tmp_path, "from ._helper import VALUE\ndef main(): return VALUE\n")
+    assert run_skill_script(str(p), {}) == 42
+    assert str(tmp_path) not in __import__("sys").path
+
+
+def test_run_skill_script_isolates_same_named_helpers_across_directories_concurrently(tmp_path: Path) -> None:
+    scripts = []
+    for directory_name, value in (("first", "alpha"), ("second", "beta")):
+        script_dir = tmp_path / directory_name
+        script_dir.mkdir()
+        (script_dir / "_helper.py").write_text(f"VALUE = {value!r}\n", encoding="utf-8")
+        script = script_dir / "tool.py"
+        script.write_text("from ._helper import VALUE\ndef main(): return VALUE\n", encoding="utf-8")
+        scripts.append((script, value))
+
+    calls = scripts * 12
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda item: run_skill_script(str(item[0]), {}), calls))
+
+    assert results == [expected for _, expected in calls]
+
+
+def test_legacy_bare_sibling_imports_are_isolated_concurrently(tmp_path: Path) -> None:
+    scripts = []
+    for directory_name, value in (("first", "alpha"), ("second", "beta")):
+        script_dir = tmp_path / directory_name
+        script_dir.mkdir()
+        (script_dir / "_legacy_helper.py").write_text(f"VALUE = {value!r}\n", encoding="utf-8")
+        script = script_dir / "tool.py"
+        script.write_text("from _legacy_helper import VALUE\ndef main(): return VALUE\n", encoding="utf-8")
+        scripts.append((script, value))
+
+    calls = scripts * 8
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda item: run_skill_script(str(item[0]), {}), calls))
+
+    assert results == [expected for _, expected in calls]
+
+
+def test_run_skill_script_shares_helper_state_within_one_skill_directory(tmp_path: Path) -> None:
+    (tmp_path / "_state.py").write_text(
+        "EVENTS = []\ndef record(event):\n    EVENTS.append(event)\n    return list(EVENTS)\n",
+        encoding="utf-8",
+    )
+    snapshot = tmp_path / "snapshot.py"
+    snapshot.write_text("from ._state import record\ndef main(): return record('snapshot')\n", encoding="utf-8")
+    act = tmp_path / "act.py"
+    act.write_text("from ._state import record\ndef main(): return record('act')\n", encoding="utf-8")
+
+    assert run_skill_script(str(snapshot), {}) == ["snapshot"]
+    assert run_skill_script(str(act), {}) == ["snapshot", "act"]
+
+
+def test_clear_script_package_runs_cleanup_and_reloads_helpers(tmp_path: Path) -> None:
+    sentinel = tmp_path / "cleaned.txt"
+    helper = tmp_path / "_helper.py"
+    helper.write_text(
+        "from pathlib import Path\n"
+        "VALUE = 'old'\n"
+        f"def cleanup(): Path({str(sentinel)!r}).write_text('yes', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    script = _write_script(tmp_path, "from ._helper import VALUE\ndef main(): return VALUE\n")
+
+    assert run_skill_script(str(script), {}) == "old"
+    assert clear_script_package(tmp_path) >= 2
+    assert sentinel.read_text(encoding="utf-8") == "yes"
+
+    helper.write_text("VALUE = 'new-value'\n", encoding="utf-8")
+    assert run_skill_script(str(script), {}) == "new-value"
+    clear_script_package(tmp_path)
+
+
+def test_package_calls_can_overlap_while_cleanup_waits(tmp_path: Path) -> None:
+    (tmp_path / "_control.py").write_text(
+        "release = None\n"
+        "def configure(event):\n    global release\n    release = event\n"
+        "def request_stop():\n    if release is not None:\n        release.set()\n",
+        encoding="utf-8",
+    )
+    long_call = tmp_path / "act.py"
+    long_call.write_text(
+        "from ._control import configure\n"
+        "def main(started, release):\n"
+        "    configure(release)\n"
+        "    started.set()\n"
+        "    release.wait(2)\n"
+        "    return 'act-done'\n",
+        encoding="utf-8",
+    )
+    stop_call = tmp_path / "stop.py"
+    stop_call.write_text("def main(stopped): stopped.set(); return 'stopped'\n", encoding="utf-8")
+    started = threading.Event()
+    release = threading.Event()
+    stopped = threading.Event()
+    cleanup_started = threading.Event()
+    cleaned = threading.Event()
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        active = pool.submit(run_skill_script, str(long_call), {"started": started, "release": release})
+        assert started.wait(1)
+        assert run_skill_script(str(stop_call), {"stopped": stopped}) == "stopped"
+        assert stopped.is_set()
+
+        def _cleanup() -> None:
+            cleanup_started.set()
+            clear_script_package(tmp_path)
+            cleaned.set()
+
+        cleanup = pool.submit(_cleanup)
+        assert cleanup_started.wait(1)
+        assert cleaned.wait(1)
+        assert active.result(timeout=1) == "act-done"
+        cleanup.result(timeout=1)
+
+    assert cleaned.is_set()
+    assert release.is_set()
+
+
+def test_shutdown_defers_unload_for_non_cooperative_active_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import dcc_mcp_core._server.inprocess_executor as inprocess_executor
+
+    cleaned = tmp_path / "cleaned.txt"
+    (tmp_path / "_state.py").write_text(
+        f"from pathlib import Path\ndef cleanup(): Path({str(cleaned)!r}).write_text('yes', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    script = _write_script(
+        tmp_path,
+        "from . import _state\n"
+        "def main(started, release):\n"
+        "    started.set()\n"
+        "    release.wait(5)\n"
+        "    return 'done'\n",
+    )
+    started = threading.Event()
+    release = threading.Event()
+    bridge = HostExecutionBridge()
+    monkeypatch.setattr(inprocess_executor, "_SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS", 0.05)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        call = pool.submit(bridge.execute_script, str(script), {"started": started, "release": release})
+        assert started.wait(1)
+
+        before = time.monotonic()
+        assert bridge.shutdown_script_execution() == 0
+        assert time.monotonic() - before < 0.5
+        assert not cleaned.exists()
+        assert any(
+            getattr(module, "__dcc_mcp_script_dir__", None) == os.path.normcase(str(tmp_path))
+            for module in sys.modules.values()
+            if module is not None
+        )
+        assert "modules remain loaded" in caplog.text
+
+        release.set()
+        assert call.result(timeout=1) == "done"
+
+    assert cleaned.read_text(encoding="utf-8") == "yes"
+    assert not any(
+        getattr(module, "__dcc_mcp_script_dir__", None) == os.path.normcase(str(tmp_path))
+        for module in sys.modules.values()
+        if module is not None
+    )
+
+
+def test_shutdown_stays_bounded_when_request_stop_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import dcc_mcp_core._server.inprocess_executor as inprocess_executor
+
+    (tmp_path / "_state.py").write_text(
+        "stop_release = None\n"
+        "cleaned = None\n"
+        "def configure(stop_event, cleaned_event):\n"
+        "    global stop_release, cleaned\n"
+        "    stop_release, cleaned = stop_event, cleaned_event\n"
+        "def request_stop(): stop_release.wait(5)\n"
+        "def cleanup(): cleaned.set()\n",
+        encoding="utf-8",
+    )
+    script = _write_script(
+        tmp_path,
+        "from ._state import configure\n"
+        "def main(started, release, stop_release, cleaned):\n"
+        "    configure(stop_release, cleaned)\n"
+        "    started.set()\n"
+        "    release.wait(5)\n"
+        "    return 'done'\n",
+    )
+    started = threading.Event()
+    release = threading.Event()
+    stop_release = threading.Event()
+    cleaned = threading.Event()
+    bridge = HostExecutionBridge()
+    monkeypatch.setattr(inprocess_executor, "_SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS", 0.05)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        call = pool.submit(
+            bridge.execute_script,
+            str(script),
+            {
+                "started": started,
+                "release": release,
+                "stop_release": stop_release,
+                "cleaned": cleaned,
+            },
+        )
+        assert started.wait(1)
+        before = time.monotonic()
+        assert bridge.shutdown_script_execution() == 0
+        assert time.monotonic() - before < 0.5
+
+        release.set()
+        assert call.result(timeout=1) == "done"
+        assert not cleaned.is_set()
+        stop_release.set()
+        assert cleaned.wait(1)
 
 
 def test_run_skill_script_supports_single_dict_main(tmp_path: Path) -> None:
@@ -139,15 +372,15 @@ def test_run_skill_script_systemexit_at_module_level(tmp_path: Path) -> None:
     assert run_skill_script(str(p), {}) == {"fast_path": True}
 
 
-def test_run_skill_script_does_not_pollute_sys_modules(tmp_path: Path) -> None:
+def test_run_skill_script_cleans_ephemeral_entry_modules(tmp_path: Path) -> None:
     # Import built-in modules
     import sys
 
-    before = {k for k in sys.modules if k.startswith("_dcc_mcp_inproc_")}
+    before = {k for k in sys.modules if k.startswith("_dcc_mcp_skill_") and "._entry_" in k}
     p = _write_script(tmp_path, "def main(): return 'ok'\n")
     run_skill_script(str(p), {})
-    after = {k for k in sys.modules if k.startswith("_dcc_mcp_inproc_")}
-    assert after == before, "synthetic module name leaked into sys.modules"
+    after = {k for k in sys.modules if k.startswith("_dcc_mcp_skill_") and "._entry_" in k}
+    assert after == before, "ephemeral entry module leaked into sys.modules"
 
 
 # ── build_inprocess_executor ────────────────────────────────────────────────
@@ -313,6 +546,144 @@ def test_host_execution_bridge_executes_script_inline(tmp_path: Path) -> None:
     bridge = HostExecutionBridge()
 
     assert bridge.execute_script(str(p), {"x": 40}) == {"value": 42}
+
+
+def test_host_execution_bridge_shutdown_rejects_queued_and_new_scripts(tmp_path: Path) -> None:
+    marker = tmp_path / "ran.txt"
+    script = _write_script(
+        tmp_path,
+        f"from pathlib import Path\ndef main(): Path({str(marker)!r}).write_text('yes'); return 'ran'\n",
+    )
+    queued = threading.Event()
+    release = threading.Event()
+
+    class _QueuedDispatcher:
+        def dispatch_callable(self, func: Callable[..., Any], **_kwargs: Any) -> Any:
+            queued.set()
+            assert release.wait(2)
+            return func()
+
+    bridge = HostExecutionBridge(dispatcher=_QueuedDispatcher())
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        call = pool.submit(bridge.execute_script, str(script), {})
+        assert queued.wait(1)
+        shutdown = pool.submit(bridge.shutdown_script_execution)
+        shutdown.result(timeout=1)
+        assert bridge.execute_script(str(script), {})["success"] is False
+        bridge.resume_script_execution()
+        release.set()
+        result = call.result(timeout=1)
+
+    assert result["success"] is False
+    assert "shutting down" in result["message"]
+    assert not marker.exists()
+
+    assert bridge.execute_script(str(script), {}) == "ran"
+    bridge.shutdown_script_execution()
+
+
+def test_host_execution_bridges_own_independent_script_packages(tmp_path: Path) -> None:
+    (tmp_path / "_state.py").write_text(
+        "count = 0\ndef next_value():\n    global count\n    count += 1\n    return count\n",
+        encoding="utf-8",
+    )
+    script = _write_script(tmp_path, "from ._state import next_value\ndef main(): return next_value()\n")
+    first = HostExecutionBridge()
+    second = HostExecutionBridge()
+
+    assert first.execute_script(str(script), {}) == 1
+    assert first.execute_script(str(script), {}) == 2
+    assert second.execute_script(str(script), {}) == 1
+
+    assert first.clear_script_packages() >= 2
+    assert second.execute_script(str(script), {}) == 2
+    assert first.execute_script(str(script), {}) == 1
+
+    first.clear_script_packages()
+    second.clear_script_packages()
+
+
+def test_hot_reload_clears_owned_helpers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dcc_mcp_core.hotreload import DccSkillHotReloader
+
+    class _Watcher:
+        def __init__(self, debounce_ms: int) -> None:
+            self.callback: Callable[[], None] | None = None
+
+        def on_reload(self, callback: Callable[[], None]) -> None:
+            self.callback = callback
+
+        def watch(self, _path: str) -> None:
+            assert self.callback is not None
+            self.callback()
+
+    helper = tmp_path / "_helper.py"
+    helper.write_text("VALUE = 'old'\n", encoding="utf-8")
+    script = _write_script(tmp_path, "from ._helper import VALUE\ndef main(): return VALUE\n")
+    bridge = HostExecutionBridge()
+    assert bridge.execute_script(str(script), {}) == "old"
+    helper.write_text("VALUE = 'updated-value'\n", encoding="utf-8")
+
+    monkeypatch.setattr(dcc_mcp_core, "SkillWatcher", _Watcher)
+    reloader = DccSkillHotReloader("test", SimpleNamespace(_execution_bridge=bridge))
+    assert reloader.enable([str(tmp_path)]) is True
+    assert bridge.execute_script(str(script), {}) == "updated-value"
+
+    bridge.clear_script_packages()
+
+
+def test_hot_reload_invalidates_an_already_dispatched_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import dcc_mcp_core._server.inprocess_executor as inprocess_executor
+
+    cleaned = tmp_path / "cleaned.txt"
+    (tmp_path / "_state.py").write_text(
+        "from pathlib import Path\n"
+        "VALUE = 'recreated'\n"
+        f"def cleanup(): Path({str(cleaned)!r}).write_text('yes', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    script = _write_script(tmp_path, "from ._state import VALUE\ndef main(): return VALUE\n")
+    entered_runner = threading.Event()
+    release_runner = threading.Event()
+    original_runner = inprocess_executor.run_skill_script
+
+    def _delayed_runner(
+        script_path: str,
+        params: Mapping[str, Any],
+        **kwargs: Any,
+    ) -> Any:
+        entered_runner.set()
+        assert release_runner.wait(2)
+        return original_runner(script_path, params, **kwargs)
+
+    monkeypatch.setattr(inprocess_executor, "run_skill_script", _delayed_runner)
+    bridge = HostExecutionBridge(runner=_delayed_runner)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        call = pool.submit(bridge.execute_script, str(script), {})
+        assert entered_runner.wait(1)
+        # The dispatched call has recorded ownership but has not created its
+        # private package yet. Hot reload must invalidate that queued call.
+        assert bridge.clear_script_package(tmp_path) == 0
+        release_runner.set()
+        result = call.result(timeout=1)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "RuntimeError"
+    assert not cleaned.exists()
+    assert bridge.shutdown_script_execution() == 0
+    assert not cleaned.exists()
+
+    bridge.resume_script_execution()
+    assert bridge.execute_script(str(script), {}) == "recreated"
+    bridge.shutdown_script_execution()
+    assert cleaned.read_text(encoding="utf-8") == "yes"
 
 
 def test_host_execution_bridge_routes_direct_callable_with_context() -> None:
@@ -566,6 +937,57 @@ def _patch_set_in_process_executor(server_base: Any, sink: list[Callable[..., An
     server_base._server = _Sink(server_base._server)
 
 
+def test_register_host_execution_bridge_is_idempotent_for_same_bridge(tmp_path: Path) -> None:
+    from dcc_mcp_core._server.options import DccServerOptions
+    from dcc_mcp_core.server_base import DccServerBase
+
+    opts = DccServerOptions.from_env(
+        "test_bridge_same",
+        tmp_path,
+        port=0,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
+        base = DccServerBase(opts)
+    captured: list[Callable[..., Any]] = []
+    _patch_set_in_process_executor(base, captured)
+    bridge = HostExecutionBridge()
+
+    base.register_host_execution_bridge(bridge)
+    base.register_host_execution_bridge(bridge)
+
+    assert base._execution_bridge is bridge
+    assert len(captured) == 1
+
+
+def test_register_host_execution_bridge_rejects_different_active_bridge(tmp_path: Path) -> None:
+    from dcc_mcp_core._server.options import DccServerOptions
+    from dcc_mcp_core.server_base import DccServerBase
+
+    opts = DccServerOptions.from_env(
+        "test_bridge_rebind",
+        tmp_path,
+        port=0,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
+        base = DccServerBase(opts)
+    captured: list[Callable[..., Any]] = []
+    _patch_set_in_process_executor(base, captured)
+    active_bridge = HostExecutionBridge()
+
+    base.register_host_execution_bridge(active_bridge)
+    with pytest.raises(RuntimeError, match=r"new DccServerBase"):
+        base.register_host_execution_bridge(HostExecutionBridge())
+
+    assert base._execution_bridge is active_bridge
+    assert len(captured) == 1
+
+
 def test_register_inprocess_executor_calls_underlying_setter(tmp_path: Path) -> None:
     # Import local modules
     from dcc_mcp_core._server.options import DccServerOptions
@@ -587,6 +1009,34 @@ def test_register_inprocess_executor_calls_underlying_setter(tmp_path: Path) -> 
     base.register_inprocess_executor()
     assert len(captured) == 1
     assert callable(captured[0])
+
+
+def test_register_inprocess_executor_is_idempotent_for_same_dispatcher(tmp_path: Path) -> None:
+    from dcc_mcp_core._server.options import DccServerOptions
+    from dcc_mcp_core.server_base import DccServerBase
+
+    opts = DccServerOptions.from_env(
+        "test_inproc_same",
+        tmp_path,
+        port=0,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
+        base = DccServerBase(opts)
+    captured: list[Callable[..., Any]] = []
+    _patch_set_in_process_executor(base, captured)
+
+    class _D:
+        def dispatch_callable(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+    dispatcher = _D()
+    base.register_inprocess_executor(dispatcher)
+    base.register_inprocess_executor(dispatcher)
+
+    assert len(captured) == 1
 
 
 def test_register_inprocess_executor_with_dispatcher_routes(tmp_path: Path) -> None:
@@ -627,6 +1077,102 @@ def test_register_inprocess_executor_with_dispatcher_routes(tmp_path: Path) -> N
     p = _write_script(tmp_path, "def main(x): return x * 3\n")
     assert captured[0](str(p), {"x": 7}) == 21
     assert dispatcher.count == 1
+
+
+def test_bridge_cleans_on_skill_unload_and_every_server_stop(tmp_path: Path) -> None:
+    from dcc_mcp_core._testing import make_test_server
+
+    class _EventBus:
+        def __init__(self) -> None:
+            self.callback: Callable[[dict[str, Any]], None] | None = None
+
+        def subscribe(self, event_name: str, callback: Callable[[dict[str, Any]], None]) -> int:
+            assert event_name == "skill.unloaded"
+            self.callback = callback
+            return 1
+
+        def unsubscribe(self, event_name: str, subscriber_id: int) -> bool:
+            assert (event_name, subscriber_id) == ("skill.unloaded", 1)
+            self.callback = None
+            return True
+
+        def emit_unloaded(self, skill_path: Path) -> None:
+            assert self.callback is not None
+            self.callback({"attributes": {"skill_path": str(skill_path)}})
+
+    class _Handle:
+        port = 0
+
+        def mcp_url(self) -> str:
+            return "http://127.0.0.1:0/mcp"
+
+        def shutdown(self) -> None:
+            pass
+
+    class _Inner:
+        def __init__(self) -> None:
+            self.bus = _EventBus()
+            self.executor: Callable[..., Any] | None = None
+
+        def set_in_process_executor(self, executor: Callable[..., Any]) -> None:
+            self.executor = executor
+
+        def event_bus(self) -> _EventBus:
+            return self.bus
+
+        def start(self) -> _Handle:
+            return _Handle()
+
+    skill_dir = tmp_path / "skill"
+    scripts = skill_dir / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "_state.py").write_text(
+        "count = 0\ndef next_value():\n    global count\n    count += 1\n    return count\n",
+        encoding="utf-8",
+    )
+    script = scripts / "tool.py"
+    script.write_text("from ._state import next_value\ndef main(): return next_value()\n", encoding="utf-8")
+
+    inner = _Inner()
+    base = make_test_server(
+        server=inner,
+        dcc_name="test-cleanup",
+        _builtin_skills_dir=tmp_path,
+        _handle=None,
+        _enable_gateway_failover=False,
+        _strict_gateway=False,
+        _hot_reloader=None,
+        _gateway_election=None,
+        _gateway_guardian=None,
+        _config=SimpleNamespace(
+            sandbox_policy=None,
+            gateway_port=0,
+            registry_dir="",
+            server_version="test",
+            instance_metadata={},
+        ),
+        _enable_telemetry=False,
+        _enable_file_logging=False,
+        _enable_job_persistence=False,
+        _execution_bridge=None,
+        _dcc_dispatcher=None,
+        _inprocess_executor_registered=False,
+        _standalone_main_thread=False,
+        _quit_hooks=[],
+    )
+    bridge = HostExecutionBridge()
+    base.register_host_execution_bridge(bridge)
+
+    base.start(install_atexit_hook=False)
+    assert bridge.execute_script(str(script), {}) == 1
+    inner.bus.emit_unloaded(skill_dir)
+    assert bridge.execute_script(str(script), {}) == 1
+    base.stop()
+
+    base.start(install_atexit_hook=False)
+    assert bridge.execute_script(str(script), {}) == 1
+    base.stop()
+    assert bridge.execute_script(str(script), {})["success"] is False
 
 
 def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(

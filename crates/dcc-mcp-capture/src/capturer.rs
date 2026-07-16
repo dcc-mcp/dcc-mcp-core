@@ -61,14 +61,13 @@ impl CaptureStats {
 /// ```
 pub struct Capturer {
     backend: Box<dyn DccCapture>,
-    backend_kind: CaptureBackendKind,
     stats: Arc<CaptureStats>,
 }
 
 impl std::fmt::Debug for Capturer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Capturer")
-            .field("backend_kind", &self.backend_kind)
+            .field("backend_kind", &self.backend.backend_kind())
             .finish_non_exhaustive()
     }
 }
@@ -77,10 +76,9 @@ impl Capturer {
     /// Create a new `Capturer` using the best available backend for the
     /// current platform.
     pub fn new_auto() -> Self {
-        let (backend, backend_kind) = backend::best_available();
+        let (backend, _) = backend::best_available();
         Capturer {
             backend,
-            backend_kind,
             stats: Arc::new(CaptureStats::default()),
         }
     }
@@ -88,24 +86,22 @@ impl Capturer {
     /// Create a new `Capturer` configured for single-window capture.
     ///
     /// Uses [`backend::best_window_capture`] — typically
-    /// [`CaptureBackendKind::HwndPrintWindow`] on Windows and
+    /// [`CaptureBackendKind::WindowsGraphicsCapture`] on supported Windows
+    /// systems (with [`CaptureBackendKind::HwndPrintWindow`] fallback), and
     /// [`CaptureBackendKind::Mock`] elsewhere (until X11/macOS window backends
     /// are implemented).
     pub fn new_window_auto() -> Self {
-        let (backend, backend_kind) = backend::best_window_capture();
+        let (backend, _) = backend::best_window_capture();
         Capturer {
             backend,
-            backend_kind,
             stats: Arc::new(CaptureStats::default()),
         }
     }
 
     /// Create a `Capturer` from an explicit backend.
     pub fn with_backend(backend: Box<dyn DccCapture>) -> Self {
-        let kind = backend.backend_kind();
         Capturer {
             backend,
-            backend_kind: kind,
             stats: Arc::new(CaptureStats::default()),
         }
     }
@@ -126,7 +122,7 @@ impl Capturer {
 
     /// Returns the active backend kind.
     pub fn backend_kind(&self) -> CaptureBackendKind {
-        self.backend_kind
+        self.backend.backend_kind()
     }
 
     /// Returns a shared reference to the running statistics.
@@ -142,6 +138,26 @@ mod tests {
     use super::*;
     use crate::backend::mock::MockBackend;
     use crate::types::CaptureFormat;
+
+    struct DynamicKindBackend(Arc<std::sync::atomic::AtomicBool>);
+
+    impl DccCapture for DynamicKindBackend {
+        fn backend_kind(&self) -> CaptureBackendKind {
+            if self.0.load(Ordering::Acquire) {
+                CaptureBackendKind::WindowsGraphicsCapture
+            } else {
+                CaptureBackendKind::HwndPrintWindow
+            }
+        }
+
+        fn capture(&self, config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
+            MockBackend::new(1, 1).capture(config)
+        }
+
+        fn is_available(&self) -> bool {
+            true
+        }
+    }
 
     fn mock_capturer(w: u32, h: u32) -> Capturer {
         Capturer::with_backend(Box::new(MockBackend::new(w, h)))
@@ -160,6 +176,18 @@ mod tests {
         let frame = c.capture(&CaptureConfig::default()).unwrap();
         assert_eq!(frame.width, 320);
         assert_eq!(frame.height, 240);
+    }
+
+    #[test]
+    fn backend_kind_reflects_runtime_fallback() {
+        let primary = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let capturer = Capturer::with_backend(Box::new(DynamicKindBackend(Arc::clone(&primary))));
+        assert_eq!(
+            capturer.backend_kind(),
+            CaptureBackendKind::WindowsGraphicsCapture
+        );
+        primary.store(false, Ordering::Release);
+        assert_eq!(capturer.backend_kind(), CaptureBackendKind::HwndPrintWindow);
     }
 
     #[test]

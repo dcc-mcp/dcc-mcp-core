@@ -1154,6 +1154,7 @@ td = ToolDeclaration(
     destructive=False,
     idempotent=False,
     source_file="scripts/create_sphere.py",
+    requires_in_process=False,  # True for process-local stateful tools
 )
 
 # All fields are get/set:
@@ -1165,6 +1166,7 @@ td.read_only     # bool  — True = doesn't modify DCC state
 td.destructive   # bool  — True = deletes / overwrites data
 td.idempotent    # bool  — True = safe to call multiple times
 td.source_file   # str   — relative path within skill's scripts/ dir
+td.requires_in_process  # bool — fail skill load instead of per-call subprocess fallback
 ```
 
 **Relation to SkillMetadata**: `skill.tools` is a `List[ToolDeclaration]` populated from the
@@ -2004,7 +2006,7 @@ PySceneDataKind.Arbitrary
 
 High-level DCC viewport / desktop capture. Platform-specific backends:
 - Windows (full-screen): DXGI Desktop Duplication (GPU framebuffer, < 16 ms/frame)
-- Windows (single window): HWND `PrintWindow` + `BitBlt` fallback
+- Windows (single window): Windows.Graphics.Capture (including occluded windows), with HWND `PrintWindow` + `BitBlt` as a runtime fallback
 - Linux: X11 XShmGetImage (full-screen) — PipeWire reserved for Wayland
 - macOS: ScreenCaptureKit (reserved)
 - Fallback: Mock synthetic checkerboard (CI / headless)
@@ -2057,8 +2059,8 @@ with open("screenshot.png", "wb") as f:
     f.write(frame.data)
 
 # Stats / backend introspection
-capturer.backend_name()                                 # "DXGI Desktop Duplication" | "HWND PrintWindow" | "X11" | "Mock"
-capturer.backend_kind() == CaptureBackendKind.HwndPrintWindow
+capturer.backend_name()                                 # "Windows.Graphics.Capture" | "GDI PrintWindow" | "DXGI Desktop Duplication" | "X11 XShmGetImage" | "Mock"
+capturer.backend_kind() == CaptureBackendKind.WindowsGraphicsCapture  # actual backend used for the latest window frame
 count, total_bytes, errors = capturer.stats()
 ```
 
@@ -2089,6 +2091,75 @@ if info is not None:
 for info in finder.enumerate():
     print(info.handle, info.title)
 ```
+
+### ComputerUseSession + UiPoint (Windows)
+
+`ComputerUseSession` owns one exact target window, a visible click-through
+border/banner, transient pointer effects, bounded `SendInput`, screenshot
+generation ids, and a Windows-logon-session-wide Ctrl+Alt+Esc interruption
+latch shared across DCC adapter processes. Ordinary Esc remains available to
+the target application. Prefer the bundled
+`app-ui` skill instead of calling this low-level API directly.
+
+```python
+from dcc_mcp_core import ComputerUseSession, UiPoint
+
+session = ComputerUseSession(
+    process_id=12345,
+    window_handle=0x00A1B2,
+    app_name="Godot",
+)
+session.start()
+metadata_json, png_bytes = session.screenshot()
+session.act('{"action":"click","observation_id":"...","x":320,"y":240}')
+session.stop()  # remove effects; retry if cleanup_pending keeps input ownership fenced
+
+ComputerUseSession.process_user_interrupted()  # shared Windows logon-session Ctrl+Alt+Esc latch
+# Only after an explicit user instruction:
+session.resume_after_user_approval()
+
+point = UiPoint(x=320.0, y=240.0)  # latest screenshot-relative coordinates
+```
+
+Screenshots may be scaled to bound MCP payload size; observation coordinates
+still map to the exact source HWND. Each action consumes its observation.
+`app-ui` tools declare `requires_in_process: true` with `affinity: any`: an
+adapter must register `HostExecutionBridge` before loading the skill, and must
+call `app_ui__stop_computer_use` on every completion/failure path.
+
+Windows lock, disconnect, and secure-desktop transitions return
+`desktop_unavailable` before UIA or raw input runs. This pauses desktop control
+without ending the logical `app_ui` session. Keep the same `session_id`;
+structured DCC skills and MCP calls may continue only while the host adapter is
+ready. Do not automate LockApp or treat the lock screen as an input target.
+
+An ordinary user process cannot render the Computer Use banner on the Windows
+lock screen or secure desktop. After unlock or reconnect, discard all prior
+snapshot, observation, and control ids and take a fresh exact-target snapshot;
+the successful snapshot re-establishes the banner. `resume_computer_use` remains
+reserved for explicit post-interruption user approval. Use a dedicated, always-unlocked
+VM when Windows GUI Computer Use must continue without interruption.
+
+Computer Use executes on the adapter host in the exact interactive Windows
+logon session that owns the DCC process. The central gateway routes the tool
+call but does not own the screenshot coordinate space. Never apply coordinates
+captured on the gateway, another host, or another logon session to the remote
+DCC. RDP disconnect or session switch returns `desktop_unavailable` while
+retaining the logical session; reconnect to the DCC's session and take a fresh
+snapshot before another UI action.
+
+Observations remain bounded to the scoped target window. Its virtual-desktop
+origin may be negative, monitors may use different DPI scales, and the target
+may span monitors. Coordinates remain relative to the returned PNG and are
+mapped through that observation's source rectangle and DPI metadata. Monitor
+add/remove, display-layout, resolution, or DPI/scaling changes invalidate the
+observation and require a fresh snapshot. The banner follows the scoped target
+window across monitors in the same logon session.
+
+This behavior aligns with public Codex guidance for foreground Computer Use on
+an active, unlocked Windows desktop. Public `openai/codex` `codex-rs` contains
+feature, policy, and plugin-discovery wiring, not the desktop Computer Use
+helper implementation; DCC MCP's Rust backend is independent.
 
 ### Instance-Bound Diagnostics
 

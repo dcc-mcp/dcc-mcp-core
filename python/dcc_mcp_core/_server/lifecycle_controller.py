@@ -85,6 +85,7 @@ class LifecycleController:
             )
             return owner._handle
 
+        owner._get_execution().prepare_start()
         self._lifecycle_ctrl().prepare_start(
             install_atexit_hook=install_atexit_hook,
             stop_from_atexit=LifecycleController._stop_from_atexit,
@@ -112,6 +113,10 @@ class LifecycleController:
     def stop(self) -> None:
         """Gracefully stop the server and gateway election thread."""
         owner = self._owner
+        bridge = getattr(owner, "_execution_bridge", None)
+        close_admission = getattr(bridge, "close_script_admission", None)
+        if callable(close_admission):
+            close_admission()
         self._run_quit_hooks()
         self._runtime_ctrl().stop_gateway_guardian()
         self._runtime_ctrl().stop_gateway_election()

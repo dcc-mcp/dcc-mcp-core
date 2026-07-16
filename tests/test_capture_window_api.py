@@ -26,10 +26,10 @@ class TestNewWindowAutoBackend:
         cap = dcc_mcp_core.Capturer.new_window_auto()
         assert isinstance(cap, dcc_mcp_core.Capturer)
 
-    def test_backend_kind_is_hwnd_on_windows(self) -> None:
+    def test_backend_kind_is_wgc_on_windows(self) -> None:
         cap = dcc_mcp_core.Capturer.new_window_auto()
         if sys.platform == "win32":
-            assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
+            assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.WindowsGraphicsCapture
         else:
             assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.Mock
 

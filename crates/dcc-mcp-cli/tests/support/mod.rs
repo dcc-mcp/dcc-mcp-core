@@ -316,10 +316,75 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
         .route(
             "/v1/call",
             post(|Json(body): Json<Value>| async move {
+                if body["tool_slug"] == "maya.abc12345.domain_failure" {
+                    return Json(json!({
+                        "slug": body["tool_slug"],
+                        "output": {
+                            "success": false,
+                            "message": "tool domain failure"
+                        },
+                        "validation_skipped": false,
+                        "request_id": "fixture-domain-failure"
+                    }));
+                }
                 Json(json!({
                     "success": true,
                     "tool_slug": body["tool_slug"],
                     "arguments": body["arguments"]
+                }))
+            }),
+        )
+        .route(
+            "/v1/call_batch",
+            post(|Json(body): Json<Value>| async move {
+                let results: Vec<Value> = body
+                    .get("calls")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                    .map(|(index, call)| {
+                        let tool_slug = call
+                            .get("tool_slug")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if tool_slug == "maya.abc12345.domain_failure" {
+                            json!({
+                                "index": index,
+                                "tool_slug": tool_slug,
+                                "ok": false,
+                                "result": {
+                                    "slug": tool_slug,
+                                    "output": {
+                                        "success": false,
+                                        "message": "tool domain failure"
+                                    }
+                                },
+                                "error": {
+                                    "kind": "tool-error",
+                                    "message": "backend transport succeeded but the tool reported failure"
+                                }
+                            })
+                        } else {
+                            json!({
+                                "index": index,
+                                "tool_slug": tool_slug,
+                                "ok": true,
+                                "result": {"success": true}
+                            })
+                        }
+                    })
+                    .collect();
+                let success = results
+                    .iter()
+                    .all(|item| item.get("ok").and_then(Value::as_bool) == Some(true));
+                Json(json!({
+                    "success": success,
+                    "stop_on_error": body
+                        .get("stop_on_error")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    "results": results
                 }))
             }),
         )
