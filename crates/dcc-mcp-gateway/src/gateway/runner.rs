@@ -41,6 +41,19 @@ fn apply_live_snapshot(entry: &mut ServiceEntry, snapshot: &LiveSnapshot) {
     entry.touch();
 }
 
+fn metadata_patch_changes_entry(
+    entry: &ServiceEntry,
+    metadata: &std::collections::HashMap<String, String>,
+) -> bool {
+    metadata.iter().any(|(name, value)| {
+        if value.is_empty() {
+            entry.metadata.contains_key(name)
+        } else {
+            entry.metadata.get(name) != Some(value)
+        }
+    })
+}
+
 fn refresh_or_republish_registration(
     registry: &FileRegistry,
     key: &ServiceKey,
@@ -62,7 +75,14 @@ fn refresh_or_republish_registration(
         };
         let refresh_result = match primary_result {
             Ok(true) if !snapshot.metadata.is_empty() => {
-                registry.update_instance_metadata(key, &snapshot.metadata)
+                let metadata_changed = registry
+                    .get(key)
+                    .is_none_or(|entry| metadata_patch_changes_entry(&entry, &snapshot.metadata));
+                if metadata_changed {
+                    registry.update_instance_metadata(key, &snapshot.metadata)
+                } else {
+                    Ok(true)
+                }
             }
             other => other,
         };
@@ -1097,6 +1117,58 @@ fn cooperative_yield_fallback_detail(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_metadata_patch_does_not_require_registry_update() {
+        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 56693);
+        entry.metadata.insert(
+            "gateway_runtime_mode".to_string(),
+            "daemon-backed".to_string(),
+        );
+        let patch = std::collections::HashMap::from([(
+            "gateway_runtime_mode".to_string(),
+            "daemon-backed".to_string(),
+        )]);
+
+        assert!(!metadata_patch_changes_entry(&entry, &patch));
+    }
+
+    #[test]
+    fn changed_or_new_metadata_patch_requires_registry_update() {
+        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 56693);
+        entry
+            .metadata
+            .insert("gateway_runtime_mode".to_string(), "embedded".to_string());
+        let changed = std::collections::HashMap::from([(
+            "gateway_runtime_mode".to_string(),
+            "daemon-backed".to_string(),
+        )]);
+        let new = std::collections::HashMap::from([(
+            "gateway_guardian_enabled".to_string(),
+            "true".to_string(),
+        )]);
+
+        assert!(metadata_patch_changes_entry(&entry, &changed));
+        assert!(metadata_patch_changes_entry(&entry, &new));
+    }
+
+    #[test]
+    fn metadata_removal_requires_update_only_when_key_exists() {
+        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 56693);
+        entry.metadata.insert(
+            "gateway_runtime_mode".to_string(),
+            "daemon-backed".to_string(),
+        );
+        let remove_existing =
+            std::collections::HashMap::from([("gateway_runtime_mode".to_string(), String::new())]);
+        let remove_missing = std::collections::HashMap::from([(
+            "gateway_guardian_enabled".to_string(),
+            String::new(),
+        )]);
+
+        assert!(metadata_patch_changes_entry(&entry, &remove_existing));
+        assert!(!metadata_patch_changes_entry(&entry, &remove_missing));
+    }
 
     #[test]
     fn cooperative_yield_fallback_reads_structured_optional_capability() {
