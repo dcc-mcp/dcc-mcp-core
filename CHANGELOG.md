@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.42](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.41...v0.19.42) (2026-07-16)
+
+
+### Bug Fixes
+
+* enforce active instance leases on routed calls ([#1918](https://github.com/dcc-mcp/dcc-mcp-core/issues/1918)) ([6f0df3a](https://github.com/dcc-mcp/dcc-mcp-core/commit/6f0df3a2d2096433051407aebde37dddfa9ec4a5))
+
 ## [0.19.41](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.40...v0.19.41) (2026-07-16)
 
 
