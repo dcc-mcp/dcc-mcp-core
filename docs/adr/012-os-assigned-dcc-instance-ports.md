@@ -102,6 +102,6 @@ instance-port migration larger and less safe.
 
 ## References
 
-- [`McpHttpServer::start`](../../crates/dcc-mcp-http/src/server/mod.rs)
-- [`DccServerOptions`](../../python/dcc_mcp_core/_server/options.py)
-- [`dcc-mcp-creator`](../../skills/dcc-mcp-creator/references/ADAPTER_WORKFLOW.md)
+- `McpHttpServer::start` in `crates/dcc-mcp-http/src/server/mod.rs`
+- `DccServerOptions` in `python/dcc_mcp_core/_server/options.py`
+- `skills/dcc-mcp-creator/references/ADAPTER_WORKFLOW.md`
