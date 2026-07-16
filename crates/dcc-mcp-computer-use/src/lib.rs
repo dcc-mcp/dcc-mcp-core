@@ -324,6 +324,7 @@ pub(crate) fn record_desktop_transition(state: &AtomicU64, next_interactive: boo
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn record_desktop_environment_change(state: &AtomicU64) -> u64 {
     let mut current = state.load(Ordering::Acquire);
     loop {
