@@ -195,8 +195,10 @@ impl PyCapturer {
         process_id=None,
         window_title=None
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn capture(
         &self,
+        py: Python<'_>,
         format: &str,
         jpeg_quality: u8,
         scale: f32,
@@ -226,7 +228,7 @@ impl PyCapturer {
             .target(target)
             .build();
 
-        let frame = self.inner.capture(&cfg).map_err(to_py_err)?;
+        let frame = py.detach(|| self.inner.capture(&cfg)).map_err(to_py_err)?;
         Ok(PyCaptureFrame { inner: frame })
     }
 
@@ -254,6 +256,7 @@ impl PyCapturer {
     #[allow(clippy::too_many_arguments)]
     fn capture_window(
         &self,
+        py: Python<'_>,
         process_id: Option<u32>,
         window_handle: Option<u64>,
         window_title: Option<String>,
@@ -282,7 +285,7 @@ impl PyCapturer {
             .timeout_ms(timeout_ms)
             .target(target)
             .build();
-        let frame = self.inner.capture(&cfg).map_err(to_py_err)?;
+        let frame = py.detach(|| self.inner.capture(&cfg)).map_err(to_py_err)?;
         Ok(PyCaptureFrame { inner: frame })
     }
 
@@ -333,7 +336,7 @@ impl PyCapturer {
             .target(CaptureTarget::ProcessId(pid))
             .build();
         let capturer = Capturer::new_window_auto();
-        match capturer.capture(&cfg) {
+        match py.detach(|| capturer.capture(&cfg)) {
             Ok(frame) => Ok(pyo3::types::PyBytes::new(py, &frame.data)
                 .unbind()
                 .into_any()),
@@ -382,14 +385,14 @@ impl PyCapturer {
             .target(CaptureTarget::ProcessId(pid))
             .build();
         let capturer = Capturer::new_window_auto();
-        let frame = match capturer.capture(&cfg) {
+        let frame = match py.detach(|| capturer.capture(&cfg)) {
             Ok(f) => f,
             Err(e) => {
                 tracing::debug!(?pid, error = %e, "capture_region_png capture failed");
                 return Ok(py.None());
             }
         };
-        match crop_png_bytes(&frame.data, x, y, w, h) {
+        match py.detach(|| crop_png_bytes(&frame.data, x, y, w, h)) {
             Ok(bytes) => Ok(pyo3::types::PyBytes::new(py, &bytes).unbind().into_any()),
             Err(e) => {
                 tracing::debug!(?pid, ?x, ?y, ?w, ?h, error = %e, "capture_region_png crop failed");

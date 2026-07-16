@@ -10,7 +10,9 @@ Windows-specific backend behaviour lives in
 from __future__ import annotations
 
 # Import built-in modules
+import subprocess
 import sys
+import textwrap
 
 # Import third-party modules
 import pytest
@@ -84,6 +86,201 @@ class TestCaptureWindowArgValidation:
                 window_title="__nonexistent-window-title-xyz__",
                 timeout_ms=200,
             )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires a real Win32 window")
+@pytest.mark.parametrize(
+    "capture_api",
+    ["capture", "capture_window", "capture_window_png", "capture_region_png"],
+)
+def test_window_capture_apis_release_gil_while_target_paints(capture_api: str) -> None:
+    """Window capture APIs must not deadlock a Python-backed target window.
+
+    ``PrintWindow`` synchronously asks the target thread to paint. A DCC host
+    can run Python callbacks while processing that message, so the capture
+    binding must release the GIL before entering the native backend.
+    """
+    script = textwrap.dedent(
+        r"""
+        import ctypes
+        import os
+        import sys
+        import threading
+        from ctypes import wintypes
+
+        import dcc_mcp_core
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        wndproc_type = ctypes.WINFUNCTYPE(
+            ctypes.c_ssize_t,
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        )
+
+        class WndClass(ctypes.Structure):
+            _fields_ = [
+                ("style", wintypes.UINT),
+                ("lpfnWndProc", wndproc_type),
+                ("cbClsExtra", ctypes.c_int),
+                ("cbWndExtra", ctypes.c_int),
+                ("hInstance", wintypes.HANDLE),
+                ("hIcon", wintypes.HANDLE),
+                ("hCursor", wintypes.HANDLE),
+                ("hbrBackground", wintypes.HANDLE),
+                ("lpszMenuName", wintypes.LPCWSTR),
+                ("lpszClassName", wintypes.LPCWSTR),
+            ]
+
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        kernel32.GetModuleHandleW.restype = wintypes.HANDLE
+        user32.RegisterClassW.argtypes = [ctypes.POINTER(WndClass)]
+        user32.RegisterClassW.restype = wintypes.ATOM
+        user32.CreateWindowExW.argtypes = [
+            wintypes.DWORD,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.HWND,
+            wintypes.HANDLE,
+            wintypes.HANDLE,
+            ctypes.c_void_p,
+        ]
+        user32.CreateWindowExW.restype = wintypes.HWND
+        user32.DefWindowProcW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        user32.DefWindowProcW.restype = ctypes.c_ssize_t
+        user32.GetMessageW.argtypes = [
+            ctypes.POINTER(wintypes.MSG),
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.UINT,
+        ]
+        user32.GetMessageW.restype = wintypes.BOOL
+        user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
+        user32.TranslateMessage.restype = wintypes.BOOL
+        user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
+        user32.DispatchMessageW.restype = ctypes.c_ssize_t
+        user32.PostMessageW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        user32.PostMessageW.restype = wintypes.BOOL
+
+        ready = threading.Event()
+        window = {}
+        class_name = "DccMcpCaptureGilProbe"
+
+        @wndproc_type
+        def wndproc(hwnd, message, wparam, lparam):
+            if message == 0x0010:  # WM_CLOSE
+                user32.DestroyWindow(hwnd)
+                return 0
+            if message == 0x0002:  # WM_DESTROY
+                user32.PostQuitMessage(0)
+                return 0
+            return user32.DefWindowProcW(hwnd, message, wparam, lparam)
+
+        def run_window():
+            instance = kernel32.GetModuleHandleW(None)
+            spec = WndClass()
+            spec.lpfnWndProc = wndproc
+            spec.hInstance = instance
+            spec.lpszClassName = class_name
+            atom = user32.RegisterClassW(ctypes.byref(spec))
+            if not atom and ctypes.get_last_error() != 1410:  # class already exists
+                window["error"] = ctypes.WinError(ctypes.get_last_error())
+                ready.set()
+                return
+            hwnd = user32.CreateWindowExW(
+                0,
+                class_name,
+                "DCC MCP capture GIL probe",
+                0x10CF0000,  # WS_OVERLAPPEDWINDOW | WS_VISIBLE
+                50,
+                50,
+                320,
+                180,
+                None,
+                None,
+                instance,
+                None,
+            )
+            if not hwnd:
+                window["error"] = ctypes.WinError(ctypes.get_last_error())
+                ready.set()
+                return
+            window["hwnd"] = hwnd
+            ready.set()
+            message = wintypes.MSG()
+            while user32.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
+                user32.TranslateMessage(ctypes.byref(message))
+                user32.DispatchMessageW(ctypes.byref(message))
+
+        thread = threading.Thread(target=run_window, daemon=True)
+        thread.start()
+        assert ready.wait(3)
+        assert "error" not in window, window.get("error")
+
+        mode = sys.argv[1]
+        if mode == "capture":
+            frame = dcc_mcp_core.Capturer.new_window_auto().capture(
+                window_title="DCC MCP capture GIL probe",
+                timeout_ms=1000,
+            )
+            assert frame.width > 0 and frame.height > 0
+        elif mode == "capture_window":
+            frame = dcc_mcp_core.Capturer.new_window_auto().capture_window(
+                window_handle=window["hwnd"],
+                timeout_ms=1000,
+            )
+            assert frame.width > 0 and frame.height > 0
+        elif mode == "capture_window_png":
+            png = dcc_mcp_core.Capturer.capture_window_png(
+                pid=os.getpid(),
+                timeout_ms=1000,
+            )
+            assert png
+        else:
+            png = dcc_mcp_core.Capturer.capture_region_png(
+                os.getpid(),
+                0,
+                0,
+                32,
+                32,
+                timeout_ms=1000,
+            )
+            assert png
+        user32.PostMessageW(window["hwnd"], 0x0010, 0, 0)
+        thread.join(3)
+        assert not thread.is_alive()
+        """
+    )
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script, capture_api],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"window capture deadlocked while holding the GIL: {exc}")
+
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 # ── CaptureFrame optional window fields ───────────────────────────────────────
