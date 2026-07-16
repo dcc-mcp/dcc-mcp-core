@@ -600,9 +600,9 @@ class TestMcpServerHandleDeep:
         assert code == 200
         handle.shutdown()
 
-    def test_config_port_default_8765(self):
+    def test_config_port_default_is_os_assigned(self):
         cfg = McpHttpConfig()
-        assert cfg.port == 8765
+        assert cfg.port == 0
 
     def test_config_server_name_default(self):
         cfg = McpHttpConfig()

@@ -78,7 +78,7 @@ ADAPTER_VERSION = "0.1.0"
 
 
 class MyDccServer(DccServerBase):
-    def __init__(self, port: int = 8765, dispatcher=None, **kwargs):
+    def __init__(self, port: int | None = None, dispatcher=None, **kwargs):
         bridge = HostExecutionBridge(dispatcher=dispatcher) if dispatcher else None
         options = DccServerOptions.from_env(
             "<dcc>",
@@ -94,7 +94,7 @@ class MyDccServer(DccServerBase):
         return ADAPTER_VERSION
 
 
-def start_server(port: int = 8765):
+def start_server(port: int | None = None):
     """Adapter entry point — call from the DCC startup script."""
     server = MyDccServer(port=port)
     AdapterReadinessBinder.bind_inline(server)

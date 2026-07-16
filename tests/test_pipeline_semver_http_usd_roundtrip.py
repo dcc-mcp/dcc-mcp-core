@@ -454,7 +454,7 @@ class TestMcpHttpConfig:
     class TestDefaults:
         def test_default_port(self) -> None:
             cfg = McpHttpConfig()
-            assert cfg.port == 8765
+            assert cfg.port == 0
 
         def test_default_server_name_non_empty(self) -> None:
             cfg = McpHttpConfig()
@@ -492,11 +492,11 @@ class TestMcpHttpConfig:
 
         def test_cors_flag_accepted(self) -> None:
             cfg = McpHttpConfig(enable_cors=True)
-            assert cfg.port == 8765  # default, cors doesn't change port
+            assert cfg.port == 0  # default, cors doesn't change port
 
         def test_request_timeout_ms(self) -> None:
             cfg = McpHttpConfig(request_timeout_ms=60000)
-            assert cfg.port == 8765  # just check it doesn't error
+            assert cfg.port == 0  # just check it doesn't error
 
 
 # ── McpHttpServer + McpServerHandle ─────────────────────────────────────────────

@@ -27,10 +27,10 @@ class TestCreateSkillManagerBasic:
         server = create_skill_server("maya")
         assert isinstance(server, McpHttpServer)
 
-    def test_default_config_port_is_8765(self):
+    def test_default_config_port_is_os_assigned(self):
         server = create_skill_server("maya")
         # repr exposes port
-        assert "8765" in repr(server)
+        assert "port=0" in repr(server)
 
     def test_default_server_name_in_repr(self):
         # app_name determines which env var to read for skill paths, NOT the server name.

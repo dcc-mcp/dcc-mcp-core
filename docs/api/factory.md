@@ -10,7 +10,7 @@ Singleton factory helpers for DCC MCP server instances. Eliminates the boilerpla
 ```python
 create_dcc_server(
     *, instance_holder: list, lock: threading.Lock, server_class: type,
-    port: int = 8765, dispatcher=None, dispatcher_factory=None,
+    port: int | None = None, dispatcher=None, dispatcher_factory=None,
     register_builtins: bool = True,
     extra_skill_paths: list[str] | None = None,
     include_bundled: bool = True, enable_hot_reload: bool = False,
@@ -25,7 +25,7 @@ Create-or-return a singleton DCC MCP server and start it. Thread-safe.
 | `instance_holder` | `list` | (required) | Single-element list used as mutable reference |
 | `lock` | `threading.Lock` | (required) | Module-level lock for thread safety |
 | `server_class` | `type` | (required) | DccServerBase subclass to instantiate |
-| `port` | `int` | `8765` | TCP port for the MCP HTTP server |
+| `port` | `int \| None` | `None` | Explicit port override; `None` lets `DccServerOptions` resolve the DCC env var or bind an OS-assigned port |
 | `dispatcher` | `Any \| None` | `None` | Pre-created host dispatcher forwarded to the server constructor before skill discovery |
 | `dispatcher_factory` | `Callable[[], Any \| None] \| None` | `None` | Lazily creates a dispatcher only when a new singleton is constructed |
 | `register_builtins` | `bool` | `True` | Call `register_builtin_actions()` after creation |
@@ -66,7 +66,7 @@ from dcc_mcp_core import start_embedded_dcc_server
 _holder = [None]
 _lock = threading.Lock()
 
-def start_server(port=8765):
+def start_server(port=None):
     return start_embedded_dcc_server(
         dcc_name="blender",
         instance_holder=_holder,

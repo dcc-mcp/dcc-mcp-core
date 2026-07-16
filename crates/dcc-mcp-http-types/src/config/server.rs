@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerConfig {
-    /// Port to listen on. Default: 8765.
+    /// Port to listen on. Default: 0 (OS-assigned).
     pub port: u16,
 
     /// IP address to bind. Default: 127.0.0.1 (localhost only, per MCP security spec).
@@ -50,7 +50,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            port: 8765,
+            port: 0,
             host: IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             endpoint_path: "/mcp".to_string(),
             server_name: "dcc-mcp".to_string(),
@@ -61,6 +61,16 @@ impl Default for ServerConfig {
             spawn_mode: ServerSpawnMode::Ambient,
             self_probe_timeout_ms: 200,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServerConfig;
+
+    #[test]
+    fn default_port_is_os_assigned() {
+        assert_eq!(ServerConfig::default().port, 0);
     }
 }
 

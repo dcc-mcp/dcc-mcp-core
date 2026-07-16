@@ -14,7 +14,7 @@ Usage::
     from dcc_mcp_core.factory import create_dcc_server, make_start_stop
 
     class BlenderMcpServer(DccServerBase):
-        def __init__(self, port: int = 8765):
+        def __init__(self, port: int | None = None):
             opts = DccServerOptions.from_env(
                 "blender",
                 Path(__file__).parent / "skills",
@@ -32,7 +32,7 @@ Usage::
     _holder = [None]
     _lock = threading.Lock()
 
-    def start_server(port=8765, **kwargs):
+    def start_server(port=None, **kwargs):
         return create_dcc_server(
             instance_holder=_holder,
             lock=_lock,
@@ -65,7 +65,7 @@ def create_dcc_server(
     instance_holder: list[Any | None],
     lock: threading.Lock,
     server_class: type[Any],
-    port: int = 8765,
+    port: int | None = None,
     dispatcher: Any | None = None,
     dispatcher_factory: Callable[[], Any | None] | None = None,
     register_builtins: bool = True,
@@ -87,7 +87,9 @@ def create_dcc_server(
         lock: Module-level ``threading.Lock`` for thread safety.
         server_class: The :class:`~dcc_mcp_core.server_base.DccServerBase`
             subclass to instantiate.
-        port: TCP port for the MCP HTTP server.
+        port: Explicit TCP port for the MCP HTTP server. ``None`` lets the
+            server resolve its DCC-specific environment override or bind an
+            OS-assigned port.
         dispatcher: Optional pre-created host dispatcher. When supplied and
             ``server_kwargs`` does not already contain ``dispatcher``, it is
             forwarded to ``server_class`` before skill discovery.
@@ -113,7 +115,7 @@ def create_dcc_server(
         _holder = [None]
         _lock = threading.Lock()
 
-        def start_server(port=8765, **kwargs):
+        def start_server(port=None, **kwargs):
             return create_dcc_server(
                 instance_holder=_holder,
                 lock=_lock,
@@ -165,7 +167,7 @@ def start_embedded_dcc_server(
     instance_holder: list[Any | None],
     lock: threading.Lock,
     server_class: type[Any],
-    port: int = 8765,
+    port: int | None = None,
     dispatcher_factory: Callable[[], Any | None] | None = None,
     dispatcher: Any | None = None,
     env_prefix: str | None = None,
@@ -242,7 +244,7 @@ def make_start_stop(
     _lock = threading.Lock()
 
     def start_server(
-        port: int = 8765,
+        port: int | None = None,
         register_builtins: bool = True,
         extra_skill_paths: list[str] | None = None,
         include_bundled: bool = True,

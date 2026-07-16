@@ -101,9 +101,9 @@ class TestMcpHttpConfigAttributes:
     """Verify McpHttpConfig construction and attribute defaults."""
 
     def test_default_port(self) -> None:
-        """Default port is 8765."""
+        """Default port asks the OS to assign an available endpoint."""
         cfg = McpHttpConfig()
-        assert cfg.port == 8765
+        assert cfg.port == 0
 
     def test_custom_port(self) -> None:
         """Custom port is stored correctly."""

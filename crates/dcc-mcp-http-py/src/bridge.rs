@@ -286,7 +286,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// Args:
 ///     app_name: DCC application name (e.g. ``"maya"``, ``"blender"``).
 ///               Used to derive the per-app env var and as the MCP server name.
-///     config:   Optional ``McpHttpConfig``; defaults to port 8765.
+///     config:   Optional ``McpHttpConfig``; defaults to port 0 (OS-assigned).
 ///     extra_paths: Extra skill directories to scan in addition to env var paths.
 ///     dcc_name: Override the DCC filter for skill scanning (defaults to ``app_name``).
 ///     accumulated: Whether to also discover user/team accumulated skills (default ``True``).

@@ -20,7 +20,7 @@ Configuration for the HTTP server.
 from dcc_mcp_core import McpHttpConfig
 
 cfg = McpHttpConfig(
-    port=8765,                # TCP port (0 = random available)
+    port=0,                   # default: OS-assigned; set a fixed port when required
     server_name="maya-mcp",   # Name in MCP initialize response
     server_version="1.0.0",    # Version in MCP initialize response
     enable_cors=False,         # CORS headers for browser clients
@@ -32,7 +32,7 @@ cfg = McpHttpConfig(
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `port` | `int` | `8765` | TCP port the server is listening on (`0` = OS-assigned) |
+| `port` | `int` | `0` | TCP port the server is listening on (`0` = OS-assigned) |
 | `host` | `str` | `"127.0.0.1"` | IP address to bind (localhost only per MCP security spec) |
 | `endpoint_path` | `str` | `"/mcp"` | MCP endpoint path |
 | `server_name` | `str` | `"dcc-mcp"` | Server name in MCP response |
@@ -118,7 +118,7 @@ from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
 server = McpHttpServer(
     registry,         # ToolRegistry instance
-    config=None,      # McpHttpConfig (defaults to port=8765, no CORS)
+    config=None,      # McpHttpConfig (defaults to port=0, OS-assigned, no CORS)
 )
 ```
 
