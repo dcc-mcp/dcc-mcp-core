@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.43](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.42...v0.19.43) (2026-07-16)
+
+
+### Bug Fixes
+
+* **ci:** disable sccache in manylinux builds ([#1920](https://github.com/dcc-mcp/dcc-mcp-core/issues/1920)) ([82679ee](https://github.com/dcc-mcp/dcc-mcp-core/commit/82679eebfde19b9f39ca080fe28d00ec5228e5cd))
+
+
+### Performance Improvements
+
+* **gateway:** coalesce registry heartbeat snapshot ([#1921](https://github.com/dcc-mcp/dcc-mcp-core/issues/1921)) ([dc710e0](https://github.com/dcc-mcp/dcc-mcp-core/commit/dc710e0f957dcbd9c4619fc07ba251eb545e15a9))
+
 ## [0.19.42](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.41...v0.19.42) (2026-07-16)
 
 
