@@ -169,4 +169,6 @@ pub use router::{build_admin_router, build_v1_debug_router};
 #[cfg(all(test, feature = "admin"))]
 mod marketplace_tests;
 #[cfg(all(test, feature = "admin"))]
+mod raw_proxy_lease_tests;
+#[cfg(all(test, feature = "admin"))]
 mod tests;
