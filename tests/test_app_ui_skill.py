@@ -773,6 +773,7 @@ def test_app_ui_windows_uia_serializes_one_session(tmp_path: Path, monkeypatch: 
     assert len(set(ids)) == 4
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows UIA backend requires PowerShell on Windows")
 def test_app_ui_windows_uia_normalizes_powershell_timeout(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
     monkeypatch.setattr(backend, "_powershell_bin", lambda: "powershell.exe")
@@ -790,6 +791,7 @@ def test_app_ui_windows_uia_normalizes_powershell_timeout(monkeypatch: Any) -> N
         raise AssertionError("PowerShell timeout was not normalized")
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows UIA backend requires PowerShell on Windows")
 def test_app_ui_windows_uia_inflight_guard_terminates_powershell(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
     monkeypatch.setattr(backend, "_powershell_bin", lambda: "powershell.exe")
@@ -1542,6 +1544,7 @@ def test_app_ui_windows_uia_stop_interrupts_inflight_native_action(
     assert "stop-race" not in backend._COMPUTER_USE_SESSIONS
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows UIA backend stop/action serialization is Windows-specific")
 def test_app_ui_windows_uia_overlapping_stops_keep_actions_blocked(
     tmp_path: Path,
     monkeypatch: Any,
