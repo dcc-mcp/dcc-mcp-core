@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.40](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.39...v0.19.40) (2026-07-16)
+
+
+### Features
+
+* **cli:** accept call arguments from files ([4f2de0d](https://github.com/dcc-mcp/dcc-mcp-core/commit/4f2de0d57b62e3cc30aabd7e8b8d69b7a0512064))
+
+
+### Bug Fixes
+
+* preserve bridge fallback connection ([9b4eb38](https://github.com/dcc-mcp/dcc-mcp-core/commit/9b4eb3818e38cec5e6ff420bac0845f5bd50818e))
+* preserve legacy gateway heartbeat age ([536aaa7](https://github.com/dcc-mcp/dcc-mcp-core/commit/536aaa7daf25d43f4cec173cf808cd86c1158cd2))
+* preserve registry rows across legacy guardian writes ([8155f02](https://github.com/dcc-mcp/dcc-mcp-core/commit/8155f02b5c6d8dd7d31fce0f872fe05079ec26d8))
+
 ## [0.19.39](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.38...v0.19.39) (2026-07-14)
 
 
