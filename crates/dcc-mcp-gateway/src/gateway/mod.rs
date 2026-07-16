@@ -102,8 +102,7 @@ pub struct LiveSnapshot {
     pub scene: Option<String>,
     /// DCC application version string.
     pub version: Option<String>,
-    /// All open documents.  Non-empty → `update_documents` is called;
-    /// empty → only `scene`/`version` are updated via `update_metadata`.
+    /// All open documents. Empty preserves the existing document list.
     pub documents: Vec<String>,
     /// Human-readable instance label (e.g. `"PS-Marketing"`).
     pub display_name: Option<String>,
@@ -113,17 +112,17 @@ pub struct LiveSnapshot {
 
 /// Closure type for supplying live instance metadata to the heartbeat task.
 ///
-/// Called on every heartbeat tick; the returned [`LiveSnapshot`] is written
-/// to `FileRegistry` via `update_documents` (when `documents` is non-empty)
-/// or `update_metadata` (single-document DCCs), plus `update_instance_metadata`
-/// when arbitrary string metadata is present.
+/// Called on every heartbeat tick; the returned [`LiveSnapshot`] is applied to
+/// `FileRegistry` in one write transaction.
 pub type MetadataProvider = Arc<dyn Fn() -> LiveSnapshot + Send + Sync>;
 
 use tokio::sync::{RwLock, broadcast, watch};
 use tokio::task::AbortHandle;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey};
+use dcc_mcp_transport::discovery::types::{
+    GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey, ServiceSnapshot,
+};
 
 mod bind;
 mod config;

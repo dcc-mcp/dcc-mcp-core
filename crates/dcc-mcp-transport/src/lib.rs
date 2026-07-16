@@ -50,7 +50,7 @@ pub use dcc_link::{
     DccLinkFrame, DccLinkType, GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
 };
 pub use discovery::ServiceRegistry;
-pub use discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
+pub use discovery::types::{ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus};
 pub use error::{TransportError, TransportResult};
 pub use event_bridge::{EventBridge, EventBridgeService, NoopBridge};
 pub use ipc::{IpcConfig, PlatformCapabilities, TransportAddress, TransportScheme};

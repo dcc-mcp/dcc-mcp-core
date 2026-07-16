@@ -149,6 +149,24 @@ impl LeaseOwnerError {
     }
 }
 
+/// Borrowed metadata patch applied to one service row in a single registry transaction.
+///
+/// `None` leaves a field unchanged. Empty strings clear optional string fields,
+/// `Some(&[])` clears the document list, and empty metadata values remove keys.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ServiceSnapshot<'a> {
+    /// Currently active scene or document.
+    pub scene: Option<&'a str>,
+    /// DCC application version.
+    pub version: Option<&'a str>,
+    /// Complete open-document list when the caller owns that state.
+    pub documents: Option<&'a [String]>,
+    /// Human-readable instance label.
+    pub display_name: Option<&'a str>,
+    /// Arbitrary metadata patch; empty values remove matching keys.
+    pub metadata: Option<&'a HashMap<String, String>>,
+}
+
 /// A discovered DCC service instance.
 ///
 /// Keyed by `(dcc_type, instance_id)` — supports multiple instances of the same DCC type.
