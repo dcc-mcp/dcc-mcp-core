@@ -629,25 +629,47 @@ impl FileRegistry {
     /// Deregister a service by key.
     pub fn deregister(&self, key: &ServiceKey) -> TransportResult<Option<ServiceEntry>> {
         self.with_write_transaction(|| {
-            let removed = self.services.remove(key).map(|(_, entry)| entry);
-            if let Some((_, file)) = self.sentinel_handles.remove(key) {
-                let _ = file.unlock();
-            }
-            if let Some(entry) = &removed
-                && let Some(path) = &entry.sentinel_path
-            {
-                let _ = fs::remove_file(path);
-            }
-            if removed.is_some() {
-                tracing::info!(
-                    dcc_type = %key.dcc_type,
-                    instance_id = %key.instance_id,
-                    "deregistered service"
-                );
-            }
+            let removed = self.remove_entry(key);
             let changed = removed.is_some();
             Ok((removed, changed))
         })
+    }
+
+    /// Deregister an asynchronously observed row only if its owner has not refreshed it.
+    pub fn deregister_if_unchanged(
+        &self,
+        observed: &ServiceEntry,
+    ) -> TransportResult<Option<ServiceEntry>> {
+        let key = observed.key();
+        self.with_write_transaction(|| {
+            let unchanged = self.services.get(&key).is_some_and(|current| {
+                current.registered_at == observed.registered_at
+                    && current.last_heartbeat == observed.last_heartbeat
+            });
+            let removed = unchanged.then(|| self.remove_entry(&key)).flatten();
+            let changed = removed.is_some();
+            Ok((removed, changed))
+        })
+    }
+
+    fn remove_entry(&self, key: &ServiceKey) -> Option<ServiceEntry> {
+        let removed = self.services.remove(key).map(|(_, entry)| entry);
+        if let Some((_, file)) = self.sentinel_handles.remove(key) {
+            let _ = file.unlock();
+        }
+        if let Some(entry) = &removed
+            && let Some(path) = &entry.sentinel_path
+        {
+            let _ = fs::remove_file(path);
+        }
+        if removed.is_some() {
+            tracing::info!(
+                dcc_type = %key.dcc_type,
+                instance_id = %key.instance_id,
+                "deregistered service"
+            );
+        }
+        removed
     }
 
     /// Get a service entry by key.

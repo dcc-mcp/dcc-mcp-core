@@ -5,6 +5,13 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 use dcc_mcp_transport::error::TransportResult;
 use futures::future::join_all;
 
+fn evict_probe_snapshot(
+    registry: &FileRegistry,
+    observed: &ServiceEntry,
+) -> TransportResult<Option<ServiceEntry>> {
+    registry.deregister_if_unchanged(observed)
+}
+
 /// On gateway startup, probe every registered instance's TCP port and
 /// deregister any that are unreachable. Complements `prune_dead_pids`
 /// which only checks PID liveness — a process may be alive but its MCP
@@ -41,7 +48,6 @@ pub(crate) async fn probe_and_evict_dead_instances(
     let futures: Vec<_> = entries
         .into_iter()
         .map(|entry| {
-            let key = entry.key();
             let addr = format!("{}:{}", entry.host, entry.port);
             let dcc_type = entry.dcc_type.clone();
             let instance_id = entry.instance_id;
@@ -52,24 +58,31 @@ pub(crate) async fn probe_and_evict_dead_instances(
                 )
                 .await
                 .is_ok_and(|r| r.is_ok());
-                (key, reachable, addr, dcc_type, instance_id)
+                (entry, reachable, addr, dcc_type, instance_id)
             }
         })
         .collect();
 
     let outcomes = join_all(futures).await;
     let mut evicted = Vec::new();
-    for (key, reachable, addr, dcc_type, instance_id) in outcomes {
+    for (observed, reachable, addr, dcc_type, instance_id) in outcomes {
         if !reachable {
-            let removed = registry.deregister(&key)?;
-            tracing::info!(
-                dcc_type = %dcc_type,
-                instance_id = %instance_id,
-                addr = %addr,
-                "Startup probe: instance unreachable — deregistered"
-            );
+            let removed = evict_probe_snapshot(registry, &observed)?;
             if let Some(entry) = removed {
+                tracing::info!(
+                    dcc_type = %dcc_type,
+                    instance_id = %instance_id,
+                    addr = %addr,
+                    "Startup probe: instance unreachable — deregistered"
+                );
                 evicted.push(entry);
+            } else {
+                tracing::debug!(
+                    dcc_type = %dcc_type,
+                    instance_id = %instance_id,
+                    addr = %addr,
+                    "Startup probe result was stale — keeping refreshed instance"
+                );
             }
         }
     }
@@ -179,5 +192,23 @@ mod tests {
             registry.get(&key).is_none(),
             "startup probe must remove unreachable rows from the live registry"
         );
+    }
+
+    #[test]
+    fn stale_probe_does_not_remove_refreshed_row() {
+        let dir = tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        let entry = ServiceEntry::new("houdini", "127.0.0.1", 18814);
+        let key = entry.key();
+        registry.register(entry).unwrap();
+
+        let observed = registry.get(&key).unwrap();
+        std::thread::sleep(Duration::from_millis(1));
+        assert!(registry.heartbeat(&key).unwrap());
+
+        let removed = evict_probe_snapshot(&registry, &observed).unwrap();
+
+        assert!(removed.is_none());
+        assert!(registry.get(&key).is_some());
     }
 }
