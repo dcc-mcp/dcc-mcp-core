@@ -217,6 +217,52 @@ def test_stop_is_idempotent(dispatcher: QueueDispatcher) -> None:
     assert not h.is_running
 
 
+def test_standalone_stop_joins_tick_loop_before_dispatcher_shutdown() -> None:
+    """Standalone teardown must not race dispatcher shutdown with a blocking tick."""
+
+    class _BlockingTickDispatcher:
+        def __init__(self) -> None:
+            self.tick_started = threading.Event()
+            self.allow_tick_finish = threading.Event()
+            self.tick_finished = threading.Event()
+            self.shutdown_called = threading.Event()
+            self.shutdown_while_ticking = False
+
+        def tick_blocking(self, _max_jobs: int, _timeout_ms: int) -> None:
+            self.tick_started.set()
+            self.allow_tick_finish.wait(timeout=2.0)
+            self.tick_finished.set()
+
+        def shutdown(self) -> None:
+            self.shutdown_while_ticking = not self.tick_finished.is_set()
+            self.shutdown_called.set()
+
+    dispatcher = _BlockingTickDispatcher()
+    host = StandaloneHost(dispatcher)
+    host.start()
+    assert dispatcher.tick_started.wait(timeout=1.0)
+
+    stop_errors = []
+
+    def _stop_host() -> None:
+        try:
+            host.stop(timeout=1.0)
+        except BaseException as exc:
+            stop_errors.append(exc)
+
+    stop_thread = threading.Thread(target=_stop_host, daemon=True)
+    stop_thread.start()
+    shutdown_raced_tick = dispatcher.shutdown_called.wait(timeout=0.25)
+    dispatcher.allow_tick_finish.set()
+    stop_thread.join(timeout=1.0)
+
+    assert not stop_thread.is_alive()
+    assert not stop_errors
+    assert dispatcher.shutdown_called.is_set()
+    assert not shutdown_raced_tick
+    assert not dispatcher.shutdown_while_ticking
+
+
 # ---------------------------------------------------------------------------
 # Concurrency
 # ---------------------------------------------------------------------------

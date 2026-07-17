@@ -228,20 +228,24 @@ class HostAdapter:
         Idempotent — safe to call multiple times. ``timeout`` is the
         upper bound on how long to wait for a headless thread to
         exit; interactive mode stops immediately (the DCC's next
-        frame removes the timer).
+        frame removes the timer). The tick driver is detached or joined
+        before dispatcher shutdown so a blocking tick cannot hold the
+        queue drain lock during teardown.
         """
         self._stop_event.set()
-        with contextlib.suppress(Exception):
-            self._dispatcher.shutdown()
         if self._attached:
             with contextlib.suppress(Exception):
                 self.detach_tick()
             self._attached = False
-        if self._headless_thread is not None:
-            self._headless_thread.join(timeout=timeout)
-            if self._headless_thread.is_alive():  # pragma: no cover - diagnostic
-                raise RuntimeError(f"HostAdapter {self._name!r} headless thread did not stop within {timeout}s")
-            self._headless_thread = None
+        try:
+            if self._headless_thread is not None:
+                self._headless_thread.join(timeout=timeout)
+                if self._headless_thread.is_alive():  # pragma: no cover - diagnostic
+                    raise RuntimeError(f"HostAdapter {self._name!r} headless thread did not stop within {timeout}s")
+                self._headless_thread = None
+        finally:
+            with contextlib.suppress(Exception):
+                self._dispatcher.shutdown()
 
     def run_headless(self, stop_event: threading.Event | None = None) -> None:
         """Drive the dispatcher on the *calling* thread until stopped.
