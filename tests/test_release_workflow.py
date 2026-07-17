@@ -128,6 +128,18 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
     assert '--platform "${{ matrix.platform }}"' in run
     assert '--server-bin "${{ matrix.artifact_name }}"' in run
     assert '--cli-bin "${{ matrix.cli_artifact_name }}"' in run
+    assert "--capture-helper target/release/dcc-mcp-capture-helper.exe" in run
+
+    helper_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows capture helper")
+    assert helper_build["if"] == "matrix.os == 'windows-latest'"
+    assert "vx just stage-capture-helper" in helper_build["run"]
+
+    helper_inject = next(
+        step for step in build["steps"] if step.get("name") == "Inject capture helper into Windows server wheel"
+    )
+    assert helper_inject["if"] == "matrix.os == 'windows-latest'"
+    assert "scripts/release/inject_capture_helper.py" in helper_inject["run"]
+    assert "target/release/dcc-mcp-capture-helper.exe" in helper_inject["run"]
 
     raw_upload = next(
         step

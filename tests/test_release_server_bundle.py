@@ -49,8 +49,10 @@ def test_build_server_bundle_packages_unsuffixed_unix_binaries(tmp_path) -> None
 def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
     server = tmp_path / "dcc-mcp-server-windows-x86_64.exe"
     cli = tmp_path / "dcc-mcp-cli-windows-x86_64.exe"
+    helper = tmp_path / "dcc-mcp-capture-helper.exe"
     server.write_bytes(b"server")
     cli.write_bytes(b"cli")
+    helper.write_bytes(b"MZhelper")
 
     out_dir = tmp_path / "dist"
     subprocess.run(
@@ -65,6 +67,8 @@ def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
             str(server),
             "--cli-bin",
             str(cli),
+            "--capture-helper",
+            str(helper),
             "--out-dir",
             str(out_dir),
         ],
@@ -73,4 +77,37 @@ def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
 
     bundle = out_dir / "dcc-mcp-server-0.18.12-windows-x86_64.zip"
     with zipfile.ZipFile(bundle) as zf:
-        assert set(zf.namelist()) == {"dcc-mcp-server.exe", "dcc-mcp-cli.exe"}
+        assert set(zf.namelist()) == {
+            "dcc-mcp-server.exe",
+            "dcc-mcp-cli.exe",
+            "dcc-mcp-capture-helper.exe",
+        }
+
+
+def test_build_server_bundle_rejects_windows_without_capture_helper(tmp_path) -> None:
+    server = tmp_path / "dcc-mcp-server-windows-x86_64.exe"
+    cli = tmp_path / "dcc-mcp-cli-windows-x86_64.exe"
+    server.write_bytes(b"server")
+    cli.write_bytes(b"cli")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--version",
+            "0.18.12",
+            "--platform",
+            "windows-x86_64",
+            "--server-bin",
+            str(server),
+            "--cli-bin",
+            str(cli),
+            "--out-dir",
+            str(tmp_path / "dist"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "require --capture-helper" in result.stderr

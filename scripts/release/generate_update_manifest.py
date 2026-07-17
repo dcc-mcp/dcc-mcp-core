@@ -97,7 +97,6 @@ def main() -> int:
         "dcc-mcp-server": args.server_bin,
         "dcc-mcp-cli": args.cli_bin,
     }
-
     try:
         manifest_path = generate_manifest(
             version=args.version,

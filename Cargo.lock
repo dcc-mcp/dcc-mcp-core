@@ -1112,6 +1112,7 @@ dependencies = [
 name = "dcc-mcp-capture"
 version = "0.19.48"
 dependencies = [
+ "dcc-mcp-shm",
  "image",
  "libc",
  "pyo3",
@@ -1692,6 +1693,7 @@ dependencies = [
  "axum",
  "clap",
  "dcc-mcp-actions",
+ "dcc-mcp-capture",
  "dcc-mcp-catalog",
  "dcc-mcp-gateway",
  "dcc-mcp-http",
