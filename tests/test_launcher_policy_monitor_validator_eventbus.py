@@ -10,7 +10,12 @@ All tests are fully self-contained with no external dependencies.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
+from pathlib import Path
+import sys
+import tempfile
+import time
 
 import pytest
 
@@ -114,6 +119,51 @@ class TestPyDccLauncherLaunch:
         launcher = PyDccLauncher()
         with pytest.raises((RuntimeError, OSError, Exception)):
             launcher.launch("bad-exe", "/no/such/executable/ever", launch_timeout_ms=500)
+
+    def test_launch_applies_child_environment_and_working_directory(self, monkeypatch):
+        launcher = PyDccLauncher()
+        child_env_key = "DCC_MCP_TEST_CHILD_ENV_6E0B39B4"
+        monkeypatch.setenv(child_env_key, "parent-value")
+        with tempfile.TemporaryDirectory() as working_directory:
+            output_path = Path(working_directory) / "child.json"
+            ready_path = Path(working_directory) / "child.ready"
+            script = (
+                "import json, os, pathlib, time; "
+                "pathlib.Path(os.environ['DCC_MCP_TEST_OUTPUT']).write_text("
+                "json.dumps({'env': os.environ.get(os.environ['DCC_MCP_TEST_ENV_KEY']), "
+                "'cwd': os.getcwd()}), encoding='utf-8'); "
+                "os.chdir(os.environ['DCC_MCP_TEST_RELEASE_CWD']); "
+                "pathlib.Path(os.environ['DCC_MCP_TEST_READY']).write_text("
+                "'ready', encoding='utf-8'); time.sleep(30)"
+            )
+            try:
+                launcher.launch(
+                    "isolated-child",
+                    sys.executable,
+                    args=["-c", script],
+                    environment={
+                        child_env_key: "child-only",
+                        "DCC_MCP_TEST_ENV_KEY": child_env_key,
+                        "DCC_MCP_TEST_OUTPUT": str(output_path),
+                        "DCC_MCP_TEST_READY": str(ready_path),
+                        "DCC_MCP_TEST_RELEASE_CWD": str(Path(working_directory).parent),
+                    },
+                    working_directory=working_directory,
+                )
+                deadline = time.time() + 10.0
+                while not ready_path.exists() and time.time() < deadline:
+                    time.sleep(0.05)
+                assert ready_path.exists()
+                with output_path.open(encoding="utf-8") as stream:
+                    result = json.load(stream)
+                assert result["env"] == "child-only"
+                assert os.path.normcase(str(Path(result["cwd"]).resolve())) == os.path.normcase(
+                    str(Path(working_directory).resolve())
+                )
+                assert os.environ[child_env_key] == "parent-value"
+            finally:
+                with contextlib.suppress(Exception):
+                    launcher.kill("isolated-child")
 
     def test_restart_count_after_launch(self):
         import sys

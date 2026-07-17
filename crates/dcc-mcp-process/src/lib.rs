@@ -7,7 +7,7 @@
 //!
 //! | Module | Purpose |
 //! |--------|---------|
-//! | [`types`] | Core data types: `ProcessInfo`, `ProcessStatus`, `DccProcessConfig` |
+//! | [`types`] | Core data types: `ProcessInfo`, `ProcessStatus`, `DccProcessConfig`, `DccLaunchOptions` |
 //! | [`error`] | `ProcessError` enum |
 //! | [`monitor`] | `ProcessMonitor` — live resource snapshots via `sysinfo` |
 //! | [`launcher`] | `DccLauncher` — async spawn/terminate/kill |
@@ -59,7 +59,7 @@ pub use launcher::DccLauncher;
 pub use monitor::ProcessMonitor;
 pub use pump::{PumpStats, PumpedDispatcher};
 pub use recovery::{BackoffStrategy, CrashRecoveryPolicy};
-pub use types::{DccProcessConfig, ProcessInfo, ProcessStatus};
+pub use types::{DccLaunchOptions, DccProcessConfig, ProcessInfo, ProcessStatus};
 pub use watcher::{ProcessEvent, ProcessWatcher, WatcherHandle};
 
 #[cfg(feature = "python-bindings")]

@@ -465,7 +465,7 @@ tools:
 
 ### Process Management (`dcc_mcp_core`)
 
-- `PyDccLauncher()` → `.launch(name, executable, args=None, launch_timeout_ms=30000) -> dict` (dict: `pid`, `name`, `status`), `.terminate(name, timeout_ms=5000)`, `.kill(name)`, `.pid_of(name) -> int|None`, `.running_count() -> int`
+- `PyDccLauncher()` → `.launch(name, executable, args=None, launch_timeout_ms=30000, environment=None, working_directory=None) -> dict` (dict: `pid`, `name`, `status`); environment/cwd overrides apply only to the child. Also exposes `.terminate(name, timeout_ms=5000)`, `.kill(name)`, `.pid_of(name) -> int|None`, `.running_count() -> int`
 - `PyProcessMonitor()` → `.track(pid, name)`, `.refresh()`, `.query(pid) -> dict|None`, `.list_all() -> list`, `.is_alive(pid) -> bool`
 - `PyProcessWatcher(poll_interval_ms=500)` → `.track(pid, name)`, `.start()`, `.stop()`, `.poll_events() -> list[dict]`
 - `PyCrashRecoveryPolicy(max_restarts=3)` → `.use_exponential_backoff(initial_ms, max_delay_ms)`, `.use_fixed_backoff(delay_ms)`, `.should_restart(status) -> bool`, `.next_delay_ms(name, attempt) -> int`

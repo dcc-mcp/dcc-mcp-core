@@ -245,6 +245,27 @@ def create_sphere(radius: float = 1.0, name: str = "sphere") -> dict:
     )
 ```
 
+### Pattern 10: Launch an isolated DCC child
+
+Use child-only environment overrides instead of mutating `os.environ` when
+multiple artist and automation sessions share a machine:
+
+```python
+from dcc_mcp_core import PyDccLauncher
+
+launcher = PyDccLauncher()
+info = launcher.launch(
+    name="nuke-mcp",
+    executable="Nuke15.2",
+    args=["--disable-nuke-frameserver", "project.nk"],
+    environment={
+        "NUKE_DISABLE_FRAMESERVER": "1",
+        "DCC_MCP_NUKE_PORT": "0",
+    },
+    working_directory="/projects/solar-system",
+)
+```
+
 ## Creating a Custom Skill (Zero Python Code)
 
 ```bash

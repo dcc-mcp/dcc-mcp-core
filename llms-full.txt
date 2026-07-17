@@ -1672,19 +1672,25 @@ launcher = PyDccLauncher()
 
 # Launch a DCC process
 info = launcher.launch(
-    name="maya-2025",                        # logical name for tracking
-    executable="/usr/autodesk/maya/bin/maya",
-    args=["-batch", "-file", "scene.mb"],
+    name="nuke-mcp",                         # logical name for tracking
+    executable="/opt/Nuke15.2/Nuke15.2",
+    args=["--disable-nuke-frameserver", "project.nk"],
     launch_timeout_ms=30000,
+    environment={
+        "NUKE_DISABLE_FRAMESERVER": "1",
+        "DCC_MCP_NUKE_PORT": "0",
+    },
+    working_directory="/projects/solar-system",
 )
-# info: {"pid": 12345, "name": "maya-2025", "status": "running"}
+# info: {"pid": 12345, "name": "nuke-mcp", "status": "starting"}
+# environment/cwd overrides apply only to the child process.
 
 # Manage
-launcher.terminate("maya-2025", timeout_ms=5000)  # graceful SIGTERM
-launcher.kill("maya-2025")                         # force SIGKILL
-pid = launcher.pid_of("maya-2025")                 # -> int|None
+launcher.terminate("nuke-mcp", timeout_ms=5000)  # graceful SIGTERM
+launcher.kill("nuke-mcp")                         # force SIGKILL
+pid = launcher.pid_of("nuke-mcp")                 # -> int|None
 count = launcher.running_count()                   # int
-restarts = launcher.restart_count("maya-2025")     # int
+restarts = launcher.restart_count("nuke-mcp")     # int
 ```
 
 ### PyProcessMonitor

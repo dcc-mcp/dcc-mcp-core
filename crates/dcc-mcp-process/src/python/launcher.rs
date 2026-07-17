@@ -10,7 +10,7 @@ use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use super::helpers::{map_process_err, runtime, status_to_str};
 use crate::launcher::DccLauncher;
-use crate::types::DccProcessConfig;
+use crate::types::{DccLaunchOptions, DccProcessConfig};
 
 /// Async DCC process launcher (spawn / terminate / kill).
 ///
@@ -48,9 +48,23 @@ impl PyDccLauncher {
     ///     Command-line arguments.
     /// launch_timeout_ms : int, optional
     ///     Milliseconds to wait for the process to start (default 30000).
+    /// environment : dict[str, str], optional
+    ///     Child-only environment overrides. The parent process is not mutated.
+    /// working_directory : str, optional
+    ///     Working directory for the child process.
     ///
     /// Returns a dict with ``pid``, ``name``, and ``status``.
-    #[pyo3(signature = (name, executable, args=None, launch_timeout_ms=30000))]
+    #[pyo3(signature = (
+        name,
+        executable,
+        args=None,
+        launch_timeout_ms=30000,
+        environment=None,
+        working_directory=None
+    ))]
+    // The Python API keeps the two isolation settings as explicit optional
+    // keywords so existing positional calls remain source compatible.
+    #[allow(clippy::too_many_arguments)]
     pub fn launch<'py>(
         &self,
         py: Python<'py>,
@@ -58,17 +72,24 @@ impl PyDccLauncher {
         executable: &str,
         args: Option<Vec<String>>,
         launch_timeout_ms: u64,
+        environment: Option<std::collections::HashMap<String, String>>,
+        working_directory: Option<String>,
     ) -> PyResult<Bound<'py, PyDict>> {
         let mut config = DccProcessConfig::new(name, executable);
         if let Some(a) = args {
             config.args = a;
         }
+        let mut launch_options = DccLaunchOptions::new();
+        if let Some(environment) = environment {
+            launch_options.environment = environment.into_iter().collect();
+        }
+        launch_options.working_directory = working_directory;
         config.launch_timeout_ms = launch_timeout_ms;
 
         let inner = Arc::clone(&self.inner);
         let rt = runtime()?;
         let info = rt
-            .block_on(inner.launch(&config))
+            .block_on(inner.launch_with_options(&config, &launch_options))
             .map_err(map_process_err)?;
 
         let d = PyDict::new(py);

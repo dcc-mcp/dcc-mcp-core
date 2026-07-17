@@ -77,7 +77,7 @@ launcher = PyDccLauncher()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `launch(name, executable, args=None, launch_timeout_ms=30000)` | `dict` | Spawn a DCC process |
+| `launch(name, executable, args=None, launch_timeout_ms=30000, environment=None, working_directory=None)` | `dict` | Spawn a DCC process with child-only environment and cwd overrides |
 | `terminate(name, timeout_ms=5000)` | `None` | Gracefully terminate |
 | `kill(name)` | `None` | Force kill |
 | `pid_of(name)` | `int \| None` | Get PID by name |
@@ -92,6 +92,8 @@ info = launcher.launch(
     executable="/usr/autodesk/maya/bin/maya",
     args=["-prompt", "-batch"],
     launch_timeout_ms=30000,
+    environment={"MAYA_DISABLE_CIP": "1"},
+    working_directory="/projects/shot-010",
 )
 print(f"Launched PID: {info['pid']}")
 
