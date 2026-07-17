@@ -34,9 +34,8 @@ mod imp {
 
     impl ThreadDpiAwareness {
         pub(crate) fn enter(context: &str) -> CaptureResult<Self> {
-            let previous = unsafe {
-                SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-            };
+            let previous =
+                unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
             if previous.0.is_null() {
                 return Err(CaptureError::Platform(format!(
                     "Windows refused per-monitor-v2 DPI awareness for the {context}"
