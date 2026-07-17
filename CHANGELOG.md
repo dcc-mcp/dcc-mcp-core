@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.49](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.48...v0.19.49) (2026-07-17)
+
+
+### Features
+
+* add scoped Windows computer use ([2d62e86](https://github.com/dcc-mcp/dcc-mcp-core/commit/2d62e860ebd65244d67e3dec2e8eefaf3994934f))
+
+
+### Bug Fixes
+
+* **cli:** call core tools through MCP fallback ([#1942](https://github.com/dcc-mcp/dcc-mcp-core/issues/1942)) ([1153f66](https://github.com/dcc-mcp/dcc-mcp-core/commit/1153f662a1ccdf695ab9d3107e591c3d3e9daf91))
+
 ## [0.19.48](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.47...v0.19.48) (2026-07-17)
 
 
