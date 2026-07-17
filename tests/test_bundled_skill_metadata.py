@@ -9,7 +9,7 @@ from dcc_mcp_core.skill_reference_docs import _handle_list
 SKILL_ROOTS = [
     REPO_ROOT / "skills" / "dcc-mcp-skills-creator",
     REPO_ROOT / "skills" / "dcc-mcp-creator",
-    REPO_ROOT / "skills" / "dcc-cli-gateway",
+    REPO_ROOT / "skills" / "dcc-mcp",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "app-ui",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "dcc-diagnostics",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "media",

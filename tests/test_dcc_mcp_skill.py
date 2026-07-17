@@ -1,4 +1,4 @@
-"""Tests for skills/dcc-cli-gateway (ClawHub CLI-first agent skill)."""
+"""Tests for the dcc-mcp default agent-control skill."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from unittest.mock import patch
 from conftest import REPO_ROOT
 import dcc_mcp_core
 
-DCC_CLI_GATEWAY_DIR = str(REPO_ROOT / "skills" / "dcc-cli-gateway")
-CHECK_SCRIPT = Path(DCC_CLI_GATEWAY_DIR) / "scripts" / "check_cli.py"
+DCC_MCP_SKILL_DIR = str(REPO_ROOT / "skills" / "dcc-mcp")
+CHECK_SCRIPT = Path(DCC_MCP_SKILL_DIR) / "scripts" / "check_cli.py"
 RELEASE_MANIFEST = REPO_ROOT / ".release-please-manifest.json"
 
 sys.path.insert(0, str(CHECK_SCRIPT.parent))
@@ -22,43 +22,62 @@ import dcc_gateway as dcc_gateway_mod  # noqa: E402
 sys.path.pop(0)
 
 
-class TestDccCliGatewaySkill:
+class TestDccMcpSkill:
     def test_skill_dir_exists(self) -> None:
-        assert Path(DCC_CLI_GATEWAY_DIR).is_dir()
+        assert Path(DCC_MCP_SKILL_DIR).is_dir()
 
     def test_parse_skill_md(self) -> None:
-        meta = dcc_mcp_core.parse_skill_md(DCC_CLI_GATEWAY_DIR)
+        meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None
-        assert meta.name == "dcc-cli-gateway"
+        assert meta.name == "dcc-mcp"
         release_version = json.loads(RELEASE_MANIFEST.read_text(encoding="utf-8"))["."]
         assert meta.version == release_version
 
     def test_validate_skill_clean(self) -> None:
-        report = dcc_mcp_core.validate_skill(DCC_CLI_GATEWAY_DIR)
+        report = dcc_mcp_core.validate_skill(DCC_MCP_SKILL_DIR)
         assert report.is_clean, report.issues
 
     def test_scannable_from_skills_dir(self, skills_dir: str) -> None:
         scanner = dcc_mcp_core.SkillScanner()
         dirs = scanner.scan(extra_paths=[skills_dir])
         names = {Path(d).name for d in dirs}
-        assert "dcc-cli-gateway" in names
+        assert "dcc-mcp" in names
 
     def test_description_mentions_clawhub_and_cli(self) -> None:
-        meta = dcc_mcp_core.parse_skill_md(DCC_CLI_GATEWAY_DIR)
+        meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None
         desc = (meta.description or "").lower()
         assert "openclaw" in desc
         assert "dcc-mcp-cli" in desc
         assert "mcp" in desc
 
+    def test_description_triggers_on_natural_dcc_requests(self) -> None:
+        meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
+        assert meta is not None
+        desc = (meta.description or "").lower()
+        for keyword in ("maya", "blender", "houdini", "photoshop"):
+            assert keyword in desc
+        assert "use this skill first" in desc
+
+    def test_body_prioritizes_structured_dcc_mcp_tools_for_user_intent(self) -> None:
+        body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8").lower()
+        assert "dcc intent routing" in body
+        assert "in maya" in body
+        assert "in blender" in body
+        assert "in photoshop" in body
+        assert "prefer structured dcc-mcp tools" in body
+        assert "mcp-native host" in body
+        assert "call the gateway/dcc structured tools directly" in body
+        assert "do not use this skill" not in body
+
     def test_openclaw_metadata_does_not_require_gateway_env(self) -> None:
-        meta = dcc_mcp_core.parse_skill_md(DCC_CLI_GATEWAY_DIR)
+        meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None
         assert meta.primary_env() is None
         assert "DCC_MCP_BASE_URL" not in meta.required_env_vars()
 
     def test_reference_docs_present(self) -> None:
-        root = Path(DCC_CLI_GATEWAY_DIR)
+        root = Path(DCC_MCP_SKILL_DIR)
         assert (root / "references" / "CLI_CHEATSHEET.md").is_file()
         assert (root / "references" / "ZERO_INSTANCES_CLI.md").is_file()
 

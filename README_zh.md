@@ -72,7 +72,7 @@ instance row -> gateway 统一路由所有 live DCC instance。
 ## 推荐 Agent 流程
 
 1. 只要 agent 能执行 shell，就优先走 CLI path：加载内置
-   `dcc-cli-gateway` skill，然后用 `dcc-mcp-cli list` 做本地 inventory，
+   `dcc-mcp` skill，然后用 `dcc-mcp-cli list` 做本地 inventory，
    或用 `dcc-mcp-cli list --gateway <profile>` 操作远程工作站。
 2. 用 `dcc-mcp-cli search` 做紧凑搜索；local mode 会直连已注册 DCC 的
    MCP endpoint，远程 profile 则通过选中的 gateway 路由。

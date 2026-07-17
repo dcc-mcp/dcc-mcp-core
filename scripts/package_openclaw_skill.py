@@ -8,9 +8,14 @@ import sys
 from zipfile import ZIP_DEFLATED
 from zipfile import ZipFile
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python < 3.11
+    import tomli as tomllib
 
 IGNORED_NAMES = {".DS_Store", "Thumbs.db"}
+IGNORED_DIRECTORY_NAMES = {"__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
+IGNORED_SUFFIXES = {".pyc", ".pyo"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,7 +55,12 @@ def iter_skill_files(skill_dir: Path):
     for path in sorted(skill_dir.rglob("*")):
         if not path.is_file():
             continue
+        relative_parts = path.relative_to(skill_dir).parts
+        if any(part in IGNORED_DIRECTORY_NAMES for part in relative_parts[:-1]):
+            continue
         if path.name in IGNORED_NAMES:
+            continue
+        if path.suffix.lower() in IGNORED_SUFFIXES:
             continue
         yield path
 

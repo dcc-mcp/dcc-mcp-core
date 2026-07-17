@@ -328,9 +328,9 @@ class TestSidecarBackedSkillServer:
         )
 
         assert server.discover([str(_REPO_ROOT / "skills")], accumulated=False) >= 1
-        skill_file = (_REPO_ROOT / "skills" / "dcc-cli-gateway" / "SKILL.md").read_text(encoding="utf-8")
+        skill_file = (_REPO_ROOT / "skills" / "dcc-mcp" / "SKILL.md").read_text(encoding="utf-8")
         version_line = next(line for line in skill_file.splitlines() if line.strip().startswith("version:"))
-        assert server.get_skill("dcc-cli-gateway").version == version_line.split('"')[1]
+        assert server.get_skill("dcc-mcp").version == version_line.split('"')[1]
 
     def test_start_launches_sidecar_and_returns_handle(self, monkeypatch: pytest.MonkeyPatch):
         server = SidecarBackedSkillServer(

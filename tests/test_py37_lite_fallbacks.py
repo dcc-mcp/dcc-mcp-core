@@ -251,12 +251,12 @@ def test_shared_lite_parser_matches_real_repo_skill(monkeypatch) -> None:
     )
     fallback = modules["dcc_mcp_core._py37_fallback"]
     catalog_module = modules["dcc_mcp_core._runtime.pure_skill_catalog"]
-    skill_dir = Path(__file__).resolve().parents[1] / "skills" / "dcc-cli-gateway"
+    skill_dir = Path(__file__).resolve().parents[1] / "skills" / "dcc-mcp"
 
     parsed = fallback.parse_skill_md(str(skill_dir))
     catalog = catalog_module.PurePythonSkillCatalog("python")
     assert catalog.discover([(str(skill_dir), "repo")]) == 1
-    discovered = catalog.get_skill("dcc-cli-gateway")
+    discovered = catalog.get_skill("dcc-mcp")
     assert parsed is not None
     for field in ("name", "description", "dcc", "version", "tags", "depends"):
         assert getattr(discovered, field) == getattr(parsed, field)
