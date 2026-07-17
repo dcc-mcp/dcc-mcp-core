@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.53](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.52...v0.19.53) (2026-07-17)
+
+
+### Features
+
+* **gateway:** add persistent filterable call statistics ([#1954](https://github.com/dcc-mcp/dcc-mcp-core/issues/1954)) ([94251d9](https://github.com/dcc-mcp/dcc-mcp-core/commit/94251d99ac97a4fb3326fbb8f6b52bd2cacf394a))
+
 ## [0.19.52](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.51...v0.19.52) (2026-07-17)
 
 
