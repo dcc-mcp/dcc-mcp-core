@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.54](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.53...v0.19.54) (2026-07-17)
+
+
+### Features
+
+* **process:** support isolated child launch settings ([#1956](https://github.com/dcc-mcp/dcc-mcp-core/issues/1956)) ([96e9549](https://github.com/dcc-mcp/dcc-mcp-core/commit/96e9549592819249b3f6b0c2669016de5017b75e))
+* **skills:** rename default agent entry to dcc-mcp ([#1957](https://github.com/dcc-mcp/dcc-mcp-core/issues/1957)) ([b41569d](https://github.com/dcc-mcp/dcc-mcp-core/commit/b41569de814086b6c14a8905ae8dfb554bc9bfb8))
+
 ## [0.19.53](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.52...v0.19.53) (2026-07-17)
 
 
