@@ -292,6 +292,37 @@ fn call_and_call_batch_exit_one_on_tool_failure_after_http_success() {
 }
 
 #[test]
+fn call_falls_back_to_mcp_for_core_tool_missing_from_rest_catalog() {
+    let fixture = spawn_gateway_fixture();
+
+    let status = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "call",
+        "jobs_get_status",
+        "--json",
+        r#"{"job_id":"job-42"}"#,
+    ]);
+
+    assert_eq!(status["slug"], "jobs_get_status");
+    assert_eq!(status["output"]["job_id"], "job-42");
+    assert_eq!(status["output"]["status"], "completed");
+
+    let stderr = run_failure_with_env(
+        &[
+            "--base-url",
+            &fixture.base_url,
+            "call",
+            "jobs_get_status",
+            "--json",
+            r#"{"job_id":"job-404"}"#,
+        ],
+        &[],
+    );
+    assert!(stderr.contains("job-404"), "stderr: {stderr}");
+}
+
+#[test]
 fn local_list_reads_file_registry_after_gateway_ensure() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();

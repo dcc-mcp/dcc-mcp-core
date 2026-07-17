@@ -16,6 +16,8 @@ const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
 pub enum ClientError {
     #[error(transparent)]
     Http(#[from] HttpError),
+    #[error("MCP protocol error: {0}")]
+    Protocol(String),
 }
 
 pub struct DccMcpClient {
@@ -101,14 +103,62 @@ impl DccMcpClient {
 
     pub async fn call(&self, request: CallRequest) -> Result<Value, ClientError> {
         let body = json!({
-            "tool_slug": request.tool_slug,
-            "arguments": request.arguments,
-            "meta": request.meta,
+            "tool_slug": &request.tool_slug,
+            "arguments": &request.arguments,
+            "meta": &request.meta,
         });
-        self.gateway
+        match self
+            .gateway
             .post_json(&self.endpoint.path("/v1/call"), &body)
             .await
-            .map_err(Into::into)
+        {
+            Ok(value) => Ok(value),
+            Err(error) if is_unknown_rest_tool(&error) => self.call_mcp_tool(request).await,
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn call_mcp_tool(&self, request: CallRequest) -> Result<Value, ClientError> {
+        let tool_slug = request.tool_slug;
+        let mut params = json!({
+            "name": &tool_slug,
+            "arguments": request.arguments,
+        });
+        if let Some(meta) = request.meta {
+            params["_meta"] = meta;
+        }
+        let response = self
+            .gateway
+            .post_json_with_headers(
+                &self.endpoint.mcp_url(),
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": "dcc-mcp-cli-call",
+                    "method": "tools/call",
+                    "params": params,
+                }),
+                &[
+                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
+                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                ],
+            )
+            .await?;
+        if let Some(error) = response.get("error") {
+            return Err(ClientError::Protocol(error.to_string()));
+        }
+        let result = response
+            .get("result")
+            .cloned()
+            .ok_or_else(|| ClientError::Protocol("missing tools/call result".to_string()))?;
+        if result.get("isError").and_then(Value::as_bool) == Some(true) {
+            let message = result
+                .pointer("/content/0/text")
+                .and_then(Value::as_str)
+                .unwrap_or("tools/call failed");
+            return Err(ClientError::Protocol(message.to_string()));
+        }
+        let output = result.get("structuredContent").cloned().unwrap_or(result);
+        Ok(json!({"slug": tool_slug, "output": output}))
     }
 
     pub async fn call_batch(&self, body: Value) -> Result<Value, ClientError> {
@@ -361,6 +411,24 @@ impl DccMcpClient {
             "checks": checks,
         })
     }
+}
+
+fn is_unknown_rest_tool(error: &HttpError) -> bool {
+    let HttpError::Status { status, body } = error else {
+        return false;
+    };
+    if *status != reqwest::StatusCode::BAD_REQUEST {
+        return false;
+    }
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .is_some_and(|message| message.starts_with("invalid tool slug "))
 }
 
 const READINESS_FIELDS: &[&str] = &[
