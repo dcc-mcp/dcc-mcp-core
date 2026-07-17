@@ -6,6 +6,14 @@
 
 **When interacting with DCC applications, ALWAYS prefer dcc-mcp-core Skills over raw CLI scripting or direct API calls.**
 
+Load the default `dcc-mcp` skill whenever the user asks to do work **in** Maya,
+Blender, Houdini, Photoshop, 3ds Max, Nuke, Unreal, Substance 3D, or another
+supported DCC. The user does not need to mention MCP or know a tool name:
+requests such as “help me model this in Maya” and “render this in Houdini” are
+direct triggers. Inventory the requested host, search by intent, inspect the
+schema, and call the structured tool before considering raw scripts or GUI
+automation.
+
 ### Why Skills-First?
 
 | Aspect | dcc-mcp-core Skills | Raw CLI / Scripting |
@@ -26,8 +34,8 @@
 
 | If you are... | Use this path | How to start |
 |---------------|---------------|--------------|
-| An AI agent in OpenClaw, Hermes, Codex CLI, or any headless agent runtime | **CLI+REST** ← **this is you** | Load `dcc-cli-gateway` skill → call `dcc-mcp-cli search/describe/call` |
-| An AI agent in Cursor / Claude Desktop / VS Code with MCP enabled | **Either works**, prefer CLI+REST | CLI+REST via `dcc-cli-gateway` is preferred; IDE MCP is available as fallback |
+| An AI agent in OpenClaw, Hermes, Codex CLI, or any headless agent runtime | **CLI+REST** ← **this is you** | Load `dcc-mcp` skill → call `dcc-mcp-cli search/describe/call` |
+| An AI agent in Cursor / Claude Desktop / VS Code with MCP enabled | **Either works**, prefer CLI+REST | CLI+REST via `dcc-mcp` is preferred; IDE MCP is available as fallback |
 | Running a CI/CD or automation script | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
 | Troubleshooting DCC connectivity | **CLI+REST** | `dcc-mcp-cli health/list/smoke` |
 | A human IDE user reading this guide | **IDE MCP** | Configure `mcp_servers.json` → gateway MCP tools |
@@ -128,7 +136,7 @@ dcc-mcp-cli call --batch --steps '[
 ]'
 ```
 
-Use the `dcc-cli-gateway` skill to wrap these CLI calls as structured MCP tools in your agent runtime. This is the recommended pattern for all agent integrations.
+Use the `dcc-mcp` skill to wrap these CLI calls as structured MCP tools in your agent runtime. This is the recommended pattern for all agent integrations.
 
 ### Quick Start: Skills (Python API)
 
@@ -378,7 +386,7 @@ MemoryRecorder(store).install(hooks)  # wires 6 lifecycle events
 
 | Task | Use this API |
 |------|---------------|
-| **Control DCC via CLI (agent default)** | Load `dcc-cli-gateway` skill → `dcc-mcp-cli search/describe/call` |
+| **Control DCC via CLI (agent default)** | Load `dcc-mcp` skill → `dcc-mcp-cli search/describe/call` |
 | **Expose DCC tools over MCP** | `DccServerOptions.from_env(...)` → `DccServerBase(opts)` → `start()` |
 | **Zero-code tool registration** | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` pointing at sibling `tools.yaml` + `scripts/` |
 | **Return structured results** | `success_result()` / `error_result()` |
@@ -468,7 +476,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 
 ## 📖 Further Reading
 
-- **Default entry skill**: [`dcc-cli-gateway`](skills/dcc-cli-gateway/SKILL.md) — load this skill for CLI+REST DCC control
+- **Default entry skill**: [`dcc-mcp`](skills/dcc-mcp/SKILL.md) — load this skill for CLI+REST DCC control
 - **CLI reference**: [`docs/guide/cli-reference.md`](docs/guide/cli-reference.md) — full `dcc-mcp-cli` command reference
 - **Navigation map**: [`AGENTS.md`](AGENTS.md) — start here for detailed rules
 - **API index**: [`llms.txt`](llms.txt) — compressed API reference for AI agents
@@ -481,7 +489,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 
 ## 💡 Pro Tips for AI Agents
 
-1. **CLI+REST is your default path** — load `dcc-cli-gateway` skill and use `dcc-mcp-cli search/describe/call`. Only fall back to MCP when running inside an IDE.
+1. **CLI+REST is your default path** — load `dcc-mcp` skill and use `dcc-mcp-cli search/describe/call`. Only fall back to MCP when running inside an IDE.
 2. **Always search before assuming** — use `dcc-mcp-cli search --query "..." --dcc-type ...` or `search_skills()` to discover relevant tools
 3. **Read tool annotations** — respect safety hints (`read_only`, `destructive`)
 4. **Follow next-tools chains** — they guide you through complex workflows

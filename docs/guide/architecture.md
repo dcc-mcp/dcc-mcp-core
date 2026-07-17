@@ -11,7 +11,7 @@ DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings
 | Agent / operator surfaces                                                       |
 | - MCP clients: search -> describe -> load_skill? -> call                       |
 | - CLI users: dcc-mcp-cli list/search/describe/call                              |
-| - ClawHub/OpenClaw skills: dcc-cli-gateway                                      |
+| - ClawHub/OpenClaw skills: dcc-mcp                                      |
 | - CI and custom clients: REST /v1/*                                             |
 +----------------------------------------+---------------------------------------+
                                          |

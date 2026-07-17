@@ -13,6 +13,13 @@
 
 **When interacting with DCC applications (Maya, Blender, Houdini, etc.), ALWAYS prefer dcc-mcp-core Skills over raw CLI or scripting.**
 
+Natural DCC intent is enough to trigger the default `dcc-mcp` skill. If a user
+asks to create, edit, inspect, animate, render, composite, or export something
+in Maya, Blender, Houdini, Photoshop, 3ds Max, Nuke, Unreal, Substance 3D, or
+another supported host, load `dcc-mcp` first even when the user never says
+“MCP”. Inventory, search, describe, and call the structured DCC tool before
+falling back to raw scripting or scoped Computer Use.
+
 **Why?** Skills provide:
 - ✅ Structured results with validation
 - ✅ Safety hints (`ToolAnnotations`)
@@ -28,15 +35,15 @@
 
 | Scenario | Recommended Path | How it works |
 |----------|-----------------|--------------|
-| AI agent (OpenClaw, Hermes, Codex CLI, custom agent runtime) | **CLI+REST** | One `dcc-cli-gateway` skill → shell `dcc-mcp-cli` → gateway `POST /v1/{search,describe,call}` |
+| AI agent (OpenClaw, Hermes, Codex CLI, custom agent runtime) | **CLI+REST** | One `dcc-mcp` skill → shell `dcc-mcp-cli` → gateway `POST /v1/{search,describe,call}` |
 | IDE user (Cursor, Claude Desktop, VS Code) | **IDE MCP** | Manual `mcp_servers.json` / `claude_desktop_config.json` → gateway MCP tools (`search`/`describe`/`call`) |
 | CI/CD / automation script | **CLI+REST** | `dcc-mcp-cli health/list/smoke/search/call/load-skill` — scriptable, auditable |
 | Troubleshooting / operations | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
-| Studio / team integration | **CLI+REST** | Fork `dcc-cli-gateway` skill → one skill controls all DCCs, no per-DCC MCP server config |
+| Studio / team integration | **CLI+REST** | Fork `dcc-mcp` skill → one skill controls all DCCs, no per-DCC MCP server config |
 | GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin exposes tools directly to the IDE |
 
 **Core principle:**
-- **AI agents** start with `dcc-cli-gateway` skill + `dcc-mcp-cli` CLI. The CLI handles gateway lifecycle (ensure, health, start) and exposes `search → describe → call` via shell.
+- **AI agents** start with `dcc-mcp` skill + `dcc-mcp-cli` CLI. The CLI handles gateway lifecycle (ensure, health, start) and exposes `search → describe → call` via shell.
 - **Human IDE users** continue using MCP configuration. The gateway serves both paths simultaneously.
 - **CLI-first does not deprecate MCP** — the gateway always exposes both MCP and REST side by side.
 
@@ -95,7 +102,7 @@
 | Skill authoring | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) + `examples/skills/` | Creating or modifying skills |
 | Adapter developer guidance | [`skills/dcc-mcp-creator/SKILL.md`](skills/dcc-mcp-creator/SKILL.md) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
 | Skill creator guidance | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Before creating or changing adapter skill authoring, tool schemas, scripts, skill taxonomy, testing, or agent-facing workflows |
-| CLI + marketplace operations | [`skills/dcc-cli-gateway/SKILL.md`](skills/dcc-cli-gateway/SKILL.md) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
+| CLI + marketplace operations | [`skills/dcc-mcp/SKILL.md`](skills/dcc-mcp/SKILL.md) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
 | Marketplace extension publishing | [`skills/marketplace-publish-extension/SKILL.md`](skills/marketplace-publish-extension/SKILL.md) | Before publishing a new skill package to the DCC-MCP marketplace |
 | Marketplace extension creation | [`skills/marketplace-create-extension/SKILL.md`](skills/marketplace-create-extension/SKILL.md) | Before creating a new marketplace extension package |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
@@ -124,12 +131,12 @@
 **The default path for AI agents is CLI+REST through the gateway.** The per-DCC MCP server path is for IDE users and legacy setups.
 
 ```
-Gateway CLI+REST (agent default — use dcc-cli-gateway skill + dcc-mcp-cli):
+Gateway CLI+REST (agent default — use dcc-mcp skill + dcc-mcp-cli):
 1. Discover: `dcc-mcp-cli search --query "keyword" --dcc-type maya` or `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
 2. Inspect: `dcc-mcp-cli describe --tool-slug <slug>` or `POST /v1/describe` → read schema + annotations.
 3. Execute: `dcc-mcp-cli call --tool-slug <slug> --arguments '{"radius": 2.0}'` or `POST /v1/call`.
 4. Batch execute: `dcc-mcp-cli call --batch` or `POST /v1/call_batch` for ordered batches (max 25).
-5. Package as a skill: fork or extend `dcc-cli-gateway` to reuse `dcc-mcp-cli` calls as structured MCP tools.
+5. Package as a skill: fork or extend `dcc-mcp` to reuse `dcc-mcp-cli` calls as structured MCP tools.
 6. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
 7. Use `app-ui` Computer Use only when a structured DCC skill/script/API is unsupported, missing, or cannot reach the required semantic UI. Never switch to another UI/input path after a policy, authorization, authentication, security, confirmation, desktop-availability, or user-interruption failure. The adapter/operator must bind native input to its DCC with `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; requests may only narrow that trusted scope. Use `snapshot` → one `act` → `snapshot`, then `stop_computer_use` on every exit path.
 8. Ctrl+Alt+Esc sets a Windows-logon-session-wide hard user stop across DCC adapter processes; ordinary Esc remains available to the target app. After the hard stop, do not retry, change `session_id`, or restart. Resume only with `app_ui__snapshot(resume_computer_use=true)` after an explicit user request and only while no Computer Use owner is active.

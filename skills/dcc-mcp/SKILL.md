@@ -1,14 +1,13 @@
 ---
-name: dcc-cli-gateway
+name: dcc-mcp
 description: >-
-  Default unified entry for agents and headless CLI hosts (OpenClaw, Hermes,
-  Codex CLI, CI bots, custom agent runtimes) to control live DCC applications
-  through dcc-mcp-cli local registry/direct MCP or remote gateway REST — not
-  native MCP JSON-RPC. Agents use this skill plus shell; IDE users (Cursor,
-  Claude Desktop, VS Code MCP) should configure the gateway MCP URL instead.
-  Inventory DCC instances and search/describe/call tools via CLI. If
-  dcc-mcp-cli is missing, ask for consent, download from GitHub Releases, and
-  fall back to Python stdlib gateway REST only if download fails.
+  Default DCC control skill — connect to and operate live Maya, Blender,
+  Houdini, Photoshop, 3ds Max, Nuke, Unreal, Substance 3D, and other DCC apps
+  through structured DCC-MCP tools. Use this skill first whenever the user asks
+  to do something in a DCC app, even when they do not mention DCC-MCP. OpenClaw
+  and other shell agents use dcc-mcp-cli inventory/search/describe/call;
+  MCP-native IDEs use the gateway MCP surface. Not for tasks unrelated to DCC
+  software.
 license: MIT-0
 compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
 allowed-tools: Bash Read
@@ -17,26 +16,64 @@ metadata:
     dcc: python
     layer: infrastructure
     version: "0.19.53"  # x-release-please-version
-    search-hint: "cli gateway dcc-mcp-cli connect dcc instances search describe call clawhub"
-    tags: "cli, gateway, infrastructure, clawhub, openclaw, instances"
+    search-hint: "dcc control Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Substance connect create edit render automate cli gateway"
+    tags: "dcc, maya, blender, houdini, photoshop, nuke, cli, gateway, clawhub, openclaw"
   openclaw:
     emoji: "🖥️"
-    homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-cli-gateway/SKILL.md
+    homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp/SKILL.md
 ---
 
-# DCC CLI Gateway — Agent Control Plane
+# DCC-MCP — Default DCC Control
 
-> **Agents use `dcc-mcp-cli`; IDE users keep native MCP.** One skill for
-> shell-capable agent hosts — no MCP connector required.
+> **Route DCC intent here first.** MCP-native agents call the structured gateway
+> tools directly; shell-only agents use `dcc-mcp-cli` — no MCP connector
+> required.
 
-Use this skill when an **agent or headless CLI host** can run shell commands and
-should control DCC-MCP through **`dcc-mcp-cli`**. The CLI uses local
+Use this skill whenever the user asks to operate a supported DCC application.
+In an MCP-native host, use the gateway's structured inventory, search,
+describe, load, and call tools. In an **agent or headless CLI host** without an
+MCP connector, control DCC-MCP through **`dcc-mcp-cli`**. The CLI uses local
 FileRegistry + direct per-DCC MCP in the built-in `local` profile, and gateway
 REST (`/v1/search`, `/v1/describe`, `/v1/call`) for named remote profiles.
 
 The CLI returns JSON by default. The bundled Python fallback is gateway-REST
 only and sends `Accept: application/json` because the gateway REST API itself
 now defaults to compact TOON for agent-facing routes.
+
+## DCC Intent Routing — Use This Skill First
+
+Treat a request as a DCC-MCP task when the user asks to create, edit, inspect,
+simulate, animate, render, composite, export, or automate content **in a DCC
+application**. The user does not need to say “DCC-MCP”, “MCP”, “gateway”, or a
+tool name. Natural requests such as “in Maya…”, “help me in Blender…”, “render
+this in Houdini”, or “edit this in Photoshop” are sufficient triggers.
+
+| User intent | Target inventory filter | Typical capability search |
+|-------------|-------------------------|---------------------------|
+| Model, rig, animate, shade, or render in Maya | `maya` | the requested modeling, rigging, animation, material, or render operation |
+| Build or modify a Blender scene | `blender` | the requested scene, mesh, material, animation, or render operation |
+| Create procedural geometry, FX, USD, or Karma output in Houdini | `houdini` | the requested SOP, DOP, Solaris, material, animation, or render operation |
+| Edit, retouch, mask, or export an image in Photoshop | `photoshop` | the requested document, layer, selection, filter, or export operation |
+| Work in 3ds Max, Nuke, Unreal, Substance 3D, or another supported host | that host's `dcc_type` | the user's task in plain language |
+
+For these requests:
+
+1. **Prefer structured DCC-MCP tools** over direct application scripting,
+   Computer Use, or generic shell automation.
+2. Inventory live instances before choosing a host. If more than one matching
+   instance exists, use task context or ask the user which scene/session owns
+   the change.
+3. Search by the user's intent and target DCC, copy the returned tool slug,
+   inspect its schema and annotations, then call it.
+4. Use raw scripting only when no typed tool covers the operation and the
+   adapter exposes an explicit, policy-compliant automation tool. A repeated
+   scripting pattern is a candidate for a reusable DCC skill.
+5. Use scoped Computer Use only after structured tools report the operation as
+   unsupported or the required host control is not exposed.
+
+If the requested DCC is installed but no live adapter instance is registered,
+follow the zero-instance flow. Do not silently switch to GUI automation or a
+different DCC application.
 
 ---
 
@@ -57,12 +94,15 @@ MCP when they can run shell.
 
 **Decision rules for agents loading this skill:**
 
-1. **Use this skill (CLI path)** when the host can execute shell and the task is
-   DCC control (`search` → `describe` → `call`). This is the **default for agents**.
-2. **Do not use this skill** when the user is in Cursor / Claude Desktop / VS Code
-   with gateway MCP already configured — point them to their IDE MCP workflow instead.
-3. **Do not mix paths in one turn** — pick CLI+REST or MCP for the whole task, not both.
-4. **Zero instances** — stop, explain, ask consent before bootstrap; see
+1. **Use this routing policy first** for every DCC-control request, whether the
+   host is MCP-native or shell-only.
+2. **MCP-native host** — call the gateway/DCC structured tools directly
+   (`inventory` → `search` → `describe` or `load_skill` → `call`). Do not ask the
+   user to switch clients or manually repeat the operation.
+3. **Shell-only host** — use `dcc-mcp-cli` (`search` → `describe` → `call`).
+4. **Do not mix paths in one turn** — pick CLI+REST or MCP for the whole task,
+   not both.
+5. **Zero instances** — stop, explain, ask consent before bootstrap; see
    [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md).
 
 ### Computer Use fallback
@@ -233,7 +273,11 @@ start a gateway manually or install `dcc-mcp-cli`.
 4. If the download fails, use the bundled Python stdlib REST fallback.
 
 Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
-[`dcc-mcp-core/skills/dcc-cli-gateway/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-cli-gateway).
+[`dcc-mcp-core/skills/dcc-mcp/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-mcp).
+
+`dcc-mcp` supersedes the former `dcc-cli-gateway` skill slug. Do not install or
+load both names in one agent: install `dcc-mcp`, verify it is discoverable, then
+remove the old package to avoid duplicate intent routing.
 
 ---
 

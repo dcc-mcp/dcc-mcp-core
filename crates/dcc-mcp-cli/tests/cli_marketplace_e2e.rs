@@ -1185,7 +1185,7 @@ fn lint_bundled_skills_are_present_and_clean() {
         .and_then(std::path::Path::parent)
         .unwrap();
     let builtin_skill_roots = [
-        workspace_root.join("skills/dcc-cli-gateway"),
+        workspace_root.join("skills/dcc-mcp"),
         workspace_root.join("python/dcc_mcp_core/skills"),
     ];
 
@@ -1221,18 +1221,21 @@ fn lint_bundled_skills_are_present_and_clean() {
 }
 
 #[test]
-fn dcc_cli_gateway_skill_is_local_first_without_required_gateway_env() {
+fn dcc_mcp_skill_routes_dcc_intent_without_required_gateway_env() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir
         .parent()
         .and_then(std::path::Path::parent)
         .unwrap();
-    let skill_dir = workspace_root.join("skills/dcc-cli-gateway");
+    let skill_dir = workspace_root.join("skills/dcc-mcp");
 
-    let meta = parse_skill_md(&skill_dir).expect("dcc-cli-gateway SKILL.md parses");
+    let meta = parse_skill_md(&skill_dir).expect("dcc-mcp SKILL.md parses");
 
-    assert_eq!(meta.name, "dcc-cli-gateway");
-    assert!(meta.description.contains("dcc-mcp-cli local registry"));
+    assert_eq!(meta.name, "dcc-mcp");
+    assert!(meta.description.contains("Use this skill first"));
+    for dcc in ["Maya", "Blender", "Houdini", "Photoshop"] {
+        assert!(meta.description.contains(dcc), "missing DCC trigger: {dcc}");
+    }
     assert!(meta.required_env_vars().is_empty());
     assert_eq!(meta.primary_env(), None);
 }
