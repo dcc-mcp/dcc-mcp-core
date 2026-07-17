@@ -65,12 +65,12 @@ def test_windows_core_wheel_requires_capture_helper(tmp_path: Path) -> None:
 
 
 def test_historical_windows_core_wheel_does_not_backfill_capture_helper(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-0.19.46-cp38-abi3-win_amd64.whl"
+    wheel = tmp_path / "dcc_mcp_core-0.19.48-cp38-abi3-win_amd64.whl"
     _write_wheel(
         wheel,
         pure=False,
         with_core=True,
-        version="0.19.46",
+        version="0.19.48",
         with_capture_helper=False,
     )
     assert validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT)) == []

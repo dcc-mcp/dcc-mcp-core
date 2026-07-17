@@ -94,7 +94,7 @@
           "required_members": [
             "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ],
-          "required_members_from_version": "0.19.47"
+          "required_members_from_version": "0.19.49"
         }
       }
     },
@@ -138,7 +138,7 @@
           "required_members": [
             "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ],
-          "required_members_from_version": "0.19.47"
+          "required_members_from_version": "0.19.49"
         },
         "macos-universal2": {
           "required_platform_tag_patterns": [
