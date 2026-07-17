@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.52](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.51...v0.19.52) (2026-07-17)
+
+
+### Bug Fixes
+
+* scope skill imports for custom runners ([#1952](https://github.com/dcc-mcp/dcc-mcp-core/issues/1952)) ([2575565](https://github.com/dcc-mcp/dcc-mcp-core/commit/2575565ebf3b7925e84f3f0e0e9d04cb4175c846))
+
 ## [0.19.51](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.50...v0.19.51) (2026-07-17)
 
 
