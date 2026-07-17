@@ -99,18 +99,22 @@ class StandaloneHost:
         Idempotent — safe to call multiple times or after a failed ``start``.
         ``timeout`` is the upper bound on how long to wait for the driver
         thread to exit; tick loops return within ``tick_interval`` (or
-        ``_BLOCKING_TIMEOUT_MS``) so the default 5 s is usually ample.
+        ``_BLOCKING_TIMEOUT_MS``) so the default 5 s is usually ample. The
+        driver exits before dispatcher shutdown so an active blocking tick
+        cannot hold the queue drain lock during teardown.
         """
         self._stop_event.set()
-        # Swallow shutdown failures during teardown so a stale dispatcher
-        # can't mask cleanup on the way out.
-        with contextlib.suppress(Exception):
-            self._dispatcher.shutdown()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
-            if self._thread.is_alive():  # pragma: no cover - diagnostic only
-                raise RuntimeError(f"StandaloneHost thread {self._thread_name!r} did not stop within {timeout}s")
-            self._thread = None
+        try:
+            if self._thread is not None:
+                self._thread.join(timeout=timeout)
+                if self._thread.is_alive():  # pragma: no cover - diagnostic only
+                    raise RuntimeError(f"StandaloneHost thread {self._thread_name!r} did not stop within {timeout}s")
+                self._thread = None
+        finally:
+            # Swallow shutdown failures during teardown so a stale dispatcher
+            # can't mask cleanup on the way out.
+            with contextlib.suppress(Exception):
+                self._dispatcher.shutdown()
 
     @property
     def is_running(self) -> bool:
