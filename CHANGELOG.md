@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.55](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.54...v0.19.55) (2026-07-17)
+
+
+### Bug Fixes
+
+* **http:** allow long-running worker dispatch ([#1959](https://github.com/dcc-mcp/dcc-mcp-core/issues/1959)) ([d5d5c87](https://github.com/dcc-mcp/dcc-mcp-core/commit/d5d5c87806fe74cf19a33aa3009f7ca8d1d6e1ea))
+
 ## [0.19.54](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.53...v0.19.54) (2026-07-17)
 
 
