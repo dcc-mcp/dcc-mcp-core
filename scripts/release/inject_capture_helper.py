@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
 import sys
 import tempfile
@@ -12,14 +13,24 @@ import zipfile
 HELPER_NAME = "dcc-mcp-capture-helper.exe"
 
 
+def _build_record_csv(filenames_and_data: list[tuple[str, bytes]], *, record_path: str) -> str:
+    """Produce a wheel RECORD CSV for the given entries."""
+    lines: list[str] = []
+    for filename, data in filenames_and_data:
+        digest = hashlib.sha256(data).hexdigest()
+        size = len(data)
+        lines.append(f"{filename},sha256={digest},{size}")
+    # RECORD itself, per PEP 427.
+    lines.append(f"{record_path},,")
+    return "\n".join(lines) + "\n"
+
+
 def inject_helper(wheel_path: Path, helper: Path) -> None:
     """Rewrite ``wheel_path`` with ``helper`` beside its server script."""
     if not helper.is_file():
         raise FileNotFoundError(f"capture helper not found: {helper}")
     if helper.name.lower() != HELPER_NAME or helper.read_bytes()[:2] != b"MZ":
         raise ValueError(f"invalid Windows capture helper: {helper}")
-
-    from wheel.wheelfile import WheelFile
 
     with tempfile.TemporaryDirectory(dir=wheel_path.parent) as temp_dir:
         replacement = Path(temp_dir) / wheel_path.name
@@ -37,12 +48,21 @@ def inject_helper(wheel_path: Path, helper: Path) -> None:
                 raise ValueError(f"expected one wheel RECORD, found {records}")
             record = records[0]
 
-            with WheelFile(str(replacement), "w") as destination:
+            entries: list[tuple[str, bytes]] = []
+            with zipfile.ZipFile(str(replacement), "w") as destination:
                 for info in source.infolist():
                     if info.filename in {record, helper_member}:
                         continue
-                    destination.writestr(info, source.read(info.filename))
-                destination.write(str(helper), helper_member)
+                    data = source.read(info.filename)
+                    destination.writestr(info, data)
+                    entries.append((info.filename, data))
+                helper_data = helper.read_bytes()
+                destination.writestr(helper_member, helper_data)
+                entries.append((helper_member, helper_data))
+                # Rebuild RECORD — written last (PEP 427).
+                entries.sort(key=lambda e: e[0])
+                record_csv = _build_record_csv(entries, record_path=record)
+                destination.writestr(record, record_csv)
         replacement.replace(wheel_path)
 
 
