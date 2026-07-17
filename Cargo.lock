@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-computer-use"
-version = "0.19.46"
+version = "0.19.47"
 dependencies = [
  "dcc-mcp-capture",
  "pyo3",
