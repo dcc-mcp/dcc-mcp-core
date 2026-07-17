@@ -186,7 +186,7 @@ mod imp {
             .unwrap_or(0);
 
         // BGRA → RGBA, then build ImageBuffer, apply scale, encode.
-        let mut rgba = raw_bgra.clone();
+        let mut rgba = raw_bgra;
         for chunk in rgba.chunks_exact_mut(4) {
             chunk.swap(0, 2);
             // GDI DIB sections expose BGRX for many windows. Treat the unused

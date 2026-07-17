@@ -409,8 +409,8 @@ class Capturer:
         r"""
         Create a capturer configured for single-window capture.
 
-        Uses the GDI PrintWindow backend on Windows; falls back to Mock on
-        other platforms until window-target backends are added.
+        Uses Windows.Graphics.Capture with HWND fallback on Windows; falls back
+        to Mock on other platforms until window-target backends are added.
         """
     @staticmethod
     def new_mock(width: builtins.int = 1920, height: builtins.int = 1080) -> Capturer:
