@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from pathlib import Path
 import zipfile
 
@@ -19,7 +21,10 @@ def _write_server_wheel(path: Path) -> None:
         )
         wheel.writestr(f"{data}/dcc-mcp-server.exe", b"MZserver")
         # Minimal RECORD so inject_helper can find one.
-        wheel.writestr(f"{dist_info}/RECORD", "dcc_mcp_server-1.0.0.dist-info/METADATA,,\ndcc_mcp_server-1.0.0.dist-info/WHEEL,,\ndcc_mcp_server-1.0.0.data/scripts/dcc-mcp-server.exe,,\n")
+        wheel.writestr(
+            f"{dist_info}/RECORD",
+            "dcc_mcp_server-1.0.0.dist-info/METADATA,,\ndcc_mcp_server-1.0.0.dist-info/WHEEL,,\ndcc_mcp_server-1.0.0.data/scripts/dcc-mcp-server.exe,,\n",
+        )
 
 
 def test_inject_helper_places_it_beside_server_and_rewrites_record(tmp_path: Path) -> None:
@@ -35,7 +40,8 @@ def test_inject_helper_places_it_beside_server_and_rewrites_record(tmp_path: Pat
         assert "dcc_mcp_server-1.0.0.data/scripts/dcc-mcp-capture-helper.exe" in names
         assert archive.read("dcc_mcp_server-1.0.0.data/scripts/dcc-mcp-capture-helper.exe") == b"MZhelper"
         record = archive.read("dcc_mcp_server-1.0.0.dist-info/RECORD").decode("utf-8")
-        assert "dcc-mcp-capture-helper.exe" in record
+        digest = base64.urlsafe_b64encode(hashlib.sha256(b"MZhelper").digest()).rstrip(b"=").decode("ascii")
+        assert (f"dcc_mcp_server-1.0.0.data/scripts/dcc-mcp-capture-helper.exe,sha256={digest},8") in record
 
 
 def test_inject_helper_rejects_wheel_without_server_script(tmp_path: Path) -> None:

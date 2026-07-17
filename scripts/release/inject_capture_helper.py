@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 from pathlib import Path
 import sys
@@ -17,7 +18,7 @@ def _build_record_csv(filenames_and_data: list[tuple[str, bytes]], *, record_pat
     """Produce a wheel RECORD CSV for the given entries."""
     lines: list[str] = []
     for filename, data in filenames_and_data:
-        digest = hashlib.sha256(data).hexdigest()
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode("ascii")
         size = len(data)
         lines.append(f"{filename},sha256={digest},{size}")
     # RECORD itself, per PEP 427.
