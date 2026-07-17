@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.51](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.50...v0.19.51) (2026-07-17)
+
+
+### Bug Fixes
+
+* **capture:** select main process window deterministically ([#1948](https://github.com/dcc-mcp/dcc-mcp-core/issues/1948)) ([9c5050d](https://github.com/dcc-mcp/dcc-mcp-core/commit/9c5050dd2eb6accd869026160967d8813cb7ddcd))
+* tolerate malformed gateway health responses ([#1946](https://github.com/dcc-mcp/dcc-mcp-core/issues/1946)) ([0c4780a](https://github.com/dcc-mcp/dcc-mcp-core/commit/0c4780adda8770f06f712d12a4360c6ac6312491))
+
 ## [0.19.50](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.49...v0.19.50) (2026-07-17)
 
 
