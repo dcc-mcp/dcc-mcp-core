@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.50](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.49...v0.19.50) (2026-07-17)
+
+
+### Bug Fixes
+
+* **capture:** enforce HWND capture timeout without quality loss ([#1940](https://github.com/dcc-mcp/dcc-mcp-core/issues/1940)) ([c1dbfe9](https://github.com/dcc-mcp/dcc-mcp-core/commit/c1dbfe94c03d4dcd4525964f627de7f23d11c7b4))
+
 ## [0.19.49](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.48...v0.19.49) (2026-07-17)
 
 
