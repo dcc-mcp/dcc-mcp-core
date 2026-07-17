@@ -107,12 +107,20 @@ print(f"已启动 PID: {info['pid']}")
 
 ```python
 info = launcher.launch(
-    name="maya",
-    executable="/usr/autodesk/maya/bin/maya",
-    args=["-prompt", "-script", "init.py"],
+    name="nuke-mcp",
+    executable="/opt/Nuke15.2/Nuke15.2",
+    args=["--disable-nuke-frameserver", "project.nk"],
     launch_timeout_ms=60000,
+    environment={
+        "NUKE_DISABLE_FRAMESERVER": "1",
+        "DCC_MCP_NUKE_PORT": "0",
+    },
+    working_directory="/projects/solar-system",
 )
 ```
+
+环境变量和工作目录只应用于启动的子进程，不会修改父进程环境，因此多个隔离
+DCC 会话可以安全地使用不同的运行策略。
 
 ### 进程生命周期
 

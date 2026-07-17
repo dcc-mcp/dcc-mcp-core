@@ -1,5 +1,7 @@
 //! Core data types for DCC process management.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// The current lifecycle status of a monitored DCC process.
@@ -131,6 +133,48 @@ impl DccProcessConfig {
     }
 }
 
+/// Per-launch process settings that do not change monitoring or recovery policy.
+///
+/// Keeping these settings separate preserves the source-compatible layout of
+/// [`DccProcessConfig`] while allowing callers to isolate individual DCC child
+/// processes from the parent environment.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct DccLaunchOptions {
+    /// Environment variables added to or overriding the inherited child environment.
+    pub environment: BTreeMap<String, String>,
+    /// Optional working directory for the launched process.
+    pub working_directory: Option<String>,
+}
+
+impl DccLaunchOptions {
+    /// Create options that inherit the parent environment and working directory.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Builder-style method to add environment overrides for the child process.
+    #[must_use]
+    pub fn with_environment(
+        mut self,
+        environment: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        self.environment = environment
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
+        self
+    }
+
+    /// Builder-style method to set the child process working directory.
+    #[must_use]
+    pub fn with_working_directory(mut self, path: impl Into<String>) -> Self {
+        self.working_directory = Some(path.into());
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +299,39 @@ mod tests {
             let back: DccProcessConfig = serde_json::from_str(&json).unwrap();
             assert_eq!(back.name, "ue5");
             assert_eq!(back.executable, "UnrealEditor.exe");
+        }
+    }
+
+    mod test_dcc_launch_options {
+        use super::*;
+
+        #[test]
+        fn new_has_inherited_defaults() {
+            let options = DccLaunchOptions::new();
+            assert!(options.environment.is_empty());
+            assert!(options.working_directory.is_none());
+        }
+
+        #[test]
+        fn builder_with_environment_and_working_directory() {
+            let options = DccLaunchOptions::new()
+                .with_environment([("NUKE_DISABLE_FRAMESERVER", "1")])
+                .with_working_directory("/tmp/nuke-mcp");
+            assert_eq!(
+                options.environment.get("NUKE_DISABLE_FRAMESERVER"),
+                Some(&"1".to_string())
+            );
+            assert_eq!(options.working_directory.as_deref(), Some("/tmp/nuke-mcp"));
+        }
+
+        #[test]
+        fn serialize_roundtrip() {
+            let options = DccLaunchOptions::new()
+                .with_environment([("UE_SILENT", "1")])
+                .with_working_directory("/projects/game");
+            let json = serde_json::to_string(&options).unwrap();
+            let back: DccLaunchOptions = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, options);
         }
     }
 }

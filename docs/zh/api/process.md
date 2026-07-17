@@ -77,7 +77,7 @@ launcher = PyDccLauncher()
 
 | 方法 | 返回 | 描述 |
 |------|------|------|
-| `launch(name, executable, args=None, launch_timeout_ms=30000)` | `dict` | 启动 DCC 进程 |
+| `launch(name, executable, args=None, launch_timeout_ms=30000, environment=None, working_directory=None)` | `dict` | 使用子进程专属环境和工作目录启动 DCC 进程 |
 | `terminate(name, timeout_ms=5000)` | `None` | 优雅终止 |
 | `kill(name)` | `None` | 强制杀死 |
 | `pid_of(name)` | `int \| None` | 按名称获取 PID |
@@ -92,6 +92,8 @@ info = launcher.launch(
     executable="/usr/autodesk/maya/bin/maya",
     args=["-prompt", "-batch"],
     launch_timeout_ms=30000,
+    environment={"MAYA_DISABLE_CIP": "1"},
+    working_directory="/projects/shot-010",
 )
 print(f"已启动 PID: {info['pid']}")
 

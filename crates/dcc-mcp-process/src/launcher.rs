@@ -15,7 +15,7 @@ use tokio::time;
 use tracing::{debug, info, warn};
 
 use crate::error::ProcessError;
-use crate::types::{DccProcessConfig, ProcessInfo, ProcessStatus};
+use crate::types::{DccLaunchOptions, DccProcessConfig, ProcessInfo, ProcessStatus};
 
 /// Manages the lifecycle (spawn, terminate, kill) of DCC application processes.
 ///
@@ -45,10 +45,27 @@ impl DccLauncher {
     ///
     /// Returns a `ProcessInfo` snapshot reflecting the newly spawned PID.
     pub async fn launch(&self, config: &DccProcessConfig) -> Result<ProcessInfo, ProcessError> {
+        self.launch_with_options(config, &DccLaunchOptions::default())
+            .await
+    }
+
+    /// Spawn the DCC process with child-specific environment and working-directory settings.
+    ///
+    /// `options` affect only the new child. The parent process environment and
+    /// working directory remain unchanged.
+    pub async fn launch_with_options(
+        &self,
+        config: &DccProcessConfig,
+        options: &DccLaunchOptions,
+    ) -> Result<ProcessInfo, ProcessError> {
         info!(name = %config.name, executable = %config.executable, "launching DCC process");
 
         let mut cmd = Command::new(&config.executable);
         cmd.args(&config.args);
+        cmd.envs(&options.environment);
+        if let Some(working_directory) = &options.working_directory {
+            cmd.current_dir(working_directory);
+        }
         // Detach stdin so the DCC doesn't block on terminal input.
         cmd.stdin(std::process::Stdio::null());
 
@@ -303,6 +320,99 @@ mod tests {
                     tracing::warn!("skipping launch_real_process: {e}");
                 }
             }
+        }
+
+        #[tokio::test]
+        async fn launch_with_options_applies_child_environment_and_working_directory() {
+            use std::fs;
+            use std::path::PathBuf;
+            use std::time::{SystemTime, UNIX_EPOCH};
+
+            const ENV_KEY: &str = "DCC_MCP_PROCESS_TEST_CHILD_6E0B39B4";
+            assert!(std::env::var_os(ENV_KEY).is_none());
+
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock must be after Unix epoch")
+                .as_nanos();
+            let test_directory = std::env::temp_dir().join(format!(
+                "dcc-mcp-process-launch-{}-{suffix}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&test_directory).expect("create test working directory");
+            let output_path = test_directory.join("child.txt");
+            let ready_path = test_directory.join("child.ready");
+            let release_directory = test_directory
+                .parent()
+                .expect("test directory must have a parent");
+
+            let (executable, args): (&str, Vec<String>) = core::cfg_select! {
+                windows => (
+                    "powershell.exe",
+                    vec![
+                        "-NoProfile".to_string(),
+                        "-NonInteractive".to_string(),
+                        "-Command".to_string(),
+                        format!(
+                            "$env:{ENV_KEY} | Set-Content -LiteralPath child.txt -Encoding ascii; (Get-Location).Path | Add-Content -LiteralPath child.txt -Encoding ascii; Set-Location -LiteralPath $env:DCC_MCP_PROCESS_TEST_RELEASE_CWD; 'ready' | Set-Content -LiteralPath $env:DCC_MCP_PROCESS_TEST_READY -Encoding ascii; Start-Sleep -Seconds 30"
+                        ),
+                    ],
+                ),
+                _ => (
+                    "sh",
+                    vec![
+                        "-c".to_string(),
+                        format!(
+                            "printf '%s\\n%s\\n' \"${ENV_KEY}\" \"$PWD\" > child.txt; cd \"$DCC_MCP_PROCESS_TEST_RELEASE_CWD\"; printf ready > \"$DCC_MCP_PROCESS_TEST_READY\"; sleep 30"
+                        ),
+                    ],
+                ),
+            };
+
+            let mut config = DccProcessConfig::new("isolated-child", executable);
+            config.args = args;
+            let options = DccLaunchOptions::new()
+                .with_environment([
+                    (ENV_KEY.to_string(), "child-only".to_string()),
+                    (
+                        "DCC_MCP_PROCESS_TEST_READY".to_string(),
+                        ready_path.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "DCC_MCP_PROCESS_TEST_RELEASE_CWD".to_string(),
+                        release_directory.to_string_lossy().into_owned(),
+                    ),
+                ])
+                .with_working_directory(test_directory.to_string_lossy());
+            let launcher = DccLauncher::new();
+
+            launcher
+                .launch_with_options(&config, &options)
+                .await
+                .expect("launch isolated child");
+
+            let deadline = time::Instant::now() + Duration::from_secs(5);
+            while !ready_path.is_file() {
+                assert!(
+                    time::Instant::now() < deadline,
+                    "child did not release its cwd and write the ready marker"
+                );
+                time::sleep(Duration::from_millis(25)).await;
+            }
+            let output = fs::read_to_string(&output_path)
+                .expect("read child environment and working directory");
+
+            let mut lines = output.lines();
+            assert_eq!(lines.next(), Some("child-only"));
+            let child_cwd = PathBuf::from(lines.next().expect("child cwd line"));
+            assert_eq!(
+                fs::canonicalize(child_cwd).expect("canonicalize child cwd"),
+                fs::canonicalize(&test_directory).expect("canonicalize expected cwd")
+            );
+            assert!(std::env::var_os(ENV_KEY).is_none());
+
+            let _ = launcher.kill("isolated-child").await;
+            fs::remove_dir_all(test_directory).expect("remove test working directory");
         }
     }
 }

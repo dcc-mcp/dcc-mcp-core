@@ -1324,7 +1324,7 @@ class PyDccLauncher:
     ```
     """
     def __new__(cls) -> PyDccLauncher: ...
-    def launch(self, name: builtins.str, executable: builtins.str, args: typing.Optional[typing.Sequence[builtins.str]] = None, launch_timeout_ms: builtins.int = 30000) -> dict:
+    def launch(self, name: builtins.str, executable: builtins.str, args: typing.Optional[typing.Sequence[builtins.str]] = None, launch_timeout_ms: builtins.int = 30000, environment: typing.Optional[typing.Mapping[builtins.str, builtins.str]] = None, working_directory: typing.Optional[builtins.str] = None) -> dict:
         r"""
         Spawn a DCC process.
 
@@ -1338,6 +1338,10 @@ class PyDccLauncher:
             Command-line arguments.
         launch_timeout_ms : int, optional
             Milliseconds to wait for the process to start (default 30000).
+        environment : dict[str, str], optional
+            Child-only environment overrides. The parent process is not mutated.
+        working_directory : str, optional
+            Working directory for the child process.
 
         Returns a dict with ``pid``, ``name``, and ``status``.
         """

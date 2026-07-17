@@ -107,12 +107,21 @@ print(f"Launched PID: {info['pid']}")
 
 ```python
 info = launcher.launch(
-    name="maya",
-    executable="/usr/autodesk/maya/bin/maya",
-    args=["-prompt", "-script", "init.py"],
+    name="nuke-mcp",
+    executable="/opt/Nuke15.2/Nuke15.2",
+    args=["--disable-nuke-frameserver", "project.nk"],
     launch_timeout_ms=60000,
+    environment={
+        "NUKE_DISABLE_FRAMESERVER": "1",
+        "DCC_MCP_NUKE_PORT": "0",
+    },
+    working_directory="/projects/solar-system",
 )
 ```
+
+Environment values and the working directory apply only to the launched child.
+The parent process environment is unchanged, so multiple isolated DCC sessions
+can use different runtime policies safely.
 
 ### Process Lifecycle
 
