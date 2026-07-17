@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-gateway-ensure.workspace = true
@@ -27,6 +28,7 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
+tempfile = "3"
 thiserror.workspace = true
 tokio.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
@@ -37,4 +39,3 @@ axum = { version = "0.8", features = ["http1", "tokio"] }
 dcc-mcp-actions.workspace = true
 dcc-mcp-http.workspace = true
 hex = "0.4"
-tempfile = "3"

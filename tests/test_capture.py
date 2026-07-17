@@ -321,6 +321,7 @@ class TestCaptureBackendKindVariants:
         "attr",
         [
             "DxgiDesktopDuplication",
+            "WindowsGraphicsCapture",
             "ScreenCaptureKit",
             "X11Xshm",
             "PipeWire",

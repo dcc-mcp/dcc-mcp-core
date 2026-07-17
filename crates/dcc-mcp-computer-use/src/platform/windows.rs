@@ -1,0 +1,1418 @@
+use std::mem::size_of;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use windows::Win32::Foundation::{
+    COLORREF, CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WAIT_ABANDONED, WAIT_OBJECT_0,
+    WAIT_TIMEOUT, WPARAM,
+};
+use windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONULL, MONITORINFO,
+    MonitorFromPoint, MonitorFromRect,
+};
+use windows::Win32::System::RemoteDesktop::{
+    NOTIFY_FOR_THIS_SESSION, WTS_CONNECTSTATE_CLASS, WTS_CURRENT_SESSION, WTSActive,
+    WTSConnectState, WTSFreeMemory, WTSQuerySessionInformationW, WTSRegisterSessionNotification,
+    WTSUnRegisterSessionNotification,
+};
+use windows::Win32::System::StationsAndDesktops::{
+    GetThreadDesktop, GetUserObjectInformationW, UOI_IO,
+};
+use windows::Win32::System::Threading::{
+    AttachThreadInput, CreateEventW, CreateMutexW, GetCurrentThreadId, OpenProcess,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    ReleaseMutex, ResetEvent, SetEvent, WaitForSingleObject,
+};
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor,
+    GetDpiForWindow, MDT_EFFECTIVE_DPI, SetThreadDpiAwarenessContext,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
+    MOUSEINPUT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    BringWindowToTop, CreateWindowExW, DestroyWindow, DispatchMessageW, GA_ROOT, GetAncestor,
+    GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
+    GetWindowThreadProcessId, HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible, LWA_ALPHA, MSG,
+    PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostMessageW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
+    SWP_SHOWWINDOW, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
+    TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED,
+    WM_HOTKEY, WM_WTSSESSION_CHANGE, WS_BORDER, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE, WTS_CONSOLE_CONNECT,
+    WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK,
+    WTS_SESSION_UNLOCK, WindowFromPoint,
+};
+use windows::core::{BOOL, PCWSTR, PWSTR};
+
+use crate::{
+    ComputerUseAction, ComputerUseError, ComputerUseErrorCode, ComputerUseObservation,
+    ComputerUsePoint, ComputerUseResult, denied_target_reason, desktop_state_snapshot,
+    record_desktop_environment_change, record_desktop_transition,
+};
+
+use super::{
+    ControlBannerSignals, ControlBannerStartError, ControlBannerStartResult, DesktopEventBarrier,
+};
+
+static ACTIVE_SESSION: AtomicBool = AtomicBool::new(false);
+static USER_INTERRUPTED: AtomicBool = AtomicBool::new(false);
+// Mutex-wrapped so that clear_user_interrupt() can re-initialize the event
+// after a transient CreateEventW failure (OnceLock would permanently store
+// None on the first failure, making every subsequent session fail-closed).
+static USER_INTERRUPT_EVENT: Mutex<Option<OwnedKernelHandle>> = Mutex::new(None);
+static USER_INTERRUPT_EVENT_FAILED: AtomicBool = AtomicBool::new(false);
+static INPUT_LOCK: Mutex<()> = Mutex::new(());
+static PENDING_INPUT_RELEASES: Mutex<Vec<INPUT>> = Mutex::new(Vec::new());
+
+const INPUT_OWNER_MUTEX_NAME: &str = "Local\\DccMcpComputerUseInputOwner-v1";
+const USER_INTERRUPT_EVENT_NAME: &str = "Local\\DccMcpComputerUseUserInterrupted-v1";
+#[cfg(test)]
+const TEST_ISOLATION_MUTEX_NAME: &str = "Local\\DccMcpComputerUseTestIsolation-v1";
+const HOTKEY_ID: i32 = 0x4443;
+const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
+const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
+    HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
+const STATIC_CENTER: u32 = 0x0000_0001;
+const STATIC_CENTER_IMAGE: u32 = 0x0000_0200;
+const STATIC_WHITE_RECT: u32 = 0x0000_0006;
+const BORDER_THICKNESS: i32 = 5;
+const POINTER_EFFECT_SIZE: i32 = 34;
+const DEFAULT_POINTER_EFFECT_DWELL_MS: u64 = 350;
+const DRAG_UPDATE_INTERVAL_MS: u64 = 16;
+const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
+const DESKTOP_BARRIER_MESSAGE: u32 = WM_APP + 0x443;
+const DESKTOP_BARRIER_TIMEOUT: Duration = Duration::from_millis(500);
+const PROCESS_PATH_CAPACITY: usize = 32_768;
+
+type OverlayGeometry = (i32, i32, i32, i32);
+type BorderGeometries = [OverlayGeometry; 4];
+
+struct OwnedKernelHandle {
+    raw: usize,
+}
+
+impl OwnedKernelHandle {
+    fn new(handle: HANDLE) -> Self {
+        Self {
+            raw: handle.0 as usize,
+        }
+    }
+
+    fn get(&self) -> HANDLE {
+        HANDLE(self.raw as *mut core::ffi::c_void)
+    }
+}
+
+impl Drop for OwnedKernelHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { CloseHandle(self.get()) };
+    }
+}
+
+fn process_name(process_id: u32) -> ComputerUseResult<String> {
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) }
+        .map(OwnedKernelHandle::new)
+        .map_err(|error| {
+            ComputerUseError::new(
+                ComputerUseErrorCode::PermissionDenied,
+                format!("the scoped target process identity could not be verified: {error}"),
+            )
+        })?;
+    let mut path = vec![0_u16; PROCESS_PATH_CAPACITY];
+    let mut length = path.len() as u32;
+    unsafe {
+        QueryFullProcessImageNameW(
+            process.get(),
+            PROCESS_NAME_WIN32,
+            PWSTR(path.as_mut_ptr()),
+            &mut length,
+        )
+    }
+    .map_err(|error| {
+        ComputerUseError::new(
+            ComputerUseErrorCode::PermissionDenied,
+            format!("the scoped target process identity could not be verified: {error}"),
+        )
+    })?;
+    let executable = String::from_utf16_lossy(&path[..length as usize]);
+    Ok(std::path::Path::new(&executable)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(&executable)
+        .to_string())
+}
+
+pub(crate) fn validate_target_policy(
+    window_handle: u64,
+    process_id: u32,
+    window_title: &str,
+) -> ComputerUseResult<()> {
+    let process_name = process_name(process_id)?;
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    let mut class_name = [0_u16; 256];
+    let class_length = unsafe { GetClassNameW(hwnd, &mut class_name) };
+    if class_length == 0 {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::PermissionDenied,
+            "the scoped target window class could not be verified",
+        ));
+    }
+    let class_name = String::from_utf16_lossy(&class_name[..class_length as usize]);
+    if let Some(reason) = denied_target_reason(&process_name, &class_name, window_title) {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::PermissionDenied,
+            reason,
+        ));
+    }
+    Ok(())
+}
+
+struct NamedMutexOwner {
+    handle: OwnedKernelHandle,
+}
+
+enum NamedMutexAcquisition {
+    Acquired(NamedMutexOwner),
+    Abandoned(NamedMutexOwner),
+    Busy,
+}
+
+impl Drop for NamedMutexOwner {
+    fn drop(&mut self) {
+        let _ = unsafe { ReleaseMutex(self.handle.get()) };
+    }
+}
+
+struct InputOwnerLease {
+    owner: Option<NamedMutexOwner>,
+    stop: Arc<AtomicBool>,
+}
+
+impl InputOwnerLease {
+    fn new(owner: NamedMutexOwner, stop: Arc<AtomicBool>) -> Self {
+        Self {
+            owner: Some(owner),
+            stop,
+        }
+    }
+}
+
+impl Drop for InputOwnerLease {
+    fn drop(&mut self) {
+        // The named owner must outlive every SendInput call from this process.
+        // Stop new actions, drain the only local input critical section, then
+        // release the cross-process owner while queued local calls stay gated.
+        // The public stop path bounds its join and leaves this thread holding
+        // the owner fail-closed if a native input call never returns.
+        self.stop.store(true, Ordering::Release);
+
+        // Bounded retry with exponential backoff. If the desktop is locked
+        // (e.g. Winlogon session) `flush_pending_input_releases_locked()` will
+        // keep failing and we must not hold the cross-process named mutex
+        // indefinitely — that would prevent any adapter process from starting a
+        // new Computer Use session until this process exits.
+        //
+        // Hard deadline: 5 seconds total. After that we accept that pending
+        // releases cannot be confirmed right now, release the owner mutex, and
+        // exit. The deferred releases remain in PENDING_INPUT_RELEASES and the
+        // next `acquire_input_owner()` call will attempt to flush them.
+        const HARD_DEADLINE: Duration = Duration::from_secs(5);
+        const MAX_SLEEP: Duration = Duration::from_millis(500);
+        let deadline = Instant::now() + HARD_DEADLINE;
+        let mut sleep_ms = 100u64;
+
+        loop {
+            let input_guard = INPUT_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if input::flush_pending_input_releases_locked().is_ok() {
+                drop(self.owner.take());
+                drop(input_guard);
+                return;
+            }
+            drop(input_guard);
+
+            if Instant::now() >= deadline {
+                // Hard deadline exceeded — release the owner mutex unconditionally
+                // so no new session is blocked. Deferred releases will be retried
+                // by the next session's acquire_input_owner().
+                tracing::warn!(
+                    "InputOwnerLease::drop: timed out flushing pending input releases \
+                     after {}s; releasing owner mutex to unblock future sessions",
+                    HARD_DEADLINE.as_secs()
+                );
+                drop(self.owner.take());
+                return;
+            }
+
+            // Exponential backoff capped at MAX_SLEEP.
+            thread::sleep(Duration::from_millis(sleep_ms));
+            sleep_ms = (sleep_ms * 2).min(MAX_SLEEP.as_millis() as u64);
+        }
+    }
+}
+
+fn create_manual_reset_event(name: &str) -> windows::core::Result<OwnedKernelHandle> {
+    let name = wide(name);
+    let handle = unsafe { CreateEventW(None, true, false, PCWSTR(name.as_ptr())) }?;
+    Ok(OwnedKernelHandle::new(handle))
+}
+
+/// Returns `Some(true)` when the kernel object is signaled, `Some(false)` when
+/// it is not, and `None` when the wait itself fails (e.g. the handle is invalid).
+#[allow(dead_code)]
+fn event_signaled(event: &OwnedKernelHandle) -> Option<bool> {
+    match unsafe { WaitForSingleObject(event.get(), 0) } {
+        WAIT_OBJECT_0 => Some(true),
+        WAIT_TIMEOUT => Some(false),
+        _ => None,
+    }
+}
+
+/// Acquire (and if necessary, initialize) the cross-process interrupt event.
+///
+/// Returns the raw HANDLE value so callers do not need to hold the mutex lock
+/// while performing Win32 operations. The handle is valid for the lifetime of
+/// the process because `USER_INTERRUPT_EVENT` is a process-static Mutex.
+///
+/// Unlike a `OnceLock`-based approach, this function can re-initialize the
+/// event after a transient `CreateEventW` failure: `clear_user_interrupt()`
+/// resets the `Option` to `None`, allowing the next caller to retry creation
+/// and recover without a process restart.
+fn user_interrupt_event_raw() -> Option<HANDLE> {
+    let mut guard = USER_INTERRUPT_EVENT
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        *guard = create_manual_reset_event(USER_INTERRUPT_EVENT_NAME).ok();
+    }
+    guard.as_ref().map(OwnedKernelHandle::get)
+}
+
+fn require_user_interrupt_event_raw() -> ComputerUseResult<HANDLE> {
+    user_interrupt_event_raw().ok_or_else(|| {
+        USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
+        ComputerUseError::new(
+            ComputerUseErrorCode::BackendUnavailable,
+            "Windows could not create the cross-process Computer Use stop latch; restart the adapter before enabling native input",
+        )
+    })
+}
+
+fn set_user_interrupt() {
+    USER_INTERRUPTED.store(true, Ordering::Release);
+    let signaled =
+        user_interrupt_event_raw().is_some_and(|event| unsafe { SetEvent(event) }.is_ok());
+    if !signaled {
+        USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
+    }
+}
+
+fn try_acquire_named_mutex(name: &str) -> windows::core::Result<NamedMutexAcquisition> {
+    let name = wide(name);
+    let handle =
+        OwnedKernelHandle::new(unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr()))? });
+    match unsafe { WaitForSingleObject(handle.get(), 0) } {
+        WAIT_OBJECT_0 => Ok(NamedMutexAcquisition::Acquired(NamedMutexOwner { handle })),
+        WAIT_ABANDONED => Ok(NamedMutexAcquisition::Abandoned(NamedMutexOwner { handle })),
+        WAIT_TIMEOUT => Ok(NamedMutexAcquisition::Busy),
+        _ => Err(windows::core::Error::from_thread()),
+    }
+}
+
+fn acquire_input_owner() -> ComputerUseResult<NamedMutexOwner> {
+    acquire_input_owner_impl(false)
+}
+
+fn acquire_input_owner_after_user_approval() -> ComputerUseResult<NamedMutexOwner> {
+    acquire_input_owner_impl(true)
+}
+
+fn acquire_input_owner_impl(allow_abandoned: bool) -> ComputerUseResult<NamedMutexOwner> {
+    let acquisition = try_acquire_named_mutex(INPUT_OWNER_MUTEX_NAME).map_err(|error| {
+        ComputerUseError::new(
+            ComputerUseErrorCode::BackendUnavailable,
+            format!("failed to create the Windows Computer Use input-owner mutex: {error}"),
+        )
+    })?;
+    resolve_input_owner(acquisition, allow_abandoned)
+}
+
+fn resolve_input_owner(
+    acquisition: NamedMutexAcquisition,
+    allow_abandoned: bool,
+) -> ComputerUseResult<NamedMutexOwner> {
+    match acquisition {
+        NamedMutexAcquisition::Acquired(owner) => Ok(owner),
+        NamedMutexAcquisition::Abandoned(owner) => {
+            // An abandoned mutex means the previous owner thread exited
+            // without completing normal input cleanup. Its key/button state
+            // is unknowable in this process, so latch every adapter in this
+            // Windows logon session until a user explicitly approves reset.
+            set_user_interrupt();
+            if allow_abandoned {
+                Ok(owner)
+            } else {
+                drop(owner);
+                Err(ComputerUseError::new(
+                    ComputerUseErrorCode::UserInterrupted,
+                    "the previous Computer Use input owner exited unexpectedly; explicit user approval is required before native input can resume",
+                ))
+            }
+        }
+        NamedMutexAcquisition::Busy => Err(ComputerUseError::new(
+            ComputerUseErrorCode::PermissionDenied,
+            "another DCC MCP Computer Use process already owns system input",
+        )),
+    }
+}
+
+fn user_interrupted_error() -> ComputerUseError {
+    ComputerUseError::new(
+        ComputerUseErrorCode::UserInterrupted,
+        format!(
+            "the user pressed {STOP_HOTKEY_LABEL}; explicit user approval is required before Computer Use can resume"
+        ),
+    )
+}
+
+fn require_interactive_desktop(interactive: bool) -> ComputerUseResult<()> {
+    if interactive {
+        return Ok(());
+    }
+    Err(ComputerUseError::new(
+        ComputerUseErrorCode::DesktopUnavailable,
+        "the Windows desktop is locked, disconnected, or not interactive; no UI input was sent",
+    ))
+}
+
+fn thread_desktop_receives_input() -> bool {
+    let Ok(desktop) = (unsafe { GetThreadDesktop(GetCurrentThreadId()) }) else {
+        return false;
+    };
+    let mut receives_input = 0_i32;
+    let mut needed = 0_u32;
+    unsafe {
+        GetUserObjectInformationW(
+            HANDLE(desktop.0),
+            UOI_IO,
+            Some((&raw mut receives_input).cast()),
+            size_of::<i32>() as u32,
+            Some(&raw mut needed),
+        )
+    }
+    .is_ok()
+        && receives_input != 0
+}
+
+fn current_session_is_active() -> bool {
+    let mut buffer = PWSTR::null();
+    let mut bytes = 0_u32;
+    if unsafe {
+        WTSQuerySessionInformationW(
+            None,
+            WTS_CURRENT_SESSION,
+            WTSConnectState,
+            &raw mut buffer,
+            &raw mut bytes,
+        )
+    }
+    .is_err()
+        || buffer.0.is_null()
+    {
+        return false;
+    }
+    let active = bytes >= size_of::<WTS_CONNECTSTATE_CLASS>() as u32
+        && unsafe { *buffer.0.cast::<WTS_CONNECTSTATE_CLASS>() } == WTSActive;
+    unsafe { WTSFreeMemory(buffer.0.cast()) };
+    active
+}
+
+pub(crate) fn desktop_interactive() -> bool {
+    current_session_is_active() && thread_desktop_receives_input()
+}
+
+pub(crate) fn ensure_interactive_desktop() -> ComputerUseResult<()> {
+    require_interactive_desktop(desktop_interactive())
+}
+
+pub(crate) fn synchronize_desktop_events(
+    barrier: &DesktopEventBarrier,
+    stop_requested: &Arc<AtomicBool>,
+) -> ComputerUseResult<()> {
+    crate::check_action_cancellation(stop_requested)?;
+    ensure_interactive_desktop()?;
+    let window_handle = barrier.window_handle();
+    if window_handle == 0 {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::BackendUnavailable,
+            "the Computer Use control thread is not ready to synchronize desktop events",
+        ));
+    }
+    let sequence = barrier.request_sequence();
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    unsafe {
+        PostMessageW(
+            Some(hwnd),
+            DESKTOP_BARRIER_MESSAGE,
+            WPARAM(sequence as usize),
+            LPARAM(0),
+        )
+    }
+    .map_err(|error| {
+        ComputerUseError::new(
+            ComputerUseErrorCode::BackendUnavailable,
+            format!("failed to synchronize the Computer Use desktop message queue: {error}"),
+        )
+    })?;
+
+    let deadline = Instant::now() + DESKTOP_BARRIER_TIMEOUT;
+    while !barrier.is_acknowledged(sequence) {
+        crate::check_action_cancellation(stop_requested)?;
+        ensure_interactive_desktop()?;
+        if barrier.window_handle() != window_handle {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                "the Computer Use control thread exited while synchronizing desktop events",
+            ));
+        }
+        if Instant::now() >= deadline {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                "timed out synchronizing pending Windows desktop events; no UI input was sent",
+            ));
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    ensure_interactive_desktop()
+}
+
+pub(crate) struct ThreadDpiAwareness {
+    previous: DPI_AWARENESS_CONTEXT,
+}
+
+impl ThreadDpiAwareness {
+    pub(crate) fn enter() -> ComputerUseResult<Self> {
+        let previous =
+            unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        if previous.0.is_null() {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                "Windows refused per-monitor-v2 DPI awareness for the Computer Use thread",
+            ));
+        }
+        Ok(Self { previous })
+    }
+}
+
+impl Drop for ThreadDpiAwareness {
+    fn drop(&mut self) {
+        let _ = unsafe { SetThreadDpiAwarenessContext(self.previous) };
+    }
+}
+
+pub(crate) fn prepare_target_window(window_handle: u64) -> ComputerUseResult<()> {
+    ensure_interactive_desktop()?;
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err(target_unavailable());
+    }
+    let _ = available_target_rect(hwnd)?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) struct TestIsolationGuard {
+    _owner: NamedMutexOwner,
+}
+
+#[cfg(test)]
+pub(crate) fn acquire_test_isolation_guard() -> ComputerUseResult<TestIsolationGuard> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let acquisition = try_acquire_named_mutex(TEST_ISOLATION_MUTEX_NAME).map_err(|error| {
+            ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                format!("failed to create the Computer Use test-isolation mutex: {error}"),
+            )
+        })?;
+        match acquisition {
+            NamedMutexAcquisition::Acquired(owner) | NamedMutexAcquisition::Abandoned(owner) => {
+                return Ok(TestIsolationGuard { _owner: owner });
+            }
+            NamedMutexAcquisition::Busy if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            NamedMutexAcquisition::Busy => {
+                return Err(ComputerUseError::new(
+                    ComputerUseErrorCode::BackendUnavailable,
+                    "timed out waiting for cross-process Computer Use test isolation",
+                ));
+            }
+        }
+    }
+}
+
+pub(crate) fn prepare_target_for_input(
+    window_handle: u64,
+    expected_process_id: u32,
+) -> ComputerUseResult<()> {
+    ensure_interactive_desktop()?;
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    restore_target_for_input(hwnd, expected_process_id)?;
+    let _ = available_target_rect_for_process(hwnd, expected_process_id)?;
+    Ok(())
+}
+
+pub(crate) fn start_control_banner(
+    window_handle: u64,
+    process_id: u32,
+    app_name: String,
+    signals: ControlBannerSignals,
+) -> ControlBannerStartResult {
+    let ControlBannerSignals {
+        stop,
+        interrupted,
+        visible,
+        desktop_state,
+        desktop_barrier,
+        target_available,
+        cleanup_pending,
+    } = signals;
+    cleanup_pending.store(true, Ordering::Release);
+    let _ = require_user_interrupt_event_raw().inspect_err(|_| {
+        cleanup_pending.store(false, Ordering::Release);
+    })?;
+    if user_interrupted() {
+        cleanup_pending.store(false, Ordering::Release);
+        return Err(user_interrupted_error().into());
+    }
+    if ACTIVE_SESSION
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        cleanup_pending.store(false, Ordering::Release);
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::PermissionDenied,
+            "another DCC MCP Computer Use session already owns system input",
+        )
+        .into());
+    }
+
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let runtime = BannerRuntimeSignals {
+        stop,
+        interrupted,
+        visible,
+        desktop_state,
+        desktop_barrier,
+    };
+    let startup_stop = Arc::clone(&runtime.stop);
+    let thread_stop = Arc::clone(&runtime.stop);
+    let thread_cleanup_pending = Arc::clone(&cleanup_pending);
+    let thread = thread::Builder::new()
+        .name("dcc-mcp-computer-use-banner".to_string())
+        .spawn(move || {
+            let result = (|| {
+                // Windows mutex ownership is thread-affine. Keep the guard on
+                // the banner thread until local SendInput work has drained.
+                let input_owner = acquire_input_owner()?;
+                let _input_owner = InputOwnerLease::new(input_owner, Arc::clone(&thread_stop));
+                if user_interrupted() {
+                    return Err(user_interrupted_error());
+                }
+                flush_pending_input_releases()?;
+                let _dpi_awareness = ThreadDpiAwareness::enter()?;
+                run_banner(window_handle, process_id, &app_name, &runtime, &ready_tx)
+            })();
+            if let Err(error) = result {
+                if matches!(
+                    error.code,
+                    ComputerUseErrorCode::MissingWindow | ComputerUseErrorCode::InvalidTarget
+                ) {
+                    target_available.store(false, Ordering::Release);
+                }
+                runtime.stop.store(true, Ordering::Release);
+                let _ = ready_tx.try_send(Err(error));
+            }
+            runtime.visible.store(false, Ordering::Release);
+            ACTIVE_SESSION.store(false, Ordering::Release);
+            thread_cleanup_pending.store(false, Ordering::Release);
+        })
+        .map_err(|error| {
+            ACTIVE_SESSION.store(false, Ordering::Release);
+            cleanup_pending.store(false, Ordering::Release);
+            ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                format!("failed to start the Computer Use control thread: {error}"),
+            )
+        })?;
+
+    match ready_rx.recv_timeout(Duration::from_secs(2)) {
+        Ok(Ok(())) => Ok(thread),
+        Ok(Err(error)) => {
+            startup_stop.store(true, Ordering::Release);
+            Err(ControlBannerStartError {
+                error,
+                thread: crate::join_control_thread(thread),
+            })
+        }
+        Err(_) => {
+            startup_stop.store(true, Ordering::Release);
+            Err(ControlBannerStartError {
+                error: ComputerUseError::new(
+                    ComputerUseErrorCode::BackendUnavailable,
+                    "timed out while starting the Computer Use control banner",
+                ),
+                thread: crate::join_control_thread(thread),
+            })
+        }
+    }
+}
+
+struct ControlOverlay {
+    banner: HWND,
+    borders: Vec<HWND>,
+}
+
+struct RegisteredHotKey {
+    hwnd: HWND,
+}
+
+impl Drop for RegisteredHotKey {
+    fn drop(&mut self) {
+        let _ = unsafe { UnregisterHotKey(Some(self.hwnd), HOTKEY_ID) };
+    }
+}
+
+struct RegisteredSessionNotifications {
+    hwnd: HWND,
+}
+
+struct RegisteredDesktopBarrier {
+    barrier: Arc<DesktopEventBarrier>,
+    window_handle: usize,
+}
+
+impl RegisteredDesktopBarrier {
+    fn new(barrier: Arc<DesktopEventBarrier>, hwnd: HWND) -> Self {
+        let window_handle = hwnd.0 as usize;
+        barrier.register_window(window_handle);
+        Self {
+            barrier,
+            window_handle,
+        }
+    }
+}
+
+impl Drop for RegisteredDesktopBarrier {
+    fn drop(&mut self) {
+        self.barrier.clear_window(self.window_handle);
+    }
+}
+
+impl RegisteredSessionNotifications {
+    fn new(hwnd: HWND) -> ComputerUseResult<Self> {
+        unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) }.map_err(
+            |error| {
+                ComputerUseError::new(
+                    ComputerUseErrorCode::BackendUnavailable,
+                    format!("failed to monitor Windows lock and unlock events: {error}"),
+                )
+            },
+        )?;
+        Ok(Self { hwnd })
+    }
+}
+
+impl Drop for RegisteredSessionNotifications {
+    fn drop(&mut self) {
+        let _ = unsafe { WTSUnRegisterSessionNotification(self.hwnd) };
+    }
+}
+
+impl ControlOverlay {
+    fn new(
+        target: HWND,
+        target_rect: &windows::Win32::Foundation::RECT,
+        caption: &str,
+    ) -> ComputerUseResult<Self> {
+        let (banner_geometry, border_geometries) = overlay_geometries(target, target_rect)?;
+        let (x, y, width, height) = banner_geometry;
+        let banner = create_static_overlay(
+            caption,
+            WS_BORDER.0 | STATIC_CENTER | STATIC_CENTER_IMAGE,
+            (x, y, width, height),
+            245,
+        )?;
+        let mut borders = Vec::with_capacity(4);
+        for geometry in border_geometries {
+            match create_static_overlay("", STATIC_WHITE_RECT, geometry, 225) {
+                Ok(hwnd) => borders.push(hwnd),
+                Err(error) => {
+                    for hwnd in borders {
+                        let _ = unsafe { DestroyWindow(hwnd) };
+                    }
+                    let _ = unsafe { DestroyWindow(banner) };
+                    return Err(error);
+                }
+            }
+        }
+        Ok(Self { banner, borders })
+    }
+
+    fn reposition(
+        &self,
+        target: HWND,
+        target_rect: &windows::Win32::Foundation::RECT,
+    ) -> ComputerUseResult<()> {
+        let (banner_geometry, border_geometries) = overlay_geometries(target, target_rect)?;
+        position_overlay(self.banner, banner_geometry, false)?;
+        for (hwnd, geometry) in self.borders.iter().zip(border_geometries) {
+            position_overlay(*hwnd, geometry, false)?;
+        }
+        Ok(())
+    }
+
+    fn set_visible(&self, visible: bool) -> ComputerUseResult<()> {
+        set_overlay_visible(self.banner, visible)?;
+        for hwnd in &self.borders {
+            set_overlay_visible(*hwnd, visible)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ControlOverlay {
+    fn drop(&mut self) {
+        for hwnd in self.borders.drain(..) {
+            let _ = unsafe { DestroyWindow(hwnd) };
+        }
+        let _ = unsafe { DestroyWindow(self.banner) };
+    }
+}
+
+fn create_static_overlay(
+    caption: &str,
+    static_style: u32,
+    (x, y, width, height): OverlayGeometry,
+    alpha: u8,
+) -> ComputerUseResult<HWND> {
+    let class = wide("STATIC");
+    let caption = wide(caption);
+    let style = WINDOW_STYLE(WS_POPUP.0 | WS_VISIBLE.0 | static_style);
+    let ex_style = WINDOW_EX_STYLE(
+        WS_EX_TOPMOST.0
+            | WS_EX_TOOLWINDOW.0
+            | WS_EX_NOACTIVATE.0
+            | WS_EX_TRANSPARENT.0
+            | WS_EX_LAYERED.0,
+    );
+    let hwnd = unsafe {
+        CreateWindowExW(
+            ex_style,
+            PCWSTR(class.as_ptr()),
+            PCWSTR(caption.as_ptr()),
+            style,
+            x,
+            y,
+            width,
+            height,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+    .map_err(|error| {
+        ComputerUseError::new(
+            ComputerUseErrorCode::BackendUnavailable,
+            format!("failed to create Computer Use visual overlay: {error}"),
+        )
+    })?;
+    if let Err(error) = unsafe { SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA) } {
+        let _ = unsafe { DestroyWindow(hwnd) };
+        return Err(overlay_backend_error(
+            "configure transparency for",
+            error.to_string(),
+        ));
+    }
+    if let Err(error) = position_overlay(hwnd, (x, y, width, height), true) {
+        let _ = unsafe { DestroyWindow(hwnd) };
+        return Err(error);
+    }
+    pump_overlay_messages(hwnd);
+    Ok(hwnd)
+}
+
+fn position_overlay(
+    hwnd: HWND,
+    (x, y, width, height): OverlayGeometry,
+    show: bool,
+) -> ComputerUseResult<()> {
+    let flags = if show {
+        SWP_NOACTIVATE | SWP_SHOWWINDOW
+    } else {
+        SWP_NOACTIVATE
+    };
+    unsafe { SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, width, height, flags) }
+        .map_err(|error| overlay_backend_error("position", error.to_string()))?;
+    let mut actual = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut actual) }
+        .map_err(|error| overlay_backend_error("verify the position of", error.to_string()))?;
+    if [
+        actual.left,
+        actual.top,
+        actual.right - actual.left,
+        actual.bottom - actual.top,
+    ] != [x, y, width, height]
+    {
+        return Err(overlay_backend_error(
+            "verify the position of",
+            "Windows reported unexpected overlay bounds",
+        ));
+    }
+    if show && !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        return Err(overlay_backend_error(
+            "show",
+            "Windows did not make the overlay visible",
+        ));
+    }
+    Ok(())
+}
+
+fn set_overlay_visible(hwnd: HWND, visible: bool) -> ComputerUseResult<()> {
+    let command = if visible { SW_SHOWNOACTIVATE } else { SW_HIDE };
+    let _ = unsafe { ShowWindow(hwnd, command) };
+    pump_overlay_messages(hwnd);
+    if unsafe { IsWindowVisible(hwnd) }.as_bool() != visible {
+        return Err(overlay_backend_error(
+            if visible { "show" } else { "hide" },
+            "Windows did not apply the requested visibility",
+        ));
+    }
+    Ok(())
+}
+
+fn overlay_backend_error(operation: &str, detail: impl std::fmt::Display) -> ComputerUseError {
+    ComputerUseError::new(
+        ComputerUseErrorCode::BackendUnavailable,
+        format!("failed to {operation} the Computer Use visual overlay: {detail}"),
+    )
+}
+
+fn pump_overlay_messages(hwnd: HWND) {
+    let mut message = MSG::default();
+    while unsafe { PeekMessageW(&mut message, Some(hwnd), 0, 0, PM_REMOVE) }.as_bool() {
+        unsafe {
+            let _ = TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+}
+
+fn session_event_blocked(event: u32) -> Option<bool> {
+    match event {
+        WTS_SESSION_LOCK | WTS_CONSOLE_DISCONNECT | WTS_REMOTE_DISCONNECT => Some(true),
+        WTS_SESSION_UNLOCK | WTS_CONSOLE_CONNECT | WTS_REMOTE_CONNECT => Some(false),
+        _ => None,
+    }
+}
+
+struct BannerRuntimeSignals {
+    stop: Arc<AtomicBool>,
+    interrupted: Arc<AtomicBool>,
+    visible: Arc<AtomicBool>,
+    desktop_state: Arc<AtomicU64>,
+    desktop_barrier: Arc<DesktopEventBarrier>,
+}
+
+fn run_banner(
+    window_handle: u64,
+    process_id: u32,
+    app_name: &str,
+    signals: &BannerRuntimeSignals,
+    ready: &std::sync::mpsc::SyncSender<ComputerUseResult<()>>,
+) -> ComputerUseResult<()> {
+    ensure_interactive_desktop()?;
+    let target = HWND(window_handle as *mut core::ffi::c_void);
+    let caption = format!(
+        "DCC MCP Computer Use is controlling {app_name} - press {STOP_HOTKEY_LABEL} to stop"
+    );
+    let mut rect = available_target_rect_for_process(target, process_id)?;
+    let overlay = ControlOverlay::new(target, &rect, &caption)?;
+
+    let hotkey_result = unsafe {
+        RegisterHotKey(
+            Some(overlay.banner),
+            HOTKEY_ID,
+            STOP_HOTKEY_MODIFIERS,
+            VK_ESCAPE.0 as u32,
+        )
+    };
+    if let Err(error) = hotkey_result {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::BackendUnavailable,
+            format!("failed to reserve {STOP_HOTKEY_LABEL} for Computer Use: {error}"),
+        ));
+    }
+    let _hotkey = RegisteredHotKey {
+        hwnd: overlay.banner,
+    };
+    let _session_notifications = RegisteredSessionNotifications::new(overlay.banner)?;
+    let _desktop_barrier =
+        RegisteredDesktopBarrier::new(Arc::clone(&signals.desktop_barrier), overlay.banner);
+    let mut display_stamp = display_environment_stamp()?;
+
+    record_desktop_transition(&signals.desktop_state, true);
+    signals.visible.store(true, Ordering::Release);
+    let _ = ready.send(Ok(()));
+
+    let mut message = MSG::default();
+    let mut session_blocked = false;
+    let mut display_refresh_pending = false;
+    let mut barrier_sequence = None;
+    while !signals.stop.load(Ordering::Acquire) {
+        while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+            if message.message == DESKTOP_BARRIER_MESSAGE {
+                barrier_sequence = Some(message.wParam.0 as u32);
+                continue;
+            }
+            if message.message == WM_HOTKEY && message.wParam.0 == HOTKEY_ID as usize {
+                set_user_interrupt();
+                signals.interrupted.store(true, Ordering::Release);
+                signals.stop.store(true, Ordering::Release);
+                break;
+            }
+            if message.message == WM_WTSSESSION_CHANGE
+                && let Some(blocked) = session_event_blocked(message.wParam.0 as u32)
+            {
+                session_blocked = blocked;
+                if session_blocked {
+                    record_desktop_transition(&signals.desktop_state, false);
+                    if let Err(e) = overlay.set_visible(false) {
+                        tracing::warn!(
+                            "run_banner: overlay.set_visible(false) failed on WM_WTSSESSION_CHANGE \
+                             (session blocked); session continues: {e}"
+                        );
+                    }
+                    signals.visible.store(false, Ordering::Release);
+                } else {
+                    display_refresh_pending = true;
+                }
+            }
+            display_refresh_pending |= matches!(message.message, WM_DISPLAYCHANGE | WM_DPICHANGED);
+            unsafe {
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        if signals.stop.load(Ordering::Acquire) {
+            break;
+        }
+        let interactive = !session_blocked && desktop_interactive();
+        if !interactive {
+            let desktop_changed = record_desktop_transition(&signals.desktop_state, false);
+            if desktop_changed || signals.visible.load(Ordering::Acquire) {
+                // Overlay visibility is cosmetic. A transient window-manager race
+                // during a lock/disconnect transition must not kill the banner
+                // thread — the safety guarantees (hotkey, session monitoring,
+                // input owner) must survive cosmetic failures.
+                if let Err(e) = overlay.set_visible(false) {
+                    tracing::warn!(
+                        "run_banner: overlay.set_visible(false) failed on non-interactive \
+                         desktop (transient); session continues: {e}"
+                    );
+                }
+                signals.visible.store(false, Ordering::Release);
+            }
+            thread::sleep(Duration::from_millis(16));
+            continue;
+        }
+        if display_refresh_pending || barrier_sequence.is_some() {
+            match display_environment_stamp() {
+                Ok(current_display_stamp) => {
+                    if current_display_stamp != display_stamp {
+                        display_stamp = current_display_stamp;
+                        record_desktop_environment_change(&signals.desktop_state);
+                    }
+                    display_refresh_pending = false;
+                }
+                Err(error) if error.code == ComputerUseErrorCode::DesktopUnavailable => {
+                    record_desktop_transition(&signals.desktop_state, false);
+                    if signals.visible.load(Ordering::Acquire) {
+                        if let Err(e) = overlay.set_visible(false) {
+                            tracing::warn!(
+                                "run_banner: overlay.set_visible(false) failed on \
+                                 DesktopUnavailable; session continues: {e}"
+                            );
+                        }
+                        signals.visible.store(false, Ordering::Release);
+                    }
+                    thread::sleep(Duration::from_millis(16));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        rect = match available_target_rect_for_process(target, process_id) {
+            Ok(rect) => rect,
+            Err(error) if error.code == ComputerUseErrorCode::MissingWindow => {
+                validate_target_identity(target, process_id)?;
+                if let Err(e) = overlay.set_visible(false) {
+                    tracing::warn!(
+                        "run_banner: overlay.set_visible(false) failed on MissingWindow; \
+                         session continues: {e}"
+                    );
+                }
+                signals.visible.store(false, Ordering::Release);
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        overlay.reposition(target, &rect)?;
+        if !signals.visible.load(Ordering::Acquire) {
+            overlay.set_visible(true)?;
+            signals.visible.store(true, Ordering::Release);
+        }
+        record_desktop_transition(&signals.desktop_state, true);
+        if let Some(sequence) = barrier_sequence.take() {
+            signals.desktop_barrier.acknowledge(sequence);
+        }
+        thread::sleep(Duration::from_millis(16));
+    }
+    Ok(())
+}
+
+pub(crate) fn user_interrupted() -> bool {
+    if USER_INTERRUPTED.load(Ordering::Acquire)
+        || USER_INTERRUPT_EVENT_FAILED.load(Ordering::Acquire)
+    {
+        return true;
+    }
+    let Ok(event) = require_user_interrupt_event_raw() else {
+        // Cross-process interruption can no longer be proven. Fail closed so
+        // no process silently resumes native input with a broken latch.
+        return true;
+    };
+    match unsafe { WaitForSingleObject(event, 0) } {
+        WAIT_OBJECT_0 => true,
+        WAIT_TIMEOUT => false,
+        _ => {
+            USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
+            true
+        }
+    }
+}
+
+pub(crate) fn clear_user_interrupt() -> ComputerUseResult<()> {
+    // Holding the owner mutex during reset proves input is idle and prevents
+    // clearing the stop latch for a new owner that starts concurrently.
+    // Explicit approval is the only path allowed to accept an abandoned
+    // previous owner; ordinary session start always fails closed instead.
+    let _input_owner = acquire_input_owner_after_user_approval()?;
+    // Drop the event handle and re-initialize: if a previous CreateEventW
+    // call failed (storing None in the Mutex), this clears the stale None so
+    // user_interrupt_event_raw() retries creation on the next call, allowing
+    // recovery from transient kernel-object exhaustion without a process restart.
+    {
+        let mut guard = USER_INTERRUPT_EVENT
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if guard.is_none() {
+            *guard = create_manual_reset_event(USER_INTERRUPT_EVENT_NAME).ok();
+        }
+    }
+    let event = require_user_interrupt_event_raw()?;
+    unsafe { ResetEvent(event) }.map_err(|error| {
+        USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
+        ComputerUseError::new(
+            ComputerUseErrorCode::BackendUnavailable,
+            format!("failed to reset the cross-process Computer Use stop latch: {error}"),
+        )
+    })?;
+    USER_INTERRUPTED.store(false, Ordering::Release);
+    USER_INTERRUPT_EVENT_FAILED.store(false, Ordering::Release);
+    Ok(())
+}
+
+fn available_target_rect_for_process(
+    target: HWND,
+    expected_process_id: u32,
+) -> ComputerUseResult<windows::Win32::Foundation::RECT> {
+    validate_target_identity(target, expected_process_id)?;
+    available_target_rect(target)
+}
+
+fn restore_target_for_input(target: HWND, expected_process_id: u32) -> ComputerUseResult<()> {
+    validate_target_identity(target, expected_process_id)?;
+    if !unsafe { IsIconic(target) }.as_bool() {
+        return Ok(());
+    }
+
+    let _ = unsafe { ShowWindow(target, SW_RESTORE) };
+    let deadline = Instant::now() + TARGET_RESTORE_TIMEOUT;
+    let mut previous_rect = None;
+    loop {
+        ensure_interactive_desktop()?;
+        validate_target_identity(target, expected_process_id)?;
+        if Instant::now() >= deadline {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::FocusLost,
+                "the scoped DCC window could not be restored before input",
+            ));
+        }
+        if !unsafe { IsIconic(target) }.as_bool()
+            && let Ok(rect) = available_target_rect_for_process(target, expected_process_id)
+        {
+            let current_rect = [
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+            ];
+            if previous_rect == Some(current_rect) {
+                return Ok(());
+            }
+            previous_rect = Some(current_rect);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn validate_target_identity(target: HWND, expected_process_id: u32) -> ComputerUseResult<()> {
+    if !unsafe { IsWindow(Some(target)) }.as_bool() {
+        return Err(target_unavailable());
+    }
+    let mut actual_process_id = 0_u32;
+    unsafe { GetWindowThreadProcessId(target, Some(&mut actual_process_id)) };
+    if actual_process_id != expected_process_id {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidTarget,
+            "the scoped HWND was reused by another process",
+        ));
+    }
+    Ok(())
+}
+
+fn available_target_rect(target: HWND) -> ComputerUseResult<windows::Win32::Foundation::RECT> {
+    if !unsafe { IsWindow(Some(target)) }.as_bool()
+        || !unsafe { IsWindowVisible(target) }.as_bool()
+        || unsafe { IsIconic(target) }.as_bool()
+    {
+        return Err(target_unavailable());
+    }
+    let mut rect = windows::Win32::Foundation::RECT::default();
+    unsafe { GetWindowRect(target, &mut rect) }.map_err(|error| {
+        ComputerUseError::new(
+            ComputerUseErrorCode::MissingWindow,
+            format!("the scoped DCC window is unavailable: {error}"),
+        )
+    })?;
+    if !rect_has_positive_area(&rect) || !rect_intersects_monitor(&rect) {
+        return Err(target_unavailable());
+    }
+    Ok(rect)
+}
+
+fn rect_has_positive_area(rect: &windows::Win32::Foundation::RECT) -> bool {
+    rect.right > rect.left && rect.bottom > rect.top
+}
+
+fn monitor_for_rect(rect: &windows::Win32::Foundation::RECT) -> Option<HMONITOR> {
+    let monitor = unsafe { MonitorFromRect(rect, MONITOR_DEFAULTTONULL) };
+    (!monitor.is_invalid()).then_some(monitor)
+}
+
+fn rect_intersects_monitor(rect: &windows::Win32::Foundation::RECT) -> bool {
+    monitor_for_rect(rect).is_some()
+}
+
+fn monitor_work_area(
+    rect: &windows::Win32::Foundation::RECT,
+) -> Option<(HMONITOR, windows::Win32::Foundation::RECT)> {
+    let monitor = monitor_for_rect(rect)?;
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !unsafe { GetMonitorInfoW(monitor, &raw mut info) }.as_bool() {
+        return None;
+    }
+    let work = info.rcWork;
+    let area = if work.right > work.left && work.bottom > work.top {
+        work
+    } else {
+        info.rcMonitor
+    };
+    Some((monitor, area))
+}
+
+fn monitor_dpi(monitor: HMONITOR, target: Option<HWND>) -> u32 {
+    let mut dpi_x = 0_u32;
+    let mut dpi_y = 0_u32;
+    if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y) }
+        .is_ok()
+        && dpi_x != 0
+    {
+        return dpi_x;
+    }
+    target
+        .map(|hwnd| unsafe { GetDpiForWindow(hwnd) })
+        .filter(|dpi| *dpi != 0)
+        .unwrap_or(96)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct MonitorStamp {
+    monitor_rect: [i32; 4],
+    work_rect: [i32; 4],
+    dpi: u32,
+}
+
+unsafe extern "system" fn collect_monitor_stamp(
+    monitor: HMONITOR,
+    _device_context: HDC,
+    _rect: *mut RECT,
+    data: LPARAM,
+) -> BOOL {
+    let Some(stamps) = (unsafe { (data.0 as *mut Vec<MonitorStamp>).as_mut() }) else {
+        return false.into();
+    };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !unsafe { GetMonitorInfoW(monitor, &raw mut info) }.as_bool() {
+        return true.into();
+    }
+    stamps.push(MonitorStamp {
+        monitor_rect: [
+            info.rcMonitor.left,
+            info.rcMonitor.top,
+            info.rcMonitor.right,
+            info.rcMonitor.bottom,
+        ],
+        work_rect: [
+            info.rcWork.left,
+            info.rcWork.top,
+            info.rcWork.right,
+            info.rcWork.bottom,
+        ],
+        dpi: monitor_dpi(monitor, None),
+    });
+    true.into()
+}
+
+fn display_environment_stamp() -> ComputerUseResult<Vec<MonitorStamp>> {
+    let mut stamps = Vec::new();
+    let enumerated = unsafe {
+        EnumDisplayMonitors(
+            None,
+            None,
+            Some(collect_monitor_stamp),
+            LPARAM((&raw mut stamps) as isize),
+        )
+    };
+    if !enumerated.as_bool() || stamps.is_empty() {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::DesktopUnavailable,
+            "Windows did not report an interactive monitor topology",
+        ));
+    }
+    stamps.sort_unstable();
+    Ok(stamps)
+}
+
+fn scaled_pixels(pixels: i32, dpi: u32) -> i32 {
+    let scaled = (i64::from(pixels) * i64::from(dpi.max(96)) + 48) / 96;
+    scaled.clamp(1, i64::from(i32::MAX)) as i32
+}
+
+fn target_unavailable() -> ComputerUseError {
+    ComputerUseError::new(
+        ComputerUseErrorCode::MissingWindow,
+        "the scoped DCC window is minimized, closed, or unavailable",
+    )
+}
+
+fn overlay_geometries(
+    target: HWND,
+    target_rect: &windows::Win32::Foundation::RECT,
+) -> ComputerUseResult<(OverlayGeometry, BorderGeometries)> {
+    let (monitor, display_rect) = monitor_work_area(target_rect).ok_or_else(target_unavailable)?;
+    let dpi = monitor_dpi(monitor, Some(target));
+    Ok((
+        banner_geometry(target_rect, &display_rect, dpi),
+        border_geometries(target_rect, dpi),
+    ))
+}
+
+fn banner_geometry(
+    rect: &windows::Win32::Foundation::RECT,
+    display_rect: &windows::Win32::Foundation::RECT,
+    dpi: u32,
+) -> OverlayGeometry {
+    let target_width = rect.right.saturating_sub(rect.left).max(1);
+    let display_width = display_rect.right.saturating_sub(display_rect.left).max(1);
+    let display_height = display_rect.bottom.saturating_sub(display_rect.top).max(1);
+    let width = target_width
+        .max(scaled_pixels(320, dpi))
+        .min(scaled_pixels(720, dpi))
+        .min(display_width);
+    let height = scaled_pixels(36, dpi).min(display_height);
+    let centered_x = rect
+        .left
+        .saturating_add(target_width.saturating_sub(width) / 2);
+    let x = centered_x.clamp(display_rect.left, display_rect.right.saturating_sub(width));
+    let y = rect
+        .top
+        .saturating_add(scaled_pixels(8, dpi))
+        .clamp(display_rect.top, display_rect.bottom.saturating_sub(height));
+    (x, y, width, height)
+}
+
+fn border_geometries(rect: &windows::Win32::Foundation::RECT, dpi: u32) -> BorderGeometries {
+    let thickness = scaled_pixels(BORDER_THICKNESS, dpi);
+    let width = rect
+        .right
+        .saturating_sub(rect.left)
+        .max(thickness.saturating_mul(2));
+    let height = rect
+        .bottom
+        .saturating_sub(rect.top)
+        .max(thickness.saturating_mul(2));
+    [
+        (rect.left, rect.top, width, thickness),
+        (
+            rect.left,
+            rect.bottom.saturating_sub(thickness),
+            width,
+            thickness,
+        ),
+        (rect.left, rect.top, thickness, height),
+        (
+            rect.right.saturating_sub(thickness),
+            rect.top,
+            thickness,
+            height,
+        ),
+    ]
+}
+
+fn wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+mod input;
+
+pub(crate) use input::{flush_pending_input_releases, perform_action, window_dpi};

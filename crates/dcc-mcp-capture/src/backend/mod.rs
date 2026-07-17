@@ -3,13 +3,16 @@
 //! | Backend | Platform | Priority |
 //! |---------|----------|----------|
 //! | [`windows::DxgiBackend`] | Windows (full-screen) | 1st |
-//! | [`hwnd::HwndBackend`] | Windows (window-target) | 1st |
+//! | [`wgc::WgcBackend`] | Windows (window-target) | 1st |
+//! | [`hwnd::HwndBackend`] | Windows (window-target) | Fallback |
 //! | [`unix::X11Backend`] | Linux (X11) | 1st |
 //! | [`mock::MockBackend`] | All | Fallback |
 
 pub mod hwnd;
 pub mod mock;
 pub mod unix;
+pub mod wgc;
+pub mod win_dpi;
 pub mod windows;
 
 use crate::capture::DccCapture;
@@ -41,11 +44,16 @@ pub fn best_available() -> (Box<dyn DccCapture>, CaptureBackendKind) {
 /// a single top-level window rather than the whole desktop.
 ///
 /// Selection order:
-/// 1. GDI `PrintWindow` / `BitBlt` (Windows only)
-/// 2. Mock backend (other platforms — window capture pending)
+/// 1. Windows.Graphics.Capture with GDI fallback (Windows only)
+/// 2. GDI `PrintWindow` / `BitBlt` when WGC cannot initialise
+/// 3. Mock backend (other platforms — window capture pending)
 pub fn best_window_capture() -> (Box<dyn DccCapture>, CaptureBackendKind) {
     #[cfg(target_os = "windows")]
     {
+        let wgc = wgc::WgcBackend::new();
+        if wgc.is_available() {
+            return (Box::new(wgc), CaptureBackendKind::WindowsGraphicsCapture);
+        }
         let hb = hwnd::HwndBackend::new();
         if hb.is_available() {
             return (Box::new(hb), CaptureBackendKind::HwndPrintWindow);

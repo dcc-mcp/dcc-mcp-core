@@ -1,4 +1,4 @@
-"""Tests for the Windows HWND PrintWindow capture backend.
+"""Tests for the Windows target-window capture backend.
 
 All tests are Windows-only. On other platforms ``Capturer.new_window_auto``
 falls back to the mock backend (see :mod:`tests.test_capture_window_api`).
@@ -23,15 +23,15 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="HwndBackend is 
 # ── Backend identity ──────────────────────────────────────────────────────────
 
 
-class TestHwndBackendIdentity:
-    def test_new_window_auto_backend_kind_is_hwnd(self) -> None:
+class TestWindowsWindowBackendIdentity:
+    def test_new_window_auto_prefers_wgc(self) -> None:
         cap = dcc_mcp_core.Capturer.new_window_auto()
-        assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
+        assert cap.backend_kind() == dcc_mcp_core.CaptureBackendKind.WindowsGraphicsCapture
 
-    def test_new_window_auto_backend_name_mentions_printwindow(self) -> None:
+    def test_new_window_auto_backend_name_mentions_wgc(self) -> None:
         cap = dcc_mcp_core.Capturer.new_window_auto()
         name = cap.backend_name()
-        assert "PrintWindow" in name or "GDI" in name
+        assert "Graphics.Capture" in name
 
 
 # ── Error paths ───────────────────────────────────────────────────────────────

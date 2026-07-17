@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 from typing import Any
 from typing import Dict
@@ -16,9 +17,14 @@ from typing import Optional
 from urllib.parse import quote
 from urllib.parse import quote_plus
 
-from _cdp_runtime import CdpBackendError as ChromeBackendError
-from _cdp_runtime import CdpClient as _CdpClient
-from _cdp_runtime import ensure_cdp_target as _ensure_cdp_target
+if __package__:
+    from ._cdp_runtime import CdpBackendError as ChromeBackendError
+    from ._cdp_runtime import CdpClient as _CdpClient
+    from ._cdp_runtime import ensure_cdp_target as _ensure_cdp_target
+else:
+    from _cdp_runtime import CdpBackendError as ChromeBackendError
+    from _cdp_runtime import CdpClient as _CdpClient
+    from _cdp_runtime import ensure_cdp_target as _ensure_cdp_target
 
 from dcc_mcp_core.adapter_contracts import AppUiAuditRecord
 from dcc_mcp_core.adapter_contracts import AppUiPolicy
@@ -58,6 +64,16 @@ _CONDITION_KEYS = {
     "timeout_ms",
     "interval_ms",
 }
+_CLEANUP_REQUESTED = threading.Event()
+
+
+def request_stop() -> None:
+    """Wake in-flight waits before this private skill package is unloaded."""
+    _CLEANUP_REQUESTED.set()
+
+
+def cleanup() -> None:
+    request_stop()
 
 
 def _read_params() -> Dict[str, Any]:
@@ -142,7 +158,7 @@ def _policy_from_params(params: Dict[str, Any]) -> AppUiPolicy:
     raw = params.get("policy") or {}
     if not isinstance(raw, dict):
         raw = {}
-    return AppUiPolicy(**{key: raw[key] for key in _POLICY_KEYS if key in raw})
+    return AppUiPolicy().narrowed({key: raw[key] for key in _POLICY_KEYS if key in raw})
 
 
 def _ensure_chrome(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -391,6 +407,8 @@ def _has_scoped_window(state: Dict[str, Any]) -> bool:
 
 
 def _window_allowed(state: Dict[str, Any], policy: AppUiPolicy) -> bool:
+    if policy.scope_denied:
+        return False
     if policy.require_scoped_window and not _has_scoped_window(state):
         return False
     if policy.allowed_window_titles:
@@ -559,6 +577,19 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
+def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Idempotent no-op for CDP, which does not own native input."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    return skill_success(
+        "No native Computer Use session was active for the Chrome backend.",
+        session_id=session_id,
+        active=False,
+        was_active=False,
+        user_interrupted=False,
+    )
+
+
 def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     params = dict(params) if params is not None else _read_params()
     session_id = _safe_session_id(params.get("session_id"))
@@ -709,13 +740,21 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     condition = _condition_from_params(params.get("condition") or {})
-    timeout_ms = max(0, int(condition.timeout_ms))
+    timeout_ms = min(60_000, max(0, int(condition.timeout_ms)))
+    condition.timeout_ms = timeout_ms
     interval_ms = max(10, int(condition.interval_ms))
     deadline = time.monotonic() + (timeout_ms / 1000.0)
     attempts = 0
     start = time.monotonic()
     last_snapshot = None
     while True:
+        if _CLEANUP_REQUESTED.is_set():
+            return skill_error(
+                "app_ui wait cancelled because the backend is stopping.",
+                UiErrorCode.BACKEND_UNAVAILABLE,
+                session_id=session_id,
+                attempts=attempts,
+            )
         state = _load_state(session_id)
         try:
             state = _refresh_from_browser(_ensure_chrome(state))
@@ -767,7 +806,7 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             )
         if time.monotonic() >= deadline:
             break
-        time.sleep(min(interval_ms / 1000.0, max(0.0, deadline - time.monotonic())))
+        _CLEANUP_REQUESTED.wait(min(interval_ms / 1000.0, max(0.0, deadline - time.monotonic())))
 
     elapsed_ms = round((time.monotonic() - start) * 1000.0, 1)
     result = UiWaitResult(

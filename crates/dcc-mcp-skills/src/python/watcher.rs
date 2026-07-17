@@ -79,6 +79,25 @@ impl PySkillWatcher {
         self.inner.reload();
     }
 
+    /// Register a callback invoked after every automatic or manual reload.
+    pub fn on_reload(&self, py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
+        if !callback.bind(py).is_callable() {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "reload callback must be callable",
+            ));
+        }
+        self.inner.on_reload(move || {
+            let Some(result) = Python::try_attach(|py| callback.call0(py)) else {
+                tracing::warn!("SkillWatcher reload callback skipped: Python is not attached");
+                return;
+            };
+            if let Err(err) = result {
+                tracing::error!("SkillWatcher reload callback failed: {err}");
+            }
+        });
+        Ok(())
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "SkillWatcher(skills={}, paths={})",

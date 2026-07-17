@@ -13,6 +13,39 @@ use crate::gateway::middleware::{CallContext, CallResult};
 use crate::gateway::response_codec::compact_call_batch_payload;
 use crate::gateway::search_telemetry::search_id_from_payload;
 
+pub(super) const INLINE_IMAGE_TRACE_PLACEHOLDER: &str = "<omitted; native image content>";
+
+fn observability_safe_output(value: &Value) -> Value {
+    let mut safe = value.clone();
+    redact_inline_image_data(&mut safe);
+    safe
+}
+
+fn redact_inline_image_data(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            let is_image = ["kind", "type"].iter().any(|key| {
+                object
+                    .get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| value.eq_ignore_ascii_case("image"))
+            });
+            if is_image && let Some(data) = object.get_mut("data") {
+                *data = Value::String(INLINE_IMAGE_TRACE_PLACEHOLDER.to_string());
+            }
+            for child in object.values_mut() {
+                redact_inline_image_data(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_inline_image_data(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(super) struct RestCallTraceRequest<'a> {
     pub(super) method: &'a str,
     pub(super) slug: &'a str,
@@ -145,23 +178,25 @@ pub(super) async fn call_service_with_admin_trace(
     }
 
     let response_ns = now_ns();
+    let transport_error = result.is_err();
+    let (is_error, output_value) = match &result {
+        Ok(value) => (
+            crate::gateway::capability_service::tool_result_reports_failure(value),
+            value.clone(),
+        ),
+        Err(err) => (true, service_error_to_json(err)),
+    };
     record_search_followup(
         gs,
         search_id.as_deref(),
         "call",
         Some(slug),
         None,
-        result.is_ok(),
+        !is_error,
         &ctx.trace_context,
     );
-    let (preview_text, is_error, output_value) = match &result {
-        Ok(value) => (
-            serde_json::to_string(value).unwrap_or_default(),
-            false,
-            value.clone(),
-        ),
-        Err(err) => (err.message.clone(), true, service_error_to_json(err)),
-    };
+    let observed_output = observability_safe_output(&output_value);
+    let preview_text = serde_json::to_string(&observed_output).unwrap_or_default();
     let mut span = ctx
         .trace_context
         .child_span(
@@ -176,13 +211,13 @@ pub(super) async fn call_service_with_admin_trace(
         span = span.with_error();
     }
     ctx.push_span(span);
-    ctx.output_payload = Some(TracePayload::from_value(&output_value, MAX_OUTPUT_BYTES));
+    ctx.output_payload = Some(TracePayload::from_value(&observed_output, MAX_OUTPUT_BYTES));
     record_token_accounting(
         &mut ctx,
         gs,
         headers,
         request_body,
-        output_value.clone(),
+        observed_output.clone(),
         None,
         false,
     );
@@ -211,7 +246,11 @@ pub(super) async fn call_service_with_admin_trace(
     }
 
     let selected_hit = selected_search_hit(gs, search_id.as_deref(), Some(slug), None);
-    let error_kind = result.as_ref().err().map(|err| err.kind.as_str());
+    let error_kind = result
+        .as_ref()
+        .err()
+        .map(|err| err.kind.as_str())
+        .or_else(|| is_error.then_some("tool-error"));
     let error_payload = result
         .as_ref()
         .err()
@@ -242,8 +281,8 @@ pub(super) async fn call_service_with_admin_trace(
             path: method,
             direction: "outbound",
             leg: "gateway_to_client",
-            status: Some(if is_error { 502 } else { 200 }),
-            body: output_value,
+            status: Some(if transport_error { 502 } else { 200 }),
+            body: observed_output,
         },
     );
 
@@ -330,14 +369,13 @@ pub(super) async fn call_batch_with_admin_trace(
     )
     .await;
     let response_ns = now_ns();
-    let (preview_text, is_error, output_value) = match &result {
+    let transport_error = result.is_err();
+    let (is_error, output_value) = match &result {
         Ok(value) => (
-            serde_json::to_string(value).unwrap_or_default(),
-            false,
+            value.get("success").and_then(Value::as_bool) == Some(false),
             value.clone(),
         ),
         Err(message) => (
-            message.clone(),
             true,
             json!({
                 "success": false,
@@ -345,6 +383,8 @@ pub(super) async fn call_batch_with_admin_trace(
             }),
         ),
     };
+    let observed_output = observability_safe_output(&output_value);
+    let preview_text = serde_json::to_string(&observed_output).unwrap_or_default();
     let mut span = ctx
         .trace_context
         .child_span(
@@ -359,14 +399,17 @@ pub(super) async fn call_batch_with_admin_trace(
         span = span.with_error();
     }
     ctx.push_span(span);
-    ctx.output_payload = Some(TracePayload::from_value(&output_value, MAX_OUTPUT_BYTES));
-    let compact_output = result.as_ref().ok().map(compact_call_batch_payload);
+    ctx.output_payload = Some(TracePayload::from_value(&observed_output, MAX_OUTPUT_BYTES));
+    let compact_output = result
+        .as_ref()
+        .ok()
+        .map(|_| compact_call_batch_payload(&observed_output));
     record_token_accounting(
         &mut ctx,
         gs,
         headers,
         request_body,
-        output_value.clone(),
+        observed_output.clone(),
         compact_output,
         true,
     );
@@ -435,8 +478,8 @@ pub(super) async fn call_batch_with_admin_trace(
             path: "v1/call_batch",
             direction: "outbound",
             leg: "gateway_to_client",
-            status: Some(if is_error { 400 } else { 200 }),
-            body: output_value,
+            status: Some(if transport_error { 400 } else { 200 }),
+            body: observed_output,
         },
     );
 
