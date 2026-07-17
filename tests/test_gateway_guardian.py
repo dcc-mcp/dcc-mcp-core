@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from http.client import BadStatusLine
 import json
 import os
 from pathlib import Path
@@ -39,6 +40,15 @@ class _JsonResp(_Resp):
 
     def read(self):
         return json.dumps(self._payload).encode("utf-8")
+
+
+def test_is_healthy_treats_malformed_http_response_as_unhealthy(monkeypatch):
+    def _raise_bad_status_line(*_args, **_kwargs):
+        raise BadStatusLine("GET /health HTTP/1.1")
+
+    monkeypatch.setattr(gg, "urlopen", _raise_bad_status_line)
+
+    assert gg._is_healthy("127.0.0.1", 9765, timeout=0.5) is False
 
 
 def test_ensure_gateway_daemon_reports_existing_health(monkeypatch):
