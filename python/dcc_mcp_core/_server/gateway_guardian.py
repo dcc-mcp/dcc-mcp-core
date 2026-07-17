@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from http.client import HTTPException
 import json
 import logging
 import os
@@ -41,7 +42,7 @@ def _is_healthy(host: str, port: int, timeout: float) -> bool:
             return int(getattr(resp, "status", 0)) == 200
     except HTTPError as err:
         return int(getattr(err, "code", 0)) == 200
-    except (URLError, OSError, ValueError):
+    except (HTTPException, URLError, OSError, ValueError):
         return False
 
 
