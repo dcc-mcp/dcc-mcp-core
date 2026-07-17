@@ -83,9 +83,7 @@ impl WindowFinder {
 
     fn find_by_pid(&self, pid: u32) -> CaptureResult<WindowInfo> {
         let windows = self.enumerate();
-        windows
-            .into_iter()
-            .find(|w| w.pid == pid)
+        select_best_pid_window(windows, pid)
             .ok_or_else(|| CaptureError::TargetNotFound(format!("no window for pid={pid}")))
     }
 
@@ -99,6 +97,28 @@ impl WindowFinder {
                 CaptureError::TargetNotFound(format!("no window with title containing '{title}'"))
             })
     }
+}
+
+/// Select a captureable process window without depending on platform
+/// enumeration order.
+///
+/// A DCC process can own a large main window as well as smaller welcome,
+/// splash, or utility windows.  The largest positive window rectangle is the
+/// most useful generic main-window signal available on every supported
+/// platform.  The handle provides a stable tie-break for an otherwise equal
+/// candidate set.
+fn select_best_pid_window(windows: Vec<WindowInfo>, pid: u32) -> Option<WindowInfo> {
+    windows
+        .into_iter()
+        .filter(|window| window.pid == pid)
+        .filter(|window| window_capture_area(window) > 0)
+        .max_by_key(|window| (window_capture_area(window), window.handle))
+}
+
+fn window_capture_area(window: &WindowInfo) -> u64 {
+    let width = u64::try_from(window.rect[2]).unwrap_or(0);
+    let height = u64::try_from(window.rect[3]).unwrap_or(0);
+    width.saturating_mul(height)
 }
 
 // ── Platform implementations ───────────────────────────────────────────────
@@ -205,6 +225,53 @@ fn windows_info_for_hwnd(handle: u64) -> Option<WindowInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn window(handle: u64, pid: u32, title: &str, width: i32, height: i32) -> WindowInfo {
+        WindowInfo {
+            handle,
+            pid,
+            title: title.to_string(),
+            rect: [0, 0, width, height],
+        }
+    }
+
+    #[test]
+    fn test_select_best_pid_window_prefers_largest_capture_area() {
+        let windows = vec![
+            window(10, 42, "Start Here", 640, 480),
+            window(20, 42, "Houdini FX", 1920, 1080),
+            window(30, 7, "Other process", 3840, 2160),
+            window(40, 42, "Degenerate", 3840, 0),
+        ];
+
+        let selected = select_best_pid_window(windows, 42).unwrap();
+
+        assert_eq!(selected.handle, 20);
+    }
+
+    #[test]
+    fn test_select_best_pid_window_is_independent_of_enumeration_order() {
+        let welcome = window(10, 42, "Start Here", 640, 480);
+        let main = window(20, 42, "Houdini FX", 1920, 1080);
+
+        let forward = select_best_pid_window(vec![welcome.clone(), main.clone()], 42).unwrap();
+        let reverse = select_best_pid_window(vec![main, welcome], 42).unwrap();
+
+        assert_eq!(forward.handle, 20);
+        assert_eq!(reverse.handle, 20);
+    }
+
+    #[test]
+    fn test_select_best_pid_window_uses_stable_handle_tie_break() {
+        let windows = vec![
+            window(10, 42, "Utility", 1000, 800),
+            window(20, 42, "Main", 1000, 800),
+        ];
+
+        let selected = select_best_pid_window(windows, 42).unwrap();
+
+        assert_eq!(selected.handle, 20);
+    }
 
     #[test]
     fn test_finder_primary_display_always_ok() {
