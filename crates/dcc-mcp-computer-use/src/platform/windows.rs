@@ -266,6 +266,17 @@ fn create_manual_reset_event(name: &str) -> windows::core::Result<OwnedKernelHan
     Ok(OwnedKernelHandle::new(handle))
 }
 
+/// Returns `Some(true)` when the kernel object is signaled, `Some(false)` when
+/// it is not, and `None` when the wait itself fails (e.g. the handle is invalid).
+#[allow(dead_code)]
+fn event_signaled(event: &OwnedKernelHandle) -> Option<bool> {
+    match unsafe { WaitForSingleObject(event.get(), 0) } {
+        WAIT_OBJECT_0 => Some(true),
+        WAIT_TIMEOUT => Some(false),
+        _ => None,
+    }
+}
+
 /// Acquire (and if necessary, initialize) the cross-process interrupt event.
 ///
 /// Returns the raw HANDLE value so callers do not need to hold the mutex lock
@@ -277,7 +288,9 @@ fn create_manual_reset_event(name: &str) -> windows::core::Result<OwnedKernelHan
 /// resets the `Option` to `None`, allowing the next caller to retry creation
 /// and recover without a process restart.
 fn user_interrupt_event_raw() -> Option<HANDLE> {
-    let mut guard = USER_INTERRUPT_EVENT.lock().unwrap_or_else(|p| p.into_inner());
+    let mut guard = USER_INTERRUPT_EVENT
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     if guard.is_none() {
         *guard = create_manual_reset_event(USER_INTERRUPT_EVENT_NAME).ok();
     }
@@ -296,8 +309,8 @@ fn require_user_interrupt_event_raw() -> ComputerUseResult<HANDLE> {
 
 fn set_user_interrupt() {
     USER_INTERRUPTED.store(true, Ordering::Release);
-    let signaled = user_interrupt_event_raw()
-        .is_some_and(|event| unsafe { SetEvent(event) }.is_ok());
+    let signaled =
+        user_interrupt_event_raw().is_some_and(|event| unsafe { SetEvent(event) }.is_ok());
     if !signaled {
         USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
     }
@@ -1112,7 +1125,9 @@ pub(crate) fn clear_user_interrupt() -> ComputerUseResult<()> {
     // user_interrupt_event_raw() retries creation on the next call, allowing
     // recovery from transient kernel-object exhaustion without a process restart.
     {
-        let mut guard = USER_INTERRUPT_EVENT.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = USER_INTERRUPT_EVENT
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         if guard.is_none() {
             *guard = create_manual_reset_event(USER_INTERRUPT_EVENT_NAME).ok();
         }
