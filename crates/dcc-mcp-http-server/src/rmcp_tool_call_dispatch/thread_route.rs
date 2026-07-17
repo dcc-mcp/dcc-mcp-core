@@ -8,7 +8,6 @@ use dcc_mcp_actions::{
 use dcc_mcp_models::ThreadAffinity;
 
 use crate::executor::DccExecutorHandle;
-use crate::inflight::CANCEL_GRACE_PERIOD;
 use crate::server_state::ServerState;
 
 use super::wire::{decode_dispatch_wire, encode_dispatch_wire, use_main_thread_route};
@@ -66,20 +65,59 @@ async fn run_on_worker(
             }
         })
     });
-    let cancel_wait = async {
-        let deadline = tokio::time::Instant::now() + CANCEL_GRACE_PERIOD;
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            if tokio::time::Instant::now() >= deadline {
-                break;
-            }
-        }
-    };
-    tokio::select! {
-        result = dispatch_fut => result
-            .map_err(|err| DispatchError::HandlerError(err.to_string()))?
-            ,
-        _ = cancel_wait => Err(DispatchError::HandlerError("CANCELLED".to_string())),
+    dispatch_fut
+        .await
+        .map_err(|err| DispatchError::HandlerError(err.to_string()))?
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex, mpsc};
+
+    use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn worker_dispatch_is_not_limited_by_cancellation_grace_period() {
+        let registry = ToolRegistry::new();
+        registry.register_action(ToolMeta {
+            name: "slow_worker".into(),
+            dcc: "test".into(),
+            description: "slow worker probe".into(),
+            thread_affinity: ThreadAffinity::Any,
+            enabled: true,
+            ..Default::default()
+        });
+        let dispatcher = dcc_mcp_actions::ToolDispatcher::new(registry);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        dispatcher.register_handler("slow_worker", move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+            Ok(json!({"ok": true}))
+        });
+
+        let task = tokio::spawn(run_on_worker(
+            dispatcher,
+            "slow_worker".into(),
+            Value::Null,
+            None,
+            DispatchExecutionContext {
+                host_dispatcher_attached: Some(false),
+            },
+            false,
+            ThreadAffinity::Any,
+        ));
+        tokio::task::yield_now().await;
+        started_rx.recv().unwrap();
+        tokio::time::advance(crate::inflight::CANCEL_GRACE_PERIOD * 2).await;
+        release_tx.send(()).unwrap();
+
+        let result = task.await.unwrap().unwrap();
+        assert_eq!(result.output["ok"], true);
     }
 }
 
