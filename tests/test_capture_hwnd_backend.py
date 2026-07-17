@@ -23,6 +23,11 @@ import dcc_mcp_core
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="HwndBackend is Windows-only")
 
+# GitHub Actions (and most other CI providers) set CI=true. On headless CI
+# runners PrintWindow captures via DWM composition without sending WM_PRINT,
+# so hung-window timeout tests cannot simulate a blocking WM_PRINT handler.
+_IN_HEADLESS_CI = os.environ.get("CI", "").lower() in ("true", "1")
+
 
 _TIMEOUT_PROBE = textwrap.dedent(
     r"""
@@ -393,6 +398,10 @@ class TestHwndBackendErrors:
                 timeout_ms=500,
             )
 
+    @pytest.mark.skipif(
+        _IN_HEADLESS_CI,
+        reason="PrintWindow captures via DWM on headless CI, bypassing WM_PRINT delivery",
+    )
     def test_hung_external_window_honors_timeout_without_gdi_leak(self) -> None:
         result = _run_timeout_probe("external", timeout=15)
         assert result.returncode == 0, result.stderr or result.stdout
