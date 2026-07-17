@@ -29,6 +29,33 @@ fn log_gateway_mcp_slow_dispatch(started: Instant, method: &str) {
     }
 }
 
+/// Extract native images embedded in an MCP tool-call result JSON payload.
+///
+/// DCC tool servers can embed images in two ways inside a JSON response body:
+///
+/// ## 1. Inline `{ "type": "image" }` objects
+///
+/// Any JSON object whose `"type"` key is `"image"` (case-insensitive) and
+/// that carries a `"data"` key with base64-encoded bytes is treated as a
+/// native image.  The `"data"` value is replaced with
+/// `NATIVE_IMAGE_PLACEHOLDER` in the returned text so the payload remains
+/// valid UTF-8 JSON, and the full image object is appended to the returned
+/// `Vec<Value>` for separate MCP content transport.
+///
+/// ## 2. `__rich__` sidecar objects
+///
+/// A JSON object may carry a `"__rich__"` key whose value is an object with
+/// the shape `{ "kind": "image", "data": "<base64>", "mime": "<mime-type>" }`.
+/// This is the **`__rich__` protocol**: a skill-server–to–gateway convention
+/// that allows a DCC tool to attach a native image to any response object
+/// without changing the object's primary schema.  The gateway strips the
+/// `"__rich__"` sidecar from the serialized text (its `"data"` is replaced
+/// with `NATIVE_IMAGE_PLACEHOLDER`) and promotes the image content to the
+/// MCP `content` list alongside the text.
+///
+/// Both extraction paths recurse into nested arrays and objects.  The
+/// `__rich__` key itself is never recursed into (only the top-level
+/// `"__rich__"` on each object is inspected).
 fn extract_native_rich_images(text: String) -> (String, Vec<Value>) {
     let Ok(mut payload) = serde_json::from_str::<Value>(&text) else {
         return (text, Vec::new());
