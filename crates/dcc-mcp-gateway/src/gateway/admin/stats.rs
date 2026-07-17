@@ -36,6 +36,63 @@ pub enum StatsRange {
     All,
 }
 
+/// Terminal outcome used to filter aggregated call statistics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatsStatus {
+    Success,
+    Failure,
+}
+
+impl StatsStatus {
+    pub fn from_query(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "success" | "succeeded" | "ok" => Ok(Self::Success),
+            "failure" | "failed" | "error" => Ok(Self::Failure),
+            _ => Err(format!(
+                "invalid status '{value}'; expected success or failure"
+            )),
+        }
+    }
+}
+
+/// Optional dimensions applied before statistics are aggregated.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatsFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dcc_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<StatsStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
+impl StatsFilter {
+    fn matches(&self, trace: &DispatchTrace) -> bool {
+        matches_optional(&self.dcc_type, trace.dcc_type.as_deref())
+            && matches_optional(&self.instance_id, trace.instance_id.as_deref())
+            && matches_optional(&self.session_id, trace.session_id.as_deref())
+            && self.status.is_none_or(|status| match status {
+                StatsStatus::Success => trace.ok,
+                StatsStatus::Failure => !trace.ok,
+            })
+            && self
+                .skill
+                .as_deref()
+                .is_none_or(|skill| matches_skill(trace.tool_slug.as_deref(), skill))
+            && self
+                .tool
+                .as_deref()
+                .is_none_or(|tool| matches_tool(trace.tool_slug.as_deref(), tool))
+    }
+}
+
 impl StatsRange {
     /// Parse the `range` query string parameter from the admin UI.
     ///
@@ -247,6 +304,11 @@ impl StatsAggregator {
     /// Reads the ring buffer once (O(N)), performs a single pass, and returns
     /// a fully-materialised [`GatewayStats`] struct.
     pub fn compute(&self, range: StatsRange) -> GatewayStats {
+        self.compute_filtered(range, &StatsFilter::default())
+    }
+
+    /// Compute statistics after applying the requested runtime dimensions.
+    pub fn compute_filtered(&self, range: StatsRange, filter: &StatsFilter) -> GatewayStats {
         let cutoff = range.cutoff();
         let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
         if let Some(db) = &self.sqlite_reader {
@@ -260,6 +322,7 @@ impl StatsAggregator {
         let mut traces: Vec<DispatchTrace> = by_id
             .into_values()
             .filter(|t| cutoff.map(|c| t.started_at >= c).unwrap_or(true))
+            .filter(|t| filter.matches(t))
             .collect();
         traces.sort_by(|a, b| {
             let ta = a.started_at.duration_since(UNIX_EPOCH).ok();
@@ -271,6 +334,43 @@ impl StatsAggregator {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn matches_optional(expected: &Option<String>, actual: Option<&str>) -> bool {
+    expected
+        .as_deref()
+        .is_none_or(|value| actual.is_some_and(|actual| actual.eq_ignore_ascii_case(value)))
+}
+
+fn backend_tool_slug(tool_slug: &str) -> &str {
+    tool_slug.rsplit('.').next().unwrap_or(tool_slug)
+}
+
+fn normalized_capability_name(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace('_', "-")
+}
+
+fn matches_skill(tool_slug: Option<&str>, expected: &str) -> bool {
+    let Some(tool_slug) = tool_slug else {
+        return false;
+    };
+    let Some((skill, _)) = backend_tool_slug(tool_slug).split_once("__") else {
+        return false;
+    };
+    normalized_capability_name(skill) == normalized_capability_name(expected)
+}
+
+fn matches_tool(tool_slug: Option<&str>, expected: &str) -> bool {
+    let Some(tool_slug) = tool_slug else {
+        return false;
+    };
+    let expected = expected.trim();
+    let backend = backend_tool_slug(tool_slug);
+    tool_slug.eq_ignore_ascii_case(expected)
+        || backend.eq_ignore_ascii_case(expected)
+        || backend
+            .split_once("__")
+            .is_some_and(|(_, tool)| tool.eq_ignore_ascii_case(expected))
+}
 
 fn compute_from_traces(in_range: &[DispatchTrace], range: StatsRange) -> GatewayStats {
     let total_calls = in_range.len();

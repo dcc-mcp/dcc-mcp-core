@@ -196,10 +196,103 @@ mod endpoint_contracts {
     }
 
     #[tokio::test]
+    async fn test_admin_stats_filters_tool_calls_by_runtime_dimensions() {
+        let log = Arc::new(TraceLog::new(100));
+        for (request_id, dcc_type, tool_slug, instance_id, session_id, ok) in [
+            (
+                "houdini-render-success",
+                "houdini",
+                "houdini.instance-a.houdini_render__render_rop",
+                "instance-a",
+                "solar-session",
+                true,
+            ),
+            (
+                "houdini-script-failure",
+                "houdini",
+                "houdini.instance-a.houdini_scripting__execute_python",
+                "instance-a",
+                "solar-session",
+                false,
+            ),
+            (
+                "maya-render-success",
+                "maya",
+                "maya.instance-b.maya_render__render_rop",
+                "instance-b",
+                "layout-session",
+                true,
+            ),
+        ] {
+            log.push(DispatchTrace {
+                request_id: request_id.into(),
+                trace_id: format!("trace-{request_id}"),
+                span_id: None,
+                parent_span_id: None,
+                parent_request_id: None,
+                trace_flags: None,
+                trace_state: None,
+                method: "tools/call".into(),
+                tool_slug: Some(tool_slug.into()),
+                instance_id: Some(instance_id.into()),
+                session_id: Some(session_id.into()),
+                dcc_type: Some(dcc_type.into()),
+                transport: Some("mcp".into()),
+                agent_context: None,
+                started_at: SystemTime::now(),
+                total_ms: 42,
+                ok,
+                spans: vec![],
+                input: None,
+                output: None,
+                token_accounting: None,
+                llm_usage: None,
+            });
+        }
+
+        let router = build_admin_router(make_admin_state().with_trace_log(log, None));
+        let (status, body) = body_json(
+            router,
+            "/api/stats?range=all&dcc_type=houdini&skill=houdini-render&tool=render_rop&status=success&instance_id=instance-a&session_id=solar-session",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total_calls"], 1);
+        assert_eq!(body["successful_calls"], 1);
+        assert_eq!(body["failed_calls"], 0);
+        assert_eq!(
+            body["top_tools"][0]["name"],
+            "houdini.instance-a.houdini_render__render_rop"
+        );
+        assert_eq!(
+            body["filters"],
+            json!({
+                "dcc_type": "houdini",
+                "skill": "houdini-render",
+                "tool": "render_rop",
+                "status": "success",
+                "instance_id": "instance-a",
+                "session_id": "solar-session"
+            })
+        );
+    }
+
+    #[tokio::test]
     async fn test_admin_stats_all_range_is_default() {
         let (status, body) = body_json(admin_router(), "/api/stats?range=invalid").await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["range"] == "all" || body.get("error").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_admin_stats_rejects_unknown_status_filter() {
+        let (status, body) = body_json(admin_router(), "/api/stats?status=maybe").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body["error"],
+            "invalid status 'maybe'; expected success or failure"
+        );
     }
 
     #[tokio::test]

@@ -14,6 +14,37 @@ pub struct SearchRequest {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StatsRequest {
+    pub range: String,
+    pub dcc_type: Option<String>,
+    pub skill: Option<String>,
+    pub tool: Option<String>,
+    pub status: Option<String>,
+    pub instance_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+impl StatsRequest {
+    #[must_use]
+    pub fn query_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut pairs = vec![("range", self.range.clone())];
+        for (key, value) in [
+            ("dcc_type", self.dcc_type.as_ref()),
+            ("skill", self.skill.as_ref()),
+            ("tool", self.tool.as_ref()),
+            ("status", self.status.as_ref()),
+            ("instance_id", self.instance_id.as_ref()),
+            ("session_id", self.session_id.as_ref()),
+        ] {
+            if let Some(value) = value {
+                pairs.push((key, value.clone()));
+            }
+        }
+        pairs
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DescribeRequest {
     pub tool_slug: String,
@@ -130,5 +161,31 @@ mod tests {
         assert_eq!(body["query"], "sphere");
         assert_eq!(body["limit"], 10);
         assert!(body.get("dcc_type").is_none());
+    }
+
+    #[test]
+    fn stats_request_emits_stable_query_pairs() {
+        let request = StatsRequest {
+            range: "7d".into(),
+            dcc_type: Some("houdini".into()),
+            skill: Some("houdini-render".into()),
+            tool: Some("render_rop".into()),
+            status: Some("failure".into()),
+            instance_id: Some("instance-a".into()),
+            session_id: Some("solar-session".into()),
+        };
+
+        assert_eq!(
+            request.query_pairs(),
+            vec![
+                ("range", "7d".into()),
+                ("dcc_type", "houdini".into()),
+                ("skill", "houdini-render".into()),
+                ("tool", "render_rop".into()),
+                ("status", "failure".into()),
+                ("instance_id", "instance-a".into()),
+                ("session_id", "solar-session".into()),
+            ]
+        );
     }
 }

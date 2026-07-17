@@ -1224,6 +1224,7 @@ dependencies = [
 name = "dcc-mcp-db"
 version = "0.19.52"
 dependencies = [
+ "dcc-mcp-paths",
  "rusqlite",
  "serde",
  "serde_json",

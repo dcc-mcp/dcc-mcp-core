@@ -74,6 +74,32 @@ OTEL_SERVICE_NAME=dcc-mcp-gateway \
 
 网关不会导出隐藏推理、原始 prompt、原始 agent 回复、无界请求体、secret 或任意 `agent_context` metadata。Agent 从搜索结果继续调用 `describe`、`load_skill`、`call` 或 `call_batch` 时，应保留 REST `meta.search_id` 或 MCP `_meta.search_id`，这样 OTLP trace 才能把 selected rank/score 和真实工具结果关联起来。评估需要关联单个 agent turn 时，在 `agent_context` 中加入 `turn_id` 与模型身份字段。
 
+### 工作室级工具使用统计
+
+三类可观测接口应按各自的交付契约使用：
+
+- Gateway Admin SQLite 是工作站本地持久化事实源，并为
+  `dcc-mcp-cli stats` 提供历史调用数据；
+- OTLP 是工作室集中汇总的主通道，它会批量上报同一组 DCC、Skill、
+  Tool、实例、会话、结果和耗时维度到 OpenTelemetry Collector；
+- EventBus Webhook 适合告警和低频业务集成，不是权威分析流。它使用有界
+  内存队列，队列饱和时会主动丢弃新事件，避免接收端阻塞 DCC 执行。
+
+工作室部署应让各工作站连接本机或共享 Collector，由 Collector 统一负责
+TLS、认证、隐私过滤、采样、重试/队列和后端路由。实例 ID、会话 ID 等高
+基数信息保留为 Trace 属性；DCC 类型、Skill、Tool、结果等有界维度可在
+Collector 中派生聚合指标。
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com:4317 \
+OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer%20${OTEL_TOKEN}" \
+OTEL_SERVICE_NAME=dcc-mcp-gateway \
+  dcc-mcp-server ...
+```
+
+存储与故障隔离决策参见
+[ADR-013](../../adr/013-persistent-tool-call-analytics.md)。
+
 ### Rust 编程式配置
 
 ```rust

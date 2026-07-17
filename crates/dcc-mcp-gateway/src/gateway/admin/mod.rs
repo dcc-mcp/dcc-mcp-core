@@ -154,7 +154,9 @@ pub use dcc_mcp_db::{
 };
 pub use sqlite_lane::{AdminSqliteLane, AdminSqliteReader, read_custom_skill_paths_for_startup};
 pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore};
-pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
+pub use stats::{
+    GatewayStats, LatencyStats, StatsAggregator, StatsFilter, StatsRange, StatsStatus, TopEntry,
+};
 
 pub use trace::{DispatchTrace, TraceContext, TraceLog, TracePayload, TraceSpan};
 

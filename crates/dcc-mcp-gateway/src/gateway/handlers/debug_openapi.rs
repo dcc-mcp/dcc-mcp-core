@@ -66,6 +66,34 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
         json!({"type": "string", "enum": ["1h", "24h", "7d", "all"]}),
         "Aggregation range.",
     ));
+    compact_stats_params.extend([
+        query_param("dcc_type", json!({"type": "string"}), "Exact DCC type filter."),
+        query_param(
+            "skill",
+            json!({"type": "string"}),
+            "Exact skill filter derived from the backend tool slug; hyphens and underscores are equivalent.",
+        ),
+        query_param(
+            "tool",
+            json!({"type": "string"}),
+            "Exact full tool slug, backend tool slug, or terminal tool-name filter.",
+        ),
+        query_param(
+            "status",
+            json!({"type": "string", "enum": ["success", "failure"]}),
+            "Terminal call-status filter.",
+        ),
+        query_param(
+            "instance_id",
+            json!({"type": "string"}),
+            "Exact DCC instance id filter.",
+        ),
+        query_param(
+            "session_id",
+            json!({"type": "string"}),
+            "Exact MCP session id filter.",
+        ),
+    ]);
     let analytics_range_param = query_param(
         "range",
         json!({"type": "string", "enum": ["7d", "30d", "90d", "180d", "365d"]}),
@@ -228,7 +256,7 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
         (
             "/v1/debug/stats",
             "Get debug statistics",
-            "Aggregated gateway call statistics.",
+            "Aggregated persisted gateway call statistics with composable runtime filters.",
             compact_stats_params,
             true,
         ),

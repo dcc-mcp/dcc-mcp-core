@@ -1234,12 +1234,26 @@ pub async fn handle_admin_stats(
 
     let range_str = params.range();
     let range = StatsRange::from_str(range_str);
+    let filters = match params.stats_filter() {
+        Ok(filters) => filters,
+        Err(error) => {
+            let root = json!({ "error": error });
+            return debug_response(
+                &headers,
+                &params,
+                StatusCode::BAD_REQUEST,
+                root.clone(),
+                Some(root),
+            );
+        }
+    };
 
     match &s.stats {
         Some(agg) => {
-            let stats = agg.compute(range);
+            let stats = agg.compute_filtered(range, &filters);
             let mut root = serde_json::to_value(&stats).unwrap_or(json!({}));
             if let Some(obj) = root.as_object_mut() {
+                obj.insert("filters".to_string(), json!(filters));
                 obj.insert("p50_ms".to_string(), json!(stats.latency_ms.p50_ms));
                 obj.insert("p95_ms".to_string(), json!(stats.latency_ms.p95_ms));
                 obj.insert(
@@ -1266,6 +1280,7 @@ pub async fn handle_admin_stats(
             let root = json!({
             "error": "stats aggregator not available — admin feature may be disabled",
             "range": range_str,
+            "filters": filters,
             "total_calls": 0,
             "successful_calls": 0,
             "failed_calls": 0,

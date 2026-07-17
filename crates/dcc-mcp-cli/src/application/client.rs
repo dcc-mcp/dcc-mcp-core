@@ -5,7 +5,7 @@ use tokio::time::{Instant, sleep};
 use crate::application::instance_selection::select_one_instance;
 use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
-    StopInstanceRequest, WaitReadyRequest,
+    StatsRequest, StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::{HttpError, HttpGateway};
 
@@ -41,6 +41,16 @@ impl DccMcpClient {
     pub async fn health(&self) -> Result<Value, ClientError> {
         self.gateway
             .get_json(&self.endpoint.path("/v1/healthz"))
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn stats(&self, request: StatsRequest) -> Result<Value, ClientError> {
+        let mut url = reqwest::Url::parse(&self.endpoint.path("/v1/debug/stats"))
+            .map_err(|error| ClientError::Protocol(format!("invalid stats endpoint: {error}")))?;
+        url.query_pairs_mut().extend_pairs(request.query_pairs());
+        self.gateway
+            .get_json(url.as_str())
             .await
             .map_err(Into::into)
     }
@@ -555,5 +565,53 @@ fn check_json(name: &str, url: &str, result: Result<Value, HttpError>) -> Value 
             "ok": false,
             "error": error.to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use axum::Json;
+    use axum::Router;
+    use axum::extract::Query;
+    use axum::routing::get;
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn stats_requests_the_stable_debug_endpoint_with_all_filters() {
+        async fn echo(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            Json(json!({"query": query}))
+        }
+
+        let app = Router::new().route("/v1/debug/stats", get(echo));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = DccMcpClient::new(Endpoint::new(format!("http://{addr}")));
+
+        let response = client
+            .stats(StatsRequest {
+                range: "7d".into(),
+                dcc_type: Some("houdini".into()),
+                skill: Some("houdini-render".into()),
+                tool: Some("render_rop".into()),
+                status: Some("failure".into()),
+                instance_id: Some("instance-a".into()),
+                session_id: Some("solar-session".into()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response["query"]["range"], "7d");
+        assert_eq!(response["query"]["dcc_type"], "houdini");
+        assert_eq!(response["query"]["skill"], "houdini-render");
+        assert_eq!(response["query"]["tool"], "render_rop");
+        assert_eq!(response["query"]["status"], "failure");
+        assert_eq!(response["query"]["instance_id"], "instance-a");
+        assert_eq!(response["query"]["session_id"], "solar-session");
+        server.abort();
     }
 }

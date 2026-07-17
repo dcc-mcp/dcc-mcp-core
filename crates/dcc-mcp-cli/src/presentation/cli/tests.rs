@@ -1,6 +1,49 @@
 use super::*;
 
 #[test]
+fn stats_contract_parses_composable_runtime_filters() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "stats",
+        "--range",
+        "7d",
+        "--dcc-type",
+        "houdini",
+        "--skill",
+        "houdini-render",
+        "--tool",
+        "render_rop",
+        "--status",
+        "failure",
+        "--instance-id",
+        "instance-a",
+        "--session-id",
+        "solar-session",
+    ])
+    .expect("parse stats filters");
+
+    let Command::Stats {
+        range,
+        dcc_type,
+        skill,
+        tool,
+        status,
+        instance_id,
+        session_id,
+    } = args.command
+    else {
+        panic!("expected stats command");
+    };
+    assert_eq!(range, "7d");
+    assert_eq!(dcc_type.as_deref(), Some("houdini"));
+    assert_eq!(skill.as_deref(), Some("houdini-render"));
+    assert_eq!(tool.as_deref(), Some("render_rop"));
+    assert_eq!(status.as_deref(), Some("failure"));
+    assert_eq!(instance_id.as_deref(), Some("instance-a"));
+    assert_eq!(session_id.as_deref(), Some("solar-session"));
+}
+
+#[test]
 fn call_batch_contract_parses_steps_and_timeout() {
     let steps = r#"[{"tool_slug":"maya.abc.capture","arguments":{}}]"#;
     let args = Args::try_parse_from([
