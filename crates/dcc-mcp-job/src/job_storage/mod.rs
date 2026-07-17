@@ -85,8 +85,8 @@ pub trait JobStorage: Send + Sync + std::fmt::Debug {
     fn list(&self, filter: JobFilter) -> Result<Vec<Job>, JobStorageError>;
 
     /// Narrow write path for status transitions — more efficient than a
-    /// full [`Self::put`] when the caller only touched `status` /
-    /// `updated_at`. Implementations MAY fall back to a full put.
+    /// full [`Self::put`] when the caller only touched lifecycle state.
+    /// Implementations must also preserve `started_at` / `completed_at`.
     fn update_status(
         &self,
         job_id: &str,
@@ -172,6 +172,12 @@ impl JobStorage for InMemoryStorage {
         if let Some(row) = rows.get_mut(job_id) {
             row.status = status;
             row.updated_at = at;
+            if status == JobStatus::Running && row.started_at.is_none() {
+                row.started_at = Some(at);
+            }
+            if status.is_terminal() {
+                row.completed_at = Some(at);
+            }
         }
         Ok(())
     }
@@ -206,6 +212,8 @@ pub struct PersistedJob {
     pub result: Option<serde_json::Value>,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -220,6 +228,8 @@ impl PersistedJob {
             result: job.result.clone(),
             error: job.error.clone(),
             created_at: job.created_at,
+            started_at: job.started_at,
+            completed_at: job.completed_at,
             updated_at: job.updated_at,
         }
     }
@@ -242,6 +252,8 @@ impl PersistedJob {
             result: self.result.clone(),
             error: self.error.clone(),
             created_at: self.created_at,
+            started_at: self.started_at,
+            completed_at: self.completed_at,
             updated_at: self.updated_at,
             cancel_token,
         }
@@ -284,20 +296,31 @@ mod tests {
         for id in [&a, &b] {
             store.put(&mgr.get(id).unwrap().read()).unwrap();
         }
+        let started_at = Utc::now();
         store
-            .update_status(&a, JobStatus::Running, Utc::now())
+            .update_status(&a, JobStatus::Running, started_at)
             .unwrap();
         let running = store
             .list(JobFilter::by_status(JobStatus::Running))
             .unwrap();
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].id, a);
+        assert_eq!(running[0].started_at, Some(started_at));
+        assert!(running[0].completed_at.is_none());
 
         let pending = store
             .list(JobFilter::by_status(JobStatus::Pending))
             .unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].id, b);
+
+        let completed_at = started_at + chrono::Duration::seconds(1);
+        store
+            .update_status(&a, JobStatus::Completed, completed_at)
+            .unwrap();
+        let completed = store.get(&a).unwrap().unwrap();
+        assert_eq!(completed.started_at, Some(started_at));
+        assert_eq!(completed.completed_at, Some(completed_at));
     }
 
     #[test]
