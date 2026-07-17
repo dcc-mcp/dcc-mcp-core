@@ -44,6 +44,8 @@ pub mod backend;
 pub mod capture;
 pub mod capturer;
 pub mod error;
+#[doc(hidden)]
+pub mod helper;
 pub mod types;
 pub mod window;
 

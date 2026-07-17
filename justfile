@@ -118,6 +118,17 @@ hakari-verify:
 
 # ── Standalone binaries ─────────────────────────────────────────────────────
 
+# Build and stage the isolated PrintWindow helper used by Windows wheels.
+# Non-Windows packages intentionally do not carry this executable.
+[windows]
+stage-capture-helper:
+    cargo build --release -p dcc-mcp-capture --bin dcc-mcp-capture-helper
+    python scripts/packaging/stage_capture_helper.py
+
+[unix]
+stage-capture-helper:
+    @true
+
 # Build dcc-mcp-cli for the current platform
 build-cli:
     cargo build --release -p dcc-mcp-cli
@@ -187,11 +198,13 @@ dev:
     if (-not (Test-Path .venv)) { python -m venv .venv }
     & .\.venv\Scripts\python.exe -m pip install --disable-pip-version-check maturin -q
     just stubgen
+    just stage-capture-helper
     & .\.venv\Scripts\python.exe -m maturin develop --features {{DEV_FEATURES}}
 
 # Build abi3-py38 release wheel and install it
 install:
     just stubgen
+    just stage-capture-helper
     maturin build --release --out dist --features {{WHEEL_FEATURES}}
     pip install --force-reinstall --no-index --find-links dist dcc-mcp-core
 
@@ -200,6 +213,7 @@ install:
 # --find-interpreter, --target, etc. without duplicating feature flags.
 build *EXTRA:
     just stubgen
+    just stage-capture-helper
     maturin build --release --out dist --features {{WHEEL_FEATURES}} {{EXTRA}}
 
 # Build the py37-lite pure-Python wheel (py3-none-any).
@@ -213,6 +227,7 @@ build-py37-lite:
 # EXTRA is forwarded to maturin (e.g. `-i python3.7`, `--target x86_64`).
 build-py37 *EXTRA:
     just stubgen
+    just stage-capture-helper
     maturin build --release --out dist --features {{WHEEL_FEATURES_PY37}} {{EXTRA}}
 
 # Install dev/test dependencies

@@ -27,6 +27,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(windows)'.dependencies]
+dcc-mcp-shm.workspace = true
 # Windows DXGI Desktop Duplication API
 windows = { version = "0.62", features = [
     "Foundation",
@@ -42,6 +43,7 @@ windows = { version = "0.62", features = [
     "Win32_System_WinRT",
     "Win32_System_WinRT_Direct3D11",
     "Win32_System_WinRT_Graphics_Capture",
+    "Win32_System_LibraryLoader",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_HiDpi",
     "Win32_System_Threading",
