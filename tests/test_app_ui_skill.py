@@ -23,6 +23,26 @@ _SKILL_DIR = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "app-ui"
 _SCRIPTS = _SKILL_DIR / "scripts"
 
 
+@pytest.mark.parametrize("script_name", ["snapshot", "find", "act", "wait_for"])
+def test_app_ui_entrypoints_resolve_sibling_modules_without_script_path(
+    script_name: str,
+    monkeypatch: Any,
+) -> None:
+    """Legacy DCC file executors do not put the skill directory on sys.path."""
+    script_dir = str(_SCRIPTS)
+    monkeypatch.setattr(sys, "path", [entry for entry in sys.path if entry != script_dir])
+    monkeypatch.delitem(sys.modules, "_entrypoint", raising=False)
+    spec = importlib.util.spec_from_file_location(
+        f"_test_app_ui_direct_{script_name}",
+        _SCRIPTS / f"{script_name}.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert callable(module.main)
+
+
 def _load_cdp_runtime_module() -> Any:
     spec = importlib.util.spec_from_file_location("_test_app_ui_cdp_runtime", _SCRIPTS / "_cdp_runtime.py")
     assert spec is not None
