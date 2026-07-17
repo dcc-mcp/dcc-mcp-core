@@ -700,6 +700,191 @@ mod windows_impl {
             }
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use std::ffi::OsString;
+        use std::path::Path;
+        use std::sync::Mutex;
+        use std::time::{Duration, Instant};
+
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+            TH32CS_SNAPPROCESS,
+        };
+        use windows::Win32::System::Threading::{
+            GR_GDIOBJECTS, GetCurrentProcess, GetGuiResources,
+        };
+
+        use super::*;
+
+        static HELPER_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+        struct HelperOverride(Option<OsString>);
+
+        impl HelperOverride {
+            fn set(path: &Path) -> Self {
+                let previous = std::env::var_os("DCC_MCP_CAPTURE_HELPER");
+                unsafe { std::env::set_var("DCC_MCP_CAPTURE_HELPER", path) };
+                Self(previous)
+            }
+        }
+
+        impl Drop for HelperOverride {
+            fn drop(&mut self) {
+                if let Some(previous) = self.0.take() {
+                    unsafe { std::env::set_var("DCC_MCP_CAPTURE_HELPER", previous) };
+                } else {
+                    unsafe { std::env::remove_var("DCC_MCP_CAPTURE_HELPER") };
+                }
+            }
+        }
+
+        fn direct_child_process_ids() -> HashSet<u32> {
+            let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.unwrap();
+            let mut children = HashSet::new();
+            let mut entry = PROCESSENTRY32W {
+                dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+                ..Default::default()
+            };
+            if unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok() {
+                loop {
+                    if entry.th32ParentProcessID == std::process::id() {
+                        children.insert(entry.th32ProcessID);
+                    }
+                    if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
+                        break;
+                    }
+                }
+            }
+            let _ = unsafe { CloseHandle(snapshot) };
+            children
+        }
+
+        #[test]
+        fn controlled_blocker_honors_deadline_without_leaks_or_orphans() {
+            const PROBE_ENV: &str = "DCC_MCP_CAPTURE_BLOCKER_PROBE";
+            if std::env::var_os(PROBE_ENV).is_none() {
+                let status = std::process::Command::new(std::env::current_exe().unwrap())
+                    .arg("controlled_blocker_honors_deadline_without_leaks_or_orphans")
+                    .arg("--nocapture")
+                    .env(PROBE_ENV, "1")
+                    .status()
+                    .unwrap();
+                assert!(
+                    status.success(),
+                    "controlled blocker probe failed: {status}"
+                );
+                return;
+            }
+
+            let _serial = HELPER_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let temp = tempfile::tempdir().unwrap();
+            let blocker = temp.path().join("capture-blocker.cmd");
+            std::fs::write(&blocker, b"@echo off\r\n:loop\r\ngoto loop\r\n").unwrap();
+            let _override = HelperOverride::set(&blocker);
+            let children_before = direct_child_process_ids();
+            let gdi_before = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+
+            for _ in 0..8 {
+                let started = Instant::now();
+                let error = capture_via_helper(0, 1, 1, 100).unwrap_err();
+                assert!(matches!(error, CaptureError::Timeout(100)));
+                assert!(started.elapsed() < Duration::from_secs(1));
+            }
+
+            let gdi_after = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+            assert!(gdi_after <= gdi_before + 2, "{gdi_before} -> {gdi_after}");
+            assert!(direct_child_process_ids().is_subset(&children_before));
+        }
+
+        #[test]
+        fn missing_helper_override_is_actionable() {
+            let _serial = HELPER_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let temp = tempfile::tempdir().unwrap();
+            let missing = temp.path().join("missing-capture-helper.exe");
+            let _override = HelperOverride::set(&missing);
+            let error = capture_via_helper(0, 1, 1, 100).unwrap_err().to_string();
+            assert!(error.contains("capture helper"));
+            assert!(error.contains("was not found"));
+        }
+
+        #[test]
+        fn same_thread_fallback_uses_full_window_coordinates() {
+            use windows::Win32::Foundation::{COLORREF, HWND};
+            use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, SetPixel};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, DestroyWindow, GetWindowRect, WINDOW_EX_STYLE, WINDOW_STYLE,
+                WS_BORDER, WS_POPUP, WS_VISIBLE,
+            };
+            use windows::core::PCWSTR;
+
+            struct TestWindow(HWND);
+            impl Drop for TestWindow {
+                fn drop(&mut self) {
+                    let _ = unsafe { DestroyWindow(self.0) };
+                }
+            }
+
+            let class = "STATIC"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>();
+            let title = "dcc-mcp-capture-test"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>();
+            let window = TestWindow(
+                unsafe {
+                    CreateWindowExW(
+                        WINDOW_EX_STYLE(0),
+                        PCWSTR(class.as_ptr()),
+                        PCWSTR(title.as_ptr()),
+                        WINDOW_STYLE(WS_POPUP.0 | WS_BORDER.0 | WS_VISIBLE.0),
+                        100,
+                        100,
+                        120,
+                        80,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                }
+                .unwrap(),
+            );
+            let mut rect = windows::Win32::Foundation::RECT::default();
+            unsafe { GetWindowRect(window.0, &mut rect) }.unwrap();
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+            let window_dc = unsafe { GetWindowDC(Some(window.0)) };
+            let client_dc = unsafe { GetDC(Some(window.0)) };
+            let window_marker = COLORREF(0x0000_00E1);
+            let client_marker = COLORREF(0x00D2_0000);
+            assert_ne!(
+                unsafe { SetPixel(window_dc, 0, 0, window_marker) }.0,
+                u32::MAX
+            );
+            assert_ne!(
+                unsafe { SetPixel(client_dc, 0, 0, client_marker) }.0,
+                u32::MAX
+            );
+            assert_eq!(unsafe { GetPixel(window_dc, 0, 0) }, window_marker);
+            assert_eq!(unsafe { GetPixel(client_dc, 0, 0) }, client_marker);
+            unsafe {
+                ReleaseDC(Some(window.0), client_dc);
+                ReleaseDC(Some(window.0), window_dc);
+            }
+
+            let bgra = capture_same_thread_bgra(window.0.0 as u64, width, height).unwrap();
+            assert_eq!(&bgra[..3], &[0, 0, 0xE1]);
+        }
+    }
 }
 
 #[cfg(all(test, not(target_os = "windows")))]

@@ -24,14 +24,14 @@ import dcc_mcp_core
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="HwndBackend is Windows-only")
 
 
-_TIMEOUT_PROBE = textwrap.dedent(
+_HELPER_PROBE = textwrap.dedent(
     r"""
     import ctypes
     from collections import Counter
     import os
+    import struct
     import subprocess
     import sys
-    import time
     from ctypes import wintypes
 
     import dcc_mcp_core
@@ -64,9 +64,6 @@ _TIMEOUT_PROBE = textwrap.dedent(
 
     kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
     kernel32.GetModuleHandleW.restype = wintypes.HANDLE
-    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-    user32.GetGuiResources.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    user32.GetGuiResources.restype = wintypes.DWORD
     user32.RegisterClassW.argtypes = [ctypes.POINTER(WndClass)]
     user32.RegisterClassW.restype = wintypes.ATOM
     user32.CreateWindowExW.argtypes = [
@@ -154,18 +151,8 @@ _TIMEOUT_PROBE = textwrap.dedent(
     ]
     gdi32.GetDIBits.restype = ctypes.c_int
 
-    print_calls = ctypes.c_int(0)
-
     @wndproc_type
     def wndproc(hwnd, message, wparam, lparam):
-        # PrintWindow may dispatch either WM_PRINT or WM_PRINTCLIENT depending
-        # on the Windows compositor and target style. Block both so this probe
-        # deterministically represents an unresponsive external UI thread.
-        if message in {0x0317, 0x0318}:  # WM_PRINT, WM_PRINTCLIENT
-            print_calls.value += 1
-            if mode in {"child", "same-thread"}:
-                time.sleep(5)
-                return 0
         return user32.DefWindowProcW(hwnd, message, wparam, lparam)
 
     def create_window():
@@ -178,9 +165,7 @@ _TIMEOUT_PROBE = textwrap.dedent(
         if not user32.RegisterClassW(ctypes.byref(spec)):
             raise ctypes.WinError(ctypes.get_last_error())
         hwnd = user32.CreateWindowExW(
-            # Prevent DWM from satisfying the hung-window probe from a cached
-            # redirection surface without consulting the target UI thread.
-            0x00200000 if mode == "child" else 0,  # WS_EX_NOREDIRECTIONBITMAP
+            0,
             class_name,
             "DCC MCP capture timeout probe",
             0x10CF0000,  # WS_OVERLAPPEDWINDOW | WS_VISIBLE
@@ -237,53 +222,6 @@ _TIMEOUT_PROBE = textwrap.dedent(
             user32.TranslateMessage(ctypes.byref(message))
             user32.DispatchMessageW(ctypes.byref(message))
 
-    def external_main():
-        child = subprocess.Popen(
-            [sys.executable, "-u", __file__, "child"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            assert child.stdout is not None
-            hwnd = int(child.stdout.readline().strip())
-            cap = dcc_mcp_core.Capturer.new_window_auto()
-            before = user32.GetGuiResources(kernel32.GetCurrentProcess(), 0)
-            for _ in range(8):
-                started = time.perf_counter()
-                try:
-                    cap.capture_window(window_handle=hwnd, timeout_ms=100)
-                except RuntimeError as exc:
-                    assert "timed out after 100ms" in str(exc)
-                else:
-                    raise AssertionError("hung external HWND capture unexpectedly succeeded")
-                assert time.perf_counter() - started < 1.0
-            after = user32.GetGuiResources(kernel32.GetCurrentProcess(), 0)
-            assert after <= before + 2, (before, after)
-            tasklist = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq dcc-mcp-capture-helper.exe", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            assert "dcc-mcp-capture-helper.exe" not in tasklist.stdout.lower(), tasklist.stdout
-        finally:
-            child.kill()
-            child.wait(timeout=3)
-
-    def same_thread_main():
-        hwnd = create_window()
-        started = time.perf_counter()
-        frame = dcc_mcp_core.Capturer.new_window_auto().capture_window(
-            window_handle=hwnd,
-            timeout_ms=100,
-        )
-        assert time.perf_counter() - started < 1.0
-        assert frame.byte_len() > 0
-        assert print_calls.value == 0
-        user32.DestroyWindow(hwnd)
-
     def responsive_main():
         child = subprocess.Popen(
             [sys.executable, "-u", __file__, "paint-child"],
@@ -294,12 +232,52 @@ _TIMEOUT_PROBE = textwrap.dedent(
         try:
             assert child.stdout is not None
             hwnd = int(child.stdout.readline().strip())
-            frame = dcc_mcp_core.Capturer.new_window_auto().capture_window(
-                window_handle=hwnd,
-                format="raw_bgra",
-                timeout_ms=1000,
+            rect = wintypes.RECT()
+            assert user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            width = rect.right - rect.left
+            height = rect.bottom - rect.top
+            response_len = 32 + width * height * 4
+            buffer = dcc_mcp_core.PySharedBuffer.create(response_len)
+            helper = os.path.join(
+                os.path.dirname(dcc_mcp_core.__file__),
+                "bin",
+                "dcc-mcp-capture-helper.exe",
             )
-            data = bytes(frame.data)
+            result = subprocess.run(
+                [
+                    helper,
+                    "--protocol-version",
+                    "1",
+                    "--hwnd",
+                    str(hwnd),
+                    "--width",
+                    str(width),
+                    "--height",
+                    str(height),
+                    "--shm-name",
+                    buffer.name(),
+                    "--shm-id",
+                    buffer.id,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            assert result.returncode == 0, result.stderr
+            response = bytes(buffer.read())
+            magic, version, actual_width, actual_height, stride, payload_len = struct.unpack(
+                "<8sIIIIQ", response[:32]
+            )
+            assert (magic, version, actual_width, actual_height, stride, payload_len) == (
+                b"DCCPWBG1",
+                1,
+                width,
+                height,
+                width * 4,
+                width * height * 4,
+            )
+            data = response[32:]
             baseline = literal_print_window(hwnd)
             assert data == baseline
             pixels = Counter(data[offset : offset + 4] for offset in range(0, len(data), 4))
@@ -308,51 +286,18 @@ _TIMEOUT_PROBE = textwrap.dedent(
             child.kill()
             child.wait(timeout=3)
 
-    def missing_helper_main():
-        child = subprocess.Popen(
-            [sys.executable, "-u", __file__, "paint-child"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            assert child.stdout is not None
-            hwnd = int(child.stdout.readline().strip())
-            os.environ["DCC_MCP_CAPTURE_HELPER"] = os.path.join(
-                os.path.dirname(__file__), "definitely-missing-capture-helper.exe"
-            )
-            try:
-                dcc_mcp_core.Capturer.new_window_auto().capture_window(
-                    window_handle=hwnd,
-                    timeout_ms=500,
-                )
-            except RuntimeError as exc:
-                assert "capture helper" in str(exc).lower()
-                assert "was not found" in str(exc)
-            else:
-                raise AssertionError("capture unexpectedly succeeded without helper")
-        finally:
-            child.kill()
-            child.wait(timeout=3)
-
-    if mode in {"child", "paint-child"}:
+    if mode == "paint-child":
         child_main()
-    elif mode == "external":
-        external_main()
-    elif mode == "responsive":
-        responsive_main()
-    elif mode == "missing-helper":
-        missing_helper_main()
     else:
-        same_thread_main()
+        responsive_main()
     """
 )
 
 
-def _run_timeout_probe(mode: str, *, timeout: float) -> subprocess.CompletedProcess[str]:
+def _run_helper_probe(mode: str, *, timeout: float) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as temp_dir:
-        script = Path(temp_dir, "capture_timeout_probe.py")
-        script.write_text(_TIMEOUT_PROBE, encoding="utf-8")
+        script = Path(temp_dir, "capture_helper_probe.py")
+        script.write_text(_HELPER_PROBE, encoding="utf-8")
         return subprocess.run(
             [sys.executable, str(script), mode],
             capture_output=True,
@@ -398,20 +343,8 @@ class TestHwndBackendErrors:
                 timeout_ms=500,
             )
 
-    def test_hung_external_window_honors_timeout_without_gdi_leak(self) -> None:
-        result = _run_timeout_probe("external", timeout=15)
-        assert result.returncode == 0, result.stderr or result.stdout
-
-    def test_same_thread_window_uses_non_message_fallback(self) -> None:
-        result = _run_timeout_probe("same-thread", timeout=3)
-        assert result.returncode == 0, result.stderr or result.stdout
-
-    def test_responsive_window_preserves_print_quality_path(self) -> None:
-        result = _run_timeout_probe("responsive", timeout=8)
-        assert result.returncode == 0, result.stderr or result.stdout
-
-    def test_missing_helper_override_fails_actionably(self) -> None:
-        result = _run_timeout_probe("missing-helper", timeout=5)
+    def test_responsive_helper_preserves_literal_printwindow_quality(self) -> None:
+        result = _run_helper_probe("responsive", timeout=8)
         assert result.returncode == 0, result.stderr or result.stdout
 
 
