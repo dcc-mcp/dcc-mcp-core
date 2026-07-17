@@ -136,7 +136,7 @@ Opaque window / display target descriptor. Construct via the static factories be
 |---------|-------------|
 | `CaptureTarget.primary_display()` | The primary display (full-screen capture) |
 | `CaptureTarget.monitor_index(index)` | A specific monitor by 0-based index |
-| `CaptureTarget.process_id(pid)` | The main window belonging to a process |
+| `CaptureTarget.process_id(pid)` | The largest positive-area visible window belonging to a process (stable handle tie-break) |
 | `CaptureTarget.window_title(title)` | The first window whose title contains the substring |
 | `CaptureTarget.window_handle(handle)` | A specific HWND / X11 window ID |
 
