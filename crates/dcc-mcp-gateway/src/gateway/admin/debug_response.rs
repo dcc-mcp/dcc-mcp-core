@@ -11,6 +11,12 @@ use crate::gateway::response_codec::{ResponseFormat, negotiated_response_with_de
 pub struct DebugListQuery {
     limit: Option<String>,
     range: Option<String>,
+    dcc_type: Option<String>,
+    skill: Option<String>,
+    tool: Option<String>,
+    status: Option<String>,
+    instance_id: Option<String>,
+    session_id: Option<String>,
     response_format: Option<String>,
     compact: Option<bool>,
 }
@@ -28,6 +34,22 @@ impl DebugListQuery {
         self.range.as_deref().unwrap_or("all")
     }
 
+    pub(crate) fn stats_filter(&self) -> Result<crate::gateway::admin::stats::StatsFilter, String> {
+        use crate::gateway::admin::stats::{StatsFilter, StatsStatus};
+
+        Ok(StatsFilter {
+            dcc_type: non_empty(self.dcc_type.as_deref()),
+            skill: non_empty(self.skill.as_deref()),
+            tool: non_empty(self.tool.as_deref()),
+            status: non_empty(self.status.as_deref())
+                .as_deref()
+                .map(StatsStatus::from_query)
+                .transpose()?,
+            instance_id: non_empty(self.instance_id.as_deref()),
+            session_id: non_empty(self.session_id.as_deref()),
+        })
+    }
+
     fn response_format_body(&self) -> Value {
         let mut body = serde_json::Map::new();
         if let Some(format) = self.response_format.as_deref() {
@@ -38,6 +60,13 @@ impl DebugListQuery {
         }
         Value::Object(body)
     }
+}
+
+fn non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 pub(crate) fn debug_response(

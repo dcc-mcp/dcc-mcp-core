@@ -17,7 +17,7 @@ use crate::application::instance_selection::{
 use crate::application::{local_control, local_registry};
 use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest,
-    ReloadSkillsRequest, SearchRequest, StopInstanceRequest, WaitReadyRequest,
+    ReloadSkillsRequest, SearchRequest, StatsRequest, StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::HttpGateway;
 
@@ -49,6 +49,13 @@ impl DccControlPlane {
                 .await
                 .map_err(Into::into)
         }
+    }
+
+    pub async fn stats(&self, request: StatsRequest) -> anyhow::Result<Value> {
+        DccMcpClient::new(self.endpoint.clone())
+            .stats(request)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn search(&self, request: SearchRequest) -> anyhow::Result<Value> {

@@ -4,11 +4,20 @@ use std::path::PathBuf;
 
 use crate::domain::env::{ENV_GATEWAY_ADMIN_DB, ENV_REGISTRY_DIR, GATEWAY_ADMIN_SQLITE_FILENAME};
 
-/// Default path: `<registry_or_temp>/gateway_admin.sqlite`.
+/// Default path: the platform-local persistent DCC-MCP state directory.
+///
+/// An explicit registry hint is still honored for embedders that intentionally
+/// colocate state. The registry environment variable is only a last-resort
+/// fallback when the platform state directory cannot be resolved.
 #[must_use]
 pub fn default_gateway_admin_sqlite_path(registry_dir: Option<&PathBuf>) -> PathBuf {
     let base = registry_dir
         .cloned()
+        .or_else(|| {
+            dcc_mcp_paths::get_platform_dir("state")
+                .ok()
+                .map(PathBuf::from)
+        })
         .or_else(|| std::env::var_os(ENV_REGISTRY_DIR).map(PathBuf::from))
         .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-registry"));
     base.join(GATEWAY_ADMIN_SQLITE_FILENAME)
@@ -60,10 +69,22 @@ mod tests {
     }
 
     #[test]
-    fn default_uses_filename_under_registry_or_temp() {
+    fn explicit_registry_hint_is_still_honored() {
         let reg = PathBuf::from("/tmp/reg-test-only");
         let got = resolve_gateway_admin_sqlite_path(None, Some(&reg));
         assert!(got.ends_with(GATEWAY_ADMIN_SQLITE_FILENAME));
         assert!(got.starts_with(&reg));
+    }
+
+    #[test]
+    fn default_without_registry_uses_persistent_application_state() {
+        let state_dir = PathBuf::from(
+            dcc_mcp_paths::get_platform_dir("state").expect("resolve application state directory"),
+        );
+
+        assert_eq!(
+            default_gateway_admin_sqlite_path(None),
+            state_dir.join(GATEWAY_ADMIN_SQLITE_FILENAME)
+        );
     }
 }

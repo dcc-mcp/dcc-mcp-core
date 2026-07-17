@@ -152,7 +152,9 @@ variable):
 Additional environment knobs:
 
 - `DCC_MCP_GATEWAY_ADMIN_DB` — explicit path for the admin SQLite store
-  (defaults to a workspace-anchored location).
+  (defaults to the platform-local persistent DCC-MCP state directory, such as
+  `%LOCALAPPDATA%\dcc-mcp\gateway_admin.sqlite` on Windows; it is no longer
+  coupled to the temporary FileRegistry directory).
 - `DCC_MCP_GATEWAY_ADMIN_RETENTION_DAYS` — admin SQLite retention,
   clamped to `[1, 3650]`, default `30`.
 - `DCC_MCP_GATEWAY_GUARDIAN_INTERVAL` — seconds between post-startup

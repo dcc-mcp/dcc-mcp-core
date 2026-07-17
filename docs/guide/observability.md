@@ -87,6 +87,35 @@ Gateway MCP sessions also use `initialize.params.clientInfo` as bounded client
 identity for later `tools/call` attribution, and REST requests fall back to the
 first `User-Agent` product token when no explicit `client_platform` is present.
 
+### Studio-wide tool usage analytics
+
+Use the three observability surfaces according to their delivery contract:
+
+- the gateway Admin SQLite database is the durable workstation source for
+  retained call traces and powers `dcc-mcp-cli stats`;
+- OTLP is the primary studio aggregation path because it batches the same DCC,
+  skill, tool, instance, session, outcome, and latency dimensions for an
+  OpenTelemetry Collector;
+- EventBus webhooks are for alerts and low-volume domain integrations, not an
+  authoritative analytics stream. Their bounded in-memory queue deliberately
+  drops new events when saturated so a receiver cannot block DCC execution.
+
+A studio deployment should point workstations at a local or shared Collector
+and let the Collector own TLS, authentication, privacy filtering, sampling,
+retry/queue policy, and routing. Keep high-cardinality instance and session
+identifiers as trace attributes; derive aggregate metrics from bounded
+dimensions such as DCC type, skill, tool, and outcome in the Collector.
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com:4317 \
+OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer%20${OTEL_TOKEN}" \
+OTEL_SERVICE_NAME=dcc-mcp-gateway \
+  dcc-mcp-server ...
+```
+
+See [ADR-013](../adr/013-persistent-tool-call-analytics.md) for the storage and
+failure-isolation decision.
+
 ### Trace Context
 
 Gateway observability keeps these identifiers separate:

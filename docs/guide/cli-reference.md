@@ -91,7 +91,7 @@ stdout/stderr log paths when the DCC supervisor records them in the registry.
 
 Agent-control commands (`list`, `search`, `describe`, `load-skill`, `call`,
 `wait-ready`, `reload-skills`, and `stop-instance`) and endpoint-level commands
-that need a local gateway (`health`, `update`, and `smoke` without an explicit
+that need a local gateway (`health`, `stats`, `update`, and `smoke` without an explicit
 `--url`) auto-ensure only loopback HTTP targets (`http://127.0.0.1:<port>` or
 `http://localhost:<port>`). Disable this for one invocation with
 `--no-auto-gateway`. Commands that operate only on local files (`install`,
@@ -107,6 +107,8 @@ dcc-mcp-cli list
 dcc-mcp-cli list --gateway pcA
 dcc-mcp-cli doctor
 dcc-mcp-cli health
+dcc-mcp-cli stats --range 7d --dcc-type houdini --skill houdini-render
+dcc-mcp-cli stats --tool render_rop --status failure --session-id solar-session
 dcc-mcp-cli --no-auto-gateway health
 dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
 dcc-mcp-cli gateway list
@@ -149,6 +151,7 @@ dcc-mcp-cli lint path/to/skills
 | Command | REST/API contract | Meaning |
 |---|---|---|
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
+| `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted tool-call counts, success/failure, latency, tokens, and top dimensions after applying all supplied filters. JSON is the default output for agent use. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, local registry path/inventory, direct-control readiness counts and not-ready diagnostics, gateway daemon status, and server binary diagnostics without auto-starting or downloading services. |
 | `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
 | `search [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities, optionally scoped to a full UUID or unique prefix. |

@@ -32,7 +32,8 @@ fn official_update_manifest_url() -> Option<String> {
 pub struct AdminPersistConfig {
     /// Optional explicit path for the gateway admin SQLite database
     /// (traces, audits, custom skill paths). When `None`, uses
-    /// `DCC_MCP_GATEWAY_ADMIN_DB` or `<registry>/gateway_admin.sqlite`.
+    /// `DCC_MCP_GATEWAY_ADMIN_DB` or the platform-local persistent DCC-MCP
+    /// state directory.
     pub sqlite_path: Option<PathBuf>,
 
     /// Retention window for rows in the admin SQLite database (days).

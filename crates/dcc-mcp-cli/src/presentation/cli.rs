@@ -22,8 +22,8 @@ use crate::application::install::InstallService;
 use crate::application::marketplace::new_service;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{
-    Endpoint, LoadSkillRequest, ReloadSkillsRequest, SearchRequest, StopInstanceRequest,
-    WaitReadyRequest,
+    Endpoint, LoadSkillRequest, ReloadSkillsRequest, SearchRequest, StatsRequest,
+    StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::HttpGateway;
 
@@ -91,6 +91,24 @@ enum Command {
     },
     /// Check the configured gateway or per-DCC REST endpoint.
     Health,
+    /// Query persisted gateway tool-call statistics with composable filters.
+    Stats {
+        /// Time window: 1h, 24h, 7d, or all.
+        #[arg(long, default_value = "all", value_parser = ["1h", "24h", "7d", "all"])]
+        range: String,
+        #[arg(long)]
+        dcc_type: Option<String>,
+        #[arg(long)]
+        skill: Option<String>,
+        #[arg(long)]
+        tool: Option<String>,
+        #[arg(long, value_parser = ["success", "failure"])]
+        status: Option<String>,
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+    },
     /// Report local defaults and startup diagnostics without launching services.
     Doctor {
         /// FileRegistry directory to inspect. Defaults to core's shared registry path.
@@ -545,6 +563,27 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             let client = DccMcpClient::new(endpoint.clone());
             client.health().await?
         }
+        Command::Stats {
+            range,
+            dcc_type,
+            skill,
+            tool,
+            status,
+            instance_id,
+            session_id,
+        } => {
+            control
+                .stats(StatsRequest {
+                    range,
+                    dcc_type,
+                    skill,
+                    tool,
+                    status,
+                    instance_id,
+                    session_id,
+                })
+                .await?
+        }
         Command::Doctor {
             registry_dir,
             gateway_host,
@@ -980,7 +1019,9 @@ fn gateway_endpoint_for_command(
     match command {
         Command::Smoke { url: None, .. } => Some(Endpoint::new(base_url)),
         Command::Smoke { url: Some(_), .. } => None,
-        Command::Health | Command::Update { .. } => Some(Endpoint::new(base_url)),
+        Command::Health | Command::Stats { .. } | Command::Update { .. } => {
+            Some(Endpoint::new(base_url))
+        }
         Command::Doctor { .. } => None,
         Command::List
         | Command::Search { .. }
