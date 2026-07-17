@@ -478,22 +478,18 @@ impl ComputerUseSession {
                 target.handle,
                 target.pid,
                 self.spec.app_name.clone(),
+                #[cfg(windows)]
                 platform::ControlBannerSignals {
-                    #[cfg(windows)]
                     stop: Arc::clone(&self.stop_requested),
-                    #[cfg(windows)]
                     interrupted: Arc::clone(&interrupted),
-                    #[cfg(windows)]
                     visible: Arc::clone(&overlay_visible),
-                    #[cfg(windows)]
                     desktop_state: Arc::clone(&desktop_state),
-                    #[cfg(windows)]
                     desktop_barrier: Arc::clone(&desktop_barrier),
-                    #[cfg(windows)]
                     target_available: Arc::clone(&target_available),
-                    #[cfg(windows)]
                     cleanup_pending,
                 },
+                #[cfg(not(windows))]
+                platform::ControlBannerSignals,
             ),
         )?;
         state.active = true;

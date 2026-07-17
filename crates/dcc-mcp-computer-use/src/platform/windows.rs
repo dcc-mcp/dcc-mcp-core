@@ -1,6 +1,6 @@
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -64,7 +64,10 @@ use super::{
 
 static ACTIVE_SESSION: AtomicBool = AtomicBool::new(false);
 static USER_INTERRUPTED: AtomicBool = AtomicBool::new(false);
-static USER_INTERRUPT_EVENT: OnceLock<Option<OwnedKernelHandle>> = OnceLock::new();
+// Mutex-wrapped so that clear_user_interrupt() can re-initialize the event
+// after a transient CreateEventW failure (OnceLock would permanently store
+// None on the first failure, making every subsequent session fail-closed).
+static USER_INTERRUPT_EVENT: Mutex<Option<OwnedKernelHandle>> = Mutex::new(None);
 static USER_INTERRUPT_EVENT_FAILED: AtomicBool = AtomicBool::new(false);
 static INPUT_LOCK: Mutex<()> = Mutex::new(());
 static PENDING_INPUT_RELEASES: Mutex<Vec<INPUT>> = Mutex::new(Vec::new());
@@ -263,22 +266,26 @@ fn create_manual_reset_event(name: &str) -> windows::core::Result<OwnedKernelHan
     Ok(OwnedKernelHandle::new(handle))
 }
 
-fn event_signaled(event: &OwnedKernelHandle) -> Option<bool> {
-    match unsafe { WaitForSingleObject(event.get(), 0) } {
-        WAIT_OBJECT_0 => Some(true),
-        WAIT_TIMEOUT => Some(false),
-        _ => None,
+/// Acquire (and if necessary, initialize) the cross-process interrupt event.
+///
+/// Returns the raw HANDLE value so callers do not need to hold the mutex lock
+/// while performing Win32 operations. The handle is valid for the lifetime of
+/// the process because `USER_INTERRUPT_EVENT` is a process-static Mutex.
+///
+/// Unlike a `OnceLock`-based approach, this function can re-initialize the
+/// event after a transient `CreateEventW` failure: `clear_user_interrupt()`
+/// resets the `Option` to `None`, allowing the next caller to retry creation
+/// and recover without a process restart.
+fn user_interrupt_event_raw() -> Option<HANDLE> {
+    let mut guard = USER_INTERRUPT_EVENT.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        *guard = create_manual_reset_event(USER_INTERRUPT_EVENT_NAME).ok();
     }
+    guard.as_ref().map(OwnedKernelHandle::get)
 }
 
-fn user_interrupt_event() -> Option<&'static OwnedKernelHandle> {
-    USER_INTERRUPT_EVENT
-        .get_or_init(|| create_manual_reset_event(USER_INTERRUPT_EVENT_NAME).ok())
-        .as_ref()
-}
-
-fn require_user_interrupt_event() -> ComputerUseResult<&'static OwnedKernelHandle> {
-    user_interrupt_event().ok_or_else(|| {
+fn require_user_interrupt_event_raw() -> ComputerUseResult<HANDLE> {
+    user_interrupt_event_raw().ok_or_else(|| {
         USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
         ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,
@@ -289,8 +296,8 @@ fn require_user_interrupt_event() -> ComputerUseResult<&'static OwnedKernelHandl
 
 fn set_user_interrupt() {
     USER_INTERRUPTED.store(true, Ordering::Release);
-    let signaled =
-        user_interrupt_event().is_some_and(|event| unsafe { SetEvent(event.get()) }.is_ok());
+    let signaled = user_interrupt_event_raw()
+        .is_some_and(|event| unsafe { SetEvent(event) }.is_ok());
     if !signaled {
         USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
     }
@@ -568,7 +575,7 @@ pub(crate) fn start_control_banner(
         cleanup_pending,
     } = signals;
     cleanup_pending.store(true, Ordering::Release);
-    let _ = require_user_interrupt_event().inspect_err(|_| {
+    let _ = require_user_interrupt_event_raw().inspect_err(|_| {
         cleanup_pending.store(false, Ordering::Release);
     })?;
     if user_interrupted() {
@@ -978,7 +985,12 @@ fn run_banner(
                 session_blocked = blocked;
                 if session_blocked {
                     record_desktop_transition(&signals.desktop_state, false);
-                    overlay.set_visible(false)?;
+                    if let Err(e) = overlay.set_visible(false) {
+                        tracing::warn!(
+                            "run_banner: overlay.set_visible(false) failed on WM_WTSSESSION_CHANGE \
+                             (session blocked); session continues: {e}"
+                        );
+                    }
                     signals.visible.store(false, Ordering::Release);
                 } else {
                     display_refresh_pending = true;
@@ -1024,7 +1036,12 @@ fn run_banner(
                 Err(error) if error.code == ComputerUseErrorCode::DesktopUnavailable => {
                     record_desktop_transition(&signals.desktop_state, false);
                     if signals.visible.load(Ordering::Acquire) {
-                        overlay.set_visible(false)?;
+                        if let Err(e) = overlay.set_visible(false) {
+                            tracing::warn!(
+                                "run_banner: overlay.set_visible(false) failed on \
+                                 DesktopUnavailable; session continues: {e}"
+                            );
+                        }
                         signals.visible.store(false, Ordering::Release);
                     }
                     thread::sleep(Duration::from_millis(16));
@@ -1037,7 +1054,12 @@ fn run_banner(
             Ok(rect) => rect,
             Err(error) if error.code == ComputerUseErrorCode::MissingWindow => {
                 validate_target_identity(target, process_id)?;
-                overlay.set_visible(false)?;
+                if let Err(e) = overlay.set_visible(false) {
+                    tracing::warn!(
+                        "run_banner: overlay.set_visible(false) failed on MissingWindow; \
+                         session continues: {e}"
+                    );
+                }
                 signals.visible.store(false, Ordering::Release);
                 thread::sleep(Duration::from_millis(50));
                 continue;
@@ -1064,14 +1086,15 @@ pub(crate) fn user_interrupted() -> bool {
     {
         return true;
     }
-    let Ok(event) = require_user_interrupt_event() else {
+    let Ok(event) = require_user_interrupt_event_raw() else {
         // Cross-process interruption can no longer be proven. Fail closed so
         // no process silently resumes native input with a broken latch.
         return true;
     };
-    match event_signaled(event) {
-        Some(signaled) => signaled,
-        None => {
+    match unsafe { WaitForSingleObject(event, 0) } {
+        WAIT_OBJECT_0 => true,
+        WAIT_TIMEOUT => false,
+        _ => {
             USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
             true
         }
@@ -1084,8 +1107,18 @@ pub(crate) fn clear_user_interrupt() -> ComputerUseResult<()> {
     // Explicit approval is the only path allowed to accept an abandoned
     // previous owner; ordinary session start always fails closed instead.
     let _input_owner = acquire_input_owner_after_user_approval()?;
-    let event = require_user_interrupt_event()?;
-    unsafe { ResetEvent(event.get()) }.map_err(|error| {
+    // Drop the event handle and re-initialize: if a previous CreateEventW
+    // call failed (storing None in the Mutex), this clears the stale None so
+    // user_interrupt_event_raw() retries creation on the next call, allowing
+    // recovery from transient kernel-object exhaustion without a process restart.
+    {
+        let mut guard = USER_INTERRUPT_EVENT.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.is_none() {
+            *guard = create_manual_reset_event(USER_INTERRUPT_EVENT_NAME).ok();
+        }
+    }
+    let event = require_user_interrupt_event_raw()?;
+    unsafe { ResetEvent(event) }.map_err(|error| {
         USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
         ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,

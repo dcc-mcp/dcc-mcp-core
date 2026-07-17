@@ -13,22 +13,28 @@ use crate::{ComputerUseAction, ComputerUseErrorCode, ComputerUseObservation, Com
 #[cfg(windows)]
 mod windows;
 
+/// Signals shared between the session owner and the control-banner thread.
+///
+/// This struct is only meaningful on Windows: all fields are Windows-only
+/// atomic/Arc values used to coordinate the banner thread's lifecycle,
+/// visibility, desktop state, and input-owner safety. On non-Windows builds
+/// the struct is a ZST (zero-sized type) provided by the stub below.
+#[cfg(windows)]
 pub(crate) struct ControlBannerSignals {
-    #[cfg(windows)]
     pub(crate) stop: Arc<AtomicBool>,
-    #[cfg(windows)]
     pub(crate) interrupted: Arc<AtomicBool>,
-    #[cfg(windows)]
     pub(crate) visible: Arc<AtomicBool>,
-    #[cfg(windows)]
     pub(crate) desktop_state: Arc<AtomicU64>,
-    #[cfg(windows)]
     pub(crate) desktop_barrier: Arc<DesktopEventBarrier>,
-    #[cfg(windows)]
     pub(crate) target_available: Arc<AtomicBool>,
-    #[cfg(windows)]
     pub(crate) cleanup_pending: Arc<AtomicBool>,
 }
+
+/// Non-Windows stub: `ControlBannerSignals` is a ZST that satisfies the type
+/// system without carrying any state. All platform functions that accept it on
+/// non-Windows return `BackendUnavailable` immediately.
+#[cfg(not(windows))]
+pub(crate) struct ControlBannerSignals;
 
 #[derive(Default)]
 pub(crate) struct DesktopEventBarrier {
