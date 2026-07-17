@@ -450,7 +450,13 @@ class HostExecutionBridge:
                     return self._shutdown_error()
                 if not self._is_current_script_generation(script_admission):
                     return self._script_cleared_error()
-                return runner(script_path, params)
+                script_dir = Path(script_path).resolve().parent
+                package_name = _script_package_name(script_dir)
+                _begin_script_call(package_name, str(script_dir))
+                try:
+                    return runner(script_path, params)
+                finally:
+                    _end_script_call(package_name, str(script_dir))
 
             return _run_custom
 

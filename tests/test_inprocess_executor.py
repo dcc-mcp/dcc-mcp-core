@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import importlib.util
 import os
 from pathlib import Path
 import sys
@@ -109,6 +110,26 @@ def test_run_skill_script_supports_legacy_bare_sibling_imports(tmp_path: Path) -
     p = _write_script(tmp_path, "from _helper import VALUE\ndef main(): return VALUE\n")
     assert run_skill_script(str(p), {}) == 42
     assert str(tmp_path) not in __import__("sys").path
+
+
+def test_host_execution_bridge_scopes_script_path_for_custom_runner(tmp_path: Path) -> None:
+    helper_name = "_custom_bridge_helper"
+    (tmp_path / f"{helper_name}.py").write_text("VALUE = 42\n", encoding="utf-8")
+    script = _write_script(tmp_path, f"from {helper_name} import VALUE\ndef main(): return VALUE\n")
+
+    def legacy_runner(script_path: str, params: Mapping[str, Any]) -> Any:
+        spec = importlib.util.spec_from_file_location("_legacy_skill", script_path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.main(**params)
+
+    before = list(sys.path)
+    try:
+        assert HostExecutionBridge(runner=legacy_runner).execute_script(str(script), {}) == 42
+        assert sys.path == before
+    finally:
+        sys.modules.pop(helper_name, None)
 
 
 def test_run_skill_script_supports_isolated_relative_sibling_imports(tmp_path: Path) -> None:
