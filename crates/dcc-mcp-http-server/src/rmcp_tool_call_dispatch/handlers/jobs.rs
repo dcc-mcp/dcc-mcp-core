@@ -3,7 +3,7 @@
 use chrono;
 use serde_json::{Value, json};
 
-use dcc_mcp_job::job::{Job, JobStatus};
+use dcc_mcp_job::job::Job;
 use dcc_mcp_jsonrpc::{CallToolResult, ToolContent};
 
 use crate::server_state::ServerState;
@@ -14,16 +14,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn compute_job_timestamps(
     Option<chrono::DateTime<chrono::Utc>>,
     Option<chrono::DateTime<chrono::Utc>>,
 ) {
-    let started_at = match job.status {
-        JobStatus::Pending => None,
-        _ => Some(job.updated_at),
-    };
-    let completed_at = if job.status.is_terminal() {
-        Some(job.updated_at)
-    } else {
-        None
-    };
-    (started_at, completed_at)
+    (job.started_at, job.completed_at)
 }
 
 pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
@@ -142,5 +133,35 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_cleanup(
         structured_content: Some(envelope),
         is_error: false,
         meta: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcc_mcp_job::job::{JobManager, JobProgress};
+
+    #[test]
+    fn reported_start_timestamp_does_not_move_when_job_completes() {
+        let jobs = JobManager::new();
+        let handle = jobs.create("render.sequence");
+        let id = handle.read().id.clone();
+        jobs.start(&id).unwrap();
+        let started_at = compute_job_timestamps(&handle.read()).0;
+
+        jobs.update_progress(
+            &id,
+            JobProgress {
+                current: 1,
+                total: 2,
+                message: None,
+            },
+        )
+        .unwrap();
+        jobs.complete(&id, json!({"ok": true})).unwrap();
+
+        let (reported_start, reported_completion) = compute_job_timestamps(&handle.read());
+        assert_eq!(reported_start, started_at);
+        assert_eq!(reported_completion, Some(handle.read().updated_at));
     }
 }

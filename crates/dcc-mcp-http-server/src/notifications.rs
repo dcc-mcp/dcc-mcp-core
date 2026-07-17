@@ -291,18 +291,11 @@ fn progress_mapping(event: &JobEvent) -> (u64, u64, String) {
 }
 
 fn started_at(event: &JobEvent) -> Option<String> {
-    match event.status {
-        JobStatus::Pending => None,
-        _ => Some(event.updated_at.to_rfc3339()),
-    }
+    event.started_at.map(|at| at.to_rfc3339())
 }
 
 fn completed_at(event: &JobEvent) -> Option<String> {
-    if event.status.is_terminal() {
-        Some(event.updated_at.to_rfc3339())
-    } else {
-        None
-    }
+    event.completed_at.map(|at| at.to_rfc3339())
 }
 
 #[cfg(test)]
@@ -433,6 +426,12 @@ mod tests {
             updates.last().unwrap()["params"]["error"],
             Value::String("boom".into()),
         );
+        assert_eq!(
+            updates.first().unwrap()["params"]["started_at"],
+            updates.last().unwrap()["params"]["started_at"],
+        );
+        assert!(updates.first().unwrap()["params"]["completed_at"].is_null());
+        assert!(!updates.last().unwrap()["params"]["completed_at"].is_null());
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -94,6 +94,7 @@ impl JobManager {
                 job.status = JobStatus::Interrupted;
                 job.error = Some("server restart".to_string());
                 job.updated_at = now;
+                job.completed_at = Some(now);
                 // Persist the new terminal state before we hand the row
                 // back out so a second crash does not re-flip it.
                 storage.put(&job)?;
@@ -120,14 +121,6 @@ impl JobManager {
         }
     }
 
-    fn persist_status(&self, job_id: &str, status: JobStatus, at: DateTime<Utc>) {
-        if let Some(storage) = &self.storage
-            && let Err(e) = storage.update_status(job_id, status, at)
-        {
-            tracing::warn!(job_id = %job_id, error = %e, "JobStorage.update_status failed");
-        }
-    }
-
     /// Register a subscriber invoked on every status transition.
     ///
     /// Subscribers are called synchronously while the internal write lock is
@@ -150,6 +143,8 @@ impl JobManager {
             error: job.error.clone(),
             updated_at: job.updated_at,
             created_at: job.created_at,
+            started_at: job.started_at,
+            completed_at: job.completed_at,
         };
         let subs = self.subscribers.read().clone();
         for sub in subs {
@@ -209,11 +204,13 @@ impl JobManager {
             );
             return None;
         }
+        let now = Utc::now();
         job.status = JobStatus::Running;
-        job.updated_at = Utc::now();
+        job.started_at = Some(now);
+        job.updated_at = now;
         let snapshot = job.clone();
         drop(job);
-        self.persist_status(&snapshot.id, snapshot.status, snapshot.updated_at);
+        self.persist_put(&snapshot);
         self.emit(&snapshot);
         Some(())
     }
@@ -231,9 +228,11 @@ impl JobManager {
             );
             return None;
         }
+        let now = Utc::now();
         job.status = JobStatus::Completed;
         job.result = Some(result);
-        job.updated_at = Utc::now();
+        job.completed_at = Some(now);
+        job.updated_at = now;
         let snapshot = job.clone();
         drop(job);
         self.persist_put(&snapshot);
@@ -254,9 +253,11 @@ impl JobManager {
             );
             return None;
         }
+        let now = Utc::now();
         job.status = JobStatus::Failed;
         job.error = Some(error.into());
-        job.updated_at = Utc::now();
+        job.completed_at = Some(now);
+        job.updated_at = now;
         let snapshot = job.clone();
         drop(job);
         self.persist_put(&snapshot);
@@ -272,12 +273,14 @@ impl JobManager {
         let mut job = entry.write();
         match job.status {
             JobStatus::Pending | JobStatus::Running => {
+                let now = Utc::now();
                 job.status = JobStatus::Cancelled;
-                job.updated_at = Utc::now();
+                job.completed_at = Some(now);
+                job.updated_at = now;
                 job.cancel_token.cancel();
                 let snapshot = job.clone();
                 drop(job);
-                self.persist_status(&snapshot.id, snapshot.status, snapshot.updated_at);
+                self.persist_put(&snapshot);
                 self.emit(&snapshot);
                 Some(())
             }

@@ -37,6 +37,38 @@ fn full_lifecycle_create_start_progress_complete_get() {
 }
 
 #[test]
+fn lifecycle_timestamps_survive_progress_and_completion() {
+    let jm = JobManager::new();
+    let handle = jm.create("render.sequence");
+    let id = handle.read().id.clone();
+
+    assert!(handle.read().started_at.is_none());
+    assert!(handle.read().completed_at.is_none());
+
+    jm.start(&id).unwrap();
+    let started_at = handle.read().started_at.expect("start timestamp");
+    assert!(handle.read().completed_at.is_none());
+
+    jm.update_progress(
+        &id,
+        JobProgress {
+            current: 1,
+            total: 2,
+            message: Some("halfway".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(handle.read().started_at, Some(started_at));
+    assert!(handle.read().completed_at.is_none());
+
+    jm.complete(&id, json!({"ok": true})).unwrap();
+    let job = handle.read();
+    assert_eq!(job.started_at, Some(started_at));
+    assert_eq!(job.completed_at, Some(job.updated_at));
+    assert!(job.completed_at >= job.started_at);
+}
+
+#[test]
 fn cancel_before_start_marks_cancelled_and_triggers_token() {
     let jm = JobManager::new();
     let handle = jm.create("slow.tool");

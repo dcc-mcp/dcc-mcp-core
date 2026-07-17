@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT NOT NULL,
     progress_json TEXT,
     created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
     updated_at TEXT NOT NULL,
     error TEXT,
     result_json TEXT
@@ -66,6 +68,7 @@ impl SqliteStorage {
         )
         .map_err(map_err)?;
         conn.execute_batch(SCHEMA).map_err(map_err)?;
+        ensure_lifecycle_columns(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -76,6 +79,7 @@ impl SqliteStorage {
     pub fn open_in_memory() -> Result<Self, JobStorageError> {
         let conn = Connection::open_in_memory().map_err(map_err)?;
         conn.execute_batch(SCHEMA).map_err(map_err)?;
+        ensure_lifecycle_columns(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -102,13 +106,15 @@ impl JobStorage for SqliteStorage {
         let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO jobs (job_id, parent_job_id, tool, status, \
-                progress_json, created_at, updated_at, error, result_json) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
+                progress_json, created_at, started_at, completed_at, updated_at, error, result_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
              ON CONFLICT(job_id) DO UPDATE SET \
                 parent_job_id=excluded.parent_job_id, \
                 tool=excluded.tool, \
                 status=excluded.status, \
                 progress_json=excluded.progress_json, \
+                started_at=excluded.started_at, \
+                completed_at=excluded.completed_at, \
                 updated_at=excluded.updated_at, \
                 error=excluded.error, \
                 result_json=excluded.result_json",
@@ -119,6 +125,8 @@ impl JobStorage for SqliteStorage {
                 status,
                 progress_json,
                 row.created_at.to_rfc3339(),
+                row.started_at.map(|at| at.to_rfc3339()),
+                row.completed_at.map(|at| at.to_rfc3339()),
                 row.updated_at.to_rfc3339(),
                 row.error,
                 result_json,
@@ -133,7 +141,7 @@ impl JobStorage for SqliteStorage {
         let row = conn
             .query_row(
                 "SELECT job_id, parent_job_id, tool, status, progress_json, \
-                        created_at, updated_at, error, result_json \
+                        created_at, started_at, completed_at, updated_at, error, result_json \
                  FROM jobs WHERE job_id = ?1",
                 params![job_id],
                 row_to_persisted,
@@ -146,7 +154,7 @@ impl JobStorage for SqliteStorage {
     fn list(&self, filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
         let mut sql = String::from(
             "SELECT job_id, parent_job_id, tool, status, progress_json, \
-                    created_at, updated_at, error, result_json \
+                    created_at, started_at, completed_at, updated_at, error, result_json \
              FROM jobs WHERE 1=1",
         );
         let mut bound: Vec<String> = Vec::new();
@@ -185,7 +193,18 @@ impl JobStorage for SqliteStorage {
     ) -> Result<(), JobStorageError> {
         let conn = self.conn.lock();
         conn.execute(
-            "UPDATE jobs SET status = ?1, updated_at = ?2 WHERE job_id = ?3",
+            "UPDATE jobs SET \
+                status = ?1, \
+                updated_at = ?2, \
+                started_at = CASE \
+                    WHEN ?1 = 'running' THEN COALESCE(started_at, ?2) \
+                    ELSE started_at \
+                END, \
+                completed_at = CASE \
+                    WHEN ?1 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN ?2 \
+                    ELSE completed_at \
+                END \
+             WHERE job_id = ?3",
             params![status_to_str(status), at.to_rfc3339(), job_id],
         )
         .map_err(map_err)?;
@@ -221,6 +240,25 @@ impl JobStorage for SqliteStorage {
 
 fn map_err(e: rusqlite::Error) -> JobStorageError {
     JobStorageError::Backend(e.to_string())
+}
+
+fn ensure_lifecycle_columns(conn: &Connection) -> Result<(), JobStorageError> {
+    for column in ["started_at", "completed_at"] {
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('jobs') WHERE name = ?1",
+                params![column],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(map_err)?
+            .is_some();
+        if !exists {
+            conn.execute(&format!("ALTER TABLE jobs ADD COLUMN {column} TEXT"), [])
+                .map_err(map_err)?;
+        }
+    }
+    Ok(())
 }
 
 fn status_to_str(s: JobStatus) -> &'static str {
@@ -263,9 +301,11 @@ fn row_to_persisted(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedJob> {
     let status_str: String = row.get(3)?;
     let progress_json: Option<String> = row.get(4)?;
     let created_at_str: String = row.get(5)?;
-    let updated_at_str: String = row.get(6)?;
-    let error: Option<String> = row.get(7)?;
-    let result_json: Option<String> = row.get(8)?;
+    let started_at_str: Option<String> = row.get(6)?;
+    let completed_at_str: Option<String> = row.get(7)?;
+    let updated_at_str: String = row.get(8)?;
+    let error: Option<String> = row.get(9)?;
+    let result_json: Option<String> = row.get(10)?;
 
     // Map JobStorageError into rusqlite::Error so query_map's Result type
     // is satisfied; the wrapper at the top of each backend method
@@ -281,15 +321,29 @@ fn row_to_persisted(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedJob> {
     };
     let result: Option<serde_json::Value> = match result_json {
         Some(s) => Some(serde_json::from_str(&s).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, e.into())
+            rusqlite::Error::FromSqlConversionFailure(10, rusqlite::types::Type::Text, e.into())
         })?),
         None => None,
     };
     let created_at = parse_rfc3339(&created_at_str).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, e.into())
     })?;
+    let started_at = started_at_str
+        .as_deref()
+        .map(parse_rfc3339)
+        .transpose()
+        .map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, e.into())
+        })?;
+    let completed_at = completed_at_str
+        .as_deref()
+        .map(parse_rfc3339)
+        .transpose()
+        .map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, e.into())
+        })?;
     let updated_at = parse_rfc3339(&updated_at_str).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, e.into())
+        rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, e.into())
     })?;
 
     Ok(PersistedJob {
@@ -301,6 +355,8 @@ fn row_to_persisted(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedJob> {
         result,
         error,
         created_at,
+        started_at,
+        completed_at,
         updated_at,
     })
 }
@@ -366,23 +422,63 @@ mod tests {
         let id = handle.read().id.clone();
         store.put(&handle.read()).unwrap();
 
+        let started_at = Utc::now();
         store
-            .update_status(&id, JobStatus::Running, Utc::now())
+            .update_status(&id, JobStatus::Running, started_at)
             .unwrap();
         let got = store.get(&id).unwrap().unwrap();
         assert_eq!(got.status, JobStatus::Running);
+        assert_eq!(got.started_at, Some(started_at));
+        assert!(got.completed_at.is_none());
 
         // full put with a result field exercises the ON CONFLICT path
         {
             let mut job = handle.write();
             job.status = JobStatus::Completed;
             job.result = Some(json!({"ok": true}));
-            job.updated_at = Utc::now();
+            job.started_at = Some(started_at);
+            job.completed_at = Some(Utc::now());
+            job.updated_at = job.completed_at.unwrap();
         }
         store.put(&handle.read()).unwrap();
         let got = store.get(&id).unwrap().unwrap();
         assert_eq!(got.status, JobStatus::Completed);
         assert_eq!(got.result.as_ref().unwrap(), &json!({"ok": true}));
+        assert_eq!(got.started_at, Some(started_at));
+        assert_eq!(got.completed_at, Some(got.updated_at));
+    }
+
+    #[test]
+    fn sqlite_open_migrates_existing_job_table() {
+        let path = std::env::temp_dir().join(format!(
+            "dcc-mcp-job-lifecycle-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE jobs (\
+                    job_id TEXT PRIMARY KEY, parent_job_id TEXT, tool TEXT NOT NULL, \
+                    status TEXT NOT NULL, progress_json TEXT, created_at TEXT NOT NULL, \
+                    updated_at TEXT NOT NULL, error TEXT, result_json TEXT\
+                );",
+            )
+            .unwrap();
+        }
+
+        let store = SqliteStorage::open(&path).unwrap();
+        let mgr = JobManager::new();
+        let handle = mgr.create("render.sequence");
+        let id = handle.read().id.clone();
+        mgr.start(&id).unwrap();
+        mgr.complete(&id, json!({"ok": true})).unwrap();
+        store.put(&handle.read()).unwrap();
+
+        let got = store.get(&id).unwrap().unwrap();
+        assert!(got.started_at.is_some());
+        assert_eq!(got.completed_at, Some(got.updated_at));
+        drop(store);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
