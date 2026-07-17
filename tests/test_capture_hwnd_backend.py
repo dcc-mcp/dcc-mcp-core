@@ -158,7 +158,10 @@ _TIMEOUT_PROBE = textwrap.dedent(
 
     @wndproc_type
     def wndproc(hwnd, message, wparam, lparam):
-        if message == 0x0317:  # WM_PRINT
+        # PrintWindow may dispatch either WM_PRINT or WM_PRINTCLIENT depending
+        # on the Windows compositor and target style. Block both so this probe
+        # deterministically represents an unresponsive external UI thread.
+        if message in {0x0317, 0x0318}:  # WM_PRINT, WM_PRINTCLIENT
             print_calls.value += 1
             if mode in {"child", "same-thread"}:
                 time.sleep(5)
@@ -175,7 +178,9 @@ _TIMEOUT_PROBE = textwrap.dedent(
         if not user32.RegisterClassW(ctypes.byref(spec)):
             raise ctypes.WinError(ctypes.get_last_error())
         hwnd = user32.CreateWindowExW(
-            0,
+            # Prevent DWM from satisfying the hung-window probe from a cached
+            # redirection surface without consulting the target UI thread.
+            0x00200000 if mode == "child" else 0,  # WS_EX_NOREDIRECTIONBITMAP
             class_name,
             "DCC MCP capture timeout probe",
             0x10CF0000,  # WS_OVERLAPPEDWINDOW | WS_VISIBLE
