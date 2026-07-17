@@ -19,21 +19,23 @@ def _write_wheel(
     *,
     pure: bool,
     with_core: bool,
+    version: str = "1.0.0",
     requires_python: str = ">=3.7",
     tags: list[str] | None = None,
     distribution: str = "dcc-mcp-core",
     extension_module: str = "dcc_mcp_core/_core",
+    with_capture_helper: bool | None = None,
 ) -> None:
     root_is_pure = "true" if pure else "false"
     wheel_tags = tags or sorted(_expanded_filename_tags(path))
     dist_info = distribution.replace("-", "_")
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            f"{dist_info}-1.0.0.dist-info/METADATA",
-            f"Metadata-Version: 2.1\nName: {distribution}\nVersion: 1.0.0\nRequires-Python: {requires_python}\n",
+            f"{dist_info}-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\nRequires-Python: {requires_python}\n",
         )
         archive.writestr(
-            f"{dist_info}-1.0.0.dist-info/WHEEL",
+            f"{dist_info}-{version}.dist-info/WHEEL",
             "Wheel-Version: 1.0\nRoot-Is-Purelib: {}\n{}".format(
                 root_is_pure,
                 "".join(f"Tag: {tag}\n" for tag in wheel_tags),
@@ -43,12 +45,42 @@ def _write_wheel(
         archive.writestr(f"{package}/__init__.py", "")
         if with_core:
             archive.writestr(f"{extension_module}.pyd", b"native")
+        if with_capture_helper is None:
+            with_capture_helper = distribution == "dcc-mcp-core" and with_core and "win_amd64" in path.name
+        if with_capture_helper:
+            archive.writestr("dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", b"MZhelper")
 
 
 def test_native_py37_wheel_requires_cp37_tag_and_core(tmp_path: Path) -> None:
     wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-win_amd64.whl"
     _write_wheel(wheel, pure=False, with_core=True)
     assert validate_wheel(wheel, "native_py37", "windows-x86_64", load_contract(_REPO_ROOT)) == []
+
+
+def test_windows_core_wheel_requires_capture_helper(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
+    _write_wheel(wheel, pure=False, with_core=True, with_capture_helper=False)
+    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
+    assert any("missing required member" in error and "capture-helper.exe" in error for error in errors)
+
+
+def test_historical_windows_core_wheel_does_not_backfill_capture_helper(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-0.19.48-cp38-abi3-win_amd64.whl"
+    _write_wheel(
+        wheel,
+        pure=False,
+        with_core=True,
+        version="0.19.48",
+        with_capture_helper=False,
+    )
+    assert validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT)) == []
+
+
+def test_lite_wheel_rejects_staged_capture_helper(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
+    _write_wheel(wheel, pure=True, with_core=False, with_capture_helper=True)
+    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("forbidden member" in error and "capture-helper.exe" in error for error in errors)
 
 
 def test_lite_py37_wheel_rejects_compiled_core(tmp_path: Path) -> None:

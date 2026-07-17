@@ -87,6 +87,7 @@ def _validate(wheel_dir: Path) -> None:
 
     for wheel in wheels:
         with zipfile.ZipFile(wheel) as zf:
+            names = zf.namelist()
             wheel_metadata = _read_dist_info(zf, ".dist-info/WHEEL")
             metadata = _read_dist_info(zf, ".dist-info/METADATA")
 
@@ -115,6 +116,14 @@ def _validate(wheel_dir: Path) -> None:
             _github_error(
                 f"{wheel.name} must target manylinux2014 / manylinux_2_17 for older DCC-hosted Python environments."
             )
+            raise SystemExit(1)
+
+        capture_helpers = [name for name in names if name.endswith(".data/scripts/dcc-mcp-capture-helper.exe")]
+        if "win_amd64" in wheel.name and len(capture_helpers) != 1:
+            _github_error(f"{wheel.name} must contain exactly one dcc-mcp-capture-helper.exe, found {capture_helpers}")
+            raise SystemExit(1)
+        if "win_amd64" not in wheel.name and capture_helpers:
+            _github_error(f"{wheel.name} must not contain the Windows capture helper: {capture_helpers}")
             raise SystemExit(1)
 
         print(f"{wheel.name}: Python 3.7+ metadata OK")

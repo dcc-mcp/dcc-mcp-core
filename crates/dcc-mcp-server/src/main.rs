@@ -657,8 +657,21 @@ fn parse_otlp_headers(raw: &str) -> HashMap<String, String> {
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // The raw standalone server is also a killable host for the versioned
+    // PrintWindow helper protocol. Handle that private mode before logging,
+    // CLI parsing, networking, or any DCC lifecycle work.
+    if let Some(exit_code) = dcc_mcp_capture::helper::run_embedded_if_requested() {
+        std::process::exit(exit_code);
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     // Install the shared subscriber (stderr fmt-layer + reload slot for the
     // optional file-logging layer). Safe to call multiple times.
     dcc_mcp_logging::init_logging();
@@ -711,24 +724,24 @@ async fn main() -> anyhow::Result<()> {
     // to avoid a partial move conflict when borrowing `args` later.
     let _update_gateway_port = args.server.gateway_port;
     match args.command {
-        Some(SubCmd::Auto(server_args)) => return run_server(server_args).await,
-        Some(SubCmd::Serve(serve_args)) => return run_server(serve_args.into_server_args()).await,
-        Some(SubCmd::Translate(translate_args)) => return translate::run(translate_args).await,
-        Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
+        Some(SubCmd::Auto(server_args)) => run_server(server_args).await,
+        Some(SubCmd::Serve(serve_args)) => run_server(serve_args.into_server_args()).await,
+        Some(SubCmd::Translate(translate_args)) => translate::run(translate_args).await,
+        Some(SubCmd::Catalog { action }) => run_catalog_cmd(&action),
         #[cfg(feature = "gateway-auto")]
-        Some(SubCmd::Sidecar(sidecar_args)) => return dcc_mcp_sidecar::run(sidecar_args).await,
+        Some(SubCmd::Sidecar(sidecar_args)) => dcc_mcp_sidecar::run(sidecar_args).await,
         #[cfg(feature = "gateway-daemon")]
         Some(SubCmd::Gateway(gateway_args)) => {
             if gateway_args.restart {
                 return gateway_daemon::restart_gateway(&gateway_args).await;
             }
-            return gateway_daemon::run(gateway_args).await;
+            gateway_daemon::run(gateway_args).await
         }
         Some(SubCmd::Update { action }) => {
-            return update::run_update_cmd(_update_gateway_port, action).await;
+            update::run_update_cmd(_update_gateway_port, action).await
         }
-        Some(SubCmd::Capture { action }) => return capture::run(action).await,
-        None => return run_server(args.server).await,
+        Some(SubCmd::Capture { action }) => capture::run(action).await,
+        None => run_server(args.server).await,
     }
 }
 

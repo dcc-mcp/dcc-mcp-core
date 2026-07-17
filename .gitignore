@@ -43,6 +43,7 @@ run-ide.bat
 /.venv/
 .venv/
 dist/
+/python/dcc_mcp_core/bin/dcc-mcp-capture-helper.exe
 
 # Python cache
 *.pyc

@@ -54,6 +54,14 @@ def _platform_tag_allowed(platform_tag: str, policy: dict[str, Any]) -> bool:
     return platform_tag in allowed or any(fnmatch.fnmatchcase(platform_tag, pattern) for pattern in patterns)
 
 
+def _release_tuple(version: str) -> tuple[int, int, int] | None:
+    """Return the leading SemVer release tuple used by versioned wheel policy."""
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:\D.*)?$", version)
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
 def validate_wheel(
     path: Path,
     profile: str,
@@ -88,6 +96,27 @@ def validate_wheel(
     if has_extension != expects_extension:
         module = profile_contract.get("extension_module", "compiled extension")
         errors.append(f"compiled {module} presence is {has_extension}, expected {expects_extension}")
+
+    required_members = platform_policy.get("required_members", [])
+    required_from = platform_policy.get("required_members_from_version")
+    if required_from is not None:
+        actual_version = str(metadata.get("Version", ""))
+        actual_release = _release_tuple(actual_version)
+        required_release = _release_tuple(str(required_from))
+        if actual_release is None:
+            errors.append(f"Version {actual_version!r} is not a valid release version")
+            required_members = []
+        elif required_release is None:
+            errors.append(f"required_members_from_version {required_from!r} is invalid")
+            required_members = []
+        elif actual_release < required_release:
+            required_members = []
+    for member in required_members:
+        if member not in names:
+            errors.append(f"wheel is missing required member {member!r}")
+    for member in platform_policy.get("forbidden_members", []):
+        if member in names:
+            errors.append(f"wheel contains forbidden member {member!r}")
 
     requires_python = metadata.get("Requires-Python")
     expected_python = minimum_python_spec(contract)
