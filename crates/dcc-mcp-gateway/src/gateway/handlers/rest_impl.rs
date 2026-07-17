@@ -1371,3 +1371,7 @@ mod rest_impl_tests;
 #[cfg(test)]
 #[path = "rest_impl_batch_tests.rs"]
 mod rest_impl_batch_tests;
+
+#[cfg(test)]
+#[path = "rest_impl_safety_tests.rs"]
+mod rest_impl_safety_tests;

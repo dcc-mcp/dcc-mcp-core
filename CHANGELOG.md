@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.48](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.47...v0.19.48) (2026-07-17)
+
+
+### Bug Fixes
+
+* **job:** preserve lifecycle timestamps ([#1938](https://github.com/dcc-mcp/dcc-mcp-core/issues/1938)) ([c7b19c9](https://github.com/dcc-mcp/dcc-mcp-core/commit/c7b19c9e56e9cb27c680028a8340eaed1b3d5772))
+
+## [0.19.47](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.46...v0.19.47) (2026-07-17)
+
+
+### Bug Fixes
+
+* **host:** stop pumps before dispatcher shutdown ([#1937](https://github.com/dcc-mcp/dcc-mcp-core/issues/1937)) ([458912f](https://github.com/dcc-mcp/dcc-mcp-core/commit/458912f59d7536380ffa85de9ff107b7cdbaa7be))
+
+
+### Documentation
+
+* make dynamic instance ports the default ([#1933](https://github.com/dcc-mcp/dcc-mcp-core/issues/1933)) ([96cc8b8](https://github.com/dcc-mcp/dcc-mcp-core/commit/96cc8b865f8e69d4ab94015a300f4baa92e4c624))
+
+## [0.19.46](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.45...v0.19.46) (2026-07-16)
+
+
+### Bug Fixes
+
+* prefer current environment server binary ([#1932](https://github.com/dcc-mcp/dcc-mcp-core/issues/1932)) ([8123901](https://github.com/dcc-mcp/dcc-mcp-core/commit/812390176b95e35f1fe79e5cd2b8a95c20f41481))
+
 ## [0.19.45](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.44...v0.19.45) (2026-07-16)
 
 

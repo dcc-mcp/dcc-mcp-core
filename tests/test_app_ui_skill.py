@@ -38,6 +38,7 @@ def _load_windows_uia_module() -> Any:
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    module._ComputerUseSession = None
     return module
 
 
@@ -66,6 +67,19 @@ def _run_tool(
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip(), result.stderr
     return json.loads(result.stdout)
+
+
+def test_app_ui_windows_uia_spec_loads_isolated_support_state() -> None:
+    first = _load_windows_uia_module()
+    second = _load_windows_uia_module()
+
+    first._COMPUTER_USE_OBSERVATIONS["isolated"] = {"observation_id": "first"}
+    first._COMPUTER_USE_INTERRUPTED.add("isolated")
+
+    assert first._COMPUTER_USE_OBSERVATIONS is first._SUPPORT._COMPUTER_USE_OBSERVATIONS
+    assert first._COMPUTER_USE_INTERRUPTED is first._SUPPORT._COMPUTER_USE_INTERRUPTED
+    assert "isolated" not in second._COMPUTER_USE_OBSERVATIONS
+    assert "isolated" not in second._COMPUTER_USE_INTERRUPTED
 
 
 def test_app_ui_skill_metadata_and_tool_names() -> None:
@@ -773,9 +787,9 @@ def test_app_ui_windows_uia_serializes_one_session(tmp_path: Path, monkeypatch: 
     assert len(set(ids)) == 4
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows UIA backend only")
 def test_app_ui_windows_uia_normalizes_powershell_timeout(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
+    monkeypatch.setattr(backend, "_is_windows", lambda: True)
     monkeypatch.setattr(backend, "_powershell_bin", lambda: "powershell.exe")
 
     def time_out(*_args: Any, **_kwargs: Any) -> None:
@@ -791,9 +805,9 @@ def test_app_ui_windows_uia_normalizes_powershell_timeout(monkeypatch: Any) -> N
         raise AssertionError("PowerShell timeout was not normalized")
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows UIA backend only")
 def test_app_ui_windows_uia_inflight_guard_terminates_powershell(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
+    monkeypatch.setattr(backend, "_is_windows", lambda: True)
     monkeypatch.setattr(backend, "_powershell_bin", lambda: "powershell.exe")
     checks = 0
 
@@ -1544,7 +1558,6 @@ def test_app_ui_windows_uia_stop_interrupts_inflight_native_action(
     assert "stop-race" not in backend._COMPUTER_USE_SESSIONS
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows UIA backend only")
 def test_app_ui_windows_uia_overlapping_stops_keep_actions_blocked(
     tmp_path: Path,
     monkeypatch: Any,
@@ -1597,6 +1610,7 @@ def test_app_ui_wait_backends_cancel_on_package_stop(tmp_path: Path, monkeypatch
         modules.append(module)
 
     _mock, chrome, windows = modules
+    monkeypatch.setattr(windows, "_ComputerUseSession", None)
     monkeypatch.setenv("DCC_MCP_APP_UI_MOCK_STATE_DIR", str(tmp_path / "mock"))
     monkeypatch.setenv("DCC_MCP_APP_UI_CHROME_STATE_DIR", str(tmp_path / "chrome"))
     monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path / "windows"))

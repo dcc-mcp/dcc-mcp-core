@@ -105,10 +105,15 @@ from dcc_mcp_core import McpHttpConfig, create_skill_server
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/skills"
 
-server = create_skill_server("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig())
 handle = server.start()
 print(handle.mcp_url())
 ~~~
+
+Local DCC instances bind an OS-assigned port by default. The resolved URL is
+registered automatically, so the gateway and CLI discover it without a
+hardcoded per-instance port. Pass `port=<number>` only for an explicit fixed
+listener requirement.
 
 For manual handler registration, use McpHttpServer and ToolRegistry. For
 adapter lifecycle, readiness, gateway registration, and hot reload, use

@@ -32,6 +32,10 @@ pub struct JobEvent {
     pub updated_at: DateTime<Utc>,
     /// Wall-clock time when the job was created.
     pub created_at: DateTime<Utc>,
+    /// Wall-clock time when execution began.
+    pub started_at: Option<DateTime<Utc>>,
+    /// Wall-clock time when the job entered a terminal state.
+    pub completed_at: Option<DateTime<Utc>>,
 }
 
 /// Boxed subscriber callback. See [`crate::job::JobManager::subscribe`].
@@ -98,6 +102,10 @@ pub struct Job {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
     /// Cooperative cancellation signal for the running tool.
     ///
@@ -124,6 +132,8 @@ impl Job {
             result: None,
             error: None,
             created_at: now,
+            started_at: None,
+            completed_at: None,
             updated_at: now,
             cancel_token,
         }
@@ -141,6 +151,8 @@ impl Job {
             "result": self.result,
             "error": self.error,
             "created_at": self.created_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
             "updated_at": self.updated_at,
         })
     }

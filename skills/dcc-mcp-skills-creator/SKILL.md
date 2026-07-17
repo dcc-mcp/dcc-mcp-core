@@ -11,7 +11,7 @@ allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.19.45"  # x-release-please-version
+    version: "0.19.48"  # x-release-please-version
     layer: infrastructure
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
     tools: tools.yaml
@@ -52,10 +52,16 @@ from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 server = create_skill_server(
     "maya",
-    McpHttpConfig(port=8765),
+    McpHttpConfig(),
     extra_paths=["/path/to/dcc-mcp-core/skills"],
 )
+handle = server.start()
+print(handle.mcp_url())
 ```
+
+The local instance port is OS-assigned by default. The CLI and gateway discover
+the resolved URL through the shared registry; pass an explicit port only when
+an external integration requires a fixed listener.
 
 ## Quick Start
 

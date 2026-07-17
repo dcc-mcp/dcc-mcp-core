@@ -12,6 +12,7 @@ pub mod hwnd;
 pub mod mock;
 pub mod unix;
 pub mod wgc;
+pub mod win_dpi;
 pub mod windows;
 
 use crate::capture::DccCapture;

@@ -92,7 +92,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_hwnd_capture_returns_not_supported_on_non_windows() {
-        let b = HwndBackend::default();
+        let b = HwndBackend::new();
         let result = b.capture(&CaptureConfig::default());
         assert!(matches!(
             result.unwrap_err(),
@@ -141,12 +141,10 @@ mod imp {
         ReleaseDC, SRCCOPY, SelectObject,
     };
     use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
-    use windows::Win32::UI::HiDpi::{
-        DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
-        SetThreadDpiAwarenessContext,
-    };
+    use windows::Win32::UI::HiDpi::GetDpiForWindow;
     use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsHungAppWindow};
 
+    use crate::backend::win_dpi::ThreadDpiAwareness;
     use crate::error::{CaptureError, CaptureResult};
     use crate::types::{CaptureConfig, CaptureFormat, CaptureFrame, CaptureTarget};
     use crate::window::WindowFinder;
@@ -217,30 +215,6 @@ mod imp {
     ) -> CaptureResult<T> {
         restore()?;
         Ok(read())
-    }
-
-    struct ThreadDpiAwareness {
-        previous: DPI_AWARENESS_CONTEXT,
-    }
-
-    impl ThreadDpiAwareness {
-        fn enter() -> CaptureResult<Self> {
-            let previous =
-                unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-            if previous.0.is_null() {
-                return Err(CaptureError::Platform(
-                    "Windows refused per-monitor-v2 DPI awareness for the HWND capture worker"
-                        .to_string(),
-                ));
-            }
-            Ok(Self { previous })
-        }
-    }
-
-    impl Drop for ThreadDpiAwareness {
-        fn drop(&mut self) {
-            let _ = unsafe { SetThreadDpiAwarenessContext(self.previous) };
-        }
     }
 
     pub(super) fn capture_hwnd(config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
@@ -320,7 +294,7 @@ mod imp {
         // Capture runs on a bounded worker thread, so the caller's DPI context
         // does not propagate. Enter PMv2 here to keep GetWindowRect and the
         // physical SendInput coordinate space consistent on mixed-DPI desktops.
-        let _dpi_awareness = ThreadDpiAwareness::enter()?;
+        let _dpi_awareness = ThreadDpiAwareness::enter("HWND capture worker")?;
         let finder = WindowFinder::new();
         let info = match &config.target {
             CaptureTarget::WindowHandle(_)

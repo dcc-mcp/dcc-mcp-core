@@ -59,7 +59,7 @@
 | Monitor DCC process | `PyProcessWatcher` + `PyCrashRecoveryPolicy` |
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
-| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig())` — Skills-First setup with an OS-assigned instance port discoverable through the CLI/gateway; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[...])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Build a DCC adapter | `opts = DccServerOptions.from_env("maya", Path(...)); DccServerBase(opts)` — skill/lifecycle/gateway/hot-reload inherited |
 | Apply adapter metadata policy before skills load (#1204) | `DccServerBase.set_skill_load_transform(fn)` / `McpHttpServer.set_skill_load_transform(fn)` — callable receives a mutable `SkillMetadata`, may return `None` or a replacement, and applies consistently to direct Python `load_skill`, MCP `load_skill`, REST `/v1/load_skill`, batch, and group load paths. Use `set_after_load_skill_hook(fn)` only to observe `(skill, registered_actions)` after registration. |
@@ -209,7 +209,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 - Build from source: `maturin develop --features python-bindings,ext-module`
 - Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 - Build: maturin (Rust 1.95+ + PyO3 0.28+)
-- Version: 0.19.45 <!-- x-release-please-version -->
+- Version: 0.19.48 <!-- x-release-please-version -->
 - License: MIT
 
 ## Architecture
@@ -437,7 +437,7 @@ tools:
 
 ### MCP HTTP Server (`dcc_mcp_core`)
 
-- `McpHttpConfig(port=8765, server_name=None, server_version=None, enable_cors=False, request_timeout_ms=30000)` — server configuration
+- `McpHttpConfig(port=0, server_name=None, server_version=None, enable_cors=False, request_timeout_ms=30000)` — server configuration; `0` delegates instance-port allocation to the OS
   - `.lazy_actions = True` — opt-in: `tools/list` surfaces only 3 meta-tools (`list_actions`, `describe_action`, `call_action`) instead of all tools
   - `.session_ttl_secs` — idle session eviction (default 3600s)
   - `.gateway_port` — default `9765` in Python; first process to bind wins the single gateway/admin, `0` disables gateway/admin
@@ -656,7 +656,7 @@ tools:
 
 ### Server Factory (`dcc_mcp_core.factory`)
 
-- `create_dcc_server(*, instance_holder, lock, server_class, port=8765, register_builtins=True, extra_skill_paths=None, include_bundled=True, enable_hot_reload=False, hot_reload_env_var=None, **server_kwargs) -> McpServerHandle` — create-or-return a singleton DCC MCP server
+- `create_dcc_server(*, instance_holder, lock, server_class, port=None, register_builtins=True, extra_skill_paths=None, include_bundled=True, enable_hot_reload=False, hot_reload_env_var=None, **server_kwargs) -> McpServerHandle` — create-or-return a singleton DCC MCP server; `None` resolves an explicit DCC override or uses an OS-assigned port
 - `make_start_stop(server_class, hot_reload_env_var=None) -> (start_fn, stop_fn)` — generate a `(start_server, stop_server)` function pair
 - `get_server_instance(instance_holder) -> server | None` — return the current singleton instance
 

@@ -61,6 +61,16 @@ def test_helpers_exported_from_underscore_server() -> None:
     assert RSS is run_skill_script
 
 
+def test_public_contracts_keep_their_canonical_module() -> None:
+    for contract in (
+        BaseDccCallableDispatcher,
+        DeferredToolResult,
+        InProcessExecutionContext,
+        exception_to_error_envelope,
+    ):
+        assert contract.__module__ == "dcc_mcp_core._server.inprocess_executor"
+
+
 def test_protocol_is_runtime_checkable() -> None:
     class _D:
         def dispatch_callable(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:

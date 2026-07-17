@@ -35,7 +35,7 @@
 | Serialize result for transport | `serialize_result()` / `deserialize_result()` with `SerializeFormat` |
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
-| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool` / `call_tools`; wrapper payloads are `{tool_slug, arguments?, meta?}` and backend-specific fields live inside `arguments`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig())` — Skills-First one-call setup with an OS-assigned instance port discoverable through the CLI/gateway; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool` / `call_tools`; wrapper payloads are `{tool_slug, arguments?, meta?}` and backend-specific fields live inside `arguments`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Bind adapter readiness probe | `AdapterReadinessBinder.bind_inline(server)` / `.bind_headless(server)` / `.bind_queue_dispatcher(server, dispatcher)` — publishes `ReadinessProbe` gating MCP `tools/call`, REST `/v1/readyz`, and REST `/v1/call` (#1331, #1206) |
 | Check DCC adapter readiness | `GET /v1/readyz` → 200 `ready` / 503 `booting` / 503 `not-ready` with per-bit details (process, dcc, catalog, dispatcher, host_bridge, main_thread_executor) (#1331) |
 | Discover gateway DCC instances / direct MCP URLs (#813 phase 1) | `resources/read uri="gateway://instances"` or `gateway://instances/{id}` — entries include `mcp_url`; `resources/list` shows the root pointer only; legacy `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` and non-standard `instances/list` are removed |
@@ -1248,7 +1248,7 @@ Python adapters can register MCP prompts directly without touching Rust code, mi
 from dcc_mcp_core import McpHttpServer, McpHttpConfig, ToolRegistry
 
 registry = ToolRegistry()
-cfg = McpHttpConfig(port=8765)
+cfg = McpHttpConfig()
 # Prompts are enabled by default; set cfg.enable_prompts = False only to opt out.
 
 server = McpHttpServer(registry, cfg)
@@ -3023,13 +3023,13 @@ DCC main thread.
 from dcc_mcp_core import McpHttpConfig
 
 config = McpHttpConfig(
-    port=8765,              # use 0 for OS-assigned ephemeral port
+    port=0,                 # default: OS-assigned instance port
     server_name="maya-mcp", # reported in MCP initialize response
     server_version="1.0.0",
     enable_cors=False,      # set True for browser-based MCP clients
     request_timeout_ms=30000,
 )
-print(config.port)          # 8765
+print(config.port)          # 0 before start; read handle.port after binding
 print(config.server_name)   # "maya-mcp"
 print(config.server_version) # "1.0.0"
 ```
@@ -3078,7 +3078,7 @@ registry.register(
 )
 
 # Start server — returns immediately, server runs in background
-server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
+server = McpHttpServer(registry, McpHttpConfig(server_name="maya-mcp"))
 handle = server.start()   # -> McpServerHandle (alias for McpServerHandle)
 ```
 
@@ -3105,7 +3105,7 @@ os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 # One call: creates registry, dispatcher, SkillCatalog, discovers skills from env vars
-server = create_skill_server("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig())
 handle = server.start()
 print(f"Maya MCP server at {handle.mcp_url()}")
 # Claude Desktop config: {"mcpServers": {"maya": {"url": "<handle.mcp_url()>"}}}
@@ -3379,7 +3379,7 @@ MCP client side.
 
 ```python
 from dcc_mcp_core import McpHttpConfig
-cfg = McpHttpConfig(port=8765)
+cfg = McpHttpConfig()
 cfg.enable_workflows = True     # default False
 ```
 

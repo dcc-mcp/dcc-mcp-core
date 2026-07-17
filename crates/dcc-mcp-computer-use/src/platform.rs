@@ -1,5 +1,9 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+#[cfg(windows)]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicU64};
+#[cfg(any(windows, test))]
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::JoinHandle;
 
 use crate::ComputerUseError;
@@ -9,33 +13,47 @@ use crate::{ComputerUseAction, ComputerUseErrorCode, ComputerUseObservation, Com
 #[cfg(windows)]
 mod windows;
 
-#[cfg_attr(not(windows), allow(dead_code))]
+/// Signals shared between the session owner and the control-banner thread.
+///
+/// This struct is only meaningful on Windows: all fields are Windows-only
+/// atomic/Arc values used to coordinate the banner thread's lifecycle,
+/// visibility, desktop state, and input-owner safety. On non-Windows builds
+/// the struct is a ZST (zero-sized type) provided by the stub below.
+#[cfg(windows)]
 pub(crate) struct ControlBannerSignals {
     pub(crate) stop: Arc<AtomicBool>,
     pub(crate) interrupted: Arc<AtomicBool>,
     pub(crate) visible: Arc<AtomicBool>,
     pub(crate) desktop_state: Arc<AtomicU64>,
     pub(crate) desktop_barrier: Arc<DesktopEventBarrier>,
-    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) target_available: Arc<AtomicBool>,
-    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) cleanup_pending: Arc<AtomicBool>,
 }
 
+/// Non-Windows stub: `ControlBannerSignals` is a ZST that satisfies the type
+/// system without carrying any state. All platform functions that accept it on
+/// non-Windows return `BackendUnavailable` immediately.
+#[cfg(not(windows))]
+pub(crate) struct ControlBannerSignals;
+
 #[derive(Default)]
-#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) struct DesktopEventBarrier {
+    #[cfg(windows)]
     window_handle: AtomicUsize,
+    #[cfg(any(windows, test))]
     next_sequence: AtomicU32,
+    #[cfg(any(windows, test))]
     acknowledged_sequence: AtomicU32,
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg(any(windows, test))]
 impl DesktopEventBarrier {
+    #[cfg(windows)]
     pub(crate) fn register_window(&self, window_handle: usize) {
         self.window_handle.store(window_handle, Ordering::Release);
     }
 
+    #[cfg(windows)]
     pub(crate) fn clear_window(&self, window_handle: usize) {
         let _ = self.window_handle.compare_exchange(
             window_handle,
@@ -45,6 +63,7 @@ impl DesktopEventBarrier {
         );
     }
 
+    #[cfg(windows)]
     pub(crate) fn window_handle(&self) -> usize {
         self.window_handle.load(Ordering::Acquire)
     }
@@ -137,7 +156,7 @@ pub(crate) fn validate_target_policy(
 
 #[cfg(not(windows))]
 pub(crate) fn desktop_interactive() -> bool {
-    true
+    false
 }
 
 #[cfg(not(windows))]

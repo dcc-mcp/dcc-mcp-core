@@ -280,8 +280,8 @@ Gateway resources/prompts:
 | Search public DCC-MCP adapter catalog | MCP `resources/read` on `gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search --query ...` |
 | Disable evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 | Make skill discovery hermetic in CI/tests | `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` excludes implicit operator-owned roots (local/platform defaults, marketplace installs, and Admin custom paths) while preserving explicit, bundled, and `DCC_MCP_*_SKILL_PATHS` paths |
-| MCP HTTP (recommended) | `create_skill_server("<dcc>", McpHttpConfig(port=8765))` |
-| MCP HTTP (manual) | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
+| MCP HTTP (recommended) | `create_skill_server("<dcc>", McpHttpConfig())` — OS-assigned instance port; CLI/gateway discovery |
+| MCP HTTP (manual) | `McpHttpServer(registry, McpHttpConfig())` — pass `port=N` only for an explicit fixed listener |
 | Full-screen capture | `Capturer.new_auto().capture()` |
 | Single-window capture | `Capturer.new_window_auto().capture_window(...)` |
 | Capture DCC output streams | `OutputCapture` — stdout/stderr/script-editor as `output://` resource |

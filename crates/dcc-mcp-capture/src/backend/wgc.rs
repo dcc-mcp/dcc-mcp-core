@@ -40,7 +40,7 @@ where
 /// Windows.Graphics.Capture window-target backend.
 #[derive(Debug)]
 pub struct WgcBackend {
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    #[cfg(target_os = "windows")]
     last_capture_was_wgc: std::sync::atomic::AtomicBool,
 }
 
@@ -48,6 +48,7 @@ impl WgcBackend {
     /// Create a new WGC backend instance.
     pub fn new() -> Self {
         Self {
+            #[cfg(target_os = "windows")]
             last_capture_was_wgc: std::sync::atomic::AtomicBool::new(true),
         }
     }
@@ -124,11 +125,8 @@ impl DccCapture for WgcBackend {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "windows")]
     #[test]
-    #[cfg_attr(
-        not(target_os = "windows"),
-        ignore = "GDI fallback only applies on Windows"
-    )]
     fn backend_kind_is_distinct_from_gdi_fallback() {
         let backend = WgcBackend::new();
         assert_eq!(
@@ -231,8 +229,7 @@ mod imp {
     use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
     use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize};
     use windows::Win32::UI::HiDpi::{
-        DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
-        SetThreadDpiAwarenessContext,
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetThreadDpiAwarenessContext,
     };
     use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
     use windows::core::{Interface, factory};
@@ -263,29 +260,7 @@ mod imp {
         }
     }
 
-    struct ThreadDpiAwareness {
-        previous: DPI_AWARENESS_CONTEXT,
-    }
-
-    impl ThreadDpiAwareness {
-        fn enter() -> CaptureResult<Self> {
-            let previous =
-                unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-            if previous.0.is_null() {
-                return Err(CaptureError::Platform(
-                    "Windows refused per-monitor-v2 DPI awareness for the WGC capture worker"
-                        .to_string(),
-                ));
-            }
-            Ok(Self { previous })
-        }
-    }
-
-    impl Drop for ThreadDpiAwareness {
-        fn drop(&mut self) {
-            let _ = unsafe { SetThreadDpiAwarenessContext(self.previous) };
-        }
-    }
+    use crate::backend::win_dpi::ThreadDpiAwareness;
 
     pub(super) fn is_supported() -> bool {
         *WGC_SUPPORTED.get_or_init(probe_supported)
@@ -344,7 +319,7 @@ mod imp {
         // Capture runs on a dedicated worker, so the caller's DPI context does
         // not propagate. PMv2 keeps WindowFinder, GetWindowRect, WGC pixels,
         // and SendInput observations in one physical coordinate space.
-        let _dpi_awareness = ThreadDpiAwareness::enter()?;
+        let _dpi_awareness = ThreadDpiAwareness::enter("WGC capture worker")?;
         let _winrt = WinRtGuard::init()?;
         let info = match &config.target {
             CaptureTarget::WindowHandle(_)
@@ -385,14 +360,32 @@ mod imp {
             .StartCapture()
             .map_err(|error| CaptureError::Platform(format!("StartCapture: {error}")))?;
 
+        // RAII guard: ensures session and pool are closed on every exit path
+        // (early error returns, timeout, and the normal success path) after
+        // StartCapture() succeeds. COM Drop/Release() alone does not guarantee
+        // the Windows.Graphics.Capture pipeline is torn down; Close() is the
+        // documented shutdown path that releases GPU resources.
+        struct CaptureSessionGuard<'a> {
+            session: &'a GraphicsCaptureSession,
+            pool: &'a Direct3D11CaptureFramePool,
+        }
+        impl Drop for CaptureSessionGuard<'_> {
+            fn drop(&mut self) {
+                let _ = self.session.Close();
+                let _ = self.pool.Close();
+            }
+        }
+        let _capture_guard = CaptureSessionGuard {
+            session: &session,
+            pool: &pool,
+        };
+
         let timeout = Duration::from_millis(config.timeout_ms.max(1));
         let frame = loop {
             if let Ok(frame) = pool.TryGetNextFrame() {
                 break frame;
             }
             if started.elapsed() >= timeout {
-                let _ = session.Close();
-                let _ = pool.Close();
                 return Err(CaptureError::Timeout(config.timeout_ms.max(1)));
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -459,8 +452,8 @@ mod imp {
         }
         unsafe { context.Unmap(&staging, 0) };
         let _ = frame.Close();
-        let _ = session.Close();
-        let _ = pool.Close();
+        // _capture_guard drops here (or on any earlier error path), calling
+        // session.Close() and pool.Close() to release GPU capture resources.
 
         let mut rect = RECT::default();
         unsafe { GetWindowRect(hwnd, &mut rect) }
@@ -703,7 +696,7 @@ mod imp {
                 );
 
                 {
-                    let _awareness = ThreadDpiAwareness::enter().unwrap();
+                    let _awareness = ThreadDpiAwareness::enter("WGC test thread").unwrap();
                     assert!(
                         unsafe {
                             AreDpiAwarenessContextsEqual(

@@ -20,7 +20,7 @@ HTTP 服务器配置。
 from dcc_mcp_core import McpHttpConfig
 
 cfg = McpHttpConfig(
-    port=8765,                # TCP 端口（0 = 随机可用端口）
+    port=0,                   # 默认由操作系统分配；需要时可显式指定固定端口
     server_name="maya-mcp",   # MCP initialize 响应中的名称
     server_version="1.0.0",   # MCP initialize 响应中的版本
     enable_cors=False,         # 浏览器客户端的 CORS 头
@@ -92,11 +92,11 @@ registry = ToolRegistry()
 registry.register("get_scene_info", description="获取当前场景信息",
                   category="scene", tags=[], dcc="maya", version="1.0.0")
 
-server = McpHttpServer(registry, McpHttpConfig(port=8765))
+server = McpHttpServer(registry, McpHttpConfig())
 handle = server.start()
 
 print(f"MCP HTTP 服务器运行于 {handle.mcp_url()}")
-# MCP 主机 POST 到 http://127.0.0.1:8765/mcp
+# handle 返回操作系统实际分配的监听地址。
 
 # 完成后关闭
 handle.shutdown()
