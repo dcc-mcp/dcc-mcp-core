@@ -137,14 +137,48 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                             "jsonrpc": "2.0",
                             "id": body.get("id").cloned().unwrap_or(json!(null)),
                             "result": {
-                                "tools": [{
-                                    "name": "search_tools",
-                                    "description": "Search tools",
-                                    "inputSchema": {"type": "object"}
-                                }]
+                                "tools": [
+                                    {
+                                        "name": "search_tools",
+                                        "description": "Search tools",
+                                        "inputSchema": {"type": "object"}
+                                    },
+                                    {
+                                        "name": "jobs_get_status",
+                                        "description": "Get async job status",
+                                        "inputSchema": {"type": "object"}
+                                    }
+                                ]
                             }
                         })),
                     ),
+                    "tools/call" => {
+                        let name = body
+                            .pointer("/params/name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        let job_id = body
+                            .pointer("/params/arguments/job_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        let status = json!({
+                            "job_id": job_id,
+                            "tool": "render_write_node",
+                            "status": "completed"
+                        });
+                        (
+                            StatusCode::OK,
+                            Json(json!({
+                                "jsonrpc": "2.0",
+                                "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                "result": {
+                                    "isError": name != "jobs_get_status" || job_id == "job-404",
+                                    "content": [{"type": "text", "text": status.to_string()}],
+                                    "structuredContent": status
+                                }
+                            })),
+                        )
+                    }
                     _ => (
                         StatusCode::OK,
                         Json(json!({
@@ -316,22 +350,37 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
         .route(
             "/v1/call",
             post(|Json(body): Json<Value>| async move {
-                if body["tool_slug"] == "maya.abc12345.domain_failure" {
-                    return Json(json!({
-                        "slug": body["tool_slug"],
-                        "output": {
-                            "success": false,
-                            "message": "tool domain failure"
-                        },
-                        "validation_skipped": false,
-                        "request_id": "fixture-domain-failure"
-                    }));
+                if body["tool_slug"] == "jobs_get_status" {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "kind": "bad-request",
+                            "message": "invalid tool slug 'jobs_get_status' — expected '<dcc>.<skill>.<action>' or bare action name"
+                        })),
+                    );
                 }
-                Json(json!({
-                    "success": true,
-                    "tool_slug": body["tool_slug"],
-                    "arguments": body["arguments"]
-                }))
+                if body["tool_slug"] == "maya.abc12345.domain_failure" {
+                    return (
+                        StatusCode::OK,
+                        Json(json!({
+                            "slug": body["tool_slug"],
+                            "output": {
+                                "success": false,
+                                "message": "tool domain failure"
+                            },
+                            "validation_skipped": false,
+                            "request_id": "fixture-domain-failure"
+                        })),
+                    );
+                }
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "success": true,
+                        "tool_slug": body["tool_slug"],
+                        "arguments": body["arguments"]
+                    })),
+                )
             }),
         )
         .route(
