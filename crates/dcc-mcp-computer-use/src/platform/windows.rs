@@ -1,17 +1,23 @@
+use std::cell::Cell;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
-    COLORREF, CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WAIT_ABANDONED, WAIT_OBJECT_0,
-    WAIT_TIMEOUT, WPARAM,
+    COLORREF, CloseHandle, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WAIT_ABANDONED,
+    WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONULL, MONITORINFO,
-    MonitorFromPoint, MonitorFromRect,
+    BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateRoundRectRgn,
+    CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_END_ELLIPSIS, DT_SINGLELINE,
+    DT_VCENTER, DeleteObject, DrawTextW, EndPaint, EnumDisplayMonitors, FW_SEMIBOLD,
+    GetMonitorInfoW, HDC, HGDIOBJ, HMONITOR, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint,
+    MonitorFromRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor,
+    SetWindowRgn, TRANSPARENT,
 };
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::RemoteDesktop::{
     NOTIFY_FOR_THIS_SESSION, WTS_CONNECTSTATE_CLASS, WTS_CURRENT_SESSION, WTSActive,
     WTSConnectState, WTSFreeMemory, WTSQuerySessionInformationW, WTSRegisterSessionNotification,
@@ -38,19 +44,20 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEINPUT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, CreateWindowExW, DestroyWindow, DispatchMessageW, GA_ROOT, GetAncestor,
-    GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
-    GetWindowThreadProcessId, HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible, LWA_ALPHA, MSG,
-    PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostMessageW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-    SWP_SHOWWINDOW, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
-    TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED,
-    WM_HOTKEY, WM_WTSSESSION_CHANGE, WS_BORDER, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE, WTS_CONSOLE_CONNECT,
-    WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK,
-    WTS_SESSION_UNLOCK, WindowFromPoint,
+    BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
+    GetAncestor, GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetSystemMetrics,
+    GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, HWND_TOPMOST,
+    IsIconic, IsWindow, IsWindowVisible, LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW,
+    PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+    SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+    SetForegroundWindow, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowPos,
+    ShowWindow, TranslateMessage, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
+    WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY, WM_PAINT, WM_WTSSESSION_CHANGE, WNDCLASSW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT, WTS_REMOTE_DISCONNECT,
+    WTS_SESSION_LOCK, WTS_SESSION_UNLOCK, WindowFromPoint,
 };
-use windows::core::{BOOL, PCWSTR, PWSTR};
+use windows::core::{BOOL, PCWSTR, PWSTR, w};
 
 use crate::{
     ComputerUseAction, ComputerUseError, ComputerUseErrorCode, ComputerUseObservation,
@@ -80,11 +87,21 @@ const HOTKEY_ID: i32 = 0x4443;
 const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
 const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
     HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
-const STATIC_CENTER: u32 = 0x0000_0001;
-const STATIC_CENTER_IMAGE: u32 = 0x0000_0200;
-const STATIC_WHITE_RECT: u32 = 0x0000_0006;
-const BORDER_THICKNESS: i32 = 5;
-const POINTER_EFFECT_SIZE: i32 = 34;
+const BORDER_THICKNESS: i32 = 48;
+const POINTER_EFFECT_SIZE: i32 = 120;
+const CONTROL_OVERLAY_ALPHA: u8 = 185;
+const CONTROL_BORDER_ALPHA: u8 = 112;
+const CONTROL_BANNER_ALPHA: u8 = 238;
+const CONTROL_CURSOR_ALPHA: u8 = 140;
+const CONTROL_BANNER_FONT_SIZE: i32 = 22;
+const CONTROL_PULSE_PERIOD_MS: u64 = 2_400;
+const CONTROL_BORDER_PULSE_FLOOR_PERCENT: u8 = 55;
+const CONTROL_BANNER_PULSE_FLOOR_PERCENT: u8 = 84;
+const CONTROL_CURSOR_PULSE_FLOOR_PERCENT: u8 = 72;
+const CONTROL_ACCENT_COLOR: COLORREF = COLORREF(0x00EB_6325);
+const CONTROL_FOCUS_COLOR: COLORREF = COLORREF(0x0027_1811);
+const CONTROL_OVERLAY_CLASS: PCWSTR = w!("DccMcpComputerUseOverlay");
+const CONTROL_FOCUS_CLASS: PCWSTR = w!("DccMcpComputerUseFocusOverlay");
 const DEFAULT_POINTER_EFFECT_DWELL_MS: u64 = 350;
 const DRAG_UPDATE_INTERVAL_MS: u64 = 16;
 const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -93,7 +110,7 @@ const DESKTOP_BARRIER_TIMEOUT: Duration = Duration::from_millis(500);
 const PROCESS_PATH_CAPACITY: usize = 32_768;
 
 type OverlayGeometry = (i32, i32, i32, i32);
-type BorderGeometries = [OverlayGeometry; 4];
+type BorderGeometries = Vec<(OverlayGeometry, u8, bool)>;
 
 struct OwnedKernelHandle {
     raw: usize,
@@ -678,9 +695,37 @@ pub(crate) fn start_control_banner(
     }
 }
 
+struct OverlayLayer {
+    hwnd: HWND,
+    base_alpha: u8,
+    applied_alpha: Cell<u8>,
+}
+
+impl OverlayLayer {
+    fn new(hwnd: HWND, base_alpha: u8, applied_alpha: u8) -> Self {
+        Self {
+            hwnd,
+            base_alpha,
+            applied_alpha: Cell::new(applied_alpha),
+        }
+    }
+
+    fn apply_pulse(&self, floor_percent: u8, elapsed_ms: u64) -> ComputerUseResult<()> {
+        let alpha = breathing_alpha(self.base_alpha, floor_percent, elapsed_ms);
+        if alpha != self.applied_alpha.get() {
+            set_overlay_alpha(self.hwnd, alpha)?;
+            self.applied_alpha.set(alpha);
+        }
+        Ok(())
+    }
+}
+
 struct ControlOverlay {
-    banner: HWND,
-    borders: Vec<HWND>,
+    banner: OverlayLayer,
+    borders: Vec<OverlayLayer>,
+    cursor_mask: OverlayLayer,
+    cursor_visible: Cell<bool>,
+    pulse_started: Instant,
 }
 
 struct RegisteredHotKey {
@@ -746,27 +791,66 @@ impl ControlOverlay {
         caption: &str,
     ) -> ComputerUseResult<Self> {
         let (banner_geometry, border_geometries) = overlay_geometries(target, target_rect)?;
-        let (x, y, width, height) = banner_geometry;
-        let banner = create_static_overlay(
-            caption,
-            WS_BORDER.0 | STATIC_CENTER | STATIC_CENTER_IMAGE,
-            (x, y, width, height),
-            245,
-        )?;
-        let mut borders = Vec::with_capacity(4);
-        for geometry in border_geometries {
-            match create_static_overlay("", STATIC_WHITE_RECT, geometry, 225) {
-                Ok(hwnd) => borders.push(hwnd),
+        let banner_alpha =
+            breathing_alpha(CONTROL_BANNER_ALPHA, CONTROL_BANNER_PULSE_FLOOR_PERCENT, 0);
+        let banner = OverlayLayer::new(
+            create_color_overlay(caption, banner_geometry, banner_alpha, false, true)?,
+            CONTROL_BANNER_ALPHA,
+            banner_alpha,
+        );
+        let mut borders = Vec::with_capacity(border_geometries.len());
+        for (geometry, alpha, focus) in border_geometries {
+            let initial_alpha = breathing_alpha(alpha, CONTROL_BORDER_PULSE_FLOOR_PERCENT, 0);
+            match create_color_overlay("", geometry, initial_alpha, false, focus) {
+                Ok(hwnd) => borders.push(OverlayLayer::new(hwnd, alpha, initial_alpha)),
                 Err(error) => {
-                    for hwnd in borders {
-                        let _ = unsafe { DestroyWindow(hwnd) };
+                    for layer in borders {
+                        let _ = unsafe { DestroyWindow(layer.hwnd) };
                     }
-                    let _ = unsafe { DestroyWindow(banner) };
+                    let _ = unsafe { DestroyWindow(banner.hwnd) };
                     return Err(error);
                 }
             }
         }
-        Ok(Self { banner, borders })
+        let mut cursor = POINT::default();
+        if let Err(error) = unsafe { GetCursorPos(&mut cursor) } {
+            for layer in borders {
+                let _ = unsafe { DestroyWindow(layer.hwnd) };
+            }
+            let _ = unsafe { DestroyWindow(banner.hwnd) };
+            return Err(overlay_backend_error(
+                "locate the pointer for",
+                error.to_string(),
+            ));
+        }
+        let cursor_alpha =
+            breathing_alpha(CONTROL_CURSOR_ALPHA, CONTROL_CURSOR_PULSE_FLOOR_PERCENT, 0);
+        let cursor_mask = match create_color_overlay(
+            "",
+            pointer_mask_geometry(cursor.x, cursor.y),
+            cursor_alpha,
+            false,
+            false,
+        ) {
+            Ok(hwnd) => OverlayLayer::new(hwnd, CONTROL_CURSOR_ALPHA, cursor_alpha),
+            Err(error) => {
+                for layer in borders {
+                    let _ = unsafe { DestroyWindow(layer.hwnd) };
+                }
+                let _ = unsafe { DestroyWindow(banner.hwnd) };
+                return Err(error);
+            }
+        };
+        let cursor_visible = point_in_rect(cursor, target_rect);
+        let overlay = Self {
+            banner,
+            borders,
+            cursor_mask,
+            cursor_visible: Cell::new(cursor_visible),
+            pulse_started: Instant::now(),
+        };
+        overlay.set_visible(true)?;
+        Ok(overlay)
     }
 
     fn reposition(
@@ -775,17 +859,47 @@ impl ControlOverlay {
         target_rect: &windows::Win32::Foundation::RECT,
     ) -> ComputerUseResult<()> {
         let (banner_geometry, border_geometries) = overlay_geometries(target, target_rect)?;
-        position_overlay(self.banner, banner_geometry, false)?;
-        for (hwnd, geometry) in self.borders.iter().zip(border_geometries) {
-            position_overlay(*hwnd, geometry, false)?;
+        position_overlay(self.banner.hwnd, banner_geometry, false)?;
+        for (layer, (geometry, _alpha, _focus)) in self.borders.iter().zip(border_geometries) {
+            position_overlay(layer.hwnd, geometry, false)?;
         }
+        let mut cursor = POINT::default();
+        unsafe { GetCursorPos(&mut cursor) }
+            .map_err(|error| overlay_backend_error("locate the pointer for", error.to_string()))?;
+        let cursor_visible = point_in_rect(cursor, target_rect);
+        if cursor_visible {
+            position_overlay(
+                self.cursor_mask.hwnd,
+                pointer_mask_geometry(cursor.x, cursor.y),
+                false,
+            )?;
+        }
+        if cursor_visible != self.cursor_visible.get() {
+            set_overlay_visible(self.cursor_mask.hwnd, cursor_visible)?;
+            self.cursor_visible.set(cursor_visible);
+        }
+        let elapsed_ms = self.pulse_started.elapsed().as_millis() as u64;
+        self.banner
+            .apply_pulse(CONTROL_BANNER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
+        for layer in &self.borders {
+            layer.apply_pulse(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
+        }
+        self.cursor_mask
+            .apply_pulse(CONTROL_CURSOR_PULSE_FLOOR_PERCENT, elapsed_ms)?;
         Ok(())
     }
 
     fn set_visible(&self, visible: bool) -> ComputerUseResult<()> {
-        set_overlay_visible(self.banner, visible)?;
-        for hwnd in &self.borders {
-            set_overlay_visible(*hwnd, visible)?;
+        set_overlay_visible(self.banner.hwnd, visible)?;
+        for layer in &self.borders {
+            set_overlay_visible(layer.hwnd, visible)?;
+        }
+        if visible {
+            if self.cursor_visible.get() {
+                set_overlay_visible(self.cursor_mask.hwnd, true)?;
+            }
+        } else if self.cursor_visible.replace(false) {
+            set_overlay_visible(self.cursor_mask.hwnd, false)?;
         }
         Ok(())
     }
@@ -793,22 +907,123 @@ impl ControlOverlay {
 
 impl Drop for ControlOverlay {
     fn drop(&mut self) {
-        for hwnd in self.borders.drain(..) {
-            let _ = unsafe { DestroyWindow(hwnd) };
+        for layer in self.borders.drain(..) {
+            let _ = unsafe { DestroyWindow(layer.hwnd) };
         }
-        let _ = unsafe { DestroyWindow(self.banner) };
+        let _ = unsafe { DestroyWindow(self.cursor_mask.hwnd) };
+        let _ = unsafe { DestroyWindow(self.banner.hwnd) };
     }
 }
 
-fn create_static_overlay(
+fn register_color_overlay_classes() -> ComputerUseResult<()> {
+    static REGISTERED: OnceLock<Result<(), String>> = OnceLock::new();
+    REGISTERED
+        .get_or_init(|| {
+            let instance = unsafe { GetModuleHandleW(None) }
+                .map_err(|error| format!("resolve module handle: {error}"))?;
+            for (class_name, color) in [
+                (CONTROL_OVERLAY_CLASS, CONTROL_ACCENT_COLOR),
+                (CONTROL_FOCUS_CLASS, CONTROL_FOCUS_COLOR),
+            ] {
+                let class = WNDCLASSW {
+                    lpfnWndProc: Some(overlay_window_proc),
+                    hInstance: instance.into(),
+                    hbrBackground: unsafe { CreateSolidBrush(color) },
+                    lpszClassName: class_name,
+                    ..Default::default()
+                };
+                let atom = unsafe { RegisterClassW(&class) };
+                if atom == 0 {
+                    return Err(format!(
+                        "register overlay window class: {}",
+                        windows::core::Error::from_thread()
+                    ));
+                }
+            }
+            Ok(())
+        })
+        .clone()
+        .map_err(|detail| overlay_backend_error("register", detail))
+}
+
+unsafe extern "system" fn overlay_window_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if message == WM_PAINT {
+        let mut paint = PAINTSTRUCT::default();
+        let device = unsafe { BeginPaint(hwnd, &raw mut paint) };
+        if !device.0.is_null() {
+            let mut bounds = RECT::default();
+            let _ = unsafe { GetClientRect(hwnd, &raw mut bounds) };
+            let mut class_name = [0_u16; 64];
+            let class_length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
+            let color = if String::from_utf16_lossy(&class_name[..class_length])
+                == "DccMcpComputerUseFocusOverlay"
+            {
+                CONTROL_FOCUS_COLOR
+            } else {
+                CONTROL_ACCENT_COLOR
+            };
+            let brush = unsafe { CreateSolidBrush(color) };
+            let _ = unsafe { windows::Win32::Graphics::Gdi::FillRect(device, &bounds, brush) };
+            let _ = unsafe { DeleteObject(HGDIOBJ(brush.0)) };
+
+            let text_length = unsafe { GetWindowTextLengthW(hwnd) }.max(0) as usize;
+            if text_length > 0 {
+                let mut text = vec![0_u16; text_length + 1];
+                let copied = unsafe { GetWindowTextW(hwnd, &mut text) }.max(0) as usize;
+                text.truncate(copied);
+                let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+                let font = unsafe {
+                    CreateFontW(
+                        -scaled_pixels(CONTROL_BANNER_FONT_SIZE, dpi),
+                        0,
+                        0,
+                        0,
+                        FW_SEMIBOLD.0 as i32,
+                        0,
+                        0,
+                        0,
+                        DEFAULT_CHARSET,
+                        OUT_DEFAULT_PRECIS,
+                        CLIP_DEFAULT_PRECIS,
+                        CLEARTYPE_QUALITY,
+                        u32::from(DEFAULT_PITCH.0),
+                        w!("Segoe UI Semibold"),
+                    )
+                };
+                if !font.0.is_null() {
+                    let old_font = unsafe { SelectObject(device, HGDIOBJ(font.0)) };
+                    let _ = unsafe { SetBkMode(device, TRANSPARENT) };
+                    let _ = unsafe { SetTextColor(device, COLORREF(0x00FF_FFFF)) };
+                    let format = windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT(
+                        DT_CENTER.0 | DT_VCENTER.0 | DT_SINGLELINE.0 | DT_END_ELLIPSIS.0,
+                    );
+                    let _ = unsafe { DrawTextW(device, &mut text, &raw mut bounds, format) };
+                    let _ = unsafe { SelectObject(device, old_font) };
+                    let _ = unsafe { DeleteObject(HGDIOBJ(font.0)) };
+                }
+            }
+        }
+        let _ = unsafe { EndPaint(hwnd, &paint) };
+        return LRESULT(0);
+    }
+    unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+}
+
+fn create_color_overlay(
     caption: &str,
-    static_style: u32,
     (x, y, width, height): OverlayGeometry,
     alpha: u8,
+    show: bool,
+    focus: bool,
 ) -> ComputerUseResult<HWND> {
-    let class = wide("STATIC");
+    register_color_overlay_classes()?;
     let caption = wide(caption);
-    let style = WINDOW_STYLE(WS_POPUP.0 | WS_VISIBLE.0 | static_style);
+    let style = WINDOW_STYLE(WS_POPUP.0);
     let ex_style = WINDOW_EX_STYLE(
         WS_EX_TOPMOST.0
             | WS_EX_TOOLWINDOW.0
@@ -819,7 +1034,11 @@ fn create_static_overlay(
     let hwnd = unsafe {
         CreateWindowExW(
             ex_style,
-            PCWSTR(class.as_ptr()),
+            if focus {
+                CONTROL_FOCUS_CLASS
+            } else {
+                CONTROL_OVERLAY_CLASS
+            },
             PCWSTR(caption.as_ptr()),
             style,
             x,
@@ -832,25 +1051,40 @@ fn create_static_overlay(
             None,
         )
     }
-    .map_err(|error| {
-        ComputerUseError::new(
-            ComputerUseErrorCode::BackendUnavailable,
-            format!("failed to create Computer Use visual overlay: {error}"),
-        )
-    })?;
-    if let Err(error) = unsafe { SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA) } {
+    .map_err(|error| overlay_backend_error("create", error.to_string()))?;
+    if let Err(error) = exclude_overlay_from_capture(hwnd) {
+        let _ = unsafe { DestroyWindow(hwnd) };
+        return Err(error);
+    }
+    if let Err(error) = set_overlay_alpha(hwnd, alpha) {
+        let _ = unsafe { DestroyWindow(hwnd) };
+        return Err(error);
+    }
+    let radius = width.min(height).max(1);
+    let region = unsafe { CreateRoundRectRgn(0, 0, width, height, radius, radius) };
+    if region.0.is_null() || unsafe { SetWindowRgn(hwnd, Some(region), true) } == 0 {
         let _ = unsafe { DestroyWindow(hwnd) };
         return Err(overlay_backend_error(
-            "configure transparency for",
-            error.to_string(),
+            "round",
+            "Windows did not accept the overlay region",
         ));
     }
-    if let Err(error) = position_overlay(hwnd, (x, y, width, height), true) {
+    if let Err(error) = position_overlay(hwnd, (x, y, width, height), show) {
         let _ = unsafe { DestroyWindow(hwnd) };
         return Err(error);
     }
     pump_overlay_messages(hwnd);
     Ok(hwnd)
+}
+
+fn set_overlay_alpha(hwnd: HWND, alpha: u8) -> ComputerUseResult<()> {
+    unsafe { SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA) }
+        .map_err(|error| overlay_backend_error("configure transparency for", error.to_string()))
+}
+
+fn exclude_overlay_from_capture(hwnd: HWND) -> ComputerUseResult<()> {
+    unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) }
+        .map_err(|error| overlay_backend_error("exclude from capture", error.to_string()))
 }
 
 fn position_overlay(
@@ -944,15 +1178,13 @@ fn run_banner(
 ) -> ComputerUseResult<()> {
     ensure_interactive_desktop()?;
     let target = HWND(window_handle as *mut core::ffi::c_void);
-    let caption = format!(
-        "DCC MCP Computer Use is controlling {app_name} - press {STOP_HOTKEY_LABEL} to stop"
-    );
+    let caption = format!("●  DCC MCP controls {app_name}   ·   {STOP_HOTKEY_LABEL} to stop");
     let mut rect = available_target_rect_for_process(target, process_id)?;
     let overlay = ControlOverlay::new(target, &rect, &caption)?;
 
     let hotkey_result = unsafe {
         RegisterHotKey(
-            Some(overlay.banner),
+            Some(overlay.banner.hwnd),
             HOTKEY_ID,
             STOP_HOTKEY_MODIFIERS,
             VK_ESCAPE.0 as u32,
@@ -965,11 +1197,11 @@ fn run_banner(
         ));
     }
     let _hotkey = RegisteredHotKey {
-        hwnd: overlay.banner,
+        hwnd: overlay.banner.hwnd,
     };
-    let _session_notifications = RegisteredSessionNotifications::new(overlay.banner)?;
+    let _session_notifications = RegisteredSessionNotifications::new(overlay.banner.hwnd)?;
     let _desktop_barrier =
-        RegisteredDesktopBarrier::new(Arc::clone(&signals.desktop_barrier), overlay.banner);
+        RegisteredDesktopBarrier::new(Arc::clone(&signals.desktop_barrier), overlay.banner.hwnd);
     let mut display_stamp = display_environment_stamp()?;
 
     record_desktop_transition(&signals.desktop_state, true);
@@ -1338,6 +1570,16 @@ fn scaled_pixels(pixels: i32, dpi: u32) -> i32 {
     scaled.clamp(1, i64::from(i32::MAX)) as i32
 }
 
+fn breathing_alpha(base_alpha: u8, floor_percent: u8, elapsed_ms: u64) -> u8 {
+    let floor = f32::from(floor_percent.min(100)) / 100.0;
+    let phase = (elapsed_ms % CONTROL_PULSE_PERIOD_MS) as f32 / CONTROL_PULSE_PERIOD_MS as f32;
+    let wave = 0.5 - 0.5 * (std::f32::consts::TAU * phase).cos();
+    let scale = floor + (1.0 - floor) * wave;
+    (f32::from(base_alpha) * scale)
+        .round()
+        .clamp(0.0, f32::from(u8::MAX)) as u8
+}
+
 fn target_unavailable() -> ComputerUseError {
     ComputerUseError::new(
         ComputerUseErrorCode::MissingWindow,
@@ -1366,47 +1608,97 @@ fn banner_geometry(
     let display_width = display_rect.right.saturating_sub(display_rect.left).max(1);
     let display_height = display_rect.bottom.saturating_sub(display_rect.top).max(1);
     let width = target_width
-        .max(scaled_pixels(320, dpi))
-        .min(scaled_pixels(720, dpi))
+        .max(scaled_pixels(520, dpi))
+        .min(scaled_pixels(1040, dpi))
         .min(display_width);
-    let height = scaled_pixels(36, dpi).min(display_height);
+    let height = scaled_pixels(62, dpi).min(display_height);
     let centered_x = rect
         .left
         .saturating_add(target_width.saturating_sub(width) / 2);
     let x = centered_x.clamp(display_rect.left, display_rect.right.saturating_sub(width));
     let y = rect
         .top
-        .saturating_add(scaled_pixels(8, dpi))
+        .saturating_add(scaled_pixels(18, dpi))
         .clamp(display_rect.top, display_rect.bottom.saturating_sub(height));
     (x, y, width, height)
 }
 
 fn border_geometries(rect: &windows::Win32::Foundation::RECT, dpi: u32) -> BorderGeometries {
-    let thickness = scaled_pixels(BORDER_THICKNESS, dpi);
+    let maximum_thickness = scaled_pixels(BORDER_THICKNESS, dpi);
     let width = rect
         .right
         .saturating_sub(rect.left)
-        .max(thickness.saturating_mul(2));
+        .max(maximum_thickness.saturating_mul(2));
     let height = rect
         .bottom
         .saturating_sub(rect.top)
-        .max(thickness.saturating_mul(2));
-    [
-        (rect.left, rect.top, width, thickness),
-        (
-            rect.left,
-            rect.bottom.saturating_sub(thickness),
-            width,
-            thickness,
-        ),
-        (rect.left, rect.top, thickness, height),
-        (
-            rect.right.saturating_sub(thickness),
-            rect.top,
-            thickness,
-            height,
-        ),
-    ]
+        .max(maximum_thickness.saturating_mul(2));
+    let layers = [
+        (BORDER_THICKNESS, 34_u8, true),
+        (36, 42_u8, true),
+        (26, 54_u8, true),
+        (16, 70_u8, true),
+        (7, CONTROL_BORDER_ALPHA, false),
+    ];
+    layers
+        .into_iter()
+        .flat_map(|(logical_thickness, alpha, focus)| {
+            let thickness = scaled_pixels(logical_thickness, dpi);
+            [
+                ((rect.left, rect.top, width, thickness), alpha, focus),
+                (
+                    (
+                        rect.left,
+                        rect.bottom.saturating_sub(thickness),
+                        width,
+                        thickness,
+                    ),
+                    alpha,
+                    focus,
+                ),
+                ((rect.left, rect.top, thickness, height), alpha, focus),
+                (
+                    (
+                        rect.right.saturating_sub(thickness),
+                        rect.top,
+                        thickness,
+                        height,
+                    ),
+                    alpha,
+                    focus,
+                ),
+            ]
+        })
+        .collect()
+}
+
+fn point_in_rect(point: POINT, rect: &RECT) -> bool {
+    point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
+}
+
+fn pointer_mask_geometry(screen_x: i32, screen_y: i32) -> OverlayGeometry {
+    let monitor = unsafe {
+        MonitorFromPoint(
+            POINT {
+                x: screen_x,
+                y: screen_y,
+            },
+            MONITOR_DEFAULTTONULL,
+        )
+    };
+    let dpi = if monitor.is_invalid() {
+        96
+    } else {
+        monitor_dpi(monitor, None)
+    };
+    let size = scaled_pixels(POINTER_EFFECT_SIZE, dpi);
+    let offset = size / 2;
+    (
+        screen_x.saturating_sub(offset),
+        screen_y.saturating_sub(offset),
+        size,
+        size,
+    )
 }
 
 fn wide(value: &str) -> Vec<u16> {

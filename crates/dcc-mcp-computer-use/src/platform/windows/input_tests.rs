@@ -321,13 +321,24 @@ fn control_border_tracks_all_target_edges() {
         bottom: 620,
     };
 
+    let geometries = border_geometries(&rect, 96);
+    assert_eq!(geometries.len(), 20);
     assert_eq!(
-        border_geometries(&rect, 96),
-        [
-            (-100, 20, 1000, BORDER_THICKNESS),
-            (-100, 615, 1000, BORDER_THICKNESS),
-            (-100, 20, BORDER_THICKNESS, 600),
-            (895, 20, BORDER_THICKNESS, 600),
+        &geometries[..4],
+        &[
+            ((-100, 20, 1000, 48), 34, true),
+            ((-100, 572, 1000, 48), 34, true),
+            ((-100, 20, 48, 600), 34, true),
+            ((852, 20, 48, 600), 34, true),
+        ]
+    );
+    assert_eq!(
+        &geometries[16..],
+        &[
+            ((-100, 20, 1000, 7), CONTROL_BORDER_ALPHA, false),
+            ((-100, 613, 1000, 7), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 7, 600), CONTROL_BORDER_ALPHA, false),
+            ((893, 20, 7, 600), CONTROL_BORDER_ALPHA, false),
         ]
     );
 }
@@ -337,12 +348,61 @@ fn overlay_pixels_scale_at_common_monitor_dpis() {
     assert_eq!(scaled_pixels(36, 96), 36);
     assert_eq!(scaled_pixels(36, 144), 54);
     assert_eq!(scaled_pixels(36, 192), 72);
-    assert_eq!(scaled_pixels(BORDER_THICKNESS, 96), 5);
-    assert_eq!(scaled_pixels(BORDER_THICKNESS, 144), 8);
-    assert_eq!(scaled_pixels(BORDER_THICKNESS, 192), 10);
-    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 96), 34);
-    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 144), 51);
-    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 192), 68);
+    assert_eq!(scaled_pixels(BORDER_THICKNESS, 96), 48);
+    assert_eq!(scaled_pixels(BORDER_THICKNESS, 144), 72);
+    assert_eq!(scaled_pixels(BORDER_THICKNESS, 192), 96);
+    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 96), 120);
+    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 144), 180);
+    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 192), 240);
+}
+
+#[test]
+fn control_overlay_breathes_smoothly_without_exceeding_base_alpha() {
+    let minimum = breathing_alpha(CONTROL_BORDER_ALPHA, CONTROL_BORDER_PULSE_FLOOR_PERCENT, 0);
+    let quarter = breathing_alpha(
+        CONTROL_BORDER_ALPHA,
+        CONTROL_BORDER_PULSE_FLOOR_PERCENT,
+        CONTROL_PULSE_PERIOD_MS / 4,
+    );
+    let maximum = breathing_alpha(
+        CONTROL_BORDER_ALPHA,
+        CONTROL_BORDER_PULSE_FLOOR_PERCENT,
+        CONTROL_PULSE_PERIOD_MS / 2,
+    );
+
+    assert_eq!(minimum, 62);
+    assert!(minimum < quarter && quarter < maximum);
+    assert_eq!(maximum, CONTROL_BORDER_ALPHA);
+    assert_eq!(
+        breathing_alpha(
+            CONTROL_BORDER_ALPHA,
+            CONTROL_BORDER_PULSE_FLOOR_PERCENT,
+            CONTROL_PULSE_PERIOD_MS,
+        ),
+        minimum
+    );
+}
+
+#[test]
+fn control_overlay_visual_contract_is_prominent_blue() {
+    let red = CONTROL_ACCENT_COLOR.0 & 0xff;
+    let green = (CONTROL_ACCENT_COLOR.0 >> 8) & 0xff;
+    let blue = (CONTROL_ACCENT_COLOR.0 >> 16) & 0xff;
+    let focus_red = CONTROL_FOCUS_COLOR.0 & 0xff;
+    let focus_green = (CONTROL_FOCUS_COLOR.0 >> 8) & 0xff;
+    let focus_blue = (CONTROL_FOCUS_COLOR.0 >> 16) & 0xff;
+
+    const {
+        assert!(BORDER_THICKNESS >= 40);
+        assert!(POINTER_EFFECT_SIZE >= 96);
+        assert!(CONTROL_BANNER_ALPHA > CONTROL_OVERLAY_ALPHA);
+        assert!(CONTROL_BORDER_ALPHA < CONTROL_CURSOR_ALPHA);
+        assert!(CONTROL_BANNER_FONT_SIZE >= 20);
+    }
+    assert!((110..=220).contains(&CONTROL_OVERLAY_ALPHA));
+    assert!(blue > green && green > red);
+    assert!(focus_blue > focus_green && focus_green > focus_red);
+    assert!(focus_blue < blue / 3);
 }
 
 #[test]
@@ -360,7 +420,10 @@ fn banner_stays_on_a_negative_origin_monitor() {
         bottom: 1040,
     };
 
-    assert_eq!(banner_geometry(&target, &display, 96), (-1760, 28, 720, 36));
+    assert_eq!(
+        banner_geometry(&target, &display, 96),
+        (-1900, 38, 1000, 62)
+    );
 }
 
 #[test]
@@ -378,7 +441,7 @@ fn banner_clamps_partial_offscreen_targets_to_monitor_work_area() {
         bottom: 1040,
     };
 
-    assert_eq!(banner_geometry(&target, &display, 144), (-1920, 0, 480, 54));
+    assert_eq!(banner_geometry(&target, &display, 144), (-1920, 0, 780, 93));
 }
 
 #[test]
@@ -396,7 +459,10 @@ fn banner_clamps_cross_gap_targets_to_the_selected_real_monitor() {
         bottom: 1280,
     };
 
-    assert_eq!(banner_geometry(&target, &display, 96), (2560, 200, 720, 36));
+    assert_eq!(
+        banner_geometry(&target, &display, 96),
+        (2560, 200, 1040, 62)
+    );
 }
 
 #[test]
@@ -479,7 +545,8 @@ fn vertical_scroll_handles_minimum_i32_without_overflow() {
 #[test]
 fn pointer_effect_is_a_visible_click_through_overlay() {
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongPtrW, GetWindowTextW, IsWindowVisible,
+        GWL_EXSTYLE, GetWindowDisplayAffinity, GetWindowLongPtrW, GetWindowTextW, IsWindowVisible,
+        WDA_EXCLUDEFROMCAPTURE,
     };
 
     let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
@@ -489,7 +556,7 @@ fn pointer_effect_is_a_visible_click_through_overlay() {
 
     let mut rect = windows::Win32::Foundation::RECT::default();
     unsafe { GetWindowRect(effect.hwnd, &mut rect) }.unwrap();
-    let (_, _, expected_size) = pointer_effect_geometry(200, 240);
+    let (_, _, expected_size, _) = pointer_mask_geometry(200, 240);
     assert_eq!(rect.right - rect.left, expected_size);
     assert_eq!(rect.bottom - rect.top, expected_size);
 
@@ -498,9 +565,26 @@ fn pointer_effect_is_a_visible_click_through_overlay() {
         assert_eq!(ex_style & required, required);
     }
 
+    let mut affinity = 0;
+    unsafe { GetWindowDisplayAffinity(effect.hwnd, &mut affinity) }.unwrap();
+    assert_eq!(affinity, WDA_EXCLUDEFROMCAPTURE.0);
+
     let mut caption = [0_u16; 8];
     let length = unsafe { GetWindowTextW(effect.hwnd, &mut caption) } as usize;
     assert_eq!(String::from_utf16_lossy(&caption[..length]), "●");
+}
+
+#[test]
+fn persistent_overlay_layers_stay_hidden_until_their_geometry_is_ready() {
+    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+
+    let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
+    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, true).unwrap();
+    assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
+
+    set_overlay_visible(hwnd, true).unwrap();
+    assert!(unsafe { IsWindowVisible(hwnd) }.as_bool());
+    unsafe { DestroyWindow(hwnd) }.unwrap();
 }
 
 #[test]

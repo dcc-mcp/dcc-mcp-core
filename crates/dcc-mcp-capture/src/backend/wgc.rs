@@ -21,11 +21,14 @@ where
     Fallback: FnOnce(&CaptureConfig) -> CaptureResult<T>,
     Elapsed: FnOnce() -> std::time::Duration,
 {
-    match primary(config) {
+    let timeout_ms = config.timeout_ms.max(1);
+    let fallback_reserve_ms = (timeout_ms / 5).max(1).min(timeout_ms.saturating_sub(1));
+    let mut primary_config = config.clone();
+    primary_config.timeout_ms = timeout_ms.saturating_sub(fallback_reserve_ms).max(1);
+    match primary(&primary_config) {
         Ok(value) => Ok((value, false)),
         Err(error) => {
             tracing::warn!(%error, "WGC window capture failed; falling back to GDI");
-            let timeout_ms = config.timeout_ms.max(1);
             let remaining = std::time::Duration::from_millis(timeout_ms)
                 .checked_sub(elapsed())
                 .filter(|duration| duration.as_millis() > 0)
@@ -156,6 +159,29 @@ mod tests {
 
         assert_eq!(result.unwrap(), ((), true));
         assert_eq!(observed_timeout, Some(63));
+    }
+
+    #[test]
+    fn wgc_timeout_reserves_budget_for_gdi_fallback() {
+        let config = CaptureConfig::builder().timeout_ms(100).build();
+        let mut observed_primary_timeout = None;
+        let mut observed_fallback_timeout = None;
+        let result = capture_with_fallback(
+            &config,
+            |primary_config| {
+                observed_primary_timeout = Some(primary_config.timeout_ms);
+                Err(CaptureError::Timeout(primary_config.timeout_ms))
+            },
+            |fallback_config| {
+                observed_fallback_timeout = Some(fallback_config.timeout_ms);
+                Ok(())
+            },
+            || std::time::Duration::from_millis(80),
+        );
+
+        assert_eq!(result.unwrap(), ((), true));
+        assert_eq!(observed_primary_timeout, Some(80));
+        assert_eq!(observed_fallback_timeout, Some(20));
     }
 
     #[test]
