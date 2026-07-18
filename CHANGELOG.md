@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.58](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.57...v0.19.58) (2026-07-18)
+
+
+### Bug Fixes
+
+* **computer-use:** identify input blockers ([524facd](https://github.com/dcc-mcp/dcc-mcp-core/commit/524facd55a8da758cc8583b539378cae3f9b28b2))
+* **computer-use:** isolate overlay capture and input ([cca1411](https://github.com/dcc-mcp/dcc-mcp-core/commit/cca141187796b1b60a9e0d002370fadc24b4d7c7))
+* **computer-use:** recover from ordinary window occlusion ([090c630](https://github.com/dcc-mcp/dcc-mcp-core/commit/090c63097c12b6a75a7a1ef4e337df3e2a274da9))
+* **computer-use:** smooth scoped control feedback ([941fee1](https://github.com/dcc-mcp/dcc-mcp-core/commit/941fee1972ff34fd96f76ed3b4faae46f08338b2))
+
+
+### Code Refactoring
+
+* **computer-use:** extract window geometry ([fc9b8fa](https://github.com/dcc-mcp/dcc-mcp-core/commit/fc9b8fac1c070334162536638e52d055961f7a3c))
+
 ## [0.19.57](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.56...v0.19.57) (2026-07-18)
 
 
