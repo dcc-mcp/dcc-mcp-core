@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.57](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.56...v0.19.57) (2026-07-18)
+
+
+### Bug Fixes
+
+* **gateway:** refresh cold capability index for batch calls ([#1963](https://github.com/dcc-mcp/dcc-mcp-core/issues/1963)) ([69712b5](https://github.com/dcc-mcp/dcc-mcp-core/commit/69712b5d9bb2982dc50ee666d225982c601b3bd4))
+* improve instance and log diagnostics ([9fddc91](https://github.com/dcc-mcp/dcc-mcp-core/commit/9fddc917f5c9aff6664126a8bcb43060d31dbc58))
+
 ## [0.19.56](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.55...v0.19.56) (2026-07-18)
 
 
