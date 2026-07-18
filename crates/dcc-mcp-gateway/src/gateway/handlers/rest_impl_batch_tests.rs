@@ -10,6 +10,21 @@ async fn spawn_echo_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
             axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
         )
         .route(
+            "/v1/search",
+            axum::routing::post(|| async {
+                axum::Json(json!({
+                    "total": 1,
+                    "hits": [{
+                        "action": "echo",
+                        "skill": "test-skill",
+                        "summary": "Echo test tool",
+                        "has_schema": true,
+                        "loaded": true
+                    }]
+                }))
+            }),
+        )
+        .route(
             "/v1/describe",
             axum::routing::post(move |axum::Json(body): axum::Json<Value>| async move {
                 let slug = body.get("tool_slug").and_then(Value::as_str).unwrap_or("");
@@ -57,6 +72,70 @@ async fn spawn_echo_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     (port, tx)
+}
+
+#[tokio::test]
+async fn gateway_rest_v1_call_batch_refreshes_a_cold_live_instance_index() {
+    let (backend_port, stop_backend) = spawn_echo_backend().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    {
+        let r = registry.read().await;
+        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "127.0.0.1",
+            backend_port,
+        );
+        entry.instance_id = instance_id;
+        r.register(entry).unwrap();
+    }
+
+    let mut gs = test_gateway_state("1.2.3");
+    gs.registry = registry;
+    assert!(gs.capability_index.snapshot().records.is_empty());
+
+    let app = crate::gateway::router::build_gateway_router(gs);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gateway_port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let body: Value = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{gateway_port}/v1/call_batch"))
+        .header("Accept", "application/json")
+        .json(&json!({
+            "calls": [{
+                "id": "first-cold-call",
+                "tool_slug": format!("maya.{instance_id}.echo"),
+                "arguments": {"value": 42}
+            }]
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(body["success"], true, "{body:#}");
+    assert_eq!(body["results"][0]["id"], "first-cold-call");
+    assert_eq!(body["results"][0]["ok"], true, "{body:#}");
+
+    let _ = shutdown_tx.send(());
+    let _ = server.await;
+    let _ = stop_backend.send(());
 }
 
 #[tokio::test]
