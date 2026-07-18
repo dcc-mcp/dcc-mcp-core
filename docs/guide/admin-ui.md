@@ -171,6 +171,9 @@ The Browse tab displays available skill packages in a searchable visual catalog.
 Cards use the package's pinned 16:9 workflow showcase when available, then keep
 the package name, description, DCC actions, version, and tags compact below it.
 The image falls back to the package or DCC icon when no showcase is published.
+Publishers declare one `showcase` file in their repository's `marketplace.json`.
+Repository-relative PNG, JPEG, WebP, AVIF, and animated GIF paths are resolved
+against the entry's immutable 40-character Git revision before display.
 
 Users can filter the catalog by:
 - **Search query**: text search across name, description, and tags.

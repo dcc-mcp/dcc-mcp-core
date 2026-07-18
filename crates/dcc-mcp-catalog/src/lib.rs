@@ -73,7 +73,8 @@ pub struct CatalogEntry {
     /// Icon path or URL (e.g. `"icon.png"` for repo-relative, or an absolute URL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// 16:9 showcase image path relative to the repository root, or an absolute URL.
+    /// 16:9 showcase image or animated GIF path relative to the repository root,
+    /// or an absolute URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub showcase: Option<String>,
 }
@@ -356,7 +357,7 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
         "icon":        { "type": "string" },
         "showcase": {
           "type": "string",
-          "pattern": "^(https?://[^\\s]+|[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*\\.(png|jpg|jpeg|webp|avif))$"
+          "pattern": "^(https?://[^\\s]+|[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*\\.(png|jpg|jpeg|webp|avif|gif))$"
         },
         "install": {
           "type": "object",
@@ -946,6 +947,26 @@ entries:
             Some(
                 "https://raw.githubusercontent.com/dcc-mcp/example/0123456789012345678901234567890123456789/docs/images/showcase.webp"
             )
+        );
+        assert!(validate_entry(&entries[0]).is_ok());
+    }
+
+    #[test]
+    fn test_load_and_validate_entry_with_repo_relative_gif_showcase_passes() {
+        let entries = load_from_str(
+            r#"{
+              "entries": [{
+                "name": "animated-showcase-skill",
+                "description": "A skill with an animated marketplace cover",
+                "showcase": "docs/showcase/procedural-demo.gif"
+              }]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            entries[0].showcase.as_deref(),
+            Some("docs/showcase/procedural-demo.gif")
         );
         assert!(validate_entry(&entries[0]).is_ok());
     }

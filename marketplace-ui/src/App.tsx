@@ -557,6 +557,16 @@ export default function App() {
                 {filteredCatalog.map((entry) => (
                   <div key={entry.name} className="marketplace-card" onClick={() => setDetailEntry(entry)}>
                     <div>
+                      {entry.showcase && (
+                        <img
+                          className="marketplace-card-showcase"
+                          src={entry.showcase}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
                       <div className="marketplace-card-head">
                         {entry.icon ? (
                           <img className="marketplace-card-icon" src={entry.icon} alt={entry.name} />
@@ -744,6 +754,15 @@ export default function App() {
         <div className="modal-backdrop" onClick={() => setDetailEntry(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setDetailEntry(null)}>&times;</button>
+            {detailEntry.showcase && (
+              <img
+                className="marketplace-detail-showcase"
+                src={detailEntry.showcase}
+                alt=""
+                decoding="async"
+                referrerPolicy="no-referrer"
+              />
+            )}
             <h2 className="text-2xl font-bold text-slate-900 mb-4">{detailEntry.name}</h2>
             <div className="space-y-4">
               <div>

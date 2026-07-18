@@ -168,6 +168,19 @@ mod tests {
     }
 
     #[test]
+    fn resolves_animated_showcase_at_pinned_github_revision() {
+        assert_eq!(
+            resolve_catalog_asset_url(
+                Some("docs/showcase/procedural-demo.gif"),
+                Some(&github_install())
+            ),
+            Some(
+                "https://raw.githubusercontent.com/dcc-mcp/dcc-example/0123456789012345678901234567890123456789/docs/showcase/procedural-demo.gif".into()
+            )
+        );
+    }
+
+    #[test]
     fn rejects_catalog_asset_parent_traversal() {
         assert_eq!(
             resolve_catalog_asset_url(Some("../secret.png"), Some(&github_install())),
