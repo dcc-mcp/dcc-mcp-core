@@ -9,7 +9,10 @@ use crate::sidecar::registry::{
     REGISTRATION_REFRESH_MODE_METADATA_KEY, REGISTRY_DIR_METADATA_KEY,
 };
 use dcc_mcp_test_utils::EnvVarGuard;
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{
+    INSTANCE_TYPE_METADATA_KEY, SERVER_BINARY_VERSION_METADATA_KEY, ServiceEntry, ServiceKey,
+    ServiceStatus,
+};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Instant;
@@ -102,6 +105,20 @@ fn sidecar_service_entry_preserves_discovery_endpoint_metadata() {
             .get(DISCOVERY_MCP_URL_METADATA_KEY)
             .map(String::as_str),
         Some("http://127.0.0.1:8765/mcp")
+    );
+    assert_eq!(
+        entry
+            .metadata
+            .get(SERVER_BINARY_VERSION_METADATA_KEY)
+            .map(String::as_str),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(
+        entry
+            .metadata
+            .get(INSTANCE_TYPE_METADATA_KEY)
+            .map(String::as_str),
+        Some("gui")
     );
 }
 

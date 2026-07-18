@@ -3,6 +3,7 @@
   "description": "Live request stream, refreshed every 5s. Rows with a request id are grouped like a run with ordered steps; gateway events without a request id stay in their own event lane.",
   "section.gatewayEvents": "Gateway events",
   "label.request": "Request",
+  "label.serverVersion": "Gateway server version",
   "label.step": "Step {index}",
   "filter.ariaLabel": "Filter logs by severity",
   "filter.all": "All",

@@ -258,8 +258,11 @@ export function useGovernanceQuery(enabled: boolean, limit = 300) {
 export function useLogsQuery(enabled: boolean) {
   return useQuery({
     queryKey: adminKeys.logs(),
-    queryFn: () => apiJson<{ logs?: unknown[] }>('/logs'),
-    select: (payload) => (Array.isArray(payload.logs) ? payload.logs : []),
+    queryFn: () => apiJson<{ logs?: unknown[]; server_version?: unknown }>('/logs'),
+    select: (payload) => ({
+      logs: Array.isArray(payload.logs) ? payload.logs : [],
+      serverVersion: payload.server_version == null ? null : String(payload.server_version),
+    }),
     enabled,
     refetchInterval: enabled ? POLL_INTERVAL_MS : false,
   });

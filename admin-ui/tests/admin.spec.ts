@@ -171,7 +171,9 @@ async function mockAdminApi(page: Page) {
             pid: 4242,
             uptime_secs: 120,
             version: '2026',
+            server_version: '0.19.56',
             adapter_version: '0.5.0',
+            instance_type: 'gui',
             cpu_percent: 3.5,
             memory_bytes: 734003200,
             mcp_url: 'http://localhost:8765/mcp',
@@ -191,7 +193,9 @@ async function mockAdminApi(page: Page) {
             pid: null,
             uptime_secs: null,
             version: null,
+            server_version: null,
             adapter_version: null,
+            instance_type: 'standalone',
             cpu_percent: null,
             memory_bytes: null,
             mcp_url: 'http://127.0.0.1:0/mcp',
@@ -227,8 +231,8 @@ async function mockAdminApi(page: Page) {
           instance_id: instanceId,
           instance_short: 'maya-123',
           binary_name: 'dcc-mcp-server',
-          current_version: '0.5.0',
-          current_version_source: 'adapter_version',
+          current_version: '0.19.56',
+          current_version_source: 'instance_metadata',
           latest_version: '0.18.0',
           update_available: true,
           requires_restart: true,
@@ -1119,6 +1123,7 @@ async function mockAdminApi(page: Page) {
     } else if (path === '/logs') {
       body = {
         total: 1,
+        server_version: '0.19.56',
         logs: [
           {
             timestamp: now,
@@ -1157,7 +1162,8 @@ async function mockAdminApi(page: Page) {
             level: 'debug',
             source: 'file',
             message: 'dispatch cache hit for search_tools',
-            dcc_type: 'gateway',
+            target: 'dcc_mcp_http_server:executor',
+            thread: 'ThreadId(01)',
             instance_id: 'local',
           },
         ],
@@ -1878,6 +1884,10 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.instance-card')).toHaveCount(0);
     await expect(page.locator('.instances-panel')).toContainText('app-type: maya');
     await expect(page.locator('.instances-panel')).toContainText('app-type: blender');
+    await expect(page.locator('.instances-panel')).toContainText('type: gui');
+    await expect(page.locator('.instances-panel')).toContainText('type: standalone');
+    await expect(page.locator('.instances-panel')).toContainText('DCC version');
+    await expect(page.locator('.instances-panel')).toContainText('Server version');
     await expect(page.locator('.instances-panel')).toContainText('Access URL');
     await expect(page.locator('.instances-panel')).toContainText('http://127.0.0.1:8765');
     await expect(page.locator('.instances-panel')).toContainText('Dispatch');
@@ -1908,7 +1918,7 @@ test.describe('Admin Page', () => {
     expect(rowLayout.valueWhiteSpace).toBe('nowrap');
     const mayaRow = page.locator('.instance-row').filter({ hasText: 'Maya Layout' });
     await expect(mayaRow).toContainText('Update');
-    await expect(mayaRow).toContainText('Current version: 0.5.0');
+    await expect(mayaRow).toContainText('Current version: 0.19.56');
     await expect(mayaRow.locator('.instance-update-button')).toHaveAttribute('data-slot', 'button');
     await expect(mayaRow.locator('.instance-update-button')).toContainText('Check update');
     await expect(mayaRow.locator('.instance-update-help')).toContainText('No manual CLI command is required.');
@@ -1968,11 +1978,34 @@ test.describe('Admin Page', () => {
     await expect(panel).toBeVisible();
     await expect(panel).toContainText('访问地址');
     await expect(panel).toContainText('状态');
+    await expect(panel).toContainText('实例类型');
+    await expect(panel).toContainText('服务端版本');
     await expect(panel).toContainText('调度');
     await expect(panel).toContainText('可调用');
     await expect(panel).toContainText('不可调用');
     await expect(panel).toContainText('摘要：在线 1，过期 0，异常 1');
     await expect(panel).not.toContainText('Summary: live');
+  });
+
+  test('keeps DCC, adapter, and server instance metadata distinct', async ({ page }) => {
+    await page.goto('/?panel=instances');
+    const mayaRow = page.locator('.instance-row').filter({ hasText: 'Maya Layout' });
+    const blenderRow = page.locator('.instance-row').filter({ hasText: 'Blender Lookdev' });
+
+    await expect(mayaRow).toContainText('type: gui');
+    await expect(mayaRow).toContainText('DCC version');
+    await expect(mayaRow).toContainText('2026');
+    await expect(mayaRow).toContainText('Server version');
+    await expect(mayaRow).toContainText('0.19.56');
+    await expect(mayaRow).toContainText('Adapter');
+    await expect(mayaRow).toContainText('0.5.0');
+    await expect(mayaRow).toContainText('Current version: 0.19.56');
+    await expect(blenderRow).toContainText('type: standalone');
+    await expect(blenderRow).toContainText('Current version: version unknown');
+
+    await page.getByLabel('Filter current panel').fill('standalone');
+    await expect(page.locator('.instance-row')).toHaveCount(1);
+    await expect(page.locator('.instance-row')).toContainText('Blender Lookdev');
   });
 
   test('keeps instance rows aligned at tablet width', async ({ page }) => {
@@ -2622,6 +2655,7 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Logs' }).click();
     await expect(page.locator('.logs-panel')).toContainText('Request req-123');
+    await expect(page.locator('.logs-panel')).toContainText('Gateway server version: 0.19.56');
     await expect(page.locator('.logs-panel')).toContainText('Step 1: maya-1234__create_sphere');
     await expect(page.locator('.logs-panel')).toContainText('Gateway events');
     await expect(page.locator('.logs-panel')).toContainText('tools/call ok');
@@ -2632,6 +2666,8 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.logs-panel')).not.toContainText('req-123');
     await page.locator('.logs-panel .log-severity-card.severity-debug').click();
     await expect(page.locator('.logs-panel')).toContainText('dispatch cache hit');
+    await expect(page.locator('.logs-panel')).toContainText('dcc_mcp_http_server:executor');
+    await expect(page.locator('.logs-panel')).toContainText('ThreadId(01)');
     await expect(page.locator('.logs-panel')).not.toContainText('tools/call ok');
     await page.getByLabel('Filter current panel').fill('missing');
     await expect(page.locator('.list-search-meta')).toHaveText('0 / 4');

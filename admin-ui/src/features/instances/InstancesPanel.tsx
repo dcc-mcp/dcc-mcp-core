@@ -103,6 +103,7 @@ export function InstancesPanel({
                                 </div>
                                 <div className="instance-subline">
                                   <span>{t('instances.field.appType')} {instance.dcc_type}</span>
+                                  <span>{t('instances.field.instanceType')} {instance.instance_type ?? 'unknown'}</span>
                                   {instance.pid != null ? <span>PID {instance.pid}</span> : null}
                                   {instance.uptime_secs != null ? <span>{formatUptime(instance.uptime_secs)}</span> : null}
                                 </div>
@@ -132,6 +133,10 @@ export function InstancesPanel({
                             <span className="instance-detail-item">
                               <small>{t('instances.field.version')}</small>
                               <strong>{instance.version ?? '-'}</strong>
+                            </span>
+                            <span className="instance-detail-item">
+                              <small>{t('instances.field.serverVersion')}</small>
+                              <strong>{instance.server_version ?? '-'}</strong>
                             </span>
                             <span className="instance-detail-item">
                               <small>{t('instances.field.adapter')}</small>
@@ -237,5 +242,5 @@ export function InstancesPanel({
 }
 
 function instanceUpdateVersion(instance: InstanceRow): string | null {
-  return instance.adapter_version ?? instance.version ?? null;
+  return instance.server_version ?? null;
 }

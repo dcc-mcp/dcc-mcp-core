@@ -23,6 +23,7 @@ type LogsPanelProps = {
   filteredLogs: LogRow[];
   severityCounts: LogSeverityCounts;
   severityFilter: LogSeverityFilter;
+  serverVersion: string | null;
   updatedAt: string;
   error?: string;
   onSeverityFilterChange: (severity: LogSeverityFilter) => void;
@@ -67,7 +68,7 @@ function TimeValue({ value, className }: { value?: string | null; className?: st
 }
 
 function gatewayGroupLabel(log: LogRow): string {
-  return log.dcc_type ?? 'gateway';
+  return log.dcc_type ?? log.target ?? 'gateway';
 }
 
 function StatusLine({ text, error }: { text: string; error?: string }) {
@@ -79,6 +80,7 @@ export function LogsPanel({
   filteredLogs,
   severityCounts,
   severityFilter,
+  serverVersion,
   updatedAt,
   error,
   onSeverityFilterChange,
@@ -95,6 +97,9 @@ export function LogsPanel({
         <div>
           <h2>{t('logs.title')}</h2>
           <p className="empty log-hint">{t('logs.description')}</p>
+          <Badge variant="outline" className="source-pill">
+            {t('logs.label.serverVersion')}: {serverVersion ?? '-'}
+          </Badge>
         </div>
         <Button type="button" size="sm" onClick={onRefresh}>
           <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
@@ -175,6 +180,7 @@ export function LogsPanel({
                           {' '}
                           <SeverityBadge severity={severity} t={t} />
                           {' '}
+                          {log.thread ? <><Badge variant="outline" className="source-pill">{log.thread}</Badge>{' '}</> : null}
                           {log.event ? <span className="log-event">{String(log.event)}</span> : null}
                           {' '}
                           {log.message}

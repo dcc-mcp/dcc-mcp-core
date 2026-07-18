@@ -216,8 +216,12 @@ def build_mcp_http_config(
         config.scene = gateway.scene
 
     config.dcc_type = options.dcc_name
-    config.instance_metadata = collect_context_metadata_from_env(options.dcc_name)
-    config.standalone_main_thread_execution = resolve_execution_binding(options.execution.mode).standalone_main_thread
+    execution = resolve_execution_binding(options.execution.mode)
+    instance_metadata = collect_context_metadata_from_env(options.dcc_name)
+    instance_metadata["dcc_mcp_server_version"] = str(config.server_version)
+    instance_metadata["dcc_mcp_instance_type"] = "standalone" if execution.standalone_main_thread else "gui"
+    config.instance_metadata = instance_metadata
+    config.standalone_main_thread_execution = execution.standalone_main_thread
     apply_tools_list_stub_policy(config, options.dcc_name)
     return config
 

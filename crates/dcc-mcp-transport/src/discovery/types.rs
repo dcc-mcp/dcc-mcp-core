@@ -89,6 +89,13 @@ pub const GATEWAY_SENTINEL_DCC_TYPE: &str = "__gateway__";
 /// package version).
 pub const SERVER_BINARY_VERSION_METADATA_KEY: &str = "dcc_mcp_server_version";
 
+/// Metadata key describing whether a backend runs as a standalone process or
+/// is attached to a GUI DCC host.
+///
+/// Producers should publish either `"standalone"` or `"gui"`. Consumers must
+/// preserve unknown values for forward compatibility.
+pub const INSTANCE_TYPE_METADATA_KEY: &str = "dcc_mcp_instance_type";
+
 /// Status of a discovered DCC service instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

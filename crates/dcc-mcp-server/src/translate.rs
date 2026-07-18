@@ -105,6 +105,14 @@ fn stamp_translate_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &Tra
     let runtime_mode = translate_gateway_runtime_mode(args);
     let guardian_enabled = translate_gateway_guardian_enabled(args);
     entry.metadata.insert(
+        dcc_mcp_transport::discovery::types::SERVER_BINARY_VERSION_METADATA_KEY.to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+    entry.metadata.insert(
+        dcc_mcp_transport::discovery::types::INSTANCE_TYPE_METADATA_KEY.to_string(),
+        "standalone".to_string(),
+    );
+    entry.metadata.insert(
         crate::GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),
         runtime_mode.to_string(),
     );
@@ -977,6 +985,20 @@ mod tests {
                 .get(crate::REGISTRATION_REFRESH_MODE_METADATA_KEY)
                 .map(String::as_str),
             Some(crate::REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT)
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(dcc_mcp_transport::discovery::types::SERVER_BINARY_VERSION_METADATA_KEY)
+                .map(String::as_str),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get(dcc_mcp_transport::discovery::types::INSTANCE_TYPE_METADATA_KEY)
+                .map(String::as_str),
+            Some("standalone")
         );
 
         args.gateway_port = 0;

@@ -28,18 +28,26 @@ pub fn parse_gateway_file_log_line(line: &str) -> Option<Value> {
     if rest.is_empty() {
         return None;
     }
-    let (target, message) = if let Some(idx) = rest.find(':') {
-        (&rest[..idx], rest[idx + 1..].trim())
-    } else {
-        ("", rest.as_str())
-    };
+    let (thread, body) = rest
+        .split_once(' ')
+        .filter(|(prefix, _)| prefix.starts_with("ThreadId("))
+        .map_or((None, rest.as_str()), |(prefix, body)| {
+            (Some(prefix), body.trim())
+        });
+    let (target, message) = body
+        .split_once(": ")
+        .map_or((None, body), |(target, message)| {
+            (Some(target.trim()), message.trim())
+        });
     Some(json!({
         "timestamp": ts,
         "level": level,
         "message": message,
         "source": "file",
         "event": null,
-        "dcc_type": if target.is_empty() { None } else { Some(target) },
+        "target": target,
+        "thread": thread,
+        "dcc_type": null,
         "instance_id": null,
         "request_id": null,
         "tool": null,
@@ -144,7 +152,8 @@ mod tests {
         assert_eq!(v["timestamp"], "2026-05-16T12:00:00.000000Z");
         assert_eq!(v["level"], "info");
         assert_eq!(v["message"], "hello admin");
-        assert_eq!(v["dcc_type"], "dcc_mcp_test");
+        assert_eq!(v["target"], "dcc_mcp_test");
+        assert!(v["dcc_type"].is_null());
         assert_eq!(v["success"], true);
     }
 
@@ -154,7 +163,16 @@ mod tests {
         let v = parse_gateway_file_log_line(line).expect("parsable");
         assert_eq!(v["level"], "info");
         assert_eq!(v["message"], "Registered");
-        assert_eq!(v["dcc_type"], "dcc_mcp_gateway");
+        assert_eq!(v["target"], "dcc_mcp_gateway");
+    }
+
+    #[test]
+    fn tracing_thread_prefix_is_separate_from_target() {
+        let line = "2026-07-18T23:38:03.000000Z ERROR ThreadId(01) dcc_mcp_http_server:executor: deferred tool spent > 50 ms";
+        let v = parse_gateway_file_log_line(line).expect("parsable");
+        assert_eq!(v["thread"], "ThreadId(01)");
+        assert_eq!(v["target"], "dcc_mcp_http_server:executor");
+        assert_eq!(v["message"], "deferred tool spent > 50 ms");
     }
 
     #[test]
@@ -199,10 +217,11 @@ mod tests {
     }
 
     #[test]
-    fn no_colon_target_yields_empty_dcc_type() {
+    fn no_colon_target_yields_empty_target() {
         let line = "2026-05-16T12:00:00.000000Z INFO message without colon target";
         let v = parse_gateway_file_log_line(line).expect("parsable");
         assert!(v["dcc_type"].is_null());
+        assert!(v["target"].is_null());
         assert_eq!(v["message"], "message without colon target");
     }
 

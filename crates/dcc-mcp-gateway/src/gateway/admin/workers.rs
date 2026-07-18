@@ -19,7 +19,9 @@ use serde_json::{Value, json};
 
 use crate::gateway::http_registration::{MCP_URL_METADATA_KEY, entry_mcp_url};
 use crate::gateway::state::GatewayState;
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{
+    INSTANCE_TYPE_METADATA_KEY, ServiceEntry, ServiceStatus,
+};
 
 const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
 const DISPATCH_READY_AT_UNIX_METADATA_KEY: &str = "dispatch_ready_at_unix";
@@ -34,6 +36,8 @@ const GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN: &str = "daemon_guardian";
 const GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION: &str = "embedded_election";
 const GATEWAY_RECOVERY_DRIVER_NONE: &str = "none";
 const REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT: &str = "file_registry_heartbeat";
+const ROLE_METADATA_KEY: &str = "dcc_mcp_role";
+const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 
 fn metadata_text(e: &ServiceEntry, key: &str) -> Option<String> {
     e.metadata
@@ -50,6 +54,20 @@ fn metadata_bool(e: &ServiceEntry, key: &str) -> bool {
         .map(String::as_str)
         .map(str::trim)
         .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+}
+
+fn instance_type(e: &ServiceEntry) -> String {
+    metadata_text(e, INSTANCE_TYPE_METADATA_KEY).unwrap_or_else(|| {
+        if metadata_text(e, ROLE_METADATA_KEY).as_deref() == Some(ROLE_PER_DCC_SIDECAR)
+            || e.adapter_version.is_some()
+        {
+            "gui".to_string()
+        } else if super::update::instance_server_binary_version(e).is_some() {
+            "standalone".to_string()
+        } else {
+            "unknown".to_string()
+        }
+    })
 }
 
 fn gateway_recovery_driver(
@@ -109,6 +127,8 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         gateway_recovery_driver(e, gateway_runtime_mode.as_deref(), gateway_guardian_enabled);
     let registration_refresh_mode = metadata_text(e, REGISTRATION_REFRESH_MODE_METADATA_KEY)
         .unwrap_or_else(|| REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT.to_string());
+    let server_version =
+        super::update::instance_server_binary_version(e).map(|(version, _)| version);
 
     json!({
         "instance_id":          e.instance_id.to_string(),
@@ -124,7 +144,9 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         "registered_at_unix":   registered_secs,
         "last_heartbeat_unix":  last_heartbeat_secs,
         "version":              e.version,
+        "server_version":       server_version,
         "adapter_version":      e.adapter_version,
+        "instance_type":        instance_type(e),
         "adapter_dcc":          e.adapter_dcc,
         "scene":                e.scene,
         "failure_reason":       e.metadata.get("failure_reason").cloned(),
@@ -190,4 +212,38 @@ pub async fn build_workers_payload(gs: &GatewayState) -> Value {
         },
         "workers": workers,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcc_mcp_transport::discovery::types::SERVER_BINARY_VERSION_METADATA_KEY;
+
+    #[test]
+    fn instance_type_prefers_explicit_metadata() {
+        let mut entry = ServiceEntry::new("houdini", "127.0.0.1", 18812);
+        entry.metadata.insert(
+            INSTANCE_TYPE_METADATA_KEY.to_string(),
+            "standalone".to_string(),
+        );
+
+        assert_eq!(instance_type(&entry), "standalone");
+    }
+
+    #[test]
+    fn instance_type_recovers_legacy_gui_and_standalone_rows() {
+        let mut gui = ServiceEntry::new("maya", "127.0.0.1", 18813);
+        gui.metadata.insert(
+            ROLE_METADATA_KEY.to_string(),
+            ROLE_PER_DCC_SIDECAR.to_string(),
+        );
+        let mut standalone = ServiceEntry::new("houdini", "127.0.0.1", 18814);
+        standalone.metadata.insert(
+            SERVER_BINARY_VERSION_METADATA_KEY.to_string(),
+            "0.19.56".to_string(),
+        );
+
+        assert_eq!(instance_type(&gui), "gui");
+        assert_eq!(instance_type(&standalone), "standalone");
+    }
 }
