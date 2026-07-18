@@ -882,7 +882,9 @@ export type InstanceRow = {
   port?: number;
   uptime_secs: number | null;
   version: string | null;
+  server_version: string | null;
   adapter_version: string | null;
+  instance_type: string | null;
   cpu_percent: number | null;
   memory_bytes: number | null;
   mcp_url: string;

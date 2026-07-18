@@ -86,7 +86,9 @@ use dcc_mcp_skills::constants::resolve_registry_dcc_type;
 #[cfg(feature = "gateway-auto")]
 use dcc_mcp_skills::constants::{ENV_SKILL_PATHS, app_skill_paths_env_key};
 #[cfg(feature = "gateway-auto")]
-use dcc_mcp_transport::discovery::types::{SERVER_BINARY_VERSION_METADATA_KEY, ServiceEntry};
+use dcc_mcp_transport::discovery::types::{
+    INSTANCE_TYPE_METADATA_KEY, SERVER_BINARY_VERSION_METADATA_KEY, ServiceEntry,
+};
 #[cfg(feature = "telemetry")]
 use serde::Deserialize;
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -380,6 +382,10 @@ fn stamp_server_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &Server
     entry.metadata.insert(
         SERVER_BINARY_VERSION_METADATA_KEY.to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
+    );
+    entry.metadata.insert(
+        INSTANCE_TYPE_METADATA_KEY.to_string(),
+        "standalone".to_string(),
     );
     entry.metadata.insert(
         GATEWAY_RUNTIME_MODE_METADATA_KEY.to_string(),

@@ -8,6 +8,8 @@ export type LogRow = {
   level: string;
   message: string;
   source?: string;
+  target?: string;
+  thread?: string;
   event?: string;
   dcc_type?: string;
   instance_id?: string | null;
@@ -44,6 +46,8 @@ export function normalizeLogRow(raw: unknown): LogRow {
     level: String(o.level ?? o.severity ?? ''),
     message: String(o.message ?? ''),
     source: o.source != null ? String(o.source) : undefined,
+    target: o.target != null ? String(o.target) : undefined,
+    thread: o.thread != null ? String(o.thread) : undefined,
     event: o.event != null ? String(o.event) : undefined,
     dcc_type: o.dcc_type != null ? String(o.dcc_type) : undefined,
     instance_id:
@@ -170,6 +174,8 @@ export function filterLogs(rows: LogRow[], query: string, severity: LogSeverityF
       rowSeverity,
       row.message,
       row.source ?? '',
+      row.target ?? '',
+      row.thread ?? '',
       row.event != null ? String(row.event) : '',
       row.dcc_type ?? '',
       row.instance_id != null ? String(row.instance_id) : '',

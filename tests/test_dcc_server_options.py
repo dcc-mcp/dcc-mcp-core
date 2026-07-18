@@ -204,6 +204,8 @@ class TestResolvedServerConfig:
         assert config.scene == "C:/scene.psd"
         assert config.dcc_type == "photoshop"
         assert config.standalone_main_thread_execution is False
+        assert config.instance_metadata["dcc_mcp_server_version"] == "9.9.9"
+        assert config.instance_metadata["dcc_mcp_instance_type"] == "gui"
 
     def test_build_mcp_http_config_propagates_standalone_main_thread(self, tmp_path):
         opts = DccServerOptions.from_env(
@@ -220,6 +222,8 @@ class TestResolvedServerConfig:
         )
 
         assert config.standalone_main_thread_execution is True
+        assert config.instance_metadata["dcc_mcp_server_version"] == "9.9.9"
+        assert config.instance_metadata["dcc_mcp_instance_type"] == "standalone"
 
 
 # ── DiagnosticsOptions ────────────────────────────────────────────────────────

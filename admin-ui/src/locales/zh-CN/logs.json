@@ -3,6 +3,7 @@
   "description": "实时请求流每 5 秒刷新。带请求 ID 的行会像一次运行一样按步骤分组；没有请求 ID 的网关事件保留在独立事件 lane 中。",
   "section.gatewayEvents": "网关事件",
   "label.request": "请求",
+  "label.serverVersion": "网关服务端版本",
   "label.step": "步骤 {index}",
   "filter.ariaLabel": "按严重级别筛选日志",
   "filter.all": "全部",

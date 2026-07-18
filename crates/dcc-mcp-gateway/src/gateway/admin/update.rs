@@ -37,7 +37,9 @@ pub(super) fn admin_instance_update_version(
     AdminInstanceUpdateVersion::MissingCurrentVersion
 }
 
-fn instance_server_binary_version(instance: &ServiceEntry) -> Option<(String, &'static str)> {
+pub(super) fn instance_server_binary_version(
+    instance: &ServiceEntry,
+) -> Option<(String, &'static str)> {
     const SERVER_VERSION_KEYS: [&str; 3] = [
         SERVER_BINARY_VERSION_METADATA_KEY,
         "server_binary_version",

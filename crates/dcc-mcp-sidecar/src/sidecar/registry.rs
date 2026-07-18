@@ -3,7 +3,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{
+    INSTANCE_TYPE_METADATA_KEY, SERVER_BINARY_VERSION_METADATA_KEY, ServiceEntry, ServiceKey,
+    ServiceStatus,
+};
 
 use super::SidecarArgs;
 use super::gateway::{sidecar_gateway_guardian_enabled, sidecar_gateway_runtime_mode};
@@ -234,6 +237,13 @@ pub(crate) fn build_service_entry(args: &SidecarArgs, registry_dir: &Path) -> Se
         ROLE_METADATA_KEY.to_string(),
         ROLE_PER_DCC_SIDECAR.to_string(),
     );
+    entry.metadata.insert(
+        SERVER_BINARY_VERSION_METADATA_KEY.to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+    entry
+        .metadata
+        .insert(INSTANCE_TYPE_METADATA_KEY.to_string(), "gui".to_string());
     entry
         .metadata
         .insert(HOST_RPC_URI_METADATA_KEY.to_string(), args.host_rpc.clone());

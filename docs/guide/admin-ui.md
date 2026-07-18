@@ -69,6 +69,17 @@ let config = GatewayConfig {
 
 When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `dcc-mcp-http` and the shipped server binary enable this for their embedded gateway path.
 
+## Instance and Log Version Diagnostics
+
+The Instances panel keeps the DCC application, adapter, and core server
+versions separate. It also shows `gui`, `standalone`, or `unknown` for the
+registered runtime shape; update checks use only the core server version and
+never fall back to the DCC or adapter version.
+
+The Logs panel shows the gateway server version for regression triage. File-log
+rows keep tracing `ThreadId(...)` context separate from the Rust target so the
+group heading identifies the emitting module instead of the worker thread.
+
 ## Locale Detection
 
 The embedded Admin UI includes a small in-bundle i18n runtime. It reads

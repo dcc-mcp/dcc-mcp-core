@@ -149,7 +149,7 @@ function App() {
   const traffic = trafficQuery.data ?? null;
   const stats = statsQuery.data ?? null;
   const governance = governanceQuery.data ?? null;
-  const logs = useMemo(() => (logsQuery.data ?? []).map(normalizeLogRow), [logsQuery.data]);
+  const logs = useMemo(() => (logsQuery.data?.logs ?? []).map(normalizeLogRow), [logsQuery.data]);
   const instanceRows = workersQuery.data?.workers ?? [];
   const instanceSummary: InstanceSummary = workersQuery.data?.summary ?? { live: 0, stale: 0, unhealthy: 0 };
   const openApiSpec = openApiQuery.data?.spec ?? null;
@@ -529,7 +529,9 @@ function App() {
           w.status,
           w.mcp_url,
           w.version ?? '',
+          w.server_version ?? '',
           w.adapter_version ?? '',
+          w.instance_type ?? '',
           String(w.pid ?? ''),
           w.scene ?? '',
         ),
@@ -1785,6 +1787,7 @@ function App() {
           <LogsPanel
             logs={logs}
             filteredLogs={filteredLogs}
+            serverVersion={logsQuery.data?.serverVersion ?? null}
             severityCounts={logSeverityCounts}
             severityFilter={logSeverityFilter}
             updatedAt={updatedAt.logs}

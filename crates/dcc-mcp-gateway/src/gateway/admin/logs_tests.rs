@@ -194,6 +194,7 @@ async fn test_admin_logs_returns_json_array() {
     let _no_disk = ScopedNoDiskLogsDir::new();
     let (status, body) = body_json(admin_router(), "/api/logs").await;
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["server_version"], "0.0.0-test");
     assert!(body["logs"].is_array(), "expected 'logs' array, got {body}");
 }
 

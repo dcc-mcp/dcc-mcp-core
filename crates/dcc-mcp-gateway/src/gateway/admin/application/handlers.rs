@@ -893,7 +893,11 @@ pub async fn handle_admin_logs(
     });
     logs.truncate(limit);
 
-    Json(json!({ "total": logs.len(), "logs": logs }))
+    Json(json!({
+        "total": logs.len(),
+        "server_version": s.gateway.server_version,
+        "logs": logs,
+    }))
 }
 
 /// `GET /admin/api/health` — service health summary.

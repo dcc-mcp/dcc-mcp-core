@@ -3,6 +3,7 @@
   "description": "실시간 요청 스트림은 5초마다 새로 고칩니다. 요청 ID가 있는 행은 순서가 있는 단계처럼 그룹화되고, 요청 ID가 없는 게이트웨이 이벤트는 별도 이벤트 레인에 남습니다.",
   "section.gatewayEvents": "게이트웨이 이벤트",
   "label.request": "요청",
+  "label.serverVersion": "게이트웨이 서버 버전",
   "label.step": "단계 {index}",
   "filter.ariaLabel": "심각도로 로그 필터",
   "filter.all": "전체",
