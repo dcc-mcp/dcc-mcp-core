@@ -308,7 +308,10 @@ fn ensure_point_targets_window(
     if hit_process_id != process_id {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::InvalidTarget,
-            "the requested pointer coordinate is occluded by another process",
+            format!(
+                "the requested pointer coordinate is occluded by {}",
+                input_blocker_identity(hit)
+            ),
         ));
     }
     let hit_root = unsafe { GetAncestor(hit, GA_ROOT) };
