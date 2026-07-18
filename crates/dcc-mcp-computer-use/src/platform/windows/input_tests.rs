@@ -853,6 +853,19 @@ fn protected_system_ui_is_not_eligible_for_transient_occlusion_recovery() {
 }
 
 #[test]
+fn focus_recovery_policy_allows_only_ordinary_cross_process_blockers() {
+    assert!(focus_recovery_allowed(100, 200, "ChatGPT.exe", "Chrome_WidgetWin_1",).unwrap());
+
+    let same_process =
+        focus_recovery_allowed(100, 100, "Nuke15.2.exe", "Qt5152QWindowIcon").unwrap_err();
+    assert_eq!(same_process.code, ComputerUseErrorCode::FocusLost);
+
+    let protected =
+        focus_recovery_allowed(100, 200, "PickerHost.exe", "Shell_SystemDialog").unwrap_err();
+    assert_eq!(protected.code, ComputerUseErrorCode::InvalidTarget);
+}
+
+#[test]
 fn minimized_window_is_identity_checked_then_restored_for_input() {
     use windows::Win32::System::Threading::GetCurrentProcessId;
     use windows::Win32::UI::WindowsAndMessaging::SW_MINIMIZE;
