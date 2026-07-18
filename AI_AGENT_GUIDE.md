@@ -117,17 +117,22 @@ confirmation and none is available, stop; do not use another automation path.
 ### Default Agent Path: CLI+REST
 
 ```bash
-# 1. Ensure gateway is running
-dcc-mcp-cli gateway ensure
+# 0. Inspect catalog-backed DCC identifiers when support is unclear
+dcc-mcp-cli dcc-types
+
+# 1. Select a live instance; local list auto-ensures the loopback gateway
+dcc-mcp-cli list
 
 # 2. Search for tools
 dcc-mcp-cli search --query "create sphere" --dcc-type maya
 
 # 3. Inspect a tool schema
-dcc-mcp-cli describe --tool-slug maya.a1b2c3d4.create_sphere
+dcc-mcp-cli describe maya.a1b2c3d4.create_sphere
 
 # 4. Call the tool
-dcc-mcp-cli call --tool-slug maya.a1b2c3d4.create_sphere --arguments '{"radius": 2.0}'
+dcc-mcp-cli call maya.a1b2c3d4.create_sphere \
+  --json '{"radius": 2.0}' \
+  --meta-json '{"agent_context":{"session_id":"task-42"}}'
 
 # 5. Batch calls
 dcc-mcp-cli call --batch --steps '[
@@ -137,6 +142,14 @@ dcc-mcp-cli call --batch --steps '[
 ```
 
 Use the `dcc-mcp` skill to wrap these CLI calls as structured MCP tools in your agent runtime. This is the recommended pattern for all agent integrations.
+
+`dcc-types` reads the release catalog without starting a gateway; it reports
+adapter-backed identifiers such as `godot` and `renderdoc`, while `list` reports
+live sessions. After the task passes its acceptance checks, query bounded
+evidence with `dcc-mcp-cli stats --range 24h --session-id task-42`, then use the
+`review_skill_improvement` prompt from `dcc-mcp-skills-creator`. Treat zero calls
+as missing evidence, never send raw prompts or secrets, and prefer no change or
+an existing-skill update over creating another skill.
 
 ### Quick Start: Skills (Python API)
 

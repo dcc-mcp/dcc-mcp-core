@@ -35,6 +35,8 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 
 | Command | Purpose |
 |---------|---------|
+| `dcc-mcp-cli dcc-types` | List adapter-backed DCC identifiers from the bundled release catalog without starting a gateway |
+| `dcc-mcp-cli dcc-types --catalog path/to/catalog.yml` | Inspect a studio or test catalog through the same typed contract |
 | `dcc-mcp-cli list` | Ensure the local loopback gateway, then list local DCC instances from the FileRegistry |
 | `dcc-mcp-cli doctor` | Report profile, registry, local inventory, direct-control readiness counts, gateway daemon status, and server binary diagnostics without launching services |
 | `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Search local instances directly through MCP in the `local` profile |
@@ -55,8 +57,27 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 |---------|---------|
 | `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Find tools |
 | `dcc-mcp-cli describe <slug>` | Inspect schema |
-| `dcc-mcp-cli call <slug> --json '{"radius":2}'` | Invoke one tool |
-| `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42"}'` | Invoke a tool on an instance leased by this workflow |
+| `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"agent_context":{"session_id":"task-42"}}'` | Invoke one tool with a stable task-scoped stats identifier |
+| `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42","agent_context":{"session_id":"task-42"}}'` | Invoke a tool on an instance leased by this workflow |
+
+`dcc-types` reports the release catalog, not running instances. Entries include
+their canonical `dcc_type`, adapters, version/source data when available, and
+`catalog_install_available`. Unknown/custom DCC identifiers remain valid at the
+core boundary even when no catalog install plan exists.
+
+## Post-task evidence
+
+After acceptance, query only the task scope:
+
+```bash
+dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+```
+
+Gateway stats are aggregate evidence and may not include direct local calls. A
+`total_calls` value of `0` means there is no telemetry evidence. Feed the JSON
+plus bounded task and validation summaries to the `review_skill_improvement`
+prompt in `dcc-mcp-skills-creator`; do not include raw prompts, secrets, private
+paths, or full tool payloads.
 
 ## Install and marketplace
 

@@ -65,7 +65,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
 
     assert_eq!(plan["dcc_type"], "maya");
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
-    assert_eq!(plan["adapter"]["min_core_version"], "0.18.20");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.19.45");
     assert_eq!(plan["steps"][0]["name"], "install-pip");
     assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
     assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-maya");

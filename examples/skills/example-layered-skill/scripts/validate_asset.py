@@ -6,12 +6,7 @@ See ``create_asset.py`` for the layering rationale.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
-
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from services.asset_service import AssetError
 from services.asset_service import AssetNotFound

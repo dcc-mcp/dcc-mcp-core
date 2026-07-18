@@ -1520,6 +1520,18 @@ fn search_and_load_skill_decode_json_when_gateway_defaults_to_compact() {
 }
 
 #[test]
+fn dcc_types_lists_release_catalog_without_a_gateway() {
+    let value = run_json(&["dcc-types"]);
+
+    assert_eq!(value["custom_types_supported"], true);
+    let types = value["dcc_types"].as_array().unwrap();
+    assert_eq!(types.len(), 18);
+    for expected in ["godot", "openusd", "renderdoc", "shotgrid"] {
+        assert!(types.iter().any(|entry| entry["dcc_type"] == expected));
+    }
+}
+
+#[test]
 fn pretty_list_shows_gateway_owner_and_candidates() {
     let fixture = spawn_gateway_fixture();
 

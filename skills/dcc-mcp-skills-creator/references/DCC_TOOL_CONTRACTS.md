@@ -19,6 +19,32 @@ permissive `{"type": "object"}` instead of importing or executing the script.
 If you derive schemas from Python annotations, do it while authoring and write
 the result into `tools.yaml`.
 
+## Sibling Imports
+
+Import same-directory helpers directly, for example:
+
+```python
+from _material_common import get_node
+```
+
+Do not mutate global import state inside a skill script:
+
+```python
+# Invalid: do not change sys.path inside skill scripts.
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+```
+
+Do not copy the historical path-insertion pattern shown in
+[dcc-mcp-houdini PR #157, lines 11-13](https://github.com/dcc-mcp/dcc-mcp-houdini/pull/157/changes#diff-20f6c4a5b206da54475e771ac54351c25975cbcb533595f074c7f26d07ad09a2R11-R13).
+It is an explicit example of what a Skill script must not do.
+
+The in-process runner temporarily exposes the executing script directory for
+the call. If another runner cannot resolve a sibling import, fix that shared
+runner contract instead of adding `sys.path.insert()` or `sys.path.append()` to
+every script.
+
 ## Recovery Chains
 
 Domain tools should include `next-tools.on-failure` entries that point to

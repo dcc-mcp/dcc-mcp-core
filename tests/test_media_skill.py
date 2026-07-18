@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib.util
 import json
 from pathlib import Path
@@ -16,12 +17,26 @@ _COMMON = _SKILL_DIR / "scripts" / "_media_common.py"
 _SEQUENCE_SCRIPT = _SKILL_DIR / "scripts" / "sequence_to_mp4.py"
 
 
+@contextmanager
+def _skill_script_import_context(script_path: Path):
+    script_dir = str(script_path.resolve().parent)
+    owns_path = script_dir not in sys.path
+    if owns_path:
+        sys.path.insert(0, script_dir)
+    try:
+        yield
+    finally:
+        if owns_path and script_dir in sys.path:
+            sys.path.remove(script_dir)
+
+
 @pytest.fixture()
 def media_common():
     spec = importlib.util.spec_from_file_location("_media_common_under_test", _COMMON)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    spec.loader.exec_module(module)
+    with _skill_script_import_context(_COMMON):
+        spec.loader.exec_module(module)
     return module
 
 
@@ -335,11 +350,15 @@ def test_download_and_install_vx_runs_installer_and_returns_installed_path(media
     assert installer_calls == [["installer"]]
 
 
-def test_sequence_entrypoint_import_resolves_sibling_modules():
+def test_sequence_entrypoint_import_resolves_sibling_modules_through_runner_context():
+    source = _SEQUENCE_SCRIPT.read_text(encoding="utf-8")
+    assert "sys.path.insert" not in source
+    assert "sys.path.append" not in source
     spec = importlib.util.spec_from_file_location("_sequence_entrypoint_under_test", _SEQUENCE_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    spec.loader.exec_module(module)
+    with _skill_script_import_context(_SEQUENCE_SCRIPT):
+        spec.loader.exec_module(module)
     assert callable(module.main)
 
 

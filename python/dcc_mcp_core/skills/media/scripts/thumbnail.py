@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
-from _media_common import emit  # noqa: E402
-from _media_common import read_params  # noqa: E402
-from _media_common import run_tool  # noqa: E402
-from _media_common import thumbnail  # noqa: E402
+from _media_common import emit
+from _media_common import read_params
+from _media_common import run_tool
+from _media_common import thumbnail
 
 
 def main(**params):

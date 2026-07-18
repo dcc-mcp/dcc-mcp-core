@@ -12,10 +12,11 @@
 
 **Rust-first control plane for connecting AI agents to live DCC sessions.**
 
-dcc-mcp-core turns Maya, Blender, Houdini, Photoshop, and custom studio hosts
-into discoverable MCP and REST capabilities. It provides the gateway, skills,
-structured results, main-thread dispatch, diagnostics, IPC, workflows, and
-packaged CLI/server binaries needed to operate real desktop sessions.
+dcc-mcp-core turns Maya, Blender, Houdini, Photoshop, Godot, RenderDoc, and
+custom studio hosts into discoverable MCP and REST capabilities. It provides
+the gateway, skills, structured results, main-thread dispatch, diagnostics,
+IPC, workflows, and packaged CLI/server binaries needed to operate real
+desktop sessions.
 
 ## Choose your entry point
 
@@ -33,7 +34,8 @@ packaged CLI/server binaries needed to operate real desktop sessions.
 The default agent path is CLI + REST:
 
 ~~~text
-dcc-mcp-cli list
+dcc-mcp-cli dcc-types (when adapter support is unclear)
+  -> list
   -> search
   -> describe
   -> load-skill (only when needed)
@@ -71,11 +73,17 @@ powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/s
 Then discover a live capability before calling it:
 
 ~~~bash
+dcc-mcp-cli dcc-types
 dcc-mcp-cli list
 dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
 dcc-mcp-cli describe <tool-slug>
-dcc-mcp-cli call <tool-slug> --json '{"radius": 2.0}'
+dcc-mcp-cli call <tool-slug> --json '{"radius": 2.0}' \
+  --meta-json '{"agent_context":{"session_id":"task-42"}}'
 ~~~
+
+`dcc-types` is an offline, catalog-backed capability query. It reports
+canonical adapter identifiers and install-plan availability; `list` remains
+the source of truth for live instances.
 
 Replace the placeholder with the slug returned by search. For remote workstations,
 register a gateway profile and select it:
@@ -89,6 +97,14 @@ dcc-mcp-cli list
 Use dcc-mcp-cli doctor when startup or readiness is unclear. Open the local
 Admin UI at [http://127.0.0.1:9765/admin](http://127.0.0.1:9765/admin) after the
 gateway is available.
+
+After a task is accepted, agents can inspect bounded gateway evidence with
+`dcc-mcp-cli stats --range 24h --session-id task-42`. A zero call count means
+no telemetry evidence, and direct local calls may not be represented. Feed the
+result plus short task and validation summaries to the
+[`review_skill_improvement` prompt](skills/dcc-mcp-skills-creator/prompts.yaml).
+The prompt defaults to no change, prefers improving an existing skill, and
+never grants authority to edit or publish outside the task scope.
 
 ## Quick start: expose skills from Python
 

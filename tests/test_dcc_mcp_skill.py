@@ -55,7 +55,7 @@ class TestDccMcpSkill:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None
         desc = (meta.description or "").lower()
-        for keyword in ("maya", "blender", "houdini", "photoshop"):
+        for keyword in ("maya", "blender", "houdini", "photoshop", "godot", "renderdoc"):
             assert keyword in desc
         assert "use this skill first" in desc
 
@@ -68,6 +68,9 @@ class TestDccMcpSkill:
         assert "prefer structured dcc-mcp tools" in body
         assert "mcp-native host" in body
         assert "call the gateway/dcc structured tools directly" in body
+        assert "dcc-mcp-cli dcc-types" in body
+        assert "dcc-mcp-cli stats" in body
+        assert "review_skill_improvement" in body
         assert "do not use this skill" not in body
 
     def test_openclaw_metadata_does_not_require_gateway_env(self) -> None:

@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use dcc_mcp_models::DccName;
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::domain::install::{
@@ -28,6 +31,29 @@ pub enum InstallError {
     RollbackFailed { step: String, message: String },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DccTypesCatalog {
+    pub total: usize,
+    pub dcc_types: Vec<DccTypeSummary>,
+    pub custom_types_supported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DccTypeSummary {
+    pub dcc_type: String,
+    pub adapters: Vec<DccAdapterSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DccAdapterSummary {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub catalog_install_available: bool,
 }
 
 /// Result of a single executed step with optional rollback data.
@@ -76,6 +102,50 @@ impl InstallService {
         let entries = self.load_entries(request.catalog_path.as_deref())?;
         let plan = InstallPlanner::plan(&entries, request)?;
         Ok(self.apply_auto_install_policy(plan))
+    }
+
+    /// List adapter-backed DCC types from the same catalog used by `install`.
+    pub fn dcc_types(&self, catalog_path: Option<&Path>) -> Result<DccTypesCatalog, InstallError> {
+        let entries = self.load_entries(catalog_path)?;
+        let mut grouped: BTreeMap<String, BTreeMap<String, DccAdapterSummary>> = BTreeMap::new();
+
+        for entry in entries.iter().filter(|entry| {
+            entry
+                .tags
+                .iter()
+                .any(|tag| tag.eq_ignore_ascii_case("adapter"))
+        }) {
+            let adapter = DccAdapterSummary {
+                name: entry.name.clone(),
+                version: entry.version.clone(),
+                url: entry.url.clone(),
+                catalog_install_available: entry.install.is_some(),
+            };
+            for dcc_type in &entry.dcc {
+                let canonical = DccName::parse(dcc_type).to_string();
+                if canonical.is_empty() {
+                    continue;
+                }
+                grouped
+                    .entry(canonical)
+                    .or_default()
+                    .insert(adapter.name.clone(), adapter.clone());
+            }
+        }
+
+        let dcc_types = grouped
+            .into_iter()
+            .map(|(dcc_type, adapters)| DccTypeSummary {
+                dcc_type,
+                adapters: adapters.into_values().collect(),
+            })
+            .collect::<Vec<_>>();
+
+        Ok(DccTypesCatalog {
+            total: dcc_types.len(),
+            dcc_types,
+            custom_types_supported: true,
+        })
     }
 
     /// Generate and execute an install plan with user consent.
@@ -644,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_catalog_keeps_skill_packs_guidance_only() {
+    fn bundled_catalog_prefers_an_adapter_over_its_skill_pack() {
         let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
         let plan = service
             .plan(InstallRequest {
@@ -655,8 +725,40 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(plan.adapter.name, "dcc-mcp-unreal-skills");
-        assert!(plan.steps.iter().all(|s| s.action.is_none()));
+        assert_eq!(plan.adapter.name, "dcc-mcp-unreal");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+    }
+
+    #[test]
+    fn bundled_catalog_lists_adapter_dcc_types_and_collapses_aliases() {
+        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+        let catalog = service.dcc_types(None).unwrap();
+
+        assert!(catalog.custom_types_supported);
+        assert_eq!(
+            catalog
+                .dcc_types
+                .iter()
+                .filter(|entry| entry.dcc_type == "3dsmax")
+                .count(),
+            1
+        );
+        for expected in ["godot", "renderdoc"] {
+            let entry = catalog
+                .dcc_types
+                .iter()
+                .find(|entry| entry.dcc_type == expected)
+                .unwrap_or_else(|| panic!("missing cataloged DCC type {expected}"));
+            assert!(
+                entry
+                    .adapters
+                    .iter()
+                    .any(|adapter| adapter.name == format!("dcc-mcp-{expected}"))
+            );
+        }
     }
 
     #[test]

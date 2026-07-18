@@ -12,7 +12,7 @@
 //!   - name: "dcc-mcp-maya-skills"
 //!     description: "Maya skill pack for DCC-MCP"
 //!     dcc: ["maya"]
-//!     url: "https://github.com/loonghao/dcc-mcp-maya-skills"
+//!     url: "https://example.com/dcc-mcp-maya-skills"
 //!     tags: ["skills", "maya", "official"]
 //! ```
 
@@ -453,12 +453,12 @@ entries:
   - name: "dcc-mcp-maya-skills"
     description: "Maya skill pack for DCC-MCP"
     dcc: ["maya"]
-    url: "https://github.com/loonghao/dcc-mcp-maya-skills"
+    url: "https://example.com/dcc-mcp-maya-skills"
     tags: ["skills", "maya", "official"]
   - name: "dcc-mcp-blender-skills"
     description: "Blender skill pack for DCC-MCP"
     dcc: ["blender"]
-    url: "https://github.com/loonghao/dcc-mcp-blender-skills"
+    url: "https://example.com/dcc-mcp-blender-skills"
     tags: ["skills", "blender", "official"]
   - name: "dcc-mcp-houdini-vfx"
     description: "Houdini VFX tools"

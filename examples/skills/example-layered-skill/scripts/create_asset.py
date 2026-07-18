@@ -12,15 +12,8 @@ This file is intentionally short. All non-trivial logic lives in
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
 import traceback
-
-# Make sibling `services/` and `utils/` directories importable. The script
-# lives at <skill>/scripts/tools/create_asset.py; siblings are one level up.
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from services.asset_service import AssetError
 from services.asset_service import AssetService

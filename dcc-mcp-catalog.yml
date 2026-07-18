@@ -17,18 +17,6 @@
 
 version: "1"
 entries:
-  - name: "dcc-mcp-photoshop-skills"
-    description: "Official Photoshop skill pack for DCC-MCP — layer, adjustment, and export tools"
-    dcc: ["photoshop"]
-    url: "https://github.com/loonghao/dcc-mcp-photoshop-skills"
-    tags: ["skills", "photoshop", "official", "compositing"]
-
-  - name: "dcc-mcp-unreal-skills"
-    description: "Official Unreal Engine skill pack for DCC-MCP — asset, level, and sequencer tools"
-    dcc: ["unreal"]
-    url: "https://github.com/loonghao/dcc-mcp-unreal-skills"
-    tags: ["skills", "unreal", "official", "game", "engine"]
-
   - name: "dcc-mcp-core"
     description: "Foundational Rust + Python library for the DCC-MCP ecosystem"
     dcc: []
@@ -40,8 +28,8 @@ entries:
     dcc: ["maya"]
     url: "https://github.com/dcc-mcp/dcc-mcp-maya"
     tags: ["adapter", "maya", "official", "pip", "core"]
-    version: "0.8.6"
-    min_core_version: "0.18.20"
+    version: "0.9.15"
+    min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
       type: pip
@@ -53,8 +41,8 @@ entries:
     dcc: ["blender"]
     url: "https://github.com/dcc-mcp/dcc-mcp-blender"
     tags: ["adapter", "blender", "official", "pip", "addon", "core"]
-    version: "0.1.13"
-    min_core_version: "0.18.9"
+    version: "0.1.36"
+    min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
       type: pip
@@ -66,8 +54,8 @@ entries:
     dcc: ["houdini"]
     url: "https://github.com/dcc-mcp/dcc-mcp-houdini"
     tags: ["adapter", "houdini", "official", "pip", "core"]
-    version: "0.6.1"
-    min_core_version: "0.18.14"
+    version: "0.22.0"
+    min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
       type: pip
@@ -80,8 +68,8 @@ entries:
     dcc: ["3dsmax", "3ds max", "3ds-max", "max"]
     url: "https://github.com/dcc-mcp/dcc-mcp-3dsmax"
     tags: ["adapter", "3dsmax", "3ds-max", "official", "pip", "core"]
-    version: "0.1.19"
-    min_core_version: "0.18.20"
+    version: "0.1.37"
+    min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
       type: pip
@@ -93,14 +81,183 @@ entries:
     dcc: ["photoshop"]
     url: "https://github.com/dcc-mcp/dcc-mcp-photoshop"
     tags: ["adapter", "photoshop", "official", "pip", "uxp", "core", "setup"]
-    version: "0.1.15"
-    min_core_version: "0.18.14"
+    version: "0.1.37"
+    min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-photoshop"
       entry_point: "dcc_mcp_photoshop.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/main/docs/distribution.md"
+
+  - name: "dcc-mcp-nuke"
+    description: "Foundry Nuke adapter for DCC-MCP"
+    dcc: ["nuke"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-nuke"
+    tags: ["adapter", "nuke", "official", "pip", "compositing"]
+    version: "0.13.1"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-nuke"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/main/README.md"
+
+  - name: "dcc-mcp-unreal"
+    description: "Unreal Engine plugin and adapter for DCC-MCP"
+    dcc: ["unreal"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-unreal"
+    tags: ["adapter", "unreal", "official", "pip", "game-engine"]
+    version: "0.2.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-unreal"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
+
+  - name: "dcc-mcp-zbrush"
+    description: "ZBrush adapter for DCC-MCP"
+    dcc: ["zbrush"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-zbrush"
+    tags: ["adapter", "zbrush", "official", "pip", "sculpting"]
+    version: "0.2.18"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-zbrush"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-zbrush/main/README.md"
+
+  - name: "dcc-mcp-premiere"
+    description: "Adobe Premiere Pro adapter for DCC-MCP"
+    dcc: ["premiere"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-premiere"
+    tags: ["adapter", "premiere", "official", "pip", "editing"]
+    version: "0.4.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-premiere"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-premiere/main/README.md"
+
+  - name: "dcc-mcp-aftereffects"
+    description: "Adobe After Effects adapter for DCC-MCP"
+    dcc: ["aftereffects"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-aftereffects"
+    tags: ["adapter", "aftereffects", "official", "pip", "motion-graphics"]
+    version: "0.5.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-aftereffects"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-aftereffects/main/README.md"
+
+  - name: "dcc-mcp-katana"
+    description: "Foundry Katana adapter for DCC-MCP"
+    dcc: ["katana"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-katana"
+    tags: ["adapter", "katana", "official", "pip", "lookdev"]
+    version: "0.3.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-katana"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-katana/main/README.md"
+
+  - name: "dcc-mcp-mobu"
+    description: "Autodesk MotionBuilder adapter for DCC-MCP"
+    dcc: ["mobu"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-mobu"
+    tags: ["adapter", "mobu", "motionbuilder", "official", "pip", "animation"]
+    version: "0.3.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-mobu"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-mobu/main/README.md"
+
+  - name: "dcc-mcp-renderdoc"
+    description: "RenderDoc capture and replay automation for DCC-MCP"
+    dcc: ["renderdoc"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-renderdoc"
+    tags: ["adapter", "renderdoc", "official", "pip", "graphics-debugging"]
+    version: "0.3.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-renderdoc"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-renderdoc/main/README.md"
+
+  - name: "dcc-mcp-substance3d-designer"
+    description: "Substance 3D Designer adapter for DCC-MCP"
+    dcc: ["substance3d_designer"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-substance3d-designer"
+    tags: ["adapter", "substance3d_designer", "official", "pip", "materials"]
+    version: "0.3.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-substance3d-designer"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-substance3d-designer/main/README.md"
+
+  - name: "dcc-mcp-substance3d-painter"
+    description: "Substance 3D Painter adapter for DCC-MCP"
+    dcc: ["substance3d_painter"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-substance3d-painter"
+    tags: ["adapter", "substance3d_painter", "official", "pip", "texturing"]
+    version: "0.1.3"
+    min_core_version: "0.19.3"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-substance3d-painter"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-substance3d-painter/main/README.md"
+
+  - name: "dcc-mcp-godot"
+    description: "Godot Engine adapter and game-authoring skills for DCC-MCP"
+    dcc: ["godot"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-godot"
+    tags: ["adapter", "godot", "official", "pip", "game-engine"]
+    version: "0.4.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-godot"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/main/README.md"
+
+  - name: "dcc-mcp-fpt"
+    description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
+    dcc: ["shotgrid"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-fpt"
+    tags: ["adapter", "shotgrid", "fpt", "official", "pip", "production-tracking"]
+    version: "0.1.8"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-fpt"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-fpt/main/README.md"
+
+  - name: "dcc-mcp-openusd"
+    description: "OpenUSD adapter and skills for DCC-MCP"
+    dcc: ["openusd"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-openusd"
+    tags: ["adapter", "openusd", "usd", "official", "pip", "interchange"]
+    version: "0.8.1"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-openusd"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openusd/main/README.md"
 
   - name: "autodesk-product-help"
     description: "Opt-in Autodesk Product Help remote MCP connector for read-only documentation lookup"

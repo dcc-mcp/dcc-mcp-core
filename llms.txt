@@ -1071,7 +1071,6 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 
 ## Related Projects
 
-- [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations
 - [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) — Maya MCP server implementation
 
 ---

@@ -796,7 +796,7 @@ mod tests {
     fn planner_generates_executable_steps_for_git_install() {
         let install = CatalogInstall {
             install_type: "git".into(),
-            url: Some("https://github.com/loonghao/dcc-mcp-maya-mgear".into()),
+            url: Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear".into()),
             ref_: Some("main".into()),
             sha256: None,
             skill_roots: None,

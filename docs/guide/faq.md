@@ -20,7 +20,7 @@ DCC-MCP-Core is a foundational Rust library with Python bindings that provides:
 dcc-mcp-core is DCC-agnostic — the core library provides the infrastructure. DCC-specific integrations are separate projects:
 
 - **Maya** — via [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya)
-- **Unreal Engine** — via [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) (in development, Python embedded)
+- **Unreal Engine** — via [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) (in development, Python embedded)
 - **Photoshop** — via [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) (in development, WebSocket bridge)
 - **ZBrush** — via [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) (in development, HTTP bridge)
 - **Blender, Houdini, 3ds Max** — community/third-party integrations using this library

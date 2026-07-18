@@ -192,7 +192,7 @@ In Python, `DccCapabilities.bridge_kind` is exposed as `Optional[str]` — use t
 - Set `bridge_kind="websocket"` + `bridge_endpoint=...` for WebSocket bridge DCCs
 
 **New DCC adapter projects** (in development):
-- [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) — Unreal Engine (Python embedded)
+- [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) — Unreal Engine (Python embedded)
 - [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) — Photoshop (WebSocket bridge via UXP)
 - [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) — ZBrush (HTTP REST bridge)
 
