@@ -814,12 +814,12 @@ fn hidden_and_reused_windows_fail_closed() {
     let wrong_process = ensure_target_foreground(handle, process_id.saturating_add(1)).unwrap_err();
     assert_eq!(wrong_process.code, ComputerUseErrorCode::InvalidTarget);
 
-    let occluded = ensure_point_targets_window(200, 240, effect.hwnd, process_id.saturating_add(1))
-        .unwrap_err();
+    let occluded =
+        prepare_point_target(200, 240, effect.hwnd, process_id.saturating_add(1)).unwrap_err();
     assert_eq!(occluded.code, ComputerUseErrorCode::InvalidTarget);
 
     let same_process_wrong_window =
-        ensure_point_targets_window(200, 240, other_window.hwnd, process_id).unwrap_err();
+        prepare_point_target(200, 240, other_window.hwnd, process_id).unwrap_err();
     assert_eq!(
         same_process_wrong_window.code,
         ComputerUseErrorCode::InvalidTarget
@@ -838,6 +838,18 @@ fn persistent_control_cursor_does_not_occlude_the_next_nearby_action() {
 
     assert!(is_control_overlay_window(cursor_overlay.hwnd));
     assert!(is_input_transparent_window(cursor_overlay.hwnd));
+}
+
+#[test]
+fn protected_system_ui_is_not_eligible_for_transient_occlusion_recovery() {
+    assert!(protected_input_blocker(
+        "PickerHost.exe",
+        "Shell_SystemDialog"
+    ));
+    assert!(protected_input_blocker("consent.exe", "#32770"));
+    assert!(protected_input_blocker("explorer.exe", "Shell_SystemDim"));
+    assert!(!protected_input_blocker("nuke.exe", "Qt5152QWindowIcon"));
+    assert!(!protected_input_blocker("chrome.exe", "Chrome_WidgetWin_1"));
 }
 
 #[test]
