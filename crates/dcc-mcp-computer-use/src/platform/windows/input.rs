@@ -292,6 +292,17 @@ fn ensure_point_targets_window(
             "no visible window owns the requested pointer coordinate",
         ));
     }
+    // The persistent cursor halo is intentionally a separate, topmost,
+    // click-through window. WindowFromPoint can still return it even though
+    // native input passes through. Ignore any WS_EX_TRANSPARENT presentation
+    // layer (including our registered overlays), then fail closed if a real
+    // input-receiving top-level window is above the scoped DCC here.
+    let hit = if is_input_transparent_window(hit) {
+        first_input_receiving_window_above_target_at_point(target, screen_x, screen_y)
+            .unwrap_or(target)
+    } else {
+        hit
+    };
     let mut hit_process_id = 0_u32;
     unsafe { GetWindowThreadProcessId(hit, Some(&mut hit_process_id)) };
     if hit_process_id != process_id {
