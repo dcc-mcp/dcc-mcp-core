@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.56](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.55...v0.19.56) (2026-07-18)
+
+
+### Features
+
+* **marketplace:** support animated showcase media ([#1961](https://github.com/dcc-mcp/dcc-mcp-core/issues/1961)) ([4a75c38](https://github.com/dcc-mcp/dcc-mcp-core/commit/4a75c388ffb30444b2b67cbb9af0c6e31a51596c))
+
 ## [0.19.55](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.54...v0.19.55) (2026-07-17)
 
 
