@@ -63,7 +63,7 @@ pub(crate) fn perform_action(
         observation.desktop_generation,
     );
     guard.synchronize()?;
-    focus_target(window_handle, observation.process_id)?;
+    let _focus_elevation = focus_target(window_handle, observation.process_id)?;
     guard.check()?;
     ensure_observation_target(window_handle, observation)?;
 
@@ -215,15 +215,7 @@ fn pointer_effect_dwell(request: &ComputerUseAction) -> Duration {
     )
 }
 
-fn focus_target(window_handle: u64, process_id: u32) -> ComputerUseResult<()> {
-    ensure_interactive_desktop()?;
-    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
-    restore_target_for_input(hwnd, process_id)?;
-    let _ = available_target_rect_for_process(hwnd, process_id)?;
-    if unsafe { GetForegroundWindow() } == hwnd {
-        return Ok(());
-    }
-
+fn set_target_foreground(hwnd: HWND) {
     // AttachThreadInput requires a USER message queue. Adapter worker threads
     // often do not have one until they call PeekMessage at least once.
     let mut queue_probe = MSG::default();
@@ -251,14 +243,83 @@ fn focus_target(window_handle: u64, process_id: u32) -> ComputerUseResult<()> {
     if attached_foreground {
         let _ = unsafe { AttachThreadInput(current_thread, foreground_thread, false) };
     }
+}
+
+fn focus_recovery_allowed(
+    target_process_id: u32,
+    blocker_process_id: u32,
+    blocker_process: &str,
+    blocker_class: &str,
+) -> ComputerUseResult<bool> {
+    if blocker_process_id == 0 {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::FocusLost,
+            "Windows did not report a foreground window after focusing the scoped DCC",
+        ));
+    }
+    if blocker_process_id == target_process_id {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::FocusLost,
+            "another window owned by the scoped DCC has foreground focus; resolve the in-app modal before retrying",
+        ));
+    }
+    if protected_input_blocker(blocker_process, blocker_class) {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidTarget,
+            format!(
+                "the scoped DCC cannot recover foreground focus through protected system UI: {blocker_process} / {blocker_class}"
+            ),
+        ));
+    }
+    Ok(true)
+}
+
+fn focus_target(
+    window_handle: u64,
+    process_id: u32,
+) -> ComputerUseResult<Option<TransientTopmostTarget>> {
+    ensure_interactive_desktop()?;
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    restore_target_for_input(hwnd, process_id)?;
+    let _ = available_target_rect_for_process(hwnd, process_id)?;
+    if unsafe { GetForegroundWindow() } == hwnd {
+        return Ok(None);
+    }
+
+    set_target_foreground(hwnd);
+    thread::sleep(Duration::from_millis(30));
+    let blocker = unsafe { GetForegroundWindow() };
+    if blocker == hwnd {
+        return Ok(None);
+    }
+    let mut blocker_process_id = 0_u32;
+    if !blocker.0.is_null() {
+        unsafe { GetWindowThreadProcessId(blocker, Some(&mut blocker_process_id)) };
+    }
+    let (blocker_process, blocker_class) = if blocker.0.is_null() {
+        (String::new(), String::new())
+    } else {
+        blocker_process_and_class(blocker)
+    };
+    focus_recovery_allowed(
+        process_id,
+        blocker_process_id,
+        &blocker_process,
+        &blocker_class,
+    )?;
+
+    let elevation = TransientTopmostTarget::raise(hwnd)?;
+    set_target_foreground(hwnd);
     thread::sleep(Duration::from_millis(30));
     if unsafe { GetForegroundWindow() } != hwnd {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::FocusLost,
-            "the scoped DCC window did not remain in the foreground",
+            format!(
+                "the scoped DCC window did not remain in the foreground after recovering from {blocker_process} / {blocker_class}"
+            ),
         ));
     }
-    Ok(())
+    Ok(Some(elevation))
 }
 
 fn protected_input_blocker(process: &str, class_name: &str) -> bool {
@@ -537,7 +598,7 @@ fn move_to(
     // No input has been sent yet. Reacquire the already-scoped target after
     // the desktop-barrier handshake so a caller window cannot steal focus in
     // the small gap between initial preparation and the first pointer move.
-    focus_target(window_handle, observation.process_id)?;
+    let _focus_elevation = focus_target(window_handle, observation.process_id)?;
     ensure_observation_target(window_handle, observation)?;
     let _elevation = if require_target_hit {
         prepare_point_target(
@@ -813,7 +874,7 @@ fn keypress(
     // This is the first and only input in a keypress action, so reacquiring the
     // validated target after the barrier is safe. Multi-step actions continue
     // to fail closed if focus changes after their first input.
-    focus_target(window_handle, process_id)?;
+    let _focus_elevation = focus_target(window_handle, process_id)?;
     guard.check()?;
     send_inputs(&inputs)?;
     guard.check()
