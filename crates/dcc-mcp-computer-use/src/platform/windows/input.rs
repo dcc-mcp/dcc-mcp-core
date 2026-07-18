@@ -6,18 +6,19 @@ struct PointerEffect {
 
 impl PointerEffect {
     fn new(screen_x: i32, screen_y: i32, glyph: &str) -> ComputerUseResult<Self> {
-        let (x, y, size) = pointer_effect_geometry(screen_x, screen_y);
-        let hwnd = create_static_overlay(
+        let (x, y, size, _) = pointer_mask_geometry(screen_x, screen_y);
+        let hwnd = create_color_overlay(
             glyph,
-            WS_BORDER.0 | STATIC_CENTER | STATIC_CENTER_IMAGE,
             (x, y, size, size),
-            235,
+            CONTROL_OVERLAY_ALPHA,
+            true,
+            false,
         )?;
         Ok(Self { hwnd })
     }
 
     fn reposition(&self, screen_x: i32, screen_y: i32) -> ComputerUseResult<()> {
-        let (x, y, size) = pointer_effect_geometry(screen_x, screen_y);
+        let (x, y, size, _) = pointer_mask_geometry(screen_x, screen_y);
         position_overlay(self.hwnd, (x, y, size, size), true)?;
         pump_overlay_messages(self.hwnd);
         Ok(())
@@ -35,30 +36,6 @@ impl PointerEffect {
             thread::sleep(remaining.min(Duration::from_millis(10)));
         }
     }
-}
-
-fn pointer_effect_geometry(screen_x: i32, screen_y: i32) -> (i32, i32, i32) {
-    let monitor = unsafe {
-        MonitorFromPoint(
-            POINT {
-                x: screen_x,
-                y: screen_y,
-            },
-            MONITOR_DEFAULTTONULL,
-        )
-    };
-    let dpi = if monitor.is_invalid() {
-        96
-    } else {
-        monitor_dpi(monitor, None)
-    };
-    let size = scaled_pixels(POINTER_EFFECT_SIZE, dpi);
-    let offset = size / 2;
-    (
-        screen_x.saturating_sub(offset),
-        screen_y.saturating_sub(offset),
-        size,
-    )
 }
 
 impl Drop for PointerEffect {
@@ -100,7 +77,6 @@ pub(crate) fn perform_action(
         "click" | "raw_coordinate_click" => {
             let point = required_point(request)?;
             let (screen_x, screen_y) = move_to(window_handle, observation, point, &guard, true)?;
-            let effect = PointerEffect::new(screen_x, screen_y, "●")?;
             click(
                 window_handle,
                 observation,
@@ -109,12 +85,12 @@ pub(crate) fn perform_action(
                 request.button.as_deref().unwrap_or("left"),
                 &guard,
             )?;
+            let effect = PointerEffect::new(screen_x, screen_y, "●")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
         "double_click" => {
             let point = required_point(request)?;
             let (screen_x, screen_y) = move_to(window_handle, observation, point, &guard, true)?;
-            let effect = PointerEffect::new(screen_x, screen_y, "◎")?;
             click(
                 window_handle,
                 observation,
@@ -132,12 +108,12 @@ pub(crate) fn perform_action(
                 request.button.as_deref().unwrap_or("left"),
                 &guard,
             )?;
+            let effect = PointerEffect::new(screen_x, screen_y, "◎")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
         "scroll" => {
             let point = required_point(request)?;
             let (screen_x, screen_y) = move_to(window_handle, observation, point, &guard, true)?;
-            let effect = PointerEffect::new(screen_x, screen_y, "↕")?;
             scroll(
                 window_handle,
                 observation,
@@ -147,6 +123,7 @@ pub(crate) fn perform_action(
                 request.scroll_y.unwrap_or(0),
                 &guard,
             )?;
+            let effect = PointerEffect::new(screen_x, screen_y, "↕")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
         "drag" => drag(window_handle, observation, request, &guard)?,
@@ -438,7 +415,10 @@ fn move_to(
     guard.synchronize()?;
     ensure_observation_target(window_handle, observation)?;
     let (screen_x, screen_y, absolute_x, absolute_y) = mapped_pointer_point(observation, point)?;
-    ensure_target_foreground(window_handle, observation.process_id)?;
+    // No input has been sent yet. Reacquire the already-scoped target after
+    // the desktop-barrier handshake so a caller window cannot steal focus in
+    // the small gap between initial preparation and the first pointer move.
+    focus_target(window_handle, observation.process_id)?;
     ensure_observation_target(window_handle, observation)?;
     if require_target_hit {
         ensure_point_targets_window(
@@ -709,7 +689,10 @@ fn keypress(
 ) -> ComputerUseResult<()> {
     let inputs = keypress_inputs(keys)?;
     guard.synchronize()?;
-    ensure_target_foreground(window_handle, process_id)?;
+    // This is the first and only input in a keypress action, so reacquiring the
+    // validated target after the barrier is safe. Multi-step actions continue
+    // to fail closed if focus changes after their first input.
+    focus_target(window_handle, process_id)?;
     guard.check()?;
     send_inputs(&inputs)?;
     guard.check()
