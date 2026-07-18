@@ -127,6 +127,20 @@ fn is_input_transparent_window(hwnd: HWND) -> bool {
     ex_style & WS_EX_TRANSPARENT.0 != 0
 }
 
+fn input_blocker_identity(hwnd: HWND) -> String {
+    let mut process_id = 0_u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
+    let process = process_name(process_id).unwrap_or_else(|_| format!("process {process_id}"));
+    let mut class_name = [0_u16; 128];
+    let length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
+    let class_name = String::from_utf16_lossy(&class_name[..length]);
+    if class_name.is_empty() {
+        process
+    } else {
+        format!("{process} / {class_name}")
+    }
+}
+
 fn first_input_receiving_window_above_target_at_point(
     target: HWND,
     screen_x: i32,
