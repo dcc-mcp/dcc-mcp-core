@@ -120,8 +120,8 @@ class TestSkillParsingE2E:
 
     def test_parse_example_layered_skill(self, examples_dir: str) -> None:
         # Issue #575: reference layout for the internal Tools/Services/Utils split.
-        # Tool entry points live under scripts/tools/ and are wired via an
-        # explicit `source_file` in the sibling tools.yaml.
+        # Tool entry points live beside services/ and utils/ so shared runner
+        # path setup is sufficient; tools.yaml wires each explicit source_file.
         skill_dir = str(Path(examples_dir) / "example-layered-skill")
         meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
@@ -132,7 +132,18 @@ class TestSkillParsingE2E:
         tool_names = {t.name for t in meta.tools}
         assert tool_names == {"create_asset", "publish_asset", "validate_asset"}
         for tool in meta.tools:
-            assert tool.source_file.startswith("scripts/tools/"), tool.source_file
+            assert Path(tool.source_file).parent == Path("scripts"), tool.source_file
+
+        completed = subprocess.run(
+            [sys.executable, str(Path(skill_dir) / "scripts" / "create_asset.py")],
+            input=json.dumps({"name": "Hero Mesh", "kind": "model"}),
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+        assert result["success"] is True
+        assert result["context"]["asset_id"] == "model/hero_mesh"
 
     def test_skill_metadata_fields(self, examples_dir: str) -> None:
         skill_dir = str(Path(examples_dir) / "hello-world")

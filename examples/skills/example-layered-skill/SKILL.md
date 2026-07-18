@@ -37,11 +37,9 @@ example-layered-skill/
 ├── tools.yaml          ← MCP tool declarations (sibling, per #356)
 ├── scripts/
 │   ├── __init__.py
-│   ├── tools/          ← thin adapters (parse params, return envelope)
-│   │   ├── __init__.py
-│   │   ├── create_asset.py
-│   │   ├── publish_asset.py
-│   │   └── validate_asset.py
+│   ├── create_asset.py  ← thin tool adapters (parse params, return envelope)
+│   ├── publish_asset.py
+│   ├── validate_asset.py
 │   ├── services/       ← business logic (orchestration, error handling)
 │   │   ├── __init__.py
 │   │   └── asset_service.py
@@ -56,7 +54,7 @@ example-layered-skill/
 
 | Layer | Responsibility | Size guidance |
 |-------|----------------|---------------|
-| **tools/** | Parse JSON params from stdin, validate, delegate, return envelope. | < 30 lines |
+| **tool scripts** | Parse JSON params from stdin, validate, delegate, return envelope. | < 30 lines |
 | **services/** | Orchestrate DCC commands. Easily unit-testable in isolation. | Grows with feature |
 | **utils/** | Pure functions — path normalisation, primitive helpers. No side effects. | Grows with feature |
 

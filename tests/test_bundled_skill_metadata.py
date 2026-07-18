@@ -45,3 +45,17 @@ def test_dcc_mcp_skills_creator_reference_docs_are_indexed() -> None:
         "references/AUTHORING_WORKFLOW.md",
         "references/DCC_TOOL_CONTRACTS.md",
     } <= paths
+
+
+def test_dcc_mcp_skills_creator_exposes_improvement_prompt() -> None:
+    prompt_path = REPO_ROOT / "skills" / "dcc-mcp-skills-creator" / "prompts.yaml"
+    payload = dcc_mcp_core.yaml_loads(prompt_path.read_text(encoding="utf-8"))
+    prompt = payload["prompts"][0]
+
+    assert prompt["name"] == "review_skill_improvement"
+    assert {argument["name"] for argument in prompt["arguments"]} == {
+        "task_summary",
+        "stats_json",
+        "validation_summary",
+        "existing_skill",
+    }

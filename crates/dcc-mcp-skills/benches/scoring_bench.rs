@@ -5,10 +5,11 @@
 //! `score_skills` (re-tokenise every call) vs `score_skills_with_tokens`
 //! (cached tokens) to quantify the allocation/CPU saving.
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
 use dcc_mcp_skills::catalog::inverted_index::InvertedIndex;
 use dcc_mcp_skills::catalog::scoring::{FieldTokens, score_skills, score_skills_with_tokens};
+use std::hint::black_box;
 
 // ── Synthetic skill generation ──────────────────────────────────────────
 

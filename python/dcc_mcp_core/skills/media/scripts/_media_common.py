@@ -23,11 +23,7 @@ from typing import Sequence
 from typing import Set
 from typing import Tuple
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
-import _vx_bootstrap  # noqa: E402
+import _vx_bootstrap
 
 VIDEO_CODECS = ("libx264", "libx265", "mpeg4", "prores_ks", "copy")
 SEQUENCE_CODECS = ("libx264", "libx265", "mpeg4")

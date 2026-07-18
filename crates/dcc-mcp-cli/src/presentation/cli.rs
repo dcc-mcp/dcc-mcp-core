@@ -123,6 +123,12 @@ enum Command {
     },
     /// List live DCC instances from the local registry or selected gateway profile.
     List,
+    /// List adapter-backed DCC types from the release catalog.
+    DccTypes {
+        /// Read a custom adapter catalog instead of the release catalog.
+        #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
+        catalog: Option<PathBuf>,
+    },
     /// Search callable tools through local MCP or the selected gateway profile.
     Search {
         #[arg(long)]
@@ -602,6 +608,10 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             .await?
         }
         Command::List => control.list_instances().await?,
+        Command::DccTypes { catalog } => {
+            let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
+            to_json(service.dcc_types(catalog.as_deref())?)?
+        }
         Command::Search {
             query,
             dcc_type,
@@ -1022,7 +1032,7 @@ fn gateway_endpoint_for_command(
         Command::Health | Command::Stats { .. } | Command::Update { .. } => {
             Some(Endpoint::new(base_url))
         }
-        Command::Doctor { .. } => None,
+        Command::Doctor { .. } | Command::DccTypes { .. } => None,
         Command::List
         | Command::Search { .. }
         | Command::Describe { .. }

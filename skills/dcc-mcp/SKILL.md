@@ -2,22 +2,23 @@
 name: dcc-mcp
 description: >-
   Default DCC control skill — connect to and operate live Maya, Blender,
-  Houdini, Photoshop, 3ds Max, Nuke, Unreal, Substance 3D, and other DCC apps
+  Houdini, Photoshop, 3ds Max, Nuke, Unreal, Godot, RenderDoc, Substance 3D,
+  and other DCC apps
   through structured DCC-MCP tools. Use this skill first whenever the user asks
   to do something in a DCC app, even when they do not mention DCC-MCP. OpenClaw
   and other shell agents use dcc-mcp-cli inventory/search/describe/call;
   MCP-native IDEs use the gateway MCP surface. Not for tasks unrelated to DCC
   software.
 license: MIT-0
-compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
 allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
+    compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
     version: "0.19.58"  # x-release-please-version
-    search-hint: "dcc control Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Substance connect create edit render automate cli gateway"
-    tags: "dcc, maya, blender, houdini, photoshop, nuke, cli, gateway, clawhub, openclaw"
+    search-hint: "dcc control Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats"
+    tags: "dcc, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
   openclaw:
     emoji: "🖥️"
     homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp/SKILL.md
@@ -60,15 +61,17 @@ For these requests:
 
 1. **Prefer structured DCC-MCP tools** over direct application scripting,
    Computer Use, or generic shell automation.
-2. Inventory live instances before choosing a host. If more than one matching
+2. If host support is unclear, run `dcc-mcp-cli dcc-types`; use its exact
+   `dcc_type` value instead of guessing aliases.
+3. Inventory live instances before choosing a host. If more than one matching
    instance exists, use task context or ask the user which scene/session owns
    the change.
-3. Search by the user's intent and target DCC, copy the returned tool slug,
+4. Search by the user's intent and target DCC, copy the returned tool slug,
    inspect its schema and annotations, then call it.
-4. Use raw scripting only when no typed tool covers the operation and the
+5. Use raw scripting only when no typed tool covers the operation and the
    adapter exposes an explicit, policy-compliant automation tool. A repeated
    scripting pattern is a candidate for a reusable DCC skill.
-5. Use scoped Computer Use only after structured tools report the operation as
+6. Use scoped Computer Use only after structured tools report the operation as
    unsupported or the required host control is not exposed.
 
 If the requested DCC is installed but no live adapter instance is registered,
@@ -194,74 +197,9 @@ after `direct_control.ready=true`. If `direct_control.ready=false`, inspect
 any `diagnostics.logs.*` paths before retrying. `doctor` summarizes the same
 not-ready rows under `local.inventory.direct_control.not_ready_instances`.
 
-### What auto-ensure does
-
-1. **Probe** `GET /health` on the gateway port.
-2. If healthy -> continue.
-3. If unreachable -> acquire a launch lock, spawn the gateway daemon in the
-   background, poll until healthy, then release the lock.
-4. Run the original command; local control commands still use FileRegistry and
-   direct per-DCC MCP after the gateway lifecycle check succeeds.
-
-### CLI usage
-
-```bash
-# Local inventory - auto-ensures the loopback gateway first
-dcc-mcp-cli list
-
-# Startup diagnostics - no service launch or download
-dcc-mcp-cli doctor
-
-# Gateway health check - auto-starts loopback gateway if needed
-dcc-mcp-cli health
-
-# Disable auto-start for one command
-dcc-mcp-cli --no-auto-gateway list
-
-# Explicit daemon lifecycle
-dcc-mcp-cli gateway daemon start
-dcc-mcp-cli gateway daemon status
-dcc-mcp-cli gateway daemon restart
-
-# Set longer auto-start wait timeout
-dcc-mcp-cli --auto-gateway-timeout-secs 30 health
-```
-
-`gateway daemon start` and `gateway daemon restart` are the durable operator
-paths: their start phase passes `--gateway-idle-timeout-secs 0` by default so an
-explicitly managed local daemon does not exit just because no DCC backend is
-registered yet.
-
-### Explicit ensure result format
-
-```json
-{
-  "host": "127.0.0.1",
-  "port": 9765,
-  "already_running": true,
-  "pid": 12345
-}
-```
-
-- `already_running: true` -> gateway was already up; proceed to endpoint-level gateway commands.
-- `already_running: false` -> gateway was just started by this call (includes `pid`).
-
-### If auto-ensure fails
-
-| Symptom | Likely cause | Action |
-|---------|-------------|--------|
-| Timeout after `--auto-gateway-timeout-secs` | Gateway binary missing or port conflict | Ask user to install dcc-mcp-core or check port availability |
-| Lock contention | Concurrent launch race | Retry after a short delay |
-| Port 0 rejected | Invalid config | Verify `DCC_MCP_GATEWAY_PORT` or `--port` is non-zero |
-| Remote profile or `DCC_MCP_BASE_URL` unreachable | Auto-start only applies to local loopback HTTP URLs | Report the remote gateway as unreachable |
-
-### Python fallback note
-
-The Python fallback (`dcc_gateway.py`) does NOT include a `gateway ensure` command
-because the ensure flow spawns a subprocess daemon - a capability specific to the
-compiled CLI. When the CLI binary is unavailable, skip to `dcc_gateway.py health`
-directly. If health fails, report the gateway as unreachable and ask the user to
-start a gateway manually or install `dcc-mcp-cli`.
+Detailed daemon lifecycle, profile commands, release assets, and fallback
+behavior live in [CLI cheatsheet](references/CLI_CHEATSHEET.md). Read it only
+when setup, lifecycle, or transport troubleshooting is needed.
 
 ---
 
@@ -300,62 +238,10 @@ remove the old package to avoid duplicate intent routing.
 
 ## Configuration
 
-`dcc-mcp-cli` stores remote gateway profiles under `~/.dcc-mcp/gateway-profiles.json`.
-The Python helper still reads a gateway URL from `DCC_MCP_BASE_URL`.
-
-```bash
-dcc-mcp-cli list
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway list
-dcc-mcp-cli list --gateway pcA
-python scripts/dcc_gateway.py --base-url http://127.0.0.1:9765 health
-```
-
-For a one-off command:
-
-```bash
-python scripts/dcc_gateway.py --base-url http://127.0.0.1:9765 health
-```
-
-Quick probe helper:
-
-```bash
-python3 scripts/check_cli.py
-py -3 scripts\check_cli.py
-```
-
-Flags: `--base-url URL`, `--cli dcc-mcp-cli`, `--ensure-cli`, `--install-dir DIR`, `--pretty`.
-
-When the user approves downloading the CLI:
-
-```bash
-# Linux / macOS
-python3 scripts/dcc_gateway.py --ensure-cli list
-vx python scripts/dcc_gateway.py --ensure-cli list
-
-# Windows
-py -3 scripts\dcc_gateway.py --ensure-cli list
-vx python scripts\dcc_gateway.py --ensure-cli list
-```
-
-Release assets are selected by platform:
-
-| Platform | Asset |
-|----------|-------|
-| Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
-| Linux x86_64 | `dcc-mcp-cli-linux-x86_64` |
-| macOS Intel/Apple Silicon | `dcc-mcp-cli-macos-universal2` |
-
-If Python is not easy to locate, install vx first and run the helper through
-`vx python`:
-
-```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/loonghao/vx/main/install.sh | bash
-
-# Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps1 | iex"
-```
+Use the local profile unless the user selected a remote gateway. Profile,
+fallback, and installation commands live in the
+[CLI cheatsheet](references/CLI_CHEATSHEET.md). Do not download, install, or
+write configuration without user consent.
 
 ---
 
@@ -365,6 +251,9 @@ Run this as the **very first step** every time you begin local work or after a
 DCC adapter restarts:
 
 ```bash
+# Supported adapter identifiers, only when support is unclear
+dcc-mcp-cli dcc-types
+
 # Local FileRegistry inventory
 dcc-mcp-cli list
 
@@ -385,47 +274,12 @@ Interpret the result:
 
 ---
 
-## Step 1 — Mandatory Instance Inventory
+## Step 1 — Select a Live Instance
 
-Run this every time the user starts/stops a DCC host:
-
-```bash
-# CLI (primary)
-dcc-mcp-cli list
-dcc-mcp-cli health
-
-# Python fallback (when CLI is unavailable)
-python scripts/dcc_gateway.py health
-python scripts/dcc_gateway.py list
-```
-
-Interpret `dcc-mcp-cli list`:
-
-```json
-{
-  "total": 1,
-  "instances": [
-    {
-      "instance_id": "full-uuid",
-      "instance_short": "a1b2c3d4",
-      "dcc_type": "maya",
-      "status": "available",
-      "stale": false,
-      "mcp_url": "http://127.0.0.1:8765/mcp"
-    }
-  ]
-}
-```
-
-Report to the user:
-
-1. `total`
-2. Count by `dcc_type`
-3. Any `stale: true` rows
-4. The target `instance_id` or `instance_short` you will use
-
-If `total == 0`, stop and ask whether the user wants setup guidance for the
-target DCC. Continue only after explicit approval.
+Run `dcc-mcp-cli list` whenever a DCC starts or stops. Report `total`, counts by
+`dcc_type`, stale rows, and the chosen `instance_id` or `instance_short`. If
+`total == 0`, stop and ask whether the user wants setup guidance. Continue only
+after explicit approval.
 
 ---
 
@@ -471,12 +325,13 @@ Read `tool.inputSchema` and safety annotations before calling.
 ```bash
 # CLI (primary)
 dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
-  --json '{"radius":2.0}'
+  --json '{"radius":2.0}' \
+  --meta-json '{"agent_context":{"session_id":"task-42"}}'
 
 # When the workflow reserved this instance, repeat the exact lease owner.
 dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
   --json '{"radius":2.0}' \
-  --meta-json '{"lease_owner":"workflow-42"}'
+  --meta-json '{"lease_owner":"workflow-42","agent_context":{"session_id":"task-42"}}'
 
 # Python fallback
 python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere \
@@ -517,6 +372,24 @@ off the process command line, which is especially important on Windows.
 
 See [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md) for command
 patterns and common errors.
+
+---
+
+## Step 5 — Review Reusable Friction
+
+Only after task acceptance, query narrowly scoped gateway evidence:
+
+```bash
+dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+```
+
+Then load `dcc-mcp-skills-creator` and request its
+`review_skill_improvement` prompt. Pass only bounded task, stats, validation,
+and existing-skill summaries. Treat `total_calls == 0` as no telemetry
+evidence, not success. Stats show aggregates, not root cause; prefer
+`no_change`, then `update_existing`, and create a skill only for a repeated,
+stable workflow. This review does not authorize editing or publishing outside
+the task scope.
 
 ---
 

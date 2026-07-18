@@ -24,7 +24,7 @@ const ENV_GITHUB_RELEASE_BASE: &str = "DCC_MCP_GATEWAY_DOWNLOAD_BASE";
 
 /// Default GitHub Releases base URL for gateway binary downloads.
 const DEFAULT_GITHUB_RELEASE_BASE: &str =
-    "https://github.com/loonghao/dcc-mcp-core/releases/download";
+    "https://github.com/dcc-mcp/dcc-mcp-core/releases/download";
 
 /// Resolve the gateway binary using the full discovery chain:
 ///

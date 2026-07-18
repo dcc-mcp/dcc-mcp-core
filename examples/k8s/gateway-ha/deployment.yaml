@@ -28,7 +28,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: gateway
-          image: ghcr.io/loonghao/dcc-mcp-server:latest
+          image: registry.example.com/dcc-mcp-server:latest
           imagePullPolicy: IfNotPresent
           args: ["--host", "0.0.0.0"]
           envFrom:

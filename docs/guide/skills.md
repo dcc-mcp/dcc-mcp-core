@@ -4,6 +4,24 @@ The Skills system registers scripts (Python, MEL, MaxScript, BAT, Shell, etc.) a
 
 For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, load `skills/dcc-mcp-skills-creator/`. In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
 
+## Evidence-Informed Skill Improvement
+
+Review reusable friction only after the task and its validation are complete.
+Give tool calls one stable task identifier, query the narrowest useful gateway
+window, then invoke the first-class `review_skill_improvement` prompt:
+
+```bash
+dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+```
+
+The prompt is defined in
+`skills/dcc-mcp-skills-creator/prompts.yaml`. Supply only bounded task, stats,
+validation, and existing-skill summaries; never send hidden reasoning, raw
+prompts, secrets, private paths, or full tool payloads. Stats are supporting
+evidence, not root-cause proof. Zero calls means missing evidence. Prefer
+`no_change`, then `update_existing`; create a new skill only for a repeated,
+stable workflow with one clear owner, and validate it before adoption.
+
 ## Quick Start
 
 ### 1. Create a Skill Directory
@@ -724,9 +742,8 @@ my-complex-skill/
 ├── tools.yaml              ← MCP tool declarations (sibling, per #356)
 ├── scripts/
 │   ├── __init__.py
-│   ├── tools/              ← thin adapter layer (entry points)
-│   │   ├── __init__.py
-│   │   └── create_asset.py
+│   ├── create_asset.py     ← thin adapter entry point
+│   ├── publish_asset.py    ← thin adapter entry point
 │   ├── services/           ← business-logic layer (orchestration)
 │   │   ├── __init__.py
 │   │   └── asset_service.py
@@ -741,22 +758,23 @@ my-complex-skill/
 
 | Layer | Responsibility | Imports allowed | Size guidance |
 |-------|----------------|-----------------|---------------|
-| `tools/` | Read JSON from stdin, validate, delegate, return `success/error` envelope. | `services/`, stdlib. | < 30 lines per file |
+| top-level `scripts/*.py` entry points | Read JSON from stdin, validate, delegate, return `success/error` envelope. | `services/`, stdlib. | < 30 lines per file |
 | `services/` | Orchestrate DCC commands. Raise typed exceptions on failure. No MCP knowledge. | `utils/`, DCC SDK. | grows with feature |
 | `utils/` | Pure helpers — path/name normalisation, primitive math. No side effects. | stdlib only. | grows with feature |
 
-### Wiring `source_file` to nested scripts
+### Wiring `source_file` to entry points
 
-Because the SKILL.md scanner only auto-enumerates the **top level** of
-`scripts/`, every tool whose entry point lives under `scripts/tools/`
-must declare an explicit `source_file:` in `tools.yaml`:
+Keep executable tool entry points at the **top level** of `scripts/` and declare
+their explicit `source_file:` in `tools.yaml`. Service and utility modules may
+remain in subpackages because they are imported by an entry point rather than
+executed as tools:
 
 ```yaml
 # tools.yaml
 tools:
   - name: create_asset
     description: Create a new asset record on disk.
-    source_file: scripts/tools/create_asset.py
+    source_file: scripts/create_asset.py
     input_schema:
       type: object
       required: [name]
@@ -770,35 +788,30 @@ Relative `source_file` paths are resolved against the skill root.
 ### Cross-layer imports
 
 Tool adapters need to import from sibling `services/` and `utils/`
-packages. Add a small `sys.path` shim at the top of each tool entry
-point so the imports work whether the script is run via the dcc-mcp-core
-subprocess executor, an in-process executor, or directly with
-`python scripts/tools/create_asset.py`:
+packages. Import them directly. The dcc-mcp-core runner exposes the executing
+script directory only for the duration of the call, so production scripts must
+not mutate process-global `sys.path`:
 
 ```python
-from pathlib import Path
-import sys
-
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
-
-from services.asset_service import AssetService  # noqa: E402
+from services.asset_service import AssetService
 ```
+
+This specifically excludes the historical
+[`sys.path.insert()` pattern shown in dcc-mcp-houdini PR #157](https://github.com/dcc-mcp/dcc-mcp-houdini/pull/157/changes#diff-20f6c4a5b206da54475e771ac54351c25975cbcb533595f074c7f26d07ad09a2R11-R13).
+If a custom runner cannot resolve same-skill helpers, fix the runner's scoped
+import context. For a direct smoke test, invoke the shared skill runner or let
+the test harness scope the scripts directory; do not patch `sys.path` inside
+the shipped entry point.
 
 ### Tool adapter template
 
 ```python
 """Tool entry point — create_asset (thin adapter)."""
 from __future__ import annotations
-import json, sys
-from pathlib import Path
+import json
+import sys
 
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
-
-from services.asset_service import AssetError, AssetService  # noqa: E402
+from services.asset_service import AssetError, AssetService
 
 
 def main() -> dict:
@@ -822,7 +835,7 @@ if __name__ == "__main__":
 
 ### Anti-patterns to avoid
 
-- **Business logic in `tools/`** — adapters must stay under ~30 lines and
+- **Business logic in entry points** — adapters must stay under ~30 lines and
   only translate between MCP envelopes and service calls.
 - **`utils/` doing I/O** — anything in `utils/` must be pure so it can be
   unit-tested without a DCC, a filesystem, or network access.
@@ -831,17 +844,20 @@ if __name__ == "__main__":
 - **Returning envelopes from `services/`** — services raise typed
   exceptions; only the adapter wraps the outcome with `success_result()`
   / `error_result()`.
-- **Auto-discovering nested scripts** — only top-level `scripts/*.py` are
-  enumerated; nested entry points must be declared via `source_file`.
+- **Nested executable entry points** — keep declared tool scripts at the
+  top-level `scripts/*.py` boundary so every runner gets the same scoped import
+  context.
+- **Production `sys.path` mutation** — same-skill helpers are a runner concern;
+  never add `sys.path.insert()` or `sys.path.append()` to a shipped tool script.
 
 ### Checklist for a new layered skill
 
-- [ ] Entry points live under `scripts/tools/` and stay under ~30 lines
+- [ ] Entry points live at `scripts/*.py` and stay under ~30 lines
 - [ ] Shared logic lives in `scripts/services/` and raises typed exceptions
 - [ ] Pure helpers live in `scripts/utils/` and have no side effects
 - [ ] Every tool in `tools.yaml` has an explicit `source_file:`
-- [ ] Each adapter installs the `sys.path` shim shown above
-- [ ] `metadata.dcc-mcp.tools` is set to `tools.yaml` in nested SKILL.md frontmatter
+- [ ] Entry points import same-skill helpers directly and never mutate `sys.path`
+- [ ] `metadata.dcc-mcp.tools` is set to `tools.yaml` in `SKILL.md` frontmatter
 
 ## Dependency Resolution
 

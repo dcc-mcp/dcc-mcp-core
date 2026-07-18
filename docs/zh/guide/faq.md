@@ -20,7 +20,7 @@ DCC-MCP-Core 是一个基础 Rust 库（含 Python 绑定），提供：
 dcc-mcp-core 是 DCC 无关的 — 核心库提供基础设施，DCC 特定集成由独立项目提供：
 
 - **Maya** — 通过 [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya)
-- **Unreal** — 通过 [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal)（Python embedded）
+- **Unreal** — 通过 [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal)（Python embedded）
 - **Photoshop** — 通过 [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop)（WebSocket bridge）
 - **ZBrush** — 通过 [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush)（HTTP bridge）
 - **Blender、Houdini、3ds Max** — 社区/第三方集成

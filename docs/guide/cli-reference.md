@@ -95,14 +95,17 @@ that need a local gateway (`health`, `stats`, `update`, and `smoke` without an e
 `--url`) auto-ensure only loopback HTTP targets (`http://127.0.0.1:<port>` or
 `http://localhost:<port>`). Disable this for one invocation with
 `--no-auto-gateway`. Commands that operate only on local files (`install`,
-`marketplace`, `lint`), explicit lifecycle commands (`gateway ...`), and smoke
-checks against an explicit `--url` do not auto-start the gateway.
+`dcc-types`, `marketplace`, `lint`), explicit lifecycle commands
+(`gateway ...`), and smoke checks against an explicit `--url` do not
+auto-start the gateway.
 Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
 current profile config, selected mode, registry directory and inventory, local
 direct-control readiness counts, gateway daemon status, and server binary
 path/source/version without launching or downloading anything.
 
 ```bash
+dcc-mcp-cli dcc-types
+dcc-mcp-cli dcc-types --catalog ./studio-catalog.yml
 dcc-mcp-cli list
 dcc-mcp-cli list --gateway pcA
 dcc-mcp-cli doctor
@@ -150,6 +153,7 @@ dcc-mcp-cli lint path/to/skills
 
 | Command | REST/API contract | Meaning |
 |---|---|---|
+| `dcc-types [--catalog <path>]` | bundled or supplied adapter catalog | List canonical adapter-backed DCC identifiers without starting a gateway. Each row includes matching adapters, version/source metadata when present, and whether the catalog can produce an install plan. |
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted tool-call counts, success/failure, latency, tokens, and top dimensions after applying all supplied filters. JSON is the default output for agent use. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, local registry path/inventory, direct-control readiness counts and not-ready diagnostics, gateway daemon status, and server binary diagnostics without auto-starting or downloading services. |
@@ -185,6 +189,20 @@ dcc-mcp-cli lint path/to/skills
 | `gateway daemon status [--port <port>]` | local process | Report gateway daemon health, PID, process liveness, registry dir, PID file, health URL, and CLI version. |
 | `gateway ensure/start/stop/status` | local process | Backward-compatible aliases for older scripts; prefer `gateway daemon ...` in user-facing docs. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
+
+`dcc-types` describes release-catalog support, not currently running sessions;
+use `list` for live inventory. The core still accepts unknown/custom DCC names,
+so `custom_types_supported` remains true even when a custom identifier has no
+catalog install plan. Alias normalization follows `DccName::parse`, including
+`3ds Max`, `3ds-max`, and `3dsmax` mapping to `3dsmax`.
+
+For post-task review, attach a stable task identifier through
+`--meta-json '{"agent_context":{"session_id":"task-42"}}'`, then query
+`stats --range 24h --session-id task-42` after acceptance. Stats are aggregate
+gateway evidence rather than root-cause proof, and direct local calls may not
+appear; `total_calls == 0` means no telemetry evidence. The
+`review_skill_improvement` prompt in `skills/dcc-mcp-skills-creator/prompts.yaml`
+accepts this JSON plus bounded task and validation summaries.
 
 `gateway daemon start` and `gateway daemon restart` are the durable operator
 paths. Their default `--gateway-idle-timeout-secs 0` disables idle shutdown;

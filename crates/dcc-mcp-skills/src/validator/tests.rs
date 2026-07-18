@@ -146,6 +146,63 @@ fn test_missing_source_file() {
 }
 
 #[test]
+fn test_python_source_rejects_sibling_sys_path_mutation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("bad-import-contract");
+    std::fs::create_dir_all(dir.join("scripts")).unwrap();
+    std::fs::write(
+        dir.join("SKILL.md"),
+        "---\nname: bad-import-contract\ndescription: test\ntools:\n  - name: do_thing\n    source_file: scripts/do_thing.py\n---\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("scripts/do_thing.py"),
+        "from _common import helper\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("scripts/_common.py"),
+        "from pathlib import Path\nimport sys\nscript_dir = Path(__file__).parent\nsys.path.insert(0, str(script_dir))\n",
+    )
+    .unwrap();
+
+    let report = validate_skill_dir(&dir);
+
+    assert!(report.issues.iter().any(|issue| {
+        issue.category == IssueCategory::Scripts
+            && issue
+                .message
+                .contains("shared runner owns script-directory import setup")
+    }));
+}
+
+#[test]
+fn test_python_source_allows_intentional_project_path_attachment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("project-loader");
+    std::fs::create_dir_all(dir.join("scripts")).unwrap();
+    std::fs::write(
+        dir.join("SKILL.md"),
+        "---\nname: project-loader\ndescription: test\ntools:\n  - name: attach_project\n    source_file: scripts/attach_project.py\n---\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("scripts/attach_project.py"),
+        "import sys\ndef main(project_root):\n    sys.path.insert(0, project_root)\n",
+    )
+    .unwrap();
+
+    let report = validate_skill_dir(&dir);
+
+    assert!(!report.issues.iter().any(|issue| {
+        issue.category == IssueCategory::Scripts
+            && issue
+                .message
+                .contains("shared runner owns script-directory import setup")
+    }));
+}
+
+#[test]
 fn test_non_spec_top_level_keys_error() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = make_skill_dir(

@@ -6,15 +6,16 @@ description: >-
   scripts, groups, prompts, or skill taxonomy. Not for creating a full DCC-MCP
   adapter repository - use dcc-mcp-creator.
 license: MIT-0
-compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
 allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
     version: "0.19.58"  # x-release-please-version
     layer: infrastructure
+    compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
     tools: tools.yaml
+    prompts: prompts.yaml
     skill-reference-docs:
       - "references/*.md"
   openclaw:
@@ -174,12 +175,41 @@ Generated `tools.yaml` entries follow the modern contract:
 1. Decide whether the skill is infrastructure, domain, thin-harness, or example.
 2. Give the skill a kebab-case name and each local tool a snake_case name.
 3. Keep host API calls inside scripts, with lazy imports so discovery works without the host running.
-4. Import same-directory helper modules directly; in-process runners expose the executing script's directory only for the call, so scripts must not mutate `sys.path` for sibling imports.
+4. Import same-directory helper modules directly; in-process runners expose the executing script's directory only for the call, so scripts must not mutate `sys.path` for sibling imports. In particular, do not repeat the legacy pattern shown in [houdini#157](https://github.com/dcc-mcp/dcc-mcp-houdini/pull/157/changes#diff-20f6c4a5b206da54475e771ac54351c25975cbcb533595f074c7f26d07ad09a2R11-R13):
+
+   ```python
+   script_dir = str(Path(__file__).resolve().parent)
+   if script_dir not in sys.path:
+       sys.path.insert(0, script_dir)
+   ```
+
+   That mutates process-global import state and leaks across skills. Script-directory lifetime is runtime ownership; use a direct sibling import and let the executor scope resolution to the current call.
 5. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
 6. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. Do not rely on runtime Python introspection for missing schemas. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
 7. Put long examples, recipes, and host-specific notes under `references/`.
 8. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
 9. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
+
+## Improve Skills From Completed Tasks
+
+Use retained gateway evidence only after the user-visible task and its
+validation are complete. Keep one stable `session_id` in call metadata, then
+query the narrowest useful slice:
+
+```bash
+dcc-mcp-cli stats --range 24h --dcc-type <dcc> --session-id <session-id>
+```
+
+Get the `review_skill_improvement` prompt from this skill and supply the stats
+JSON plus bounded task and validation summaries. Treat `total_calls == 0` as
+missing evidence, not success. Never include hidden reasoning, raw prompts,
+credentials, or unredacted payloads.
+
+Prefer `no_change`, then improving an existing skill, and create a new skill
+only for a repeated, reusable workflow that no current skill owns. Validate any
+accepted change with `validate_skill_dir` or `dcc-mcp-cli lint` before loading
+it. Statistics inform a proposal; they never authorize editing or publishing a
+skill without the task owner's requested scope.
 
 When reviewing existing skills, reject top-level DCC-MCP extension keys such
 as `dcc`, `version`, `tags`, `tools`, `groups`, `depends`, `search-hint`,

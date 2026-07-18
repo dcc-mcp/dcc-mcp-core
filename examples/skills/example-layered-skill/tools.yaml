@@ -4,7 +4,7 @@
 tools:
   - name: create_asset
     description: Create a new asset record on disk under the project root.
-    source_file: scripts/tools/create_asset.py
+    source_file: scripts/create_asset.py
     input_schema:
       type: object
       required: [name]
@@ -26,7 +26,7 @@ tools:
 
   - name: publish_asset
     description: Publish an existing asset by promoting it to the publish/ directory.
-    source_file: scripts/tools/publish_asset.py
+    source_file: scripts/publish_asset.py
     input_schema:
       type: object
       required: [asset_id]
@@ -43,7 +43,7 @@ tools:
 
   - name: validate_asset
     description: Validate an asset against project naming and structure rules.
-    source_file: scripts/tools/validate_asset.py
+    source_file: scripts/validate_asset.py
     input_schema:
       type: object
       required: [asset_id]

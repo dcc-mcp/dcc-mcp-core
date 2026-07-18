@@ -1153,6 +1153,7 @@ dependencies = [
  "dcc-mcp-gateway-ensure",
  "dcc-mcp-http",
  "dcc-mcp-marketplace",
+ "dcc-mcp-models",
  "dcc-mcp-sidecar",
  "dcc-mcp-skills",
  "dcc-mcp-transport",

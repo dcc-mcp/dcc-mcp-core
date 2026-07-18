@@ -24,15 +24,24 @@ submit a PR updating this matrix before the release PR merges.
 
 | DCC | Repository | Adapter Version | Core Pin | DCC Min Version | Dispatcher Pattern | Last Verified |
 |-----|-----------|----------------|----------|-----------------|-------------------|---------------|
-| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.8.6 | >=0.18.20,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-06 |
-| 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.19 | >=0.18.20,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-06 |
-| Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.13 | >=0.18.9,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-06 |
-| Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.6.1 | >=0.18.14,<1.0.0 | 20.5+ | Event-loop callback | 2026-06 |
-| FPT | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.2.0 | >=0.18.0,<1.0.0 | — | REST bridge | 2026-06 |
-| Nuke | _(planned)_ | — | — | — | — | — |
-| Unreal | _(planned)_ | — | — | — | — | — |
-| ZBrush | _(planned)_ | — | — | — | — | — |
-| Photoshop | [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | 0.1.15 | >=0.18.14,<1.0.0 | Photoshop UXP | WebSocket bridge | 2026-06 |
+| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.15 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-06 |
+| 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.37 | >=0.19.45,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-06 |
+| Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.36 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-06 |
+| Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.22.0 | >=0.19.45,<1.0.0 | 20.5+ | Event-loop callback | 2026-06 |
+| FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.8 | >=0.19.45,<1.0.0 | — | REST bridge | 2026-06 |
+| Nuke | [dcc-mcp-nuke](https://github.com/dcc-mcp/dcc-mcp-nuke) | 0.13.1 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
+| Unreal | [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) | 0.2.0 | >=0.19.45,<1.0.0 | — | Unreal Python bridge | — |
+| ZBrush | [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) | 0.2.18 | >=0.19.45,<1.0.0 | — | Socket bridge + sidecar | — |
+| Photoshop | [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | 0.1.37 | >=0.19.45,<1.0.0 | Photoshop UXP | WebSocket bridge | 2026-06 |
+| Premiere Pro | [dcc-mcp-premiere](https://github.com/dcc-mcp/dcc-mcp-premiere) | 0.4.0 | >=0.19.45,<1.0.0 | 25.6+ | UXP WebSocket bridge | — |
+| After Effects | [dcc-mcp-aftereffects](https://github.com/dcc-mcp/dcc-mcp-aftereffects) | 0.5.0 | >=0.19.45,<1.0.0 | — | CEP bridge | — |
+| Katana | [dcc-mcp-katana](https://github.com/dcc-mcp/dcc-mcp-katana) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
+| MotionBuilder | [dcc-mcp-mobu](https://github.com/dcc-mcp/dcc-mcp-mobu) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
+| RenderDoc | [dcc-mcp-renderdoc](https://github.com/dcc-mcp/dcc-mcp-renderdoc) | 0.3.0 | >=0.19.45,<1.0.0 | — | Headless CLI adapter | 2026-07 |
+| Substance 3D Designer | [dcc-mcp-substance3d-designer](https://github.com/dcc-mcp/dcc-mcp-substance3d-designer) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host bridge | — |
+| Substance 3D Painter | [dcc-mcp-substance3d-painter](https://github.com/dcc-mcp/dcc-mcp-substance3d-painter) | 0.1.3 | >=0.19.3,<1.0.0 | — | Host bridge | — |
+| Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.4.0 | >=0.19.45,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-07 |
+| OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.1 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
 
 ## Column Reference

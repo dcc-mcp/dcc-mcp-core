@@ -56,7 +56,7 @@ impl DccName {
             "maya" => Self::Maya,
             "blender" => Self::Blender,
             "houdini" => Self::Houdini,
-            "3dsmax" | "max" | "threedsmax" => Self::ThreedsMax,
+            "3dsmax" | "3ds max" | "3ds-max" | "max" | "threedsmax" => Self::ThreedsMax,
             "c4d" | "cinema4d" => Self::Cinema4d,
             "photoshop" | "ps" => Self::Photoshop,
             "zbrush" => Self::Zbrush,
@@ -146,6 +146,8 @@ mod tests {
         assert_eq!(DccName::parse("MAYA"), DccName::Maya);
         assert_eq!(DccName::parse("  Blender  "), DccName::Blender);
         assert_eq!(DccName::parse("3DsMax"), DccName::ThreedsMax);
+        assert_eq!(DccName::parse("3ds max"), DccName::ThreedsMax);
+        assert_eq!(DccName::parse("3ds-max"), DccName::ThreedsMax);
         assert_eq!(DccName::parse("PS"), DccName::Photoshop);
         assert_eq!(DccName::parse("UE5"), DccName::Unreal);
     }

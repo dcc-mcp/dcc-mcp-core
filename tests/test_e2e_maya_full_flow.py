@@ -179,7 +179,7 @@ class TestMayaInstallPlan:
         assert len(steps) >= 1, f"Expected at least 1 step, got: {len(steps)}"
 
         step_names = [s.get("name", "") for s in steps]
-        assert "resolve-adapter" in step_names, f"Expected resolve-adapter step, got: {step_names}"
+        assert step_names == ["install-pip", "register-dcc", "verify"]
 
     def test_install_plan_accepts_version_filter(self) -> None:
         """Install plan with --version must not error."""

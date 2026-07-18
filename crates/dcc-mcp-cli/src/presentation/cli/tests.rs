@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn dcc_types_contract_accepts_a_custom_catalog() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "dcc-types",
+        "--catalog",
+        "studio-catalog.yml",
+    ])
+    .expect("parse dcc-types command");
+
+    let Command::DccTypes { catalog } = args.command else {
+        panic!("expected dcc-types command");
+    };
+    assert_eq!(catalog, Some(PathBuf::from("studio-catalog.yml")));
+}
+
+#[test]
 fn stats_contract_parses_composable_runtime_filters() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
@@ -432,6 +448,14 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 gateway_host: "127.0.0.1".to_string(),
                 gateway_port: 9765,
             },
+            &local,
+        )
+        .is_none()
+    );
+    assert!(
+        gateway_endpoint_for_command(
+            DEFAULT_BASE_URL,
+            &Command::DccTypes { catalog: None },
             &local,
         )
         .is_none()

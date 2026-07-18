@@ -342,6 +342,16 @@ fn validate_next_tools(
 
 fn validate_scripts(skill_dir: &Path, meta: &SkillMetadata, report: &mut SkillValidationReport) {
     let scripts_dir = skill_dir.join("scripts");
+    let mut checked_python_sources = HashSet::new();
+
+    for path in python_scripts_under(&scripts_dir) {
+        checked_python_sources.insert(path.clone());
+        let source_file = path
+            .strip_prefix(skill_dir)
+            .unwrap_or(&path)
+            .to_string_lossy();
+        validate_python_script_contract(&path, source_file.as_ref(), report);
+    }
 
     for tool in &meta.tools {
         if !tool.source_file.is_empty() {
@@ -364,6 +374,10 @@ fn validate_scripts(skill_dir: &Path, meta: &SkillMetadata, report: &mut SkillVa
                             tool.name, tool.source_file, ext_str
                         ),
                     ));
+                } else if ext_str.eq_ignore_ascii_case("py")
+                    && checked_python_sources.insert(path.clone())
+                {
+                    validate_python_script_contract(&path, &tool.source_file, report);
                 }
             } else {
                 report.issues.push(SkillValidationIssue::warn(
@@ -385,6 +399,56 @@ fn validate_scripts(skill_dir: &Path, meta: &SkillMetadata, report: &mut SkillVa
                 "tools are declared but no scripts/ directory exists",
             ));
         }
+    }
+}
+
+fn python_scripts_under(scripts_dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut pending = vec![scripts_dir.to_path_buf()];
+    let mut scripts = Vec::new();
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if file_type.is_dir() {
+                pending.push(path);
+            } else if file_type.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("py"))
+            {
+                scripts.push(path);
+            }
+        }
+    }
+    scripts.sort();
+    scripts
+}
+
+fn validate_python_script_contract(
+    path: &Path,
+    source_file: &str,
+    report: &mut SkillValidationReport,
+) {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let mutates_sys_path = source.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("sys.path.insert(") || line.starts_with("sys.path.append(")
+    });
+    if source.contains("__file__") && mutates_sys_path {
+        report.issues.push(SkillValidationIssue::error(
+            IssueCategory::Scripts,
+            format!(
+                "script '{}' must import sibling helpers directly; the shared runner owns script-directory import setup",
+                source_file
+            ),
+        ));
     }
 }
 
