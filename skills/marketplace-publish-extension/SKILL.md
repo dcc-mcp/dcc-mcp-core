@@ -70,8 +70,10 @@ push the change.
 
 1. Point the tool at a local extension directory containing `SKILL.md`.
 2. The tool reads the SKILL.md frontmatter and any accompanying metadata.
-3. Additional CLI-supplied fields (install url, ref, skill roots, tags, maintainer, icon,
-   etc.) are merged in.
+3. Additional CLI-supplied fields (install url, ref, skill roots, tags,
+   maintainer, icon, and `showcase`) are merged in. Use a repository-relative
+   16:9 PNG, JPEG, WebP, AVIF, or animated GIF path; the marketplace resolves
+   it at the pinned 40-character Git revision.
 4. A `CatalogEntry` is built and upserted into the target `marketplace.json`.
    New catalogs use the v1 `skills` layout and preserve v1-only fields when an
    existing entry is updated.

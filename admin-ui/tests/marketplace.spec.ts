@@ -395,11 +395,14 @@ test.describe('Marketplace Panel', () => {
   });
 
   test('opens detail modal on card click and shows package metadata', async ({ page }) => {
-    await page.route('**/marketplace-showcase.webp', async (route) => {
+    await page.route('**/marketplace-showcase.gif', async (route) => {
       await route.fulfill({
         status: 200,
-        contentType: 'image/svg+xml',
-        body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#0b1f45"/><path d="M180 600 560 220l310 270 250-210 300 320" fill="none" stroke="#16b9e6" stroke-width="36"/></svg>',
+        contentType: 'image/gif',
+        body: Buffer.from(
+          'R0lGODlhBAAEAPAAAAsfRQAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAAAAAACwAAAAABAAEAAACBISPCQUAIfkEAAUAAAAsAAAAAAQABACAFrnmAAAAAgSEjwkFADs=',
+          'base64',
+        ),
       });
     });
     await mockMarketplaceApi(page, {
@@ -413,7 +416,7 @@ test.describe('Marketplace Panel', () => {
           min_core_version: '0.15.0',
           maintainer: 'td-core',
           icon: '/missing-marketplace-icon.png',
-          showcase: '/marketplace-showcase.webp',
+          showcase: '/marketplace-showcase.gif',
           url: 'https://github.com/dcc-mcp/maya-modeling',
           source_name: 'builtin',
           install: { type: 'git', url: 'https://github.com/dcc-mcp/maya-modeling.git' },

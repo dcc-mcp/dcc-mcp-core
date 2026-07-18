@@ -41,6 +41,7 @@ use uuid::Uuid;
 
 use dcc_mcp_marketplace::MarketplaceService;
 
+use super::super::admin::marketplace::resolve_icon_url;
 use super::super::admin::skill_reload::reload_skill_paths_and_refresh_backends;
 use super::super::admin::state::AdminState;
 use super::super::capability::RefreshReason;
@@ -384,6 +385,12 @@ async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> S
             let entries: Vec<Value> = hits
                 .into_iter()
                 .map(|hit| {
+                    let icon =
+                        resolve_icon_url(hit.entry.icon.as_deref(), Some(hit.source.url.as_str()));
+                    let showcase = dcc_mcp_marketplace::resolve_catalog_asset_url(
+                        hit.entry.showcase.as_deref(),
+                        hit.entry.install.as_ref(),
+                    );
                     serde_json::json!({
                         "name": hit.entry.name,
                         "description": hit.entry.description,
@@ -394,6 +401,8 @@ async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> S
                         "min_core_version": hit.entry.min_core_version,
                         "maintainer": hit.entry.maintainer,
                         "requires": hit.entry.requires,
+                        "icon": icon,
+                        "showcase": showcase,
                         "source_name": hit.source.name,
                         "source_url": hit.source.url,
                     })

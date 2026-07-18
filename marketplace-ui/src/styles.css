@@ -234,6 +234,22 @@ body {
   border-color: #cbd5e1;
 }
 
+.marketplace-card-showcase,
+.marketplace-detail-showcase {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 0.5rem;
+}
+
+.marketplace-card-showcase {
+  margin-bottom: 1rem;
+}
+
+.marketplace-detail-showcase {
+  margin-bottom: 1.5rem;
+}
+
 .marketplace-card-head {
   display: flex;
   align-items: center;
