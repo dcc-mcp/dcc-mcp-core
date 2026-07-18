@@ -205,3 +205,25 @@ fn describe_refresh_is_conditional_on_generation_and_index_hit() {
         None
     ));
 }
+
+#[test]
+fn calls_refresh_only_after_route_index_errors() {
+    use crate::gateway::capability_service::ServiceError;
+
+    assert!(call_error_needs_refresh(&ServiceError::new(
+        "unknown-slug",
+        "missing capability",
+    )));
+    assert!(call_error_needs_refresh(&ServiceError::new(
+        "instance-offline",
+        "live instance not indexed yet",
+    )));
+    assert!(!call_error_needs_refresh(&ServiceError::new(
+        "backend-error",
+        "tool execution failed",
+    )));
+    assert!(!call_error_needs_refresh(&ServiceError::new(
+        "policy-denied",
+        "request rejected",
+    )));
+}

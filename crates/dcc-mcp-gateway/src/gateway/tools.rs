@@ -619,12 +619,9 @@ pub async fn tool_call_tool(
     };
     let forwarded_meta = args.get("meta").cloned().or_else(|| meta.cloned());
     let search_id = search_id_from_inputs(args, meta);
-    // No refresh here on purpose: `call_tool` is the hot path and
-    // we trust that the caller used `describe_tool` / `search_tools`
-    // to obtain the slug, both of which refresh. An unknown-slug
-    // error from `describe_service` will trigger one refresh at the
-    // end of this function if the record is missing, keeping the
-    // happy path fast.
+    // No eager refresh here: `call_tool` is the hot path and callers often
+    // arrive from `describe_tool` / `search_tools`. If the cached route is
+    // absent or stale, refresh once after that concrete routing error.
     match crate::gateway::capability_service::call_service(
         gs,
         slug,
@@ -651,10 +648,9 @@ pub async fn tool_call_tool(
                 is_error,
             )
         }
-        Err(err) if err.kind == "unknown-slug" => {
-            // Refresh once in case the caller supplied a slug that
-            // just became valid (e.g. a skill loaded between
-            // `search_tools` and `call_tool`), then retry.
+        Err(err) if call_error_needs_refresh(&err) => {
+            // Refresh once when the slug just became valid or a live instance
+            // has not reached this gateway's capability index yet.
             crate::gateway::capability_service::refresh_all_live_backends(
                 gs,
                 crate::gateway::capability::RefreshReason::Periodic,
@@ -726,6 +722,12 @@ pub async fn tool_call_tool(
     }
 }
 
+pub(super) fn call_error_needs_refresh(
+    err: &crate::gateway::capability_service::ServiceError,
+) -> bool {
+    matches!(err.kind.as_str(), "unknown-slug" | "instance-offline")
+}
+
 /// Maximum number of backend invocations allowed in one `call_tools` /
 /// `POST /v1/call_batch` request (token + backend fairness guardrail).
 pub const MAX_CALL_TOOLS_BATCH: usize = 25;
@@ -735,7 +737,7 @@ pub const MAX_CALL_TOOLS_BATCH: usize = 25;
 /// Request shape: `{ "calls": [ { "tool_slug", "arguments"?, "meta"? }, ... ],
 /// "stop_on_error"?: bool }`. Each entry is routed through
 /// [`crate::gateway::capability_service::call_service`] with the same
-/// unknown-slug refresh-and-retry semantics as [`tool_call_tool`].
+/// route-index refresh-and-retry semantics as [`tool_call_tool`].
 ///
 /// Returns `Ok(Value)` with `{ "success": bool, "results": [...] }` where each
 /// result item includes `index`, optional client-supplied `id`, `tool_slug`,
@@ -815,7 +817,7 @@ pub async fn gateway_call_batch_inner(
             .await
             {
                 Ok(result) => Ok(result),
-                Err(err) if err.kind == "unknown-slug" => {
+                Err(err) if call_error_needs_refresh(&err) => {
                     crate::gateway::capability_service::refresh_all_live_backends(
                         gs,
                         crate::gateway::capability::RefreshReason::Periodic,
