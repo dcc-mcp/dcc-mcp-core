@@ -15,7 +15,7 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    version: "0.19.57"  # x-release-please-version
+    version: "0.19.58"  # x-release-please-version
     search-hint: "dcc control Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Substance connect create edit render automate cli gateway"
     tags: "dcc, maya, blender, houdini, photoshop, nuke, cli, gateway, clawhub, openclaw"
   openclaw:
