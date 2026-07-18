@@ -45,13 +45,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
-    GetAncestor, GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetSystemMetrics,
-    GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, HWND_TOPMOST,
-    IsIconic, IsWindow, IsWindowVisible, LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW,
-    PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-    SetForegroundWindow, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowPos,
-    ShowWindow, TranslateMessage, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
+    GW_HWNDPREV, GWL_EXSTYLE, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
+    GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, HWND_TOPMOST, IsIconic,
+    IsWindow, IsWindowVisible, LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostMessageW,
+    RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow,
+    SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowPos, ShowWindow,
+    TranslateMessage, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
     WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY, WM_PAINT, WM_WTSSESSION_CHANGE, WNDCLASSW,
     WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
     WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT, WTS_REMOTE_DISCONNECT,
@@ -108,6 +109,46 @@ const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
 const DESKTOP_BARRIER_MESSAGE: u32 = WM_APP + 0x443;
 const DESKTOP_BARRIER_TIMEOUT: Duration = Duration::from_millis(500);
 const PROCESS_PATH_CAPACITY: usize = 32_768;
+
+fn is_control_overlay_window(hwnd: HWND) -> bool {
+    let mut class_name = [0_u16; 64];
+    let length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
+    matches!(
+        String::from_utf16_lossy(&class_name[..length]).as_str(),
+        "DccMcpComputerUseOverlay" | "DccMcpComputerUseFocusOverlay"
+    )
+}
+
+fn is_input_transparent_window(hwnd: HWND) -> bool {
+    if is_control_overlay_window(hwnd) {
+        return true;
+    }
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    ex_style & WS_EX_TRANSPARENT.0 != 0
+}
+
+fn first_input_receiving_window_above_target_at_point(
+    target: HWND,
+    screen_x: i32,
+    screen_y: i32,
+) -> Option<HWND> {
+    let mut candidate = unsafe { GetWindow(target, GW_HWNDPREV) }.ok();
+    while let Some(hwnd) = candidate {
+        if unsafe { IsWindowVisible(hwnd).as_bool() } && !is_input_transparent_window(hwnd) {
+            let mut rect = RECT::default();
+            if unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
+                && screen_x >= rect.left
+                && screen_x < rect.right
+                && screen_y >= rect.top
+                && screen_y < rect.bottom
+            {
+                return Some(hwnd);
+            }
+        }
+        candidate = unsafe { GetWindow(hwnd, GW_HWNDPREV) }.ok();
+    }
+    None
+}
 
 type OverlayGeometry = (i32, i32, i32, i32);
 type BorderGeometries = Vec<(OverlayGeometry, u8, bool)>;

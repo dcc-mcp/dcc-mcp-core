@@ -98,6 +98,18 @@ impl Capturer {
         }
     }
 
+    /// Create a capturer for deterministic app-scoped static screenshots.
+    ///
+    /// This is the preferred constructor when the caller also owns visible
+    /// feedback overlays that must never appear in the returned pixels.
+    pub fn new_window_static() -> Self {
+        let (backend, _) = backend::best_static_window_capture();
+        Capturer {
+            backend,
+            stats: Arc::new(CaptureStats::default()),
+        }
+    }
+
     /// Create a `Capturer` from an explicit backend.
     pub fn with_backend(backend: Box<dyn DccCapture>) -> Self {
         Capturer {

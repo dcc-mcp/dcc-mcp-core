@@ -832,6 +832,15 @@ fn hidden_and_reused_windows_fail_closed() {
 }
 
 #[test]
+fn persistent_control_cursor_does_not_occlude_the_next_nearby_action() {
+    let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
+    let cursor_overlay = PointerEffect::new(300, 300, "●").unwrap();
+
+    assert!(is_control_overlay_window(cursor_overlay.hwnd));
+    assert!(is_input_transparent_window(cursor_overlay.hwnd));
+}
+
+#[test]
 fn minimized_window_is_identity_checked_then_restored_for_input() {
     use windows::Win32::System::Threading::GetCurrentProcessId;
     use windows::Win32::UI::WindowsAndMessaging::SW_MINIMIZE;

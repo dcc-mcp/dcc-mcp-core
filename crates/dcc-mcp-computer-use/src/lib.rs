@@ -446,7 +446,10 @@ impl ComputerUseSession {
             state: Mutex::new(SessionState::default()),
             stop_requested: Arc::new(AtomicBool::new(false)),
             generation: AtomicU64::new(0),
-            capturer: Capturer::new_window_auto(),
+            // App-UI feedback lives in separate overlay windows. Use a static
+            // HWND capture so those excluded overlays cannot race an in-flight
+            // WGC worker and can never leak into the observation.
+            capturer: Capturer::new_window_static(),
         })
     }
 
