@@ -1,0 +1,158 @@
+.reliability-panel {
+  padding: 24px 32px;
+  max-width: 1200px;
+}
+
+.reliability-panel .reliability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.reliability-panel .reliability-section {
+  margin-bottom: 28px;
+}
+
+.reliability-panel .reliability-section h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+  margin: 0 0 12px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.reliability-panel .reliability-funnel {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reliability-panel .reliability-funnel-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  min-width: 120px;
+}
+
+.reliability-panel .reliability-funnel-stage .funnel-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.reliability-panel .reliability-funnel-stage .funnel-label {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.reliability-panel .reliability-funnel-arrow {
+  display: flex;
+  align-items: center;
+  padding-top: 20px;
+  color: var(--color-muted);
+  font-size: 1.25rem;
+}
+
+.reliability-panel .reliability-election {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.reliability-panel .reliability-election .election-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+}
+
+.reliability-panel .reliability-election .election-label {
+  color: var(--color-muted);
+  min-width: 80px;
+}
+
+.reliability-panel .reliability-election .election-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+.reliability-panel .reliability-election .election-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.reliability-panel .reliability-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.reliability-panel .reliability-config-grid .config-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+
+.reliability-panel .reliability-config-grid .config-label {
+  color: var(--color-muted);
+}
+
+.reliability-panel .reliability-config-grid .config-value {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+
+.reliability-panel .reliability-stability {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.reliability-panel .reliability-stability .uptime-ring {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.reliability-panel .reliability-stability .uptime-ring.ok {
+  background: color-mix(in srgb, var(--color-ok, #22c55e) 15%, transparent);
+  color: var(--color-ok, #22c55e);
+  border: 3px solid var(--color-ok, #22c55e);
+}
+
+.reliability-panel .reliability-stability .uptime-ring.warn {
+  background: color-mix(in srgb, var(--color-warn, #eab308) 15%, transparent);
+  color: var(--color-warn, #eab308);
+  border: 3px solid var(--color-warn, #eab308);
+}
+
+.reliability-panel .reliability-stability .uptime-ring.err {
+  background: color-mix(in srgb, var(--color-err, #ef4444) 15%, transparent);
+  color: var(--color-err, #ef4444);
+  border: 3px solid var(--color-err, #ef4444);
+}
