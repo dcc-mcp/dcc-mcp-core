@@ -1,336 +1,342 @@
 /**
- * Realtime updates for the admin UI via Server-Sent Events, with an HTTP
- * polling fallback.
+ * SSE-based real-time data hook for admin UI.
  *
- * Connects to `${API_BASE}/events` (an SSE endpoint) and:
- *   - reconnects with exponential backoff (1s -> 2s -> 4s -> 8s -> 30s max)
- *     when the connection drops,
- *   - throttles to a slow 30s poll while the tab is in the background
- *     (document.visibilitychange), closing the live SSE connection to
- *     avoid unnecessary server load,
- *   - falls back to HTTP polling entirely when `EventSource` is not
- *     available in the runtime (feature detection),
- *   - invalidates the TanStack Query caches related to the event's
- *     resource so panels refetch fresh data instead of waiting on their
- *     own poll interval.
+ * Connects to /admin/api/events SSE stream for live updates.
+ * Falls back to polling when SSE is unavailable or the tab is in background.
+ *
+ * ## Backend contract
+ *
+ * Endpoint: `GET /admin/api/events`
+ * Response: `text/event-stream`
+ * Events:
+ *   event: <eventType>  (e.g. "health", "sessions", "workers")
+ *   data: <JSON payload>
  *
  * ## Usage
  *
  * ```tsx
- * const { isConnected, lastEvent, error, reconnect } = useRealtime();
+ * const status = useRealtimeEvents(activePanel === 'health', ['health', 'workers']);
+ * useRealtimeEvent('health', (data) => console.log(data), activePanel === 'health');
  * ```
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '../platform';
-import { adminKeys } from './queries';
 
-// ── types ────────────────────────────────────────────────────────────────
+// ── types ───────────────────────────────────────────────────────────────────
+
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+/** Shape of an SSE event received from /admin/api/events */
+export interface RealtimeEvent<T = unknown> {
+  type: string;
+  data: T;
+  queryKeys?: readonly (string | number | { [k: string]: unknown })[];
+}
+
+/** Configuration for the SSE connection. */
+export interface RealtimeConfig {
+  /** EventSource URL. Defaults to `${API_BASE}/events`. */
+  url?: string;
+  /** Max reconnect interval in ms. Default 30_000. */
+  maxReconnectMs?: number;
+  /** Polling interval in ms when SSE is unavailable or tab is in background. Default 30_000. */
+  pollIntervalMs?: number;
+  /** The base reconnect delay in ms for exponential backoff (step 1). Default 1_000. */
+  baseReconnectMs?: number;
+}
+
+// ── defaults ────────────────────────────────────────────────────────────────
+
+const DEFAULT_CONFIG: Required<RealtimeConfig> = {
+  url: `${API_BASE}/events`,
+  maxReconnectMs: 30_000,
+  pollIntervalMs: 30_000,
+  baseReconnectMs: 1_000,
+};
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+/** Compute the reconnect delay using exponential backoff: 1s, 2s, 4s, 8s, capped at max. */
+function reconnectDelay(attempt: number, base: number, max: number): number {
+  return Math.min(base * 2 ** Math.min(attempt, 4), max);
+}
+
+/** True when the document is hidden (tab in background). */
+function isTabHidden(): boolean {
+  return typeof document !== 'undefined' && document.hidden;
+}
+
+// ── hook: useRealtimeEvents ─────────────────────────────────────────────────
 
 /**
- * Resource names the admin API is known to emit events for. Kept in sync
- * with the top-level segments of {@link adminKeys} so that invalidation
- * can target the right queries. The `(string & {})` union member keeps
- * autocomplete for known values while still accepting server event types
- * this client doesn't know about yet.
+ * Manage an SSE connection to `/admin/api/events` with:
+ * - Exponential backoff reconnect (1s → 2s → 4s → 8s → max 30s)
+ * - Background-tab throttling (disconnects SSE, falls back to polling)
+ * - Graceful fallback to polling when SSE is unavailable
+ * - TanStack Query cache updates via queryClient.setQueryData
+ *
+ * @param enabled - Whether the connection should be active.
+ * @param eventTypes - Optional list of event types to process. When empty, all events are processed.
+ * @param config - Optional overrides for URL, intervals, etc.
+ * @returns The current connection status.
  */
-export type KnownRealtimeEventType =
-  | 'health'
-  | 'workers'
-  | 'instances'
-  | 'tools'
-  | 'calls'
-  | 'traces'
-  | 'traffic'
-  | 'tasks'
-  | 'workflows'
-  | 'activity'
-  | 'governance'
-  | 'logs'
-  | 'skills'
-  | 'stats'
-  | 'analytics'
-  | 'marketplace'
-  | 'integrations'
-  | 'memory'
-  | 'message';
-
-export type RealtimeEventType = KnownRealtimeEventType | (string & {});
-
-/** Normalized shape of an event, whether it arrived via SSE or polling. */
-export interface RealtimeEvent<T = unknown> {
-  type: RealtimeEventType;
-  data: T;
-  timestamp?: string;
-  id?: string;
-}
-
-export interface UseRealtimeOptions {
-  /** Path appended to `API_BASE` for both the SSE stream and the polling fallback. Default `/events`. */
-  path?: string;
-  /** Master on/off switch. When false, no connection is made and any active one is torn down. Default true. */
-  enabled?: boolean;
-  /** Initial reconnect delay in ms. Default 1000. */
-  baseReconnectDelayMs?: number;
-  /** Ceiling for the exponential backoff delay in ms. Default 30000. */
-  maxReconnectDelayMs?: number;
-  /** Poll interval used when SSE is unavailable and the tab is visible. Default 5000. */
-  pollIntervalMs?: number;
-  /** Poll interval used while the tab is hidden (both as SSE substitute and as the fallback's own throttle). Default 30000. */
-  backgroundPollIntervalMs?: number;
-  /** Called for every normalized event, in addition to the built-in cache invalidation. */
-  onEvent?: (event: RealtimeEvent) => void;
-}
-
-export interface UseRealtimeResult {
-  isConnected: boolean;
-  lastEvent: RealtimeEvent | null;
-  error: Error | null;
-  /** Force an immediate (re)connect attempt, resetting the backoff counter. No-op when `enabled` is false. */
-  reconnect: () => void;
-}
-
-const DEFAULT_PATH = '/events';
-const DEFAULT_BASE_RECONNECT_DELAY_MS = 1_000;
-const DEFAULT_MAX_RECONNECT_DELAY_MS = 30_000;
-const DEFAULT_POLL_INTERVAL_MS = 5_000;
-const DEFAULT_BACKGROUND_POLL_INTERVAL_MS = 30_000;
-
-// ── pure helpers (exported for unit testing) ────────────────────────────
-
-/** Exponential backoff: base * 2^attempt, capped at maxMs. */
-export function computeBackoffDelay(attempt: number, baseMs: number, maxMs: number): number {
-  const delay = baseMs * 2 ** Math.max(0, attempt);
-  return Math.min(delay, maxMs);
-}
-
-function recordOrNull(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-/** Coerce a raw payload (parsed JSON or an opaque string) into a {@link RealtimeEvent}. */
-export function normalizeEvent(raw: unknown, fallbackId?: string): RealtimeEvent {
-  const record = recordOrNull(raw);
-  if (!record) {
-    return { type: 'message', data: raw, id: fallbackId };
-  }
-  const type = typeof record.type === 'string' && record.type ? record.type : 'message';
-  const timestamp = typeof record.timestamp === 'string' ? record.timestamp : undefined;
-  const id = typeof record.id === 'string' ? record.id : fallbackId;
-  const data = 'data' in record ? record.data : record;
-  return { type, data, timestamp, id };
-}
-
-/** Parse a raw SSE `message` payload into a {@link RealtimeEvent}, tolerating non-JSON payloads. */
-export function parseSSEMessageData(rawData: string, lastEventId?: string): RealtimeEvent {
-  try {
-    return normalizeEvent(JSON.parse(rawData), lastEventId || undefined);
-  } catch {
-    return { type: 'message', data: rawData, id: lastEventId || undefined };
-  }
-}
-
-// ── hook ─────────────────────────────────────────────────────────────────
-
-export function useRealtime(options: UseRealtimeOptions = {}): UseRealtimeResult {
-  const {
-    path = DEFAULT_PATH,
-    enabled = true,
-    baseReconnectDelayMs = DEFAULT_BASE_RECONNECT_DELAY_MS,
-    maxReconnectDelayMs = DEFAULT_MAX_RECONNECT_DELAY_MS,
-    pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-    backgroundPollIntervalMs = DEFAULT_BACKGROUND_POLL_INTERVAL_MS,
-    onEvent,
-  } = options;
+export function useRealtimeEvents(
+  enabled: boolean,
+  eventTypes: string[] = [],
+  config: RealtimeConfig = {},
+): ConnectionStatus {
+  const { url, maxReconnectMs, pollIntervalMs, baseReconnectMs } = {
+    ...DEFAULT_CONFIG,
+    ...config,
+  };
 
   const queryClient = useQueryClient();
+  const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+  const esRef = useRef<EventSource | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
-  const [isConnected, setIsConnected] = useState(false);
-  const [lastEvent, setLastEvent] = useState<RealtimeEvent | null>(null);
-  const [error, setError] = useState<Error | null>(null);
+  // Refs for the config values that change — so stale closures are never a problem.
+  const eventTypesRef = useRef(eventTypes);
+  eventTypesRef.current = eventTypes;
+  const urlRef = useRef(url);
+  urlRef.current = url;
+  const maxReconnectMsRef = useRef(maxReconnectMs);
+  maxReconnectMsRef.current = maxReconnectMs;
+  const pollIntervalMsRef = useRef(pollIntervalMs);
+  pollIntervalMsRef.current = pollIntervalMs;
+  const baseReconnectMsRef = useRef(baseReconnectMs);
+  baseReconnectMsRef.current = baseReconnectMs;
 
-  // Read via ref inside the effect so callback identity changes don't
-  // restart the connection lifecycle.
-  const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  const clearTimers = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    if (pollTimerRef.current !== null) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
 
-  // Populated by the effect below; `reconnect()` just delegates to it so
-  // the public callback identity stays stable across renders.
-  const reconnectFnRef = useRef<() => void>(() => {});
+  const closeEventSource = useCallback(() => {
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+  }, []);
 
-  const invalidateForEvent = useCallback((type: RealtimeEventType) => {
-    queryClient.invalidateQueries({ queryKey: [...adminKeys.all, type] });
-  }, [queryClient]);
+  const startPolling = useCallback(() => {
+    clearTimers();
+    pollTimerRef.current = setInterval(() => {
+      if (enabledRef.current) {
+        queryClient.invalidateQueries({ queryKey: ['admin'] });
+      }
+    }, pollIntervalMsRef.current);
+  }, [clearTimers, queryClient]);
 
-  useEffect(() => {
-    if (!enabled) {
-      setIsConnected(false);
-      reconnectFnRef.current = () => {};
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current !== null) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const connect = useCallback(() => {
+    if (!enabledRef.current) return;
+    if (esRef.current) return;
+
+    if (isTabHidden()) {
+      setStatus('disconnected');
+      startPolling();
       return;
     }
 
-    let stopped = false;
-    let es: EventSource | null = null;
-    let reconnectTimer: number | null = null;
-    let pollTimer: number | null = null;
-    let reconnectAttempt = 0;
-    const sseSupported = typeof EventSource !== 'undefined';
+    setStatus('connecting');
 
-    const clearReconnectTimer = () => {
-      if (reconnectTimer != null) {
-        window.clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-    };
+    try {
+      const es = new EventSource(urlRef.current);
 
-    const stopPolling = () => {
-      if (pollTimer != null) {
-        window.clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    };
+      es.onopen = () => {
+        setStatus('connected');
+        reconnectAttemptRef.current = 0;
+      };
 
-    const closeSSE = () => {
-      if (es) {
-        es.onopen = null;
-        es.onmessage = null;
-        es.onerror = null;
-        es.close();
-        es = null;
-      }
-    };
+      es.onmessage = (event: MessageEvent) => {
+        const type = (event as MessageEvent & { type?: string }).type || 'message';
+        const types = eventTypesRef.current;
+        if (types.length > 0 && !types.includes(type)) return;
 
-    const emit = (event: RealtimeEvent) => {
-      if (stopped) return;
-      setLastEvent(event);
-      onEventRef.current?.(event);
-      invalidateForEvent(event.type);
-    };
-
-    const pollTick = async () => {
-      try {
-        const res = await fetch(`${API_BASE}${path}`);
-        if (!res.ok) {
-          throw new Error(`${res.status} ${res.statusText}`);
+        try {
+          const payload = JSON.parse(event.data);
+          const rt = payload as RealtimeEvent;
+          if (Array.isArray(rt.queryKeys) && rt.queryKeys.length > 0) {
+            for (const key of rt.queryKeys) {
+              queryClient.setQueryData(key, rt.data);
+            }
+          } else {
+            queryClient.setQueryData(['admin', type], rt.data ?? payload);
+          }
+        } catch {
+          // Non-JSON event — skip.
         }
-        const payload = (await res.json()) as unknown;
-        if (stopped) return;
-        setIsConnected(true);
-        setError(null);
-        const eventsField = recordOrNull(payload)?.events;
-        const rawEvents = Array.isArray(payload)
-          ? payload
-          : Array.isArray(eventsField)
-            ? eventsField
-            : [payload];
-        for (const raw of rawEvents) {
-          emit(normalizeEvent(raw));
+      };
+
+      if (eventTypesRef.current.length > 0) {
+        for (const type of eventTypesRef.current) {
+          es.addEventListener(type, (event: Event) => {
+            const me = event as MessageEvent;
+            const types = eventTypesRef.current;
+            if (types.length > 0 && !types.includes(me.type || 'message')) return;
+            try {
+              const payload = JSON.parse(me.data);
+              const rt = payload as RealtimeEvent;
+              if (Array.isArray(rt.queryKeys) && rt.queryKeys.length > 0) {
+                for (const key of rt.queryKeys) {
+                  queryClient.setQueryData(key, rt.data);
+                }
+              } else {
+                queryClient.setQueryData(['admin', me.type], rt.data ?? payload);
+              }
+            } catch {
+              // Non-JSON event — skip.
+            }
+          });
         }
-      } catch (err) {
-        if (stopped) return;
-        setIsConnected(false);
-        setError(err instanceof Error ? err : new Error(String(err)));
       }
-    };
 
-    const startPolling = (intervalMs: number) => {
-      stopPolling();
-      void pollTick();
-      pollTimer = window.setInterval(() => void pollTick(), intervalMs);
-    };
+      es.onerror = () => {
+        // Disconnect and schedule reconnect with backoff.
+        if (esRef.current) {
+          esRef.current.close();
+          esRef.current = null;
+        }
+        setStatus('error');
 
-    const connectSSE = () => {
-      closeSSE();
-      clearReconnectTimer();
-      try {
-        const instance = new EventSource(`${API_BASE}${path}`);
-        es = instance;
-        instance.onopen = () => {
-          reconnectAttempt = 0;
-          if (stopped) return;
-          setIsConnected(true);
-          setError(null);
-        };
-        instance.onmessage = (ev) => {
-          emit(parseSSEMessageData(ev.data, ev.lastEventId));
-        };
-        instance.onerror = () => {
-          if (stopped) return;
-          setIsConnected(false);
-          closeSSE();
-          scheduleReconnect();
-        };
-      } catch (err) {
-        if (stopped) return;
-        setIsConnected(false);
-        setError(err instanceof Error ? err : new Error(String(err)));
-        scheduleReconnect();
-      }
-    };
+        const attempt = reconnectAttemptRef.current;
+        const delay = reconnectDelay(attempt, baseReconnectMsRef.current, maxReconnectMsRef.current);
 
-    function scheduleReconnect() {
-      if (stopped) return;
-      if (document.visibilityState === 'hidden') {
-        startPolling(backgroundPollIntervalMs);
-        return;
-      }
-      const delay = computeBackoffDelay(reconnectAttempt, baseReconnectDelayMs, maxReconnectDelayMs);
-      reconnectAttempt += 1;
-      reconnectTimer = window.setTimeout(connectSSE, delay);
+        reconnectTimerRef.current = setTimeout(() => {
+          if (enabledRef.current) {
+            reconnectAttemptRef.current = attempt + 1;
+            connect();
+          }
+        }, delay);
+      };
+
+      esRef.current = es;
+    } catch {
+      setStatus('error');
+      startPolling();
+    }
+  }, [queryClient, startPolling]);
+
+  // ── main effect: connect / disconnect ─────────────────────────────────────
+
+  useEffect(() => {
+    if (!enabled) {
+      closeEventSource();
+      clearTimers();
+      setStatus('disconnected');
+      reconnectAttemptRef.current = 0;
+      return;
     }
 
-    const connectOrPoll = () => {
-      if (document.visibilityState === 'hidden') {
-        startPolling(backgroundPollIntervalMs);
-      } else if (sseSupported) {
-        connectSSE();
-      } else {
-        startPolling(pollIntervalMs);
-      }
+    connect();
+
+    return () => {
+      closeEventSource();
+      clearTimers();
     };
+  }, [enabled, connect, closeEventSource, clearTimers]);
+
+  // ── visibility change: throttle in background ─────────────────────────────
+
+  useEffect(() => {
+    if (!enabled) return;
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        clearReconnectTimer();
-        closeSSE();
-        startPolling(backgroundPollIntervalMs);
+      if (!enabledRef.current) return;
+
+      if (document.hidden) {
+        closeEventSource();
+        clearTimers();
+        setStatus('disconnected');
+        startPolling();
       } else {
         stopPolling();
-        reconnectAttempt = 0;
-        if (sseSupported) {
-          connectSSE();
-        } else {
-          startPolling(pollIntervalMs);
-        }
+        reconnectAttemptRef.current = 0;
+        connect();
       }
-    };
-
-    reconnectFnRef.current = () => {
-      reconnectAttempt = 0;
-      clearReconnectTimer();
-      stopPolling();
-      closeSSE();
-      setError(null);
-      connectOrPoll();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    connectOrPoll();
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [enabled, connect, closeEventSource, clearTimers, startPolling, stopPolling]);
+
+  return status;
+}
+
+// ── hook: useRealtimeEvent ──────────────────────────────────────────────────
+
+/**
+ * Subscribe to a single SSE event type.
+ *
+ * When `enabled` is true, listens for events of `eventType` on the shared SSE
+ * connection and calls `handler` with the parsed payload.
+ *
+ * This hook does NOT manage the connection itself — use `useRealtimeEvents`
+ * alongside it to control the lifecycle.
+ *
+ * @param eventType - The SSE event name to listen for.
+ * @param handler - Callback invoked with parsed event data.
+ * @param enabled - Whether to subscribe.
+ */
+export function useRealtimeEvent<T = unknown>(
+  eventType: string,
+  handler: (data: T) => void,
+  enabled: boolean,
+): void {
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const url = `${API_BASE}/events`;
+    let es: EventSource | null = null;
+    let closed = false;
+
+    try {
+      es = new EventSource(url);
+
+      es.addEventListener(eventType, (event: Event) => {
+        if (closed) return;
+        try {
+          const data = JSON.parse((event as MessageEvent).data) as T;
+          handlerRef.current(data);
+        } catch {
+          // Non-JSON event — skip.
+        }
+      });
+
+      es.onerror = () => {
+        // Silently ignore — the main connection hook handles reconnection.
+      };
+    } catch {
+      // EventSource not supported.
+    }
 
     return () => {
-      stopped = true;
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      closeSSE();
-      clearReconnectTimer();
-      stopPolling();
-      reconnectFnRef.current = () => {};
+      closed = true;
+      if (es) es.close();
     };
-  }, [enabled, path, baseReconnectDelayMs, maxReconnectDelayMs, pollIntervalMs, backgroundPollIntervalMs, invalidateForEvent]);
-
-  const reconnect = useCallback(() => {
-    reconnectFnRef.current();
-  }, []);
-
-  return { isConnected, lastEvent, error, reconnect };
+  }, [eventType, enabled]);
 }
