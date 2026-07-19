@@ -322,31 +322,44 @@ fn control_corners_mark_the_scoped_target_without_covering_its_edges() {
     };
 
     let geometries = corner_geometries(&rect, 96);
-    assert_eq!(geometries.len(), 16);
+    assert_eq!(geometries.len(), 24);
     assert_eq!(
         &geometries[..8],
         &[
-            ((-100, 20, 232, 42), 152, true),
-            ((-100, 20, 42, 232), 152, true),
-            ((668, 20, 232, 42), 152, true),
-            ((858, 20, 42, 232), 152, true),
-            ((-100, 578, 232, 42), 152, true),
-            ((-100, 388, 42, 232), 152, true),
-            ((668, 578, 232, 42), 152, true),
-            ((858, 388, 42, 232), 152, true),
+            ((-100, 20, 232, 42), 48, true),
+            ((-100, 20, 42, 232), 48, true),
+            ((668, 20, 232, 42), 48, true),
+            ((858, 20, 42, 232), 48, true),
+            ((-100, 578, 232, 42), 48, true),
+            ((-100, 388, 42, 232), 48, true),
+            ((668, 578, 232, 42), 48, true),
+            ((858, 388, 42, 232), 48, true),
         ]
     );
     assert_eq!(
-        &geometries[8..],
+        &geometries[8..16],
         &[
-            ((-100, 20, 180, 16), CONTROL_BORDER_ALPHA, false),
-            ((-100, 20, 16, 180), CONTROL_BORDER_ALPHA, false),
-            ((720, 20, 180, 16), CONTROL_BORDER_ALPHA, false),
-            ((884, 20, 16, 180), CONTROL_BORDER_ALPHA, false),
-            ((-100, 604, 180, 16), CONTROL_BORDER_ALPHA, false),
-            ((-100, 440, 16, 180), CONTROL_BORDER_ALPHA, false),
-            ((720, 604, 180, 16), CONTROL_BORDER_ALPHA, false),
-            ((884, 440, 16, 180), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 208, 28), 92, true),
+            ((-100, 20, 28, 208), 92, true),
+            ((692, 20, 208, 28), 92, true),
+            ((872, 20, 28, 208), 92, true),
+            ((-100, 592, 208, 28), 92, true),
+            ((-100, 412, 28, 208), 92, true),
+            ((692, 592, 208, 28), 92, true),
+            ((872, 412, 28, 208), 92, true),
+        ]
+    );
+    assert_eq!(
+        &geometries[16..],
+        &[
+            ((-100, 20, 180, 12), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 12, 180), CONTROL_BORDER_ALPHA, false),
+            ((720, 20, 180, 12), CONTROL_BORDER_ALPHA, false),
+            ((888, 20, 12, 180), CONTROL_BORDER_ALPHA, false),
+            ((-100, 608, 180, 12), CONTROL_BORDER_ALPHA, false),
+            ((-100, 440, 12, 180), CONTROL_BORDER_ALPHA, false),
+            ((720, 608, 180, 12), CONTROL_BORDER_ALPHA, false),
+            ((888, 440, 12, 180), CONTROL_BORDER_ALPHA, false),
         ]
     );
 }
@@ -359,6 +372,9 @@ fn overlay_pixels_scale_at_common_monitor_dpis() {
     assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 96), 42);
     assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 144), 63);
     assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 192), 84);
+    assert_eq!(scaled_pixels(CORNER_MID_THICKNESS, 96), 28);
+    assert_eq!(scaled_pixels(CORNER_MID_THICKNESS, 144), 42);
+    assert_eq!(scaled_pixels(CORNER_MID_THICKNESS, 192), 56);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 96), 72);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 144), 108);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 192), 144);
@@ -381,7 +397,7 @@ fn control_overlay_breathes_smoothly_without_exceeding_base_alpha() {
         CONTROL_PULSE_PERIOD_MS / 2,
     );
 
-    assert_eq!(minimum, 176);
+    assert_eq!(minimum, 204);
     assert!(minimum < quarter && quarter < maximum);
     assert_eq!(maximum, CONTROL_BORDER_ALPHA);
     assert_eq!(
@@ -407,14 +423,15 @@ fn control_overlay_visual_contract_is_prominent_blue() {
     let cursor_blue = (CONTROL_CURSOR_COLOR.0 >> 16) & 0xff;
 
     const {
-        assert!(CORNER_ACCENT_THICKNESS >= 16);
+        assert!(CORNER_ACCENT_THICKNESS >= 10);
         assert!(CORNER_ACCENT_LENGTH >= 180);
         assert!(POINTER_EFFECT_SIZE >= 64 && POINTER_EFFECT_SIZE <= 96);
         assert!(POINTER_RING_SIZE >= 40 && POINTER_RING_SIZE <= 64);
         assert!(CONTROL_CAPSULE_ALPHA > CONTROL_OVERLAY_ALPHA);
         assert!(CONTROL_BORDER_ALPHA >= CONTROL_CURSOR_ALPHA);
-        assert!(CONTROL_BORDER_ALPHA >= 240);
-        assert!(CONTROL_BORDER_PULSE_FLOOR_PERCENT >= 70);
+        assert!(CONTROL_BORDER_ALPHA >= 224);
+        assert!(CONTROL_BORDER_PULSE_FLOOR_PERCENT >= 85);
+        assert!(CONTROL_CAPSULE_PULSE_FLOOR_PERCENT >= 92);
         assert!(CONTROL_CAPSULE_FONT_SIZE >= 14 && CONTROL_CAPSULE_FONT_SIZE <= 18);
     }
     assert!((110..=220).contains(&CONTROL_OVERLAY_ALPHA));
@@ -443,8 +460,12 @@ fn capsule_stays_top_center_on_a_negative_origin_monitor() {
         (-1640, 38, 480, 44)
     );
     assert_eq!(
-        capsule_glow_geometry((-1640, 38, 480, 44)),
-        (-1646, 32, 492, 56)
+        capsule_glow_geometries((-1640, 38, 480, 44)),
+        [
+            ((-1652, 26, 504, 68), 44),
+            ((-1648, 30, 496, 60), 78),
+            ((-1644, 34, 488, 52), 118),
+        ]
     );
 }
 

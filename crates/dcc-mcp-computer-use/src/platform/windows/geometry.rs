@@ -243,13 +243,33 @@ pub(super) fn capsule_geometry(rect: &RECT, display_rect: &RECT, dpi: u32) -> Ov
     (x, y, width, height)
 }
 
-pub(super) fn capsule_glow_geometry((x, y, width, height): OverlayGeometry) -> OverlayGeometry {
-    let halo = (height / 7).max(4);
+pub(super) fn capsule_glow_geometries(geometry: OverlayGeometry) -> [(OverlayGeometry, u8); 3] {
+    let halo = (geometry.3 / 10).max(4);
+    [
+        (
+            expanded_overlay_geometry(geometry, halo.saturating_mul(3)),
+            CONTROL_CAPSULE_GLOW_ALPHAS[0],
+        ),
+        (
+            expanded_overlay_geometry(geometry, halo.saturating_mul(2)),
+            CONTROL_CAPSULE_GLOW_ALPHAS[1],
+        ),
+        (
+            expanded_overlay_geometry(geometry, halo),
+            CONTROL_CAPSULE_GLOW_ALPHAS[2],
+        ),
+    ]
+}
+
+fn expanded_overlay_geometry(
+    (x, y, width, height): OverlayGeometry,
+    spread: i32,
+) -> OverlayGeometry {
     (
-        x.saturating_sub(halo),
-        y.saturating_sub(halo),
-        width.saturating_add(halo.saturating_mul(2)),
-        height.saturating_add(halo.saturating_mul(2)),
+        x.saturating_sub(spread),
+        y.saturating_sub(spread),
+        width.saturating_add(spread.saturating_mul(2)),
+        height.saturating_add(spread.saturating_mul(2)),
     )
 }
 
@@ -257,7 +277,8 @@ pub(super) fn corner_geometries(rect: &RECT, dpi: u32) -> CornerGeometries {
     let width = rect.right.saturating_sub(rect.left).max(1);
     let height = rect.bottom.saturating_sub(rect.top).max(1);
     let layers = [
-        (CORNER_GLOW_LENGTH, CORNER_GLOW_THICKNESS, 152_u8, true),
+        (CORNER_GLOW_LENGTH, CORNER_GLOW_THICKNESS, 48_u8, true),
+        (CORNER_MID_LENGTH, CORNER_MID_THICKNESS, 92_u8, true),
         (
             CORNER_ACCENT_LENGTH,
             CORNER_ACCENT_THICKNESS,
