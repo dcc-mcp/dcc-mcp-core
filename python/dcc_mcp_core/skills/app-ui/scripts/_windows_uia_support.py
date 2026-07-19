@@ -791,7 +791,7 @@ def _computer_use_screenshot_impl(
             "success": False,
             "error": UiErrorCode.PERMISSION_DENIED,
             "message": (
-                "Native DCC MCP Computer Use requires an operator-bound DCC scope. "
+                "Native DCC UI Control requires an operator-bound DCC scope. "
                 "Set DCC_MCP_APP_UI_UIA_PROCESS_ID or DCC_MCP_APP_UI_UIA_WINDOW_HANDLE "
                 "in the adapter environment before enabling raw input."
             ),
@@ -801,7 +801,7 @@ def _computer_use_screenshot_impl(
             "success": False,
             "error": UiErrorCode.INVALID_TARGET,
             "message": (
-                "process_name scopes are observation-only for native Computer Use; "
+                "process_name scopes are observation-only for native DCC UI Control; "
                 "bind the adapter to an exact DCC process id or window handle instead."
             ),
         }
@@ -810,7 +810,7 @@ def _computer_use_screenshot_impl(
             "success": False,
             "error": UiErrorCode.INVALID_TARGET,
             "message": (
-                "Native DCC MCP Computer Use requires one exact process_id or window_handle; "
+                "Native DCC UI Control requires one exact process_id or window_handle; "
                 "title-only and process-name scopes are observation-only because they can match the wrong app."
             ),
         }
@@ -875,7 +875,7 @@ def _computer_use_screenshot_impl(
                 "success": False,
                 "error": UiErrorCode.BACKEND_UNAVAILABLE,
                 "message": (
-                    "The previous Computer Use session is still removing its input owner and overlays; retry shortly."
+                    "The previous DCC UI Control session is still removing its input owner and overlays; retry shortly."
                 ),
                 "cleanup_pending": True,
             }
@@ -956,7 +956,7 @@ def _computer_use_screenshot_impl(
         return metadata or {
             "success": False,
             "error": "capture_failed",
-            "message": "Native computer-use screenshot returned no PNG data.",
+            "message": "Native DCC UI Control screenshot returned no PNG data.",
         }
     observation = metadata.get("observation")
     if not isinstance(observation, dict) or not observation.get("observation_id"):
@@ -964,7 +964,7 @@ def _computer_use_screenshot_impl(
         return {
             "success": False,
             "error": "capture_failed",
-            "message": "Native computer-use screenshot returned no observation id.",
+            "message": "Native DCC UI Control screenshot returned no observation id.",
         }
     _COMPUTER_USE_OBSERVATIONS[session_id] = {
         "snapshot_id": capture["snapshot_id"],

@@ -3,7 +3,7 @@ name: app-ui
 description: >-
   Infrastructure skill - application UI observation and scoped action tools for
   DCC-adjacent workflows. Use app_ui__snapshot, app_ui__find, app_ui__act,
-  app_ui__wait_for, and app_ui__stop_computer_use for DCC MCP Computer Use when
+  app_ui__wait_for, and app_ui__stop_computer_use for DCC UI Control when
   a host UI state is not exposed through native DCC APIs. Prefer DCC-native
   skills first, then use app_ui as a policy-controlled UI fallback.
 license: MIT
@@ -12,15 +12,20 @@ metadata:
     dcc: python
     version: "0.2.0"
     layer: infrastructure
-    search-hint: "dcc mcp computer use, app ui, ui automation, windows uia, chrome cdp, edge cdp, agent-browser, dialog, modal, settings panel, screenshot, snapshot, find control, click, drag, scroll, type, keypress, wait for ui, stale control, dcc debugging"
-    tags: "app-ui, computer-use, ui-automation, windows-uia, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock"
+    search-hint: "dcc ui control, ui-control, app ui, ui automation, operate control menu dialog window button click keyboard, windows uia, chrome cdp, edge cdp, agent-browser, modal, settings panel, screenshot, snapshot, find control, drag, scroll, type, keypress, wait for ui, stale control, dcc debugging, 操作, 控制, 界面, 菜单, 弹窗, 窗口, 按钮, 点击, 键盘"
+    tags: "app-ui, dcc-ui-control, ui-control, ui-automation, windows-uia, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock"
     tools: tools.yaml
 ---
 
-# App UI
+# DCC UI Control
 
 Application UI automation primitives for cases where native DCC tools cannot
 observe or drive the interface state directly.
+
+**DCC UI Control** is the public capability name. The skill directory and
+`app_ui__*` tool identifiers remain unchanged for compatibility. Shell agents
+use the stable `dcc-mcp-cli ui-control` command; MCP-native agents call the
+underlying tools after search and describe.
 
 `app-ui` is an escape hatch, not the first tool choice. Discover and call a
 structured DCC skill, host API, or adapter script first. Enter `app-ui` only
@@ -39,16 +44,27 @@ Windows UI Automation backend. Scope it explicitly with
 `DCC_MCP_APP_UI_UIA_PROCESS_NAME`; whole-desktop snapshots are disabled by
 default.
 
-## Windows DCC MCP Computer Use
+## Windows Reference Backend
 
-The Windows backend exposes Computer Use through the existing `app_ui` tools:
+The Windows backend exposes DCC UI Control through the existing `app_ui` tools:
 
-| Computer Use operation | DCC-MCP tool |
+| DCC UI Control operation | DCC-MCP tool |
 |------------------------|--------------|
 | `screenshot` | `app_ui__snapshot` |
 | `click`, `move`, `double_click`, `scroll`, `drag`, `type`, `keypress` | `app_ui__act` |
 | `wait` | `app_ui__wait_for` (condition-based polling) |
 | `stop` | `app_ui__stop_computer_use` |
+
+Shell agents use the product-level wrapper, which maps to those compatibility
+tools without requiring a hand-built slug:
+
+```bash
+dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+dcc-mcp-cli ui-control find --instance-id <id> --json '{"session_id":"ui","label":"Settings"}'
+dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"settings","action":"click","snapshot_id":"<snapshot_id>"}'
+dcc-mcp-cli ui-control wait --instance-id <id> --json '{"session_id":"ui","condition":{"kind":"control_exists","label":"Preferences"}}'
+dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
+```
 
 All app-ui tools require the adapter's persistent in-process executor. This
 keeps the screenshot observation, Ctrl+Alt+Esc latch, visible overlay, and native input
@@ -66,9 +82,9 @@ any Windows UIA mutation. This starts the same visible session, screenshot,
 and user-interruption monitor for semantic UIA and native input. Semantic UIA
 observation may still use an exact title or process name.
 
-The native Computer Use boundary imports that PID/HWND as a separate trusted
+The native DCC UI Control boundary imports that PID/HWND as a separate trusted
 scope, rejects construction without it, and revalidates the resolved native
-identity before the banner, every capture, and every action. A request-supplied
+identity before the capsule, every capture, and every action. A request-supplied
 title, process name, PID, or HWND cannot authorize a different process.
 
 Before a semantic mutation, the backend re-resolves the actual descendant
@@ -98,7 +114,7 @@ triggers that fallback. The minimal tree is not suitable for `app_ui__find`;
 inspect the image and perform one native action only when both raw-input gates
 are enabled.
 
-For native Computer Use actions, keep one `session_id` and use this loop:
+For native DCC UI Control actions, keep one `session_id` and use this loop:
 
 1. Call `app_ui__snapshot` with the exact target scope. It returns a PNG image,
    a `snapshot_id`, and observation metadata for that window generation.
@@ -112,7 +128,7 @@ For native Computer Use actions, keep one `session_id` and use this loop:
    old coordinates stale.
 5. Use `app_ui__wait_for` for a UI condition, then snapshot again to verify.
 6. Call `app_ui__stop_computer_use` in the success, failure, and abandoned-task
-   cleanup path so the banner, border, hotkey, and global input owner are
+   cleanup path so the capsule, corner brackets, hotkey, and global input owner are
    released. If it returns `cleanup_pending=true`, retry cleanup and do not
    start another session; the cross-process input owner remains fenced until
    every pending key/button release is confirmed. Stopping does not clear an
@@ -136,19 +152,19 @@ actions or snapshots. On `stale_control` or
 
 The native session requires a visible, unlocked interactive desktop, a live
 target window, and the adapter and DCC process at the same Windows integrity
-level. While input control is active, a high-contrast click-through border
-tracks the target window and a visible banner reads `DCC MCP Computer Use is
-controlling <app> - press Ctrl+Alt+Esc to stop`. Pointer actions display a transient
+level. While input control is active, click-through corner brackets mark the
+target window and a bottom-center capsule reads `DCC UI Control · <app> |
+Ctrl+Alt+Esc to stop`. Pointer actions display a transient
 cursor marker (and a following marker during drag) so the user can see where
 the agent is acting. The user stops control with `Ctrl+Alt+Esc`; ordinary
 `Esc` remains available to the target DCC for cancelling tools and dialogs. On
 `user_interrupted`, stop immediately, do
 not retry, do not switch to another input path, do not change `session_id`, and
-do not automatically start a new Computer Use session. Ctrl+Alt+Esc is latched across
+do not automatically start a new DCC UI Control session. Ctrl+Alt+Esc is latched across
 all DCC adapter processes in the same Windows logon session. Return control to
 the user. Resume only through an
 explicit `app_ui__snapshot` call with `resume_computer_use=true`, and only after
-the user asks to resume and while no Computer Use owner is active.
+the user asks to resume and while no DCC UI Control owner is active.
 `resume_computer_use` is a cooperative agent/host
 contract, not an unforgeable operator capability: runtimes must only forward it
 after an explicit user instruction. The native backend releases any held keys
@@ -171,15 +187,15 @@ These are hard backend-enforced boundaries and must not be bypassed by another
 UI automation path. A DCC application's own script editor remains in scope
 because its target process is still the bound DCC process.
 
-An ordinary user process cannot display the Computer Use banner over the
+An ordinary user process cannot display the DCC UI Control capsule over the
 Windows lock screen or secure desktop. After the user unlocks or reconnects,
 discard all prior snapshot, observation, and control ids and call
 `app_ui__snapshot` again with the same exact target scope. A successful fresh
-snapshot re-establishes the border/banner; `resume_computer_use` is still only
+snapshot re-establishes the corner brackets/capsule; `resume_computer_use` is still only
 for an explicit post-interruption resume. Run the DCC in a dedicated, always-unlocked VM
 when Windows GUI control must continue without interruption.
 
-Computer Use executes on the adapter host, inside the specific interactive
+DCC UI Control executes on the adapter host, inside the specific interactive
 Windows logon session that owns the DCC process. A central gateway routes the
 tool call; it does not own the screenshot coordinate space. Never apply
 coordinates captured on the gateway, another machine, or another logon session
@@ -194,7 +210,7 @@ coordinates relative to the returned PNG; the backend maps them through that
 observation's source rectangle and DPI metadata. A
 monitor add/remove, display-layout change, resolution change, or DPI/scaling
 change invalidates the observation. Discard its ids and take a fresh snapshot.
-The banner follows the scoped target window across monitors in that same logon
+The capsule follows the scoped target window across monitors in that same logon
 session.
 
 CDP presets:

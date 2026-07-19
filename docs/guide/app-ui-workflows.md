@@ -40,7 +40,7 @@ Every workflow should keep the same shape:
    expected state or returns a structured `timeout`.
 5. `app_ui__snapshot` verifies the final state.
 6. `app_ui__stop_computer_use` releases native input ownership, removes the
-   visible border and banner, and invalidates the final observation.
+   visible DCC UI Control effects, and invalidates the final observation.
 
 Treat step 6 like a `finally` block. Call it when the workflow succeeds, when
 any tool fails, and when the agent or user abandons the workflow. The stop tool
@@ -60,21 +60,39 @@ For gateway clients, discover and inspect tools before calling:
 REST clients use the same sequence through `/v1/search`, `/v1/describe`, and
 `/v1/call`.
 
-## Native Computer Use Fallback
+## DCC UI Control Fallback
+
+**DCC UI Control** is the public cross-platform capability name. Shell agents
+use `dcc-mcp-cli ui-control`; `app_ui__*` remains the compatibility tool
+namespace for MCP-native clients and existing adapters. Do not use the generic
+name “Computer Use” for this DCC-scoped feature.
+
+The CLI contract is platform-neutral:
+
+```bash
+dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
+dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
+```
+
+Windows currently supplies the native scoped-window overlay and raw-input
+reference backend. macOS and Linux adapters should keep the same CLI and tool
+contract while implementing capture, accessibility, visible safety effects,
+and interruption with their platform APIs.
 
 Enter `app_ui` only after a typed DCC tool returns `unsupported` or
 `capability_missing`. Keep every action scoped to the exact DCC window. The
 adapter or operator must bind that target with
 `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE` before a
 Windows UIA mutation; request arguments may narrow that scope but must not
-widen it. The bound session supplies the visible banner, screenshot, and user
+widen it. The bound session supplies the visible capsule, screenshot, and user
 interruption monitor even for semantic UIA. Raw pointer and keyboard input has
 a second gate: the operator must also set
 `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`.
 
 The native session treats the bound PID/HWND as a separate authorization
 scope. It refuses unbound construction and revalidates the resolved process and
-window before the banner, every capture, and every action; title-only and
+window before the capsule, every capture, and every action; title-only and
 process-name scopes never authorize native input.
 
 Use native coordinate input only when semantic UIA returns
@@ -94,7 +112,7 @@ Use this loop:
 5. Repeat one action at a time, then call `app_ui__stop_computer_use` on every
    success, failure, cancellation, or abandonment path.
 
-The visible border, control banner, and pointer effects belong to the adapter
+The visible corner brackets, control capsule, and pointer effects belong to the adapter
 host's interactive Windows logon session. If the user presses `Ctrl+Alt+Esc`
 and the tool returns `user_interrupted`, stop immediately. Ordinary `Esc`
 remains available to the target DCC. Do not retry, change
@@ -110,8 +128,8 @@ after the user explicitly asks to resume.
   ready.
 - After unlock or RDP reconnect, discard every prior snapshot, observation,
   control id, and coordinate. Take a fresh exact-target snapshot before acting;
-  the successful snapshot restores the visible Computer Use effects.
-- Computer Use runs on the adapter host in the interactive logon session that
+  the successful snapshot restores the visible DCC UI Control effects.
+- DCC UI Control runs on the adapter host in the interactive logon session that
   owns the DCC. The gateway only routes calls. Never reuse coordinates captured
   on the gateway, another host, or another Windows session.
 - A screenshot is bounded to the scoped target window, never the whole desktop.

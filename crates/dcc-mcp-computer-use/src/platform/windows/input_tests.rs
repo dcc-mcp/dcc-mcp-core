@@ -313,7 +313,7 @@ fn focusing_must_not_change_the_observed_window_dpi() {
 }
 
 #[test]
-fn control_border_tracks_all_target_edges() {
+fn control_corners_mark_the_scoped_target_without_covering_its_edges() {
     let rect = windows::Win32::Foundation::RECT {
         left: -100,
         top: 20,
@@ -321,24 +321,32 @@ fn control_border_tracks_all_target_edges() {
         bottom: 620,
     };
 
-    let geometries = border_geometries(&rect, 96);
-    assert_eq!(geometries.len(), 20);
+    let geometries = corner_geometries(&rect, 96);
+    assert_eq!(geometries.len(), 16);
     assert_eq!(
-        &geometries[..4],
+        &geometries[..8],
         &[
-            ((-100, 20, 1000, 48), 34, true),
-            ((-100, 572, 1000, 48), 34, true),
-            ((-100, 20, 48, 600), 34, true),
-            ((852, 20, 48, 600), 34, true),
+            ((-100, 20, 96, 16), 42, true),
+            ((-100, 20, 16, 96), 42, true),
+            ((804, 20, 96, 16), 42, true),
+            ((884, 20, 16, 96), 42, true),
+            ((-100, 604, 96, 16), 42, true),
+            ((-100, 524, 16, 96), 42, true),
+            ((804, 604, 96, 16), 42, true),
+            ((884, 524, 16, 96), 42, true),
         ]
     );
     assert_eq!(
-        &geometries[16..],
+        &geometries[8..],
         &[
-            ((-100, 20, 1000, 7), CONTROL_BORDER_ALPHA, false),
-            ((-100, 613, 1000, 7), CONTROL_BORDER_ALPHA, false),
-            ((-100, 20, 7, 600), CONTROL_BORDER_ALPHA, false),
-            ((893, 20, 7, 600), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 72, 6), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 6, 72), CONTROL_BORDER_ALPHA, false),
+            ((828, 20, 72, 6), CONTROL_BORDER_ALPHA, false),
+            ((894, 20, 6, 72), CONTROL_BORDER_ALPHA, false),
+            ((-100, 614, 72, 6), CONTROL_BORDER_ALPHA, false),
+            ((-100, 548, 6, 72), CONTROL_BORDER_ALPHA, false),
+            ((828, 614, 72, 6), CONTROL_BORDER_ALPHA, false),
+            ((894, 548, 6, 72), CONTROL_BORDER_ALPHA, false),
         ]
     );
 }
@@ -348,9 +356,9 @@ fn overlay_pixels_scale_at_common_monitor_dpis() {
     assert_eq!(scaled_pixels(36, 96), 36);
     assert_eq!(scaled_pixels(36, 144), 54);
     assert_eq!(scaled_pixels(36, 192), 72);
-    assert_eq!(scaled_pixels(BORDER_THICKNESS, 96), 48);
-    assert_eq!(scaled_pixels(BORDER_THICKNESS, 144), 72);
-    assert_eq!(scaled_pixels(BORDER_THICKNESS, 192), 96);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 96), 16);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 144), 24);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 192), 32);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 96), 120);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 144), 180);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 192), 240);
@@ -393,11 +401,12 @@ fn control_overlay_visual_contract_is_prominent_blue() {
     let focus_blue = (CONTROL_FOCUS_COLOR.0 >> 16) & 0xff;
 
     const {
-        assert!(BORDER_THICKNESS >= 40);
+        assert!(CORNER_ACCENT_THICKNESS >= 4);
+        assert!(CORNER_ACCENT_LENGTH >= 64);
         assert!(POINTER_EFFECT_SIZE >= 96);
-        assert!(CONTROL_BANNER_ALPHA > CONTROL_OVERLAY_ALPHA);
+        assert!(CONTROL_CAPSULE_ALPHA > CONTROL_OVERLAY_ALPHA);
         assert!(CONTROL_BORDER_ALPHA < CONTROL_CURSOR_ALPHA);
-        assert!(CONTROL_BANNER_FONT_SIZE >= 20);
+        assert!(CONTROL_CAPSULE_FONT_SIZE >= 16);
     }
     assert!((110..=220).contains(&CONTROL_OVERLAY_ALPHA));
     assert!(blue > green && green > red);
@@ -406,7 +415,7 @@ fn control_overlay_visual_contract_is_prominent_blue() {
 }
 
 #[test]
-fn banner_stays_on_a_negative_origin_monitor() {
+fn capsule_stays_bottom_center_on_a_negative_origin_monitor() {
     let target = windows::Win32::Foundation::RECT {
         left: -1900,
         top: 20,
@@ -421,13 +430,13 @@ fn banner_stays_on_a_negative_origin_monitor() {
     };
 
     assert_eq!(
-        banner_geometry(&target, &display, 96),
-        (-1900, 38, 1000, 62)
+        capsule_geometry(&target, &display, 96),
+        (-1660, 548, 520, 48)
     );
 }
 
 #[test]
-fn banner_clamps_partial_offscreen_targets_to_monitor_work_area() {
+fn capsule_clamps_partial_offscreen_targets_to_monitor_work_area() {
     let target = windows::Win32::Foundation::RECT {
         left: -2100,
         top: -100,
@@ -441,11 +450,14 @@ fn banner_clamps_partial_offscreen_targets_to_monitor_work_area() {
         bottom: 1040,
     };
 
-    assert_eq!(banner_geometry(&target, &display, 144), (-1920, 0, 780, 93));
+    assert_eq!(
+        capsule_geometry(&target, &display, 144),
+        (-1920, 92, 780, 72)
+    );
 }
 
 #[test]
-fn banner_clamps_cross_gap_targets_to_the_selected_real_monitor() {
+fn capsule_clamps_cross_gap_targets_to_the_selected_real_monitor() {
     let target = windows::Win32::Foundation::RECT {
         left: 1800,
         top: 150,
@@ -460,8 +472,8 @@ fn banner_clamps_cross_gap_targets_to_the_selected_real_monitor() {
     };
 
     assert_eq!(
-        banner_geometry(&target, &display, 96),
-        (2560, 200, 1040, 62)
+        capsule_geometry(&target, &display, 96),
+        (2560, 828, 520, 48)
     );
 }
 

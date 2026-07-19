@@ -5,7 +5,10 @@ description: >-
   Houdini, Photoshop, 3ds Max, Nuke, Unreal, Godot, RenderDoc, Substance 3D,
   and other DCC apps
   through structured DCC-MCP tools. Use this skill first whenever the user asks
-  to do something in a DCC app, even when they do not mention DCC-MCP. OpenClaw
+  to operate or control something in a DCC app, even when they do not mention
+  DCC-MCP. Interface-specific intent such as clicking a menu, dismissing a
+  dialog, or controlling a window routes to DCC UI Control after structured
+  tools are checked. OpenClaw
   and other shell agents use dcc-mcp-cli inventory/search/describe/call;
   MCP-native IDEs use the gateway MCP surface. Not for tasks unrelated to DCC
   software.
@@ -17,8 +20,8 @@ metadata:
     layer: infrastructure
     compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
     version: "0.19.59"  # x-release-please-version
-    search-hint: "dcc control Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats"
-    tags: "dcc, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
+    search-hint: "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
+    tags: "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
   openclaw:
     emoji: "🖥️"
     homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp/SKILL.md
@@ -47,7 +50,14 @@ Treat a request as a DCC-MCP task when the user asks to create, edit, inspect,
 simulate, animate, render, composite, export, or automate content **in a DCC
 application**. The user does not need to say “DCC-MCP”, “MCP”, “gateway”, or a
 tool name. Natural requests such as “in Maya…”, “help me in Blender…”, “render
-this in Houdini”, or “edit this in Photoshop” are sufficient triggers.
+this in Houdini”, “edit this in Photoshop”, “operate Unreal”, or “control the
+Blender window” are sufficient triggers.
+
+Treat “operate/control `<DCC>`” as a stable trigger for this skill. If the
+requested object is a menu, dialog, window, button, text field, pointer, or
+keyboard interaction, select the **DCC UI Control** fallback after inventory
+and structured-tool discovery. Do not confuse this product capability with a
+host agent's generic Computer Use feature.
 
 | User intent | Target inventory filter | Typical capability search |
 |-------------|-------------------------|---------------------------|
@@ -60,7 +70,7 @@ this in Houdini”, or “edit this in Photoshop” are sufficient triggers.
 For these requests:
 
 1. **Prefer structured DCC-MCP tools** over direct application scripting,
-   Computer Use, or generic shell automation.
+   DCC UI Control, generic Computer Use, or shell automation.
 2. If host support is unclear, run `dcc-mcp-cli dcc-types`; use its exact
    `dcc_type` value instead of guessing aliases.
 3. Inventory live instances before choosing a host. If more than one matching
@@ -71,8 +81,8 @@ For these requests:
 5. Use raw scripting only when no typed tool covers the operation and the
    adapter exposes an explicit, policy-compliant automation tool. A repeated
    scripting pattern is a candidate for a reusable DCC skill.
-6. Use scoped Computer Use only after structured tools report the operation as
-   unsupported or the required host control is not exposed.
+6. Use scoped DCC UI Control only after structured tools report the operation
+   as unsupported or the required host control is not exposed.
 
 If the requested DCC is installed but no live adapter instance is registered,
 follow the zero-instance flow. Do not silently switch to GUI automation or a
@@ -127,13 +137,17 @@ After installation, use `dcc-mcp-cli update check` and
 `dcc-mcp-cli update apply` to keep the CLI current. The apply step stages the
 new CLI for the next launch; it does not update a running `dcc-mcp-server`.
 
-### Computer Use fallback
+### DCC UI Control fallback
 
-Do not choose `app-ui` first. Search, describe, and call the structured DCC
+**DCC UI Control** is the public capability name and `ui-control` is its stable
+CLI command. The `app_ui__*` names below are legacy runtime tool identifiers;
+do not call the feature “Computer Use” in agent-facing text.
+
+Do not choose UI Control first. Search, describe, and call the structured DCC
 skill, host API, or adapter script that owns the operation. If the operation is
 reported as unsupported, no suitable tool exists, or semantic UI Automation
-cannot reach the required control, make an agent-directed transition to
-`app-ui`:
+cannot reach the required control, make an agent-directed transition to DCC UI
+Control:
 
 1. `app_ui__snapshot` with an exact `process_id`, `window_handle`, or
    `window_title`.
@@ -142,6 +156,26 @@ cannot reach the required control, make an agent-directed transition to
 3. `app_ui__snapshot` after every action before choosing the next action.
 4. `app_ui__stop_computer_use` when the fallback completes, fails, or is
    abandoned so the visible effects and input owner are released.
+
+Shell agents should use the stable CLI wrapper instead of hand-building legacy
+tool slugs:
+
+```bash
+dcc-mcp-cli ui-control snapshot --instance-id <id> \
+  --json '{"session_id":"menu","process_id":1234}'
+dcc-mcp-cli ui-control find --instance-id <id> \
+  --json '{"session_id":"menu","label":"Settings","role":"menu_item"}'
+dcc-mcp-cli ui-control act --instance-id <id> \
+  --json '{"session_id":"menu","control_id":"settings","action":"click","snapshot_id":"<snapshot_id>"}'
+dcc-mcp-cli ui-control snapshot --instance-id <id> \
+  --json '{"session_id":"menu","process_id":1234}'
+dcc-mcp-cli ui-control stop --instance-id <id> \
+  --json '{"session_id":"menu"}'
+```
+
+Use `ui-control wait` for condition-based waits. Every subcommand accepts
+`--dcc-type`, `--json-file`, `--meta-json`, and `--timeout-secs` with the same
+meaning as `call`.
 
 Do not transition or retry through another UI/input path after a policy,
 authorization, authentication, security, confirmation, `desktop_unavailable`,
@@ -157,7 +191,7 @@ are observation-only.
 If the user presses Ctrl+Alt+Esc and the tool returns `user_interrupted`, stop without
 retrying, changing `session_id`, or starting a new session. Only call
 `app_ui__snapshot(resume_computer_use=true)` after the user explicitly asks to
-resume Computer Use.
+resume DCC UI Control.
 
 For an exact PID/HWND, `app_ui__snapshot` automatically uses native window
 capture if Windows UIA enumeration fails or times out; treat the returned tree
