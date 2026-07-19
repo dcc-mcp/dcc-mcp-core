@@ -232,6 +232,12 @@ enum PersistMsg {
         session_id: Option<String>,
         key_prefix: Option<String>,
     },
+    /// PIP-2751: Structured tool-call event (JSON-serialized ToolCallEvent).
+    ToolCallEventJson(String),
+    /// PIP-2751: Session upsert (JSON-serialized Session).
+    SessionUpsertJson(String),
+    /// PIP-2751: Session lifecycle event (JSON-serialized).
+    SessionEventJson(String),
 }
 
 struct LaneShared {
@@ -363,6 +369,33 @@ impl GatewayAdminSqliteLane {
             })
             .unwrap_or(false)
     }
+
+    /// PIP-2751: Persist a structured tool-call event.
+    pub fn try_persist_tool_call_event_json(&self, json: &str) {
+        if let Ok(g) = self.inner.tx.lock()
+            && let Some(tx) = g.as_ref()
+        {
+            let _ = tx.try_send(PersistMsg::ToolCallEventJson(json.to_owned()));
+        }
+    }
+
+    /// PIP-2751: Upsert a session record.
+    pub fn try_upsert_session_json(&self, json: &str) {
+        if let Ok(g) = self.inner.tx.lock()
+            && let Some(tx) = g.as_ref()
+        {
+            let _ = tx.try_send(PersistMsg::SessionUpsertJson(json.to_owned()));
+        }
+    }
+
+    /// PIP-2751: Persist a session lifecycle event.
+    pub fn try_persist_session_event_json(&self, json: &str) {
+        if let Ok(g) = self.inner.tx.lock()
+            && let Some(tx) = g.as_ref()
+        {
+            let _ = tx.try_send(PersistMsg::SessionEventJson(json.to_owned()));
+        }
+    }
 }
 
 fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
@@ -441,6 +474,89 @@ fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
                     delete_agent_memory_rows(&mut conn, id, layer, dcc_name, session_id, key_prefix)
                 {
                     tracing::debug!(error = %e, "admin sqlite: agent memory delete failed");
+                }
+            }
+            PersistMsg::ToolCallEventJson(json) => {
+                if let Ok(event) = serde_json::from_str::<dcc_mcp_models::ToolCallEvent>(&json)
+                    && let Err(e) = conn.execute(
+                        "INSERT OR REPLACE INTO tool_calls \
+                         (request_id, session_id, parent_request_id, batch_id, tool_name, skill_name, \
+                          dcc_type, instance_id, agent_id, transport, via_gateway, started_at_ms, \
+                          duration_ms, success, error_message, error_kind, mcp_method, trace_id, span_id) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                        params![
+                            event.request_id,
+                            event.session_id,
+                            event.parent_request_id,
+                            event.batch_id,
+                            event.tool_name,
+                            event.skill_name,
+                            event.dcc_type,
+                            event.instance_id,
+                            event.agent_id,
+                            event.transport,
+                            event.via_gateway.map(|v| v as i64),
+                            event.started_at_ms,
+                            event.duration_ms,
+                            event.success as i64,
+                            event.error_message,
+                            event.error_kind,
+                            event.mcp_method,
+                            event.trace_id,
+                            event.span_id,
+                        ],
+                    )
+                {
+                    tracing::debug!(error = %e, "admin sqlite: tool call event insert failed");
+                }
+            }
+            PersistMsg::SessionUpsertJson(json) => {
+                if let Ok(session) = serde_json::from_str::<dcc_mcp_models::Session>(&json) {
+                    let end_reason_json = session
+                        .end_reason
+                        .as_ref()
+                        .and_then(|r| serde_json::to_string(r).ok());
+                    if let Err(e) = conn.execute(
+                        "INSERT OR REPLACE INTO sessions \
+                         (session_id, parent_session_id, dcc_type, instance_id, status, \
+                          started_at_ms, last_activity_at_ms, ended_at_ms, end_reason_json, \
+                          tool_call_count, error_count, core_version, adapter_version, build_sha) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                        params![
+                            session.session_id,
+                            session.parent_session_id,
+                            session.dcc_type,
+                            session.instance_id,
+                            serde_json::to_string(&session.status).unwrap_or_default(),
+                            session.started_at_ms,
+                            session.last_activity_at_ms,
+                            session.ended_at_ms,
+                            end_reason_json,
+                            session.tool_call_count as i64,
+                            session.error_count as i64,
+                            session.core_version,
+                            session.adapter_version,
+                            session.build_sha,
+                        ],
+                    ) {
+                        tracing::debug!(error = %e, session_id = %session.session_id, "admin sqlite: session upsert failed");
+                    }
+                }
+            }
+            PersistMsg::SessionEventJson(json) => {
+                if let Ok(event) = serde_json::from_str::<serde_json::Value>(&json)
+                    && let (Some(session_id), Some(event_type), Some(created_at_ms)) = (
+                        event.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        event.get("event_type").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        event.get("created_at_ms").and_then(|v| v.as_i64()),
+                    )
+                    && let Err(e) = conn.execute(
+                        "INSERT INTO session_events (session_id, event_type, event_json, created_at_ms) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![session_id, event_type, json, created_at_ms],
+                    )
+                {
+                    tracing::debug!(error = %e, "admin sqlite: session event insert failed");
                 }
             }
         }
