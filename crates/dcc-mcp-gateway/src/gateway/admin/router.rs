@@ -28,6 +28,7 @@ use super::marketplace::{
     handle_marketplace_uninstall, handle_marketplace_update,
 };
 use super::memory::{handle_admin_memory, handle_admin_memory_forget};
+use super::sessions::handle_admin_sessions;
 use super::skill_paths::{
     handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
 };
@@ -130,6 +131,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
+        .route("/api/sessions", routing::get(handle_admin_sessions))
         .route(
             "/api/integrations",
             routing::get(handle_admin_integrations).put(handle_admin_integration_update),
@@ -242,5 +244,6 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
             routing::get(handle_admin_integrations),
         )
         .route("/v1/debug/health", routing::get(handle_admin_health))
+        .route("/v1/debug/sessions", routing::get(handle_admin_sessions))
         .with_state(state)
 }

@@ -1251,6 +1251,7 @@ dependencies = [
  "dcc-mcp-gateway-core",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-marketplace",
+ "dcc-mcp-models",
  "dcc-mcp-naming",
  "dcc-mcp-skill-rest",
  "dcc-mcp-skills",

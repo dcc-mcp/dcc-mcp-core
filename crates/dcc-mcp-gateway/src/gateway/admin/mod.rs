@@ -136,6 +136,8 @@ mod instance_update_tests;
 mod integration_tests;
 #[cfg(feature = "admin")]
 mod router;
+#[cfg(feature = "admin")]
+mod sessions;
 #[cfg(all(test, feature = "admin"))]
 mod skill_paths_tests;
 #[cfg(all(test, feature = "admin"))]
