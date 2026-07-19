@@ -89,16 +89,19 @@ const HOTKEY_ID: i32 = 0x4443;
 const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
 const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
     HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
-const BORDER_THICKNESS: i32 = 48;
+const CORNER_GLOW_THICKNESS: i32 = 16;
+const CORNER_ACCENT_THICKNESS: i32 = 6;
+const CORNER_GLOW_LENGTH: i32 = 96;
+const CORNER_ACCENT_LENGTH: i32 = 72;
 const POINTER_EFFECT_SIZE: i32 = 120;
 const CONTROL_OVERLAY_ALPHA: u8 = 185;
 const CONTROL_BORDER_ALPHA: u8 = 112;
-const CONTROL_BANNER_ALPHA: u8 = 238;
+const CONTROL_CAPSULE_ALPHA: u8 = 238;
 const CONTROL_CURSOR_ALPHA: u8 = 140;
-const CONTROL_BANNER_FONT_SIZE: i32 = 22;
+const CONTROL_CAPSULE_FONT_SIZE: i32 = 18;
 const CONTROL_PULSE_PERIOD_MS: u64 = 2_400;
 const CONTROL_BORDER_PULSE_FLOOR_PERCENT: u8 = 55;
-const CONTROL_BANNER_PULSE_FLOOR_PERCENT: u8 = 84;
+const CONTROL_CAPSULE_PULSE_FLOOR_PERCENT: u8 = 88;
 const CONTROL_CURSOR_PULSE_FLOOR_PERCENT: u8 = 72;
 const CONTROL_ACCENT_COLOR: COLORREF = COLORREF(0x00EB_6325);
 const CONTROL_FOCUS_COLOR: COLORREF = COLORREF(0x0027_1811);
@@ -166,7 +169,7 @@ fn first_input_receiving_window_above_target_at_point(
 }
 
 type OverlayGeometry = (i32, i32, i32, i32);
-type BorderGeometries = Vec<(OverlayGeometry, u8, bool)>;
+type CornerGeometries = Vec<(OverlayGeometry, u8, bool)>;
 
 struct OwnedKernelHandle {
     raw: usize,
@@ -375,7 +378,7 @@ fn require_user_interrupt_event_raw() -> ComputerUseResult<HANDLE> {
         USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
         ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,
-            "Windows could not create the cross-process Computer Use stop latch; restart the adapter before enabling native input",
+            "Windows could not create the cross-process DCC UI Control stop latch; restart the adapter before enabling native input",
         )
     })
 }
@@ -413,7 +416,7 @@ fn acquire_input_owner_impl(allow_abandoned: bool) -> ComputerUseResult<NamedMut
     let acquisition = try_acquire_named_mutex(INPUT_OWNER_MUTEX_NAME).map_err(|error| {
         ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,
-            format!("failed to create the Windows Computer Use input-owner mutex: {error}"),
+            format!("failed to create the Windows DCC UI Control input-owner mutex: {error}"),
         )
     })?;
     resolve_input_owner(acquisition, allow_abandoned)
@@ -437,13 +440,13 @@ fn resolve_input_owner(
                 drop(owner);
                 Err(ComputerUseError::new(
                     ComputerUseErrorCode::UserInterrupted,
-                    "the previous Computer Use input owner exited unexpectedly; explicit user approval is required before native input can resume",
+                    "the previous DCC UI Control input owner exited unexpectedly; explicit user approval is required before native input can resume",
                 ))
             }
         }
         NamedMutexAcquisition::Busy => Err(ComputerUseError::new(
             ComputerUseErrorCode::PermissionDenied,
-            "another DCC MCP Computer Use process already owns system input",
+            "another DCC UI Control process already owns system input",
         )),
     }
 }
@@ -452,7 +455,7 @@ fn user_interrupted_error() -> ComputerUseError {
     ComputerUseError::new(
         ComputerUseErrorCode::UserInterrupted,
         format!(
-            "the user pressed {STOP_HOTKEY_LABEL}; explicit user approval is required before Computer Use can resume"
+            "the user pressed {STOP_HOTKEY_LABEL}; explicit user approval is required before DCC UI Control can resume"
         ),
     )
 }
@@ -527,7 +530,7 @@ pub(crate) fn synchronize_desktop_events(
     if window_handle == 0 {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,
-            "the Computer Use control thread is not ready to synchronize desktop events",
+            "the DCC UI Control thread is not ready to synchronize desktop events",
         ));
     }
     let sequence = barrier.request_sequence();
@@ -543,7 +546,7 @@ pub(crate) fn synchronize_desktop_events(
     .map_err(|error| {
         ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,
-            format!("failed to synchronize the Computer Use desktop message queue: {error}"),
+            format!("failed to synchronize the DCC UI Control desktop message queue: {error}"),
         )
     })?;
 
@@ -554,7 +557,7 @@ pub(crate) fn synchronize_desktop_events(
         if barrier.window_handle() != window_handle {
             return Err(ComputerUseError::new(
                 ComputerUseErrorCode::BackendUnavailable,
-                "the Computer Use control thread exited while synchronizing desktop events",
+                "the DCC UI Control thread exited while synchronizing desktop events",
             ));
         }
         if Instant::now() >= deadline {
@@ -579,7 +582,7 @@ impl ThreadDpiAwareness {
         if previous.0.is_null() {
             return Err(ComputerUseError::new(
                 ComputerUseErrorCode::BackendUnavailable,
-                "Windows refused per-monitor-v2 DPI awareness for the Computer Use thread",
+                "Windows refused per-monitor-v2 DPI awareness for the DCC UI Control thread",
             ));
         }
         Ok(Self { previous })
@@ -614,7 +617,7 @@ pub(crate) fn acquire_test_isolation_guard() -> ComputerUseResult<TestIsolationG
         let acquisition = try_acquire_named_mutex(TEST_ISOLATION_MUTEX_NAME).map_err(|error| {
             ComputerUseError::new(
                 ComputerUseErrorCode::BackendUnavailable,
-                format!("failed to create the Computer Use test-isolation mutex: {error}"),
+                format!("failed to create the DCC UI Control test-isolation mutex: {error}"),
             )
         })?;
         match acquisition {
@@ -627,7 +630,7 @@ pub(crate) fn acquire_test_isolation_guard() -> ComputerUseResult<TestIsolationG
             NamedMutexAcquisition::Busy => {
                 return Err(ComputerUseError::new(
                     ComputerUseErrorCode::BackendUnavailable,
-                    "timed out waiting for cross-process Computer Use test isolation",
+                    "timed out waiting for cross-process DCC UI Control test isolation",
                 ));
             }
         }
@@ -675,7 +678,7 @@ pub(crate) fn start_control_banner(
         cleanup_pending.store(false, Ordering::Release);
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::PermissionDenied,
-            "another DCC MCP Computer Use session already owns system input",
+            "another DCC UI Control session already owns system input",
         )
         .into());
     }
@@ -725,7 +728,7 @@ pub(crate) fn start_control_banner(
             cleanup_pending.store(false, Ordering::Release);
             ComputerUseError::new(
                 ComputerUseErrorCode::BackendUnavailable,
-                format!("failed to start the Computer Use control thread: {error}"),
+                format!("failed to start the DCC UI Control thread: {error}"),
             )
         })?;
 
@@ -743,7 +746,7 @@ pub(crate) fn start_control_banner(
             Err(ControlBannerStartError {
                 error: ComputerUseError::new(
                     ComputerUseErrorCode::BackendUnavailable,
-                    "timed out while starting the Computer Use control banner",
+                    "timed out while starting the DCC UI Control capsule",
                 ),
                 thread: crate::join_control_thread(thread),
             })
@@ -777,8 +780,8 @@ impl OverlayLayer {
 }
 
 struct ControlOverlay {
-    banner: OverlayLayer,
-    borders: Vec<OverlayLayer>,
+    capsule: OverlayLayer,
+    corners: Vec<OverlayLayer>,
     cursor_mask: OverlayLayer,
     cursor_visible: Cell<bool>,
     pulse_started: Instant,
@@ -846,34 +849,37 @@ impl ControlOverlay {
         target_rect: &windows::Win32::Foundation::RECT,
         caption: &str,
     ) -> ComputerUseResult<Self> {
-        let (banner_geometry, border_geometries) = overlay_geometries(target, target_rect)?;
-        let banner_alpha =
-            breathing_alpha(CONTROL_BANNER_ALPHA, CONTROL_BANNER_PULSE_FLOOR_PERCENT, 0);
-        let banner = OverlayLayer::new(
-            create_color_overlay(caption, banner_geometry, banner_alpha, false, true)?,
-            CONTROL_BANNER_ALPHA,
-            banner_alpha,
+        let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
+        let capsule_alpha = breathing_alpha(
+            CONTROL_CAPSULE_ALPHA,
+            CONTROL_CAPSULE_PULSE_FLOOR_PERCENT,
+            0,
         );
-        let mut borders = Vec::with_capacity(border_geometries.len());
-        for (geometry, alpha, focus) in border_geometries {
+        let capsule = OverlayLayer::new(
+            create_color_overlay(caption, capsule_geometry, capsule_alpha, false, true)?,
+            CONTROL_CAPSULE_ALPHA,
+            capsule_alpha,
+        );
+        let mut corners = Vec::with_capacity(corner_geometries.len());
+        for (geometry, alpha, focus) in corner_geometries {
             let initial_alpha = breathing_alpha(alpha, CONTROL_BORDER_PULSE_FLOOR_PERCENT, 0);
             match create_color_overlay("", geometry, initial_alpha, false, focus) {
-                Ok(hwnd) => borders.push(OverlayLayer::new(hwnd, alpha, initial_alpha)),
+                Ok(hwnd) => corners.push(OverlayLayer::new(hwnd, alpha, initial_alpha)),
                 Err(error) => {
-                    for layer in borders {
+                    for layer in corners {
                         let _ = unsafe { DestroyWindow(layer.hwnd) };
                     }
-                    let _ = unsafe { DestroyWindow(banner.hwnd) };
+                    let _ = unsafe { DestroyWindow(capsule.hwnd) };
                     return Err(error);
                 }
             }
         }
         let mut cursor = POINT::default();
         if let Err(error) = unsafe { GetCursorPos(&mut cursor) } {
-            for layer in borders {
+            for layer in corners {
                 let _ = unsafe { DestroyWindow(layer.hwnd) };
             }
-            let _ = unsafe { DestroyWindow(banner.hwnd) };
+            let _ = unsafe { DestroyWindow(capsule.hwnd) };
             return Err(overlay_backend_error(
                 "locate the pointer for",
                 error.to_string(),
@@ -890,17 +896,17 @@ impl ControlOverlay {
         ) {
             Ok(hwnd) => OverlayLayer::new(hwnd, CONTROL_CURSOR_ALPHA, cursor_alpha),
             Err(error) => {
-                for layer in borders {
+                for layer in corners {
                     let _ = unsafe { DestroyWindow(layer.hwnd) };
                 }
-                let _ = unsafe { DestroyWindow(banner.hwnd) };
+                let _ = unsafe { DestroyWindow(capsule.hwnd) };
                 return Err(error);
             }
         };
         let cursor_visible = point_in_rect(cursor, target_rect);
         let overlay = Self {
-            banner,
-            borders,
+            capsule,
+            corners,
             cursor_mask,
             cursor_visible: Cell::new(cursor_visible),
             pulse_started: Instant::now(),
@@ -914,9 +920,9 @@ impl ControlOverlay {
         target: HWND,
         target_rect: &windows::Win32::Foundation::RECT,
     ) -> ComputerUseResult<()> {
-        let (banner_geometry, border_geometries) = overlay_geometries(target, target_rect)?;
-        position_overlay(self.banner.hwnd, banner_geometry, false)?;
-        for (layer, (geometry, _alpha, _focus)) in self.borders.iter().zip(border_geometries) {
+        let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
+        position_overlay(self.capsule.hwnd, capsule_geometry, false)?;
+        for (layer, (geometry, _alpha, _focus)) in self.corners.iter().zip(corner_geometries) {
             position_overlay(layer.hwnd, geometry, false)?;
         }
         let mut cursor = POINT::default();
@@ -935,9 +941,9 @@ impl ControlOverlay {
             self.cursor_visible.set(cursor_visible);
         }
         let elapsed_ms = self.pulse_started.elapsed().as_millis() as u64;
-        self.banner
-            .apply_pulse(CONTROL_BANNER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
-        for layer in &self.borders {
+        self.capsule
+            .apply_pulse(CONTROL_CAPSULE_PULSE_FLOOR_PERCENT, elapsed_ms)?;
+        for layer in &self.corners {
             layer.apply_pulse(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
         }
         self.cursor_mask
@@ -946,8 +952,8 @@ impl ControlOverlay {
     }
 
     fn set_visible(&self, visible: bool) -> ComputerUseResult<()> {
-        set_overlay_visible(self.banner.hwnd, visible)?;
-        for layer in &self.borders {
+        set_overlay_visible(self.capsule.hwnd, visible)?;
+        for layer in &self.corners {
             set_overlay_visible(layer.hwnd, visible)?;
         }
         if visible {
@@ -963,11 +969,11 @@ impl ControlOverlay {
 
 impl Drop for ControlOverlay {
     fn drop(&mut self) {
-        for layer in self.borders.drain(..) {
+        for layer in self.corners.drain(..) {
             let _ = unsafe { DestroyWindow(layer.hwnd) };
         }
         let _ = unsafe { DestroyWindow(self.cursor_mask.hwnd) };
-        let _ = unsafe { DestroyWindow(self.banner.hwnd) };
+        let _ = unsafe { DestroyWindow(self.capsule.hwnd) };
     }
 }
 
@@ -1035,7 +1041,7 @@ unsafe extern "system" fn overlay_window_proc(
                 let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
                 let font = unsafe {
                     CreateFontW(
-                        -scaled_pixels(CONTROL_BANNER_FONT_SIZE, dpi),
+                        -scaled_pixels(CONTROL_CAPSULE_FONT_SIZE, dpi),
                         0,
                         0,
                         0,
@@ -1195,7 +1201,7 @@ fn set_overlay_visible(hwnd: HWND, visible: bool) -> ComputerUseResult<()> {
 fn overlay_backend_error(operation: &str, detail: impl std::fmt::Display) -> ComputerUseError {
     ComputerUseError::new(
         ComputerUseErrorCode::BackendUnavailable,
-        format!("failed to {operation} the Computer Use visual overlay: {detail}"),
+        format!("failed to {operation} the DCC UI Control visual overlay: {detail}"),
     )
 }
 
@@ -1234,13 +1240,13 @@ fn run_banner(
 ) -> ComputerUseResult<()> {
     ensure_interactive_desktop()?;
     let target = HWND(window_handle as *mut core::ffi::c_void);
-    let caption = format!("●  DCC MCP controls {app_name}   ·   {STOP_HOTKEY_LABEL} to stop");
+    let caption = format!("●  DCC UI Control · {app_name}   |   {STOP_HOTKEY_LABEL} to stop");
     let mut rect = available_target_rect_for_process(target, process_id)?;
     let overlay = ControlOverlay::new(target, &rect, &caption)?;
 
     let hotkey_result = unsafe {
         RegisterHotKey(
-            Some(overlay.banner.hwnd),
+            Some(overlay.capsule.hwnd),
             HOTKEY_ID,
             STOP_HOTKEY_MODIFIERS,
             VK_ESCAPE.0 as u32,
@@ -1249,15 +1255,15 @@ fn run_banner(
     if let Err(error) = hotkey_result {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,
-            format!("failed to reserve {STOP_HOTKEY_LABEL} for Computer Use: {error}"),
+            format!("failed to reserve {STOP_HOTKEY_LABEL} for DCC UI Control: {error}"),
         ));
     }
     let _hotkey = RegisteredHotKey {
-        hwnd: overlay.banner.hwnd,
+        hwnd: overlay.capsule.hwnd,
     };
-    let _session_notifications = RegisteredSessionNotifications::new(overlay.banner.hwnd)?;
+    let _session_notifications = RegisteredSessionNotifications::new(overlay.capsule.hwnd)?;
     let _desktop_barrier =
-        RegisteredDesktopBarrier::new(Arc::clone(&signals.desktop_barrier), overlay.banner.hwnd);
+        RegisteredDesktopBarrier::new(Arc::clone(&signals.desktop_barrier), overlay.capsule.hwnd);
     let mut display_stamp = display_environment_stamp()?;
 
     record_desktop_transition(&signals.desktop_state, true);
@@ -1425,7 +1431,7 @@ pub(crate) fn clear_user_interrupt() -> ComputerUseResult<()> {
         USER_INTERRUPT_EVENT_FAILED.store(true, Ordering::Release);
         ComputerUseError::new(
             ComputerUseErrorCode::BackendUnavailable,
-            format!("failed to reset the cross-process Computer Use stop latch: {error}"),
+            format!("failed to reset the cross-process DCC UI Control stop latch: {error}"),
         )
     })?;
     USER_INTERRUPTED.store(false, Ordering::Release);

@@ -153,13 +153,13 @@ def _serialize_session_call(
         session_id = _safe_session_id(resolved.get("session_id"))
         if session_id in _COMPUTER_USE_STOPPING:
             return skill_error(
-                "DCC MCP Computer Use is stopping; retry after stop completes.",
+                "DCC UI Control is stopping; retry after stop completes.",
                 UiErrorCode.BACKEND_UNAVAILABLE,
             )
         with _session_lock(session_id):
             if session_id in _COMPUTER_USE_STOPPING:
                 return skill_error(
-                    "DCC MCP Computer Use is stopping; retry after stop completes.",
+                    "DCC UI Control is stopping; retry after stop completes.",
                     UiErrorCode.BACKEND_UNAVAILABLE,
                 )
             if not _native_desktop_interactive():
@@ -194,7 +194,7 @@ def _stop_computer_use_session(session_id: str) -> Dict[str, Any]:
             "success": False,
             "active": False,
             "cleanup_pending": True,
-            "message": f"Computer Use cleanup could not be confirmed: {exc}",
+            "message": f"DCC UI Control cleanup could not be confirmed: {exc}",
         }
     if raw.get("cleanup_pending"):
         return {
@@ -224,7 +224,7 @@ def _user_interrupted_capture() -> Dict[str, Any]:
         "success": False,
         "error": UiErrorCode.USER_INTERRUPTED,
         "message": (
-            "The user pressed Ctrl+Alt+Esc; DCC MCP Computer Use remains stopped. "
+            "The user pressed Ctrl+Alt+Esc; DCC UI Control remains stopped. "
             "Only resume after explicit user approval with resume_computer_use=true."
         ),
     }
@@ -301,7 +301,7 @@ def _uia_guard_failure(session_id: str) -> Optional[Dict[str, Any]]:
         return {
             "ok": False,
             "error": UiErrorCode.BACKEND_UNAVAILABLE,
-            "message": "DCC MCP Computer Use was stopped while the Windows UIA action was running.",
+            "message": "DCC UI Control was stopped while the Windows UIA action was running.",
         }
     entry = _COMPUTER_USE_SESSIONS.get(safe_id)
     if not entry or not hasattr(entry["session"], "status"):
@@ -312,7 +312,7 @@ def _uia_guard_failure(session_id: str) -> Optional[Dict[str, Any]]:
         return {
             "ok": False,
             "error": UiErrorCode.BACKEND_ERROR,
-            "message": "The Computer Use safety monitor could not verify the active session.",
+            "message": "The DCC UI Control safety monitor could not verify the active session.",
         }
     if status.get("user_interrupted"):
         _latch_user_interrupt(safe_id)
@@ -332,7 +332,7 @@ def _uia_guard_failure(session_id: str) -> Optional[Dict[str, Any]]:
         return {
             "ok": False,
             "error": UiErrorCode.BACKEND_UNAVAILABLE,
-            "message": "DCC MCP Computer Use was stopped while the Windows UIA action was running.",
+            "message": "DCC UI Control was stopped while the Windows UIA action was running.",
         }
     return None
 
@@ -548,7 +548,7 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
     result = skill_success(
         (
-            "Captured native DCC MCP Computer Use screenshot after Windows UIA was unavailable."
+            "Captured native DCC UI Control screenshot after Windows UIA was unavailable."
             if native_fallback
             else "Captured Windows UIA app_ui snapshot."
         ),
@@ -598,7 +598,7 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             "kind": "image",
             "data": base64.b64encode(computer_use["image"]).decode("ascii"),
             "mime": computer_use["mime_type"],
-            "alt": f"{params.get('app_name') or 'DCC'} computer-use screenshot",
+            "alt": f"{params.get('app_name') or 'DCC'} UI Control screenshot",
         }
     return result
 
@@ -665,7 +665,7 @@ def _run_native_action(
     entry = _COMPUTER_USE_SESSIONS.get(session_id)
     if not entry:
         return _backend_unavailable(
-            "Native computer-use session is not available in this Python process; take a new snapshot in-process."
+            "Native DCC UI Control session is not available in this Python process; take a new snapshot in-process."
         )
     request = _native_action_request(params, binding["observation_id"])
     _consume_action_observation(session_id, state)
@@ -675,7 +675,7 @@ def _run_native_action(
         raw = {"success": False, "error": UiErrorCode.BACKEND_ERROR, "message": str(exc)}
     if not raw.get("success"):
         error = str(raw.get("error") or UiErrorCode.BACKEND_ERROR)
-        message = str(raw.get("message") or "Native computer-use action failed.")
+        message = str(raw.get("message") or "Native DCC UI Control action failed.")
         result = UiActionResult(
             success=False,
             control_id=control_id,
@@ -688,7 +688,7 @@ def _run_native_action(
             _latch_user_interrupt(session_id)
         return skill_error(message, error, result=result, audit=audit)
 
-    message = f"Completed native computer-use action {action!r}."
+    message = f"Completed native DCC UI Control action {action!r}."
     result = UiActionResult(
         success=True,
         control_id=control_id,
@@ -769,7 +769,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return skill_error(
             (
                 "Mutating Windows UIA actions require an operator-bound DCC process id or window handle "
-                "so the visible Computer Use session and user interruption monitor target the same window."
+                "so the visible DCC UI Control session and user interruption monitor target the same window."
             ),
             UiErrorCode.PERMISSION_DENIED,
         )
@@ -834,7 +834,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 
 def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Stop one visible Computer Use session without clearing the Ctrl+Alt+Esc latch."""
+    """Stop one visible DCC UI Control session without clearing the Ctrl+Alt+Esc latch."""
     params = dict(params) if params is not None else _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     _bump_session_stop_generation(session_id)
@@ -852,7 +852,7 @@ def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str,
             if cleanup_pending:
                 return skill_error(
                     (
-                        "Computer Use stop was requested, but input-owner or visual cleanup is pending. "
+                        "DCC UI Control stop was requested, but input-owner or visual cleanup is pending. "
                         "retry stop shortly."
                     ),
                     UiErrorCode.BACKEND_UNAVAILABLE,
@@ -863,7 +863,7 @@ def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str,
                     user_interrupted=(session_id in _COMPUTER_USE_INTERRUPTED or _native_process_user_interrupted()),
                 )
             return skill_success(
-                "Stopped DCC MCP Computer Use and removed its visible control effects.",
+                "Stopped DCC UI Control and removed its visible control effects.",
                 session_id=session_id,
                 active=False,
                 was_active=was_active,
@@ -891,7 +891,7 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     def interrupted() -> Optional[Dict[str, Any]]:
         if _session_stop_generation(session_id) != stop_generation:
             return skill_error(
-                "app_ui wait cancelled because Computer Use was stopped.",
+                "app_ui wait cancelled because DCC UI Control was stopped.",
                 UiErrorCode.BACKEND_UNAVAILABLE,
                 session_id=session_id,
                 attempts=attempts,

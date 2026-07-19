@@ -102,6 +102,62 @@ fn call_batch_compatibility_alias_still_parses() {
 }
 
 #[test]
+fn ui_control_contract_parses_a_stable_snapshot_command() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "ui-control",
+        "snapshot",
+        "--dcc-type",
+        "unreal",
+        "--instance-id",
+        "abc12345",
+        "--json",
+        r#"{"session_id":"menu","process_id":42}"#,
+        "--timeout-secs",
+        "12",
+    ])
+    .expect("parse ui-control snapshot");
+
+    let Command::UiControl {
+        action: UiControlAction::Snapshot(snapshot),
+    } = args.command
+    else {
+        panic!("expected ui-control snapshot command");
+    };
+    assert_eq!(snapshot.dcc_type.as_deref(), Some("unreal"));
+    assert_eq!(snapshot.instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(snapshot.timeout_secs, 12);
+    assert_eq!(
+        read_call_arguments(&snapshot.arguments_json, snapshot.json_file.as_deref()).unwrap(),
+        serde_json::json!({"session_id": "menu", "process_id": 42})
+    );
+}
+
+#[test]
+fn ui_control_operations_map_to_legacy_app_ui_tools() {
+    let args = UiControlArgs {
+        dcc_type: None,
+        instance_id: None,
+        arguments_json: "{}".to_string(),
+        json_file: None,
+        meta_json: None,
+        timeout_secs: 30,
+    };
+    for (action, expected) in [
+        (UiControlAction::Snapshot(args.clone()), "app_ui__snapshot"),
+        (UiControlAction::Find(args.clone()), "app_ui__find"),
+        (UiControlAction::Act(args.clone()), "app_ui__act"),
+        (UiControlAction::Wait(args.clone()), "app_ui__wait_for"),
+        (
+            UiControlAction::Stop(args.clone()),
+            "app_ui__stop_computer_use",
+        ),
+    ] {
+        assert_eq!(action.into_call().0, expected);
+    }
+}
+
+#[test]
 fn call_materializes_rest_rich_image_without_printing_base64() {
     let root = tempfile::tempdir().expect("create artifact directory");
     let bytes = b"\x89PNG\r\n\x1a\ncomputer-use";

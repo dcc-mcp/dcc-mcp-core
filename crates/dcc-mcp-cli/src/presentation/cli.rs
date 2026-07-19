@@ -200,6 +200,11 @@ enum Command {
         #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
         timeout_secs: u64,
     },
+    /// Run the scoped DCC UI Control fallback through stable app-ui tools.
+    UiControl {
+        #[command(subcommand)]
+        action: UiControlAction,
+    },
     /// Wait until a local or gateway-managed instance reports readiness bits.
     WaitReady {
         #[arg(long)]
@@ -266,6 +271,54 @@ enum Command {
         #[command(flatten)]
         daemon: dcc_mcp_sidecar::gateway_daemon::GatewayArgs,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum UiControlAction {
+    /// Capture the exact scoped DCC window and start its visible control session.
+    Snapshot(UiControlArgs),
+    /// Resolve a semantic control from the latest scoped snapshot.
+    Find(UiControlArgs),
+    /// Perform one scoped semantic, pointer, or keyboard action.
+    Act(UiControlArgs),
+    /// Wait for one semantic UI condition inside the scoped DCC window.
+    Wait(UiControlArgs),
+    /// Stop the scoped session and release its visible effects and input owner.
+    Stop(UiControlArgs),
+}
+
+impl UiControlAction {
+    fn into_call(self) -> (&'static str, UiControlArgs) {
+        match self {
+            Self::Snapshot(args) => ("app_ui__snapshot", args),
+            Self::Find(args) => ("app_ui__find", args),
+            Self::Act(args) => ("app_ui__act", args),
+            Self::Wait(args) => ("app_ui__wait_for", args),
+            Self::Stop(args) => ("app_ui__stop_computer_use", args),
+        }
+    }
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct UiControlArgs {
+    /// DCC type when more than one ready instance may expose UI Control.
+    #[arg(long)]
+    dcc_type: Option<String>,
+    /// Full instance UUID or unique >=4-character prefix.
+    #[arg(long)]
+    instance_id: Option<String>,
+    /// Operation arguments using the underlying app-ui tool schema.
+    #[arg(long = "json", default_value = "{}")]
+    arguments_json: String,
+    /// Read operation arguments from a UTF-8 JSON file, or '-' for stdin.
+    #[arg(long, value_name = "PATH", conflicts_with = "arguments_json")]
+    json_file: Option<PathBuf>,
+    /// Optional tool-call metadata such as agent context or lease owner.
+    #[arg(long)]
+    meta_json: Option<String>,
+    /// Per-request timeout for the UI operation.
+    #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
+    timeout_secs: u64,
 }
 
 #[derive(Debug, Subcommand)]
@@ -699,6 +752,28 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             failed = !crate::application::local_control::call_result_succeeded(&result);
             result
         }
+        Command::UiControl { action } => {
+            let (tool_name, args) = action.into_call();
+            let arguments = read_call_arguments(&args.arguments_json, args.json_file.as_deref())?;
+            let meta = args
+                .meta_json
+                .as_deref()
+                .map(|raw| parse_json_object(raw, "--meta-json"))
+                .transpose()?;
+            let mut result = control
+                .call(
+                    tool_name.to_string(),
+                    args.dcc_type,
+                    args.instance_id,
+                    arguments,
+                    meta,
+                    Duration::from_secs(args.timeout_secs.max(1)),
+                )
+                .await?;
+            materialize_call_images(&mut result, &default_image_artifact_root());
+            failed = !crate::application::local_control::call_result_succeeded(&result);
+            result
+        }
         Command::WaitReady {
             dcc_type,
             instance_id,
@@ -1039,6 +1114,7 @@ fn gateway_endpoint_for_command(
         | Command::LoadSkill { .. }
         | Command::Call { .. }
         | Command::CallBatch { .. }
+        | Command::UiControl { .. }
         | Command::WaitReady { .. }
         | Command::ReloadSkills { .. }
         | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
