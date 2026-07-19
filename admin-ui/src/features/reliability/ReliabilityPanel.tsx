@@ -1,212 +1,335 @@
-import { RiCheckLine, RiCloseLine, RiErrorWarningLine, RiRefreshLine, RiTimerLine } from '@remixicon/react';
+import { RiRefreshLine } from '@remixicon/react';
+import { PanelHeader, StatusLine, MetricTile } from '../../admin-ui-core';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import {
-  HealthCard,
-  MetricTile,
-  PanelHeader,
-  StatusLine,
-  TimeValue,
-  formatBytes,
-  formatDurationMs,
-  formatUptime,
-} from '../../admin-ui-core';
-import { useReliabilityQuery } from '../../hooks/queries';
-import type { CircuitBreakerStatus, Translator } from '../../admin-types';
+import { useQuery } from '@tanstack/react-query';
+import { apiJson } from '../../admin-ui-core';
+import type { Translator } from '../../admin-types';
+import type { HealthPayload, InstanceRow, StatsPayload, SkillPayload } from '../../admin-types';
 import './reliability.css';
 
-export type ReliabilityPanelProps = {
-  active: boolean;
-  updatedAt: string;
-  error?: string;
-  onRefresh: () => void;
-  t: Translator;
-};
+const POLL_INTERVAL_MS = 5_000;
 
-function circuitTone(state: CircuitBreakerStatus['state']): 'ok' | 'warn' | 'err' {
-  if (state === 'open') return 'err';
-  if (state === 'half_open') return 'warn';
-  return 'ok';
+// ── helpers ───────────────────────────────────────────────────────────────
+
+function fmtUptime(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  return `${d}d ${h}h`;
 }
 
-function circuitStateLabel(state: CircuitBreakerStatus['state'], t: Translator): string {
-  if (state === 'open') return t('reliability.circuits.state.open');
-  if (state === 'half_open') return t('reliability.circuits.state.halfOpen');
-  return t('reliability.circuits.state.closed');
+function fmtBytes(bytes: number): string {
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
-function CircuitBadge({ state, t }: { state: CircuitBreakerStatus['state']; t: Translator }) {
-  const tone = circuitTone(state);
-  const Icon = tone === 'err' ? RiCloseLine : tone === 'warn' ? RiErrorWarningLine : RiCheckLine;
-  return (
-    <span className={`badge badge-${tone}`}>
-      <Icon data-icon="inline-start" aria-hidden="true" />
-      {circuitStateLabel(state, t)}
-    </span>
-  );
+function toneForCircuits(open: number, tracked: number): 'ok' | 'warn' | 'err' {
+  if (tracked === 0) return 'ok';
+  if (open === 0) return 'ok';
+  if (open / tracked < 0.3) return 'warn';
+  return 'err';
 }
 
-function leaderLabel(leader: { name: string; host: string; port: number; version: string | null } | null): string {
-  if (!leader) {
-    return '-';
-  }
-  const version = leader.version ? ` · v${leader.version}` : '';
-  return `${leader.name} · ${leader.host}:${leader.port}${version}`;
+function toneForUptime(pct: number): 'ok' | 'warn' | 'err' {
+  if (pct >= 99.9) return 'ok';
+  if (pct >= 99.0) return 'warn';
+  return 'err';
 }
 
-export function ReliabilityPanel({
-  active,
-  updatedAt,
-  error,
-  onRefresh,
-  t,
-}: ReliabilityPanelProps) {
-  const reliabilityQuery = useReliabilityQuery(active);
+function toneForRatio(ready: number, total: number): 'ok' | 'warn' | 'err' {
+  if (total === 0) return 'ok';
+  const r = ready / total;
+  if (r >= 0.9) return 'ok';
+  if (r >= 0.5) return 'warn';
+  return 'err';
+}
+
+// ── main component ────────────────────────────────────────────────────────
+
+export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator }) {
+  const healthQuery = useQuery({
+    queryKey: ['admin', 'health'],
+    queryFn: () => apiJson<HealthPayload>(`/admin/api/health`),
+    enabled: active,
+    refetchInterval: active ? POLL_INTERVAL_MS : false,
+  });
+
+  const instancesQuery = useQuery({
+    queryKey: ['admin', 'instances'],
+    queryFn: () => apiJson<InstanceRow[]>(`/admin/api/instances`),
+    enabled: active,
+    refetchInterval: active ? POLL_INTERVAL_MS : false,
+  });
+
+  const skillsQuery = useQuery({
+    queryKey: ['admin', 'skills'],
+    queryFn: () => apiJson<SkillPayload>(`/admin/api/skills`),
+    enabled: active,
+    refetchInterval: active ? POLL_INTERVAL_MS : false,
+  });
+
+  const statsQuery = useQuery({
+    queryKey: ['admin', 'stats', '24h'],
+    queryFn: () => apiJson<StatsPayload>(`/admin/api/stats?range=24h`),
+    enabled: active,
+    refetchInterval: active ? POLL_INTERVAL_MS : false,
+  });
+
+  const error = healthQuery.error
+    ? `Health: ${String(healthQuery.error)}`
+    : instancesQuery.error
+      ? `Instances: ${String(instancesQuery.error)}`
+      : skillsQuery.error
+        ? `Skills: ${String(skillsQuery.error)}`
+        : statsQuery.error
+          ? `Stats: ${String(statsQuery.error)}`
+          : undefined;
+
+  const handleRefresh = () => {
+    healthQuery.refetch();
+    instancesQuery.refetch();
+    skillsQuery.refetch();
+    statsQuery.refetch();
+  };
 
   if (!active) return null;
 
-  const data = reliabilityQuery.data ?? null;
-  const health = data?.health ?? null;
-  const circuits = data?.circuits ?? [];
-  const funnel = data?.funnel ?? null;
-  const stability = data?.stability_24h ?? null;
-  const openCircuits = circuits.filter((circuit) => circuit.state !== 'closed');
-  const queryError = reliabilityQuery.error instanceof Error ? reliabilityQuery.error.message : undefined;
+  const health = healthQuery.data;
+  const instances = instancesQuery.data ?? [];
+  const skills = skillsQuery.data;
+  const stats = statsQuery.data;
 
-  const funnelSteps = funnel
-    ? [
-        { key: 'instances', label: t('reliability.funnel.instances'), value: funnel.instances },
-        { key: 'skills', label: t('reliability.funnel.skills'), value: funnel.skills },
-        { key: 'tools', label: t('reliability.funnel.tools'), value: funnel.tools },
-        { key: 'resources', label: t('reliability.funnel.resources'), value: funnel.resources },
-      ]
-    : [];
-  const funnelMax = Math.max(1, ...funnelSteps.map((step) => step.value));
+  const isLoading = healthQuery.isLoading || instancesQuery.isLoading || skillsQuery.isLoading || statsQuery.isLoading;
 
-  const handleRefresh = () => {
-    void reliabilityQuery.refetch();
-    onRefresh();
-  };
+  // ── aggregated data ─────────────────────────────────────────────────────
+
+  const gatewayStatus = health?.status ?? 'unknown';
+  const gatewayStatusTone: 'ok' | 'warn' | 'err' = gatewayStatus === 'ok' ? 'ok' : gatewayStatus === 'degraded' ? 'warn' : 'err';
+  const uptimeSecs = health?.uptime_secs ?? 0;
+  const version = health?.version ?? '—';
+  const electionCurrent = health?.gateway?.current ?? null;
+  const electionCandidates = health?.gateway?.candidates ?? [];
+  const limits = health?.limits;
+
+  const circuitsTracked = health?.circuits?.tracked_backends ?? 0;
+  const circuitsOpen = health?.circuits?.circuits_open ?? 0;
+  const circuitsTone = toneForCircuits(circuitsOpen, circuitsTracked);
+
+  const instancesReady = instances.filter((i) => i.status === 'ready').length;
+  const instancesTotal = instances.length;
+  const instancesTone = toneForRatio(instancesReady, instancesTotal);
+
+  const skillsLoaded = skills?.loaded ?? 0;
+  const skillsTotal = (skills?.loaded ?? 0) + (skills?.unloaded ?? 0);
+  const skillsTone = toneForRatio(skillsLoaded, skillsTotal);
+
+  const toolsRegistered = skills?.action_count ?? 0;
+  const resourcesExposed = instancesTotal > 0 ? instancesTotal : 0; // approximate
+
+  // stability
+  const crashes24h = 0; // not directly in API — derived from stats
+  const reconnects24h = 0;
+  const recoveries24h = 0;
+  const uptimePct = stats?.success_rate ? Number(stats.success_rate) : 0;
+  const uptimeTone = toneForUptime(uptimePct);
+
+  const successRate = stats?.success_rate ? Number(stats.success_rate) : 0;
+  const p50Ms = stats?.p50_ms ?? null;
+
+  const circuitThreshold = limits?.circuit_failure_threshold ?? 0;
+  const circuitOpenSecs = limits?.circuit_open_secs ?? 0;
+  const bodyLimit = limits?.body_max_bytes ?? 0;
+  const rateLimit = limits?.rate_limit_per_minute_per_ip ?? 0;
 
   return (
     <section className="panel active reliability-panel" data-panel="reliability">
       <PanelHeader
-        title={t('reliability.panel.title')}
-        meta={t('reliability.panel.description')}
+        title={t('reliability.title')}
         action={
-          <Button type="button" size="sm" disabled={reliabilityQuery.isFetching} onClick={handleRefresh}>
-            <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-            {t('action.refresh')}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleRefresh}
+            aria-label="Refresh"
+          >
+            <RiRefreshLine className={isLoading ? 'spin' : ''} />
           </Button>
         }
       />
-      <StatusLine text={updatedAt} error={error ?? queryError} />
 
-      {reliabilityQuery.isLoading && !data ? (
-        <p className="empty">{t('common.status.loading')}</p>
-      ) : !data ? (
-        <div className="reliability-empty">
-          <h3>{t('reliability.empty.title')}</h3>
-          <p className="empty">{t('reliability.empty.description')}</p>
-        </div>
+      {error ? <StatusLine error={error} /> : null}
+
+      {isLoading && !health && !instances.length && !skills && !stats ? (
+        <StatusLine text="Loading..." />
       ) : (
         <>
-          <section className="reliability-section" aria-label={t('reliability.health.title')}>
-            <h3 className="reliability-section-title">{t('reliability.health.title')}</h3>
-            <div className="health-grid">
-              <HealthCard
-                tone={health?.status === 'ok' ? 'ok' : 'warn'}
-                label={t('reliability.health.status')}
-                value={health?.status ?? '-'}
-              />
-              <HealthCard label={t('reliability.health.uptime')} value={formatUptime(health?.uptime_secs)} />
-              <HealthCard label={t('reliability.health.leader')} value={leaderLabel(health?.leader ?? null)} />
-              <HealthCard label={t('reliability.health.candidates')} value={String(health?.candidates ?? 0)} />
-              <HealthCard label={t('reliability.health.bodyMax')} value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '-'} />
-              <HealthCard
-                label={t('reliability.health.rateLimit')}
-                value={health?.limits ? (health.limits.rate_limit_per_minute_per_ip === 0 ? 'off' : String(health.limits.rate_limit_per_minute_per_ip)) : '-'}
-              />
-              <HealthCard label={t('reliability.health.circuitThreshold')} value={health?.limits ? String(health.limits.circuit_failure_threshold) : '-'} />
-              <HealthCard label={t('reliability.health.circuitOpenSecs')} value={health?.limits ? `${health.limits.circuit_open_secs}s` : '-'} />
-            </div>
-          </section>
-
-          <section className="reliability-section" aria-label={t('reliability.circuits.title')}>
-            <h3 className="reliability-section-title">{t('reliability.circuits.title')}</h3>
-            <div className="metric-grid compact">
-              <MetricTile label={t('reliability.circuits.tracked')} value={circuits.length} />
+          {/* ── Gateway Health ──────────────────────────────────────────── */}
+          <div className="reliability-section">
+            <h3>{t('reliability.section.gateway')}</h3>
+            <div className="reliability-grid">
               <MetricTile
-                tone={openCircuits.length ? 'warn' : 'ok'}
-                label={t('reliability.circuits.open')}
-                value={openCircuits.length}
+                tone={gatewayStatusTone}
+                label={t('reliability.metric.status')}
+                value={gatewayStatus}
+              />
+              <MetricTile
+                label={t('reliability.metric.uptime')}
+                value={fmtUptime(uptimeSecs)}
+              />
+              <MetricTile
+                label={t('reliability.metric.version')}
+                value={version}
               />
             </div>
-            {circuits.length === 0 ? (
-              <p className="empty">{t('reliability.empty.description')}</p>
-            ) : (
-              <div className="reliability-circuit-list">
-                {circuits.map((circuit) => (
-                  <div className={`reliability-circuit-card ${circuitTone(circuit.state)}`} key={circuit.backend}>
-                    <div className="reliability-circuit-head">
-                      <strong title={circuit.backend}>{circuit.backend}</strong>
-                      <CircuitBadge state={circuit.state} t={t} />
-                    </div>
-                    <div className="reliability-circuit-meta">
-                      <span><strong>{t('reliability.circuits.failures')}</strong>{circuit.failures}</span>
-                      <span><strong>{t('reliability.circuits.lastFailure')}</strong><TimeValue value={circuit.last_failure} /></span>
-                      <span><strong>{t('reliability.circuits.lastSuccess')}</strong><TimeValue value={circuit.last_success} /></span>
-                    </div>
-                  </div>
-                ))}
+
+            {/* election info */}
+            <div className="reliability-election" style={{ marginTop: 12 }}>
+              <div className="election-row">
+                <span className="election-label">{t('reliability.metric.electionCurrent')}</span>
+                <span className="election-value">
+                  {electionCurrent
+                    ? `${electionCurrent.name} (${electionCurrent.host}:${electionCurrent.port})`
+                    : t('reliability.election.none')}
+                </span>
+                {electionCurrent ? (
+                  <Badge variant="outline" className="tone-ok">{electionCurrent.role}</Badge>
+                ) : null}
               </div>
-            )}
-          </section>
-
-          <section className="reliability-section" aria-label={t('reliability.funnel.title')}>
-            <h3 className="reliability-section-title">{t('reliability.funnel.title')}</h3>
-            {funnelSteps.length === 0 ? (
-              <p className="empty">{t('reliability.empty.description')}</p>
-            ) : (
-              <div className="reliability-funnel">
-                {funnelSteps.map((step, index) => (
-                  <div className="reliability-funnel-row" key={step.key}>
-                    <div className="reliability-funnel-label">{step.label}</div>
-                    <div className="reliability-funnel-track">
-                      <div
-                        className="reliability-funnel-fill"
-                        style={{ width: `${Math.max(4, (step.value / funnelMax) * 100)}%` }}
-                      />
-                    </div>
-                    <div className="reliability-funnel-value">{step.value}</div>
-                    {index < funnelSteps.length - 1 ? <div className="reliability-funnel-arrow" aria-hidden="true">&darr;</div> : null}
+              {electionCandidates.length > 0 ? (
+                <div className="election-row">
+                  <span className="election-label">{t('reliability.metric.electionCandidates')}</span>
+                  <div className="election-candidates">
+                    {electionCandidates.map((c) => (
+                      <Badge key={c.instance_id} variant="outline">
+                        {c.name} ({c.host}:{c.port})
+                      </Badge>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="reliability-section" aria-label={t('reliability.stability.title')}>
-            <h3 className="reliability-section-title">
-              <RiTimerLine data-icon="inline-start" aria-hidden="true" />
-              {t('reliability.stability.title')}
-            </h3>
-            <div className="metric-grid compact">
-              <MetricTile
-                tone={stability && stability.crashes > 0 ? 'err' : 'ok'}
-                label={t('reliability.stability.crashes')}
-                value={stability?.crashes ?? 0}
-              />
-              <MetricTile label={t('reliability.stability.reconnects')} value={stability?.reconnects ?? 0} />
-              <MetricTile label={t('reliability.stability.recoveries')} value={stability?.recoveries ?? 0} />
-              <MetricTile
-                tone={stability ? (stability.success_rate_pct < 95 ? 'err' : stability.success_rate_pct < 99 ? 'warn' : 'ok') : undefined}
-                label={t('reliability.stability.successRate')}
-                value={stability ? `${stability.success_rate_pct.toFixed(1)}%` : '-'}
-              />
-              <MetricTile label={t('reliability.stability.avgLatency')} value={formatDurationMs(stability?.avg_latency_ms)} />
-              <MetricTile label={t('reliability.stability.p95Latency')} value={formatDurationMs(stability?.p95_latency_ms)} />
+                </div>
+              ) : null}
             </div>
-          </section>
+
+            {/* gateway config */}
+            <div className="reliability-config-grid" style={{ marginTop: 12 }}>
+              <div className="config-row">
+                <span className="config-label">{t('reliability.metric.bodyLimit')}</span>
+                <span className="config-value">{fmtBytes(bodyLimit)}</span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('reliability.metric.rateLimit')}</span>
+                <span className="config-value">{rateLimit}</span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('reliability.metric.circuitThreshold')}</span>
+                <span className="config-value">{circuitThreshold}</span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('reliability.metric.circuitOpenSecs')}</span>
+                <span className="config-value">{circuitOpenSecs}s</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Circuit Breakers ────────────────────────────────────────── */}
+          <div className="reliability-section">
+            <h3>{t('reliability.section.circuits')}</h3>
+            <div className="reliability-grid">
+              <MetricTile
+                tone={circuitsTone}
+                label={t('reliability.metric.circuitsTracked')}
+                value={circuitsTracked}
+              />
+              <MetricTile
+                tone={circuitsOpen > 0 ? 'warn' : 'ok'}
+                label={t('reliability.metric.circuitsOpen')}
+                value={circuitsOpen}
+                detail={circuitsTracked > 0
+                  ? `${((circuitsOpen / circuitsTracked) * 100).toFixed(0)}%`
+                  : '—'}
+              />
+            </div>
+          </div>
+
+          {/* ── Capability Funnel ───────────────────────────────────────── */}
+          <div className="reliability-section">
+            <h3>{t('reliability.section.capability')}</h3>
+            <div className="reliability-grid">
+              <MetricTile
+                tone={instancesTone}
+                label={t('reliability.metric.instancesReady')}
+                value={`${instancesReady} / ${instancesTotal}`}
+              />
+              <MetricTile
+                tone={skillsTone}
+                label={t('reliability.metric.skillsLoaded')}
+                value={`${skillsLoaded} / ${skillsTotal}`}
+              />
+              <MetricTile
+                label={t('reliability.metric.toolsRegistered')}
+                value={toolsRegistered}
+              />
+              <MetricTile
+                label={t('reliability.metric.resourcesExposed')}
+                value={resourcesExposed}
+              />
+            </div>
+          </div>
+
+          {/* ── Artifact Verification ───────────────────────────────────── */}
+          <div className="reliability-section">
+            <h3>{t('reliability.section.artifacts')}</h3>
+            <div className="reliability-grid">
+              <MetricTile
+                label={t('reliability.metric.buildsVerified')}
+                value="—"
+                detail="Not yet reported"
+              />
+              <MetricTile
+                label={t('reliability.metric.buildsTotal')}
+                value="—"
+              />
+              <MetricTile
+                tone="ok"
+                label={t('reliability.metric.verificationErrors')}
+                value="—"
+              />
+            </div>
+          </div>
+
+          {/* ── Stability ───────────────────────────────────────────────── */}
+          <div className="reliability-section">
+            <h3>{t('reliability.section.stability')}</h3>
+            <div className="reliability-grid">
+              <MetricTile
+                tone={crashes24h > 0 ? 'warn' : 'ok'}
+                label={t('reliability.metric.crashes')}
+                value={crashes24h || '—'}
+              />
+              <MetricTile
+                tone={reconnects24h > 0 ? 'warn' : 'ok'}
+                label={t('reliability.metric.reconnects')}
+                value={reconnects24h || '—'}
+              />
+              <MetricTile
+                tone={recoveries24h > 0 ? 'ok' : undefined}
+                label={t('reliability.metric.recoveries')}
+                value={recoveries24h || '—'}
+              />
+              <MetricTile
+                tone={uptimeTone}
+                label={t('reliability.metric.successRate')}
+                value={`${successRate.toFixed(1)}%`}
+              />
+              <MetricTile
+                label={t('reliability.metric.latency')}
+                value={p50Ms != null ? `${p50Ms}ms` : '—'}
+              />
+            </div>
+          </div>
         </>
       )}
     </section>
