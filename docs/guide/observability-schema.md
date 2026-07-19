@@ -18,7 +18,7 @@ crates/dcc-mcp-db/src/infra/gateway_admin_schema.rs
 The DDL is embedded as a `const &str` and executed with `CREATE TABLE IF NOT
 EXISTS`, making it safe to run on every gateway startup.
 
-### Current version: 2 (PIP-2751)
+### Current version: 2
 
 Schema version 2 introduced `tool_calls`, `sessions`, and `session_events`
 tables alongside the original v1 tables (`traces`, `audits`,
@@ -36,9 +36,9 @@ tables alongside the original v1 tables (`traces`, `audits`,
 | `skill_loaded_state` | v1 | Per-DCC skill load state mirror |
 | `skill_active_groups` | v1 | Per-DCC active skill groups |
 | `agent_memory` | v1 | Agent memory key-value store |
-| `tool_calls` | v2 (PIP-2751) | Structured tool-call events |
-| `sessions` | v2 (PIP-2751) | Session lifecycle tracking |
-| `session_events` | v2 (PIP-2751) | Session lifecycle event log |
+| `tool_calls` | v2 | Structured tool-call events |
+| `sessions` | v2 | Session lifecycle tracking |
+| `session_events` | v2 | Session lifecycle event log |
 
 ### Index inventory
 
@@ -214,4 +214,4 @@ missing tables automatically on first startup.
 | API version | Schema version | Release | Changes |
 |-------------|---------------|---------|---------|
 | `v1` | 1 | 0.19.x | Original: traces, audits, skill paths, deregistered instances, agent memory |
-| `v1` | 2 | 0.20.x (PIP-2751) | Added `tool_calls`, `sessions`, `session_events` tables. Query API unchanged. |
+| `v1` | 2 | 0.20.x | Added `tool_calls`, `sessions`, `session_events` tables. Query API unchanged. |
