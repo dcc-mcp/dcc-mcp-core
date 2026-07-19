@@ -745,7 +745,7 @@ impl ComputerUseSession {
             "process_id": state.target.as_ref().map(|target| target.pid),
             "window_title": state.target.as_ref().map(|target| target.title.clone()),
             "hint": format!(
-                "DCC MCP Computer Use is controlling {} - press Ctrl+Alt+Esc to stop",
+                "DCC UI Control is controlling {} - press Ctrl+Alt+Esc to stop",
                 self.spec.app_name
             ),
         })

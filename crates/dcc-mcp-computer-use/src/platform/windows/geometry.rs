@@ -248,7 +248,7 @@ pub(super) fn corner_geometries(rect: &RECT, dpi: u32) -> CornerGeometries {
     let width = rect.right.saturating_sub(rect.left).max(1);
     let height = rect.bottom.saturating_sub(rect.top).max(1);
     let layers = [
-        (CORNER_GLOW_LENGTH, CORNER_GLOW_THICKNESS, 42_u8, true),
+        (CORNER_GLOW_LENGTH, CORNER_GLOW_THICKNESS, 112_u8, true),
         (
             CORNER_ACCENT_LENGTH,
             CORNER_ACCENT_THICKNESS,
@@ -337,6 +337,14 @@ pub(super) fn point_in_rect(point: POINT, rect: &RECT) -> bool {
 }
 
 pub(super) fn pointer_mask_geometry(screen_x: i32, screen_y: i32) -> OverlayGeometry {
+    pointer_geometry(screen_x, screen_y, POINTER_EFFECT_SIZE)
+}
+
+pub(super) fn pointer_ring_geometry(screen_x: i32, screen_y: i32) -> OverlayGeometry {
+    pointer_geometry(screen_x, screen_y, POINTER_RING_SIZE)
+}
+
+fn pointer_geometry(screen_x: i32, screen_y: i32, logical_size: i32) -> OverlayGeometry {
     let monitor = unsafe {
         MonitorFromPoint(
             POINT {
@@ -351,7 +359,7 @@ pub(super) fn pointer_mask_geometry(screen_x: i32, screen_y: i32) -> OverlayGeom
     } else {
         monitor_dpi(monitor, None)
     };
-    let size = scaled_pixels(POINTER_EFFECT_SIZE, dpi);
+    let size = scaled_pixels(logical_size, dpi);
     let offset = size / 2;
     (
         screen_x.saturating_sub(offset),
