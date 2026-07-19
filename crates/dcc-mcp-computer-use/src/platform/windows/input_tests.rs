@@ -399,9 +399,12 @@ fn control_overlay_visual_contract_is_prominent_blue() {
     let red = CONTROL_ACCENT_COLOR.0 & 0xff;
     let green = (CONTROL_ACCENT_COLOR.0 >> 8) & 0xff;
     let blue = (CONTROL_ACCENT_COLOR.0 >> 16) & 0xff;
-    let focus_red = CONTROL_FOCUS_COLOR.0 & 0xff;
-    let focus_green = (CONTROL_FOCUS_COLOR.0 >> 8) & 0xff;
-    let focus_blue = (CONTROL_FOCUS_COLOR.0 >> 16) & 0xff;
+    let glow_red = CONTROL_GLOW_COLOR.0 & 0xff;
+    let glow_green = (CONTROL_GLOW_COLOR.0 >> 8) & 0xff;
+    let glow_blue = (CONTROL_GLOW_COLOR.0 >> 16) & 0xff;
+    let cursor_red = CONTROL_CURSOR_COLOR.0 & 0xff;
+    let cursor_green = (CONTROL_CURSOR_COLOR.0 >> 8) & 0xff;
+    let cursor_blue = (CONTROL_CURSOR_COLOR.0 >> 16) & 0xff;
 
     const {
         assert!(CORNER_ACCENT_THICKNESS >= 16);
@@ -412,16 +415,16 @@ fn control_overlay_visual_contract_is_prominent_blue() {
         assert!(CONTROL_BORDER_ALPHA >= CONTROL_CURSOR_ALPHA);
         assert!(CONTROL_BORDER_ALPHA >= 240);
         assert!(CONTROL_BORDER_PULSE_FLOOR_PERCENT >= 70);
-        assert!(CONTROL_CAPSULE_FONT_SIZE >= 16);
+        assert!(CONTROL_CAPSULE_FONT_SIZE >= 14 && CONTROL_CAPSULE_FONT_SIZE <= 18);
     }
     assert!((110..=220).contains(&CONTROL_OVERLAY_ALPHA));
     assert!(blue > green && green > red);
-    assert!(focus_blue > focus_green && focus_green > focus_red);
-    assert!(focus_blue < blue / 3);
+    assert!(glow_blue > glow_green && glow_green > glow_red);
+    assert!(cursor_red > cursor_green && cursor_green > cursor_blue);
 }
 
 #[test]
-fn capsule_stays_bottom_center_on_a_negative_origin_monitor() {
+fn capsule_stays_top_center_on_a_negative_origin_monitor() {
     let target = windows::Win32::Foundation::RECT {
         left: -1900,
         top: 20,
@@ -437,7 +440,11 @@ fn capsule_stays_bottom_center_on_a_negative_origin_monitor() {
 
     assert_eq!(
         capsule_geometry(&target, &display, 96),
-        (-1660, 548, 520, 48)
+        (-1640, 38, 480, 44)
+    );
+    assert_eq!(
+        capsule_glow_geometry((-1640, 38, 480, 44)),
+        (-1646, 32, 492, 56)
     );
 }
 
@@ -458,7 +465,7 @@ fn capsule_clamps_partial_offscreen_targets_to_monitor_work_area() {
 
     assert_eq!(
         capsule_geometry(&target, &display, 144),
-        (-1920, 92, 780, 72)
+        (-1920, 0, 720, 66)
     );
 }
 
@@ -479,7 +486,7 @@ fn capsule_clamps_cross_gap_targets_to_the_selected_real_monitor() {
 
     assert_eq!(
         capsule_geometry(&target, &display, 96),
-        (2560, 828, 520, 48)
+        (2560, 200, 480, 44)
     );
 }
 
@@ -615,7 +622,7 @@ fn persistent_overlay_layers_stay_hidden_until_their_geometry_is_ready() {
     use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
 
     let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
-    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, true).unwrap();
+    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Glow).unwrap();
     assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
 
     set_overlay_visible(hwnd, true).unwrap();

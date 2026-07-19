@@ -230,18 +230,27 @@ pub(super) fn capsule_geometry(rect: &RECT, display_rect: &RECT, dpi: u32) -> Ov
     let target_width = rect.right.saturating_sub(rect.left).max(1);
     let display_width = display_rect.right.saturating_sub(display_rect.left).max(1);
     let display_height = display_rect.bottom.saturating_sub(display_rect.top).max(1);
-    let width = scaled_pixels(520, dpi).min(display_width);
-    let height = scaled_pixels(48, dpi).min(display_height);
+    let width = scaled_pixels(480, dpi).min(display_width);
+    let height = scaled_pixels(44, dpi).min(display_height);
     let centered_x = rect
         .left
         .saturating_add(target_width.saturating_sub(width) / 2);
     let x = centered_x.clamp(display_rect.left, display_rect.right.saturating_sub(width));
     let y = rect
-        .bottom
-        .saturating_sub(height)
-        .saturating_sub(scaled_pixels(24, dpi))
+        .top
+        .saturating_add(scaled_pixels(18, dpi))
         .clamp(display_rect.top, display_rect.bottom.saturating_sub(height));
     (x, y, width, height)
+}
+
+pub(super) fn capsule_glow_geometry((x, y, width, height): OverlayGeometry) -> OverlayGeometry {
+    let halo = (height / 7).max(4);
+    (
+        x.saturating_sub(halo),
+        y.saturating_sub(halo),
+        width.saturating_add(halo.saturating_mul(2)),
+        height.saturating_add(halo.saturating_mul(2)),
+    )
 }
 
 pub(super) fn corner_geometries(rect: &RECT, dpi: u32) -> CornerGeometries {
