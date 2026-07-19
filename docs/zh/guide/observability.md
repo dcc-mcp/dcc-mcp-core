@@ -290,6 +290,10 @@ rate(dcc_mcp_gateway_probes_total{outcome="ready"}[5m])
 
 ## 参见
 
+- [metric-dictionary.md](../../guide/metric-dictionary.md) — 指标字典：单位、采样窗口、空值语义、存储层
+- [observability-schema.md](../../guide/observability-schema.md) — 版本化 schema、迁移路径、查询 API 版本策略
+- [observability-usage.md](../../guide/observability-usage.md) — Agent、CLI、Admin UI 使用说明
+- [observability-troubleshooting.md](../../guide/observability-troubleshooting.md) — 运维排障手册
 - [telemetry.md](telemetry.md) — `ToolMetrics`、`ToolRecorder`、旧版 Python 遥测
 - [gateway-diagnostics.md](gateway-diagnostics.md) — 选举/驱逐事件的日志模板
 - [production-deployment.md](production-deployment.md) — 生产环境监控检查清单
