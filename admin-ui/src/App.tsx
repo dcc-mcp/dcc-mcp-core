@@ -29,6 +29,8 @@ import { MemoryPanel } from './features/agent-memory/MemoryPanel';
 import { OpenApiPanel } from './features/openapi';
 import { ActivityPanel } from './features/activity';
 import { HealthPanel } from './features/health';
+import { ReliabilityPanel } from './features/reliability';
+import { SessionsPanel } from './features/sessions';
 import { ToolsPanel } from './features/tools';
 import { WorkflowsPanel } from './features/workflows';
 import { TasksPanel } from './features/tasks';
@@ -1605,6 +1607,16 @@ function App() {
             t={t}
           />
         )}
+
+        <ReliabilityPanel
+          active={activePanel === 'reliability'}
+          t={t}
+        />
+
+        <SessionsPanel
+          active={activePanel === 'sessions'}
+          t={t}
+        />
 
         {activePanel === 'instances' && (
           <InstancesPanel

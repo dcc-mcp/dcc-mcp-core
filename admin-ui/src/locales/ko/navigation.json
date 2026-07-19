@@ -21,6 +21,8 @@
   "panel.skills": "스킬",
   "panel.marketplace": "마켓플레이스",
   "panel.integrations": "통합",
+  "panel.reliability": "신뢰성",
+  "panel.sessions": "세션",
   "group.onboarding": "시작",
   "group.discover": "발견",
   "group.operations": "운영",

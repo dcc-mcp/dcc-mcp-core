@@ -2,7 +2,7 @@ import { type InterpolationValues, type MessageKey } from './i18n';
 
 export type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
-export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview';
+export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview' | 'reliability' | 'sessions';
 
 export type AnalyticsOverview = {
   range: string;
@@ -1469,6 +1469,48 @@ export type TestIntegrationResult = {
   sent_at_ms?: number;
   webhook_url?: string;
   wecom?: Record<string, unknown>;
+};
+
+export type ReliabilityPayload = {
+  generated_at: string;
+  gateway: {
+    status: string;
+    uptime_secs: number;
+    version: string;
+    election: {
+      current?: GatewaySentinel | null;
+      candidates?: GatewaySentinel[];
+    };
+    limits: {
+      body_max_bytes: number;
+      rate_limit_per_minute_per_ip: number;
+      circuit_failure_threshold: number;
+      circuit_open_secs: number;
+    };
+    circuits: {
+      tracked_backends: number;
+      circuits_open: number;
+    };
+  };
+  capability_funnel: {
+    instances_ready: number;
+    instances_total: number;
+    skills_loaded: number;
+    skills_total: number;
+    tools_registered: number;
+    resources_exposed: number;
+  };
+  artifact_verification: {
+    builds_verified: number;
+    builds_total: number;
+    verification_errors: number;
+  };
+  stability: {
+    crashes_24h: number;
+    reconnects_24h: number;
+    recoveries_24h: number;
+    uptime_pct: number;
+  };
 };
 
 /// DCC-type → icon URL (local SVGs, bundled by Vite + vite-plugin-singlefile).
