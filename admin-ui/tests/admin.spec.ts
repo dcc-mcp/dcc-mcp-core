@@ -1435,6 +1435,123 @@ async function mockAdminApi(page: Page) {
           ],
         };
       }
+    } else if (path === '/sessions') {
+      const sessionRows = [
+        {
+          session_id: 'sess-root-0001',
+          parent_session_id: null,
+          status: 'active',
+          dcc_type: 'maya',
+          instance_id: 'maya-inst-1',
+          agent_id: 'agent-1',
+          agent_name: 'Layout Agent',
+          agent_model: 'claude-sonnet-5',
+          started_at: '2026-05-18T07:00:00.000Z',
+          ended_at: null,
+          duration_ms: null,
+          turn_count: 12,
+          tool_call_count: 34,
+          end_reason: null,
+          version: '0.17.7',
+          actor_id: 'actor-1',
+          actor_name: 'alice',
+          correlation: { request_id: 'req-root-1', trace_id: 'trace-root-1', workflow_id: null },
+        },
+        {
+          session_id: 'sess-child-0002',
+          parent_session_id: 'sess-root-0001',
+          status: 'ended',
+          dcc_type: 'maya',
+          instance_id: 'maya-inst-1',
+          agent_id: 'agent-2',
+          agent_name: 'Rig Agent',
+          agent_model: 'claude-sonnet-5',
+          started_at: '2026-05-18T07:05:00.000Z',
+          ended_at: '2026-05-18T07:20:00.000Z',
+          duration_ms: 900000,
+          turn_count: 5,
+          tool_call_count: 9,
+          end_reason: 'completed',
+          version: '0.17.7',
+          actor_id: 'actor-1',
+          actor_name: 'alice',
+          correlation: { request_id: 'req-child-2', trace_id: 'trace-root-1', workflow_id: 'wf-1' },
+        },
+        {
+          session_id: 'sess-crash-0003',
+          parent_session_id: null,
+          status: 'crashed',
+          dcc_type: 'houdini',
+          instance_id: 'houdini-inst-1',
+          agent_id: 'agent-3',
+          agent_name: 'Sim Agent',
+          agent_model: 'claude-sonnet-5',
+          started_at: '2026-05-18T06:30:00.000Z',
+          ended_at: '2026-05-18T06:45:00.000Z',
+          duration_ms: 900000,
+          turn_count: 3,
+          tool_call_count: 4,
+          end_reason: 'crash',
+          version: '0.17.6',
+          actor_id: 'actor-2',
+          actor_name: 'bob',
+          correlation: { request_id: 'req-crash-3', trace_id: null, workflow_id: null },
+        },
+      ];
+
+      let filteredSessions = sessionRows;
+      const dccTypeFilter = url.searchParams.get('dcc_type');
+      const statusFilter = url.searchParams.get('status');
+      const searchFilter = url.searchParams.get('search');
+      if (dccTypeFilter) filteredSessions = filteredSessions.filter((row) => row.dcc_type === dccTypeFilter);
+      if (statusFilter) filteredSessions = filteredSessions.filter((row) => row.status === statusFilter);
+      if (searchFilter) {
+        const needle = searchFilter.toLowerCase();
+        filteredSessions = filteredSessions.filter((row) =>
+          row.session_id.toLowerCase().includes(needle)
+          || (row.agent_name ?? '').toLowerCase().includes(needle)
+          || (row.actor_name ?? '').toLowerCase().includes(needle));
+      }
+
+      body = {
+        sessions: filteredSessions,
+        kpi: {
+          total: sessionRows.length,
+          active: sessionRows.filter((row) => row.status === 'active').length,
+          ended: sessionRows.filter((row) => row.status === 'ended').length,
+          crashed: sessionRows.filter((row) => row.status === 'crashed').length,
+          by_dcc: { maya: 2, houdini: 1 },
+        },
+        total: sessionRows.length,
+      };
+    } else if (path === '/reliability') {
+      body = {
+        health: {
+          status: 'ok',
+          uptime_secs: 86400,
+          leader: { name: 'gateway-primary', host: '127.0.0.1', port: 9765, version: '0.17.7' },
+          candidates: 2,
+          limits: {
+            body_max_bytes: 10485760,
+            rate_limit_per_minute_per_ip: 600,
+            circuit_failure_threshold: 5,
+            circuit_open_secs: 30,
+          },
+        },
+        circuits: [
+          { backend: 'maya-adapter', state: 'closed', failures: 0, last_failure: null, last_success: '2026-05-18T07:59:00.000Z' },
+          { backend: 'houdini-adapter', state: 'open', failures: 7, last_failure: '2026-05-18T07:55:00.000Z', last_success: '2026-05-18T06:00:00.000Z' },
+        ],
+        funnel: { instances: 12, skills: 40, tools: 180, resources: 60 },
+        stability_24h: {
+          crashes: 0,
+          reconnects: 3,
+          recoveries: 3,
+          success_rate_pct: 99.8,
+          avg_latency_ms: 120,
+          p95_latency_ms: 340,
+        },
+      };
     } else {
       status = 404;
       body = { error: `Unhandled test route: ${method} ${path}` };
@@ -2984,5 +3101,127 @@ test.describe('Admin Page', () => {
       // Should see field-level error for invalid DSN
       await expect(page.locator('.integration-field-error')).toContainText(/Invalid DSN|error/i, { timeout: 5000 });
     });
+  });
+});
+
+test.describe('Sessions and Reliability panels', () => {
+  test('sessions panel renders KPIs, tree, and status badges', async ({ page }) => {
+    await page.goto('/admin/');
+    await page.getByRole('navigation').getByRole('link', { name: 'Sessions' }).click();
+
+    const panel = page.locator('section.sessions-panel');
+    await expect(panel).toBeVisible();
+
+    const kpiTiles = panel.locator('.sessions-kpi-row .metric-tile');
+    await expect(kpiTiles).toHaveCount(4);
+    await expect(kpiTiles.nth(0).locator('.metric-value')).toHaveText('3');
+    await expect(kpiTiles.nth(1).locator('.metric-value')).toHaveText('1');
+    await expect(kpiTiles.nth(2).locator('.metric-value')).toHaveText('1');
+    await expect(kpiTiles.nth(3).locator('.metric-value')).toHaveText('1');
+
+    const rows = panel.locator('table.sessions-table tbody tr.sessions-row');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0).locator('.badge')).toHaveClass(/badge-ok/);
+    await expect(rows.nth(0).locator('.badge')).toHaveText('Active');
+    await expect(rows.nth(1).locator('.badge')).toHaveClass(/badge-muted/);
+    await expect(rows.nth(1).locator('.badge')).toHaveText('Ended');
+    await expect(rows.nth(2).locator('.badge')).toHaveClass(/badge-err/);
+    await expect(rows.nth(2).locator('.badge')).toHaveText('Crashed');
+
+    // Root row has a tree toggle (has children); child row is visible by default.
+    const rootRow = rows.nth(0);
+    const treeToggle = rootRow.locator('.sessions-tree-btn');
+    await expect(treeToggle).toBeVisible();
+    await expect(panel.locator('table.sessions-table tbody tr.sessions-row')).toHaveCount(3);
+    await treeToggle.click();
+    await expect(panel.locator('table.sessions-table tbody tr.sessions-row')).toHaveCount(2);
+    await treeToggle.click();
+    await expect(panel.locator('table.sessions-table tbody tr.sessions-row')).toHaveCount(3);
+
+    // Detail toggle reveals parent info / version / end reason for the child row.
+    const childRow = panel.locator('table.sessions-table tbody tr.sessions-row').nth(1);
+    await expect(panel.locator('tr.sessions-detail-row')).toHaveCount(0);
+    await childRow.locator('.sessions-detail-btn').click();
+    const detailRow = panel.locator('tr.sessions-detail-row');
+    await expect(detailRow).toHaveCount(1);
+    await expect(detailRow).toContainText('Version');
+    await expect(detailRow).toContainText('0.17.7');
+    await expect(detailRow).toContainText('End Reason');
+    await expect(detailRow).toContainText('completed');
+  });
+
+  test('sessions panel filters by search text', async ({ page }) => {
+    await page.goto('/admin/');
+    await page.getByRole('navigation').getByRole('link', { name: 'Sessions' }).click();
+
+    const panel = page.locator('section.sessions-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('table.sessions-table tbody tr.sessions-row')).toHaveCount(3);
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().includes('/admin/api/sessions') && req.url().includes('search=')),
+      panel.locator('.sessions-search-input').fill('bob'),
+    ]);
+    expect(request.url()).toContain('search=bob');
+
+    // The mock server honors the search filter, so only the crashed session (actor bob) remains.
+    await expect(panel.locator('table.sessions-table tbody tr.sessions-row')).toHaveCount(1);
+    await expect(panel.locator('table.sessions-table tbody tr.sessions-row').first().locator('.badge')).toHaveText('Crashed');
+  });
+
+  test('reliability panel renders health, circuits, funnel, and stability sections', async ({ page }) => {
+    await page.goto('/admin/');
+    await page.getByRole('navigation').getByRole('link', { name: 'Reliability' }).click();
+
+    const panel = page.locator('section.reliability-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('gateway-primary · 127.0.0.1:9765 · v0.17.7');
+
+    const circuitCards = panel.locator('.reliability-circuit-card');
+    await expect(circuitCards).toHaveCount(2);
+    await expect(circuitCards.nth(0)).toHaveClass(/\bok\b/);
+    await expect(circuitCards.nth(0)).toContainText('maya-adapter');
+    await expect(circuitCards.nth(0).locator('.badge')).toHaveClass(/badge-ok/);
+    await expect(circuitCards.nth(1)).toHaveClass(/\berr\b/);
+    await expect(circuitCards.nth(1)).toContainText('houdini-adapter');
+    await expect(circuitCards.nth(1).locator('.badge')).toHaveClass(/badge-err/);
+
+    const funnelValues = panel.locator('.reliability-funnel-value');
+    await expect(funnelValues).toHaveCount(4);
+    await expect(funnelValues.nth(0)).toHaveText('12');
+    await expect(funnelValues.nth(1)).toHaveText('40');
+    await expect(funnelValues.nth(2)).toHaveText('180');
+    await expect(funnelValues.nth(3)).toHaveText('60');
+
+    const stabilityTiles = panel.locator('.reliability-section').last().locator('.metric-tile');
+    await expect(stabilityTiles.nth(0).locator('.metric-value')).toHaveText('0');
+    await expect(stabilityTiles.nth(3).locator('.metric-value')).toHaveText('99.8%');
+  });
+
+  test('switching between panels produces no console or page errors', async ({ page }) => {
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    await page.goto('/admin/');
+    await expect(page.locator('.setup-panel')).toBeVisible();
+
+    await page.getByRole('navigation').getByRole('link', { name: 'Sessions' }).click();
+    await expect(page.locator('section.sessions-panel')).toBeVisible();
+
+    await page.getByRole('navigation').getByRole('link', { name: 'Reliability' }).click();
+    await expect(page.locator('section.reliability-panel')).toBeVisible();
+
+    await page.getByRole('navigation').getByRole('link', { name: 'Command Center' }).click();
+    await expect(page.locator('.setup-panel')).toBeVisible();
+
+    await page.getByRole('navigation').getByRole('link', { name: 'Sessions' }).click();
+    await expect(page.locator('section.sessions-panel')).toBeVisible();
+
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
   });
 });
