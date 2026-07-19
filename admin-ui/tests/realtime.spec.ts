@@ -1,10 +1,27 @@
 import { test, expect } from '@playwright/test';
 
+const now = Date.now();
+
 test.describe('Real-time infrastructure', () => {
   test('panels use polling when no SSE connection', async ({ page }) => {
-    // Mock all API endpoints
+    // Mock all API endpoints with proper sessions data
     await page.route('**/admin/api/**', async (route) => {
-      await route.fulfill({ status: 200, json: { status: 'ok' } });
+      const url = new URL(route.request().url());
+      const path = url.pathname.replace(/^\/admin\/api/, '');
+      let body: unknown = {};
+
+      if (path === '/sessions') {
+        body = {
+          sessions: [],
+          total: 0,
+          active: 0,
+          ended: 0,
+          by_dcc: {},
+          by_status: {},
+        };
+      }
+
+      await route.fulfill({ status: 200, json: body });
     });
 
     // Mock SSE endpoint to fail (simulate unavailable)
