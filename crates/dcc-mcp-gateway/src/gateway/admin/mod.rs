@@ -79,6 +79,8 @@ mod agent_trace;
 #[cfg(feature = "admin")]
 pub mod analytics;
 #[cfg(feature = "admin")]
+pub mod artifacts;
+#[cfg(feature = "admin")]
 mod compact;
 #[cfg(feature = "admin")]
 mod debug_response;
@@ -101,7 +103,7 @@ pub mod marketplace;
 #[cfg(feature = "admin")]
 mod memory;
 #[cfg(feature = "admin")]
-mod sessions;
+pub mod sessions;
 #[cfg(feature = "admin")]
 mod skill_health;
 #[cfg(feature = "admin")]

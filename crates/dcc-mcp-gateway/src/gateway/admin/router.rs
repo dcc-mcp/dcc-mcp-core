@@ -7,6 +7,8 @@ use super::analytics::{
     handle_admin_analytics_export, handle_admin_analytics_heatmap, handle_admin_analytics_overview,
     handle_admin_analytics_timeseries,
 };
+use super::artifacts::handle_admin_artifacts;
+use super::events::handle_admin_events;
 use super::general::{
     handle_admin_activity, handle_admin_governance, handle_admin_traffic,
     handle_admin_traffic_export, handle_admin_ui,
@@ -28,7 +30,7 @@ use super::marketplace::{
     handle_marketplace_uninstall, handle_marketplace_update,
 };
 use super::memory::{handle_admin_memory, handle_admin_memory_forget};
-use super::sessions::handle_admin_sessions;
+use super::sessions::{handle_admin_session_detail, handle_admin_sessions};
 use super::skill_paths::{
     handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
 };
@@ -133,6 +135,13 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
+        .route("/api/sessions", routing::get(handle_admin_sessions))
+        .route(
+            "/api/sessions/{session_id}",
+            routing::get(handle_admin_session_detail),
+        )
+        .route("/api/events", routing::get(handle_admin_events))
+        .route("/api/artifacts", routing::get(handle_admin_artifacts))
         .route(
             "/api/integrations",
             routing::get(handle_admin_integrations).put(handle_admin_integration_update),
@@ -245,5 +254,12 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
             routing::get(handle_admin_integrations),
         )
         .route("/v1/debug/health", routing::get(handle_admin_health))
+        .route("/v1/debug/sessions", routing::get(handle_admin_sessions))
+        .route(
+            "/v1/debug/sessions/{session_id}",
+            routing::get(handle_admin_session_detail),
+        )
+        .route("/v1/debug/events", routing::get(handle_admin_events))
+        .route("/v1/debug/artifacts", routing::get(handle_admin_artifacts))
         .with_state(state)
 }
