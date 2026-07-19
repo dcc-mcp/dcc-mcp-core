@@ -16,6 +16,10 @@ These are **pure-Python** helpers that work independently of the MCP HTTP
 layer.  The corresponding MCP-level ``tools/batch`` and ``dcc_mcp_core__eval``
 built-in tools are planned for a future Rust release (see issue #406).
 
+batch_dispatch now records parent_request_id and batch_id for each
+sub-call so the observability system can trace the full session → request →
+batch child → tool/skill chain.
+
 Typical usage
 -------------
 ::
@@ -35,6 +39,7 @@ Typical usage
             ("get_render_stats", {"layer": "beauty"}),
         ],
         aggregate="merge",
+        parent_request_id="batch-req-42",
     )
 
     # Eval: script calls dispatcher, only stdout / return value comes back
@@ -53,6 +58,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
+import uuid
 
 from dcc_mcp_core import json_dumps
 
@@ -61,7 +67,19 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "EvalContext",
     "batch_dispatch",
+    "generate_batch_id",
 ]
+
+
+def generate_batch_id() -> str:
+    """Generate a unique batch group identifier.
+
+    Returns:
+        A short UUID string suitable for correlating all sub-calls
+        from a single ``call_batch`` invocation.
+
+    """
+    return str(uuid.uuid4())
 
 
 def batch_dispatch(
@@ -70,6 +88,8 @@ def batch_dispatch(
     *,
     aggregate: str = "list",
     stop_on_error: bool = False,
+    parent_request_id: str | None = None,
+    batch_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute a sequence of tool calls against a local ToolDispatcher.
 
@@ -80,6 +100,11 @@ def batch_dispatch(
     This is the Python-layer equivalent of the planned ``tools/batch`` MCP
     endpoint (issue #406).  The Rust-level MCP endpoint will call through this
     same logic once implemented.
+
+    Each sub-call is tagged with ``parent_request_id`` and
+    ``batch_id`` in the result metadata so the observability system can
+    reconstruct the full trace chain: session → request → batch child →
+    tool/skill.
 
     Args:
         dispatcher: A ``ToolDispatcher`` instance.  Must expose
@@ -95,6 +120,10 @@ def batch_dispatch(
         stop_on_error: When ``True``, abort the batch on the first tool call
             that returns ``success == False`` or raises an exception.
             Default ``False`` (collect all results).
+        parent_request_id: The request ID of the batch call itself.
+            Each sub-call's result will include this in its metadata.
+        batch_id: A unique identifier for this batch group. Auto-generated
+            if not provided.
 
     Returns:
         A dict with keys:
@@ -107,6 +136,8 @@ def batch_dispatch(
           that raised or returned a failure.
         - ``"total"`` — total number of calls attempted.
         - ``"succeeded"`` — number of calls that returned success.
+        - ``"batch_id"`` — the batch group identifier (always present).
+        - ``"parent_request_id"`` — the parent request ID (if provided).
 
     Example::
 
@@ -117,20 +148,45 @@ def batch_dispatch(
                 ("get_render_stats", {"layer": "beauty"}),
             ],
             aggregate="merge",
+            parent_request_id="batch-req-42",
         )
         print(results["merged"])  # combined output dict
+        print(results["batch_id"])  # unique batch group ID
 
     """
+    _batch_id = batch_id or generate_batch_id()
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     succeeded = 0
+    sub_results: list[dict[str, Any]] = []
 
     for idx, (tool_name, arguments) in enumerate(calls):
+        sub_request_id = f"{_batch_id}-{idx}"
         try:
             result = dispatcher.dispatch(tool_name, json_dumps(arguments))
+            # Attach batch attribution metadata
+            result["_batch"] = {
+                "parent_request_id": parent_request_id,
+                "batch_id": _batch_id,
+                "sub_request_id": sub_request_id,
+                "tool_name": tool_name,
+                "index": idx,
+            }
             results.append(result)
+            sub_results.append(
+                {
+                    "request_id": sub_request_id,
+                    "parent_request_id": parent_request_id,
+                    "batch_id": _batch_id,
+                    "tool_name": tool_name,
+                    "index": idx,
+                    "success": True,
+                }
+            )
             output = result.get("output", result)
             if isinstance(output, dict) and output.get("success") is False:
+                sub_results[-1]["success"] = False
+                sub_results[-1]["error"] = output.get("message", "unknown")
                 errors.append({"index": idx, "tool": tool_name, "error": output.get("message", "unknown")})
                 if stop_on_error:
                     logger.warning("batch_dispatch: stopping at index %d (tool=%s, stop_on_error=True)", idx, tool_name)
@@ -141,6 +197,17 @@ def batch_dispatch(
             err_info = {"index": idx, "tool": tool_name, "error": str(exc)}
             errors.append(err_info)
             results.append({"action": tool_name, "output": {"success": False, "message": str(exc)}})
+            sub_results.append(
+                {
+                    "request_id": sub_request_id,
+                    "parent_request_id": parent_request_id,
+                    "batch_id": _batch_id,
+                    "tool_name": tool_name,
+                    "index": idx,
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
             logger.warning("batch_dispatch: tool %r raised: %s", tool_name, exc)
             if stop_on_error:
                 break
@@ -149,7 +216,12 @@ def batch_dispatch(
         "total": len(calls),
         "succeeded": succeeded,
         "errors": errors,
+        "batch_id": _batch_id,
+        "sub_results": sub_results,
     }
+
+    if parent_request_id:
+        summary["parent_request_id"] = parent_request_id
 
     if aggregate == "list":
         summary["results"] = results
@@ -193,6 +265,8 @@ class EvalContext:
         sandbox: Restrict ``__builtins__`` to a safe subset.  Default ``True``.
         timeout_secs: Maximum wall-clock time for script execution.
             ``None`` means no limit.  Default ``30``.
+        parent_request_id: Optional parent request ID for batch attribution.
+        batch_id: Optional batch group identifier. Auto-generated if not set.
 
     Example::
 
@@ -232,10 +306,15 @@ class EvalContext:
         *,
         sandbox: bool = True,
         timeout_secs: int | None = 30,
+        parent_request_id: str | None = None,
+        batch_id: str | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._sandbox = sandbox
         self._timeout_secs = timeout_secs
+        self._parent_request_id = parent_request_id
+        self._batch_id = batch_id or generate_batch_id()
+        self._call_index = 0
 
     def _make_builtins(self) -> dict[str, Any]:
         import builtins
@@ -247,12 +326,36 @@ class EvalContext:
         return safe
 
     def _dispatch_fn(self, tool_name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Dispatch a single tool call from within an eval script."""
+        """Dispatch a single tool call from within an eval script.
+
+        Attaches batch attribution metadata to each sub-call result.
+        """
         args = arguments or {}
+        sub_request_id = f"{self._batch_id}-{self._call_index}"
+        self._call_index += 1
         try:
-            return self._dispatcher.dispatch(tool_name, json_dumps(args))
+            result = self._dispatcher.dispatch(tool_name, json_dumps(args))
+            result["_batch"] = {
+                "parent_request_id": self._parent_request_id,
+                "batch_id": self._batch_id,
+                "sub_request_id": sub_request_id,
+                "tool_name": tool_name,
+                "index": self._call_index - 1,
+            }
+            return result
         except Exception as exc:
-            return {"action": tool_name, "output": {"success": False, "message": str(exc)}}
+            return {
+                "action": tool_name,
+                "output": {"success": False, "message": str(exc)},
+                "_batch": {
+                    "parent_request_id": self._parent_request_id,
+                    "batch_id": self._batch_id,
+                    "sub_request_id": sub_request_id,
+                    "tool_name": tool_name,
+                    "index": self._call_index - 1,
+                    "error": str(exc),
+                },
+            }
 
     def run(self, script: str) -> Any:
         """Execute a Python script string and return its result.

@@ -13,6 +13,7 @@ default = []
 gateway-admin-sqlite = ["dep:rusqlite", "dep:tracing"]
 
 [dependencies]
+dcc-mcp-models.workspace = true
 dcc-mcp-paths.workspace = true
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -183,6 +183,7 @@ def search_assets(query: str, limit: int = 10) -> dict:
 
     Returns:
         ActionResultModel dict with matched descriptors.
+
     """
     query = query.strip()
     if not query:
