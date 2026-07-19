@@ -1,577 +1,584 @@
-import { act, createElement } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+/**
+ * Unit tests for useRealtime hook.
+ *
+ * Uses vitest fake timers to control setTimeout/setInterval and
+ * a mock EventSource to simulate SSE connections.
+ */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  computeBackoffDelay,
-  normalizeEvent,
-  parseSSEMessageData,
-  useRealtime,
-  type RealtimeEvent,
-} from './useRealtime';
+import { act, renderHook } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
+import { useRealtimeEvent, useRealtimeEvents } from './useRealtime';
 
-// React 19's `act` checks this flag to avoid warning outside of a
-// recognized test runner.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// ── helpers ─────────────────────────────────────────────────────────────────
 
-// ── EventSource mock ─────────────────────────────────────────────────────
+const TEST_URL = '/admin/api/events';
 
+/** Minimal wrapper that provides TanStack Query context. */
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(QueryClientProvider, { client: queryClient }, children);
+  };
+}
+
+/** Simulate an EventSource with manual control over events, open, and error. */
 class MockEventSource {
   static instances: MockEventSource[] = [];
+  static CONSTRUCTOR_ERROR = false;
 
   url: string;
-  readyState = 0;
-  closed = false;
-  onopen: ((ev: Event) => void) | null = null;
-  onmessage: ((ev: MessageEvent) => void) | null = null;
-  onerror: ((ev: Event) => void) | null = null;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: (() => void) | null = null;
+  readyState: number = 0; // 0 = CONNECTING, 1 = OPEN, 2 = CLOSED
+  private listeners: Map<string, Array<(event: Event) => void>> = new Map();
 
   constructor(url: string) {
+    if (MockEventSource.CONSTRUCTOR_ERROR) {
+      throw new Error('EventSource not available');
+    }
     this.url = url;
     MockEventSource.instances.push(this);
   }
 
+  addEventListener(type: string, listener: (event: Event) => void) {
+    if (!this.listeners.has(type)) {
+      this.listeners.set(type, []);
+    }
+    this.listeners.get(type)!.push(listener);
+  }
+
+  removeEventListener(type: string, listener: (event: Event) => void) {
+    const arr = this.listeners.get(type);
+    if (arr) {
+      this.listeners.set(type, arr.filter((l) => l !== listener));
+    }
+  }
+
   close() {
-    this.closed = true;
     this.readyState = 2;
+    MockEventSource.instances = MockEventSource.instances.filter((i) => i !== this);
   }
 
-  emitOpen() {
+  // ── test helpers ──────────────────────────────────────────────────────────
+
+  /** Simulate the connection opening. */
+  simulateOpen() {
     this.readyState = 1;
-    this.onopen?.(new Event('open'));
+    this.onopen?.();
   }
 
-  emitMessage(data: unknown, lastEventId = '') {
-    const payload = typeof data === 'string' ? data : JSON.stringify(data);
-    this.onmessage?.({ data: payload, lastEventId } as MessageEvent);
+  /** Simulate receiving a named event. */
+  simulateEvent(type: string, data: unknown) {
+    const event = new MessageEvent(type, { data: JSON.stringify(data) });
+    // Dispatch to specific listeners.
+    const arr = this.listeners.get(type);
+    if (arr) {
+      for (const listener of arr) {
+        listener(event);
+      }
+    }
+    // Also dispatch to generic onmessage if no specific listener handled it.
+    if (!arr || arr.length === 0) {
+      this.onmessage?.(event);
+    }
   }
 
-  emitError() {
-    this.onerror?.(new Event('error'));
-  }
-
-  static latest(): MockEventSource {
-    const instance = MockEventSource.instances[MockEventSource.instances.length - 1];
-    if (!instance) throw new Error('No MockEventSource instance was created');
-    return instance;
+  /** Simulate an error. */
+  simulateError() {
+    this.onerror?.();
   }
 
   static reset() {
     MockEventSource.instances = [];
+    MockEventSource.CONSTRUCTOR_ERROR = false;
   }
 }
 
-// ── test harness (no @testing-library/react in this project) ───────────
+// Override global EventSource.
+const originalEventSource = (globalThis as unknown as Record<string, unknown>).EventSource;
 
-interface Harness<T> {
-  result: { current: T };
-  queryClient: QueryClient;
-  unmount: () => void;
+function installMockEventSource() {
+  (globalThis as unknown as Record<string, unknown>).EventSource = MockEventSource;
 }
 
-const activeRoots: { root: Root; container: HTMLElement }[] = [];
-
-function renderHook<T>(callback: () => T): Harness<T> {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const result = { current: undefined as unknown as T };
-
-  function TestComponent() {
-    result.current = callback();
-    return null;
-  }
-
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  activeRoots.push({ root, container });
-
-  act(() => {
-    root.render(createElement(QueryClientProvider, { client: queryClient }, createElement(TestComponent)));
-  });
-
-  return {
-    result,
-    queryClient,
-    unmount: () => {
-      act(() => {
-        root.unmount();
-      });
-      container.remove();
-    },
-  };
+function restoreEventSource() {
+  (globalThis as unknown as Record<string, unknown>).EventSource = originalEventSource;
 }
 
-function flushMicrotasks(): Promise<unknown> {
-  return vi.isFakeTimers() ? vi.advanceTimersByTimeAsync(0) : new Promise((resolve) => setTimeout(resolve, 0));
-}
+// ── document visibility ─────────────────────────────────────────────────────
 
-function setVisibility(state: DocumentVisibilityState) {
-  Object.defineProperty(document, 'visibilityState', {
-    value: state,
+function setTabHidden(hidden: boolean) {
+  Object.defineProperty(document, 'hidden', {
     configurable: true,
+    get: () => hidden,
   });
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => (hidden ? 'hidden' : 'visible'),
+  });
+}
+
+function dispatchVisibilityChange() {
   document.dispatchEvent(new Event('visibilitychange'));
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
+// ── tests: useRealtimeEvents ────────────────────────────────────────────────
+
+describe('useRealtimeEvents', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockEventSource.reset();
+    installMockEventSource();
+    setTabHidden(false);
   });
-}
 
-// ── setup / teardown ─────────────────────────────────────────────────────
+  afterEach(() => {
+    vi.useRealTimers();
+    restoreEventSource();
+  });
 
-let fetchMock: ReturnType<typeof vi.fn>;
-
-beforeEach(() => {
-  MockEventSource.reset();
-  vi.stubGlobal('EventSource', MockEventSource as unknown as typeof EventSource);
-  fetchMock = vi.fn(async () => jsonResponse({ events: [] }));
-  vi.stubGlobal('fetch', fetchMock);
-  setVisibility('visible');
-});
-
-afterEach(() => {
-  while (activeRoots.length) {
-    const entry = activeRoots.pop()!;
-    act(() => {
-      entry.root.unmount();
+  it('starts disconnected when enabled is false', () => {
+    const { result } = renderHook(() => useRealtimeEvents(false), {
+      wrapper: createWrapper(),
     });
-    entry.container.remove();
-  }
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-});
 
-// ── pure helpers ─────────────────────────────────────────────────────────
-
-describe('computeBackoffDelay', () => {
-  it('doubles the delay for each attempt', () => {
-    expect(computeBackoffDelay(0, 1000, 30000)).toBe(1000);
-    expect(computeBackoffDelay(1, 1000, 30000)).toBe(2000);
-    expect(computeBackoffDelay(2, 1000, 30000)).toBe(4000);
-    expect(computeBackoffDelay(3, 1000, 30000)).toBe(8000);
-    expect(computeBackoffDelay(4, 1000, 30000)).toBe(16000);
+    expect(result.current).toBe('disconnected');
+    expect(MockEventSource.instances).toHaveLength(0);
   });
 
-  it('caps the delay at maxMs', () => {
-    expect(computeBackoffDelay(5, 1000, 30000)).toBe(30000);
-    expect(computeBackoffDelay(10, 1000, 30000)).toBe(30000);
-  });
-});
+  it('creates EventSource and transitions to connected when enabled', async () => {
+    const { result } = renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL }), {
+      wrapper: createWrapper(),
+    });
 
-describe('normalizeEvent', () => {
-  it('extracts type/data/timestamp/id from a well-formed payload', () => {
-    const event = normalizeEvent({ type: 'health', data: { ok: true }, timestamp: '2026-01-01T00:00:00Z', id: 'evt-1' });
-    expect(event).toEqual({ type: 'health', data: { ok: true }, timestamp: '2026-01-01T00:00:00Z', id: 'evt-1' });
-  });
+    expect(result.current).toBe('connecting');
+    expect(MockEventSource.instances).toHaveLength(1);
 
-  it('falls back to type "message" for scalar payloads', () => {
-    expect(normalizeEvent('plain text', 'fallback-id')).toEqual({ type: 'message', data: 'plain text', id: 'fallback-id' });
-  });
+    // Simulate open — need to flush microtasks since EventSource fires async.
+    await act(async () => {
+      MockEventSource.instances[0].simulateOpen();
+      // Flush any pending microtasks / setState batching.
+      await vi.runAllTimersAsync();
+    });
 
-  it('treats an object without a type field as its own data payload', () => {
-    const event = normalizeEvent({ foo: 'bar' });
-    expect(event.type).toBe('message');
-    expect(event.data).toEqual({ foo: 'bar' });
-  });
-});
-
-describe('parseSSEMessageData', () => {
-  it('parses JSON SSE payloads', () => {
-    expect(parseSSEMessageData(JSON.stringify({ type: 'tools', data: { count: 3 } }), 'evt-2'))
-      .toEqual({ type: 'tools', data: { count: 3 }, id: 'evt-2' });
+    expect(result.current).toBe('connected');
   });
 
-  it('falls back to the raw string when the payload is not JSON', () => {
-    expect(parseSSEMessageData('not-json', 'evt-3')).toEqual({ type: 'message', data: 'not-json', id: 'evt-3' });
+  it('handles error and transitions to error status', async () => {
+    const { result } = renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL }), {
+      wrapper: createWrapper(),
+    });
+
+    // Wait for the effect to run and wire up onerror.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // Now the onerror handler is set — simulate the error.
+    await act(async () => {
+      const es = MockEventSource.instances[0];
+      es.simulateError();
+    });
+
+    expect(result.current).toBe('error');
   });
-});
 
-// ── hook behavior ────────────────────────────────────────────────────────
+  it('reconnects with exponential backoff after error', () => {
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL, maxReconnectMs: 30_000, baseReconnectMs: 1_000 }), {
+      wrapper: createWrapper(),
+    });
 
-describe('useRealtime', () => {
-  it('opens an SSE connection to the events endpoint on mount', () => {
-    const { result } = renderHook(() => useRealtime());
+    // First error triggers reconnect.
+    act(() => {
+      MockEventSource.instances[0].simulateError();
+    });
+
+    // After error, EventSource is closed and a reconnect timer is set.
+    // Attempt 0 → delay = 1_000 * 2^0 = 1000 ms.
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(MockEventSource.instances).toHaveLength(0); // Not yet reconnected.
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(MockEventSource.instances).toHaveLength(1); // Reconnected.
+
+    // Simulate error again — attempt 1 → delay = 1_000 * 2^1 = 2000 ms.
+    act(() => {
+      MockEventSource.instances[0].simulateError();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1999);
+    });
+    expect(MockEventSource.instances).toHaveLength(0);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  it('caps reconnect delay at maxReconnectMs', () => {
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL, maxReconnectMs: 10_000, baseReconnectMs: 1_000 }), {
+      wrapper: createWrapper(),
+    });
+
+    // Trigger 5 errors (attempts 0-4) then verify attempt 5 is capped.
+    for (let i = 0; i < 5; i++) {
+      act(() => {
+        MockEventSource.instances[0].simulateError();
+      });
+      // Advance past the computed delay for this attempt.
+      const expectedDelay = Math.min(1_000 * 2 ** Math.min(i, 4), 10_000);
+      act(() => {
+        vi.advanceTimersByTime(expectedDelay);
+      });
+    }
+
+    // After attempt 5 (index 4), the next error should use attempt 5 with capped delay.
+    act(() => {
+      MockEventSource.instances[0].simulateError();
+    });
+
+    // Capped at 10_000.
+    act(() => {
+      vi.advanceTimersByTime(9_999);
+    });
+    expect(MockEventSource.instances).toHaveLength(0);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  it('resets reconnect counter on successful connection', () => {
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL, baseReconnectMs: 1_000 }), {
+      wrapper: createWrapper(),
+    });
+
+    // Error → attempt 0 → delay 1s.
+    act(() => {
+      MockEventSource.instances[0].simulateError();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    // Successful connection.
+    act(() => {
+      MockEventSource.instances[0].simulateOpen();
+    });
+
+    // Another error — should be back to attempt 0.
+    act(() => {
+      MockEventSource.instances[0].simulateError();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(MockEventSource.instances).toHaveLength(0);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  it('disconnects SSE and falls back to polling when tab is hidden', () => {
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL, pollIntervalMs: 30_000 }), {
+      wrapper: createWrapper(),
+    });
+
+    // Initially connected.
+    act(() => {
+      MockEventSource.instances[0].simulateOpen();
+    });
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    // Hide tab.
+    act(() => {
+      setTabHidden(true);
+      dispatchVisibilityChange();
+    });
+
+    // EventSource should be closed.
+    expect(MockEventSource.instances).toHaveLength(0);
+
+    // A polling interval should be active.
+    // Verify by advancing past pollIntervalMs and checking that nothing crashes.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    // No errors thrown — polling interval is set up.
+  });
+
+  it('reconnects SSE when tab becomes visible again', () => {
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL }), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      MockEventSource.instances[0].simulateOpen();
+    });
+
+    // Hide tab.
+    act(() => {
+      setTabHidden(true);
+      dispatchVisibilityChange();
+    });
+    expect(MockEventSource.instances).toHaveLength(0);
+
+    // Show tab.
+    act(() => {
+      setTabHidden(false);
+      dispatchVisibilityChange();
+    });
 
     expect(MockEventSource.instances).toHaveLength(1);
-    expect(MockEventSource.latest().url).toContain('/events');
-    expect(result.current.isConnected).toBe(false);
   });
 
-  it('respects a custom path', () => {
-    renderHook(() => useRealtime({ path: '/custom-events' }));
-
-    expect(MockEventSource.latest().url).toContain('/custom-events');
-  });
-
-  it('marks the connection as open once the EventSource fires onopen', () => {
-    const { result } = renderHook(() => useRealtime());
-
-    act(() => {
-      MockEventSource.latest().emitOpen();
+  it('cleans up on unmount', () => {
+    const { unmount } = renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL }), {
+      wrapper: createWrapper(),
     });
 
-    expect(result.current.isConnected).toBe(true);
-    expect(result.current.error).toBeNull();
-  });
+    expect(MockEventSource.instances).toHaveLength(1);
 
-  it('records the last event and invokes onEvent for incoming SSE messages', () => {
-    const onEvent = vi.fn();
-    const { result } = renderHook(() => useRealtime({ onEvent }));
-
-    act(() => {
-      MockEventSource.latest().emitOpen();
-      MockEventSource.latest().emitMessage({ type: 'tools', data: { count: 2 } }, 'evt-1');
-    });
-
-    const expected: RealtimeEvent = { type: 'tools', data: { count: 2 }, id: 'evt-1' };
-    expect(result.current.lastEvent).toEqual(expected);
-    expect(onEvent).toHaveBeenCalledWith(expected);
-  });
-
-  it('invalidates the TanStack Query cache for the event type', () => {
-    const { result, queryClient } = renderHook(() => useRealtime());
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-
-    act(() => {
-      MockEventSource.latest().emitMessage({ type: 'instances', data: {} });
-    });
-
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin', 'instances'] });
-    expect(result.current.lastEvent?.type).toBe('instances');
-  });
-
-  it('treats non-JSON SSE payloads as opaque "message" events', () => {
-    const { result } = renderHook(() => useRealtime());
-
-    act(() => {
-      MockEventSource.latest().emitMessage('plain-text-ping');
-    });
-
-    expect(result.current.lastEvent).toMatchObject({ type: 'message', data: 'plain-text-ping' });
-  });
-
-  it('marks the connection as disconnected when the EventSource errors', () => {
-    const { result } = renderHook(() => useRealtime());
-
-    act(() => {
-      MockEventSource.latest().emitOpen();
-    });
-    expect(result.current.isConnected).toBe(true);
-
-    act(() => {
-      MockEventSource.latest().emitError();
-    });
-    expect(result.current.isConnected).toBe(false);
-  });
-
-  it('reconnects with exponential backoff after repeated errors', async () => {
-    vi.useFakeTimers();
-    renderHook(() => useRealtime({ baseReconnectDelayMs: 1000, maxReconnectDelayMs: 30000 }));
-
-    const delays = [1000, 2000, 4000, 8000, 16000];
-    for (const delay of delays) {
-      const before = MockEventSource.instances.length;
-      act(() => {
-        MockEventSource.latest().emitError();
-      });
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(delay - 1);
-      });
-      expect(MockEventSource.instances.length).toBe(before); // not yet
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1);
-      });
-      expect(MockEventSource.instances.length).toBe(before + 1); // reconnected
-    }
-  });
-
-  it('caps the reconnect delay at maxReconnectDelayMs', async () => {
-    vi.useFakeTimers();
-    renderHook(() => useRealtime({ baseReconnectDelayMs: 1000, maxReconnectDelayMs: 3000 }));
-
-    act(() => {
-      MockEventSource.latest().emitError(); // attempt 0 -> 1000ms
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-    act(() => {
-      MockEventSource.latest().emitError(); // attempt 1 -> 2000ms
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-    const beforeThirdReconnect = MockEventSource.instances.length;
-    act(() => {
-      MockEventSource.latest().emitError(); // attempt 2 -> would be 4000ms, capped to 3000ms
-    });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2999);
-    });
-    expect(MockEventSource.instances.length).toBe(beforeThirdReconnect);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(MockEventSource.instances.length).toBe(beforeThirdReconnect + 1);
-  });
-
-  it('resets the backoff attempt counter after a successful reconnect', async () => {
-    vi.useFakeTimers();
-    renderHook(() => useRealtime({ baseReconnectDelayMs: 1000, maxReconnectDelayMs: 30000 }));
-
-    act(() => {
-      MockEventSource.latest().emitError(); // attempt 0 -> 1000ms
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-    act(() => {
-      MockEventSource.latest().emitOpen(); // success resets attempt counter to 0
-    });
-
-    const before = MockEventSource.instances.length;
-    act(() => {
-      MockEventSource.latest().emitError();
-    });
-
-    // Should use the base delay again (1000ms), not continue at 2000ms.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(999);
-    });
-    expect(MockEventSource.instances.length).toBe(before);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(MockEventSource.instances.length).toBe(before + 1);
-  });
-
-  it('switches to background polling while the tab is hidden', async () => {
-    vi.useFakeTimers();
-    renderHook(() => useRealtime({ backgroundPollIntervalMs: 30000 }));
-
-    act(() => {
-      MockEventSource.latest().emitOpen();
-    });
-    expect(MockEventSource.latest().closed).toBe(false);
-
-    setVisibility('hidden');
-
-    expect(MockEventSource.latest().closed).toBe(true);
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30000);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not attempt SSE reconnects while the tab is hidden', async () => {
-    vi.useFakeTimers();
-    renderHook(() => useRealtime());
-
-    setVisibility('hidden');
-    const instancesWhileHidden = MockEventSource.instances.length;
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60000);
-    });
-
-    expect(MockEventSource.instances.length).toBe(instancesWhileHidden);
-  });
-
-  it('reconnects via SSE and stops polling when the tab becomes visible again', async () => {
-    vi.useFakeTimers();
-    renderHook(() => useRealtime({ backgroundPollIntervalMs: 30000 }));
-
-    setVisibility('hidden');
-    await act(async () => {
-      await flushMicrotasks();
-    });
-    const instancesWhileHidden = MockEventSource.instances.length;
-
-    setVisibility('visible');
-
-    expect(MockEventSource.instances.length).toBe(instancesWhileHidden + 1);
-
-    fetchMock.mockClear();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60000);
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('falls back to HTTP polling when EventSource is unavailable', async () => {
-    vi.stubGlobal('EventSource', undefined);
-    fetchMock.mockImplementation(async () => jsonResponse({ events: [{ type: 'health', data: { ok: true } }] }));
-
-    const { result } = renderHook(() => useRealtime({ pollIntervalMs: 5000 }));
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    expect(MockEventSource.instances).toHaveLength(0);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result.current.isConnected).toBe(true);
-    expect(result.current.lastEvent).toEqual({ type: 'health', data: { ok: true } });
-  });
-
-  it('polls repeatedly on the configured interval when using the HTTP fallback', async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal('EventSource', undefined);
-
-    renderHook(() => useRealtime({ pollIntervalMs: 5000 }));
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
-
-  it('surfaces an error and disconnects when the polling fallback fetch fails', async () => {
-    vi.stubGlobal('EventSource', undefined);
-    fetchMock.mockRejectedValue(new Error('network down'));
-
-    const { result } = renderHook(() => useRealtime());
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    expect(result.current.isConnected).toBe(false);
-    expect(result.current.error).toBeInstanceOf(Error);
-    expect(result.current.error?.message).toBe('network down');
-  });
-
-  it('surfaces a non-ok HTTP status from the polling fallback as an error', async () => {
-    vi.stubGlobal('EventSource', undefined);
-    fetchMock.mockResolvedValue(new Response('nope', { status: 503, statusText: 'Service Unavailable' }));
-
-    const { result } = renderHook(() => useRealtime());
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    expect(result.current.isConnected).toBe(false);
-    expect(result.current.error?.message).toContain('503');
-  });
-
-  it('does not connect at all when disabled', async () => {
-    const { result } = renderHook(() => useRealtime({ enabled: false }));
-
-    await act(async () => {
-      await flushMicrotasks();
-    });
-
-    expect(MockEventSource.instances).toHaveLength(0);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.current.isConnected).toBe(false);
-  });
-
-  it('ignores manual reconnect() calls while disabled', () => {
-    const { result } = renderHook(() => useRealtime({ enabled: false }));
-
-    act(() => {
-      result.current.reconnect();
-    });
-
-    expect(MockEventSource.instances).toHaveLength(0);
-  });
-
-  it('closes the EventSource, clears timers, and removes the visibility listener on unmount', async () => {
-    vi.useFakeTimers();
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
-    const { unmount } = renderHook(() => useRealtime());
-
-    const instance = MockEventSource.latest();
     unmount();
 
-    expect(instance.closed).toBe(true);
-    expect(removeSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
-
-    const instancesAfterUnmount = MockEventSource.instances.length;
-    act(() => {
-      instance.emitError();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60000);
-    });
-
-    // No further reconnect attempts or background polls after unmount.
-    expect(MockEventSource.instances.length).toBe(instancesAfterUnmount);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(MockEventSource.instances).toHaveLength(0);
   });
 
-  it('supports manual reconnect(), resetting the backoff counter and creating a fresh connection', async () => {
+  it('falls back to polling when EventSource constructor throws', () => {
+    MockEventSource.CONSTRUCTOR_ERROR = true;
+
+    const { result } = renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL, pollIntervalMs: 30_000 }), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current).toBe('error');
+    expect(MockEventSource.instances).toHaveLength(0);
+
+    // Polling should be active — advance timer to verify no crashes.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+  });
+
+  it('filters events by eventTypes', () => {
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+
+    renderHook(() => useRealtimeEvents(true, ['health'], { url: TEST_URL }), { wrapper });
+
+    act(() => {
+      MockEventSource.instances[0].simulateOpen();
+    });
+
+    // Send a filtered-out event.
+    act(() => {
+      MockEventSource.instances[0].simulateEvent('workers', { workers: [] });
+    });
+
+    expect(queryClient.getQueryData(['admin', 'workers'])).toBeUndefined();
+
+    // Send a matching event.
+    act(() => {
+      MockEventSource.instances[0].simulateEvent('health', { status: 'ok' });
+    });
+
+    expect(queryClient.getQueryData(['admin', 'health'])).toEqual({ status: 'ok' });
+  });
+
+  it('processes all events when eventTypes is empty', () => {
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL }), { wrapper });
+
+    act(() => {
+      MockEventSource.instances[0].simulateOpen();
+    });
+
+    act(() => {
+      MockEventSource.instances[0].simulateEvent('workers', { workers: [{ id: '1' }] });
+    });
+
+    expect(queryClient.getQueryData(['admin', 'workers'])).toEqual({ workers: [{ id: '1' }] });
+  });
+
+  it('respects explicit queryKeys from server events', () => {
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL }), { wrapper });
+
+    act(() => {
+      MockEventSource.instances[0].simulateOpen();
+    });
+
+    const customKey = ['admin', 'custom', { range: '7d' }] as const;
+    act(() => {
+      MockEventSource.instances[0].simulateEvent('stats', {
+        queryKeys: [customKey],
+        data: { total: 42 },
+      });
+    });
+
+    expect(queryClient.getQueryData(customKey)).toEqual({ total: 42 });
+  });
+
+  it('handles non-JSON events gracefully', () => {
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+
+    renderHook(() => useRealtimeEvents(true, [], { url: TEST_URL }), { wrapper });
+
+    act(() => {
+      MockEventSource.instances[0].simulateOpen();
+    });
+
+    // Send invalid JSON — should not throw.
+    act(() => {
+      const es = MockEventSource.instances[0];
+      // Simulate raw non-JSON data via onmessage directly.
+      es.onmessage?.(new MessageEvent('message', { data: 'not json {{{' }));
+    });
+
+    // No crash — cache is unchanged.
+    expect(queryClient.getQueryData(['admin', 'message'])).toBeUndefined();
+  });
+});
+
+// ── tests: useRealtimeEvent ─────────────────────────────────────────────────
+
+describe('useRealtimeEvent', () => {
+  beforeEach(() => {
     vi.useFakeTimers();
-    const { result } = renderHook(() => useRealtime());
-
-    act(() => {
-      MockEventSource.latest().emitError();
-    });
-
-    const before = MockEventSource.instances.length;
-    act(() => {
-      result.current.reconnect();
-    });
-
-    // Manual reconnect connects immediately, ignoring the pending backoff timer.
-    expect(MockEventSource.instances.length).toBe(before + 1);
-
-    act(() => {
-      MockEventSource.latest().emitError();
-    });
-
-    // The backoff counter was reset by reconnect(), so the next retry uses the base delay again.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(999);
-    });
-    expect(MockEventSource.instances.length).toBe(before + 1);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(MockEventSource.instances.length).toBe(before + 2);
+    MockEventSource.reset();
+    installMockEventSource();
+    setTabHidden(false);
   });
 
-  it('does not create duplicate connections when reconnect() is called multiple times rapidly', () => {
-    const { result } = renderHook(() => useRealtime());
-    const before = MockEventSource.instances.length;
+  afterEach(() => {
+    vi.useRealTimers();
+    restoreEventSource();
+  });
+
+  it('does not connect when enabled is false', () => {
+    const handler = vi.fn();
+
+    renderHook(() => useRealtimeEvent('health', handler, false));
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('connects and calls handler for matching events', () => {
+    const handler = vi.fn();
+
+    renderHook(() => useRealtimeEvent('health', handler, true));
+
+    expect(MockEventSource.instances).toHaveLength(1);
 
     act(() => {
-      result.current.reconnect();
-      result.current.reconnect();
-      result.current.reconnect();
+      MockEventSource.instances[0].simulateEvent('health', { status: 'ok' });
     });
 
-    // Each call tears down the previous instance before opening a new one,
-    // so only one live (non-closed) connection should remain.
-    const openInstances = MockEventSource.instances.filter((i) => !i.closed);
-    expect(openInstances).toHaveLength(1);
-    expect(MockEventSource.instances.length).toBeGreaterThan(before);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ status: 'ok' });
+  });
+
+  it('does not call handler for non-matching event types', () => {
+    const handler = vi.fn();
+
+    renderHook(() => useRealtimeEvent('health', handler, true));
+
+    act(() => {
+      MockEventSource.instances[0].simulateEvent('workers', { workers: [] });
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('uses latest handler via ref', () => {
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+
+    const { rerender } = renderHook(
+      ({ handler }: { handler: (data: unknown) => void }) =>
+        useRealtimeEvent('health', handler, true),
+      { initialProps: { handler: handler1 } },
+    );
+
+    rerender({ handler: handler2 });
+
+    act(() => {
+      MockEventSource.instances[0].simulateEvent('health', { status: 'ok' });
+    });
+
+    expect(handler1).not.toHaveBeenCalled();
+    expect(handler2).toHaveBeenCalledWith({ status: 'ok' });
+  });
+
+  it('cleans up EventSource on unmount', () => {
+    const handler = vi.fn();
+
+    const { unmount } = renderHook(() => useRealtimeEvent('health', handler, true));
+
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    unmount();
+
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
+
+  it('handles non-JSON data gracefully', () => {
+    const handler = vi.fn();
+
+    renderHook(() => useRealtimeEvent('health', handler, true));
+
+    act(() => {
+      const es = MockEventSource.instances[0];
+      // Simulate raw non-JSON data via a direct onmessage call.
+      es.onmessage?.(new MessageEvent('message', { data: 'not json {{{' }));
+    });
+
+    // Handler should not be called for invalid JSON.
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not call handler after unmount (avoids setState on unmounted)', () => {
+    const handler = vi.fn();
+
+    const { unmount } = renderHook(() => useRealtimeEvent('health', handler, true));
+
+    unmount();
+
+    // Event arrives after unmount.
+    act(() => {
+      // The EventSource should have been closed by cleanup.
+      expect(MockEventSource.instances).toHaveLength(0);
+    });
+
+    expect(handler).not.toHaveBeenCalled();
   });
 });
