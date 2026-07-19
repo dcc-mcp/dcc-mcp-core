@@ -33,6 +33,8 @@ import { ToolsPanel } from './features/tools';
 import { WorkflowsPanel } from './features/workflows';
 import { TasksPanel } from './features/tasks';
 import { TracesPanel } from './features/traces';
+import { SessionsPanel } from './features/sessions';
+import { ReliabilityPanel } from './features/reliability';
 import { canonicalAdminPanelTarget, readDiscoverTabFromUrl, readOverviewTabFromUrl, readTracesTabFromUrl } from './navigation';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
@@ -210,6 +212,8 @@ function App() {
       analytics: '',
       discover: '',
       overview: '',
+      sessions: '',
+      reliability: '',
     };
   }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery]);
 
@@ -1794,6 +1798,26 @@ function App() {
             error={errors.logs}
             onSeverityFilterChange={setLogSeverityFilter}
             onRefresh={() => logsQuery.refetch()}
+            t={t}
+          />
+        )}
+
+        {activePanel === 'sessions' && (
+          <SessionsPanel
+            active={activePanel === 'sessions'}
+            updatedAt={updatedAt.sessions}
+            error={errors.sessions}
+            onRefresh={() => {}}
+            t={t}
+          />
+        )}
+
+        {activePanel === 'reliability' && (
+          <ReliabilityPanel
+            active={activePanel === 'reliability'}
+            updatedAt={updatedAt.reliability}
+            error={errors.reliability}
+            onRefresh={() => {}}
             t={t}
           />
         )}

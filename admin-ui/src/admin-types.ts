@@ -2,7 +2,7 @@ import { type InterpolationValues, type MessageKey } from './i18n';
 
 export type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
-export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview';
+export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview' | 'sessions' | 'reliability';
 
 export type AnalyticsOverview = {
   range: string;
@@ -1473,3 +1473,101 @@ export type TestIntegrationResult = {
 
 /// DCC-type → icon URL (local SVGs, bundled by Vite + vite-plugin-singlefile).
 /// Unknown/missing types fall back to a generic puzzle-piece icon.
+
+// ── Sessions ─────────────────────────────────────────────────────────────────
+
+export type SessionStatus = 'active' | 'ended' | 'crashed' | 'interrupted' | 'timed_out' | 'cancelled' | 'unknown';
+
+export type SessionRow = {
+  session_id: string;
+  parent_session_id: string | null;
+  status: SessionStatus;
+  dcc_type: string | null;
+  instance_id: string | null;
+  agent_id: string | null;
+  agent_name: string | null;
+  agent_model: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  turn_count: number;
+  tool_call_count: number;
+  end_reason: string | null;
+  version: string | null;
+  actor_id: string | null;
+  actor_name: string | null;
+  correlation: {
+    request_id?: string | null;
+    trace_id?: string | null;
+    workflow_id?: string | null;
+  };
+};
+
+export type SessionKpi = {
+  total: number;
+  active: number;
+  ended: number;
+  crashed: number;
+  by_dcc: Record<string, number>;
+};
+
+export type SessionsPayload = {
+  sessions: SessionRow[];
+  kpi: SessionKpi;
+  total: number;
+};
+
+// ── Reliability ──────────────────────────────────────────────────────────────
+
+export type GatewayHealthStatus = 'ok' | 'degraded' | 'unhealthy';
+
+export type LeaderInfo = {
+  name: string;
+  host: string;
+  port: number;
+  version: string | null;
+};
+
+export type GatewayHealth = {
+  status: GatewayHealthStatus;
+  uptime_secs: number;
+  leader: LeaderInfo | null;
+  candidates: number;
+  limits: {
+    body_max_bytes: number;
+    rate_limit_per_minute_per_ip: number;
+    circuit_failure_threshold: number;
+    circuit_open_secs: number;
+  };
+};
+
+export type CircuitBreakerStatus = {
+  backend: string;
+  state: 'closed' | 'open' | 'half_open';
+  failures: number;
+  last_failure: string | null;
+  last_success: string | null;
+};
+
+export type CapabilityFunnel = {
+  instances: number;
+  skills: number;
+  tools: number;
+  resources: number;
+};
+
+export type Stability24h = {
+  crashes: number;
+  reconnects: number;
+  recoveries: number;
+  success_rate_pct: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+};
+
+export type ReliabilityPayload = {
+  health: GatewayHealth;
+  circuits: CircuitBreakerStatus[];
+  funnel: CapabilityFunnel;
+  stability_24h: Stability24h;
+};

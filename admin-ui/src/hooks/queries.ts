@@ -56,6 +56,7 @@ import type {
   TestIntegrationResult,
   UpdateIntegrationRequest,
   UpdateIntegrationResult,
+  ReliabilityPayload,
   StatsPayload,
   TaskRow,
   ToolRow,
@@ -94,6 +95,7 @@ export const adminKeys = {
   marketplaceOutdated: () => [...adminKeys.all, 'marketplace', 'outdated'] as const,
   integrations: () => [...adminKeys.all, 'integrations'] as const,
   memory: (filters: MemoryFilters) => [...adminKeys.all, 'memory', filters] as const,
+  reliability: () => [...adminKeys.all, 'reliability'] as const,
 };
 
 // ── polling config ─────────────────────────────────────────────────────────
@@ -263,6 +265,15 @@ export function useLogsQuery(enabled: boolean) {
       logs: Array.isArray(payload.logs) ? payload.logs : [],
       serverVersion: payload.server_version == null ? null : String(payload.server_version),
     }),
+    enabled,
+    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+  });
+}
+
+export function useReliabilityQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.reliability(),
+    queryFn: () => apiJson<ReliabilityPayload>('/reliability'),
     enabled,
     refetchInterval: enabled ? POLL_INTERVAL_MS : false,
   });
