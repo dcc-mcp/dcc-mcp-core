@@ -1,0 +1,139 @@
+.reliability-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.reliability-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.15rem;
+}
+
+.reliability-section-title {
+  align-items: center;
+  color: var(--foreground);
+  display: flex;
+  font-size: 0.95rem;
+  font-weight: 750;
+  gap: 0.4rem;
+  margin: 0 0 0.85rem 0;
+}
+
+.reliability-empty {
+  padding: 1.5rem 0;
+  text-align: center;
+}
+
+.reliability-circuit-list {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.reliability-circuit-card {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--muted-foreground);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.85rem;
+}
+
+.reliability-circuit-card.ok {
+  border-left-color: var(--ok);
+}
+
+.reliability-circuit-card.warn {
+  border-left-color: var(--warn);
+}
+
+.reliability-circuit-card.err {
+  border-left-color: var(--err);
+}
+
+.reliability-circuit-head {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.reliability-circuit-head strong {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reliability-circuit-meta {
+  color: var(--muted-foreground);
+  display: grid;
+  font-size: 0.78rem;
+  gap: 0.3rem;
+}
+
+.reliability-circuit-meta strong {
+  color: var(--foreground);
+  font-weight: 650;
+  margin-right: 0.35rem;
+}
+
+.reliability-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0 auto;
+  max-width: 32rem;
+}
+
+.reliability-funnel-row {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 6.5rem 1fr 3rem;
+}
+
+.reliability-funnel-label {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reliability-funnel-track {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  height: 1.1rem;
+  overflow: hidden;
+}
+
+.reliability-funnel-fill {
+  background: linear-gradient(90deg, var(--primary), var(--ok));
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.reliability-funnel-value {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.reliability-funnel-arrow {
+  color: var(--muted-foreground);
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .reliability-funnel-row {
+    grid-template-columns: 5rem 1fr 2.5rem;
+  }
+}

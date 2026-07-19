@@ -116,6 +116,14 @@ import integrationsEn from './locales/en/integrations.json' with { type: 'json' 
 import integrationsZhCN from './locales/zh-CN/integrations.json' with { type: 'json' };
 import integrationsJa from './locales/ja/integrations.json' with { type: 'json' };
 import integrationsKo from './locales/ko/integrations.json' with { type: 'json' };
+import sessionsEn from './locales/en/sessions.json' with { type: 'json' };
+import sessionsZhCN from './locales/zh-CN/sessions.json' with { type: 'json' };
+import sessionsJa from './locales/ja/sessions.json' with { type: 'json' };
+import sessionsKo from './locales/ko/sessions.json' with { type: 'json' };
+import reliabilityEn from './locales/en/reliability.json' with { type: 'json' };
+import reliabilityZhCN from './locales/zh-CN/reliability.json' with { type: 'json' };
+import reliabilityJa from './locales/ja/reliability.json' with { type: 'json' };
+import reliabilityKo from './locales/ko/reliability.json' with { type: 'json' };
 
 export const I18N_MESSAGES = {
   common: {
@@ -267,6 +275,18 @@ export const I18N_MESSAGES = {
     'zh-CN': integrationsZhCN,
     ja: integrationsJa,
     ko: integrationsKo,
+  },
+  sessions: {
+    en: sessionsEn,
+    'zh-CN': sessionsZhCN,
+    ja: sessionsJa,
+    ko: sessionsKo,
+  },
+  reliability: {
+    en: reliabilityEn,
+    'zh-CN': reliabilityZhCN,
+    ja: reliabilityJa,
+    ko: reliabilityKo,
   },
 } as const;
 

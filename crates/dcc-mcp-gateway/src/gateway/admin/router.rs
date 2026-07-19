@@ -28,6 +28,7 @@ use super::marketplace::{
     handle_marketplace_uninstall, handle_marketplace_update,
 };
 use super::memory::{handle_admin_memory, handle_admin_memory_forget};
+use super::sessions::handle_admin_sessions;
 use super::skill_paths::{
     handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
 };
@@ -55,6 +56,7 @@ use super::state::AdminState;
 /// - `GET  /api/governance`        → traffic policy/capture/redaction/pressure state
 /// - `GET  /api/workers`            → per-instance worker cards (Phase 4)
 /// - `GET  /api/deregistered`       → recently auto-deregistered rows
+/// - `GET  /api/sessions`           → DCC/agent session inventory + KPI summary
 /// - `GET  /api/logs`               → JSON event log
 /// - `GET  /api/health`             → JSON health summary
 pub fn build_admin_router(state: AdminState) -> Router {
@@ -106,6 +108,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
             routing::post(handle_admin_memory_forget),
         )
         .route("/api/deregistered", routing::get(handle_admin_deregistered))
+        .route("/api/sessions", routing::get(handle_admin_sessions))
         .route("/api/stats", routing::get(handle_admin_stats))
         .route(
             "/api/analytics/overview",
