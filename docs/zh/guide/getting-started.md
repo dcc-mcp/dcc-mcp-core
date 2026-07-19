@@ -14,6 +14,17 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 这会从最新 GitHub Release 安装独立的 `dcc-mcp-cli` 控制面二进制。
 需要固定版本时设置 `DCC_MCP_VERSION=v0.17.17`。
 
+Agent 在安装或下载新二进制前必须先征得用户同意。官方安装可以通过以下命令
+保持最新：
+
+```bash
+dcc-mcp-cli update check
+dcc-mcp-cli update apply
+```
+
+`update apply` 会暂存最新版 CLI，并在下一次启动时生效；它不会替换正在运行的
+`dcc-mcp-server`，server 需要在自己的运行环境中单独更新。
+
 CLI 也提供了独立 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
 可从每个 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases) 下载。
 

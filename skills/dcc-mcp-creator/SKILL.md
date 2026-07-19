@@ -35,6 +35,15 @@ install lifecycle, or cross-DCC verification.
 For individual skill packages (`SKILL.md`, `tools.yaml`, scripts, groups, and
 skill taxonomy), load `dcc-mcp-skills-creator` instead.
 
+## CLI-First Control Path
+
+Use the `dcc-mcp` skill and `dcc-mcp-cli` for discovery, validation, and live
+DCC control whenever the agent can run shell commands. If the CLI is missing,
+follow the consent-gated official installation instructions in `dcc-mcp`.
+Before long-lived validation, run `dcc-mcp-cli update check`; use
+`dcc-mcp-cli update apply` to stage the latest CLI for the next launch. This
+does not replace a running server binary.
+
 ## Runtime Vocabulary
 
 - DCC startup hook: adapter code running inside the host at application startup; it prepares env/instance data and launches the service path without blocking the DCC UI/main thread.

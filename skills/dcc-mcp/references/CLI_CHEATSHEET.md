@@ -3,32 +3,37 @@
 Default profile: `local`. Remote gateways are selected with
 `dcc-mcp-cli gateway set <name>` or one-off `--gateway <name>`.
 
-Primary tool: `dcc-mcp-cli` — the CLI is the **default path for AI agents**.
-Fallback: `python scripts/dcc_gateway.py` when the CLI binary is unavailable.
+Primary tool: `dcc-mcp-cli` — the CLI is the **default path for every
+shell-capable AI agent**. Native MCP is the fallback for MCP-only clients or an
+explicit user choice.
 
 ## CLI setup
 
-`dcc-mcp-cli` ships with the gateway. If missing, ask user permission then
-ensure it:
+If `dcc-mcp-cli` is missing, obtain user consent before installing the latest
+official release:
+
+```bash
+# Linux/macOS
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
+
+Keep an official build current through the release manifest:
+
+```bash
+dcc-mcp-cli update check
+dcc-mcp-cli update apply
+```
+
+`update apply` downloads and stages the latest CLI for the next launch. It does
+not update a running `dcc-mcp-server`; update that server in its own environment.
+
+For repository development only, the consent-gated bootstrap/fallback is:
 
 ```bash
 vx python scripts/dcc_gateway.py --ensure-cli list
-```
-
-If the CLI binary is not yet on `$PATH`, the gateway downloads it from GitHub
-Releases and places it under `~/.dcc-mcp/bin/`. Add this directory to `$PATH`
-for direct `dcc-mcp-cli` access.
-
-If download fails, the Python fallback runs automatically.
-
-If Python is not available as `python` / `py`, install vx first:
-
-```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/loonghao/vx/main/install.sh | bash
-
-# Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps1 | iex"
 ```
 
 ## Discovery and health

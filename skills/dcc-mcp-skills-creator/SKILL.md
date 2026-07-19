@@ -64,6 +64,15 @@ The local instance port is OS-assigned by default. The CLI and gateway discover
 the resolved URL through the shared registry; pass an explicit port only when
 an external integration requires a fixed listener.
 
+## CLI-First Control Path
+
+Use the `dcc-mcp` skill and `dcc-mcp-cli` for skill discovery, loading,
+validation, and live calls whenever the agent can run shell commands. If the
+CLI is missing, follow the consent-gated official installation instructions in
+`dcc-mcp`. Keep it current with `dcc-mcp-cli update check`, then
+`dcc-mcp-cli update apply`; the apply step stages the next CLI launch and does
+not replace a running server binary.
+
 ## Quick Start
 
 ### Create a new skill

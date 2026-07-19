@@ -82,31 +82,50 @@ different DCC application.
 
 ## Agent Path vs IDE Path
 
-DCC-MCP supports two integration paths. Pick the one that matches how the user
-works — do not force IDE users onto the CLI, and do not ask agents to configure
-MCP when they can run shell.
+DCC-MCP supports two integration paths. `dcc-mcp-cli` is the default for every
+shell-capable agent. Native MCP remains the fallback for MCP-only IDE clients
+or when the user explicitly chooses that integration.
 
 | Dimension | **Agent path** (this skill) | **IDE path** (native MCP) |
 |-----------|----------------------------|---------------------------|
-| **Who** | OpenClaw, Hermes, Codex CLI, CI bots, custom agent runtimes, any host with shell | Cursor, Claude Desktop, VS Code MCP, other MCP-native clients |
+| **Who** | OpenClaw, Hermes, Codex CLI, CI bots, custom agent runtimes, and any other host with shell access | MCP-only Cursor, Claude Desktop, VS Code MCP, or another client without shell access |
 | **Transport** | `dcc-mcp-cli` → local MCP or remote gateway REST | MCP Streamable HTTP → gateway `/mcp` |
 | **Discovery surface** | `search` → `describe` → `call` via CLI or bundled Python helper | Gateway MCP tools: `search`, `describe`, `load_skill`, `call` |
-| **Setup** | Install this skill; optional `dcc-mcp-cli` on `PATH` or `--ensure-cli` with consent | Add gateway URL to IDE MCP settings (see repo `docs/guide/*`) |
-| **When to choose** | Host has no MCP connector, runs headless, or studio wants one forkable skill | User already works inside an IDE with MCP configured |
+| **Setup** | Install this skill and keep the official `dcc-mcp-cli` on `PATH`; installation/download requires user consent | Add gateway URL to IDE MCP settings (see repo `docs/guide/*`) |
+| **When to choose** | Default whenever the agent can run shell commands | The client cannot run shell commands or the user explicitly requests native MCP |
 | **Resources / prompts** | Not covered here; use REST `/v1/context` or IDE MCP if needed | `resources/read`, `prompts/get`, SSE subscribe via MCP |
 
 **Decision rules for agents loading this skill:**
 
 1. **Use this routing policy first** for every DCC-control request, whether the
    host is MCP-native or shell-only.
-2. **MCP-native host** — call the gateway/DCC structured tools directly
+2. **Shell-capable host** — use `dcc-mcp-cli`
+   (`inventory` → `search` → `describe` or `load-skill` → `call`), even when a
+   native MCP connector is also available.
+3. **MCP-only host** — call the gateway/DCC structured tools directly
    (`inventory` → `search` → `describe` or `load_skill` → `call`). Do not ask the
    user to switch clients or manually repeat the operation.
-3. **Shell-only host** — use `dcc-mcp-cli` (`search` → `describe` → `call`).
 4. **Do not mix paths in one turn** — pick CLI+REST or MCP for the whole task,
    not both.
 5. **Zero instances** — stop, explain, ask consent before bootstrap; see
    [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md).
+
+### CLI installation
+
+If `dcc-mcp-cli` is missing, obtain the user's consent before installing the
+latest official release:
+
+```bash
+# Linux/macOS
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
+
+After installation, use `dcc-mcp-cli update check` and
+`dcc-mcp-cli update apply` to keep the CLI current. The apply step stages the
+new CLI for the next launch; it does not update a running `dcc-mcp-server`.
 
 ### Computer Use fallback
 
