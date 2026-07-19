@@ -35,6 +35,8 @@ export const PANELS: PanelDefinition[] = [
   { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
   { id: 'memory', labelKey: 'navigation.panel.memory', groupKey: 'navigation.group.insights' },
   { id: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.insights' },
+  { id: 'reliability', labelKey: 'navigation.panel.reliability', groupKey: 'navigation.group.operations' },
+  { id: 'sessions', labelKey: 'navigation.panel.sessions', groupKey: 'navigation.group.observe' },
 ];
 
 export const NAVIGATION: NavigationDefinition[] = [
@@ -59,6 +61,8 @@ export const NAVIGATION: NavigationDefinition[] = [
   { id: 'memory', icon: 'memory', panel: 'memory', labelKey: 'navigation.panel.memory', groupKey: 'navigation.group.insights' },
   { id: 'governance', icon: 'governance', panel: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.governContracts' },
   { id: 'openapi', icon: 'openapi', panel: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.governContracts' },
+  { id: 'reliability', icon: 'reliability', panel: 'reliability', labelKey: 'navigation.panel.reliability', groupKey: 'navigation.group.connectOperate' },
+  { id: 'sessions', icon: 'sessions', panel: 'sessions', labelKey: 'navigation.panel.sessions', groupKey: 'navigation.group.observe' },
 ];
 
 export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));
