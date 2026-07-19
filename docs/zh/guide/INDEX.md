@@ -71,6 +71,10 @@
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — 跨工具文件交接 |
 | [telemetry.md](telemetry.md) | ToolMetrics、ToolRecorder、RecordingGuard |
 | [observability.md](observability.md) | OTLP exporter、agent workflow spans、网关事件日志（`resources://gateway/events`）、Prometheus 计数器 |
+| [metric-dictionary.md](../../guide/metric-dictionary.md) | 指标字典：单位、采样窗口、空值语义、存储层清单 |
+| [observability-schema.md](../../guide/observability-schema.md) | 版本化 schema、迁移路径、查询 API 版本策略 |
+| [observability-usage.md](../../guide/observability-usage.md) | Agent、CLI、Admin UI 可观测性使用说明 |
+| [observability-troubleshooting.md](../../guide/observability-troubleshooting.md) | 可观测性运维排障手册 |
 | [scheduler.md](scheduler.md) | ScheduleSpec、TriggerSpec、cron/webhook 调度 |
 | [workflows.md](workflows.md) | WorkflowSpec 引擎：步骤类型、策略、持久化 |
 | [job-persistence.md](job-persistence.md) | SQLite 支持的作业/工作流持久化与恢复 |

@@ -98,6 +98,10 @@ Documentation contract:
 | [app-ui-workflows.md](app-ui-workflows.md) | Agent workflows for scoped `app_ui` UI automation, recovery, and VRS coverage |
 | [telemetry.md](telemetry.md) | ToolMetrics, ToolRecorder, RecordingGuard |
 | [observability.md](observability.md) | OTLP exporter, agent workflow spans, gateway event log (`resources://gateway/events`), Prometheus counters |
+| [metric-dictionary.md](metric-dictionary.md) | Canonical metric dictionary: units, sampling windows, null semantics, storage layer inventory |
+| [observability-schema.md](observability-schema.md) | Versioned schema, migration path, and query API versioning |
+| [observability-usage.md](observability-usage.md) | Agent, CLI, and Admin UI usage for observability data |
+| [observability-troubleshooting.md](observability-troubleshooting.md) | Operational troubleshooting runbook for observability issues |
 | [scheduler.md](scheduler.md) | ScheduleSpec, TriggerSpec, cron/webhook scheduling |
 | [workflows.md](workflows.md) | WorkflowSpec engine: step kinds, policies, persistence |
 | [job-persistence.md](job-persistence.md) | SQLite-backed job/workflow persistence and resume |

@@ -403,6 +403,10 @@ rate(dcc_mcp_gateway_probes_total{outcome="ready"}[5m])
 
 ## See also
 
+- [metric-dictionary.md](metric-dictionary.md) — canonical reference for every metric, dimension, unit, sampling window, and null semantics
+- [observability-schema.md](observability-schema.md) — SQLite schema versions, query API versioning, and migration procedures
+- [observability-usage.md](observability-usage.md) — how to consume observability from agents, CLI, and Admin UI
+- [observability-troubleshooting.md](observability-troubleshooting.md) — operational runbook for diagnosing observability issues
 - [telemetry.md](telemetry.md) — `ToolMetrics`, `ToolRecorder`, legacy Python telemetry
 - [adapter-runtime-contracts.md](adapter-runtime-contracts.md) — session events, artefacts, debug descriptors, UI automation contracts
 - [gateway-diagnostics.md](gateway-diagnostics.md) — log templates for election/eviction events
