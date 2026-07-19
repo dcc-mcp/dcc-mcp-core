@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.59](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.58...v0.19.59) (2026-07-19)
+
+
+### Features
+
+* add DCC discovery and skill reflection workflow ([6ee34dd](https://github.com/dcc-mcp/dcc-mcp-core/commit/6ee34dd047c7021ab6fd280f991f840ca5b9f520))
+
+
+### Bug Fixes
+
+* **computer-use:** recover scoped DCC foreground ([#1969](https://github.com/dcc-mcp/dcc-mcp-core/issues/1969)) ([7ae9781](https://github.com/dcc-mcp/dcc-mcp-core/commit/7ae97819ae662685b2e9214faae224f253f9b59c))
+
 ## [0.19.58](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.57...v0.19.58) (2026-07-18)
 
 
