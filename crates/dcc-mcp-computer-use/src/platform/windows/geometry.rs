@@ -248,7 +248,7 @@ pub(super) fn corner_geometries(rect: &RECT, dpi: u32) -> CornerGeometries {
     let width = rect.right.saturating_sub(rect.left).max(1);
     let height = rect.bottom.saturating_sub(rect.top).max(1);
     let layers = [
-        (CORNER_GLOW_LENGTH, CORNER_GLOW_THICKNESS, 112_u8, true),
+        (CORNER_GLOW_LENGTH, CORNER_GLOW_THICKNESS, 152_u8, true),
         (
             CORNER_ACCENT_LENGTH,
             CORNER_ACCENT_THICKNESS,

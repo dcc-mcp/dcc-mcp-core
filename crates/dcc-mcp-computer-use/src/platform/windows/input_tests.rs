@@ -326,27 +326,27 @@ fn control_corners_mark_the_scoped_target_without_covering_its_edges() {
     assert_eq!(
         &geometries[..8],
         &[
-            ((-100, 20, 184, 30), 112, true),
-            ((-100, 20, 30, 184), 112, true),
-            ((716, 20, 184, 30), 112, true),
-            ((870, 20, 30, 184), 112, true),
-            ((-100, 590, 184, 30), 112, true),
-            ((-100, 436, 30, 184), 112, true),
-            ((716, 590, 184, 30), 112, true),
-            ((870, 436, 30, 184), 112, true),
+            ((-100, 20, 232, 42), 152, true),
+            ((-100, 20, 42, 232), 152, true),
+            ((668, 20, 232, 42), 152, true),
+            ((858, 20, 42, 232), 152, true),
+            ((-100, 578, 232, 42), 152, true),
+            ((-100, 388, 42, 232), 152, true),
+            ((668, 578, 232, 42), 152, true),
+            ((858, 388, 42, 232), 152, true),
         ]
     );
     assert_eq!(
         &geometries[8..],
         &[
-            ((-100, 20, 144, 12), CONTROL_BORDER_ALPHA, false),
-            ((-100, 20, 12, 144), CONTROL_BORDER_ALPHA, false),
-            ((756, 20, 144, 12), CONTROL_BORDER_ALPHA, false),
-            ((888, 20, 12, 144), CONTROL_BORDER_ALPHA, false),
-            ((-100, 608, 144, 12), CONTROL_BORDER_ALPHA, false),
-            ((-100, 476, 12, 144), CONTROL_BORDER_ALPHA, false),
-            ((756, 608, 144, 12), CONTROL_BORDER_ALPHA, false),
-            ((888, 476, 12, 144), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 180, 16), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 16, 180), CONTROL_BORDER_ALPHA, false),
+            ((720, 20, 180, 16), CONTROL_BORDER_ALPHA, false),
+            ((884, 20, 16, 180), CONTROL_BORDER_ALPHA, false),
+            ((-100, 604, 180, 16), CONTROL_BORDER_ALPHA, false),
+            ((-100, 440, 16, 180), CONTROL_BORDER_ALPHA, false),
+            ((720, 604, 180, 16), CONTROL_BORDER_ALPHA, false),
+            ((884, 440, 16, 180), CONTROL_BORDER_ALPHA, false),
         ]
     );
 }
@@ -356,9 +356,9 @@ fn overlay_pixels_scale_at_common_monitor_dpis() {
     assert_eq!(scaled_pixels(36, 96), 36);
     assert_eq!(scaled_pixels(36, 144), 54);
     assert_eq!(scaled_pixels(36, 192), 72);
-    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 96), 30);
-    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 144), 45);
-    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 192), 60);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 96), 42);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 144), 63);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 192), 84);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 96), 72);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 144), 108);
     assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 192), 144);
@@ -381,7 +381,7 @@ fn control_overlay_breathes_smoothly_without_exceeding_base_alpha() {
         CONTROL_PULSE_PERIOD_MS / 2,
     );
 
-    assert_eq!(minimum, 136);
+    assert_eq!(minimum, 176);
     assert!(minimum < quarter && quarter < maximum);
     assert_eq!(maximum, CONTROL_BORDER_ALPHA);
     assert_eq!(
@@ -404,14 +404,14 @@ fn control_overlay_visual_contract_is_prominent_blue() {
     let focus_blue = (CONTROL_FOCUS_COLOR.0 >> 16) & 0xff;
 
     const {
-        assert!(CORNER_ACCENT_THICKNESS >= 12);
-        assert!(CORNER_ACCENT_LENGTH >= 128);
+        assert!(CORNER_ACCENT_THICKNESS >= 16);
+        assert!(CORNER_ACCENT_LENGTH >= 180);
         assert!(POINTER_EFFECT_SIZE >= 64 && POINTER_EFFECT_SIZE <= 96);
         assert!(POINTER_RING_SIZE >= 40 && POINTER_RING_SIZE <= 64);
         assert!(CONTROL_CAPSULE_ALPHA > CONTROL_OVERLAY_ALPHA);
-        assert!(CONTROL_BORDER_ALPHA < CONTROL_CURSOR_ALPHA);
-        assert!(CONTROL_BORDER_ALPHA >= 210);
-        assert!(CONTROL_BORDER_PULSE_FLOOR_PERCENT >= 60);
+        assert!(CONTROL_BORDER_ALPHA >= CONTROL_CURSOR_ALPHA);
+        assert!(CONTROL_BORDER_ALPHA >= 240);
+        assert!(CONTROL_BORDER_PULSE_FLOOR_PERCENT >= 70);
         assert!(CONTROL_CAPSULE_FONT_SIZE >= 16);
     }
     assert!((110..=220).contains(&CONTROL_OVERLAY_ALPHA));
