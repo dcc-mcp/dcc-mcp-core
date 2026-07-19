@@ -138,6 +138,8 @@ def test_app_ui_policy_blocks_high_risk_actions_by_default() -> None:
     assert policy.allows_action(UiActionKind.SET_TEXT) is True
     assert policy.allows_action(UiActionKind.RAW_COORDINATE_CLICK) is False
     assert policy.allows_action(UiActionKind.KEYBOARD_SHORTCUT) is False
+    assert policy.allows_action(UiActionKind.GET_WINDOW_STATE) is True
+    assert policy.allows_action(UiActionKind.RESTORE_WINDOW) is True
     assert policy.require_scoped_window is True
     assert policy.to_dict()["allow_raw_coordinates"] is False
     assert policy.to_dict()["require_scoped_window"] is True

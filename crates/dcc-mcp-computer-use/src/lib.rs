@@ -5,6 +5,7 @@
 //! `dcc-mcp-capture`; UI semantics remain in `dcc-mcp-app-ui`.
 
 mod platform;
+pub mod ui_control_host;
 
 #[cfg(feature = "python-bindings")]
 pub mod python;
@@ -597,9 +598,50 @@ impl ComputerUseSession {
         validate_action_limits(request)?;
         let _dpi_awareness = platform::ThreadDpiAwareness::enter()?;
         let mut state = self.lock_state();
-        self.ensure_running(&state)?;
-        let observation = take_observation_for_action(&mut state)?;
-        let target_before_restore = self.revalidate_target(&state)?;
+        let observation =
+            self.prepare_action_locked(&mut state, request.observation_id.as_deref())?;
+        let target = self.revalidate_target(&state)?;
+        let action_result = platform::perform_action(
+            target.handle,
+            &observation,
+            request,
+            &self.stop_requested,
+            &state.desktop_state,
+            &state.desktop_barrier,
+        );
+        action_result?;
+        Ok(json!({
+            "success": true,
+            "action": request.action,
+            "observation_id": observation.observation_id,
+            "requires_new_screenshot": true,
+        }))
+    }
+
+    /// Consume and validate the current observation before one semantic UIA mutation.
+    ///
+    /// This provides the same target, desktop, DPI, stop-latch, and foreground
+    /// fence as native input without emitting an input event. The isolated UI
+    /// Control host calls it immediately before its UI Automation child.
+    pub fn prepare_semantic_action(&self, observation_id: &str) -> ComputerUseResult<Value> {
+        let _dpi_awareness = platform::ThreadDpiAwareness::enter()?;
+        let mut state = self.lock_state();
+        let observation = self.prepare_action_locked(&mut state, Some(observation_id))?;
+        Ok(json!({
+            "success": true,
+            "observation_id": observation.observation_id,
+            "requires_new_screenshot": true,
+        }))
+    }
+
+    fn prepare_action_locked(
+        &self,
+        state: &mut SessionState,
+        expected_observation_id: Option<&str>,
+    ) -> ComputerUseResult<ComputerUseObservation> {
+        self.ensure_running(state)?;
+        let observation = take_observation_for_action(state)?;
+        let target_before_restore = self.revalidate_target(state)?;
         // A user may minimize the scoped DCC after the screenshot. Verify its
         // immutable HWND/PID and hard policy first, restore it without sending
         // input before asking the banner thread to fence desktop events; the
@@ -609,9 +651,9 @@ impl ComputerUseSession {
             target_before_restore.pid,
         )?;
         platform::synchronize_desktop_events(&state.desktop_barrier, &self.stop_requested)?;
-        let desktop_generation = Self::refresh_desktop_state(&mut state)?;
-        let target = self.revalidate_target(&state)?;
-        let expected = request.observation_id.as_deref().ok_or_else(|| {
+        let desktop_generation = Self::refresh_desktop_state(state)?;
+        let target = self.revalidate_target(state)?;
+        let expected = expected_observation_id.ok_or_else(|| {
             ComputerUseError::new(
                 ComputerUseErrorCode::StaleObservation,
                 "observation_id from the latest screenshot is required",
@@ -641,21 +683,7 @@ impl ComputerUseSession {
             ));
         }
 
-        let action_result = platform::perform_action(
-            target.handle,
-            &observation,
-            request,
-            &self.stop_requested,
-            &state.desktop_state,
-            &state.desktop_barrier,
-        );
-        action_result?;
-        Ok(json!({
-            "success": true,
-            "action": request.action,
-            "observation_id": observation.observation_id,
-            "requires_new_screenshot": true,
-        }))
+        Ok(observation)
     }
 
     /// Request a stop without waiting for an in-flight action or state lock.

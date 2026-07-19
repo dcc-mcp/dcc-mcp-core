@@ -1,6 +1,6 @@
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -45,13 +45,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
-    GW_HWNDPREV, GWL_EXSTYLE, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
-    GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST,
-    IsIconic, IsWindow, IsWindowVisible, LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW,
-    PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow, SetLayeredWindowAttributes,
+    GW_HWNDPREV, GWL_EXSTYLE, GetAncestor, GetClassInfoW, GetClassNameW, GetClientRect,
+    GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowLongPtrW,
+    GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, HWND_NOTOPMOST,
+    HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible, LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE,
+    PeekMessageW, PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow, SetLayeredWindowAttributes,
     SetWindowDisplayAffinity, SetWindowPos, ShowWindow, TranslateMessage, WDA_EXCLUDEFROMCAPTURE,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY, WM_PAINT,
     WM_WTSSESSION_CHANGE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
@@ -69,6 +69,7 @@ use crate::{
 
 use super::{
     ControlBannerSignals, ControlBannerStartError, ControlBannerStartResult, DesktopEventBarrier,
+    ScopedWindowOperation, ScopedWindowState,
 };
 use overlay::ControlOverlay;
 
@@ -614,6 +615,97 @@ pub(crate) fn prepare_target_window(window_handle: u64) -> ComputerUseResult<()>
     Ok(())
 }
 
+pub(crate) fn scoped_window_state(
+    window_handle: u64,
+    expected_process_id: u32,
+) -> ComputerUseResult<ScopedWindowState> {
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Ok(ScopedWindowState {
+            process_id: expected_process_id,
+            window_handle,
+            exists: false,
+            visible: false,
+            minimized: false,
+            foreground: false,
+        });
+    }
+    geometry::validate_target_identity(hwnd, expected_process_id)?;
+    let title_length = unsafe { GetWindowTextLengthW(hwnd) }.max(0) as usize;
+    let mut title = vec![0_u16; title_length.saturating_add(1)];
+    let copied = unsafe { GetWindowTextW(hwnd, &mut title) }.max(0) as usize;
+    title.truncate(copied);
+    validate_target_policy(
+        window_handle,
+        expected_process_id,
+        &String::from_utf16_lossy(&title),
+    )?;
+    Ok(ScopedWindowState {
+        process_id: expected_process_id,
+        window_handle,
+        exists: true,
+        visible: unsafe { IsWindowVisible(hwnd) }.as_bool(),
+        minimized: unsafe { IsIconic(hwnd) }.as_bool(),
+        foreground: unsafe { GetForegroundWindow() } == hwnd,
+    })
+}
+
+pub(crate) fn transition_scoped_window(
+    window_handle: u64,
+    expected_process_id: u32,
+    operation: ScopedWindowOperation,
+) -> ComputerUseResult<ScopedWindowState> {
+    let before = scoped_window_state(window_handle, expected_process_id)?;
+    if !before.exists {
+        return Err(target_unavailable());
+    }
+    ensure_interactive_desktop()?;
+    if user_interrupted() {
+        return Err(user_interrupted_error());
+    }
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    match operation {
+        ScopedWindowOperation::Restore => {
+            if before.minimized {
+                let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+            }
+        }
+        ScopedWindowOperation::Show => {
+            let _ = unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+        }
+        ScopedWindowOperation::Activate => {
+            if !before.visible || before.minimized {
+                return Err(ComputerUseError::new(
+                    ComputerUseErrorCode::InvalidAction,
+                    "show and restore the exact scoped DCC window before activating it",
+                ));
+            }
+            input::set_target_foreground(hwnd);
+        }
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        ensure_interactive_desktop()?;
+        let state = scoped_window_state(window_handle, expected_process_id)?;
+        let complete = match operation {
+            ScopedWindowOperation::Restore => !state.minimized,
+            ScopedWindowOperation::Show => state.visible,
+            ScopedWindowOperation::Activate => state.foreground,
+        };
+        if complete {
+            return Ok(state);
+        }
+        if Instant::now() >= deadline {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::FocusLost,
+                "Windows did not apply the requested exact-window state transition",
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[cfg(test)]
 pub(crate) struct TestIsolationGuard {
     _owner: NamedMutexOwner,
@@ -827,35 +919,40 @@ enum OverlayTone {
 }
 
 fn register_color_overlay_classes() -> ComputerUseResult<()> {
-    static REGISTERED: OnceLock<Result<(), String>> = OnceLock::new();
-    REGISTERED
-        .get_or_init(|| {
-            let instance = unsafe { GetModuleHandleW(None) }
-                .map_err(|error| format!("resolve module handle: {error}"))?;
-            for (class_name, color) in [
-                (CONTROL_OVERLAY_CLASS, CONTROL_ACCENT_COLOR),
-                (CONTROL_GLOW_CLASS, CONTROL_GLOW_COLOR),
-                (CONTROL_CURSOR_CLASS, CONTROL_CURSOR_COLOR),
-            ] {
-                let class = WNDCLASSW {
-                    lpfnWndProc: Some(overlay_window_proc),
-                    hInstance: instance.into(),
-                    hbrBackground: unsafe { CreateSolidBrush(color) },
-                    lpszClassName: class_name,
-                    ..Default::default()
-                };
-                let atom = unsafe { RegisterClassW(&class) };
-                if atom == 0 {
-                    return Err(format!(
-                        "register overlay window class: {}",
-                        windows::core::Error::from_thread()
-                    ));
-                }
-            }
-            Ok(())
-        })
-        .clone()
-        .map_err(|detail| overlay_backend_error("register", detail))
+    static REGISTRATION_LOCK: Mutex<()> = Mutex::new(());
+    let _registration_guard = REGISTRATION_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let instance = unsafe { GetModuleHandleW(None) }
+        .map_err(|error| overlay_backend_error("resolve the module handle for", error))?;
+    for (class_name, color) in [
+        (CONTROL_OVERLAY_CLASS, CONTROL_ACCENT_COLOR),
+        (CONTROL_GLOW_CLASS, CONTROL_GLOW_COLOR),
+        (CONTROL_CURSOR_CLASS, CONTROL_CURSOR_COLOR),
+    ] {
+        let mut existing = WNDCLASSW::default();
+        if unsafe { GetClassInfoW(Some(instance.into()), class_name, &raw mut existing) }.is_ok() {
+            continue;
+        }
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(overlay_window_proc),
+            hInstance: instance.into(),
+            hbrBackground: unsafe { CreateSolidBrush(color) },
+            lpszClassName: class_name,
+            ..Default::default()
+        };
+        let atom = unsafe { RegisterClassW(&class) };
+        if atom == 0 {
+            return Err(overlay_backend_error(
+                "register",
+                format!(
+                    "overlay window class: {}",
+                    windows::core::Error::from_thread()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 unsafe extern "system" fn overlay_window_proc(

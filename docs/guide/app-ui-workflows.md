@@ -75,18 +75,22 @@ dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","contro
 dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
 
-Windows currently supplies the native scoped-window overlay and raw-input
-reference backend. macOS and Linux adapters should keep the same CLI and tool
-contract while implementing capture, accessibility, visible safety effects,
-and interruption with their platform APIs.
+Windows supplies an isolated, per-logon-session
+`dcc-mcp-ui-control-host.exe`. The adapter is a versioned named-pipe proxy; the
+host owns exact-window selection, shared-memory screenshots, UIA, input,
+visible safety effects, interruption, confirmation, and redacted audit.
+macOS and Linux adapters keep the same CLI and tool contract while implementing
+equivalent platform boundaries.
 
 Enter `app_ui` only after a typed DCC tool returns `unsupported` or
 `capability_missing`. Keep every action scoped to the exact DCC window. The
 adapter or operator must bind that target with
 `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE` before a
 Windows UIA mutation; request arguments may narrow that scope but must not
-widen it. The bound session supplies the visible capsule, screenshot, and user
-interruption monitor even for semantic UIA. Raw pointer and keyboard input has
+widen it. The host visibly asks the user to approve the resolved exact window
+before it mints an opaque capability. The bound session supplies the visible
+capsule, shared-memory screenshot, and user interruption monitor even for
+semantic UIA. Raw pointer and keyboard input has
 a second gate: the operator must also set
 `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`.
 
@@ -96,7 +100,8 @@ window before the capsule, every capture, and every action; title-only and
 process-name scopes never authorize native input.
 
 Use native coordinate input only when semantic UIA returns
-`unsupported_action` or the UIA backend is unavailable. Do not fall back after
+`unsupported_action`. Host, UIA, or capture unavailability never selects an
+alternate input path. Do not fall back after
 `policy_disabled`, `permission_denied`, `invalid_target`, `missing_window`,
 `user_interrupted`, or `desktop_unavailable`.
 
@@ -112,12 +117,23 @@ Use this loop:
 5. Repeat one action at a time, then call `app_ui__stop_computer_use` on every
    success, failure, cancellation, or abandonment path.
 
+If the exact target still exists but is minimized or hidden, the first
+snapshot can fail before producing an id. Do not widen the scope or use desktop
+input. Call `app_ui__act(action="get_window_state")` with the same trusted
+PID/HWND, then use only the required `restore_window`, `show_window`, and
+`activate_window` operations. These pre-snapshot operations address the
+already confirmed opaque window capability, are revalidated and audited by
+the host, and invalidate any older observation. Take a fresh snapshot after
+the window becomes visible, non-minimized, and foreground.
+
 The visible corner brackets, control capsule, and pointer effects belong to the adapter
 host's interactive Windows logon session. If the user presses `Ctrl+Alt+Esc`
 and the tool returns `user_interrupted`, stop immediately. Ordinary `Esc`
 remains available to the target DCC. Do not retry, change
 `session_id`, or start another session. Set `resume_computer_use=true` only
-after the user explicitly asks to resume.
+after the user explicitly asks to resume. The flag cannot approve resumption:
+the isolated host always presents its own trusted confirmation before clearing
+the global stop latch.
 
 ### Lock, RDP, and Display Changes
 
@@ -145,12 +161,12 @@ backend-enforced boundaries cannot be bypassed with another UI automation
 method. A script editor hosted inside the bound DCC process is not a terminal
 target.
 
-`app_ui__act` carries a destructive annotation for the calling host's
-confirmation policy. Do not add or trust a model-supplied `confirmed=true`
-argument, and do not use an environment flag as per-action approval. When the
-host requires confirmation but cannot obtain it, stop instead of selecting a
-different automation route. A future trusted approval capability can be added
-without weakening the current target and raw-input ceilings.
+`app_ui__act` carries a destructive annotation and may declare an `intent` that
+only raises policy. The isolated host also classifies the UIA/focused/pointed
+control and keyboard chord. It presents a host-owned Windows dialog for tier
+2/3 actions and returns `approval_required` when confirmation is denied or
+unavailable. No model-supplied `confirmed=true`, `approved`, or environment
+flag can resolve confirmation.
 
 ## Example: Modal Dialog
 

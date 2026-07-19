@@ -321,6 +321,27 @@ async fn test_admin_logs_limit_1000_reads_file_log_tail() {
 }
 
 #[tokio::test]
+async fn test_admin_logs_exposes_ui_control_operation() {
+    let _env = API_LOGS_ENV_LOCK.lock();
+    let disk_logs = ScopedDiskLogsDir::new();
+    let line = r#"2026-07-20T12:00:00.000Z INFO dcc_mcp_core.app_ui.audit: {"dcc_type":"unreal","detail":"backend=windows-uia action=click session=lookdev","error":null,"event":"ui_control_operation","message":"DCC UI Control act succeeded","success":true,"tool":"app_ui__act"}"#;
+    std::fs::write(disk_logs.path().join("dcc-mcp-app-ui.42.log"), line).unwrap();
+
+    let (status, body) = body_json(admin_router(), "/api/logs").await;
+
+    assert_eq!(status, StatusCode::OK);
+    let log = body["logs"]
+        .as_array()
+        .and_then(|logs| logs.first())
+        .expect("UI Control log row");
+    assert_eq!(log["event"], "ui_control_operation");
+    assert_eq!(log["dcc_type"], "unreal");
+    assert_eq!(log["tool"], "app_ui__act");
+    assert_eq!(log["success"], true);
+    assert_eq!(log["message"], "DCC UI Control act succeeded");
+}
+
+#[tokio::test]
 async fn test_admin_logs_merges_audit_tail_when_audit_attached() {
     let _env = API_LOGS_ENV_LOCK.lock();
     let _no_disk = ScopedNoDiskLogsDir::new();

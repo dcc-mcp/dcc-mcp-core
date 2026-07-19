@@ -10,6 +10,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod host_protocol;
+
 /// Rectangle in the coordinate space declared by its enclosing snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct UiBounds {
@@ -238,6 +240,14 @@ pub enum UiActionKind {
     Focus,
     /// Send a keyboard shortcut. Disabled by policy by default.
     KeyboardShortcut,
+    /// Read exact PID/HWND window state without requiring a screenshot.
+    GetWindowState,
+    /// Restore the exact scoped window when minimized.
+    RestoreWindow,
+    /// Show the exact scoped window without activating it.
+    ShowWindow,
+    /// Activate the exact visible, non-minimized scoped window.
+    ActivateWindow,
 }
 
 /// Policy controls for scoped `app_ui` observation and actions.
@@ -298,6 +308,7 @@ impl AppUiPolicy {
             return false;
         }
         match action {
+            UiActionKind::GetWindowState => self.allow_snapshot,
             UiActionKind::Move
             | UiActionKind::DoubleClick
             | UiActionKind::Scroll
@@ -318,7 +329,10 @@ impl AppUiPolicy {
             | UiActionKind::Toggle
             | UiActionKind::SetChecked
             | UiActionKind::SelectOption
-            | UiActionKind::Focus => self.allow_mutating_actions,
+            | UiActionKind::Focus
+            | UiActionKind::RestoreWindow
+            | UiActionKind::ShowWindow
+            | UiActionKind::ActivateWindow => self.allow_mutating_actions,
         }
     }
 
@@ -597,6 +611,8 @@ mod tests {
 
         assert!(policy.allows_action(UiActionKind::Click));
         assert!(policy.allows_action(UiActionKind::SetText));
+        assert!(policy.allows_action(UiActionKind::GetWindowState));
+        assert!(policy.allows_action(UiActionKind::RestoreWindow));
         assert!(!policy.allows_action(UiActionKind::RawCoordinateClick));
         assert!(!policy.allows_action(UiActionKind::KeyboardShortcut));
         assert!(policy.require_scoped_window);

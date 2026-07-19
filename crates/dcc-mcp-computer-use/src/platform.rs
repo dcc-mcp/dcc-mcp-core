@@ -103,11 +103,31 @@ impl From<ComputerUseError> for ControlBannerStartError {
 
 pub(crate) type ControlBannerStartResult = Result<JoinHandle<()>, ControlBannerStartError>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(windows)]
+pub(crate) struct ScopedWindowState {
+    pub(crate) process_id: u32,
+    pub(crate) window_handle: u64,
+    pub(crate) exists: bool,
+    pub(crate) visible: bool,
+    pub(crate) minimized: bool,
+    pub(crate) foreground: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(windows)]
+pub(crate) enum ScopedWindowOperation {
+    Restore,
+    Show,
+    Activate,
+}
+
 #[cfg(windows)]
 pub(crate) use windows::{
     ThreadDpiAwareness, clear_user_interrupt, desktop_interactive, flush_pending_input_releases,
-    perform_action, prepare_target_for_input, prepare_target_window, start_control_banner,
-    synchronize_desktop_events, user_interrupted, validate_target_policy, window_dpi,
+    perform_action, prepare_target_for_input, prepare_target_window, scoped_window_state,
+    start_control_banner, synchronize_desktop_events, transition_scoped_window, user_interrupted,
+    validate_target_policy, window_dpi,
 };
 
 #[cfg(all(test, windows))]

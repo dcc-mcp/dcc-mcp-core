@@ -39,6 +39,26 @@ pub fn parse_gateway_file_log_line(line: &str) -> Option<Value> {
         .map_or((None, body), |(target, message)| {
             (Some(target.trim()), message.trim())
         });
+    if let Ok(payload) = serde_json::from_str::<Value>(message)
+        && payload.get("event").and_then(Value::as_str) == Some("ui_control_operation")
+    {
+        return Some(json!({
+            "timestamp": ts,
+            "level": level,
+            "message": payload.get("message").and_then(Value::as_str).unwrap_or("DCC UI Control operation"),
+            "source": "file",
+            "event": "ui_control_operation",
+            "target": target,
+            "thread": thread,
+            "dcc_type": payload.get("dcc_type").cloned().unwrap_or(Value::Null),
+            "instance_id": null,
+            "request_id": null,
+            "tool": payload.get("tool").cloned().unwrap_or(Value::Null),
+            "success": payload.get("success").and_then(Value::as_bool).unwrap_or(false),
+            "detail": payload.get("detail").cloned().unwrap_or(Value::Null),
+            "reason": payload.get("error").cloned().unwrap_or(Value::Null),
+        }));
+    }
     Some(json!({
         "timestamp": ts,
         "level": level,
@@ -173,6 +193,18 @@ mod tests {
         assert_eq!(v["thread"], "ThreadId(01)");
         assert_eq!(v["target"], "dcc_mcp_http_server:executor");
         assert_eq!(v["message"], "deferred tool spent > 50 ms");
+    }
+
+    #[test]
+    fn ui_control_json_is_exposed_as_structured_admin_log() {
+        let line = r#"2026-07-20T12:00:00.000Z WARN dcc_mcp_core.app_ui.audit: {"action":"set_text","dcc_type":"unreal","detail":"backend=windows-uia action=set_text session=lookdev error=policy_disabled","error":"policy_disabled","event":"ui_control_operation","message":"DCC UI Control act rejected","success":false,"tool":"app_ui__act"}"#;
+        let v = parse_gateway_file_log_line(line).expect("parsable UI Control event");
+        assert_eq!(v["event"], "ui_control_operation");
+        assert_eq!(v["dcc_type"], "unreal");
+        assert_eq!(v["tool"], "app_ui__act");
+        assert_eq!(v["success"], false);
+        assert_eq!(v["reason"], "policy_disabled");
+        assert_eq!(v["message"], "DCC UI Control act rejected");
     }
 
     #[test]

@@ -5,9 +5,7 @@ tools:
       Start here before UI actions; use the returned snapshot_id when acting so
       stale controls can be detected. On Windows, an adapter/operator-bound
       PID/HWND starts the visible DCC UI Control session and captures a bounded
-      target-window image even when raw input is disabled. If UIA itself is
-      unavailable, that exact scope can fall back to a native image with a
-      minimal non-semantic tree. Bind the
+      target-window image even when raw input is disabled. Bind the
       DCC through DCC_MCP_APP_UI_UIA_PROCESS_ID or
       DCC_MCP_APP_UI_UIA_WINDOW_HANDLE; request scope can only narrow it. A
       locked, disconnected, or secure Windows desktop returns
@@ -132,6 +130,10 @@ tools:
       the visible capsule and user interruption monitor cover semantic UIA as
       well as raw input. Raw input additionally requires
       DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true.
+      get_window_state, restore_window, show_window, and activate_window are
+      recovery operations for the same host-bound PID/HWND and do not require
+      a prior snapshot. They cannot enumerate or target another process/window;
+      restore/show/activate invalidate any prior snapshot and are audited.
       desktop_unavailable means no Windows UI input was sent; keep the logical
       session, stop issuing UI calls, and ask the user to unlock or reconnect.
       Take a fresh snapshot only after that happens. Never
@@ -172,9 +174,39 @@ tools:
             - set_text
             - toggle
             - set_checked
+            - select_option
             - focus
             - keyboard_shortcut
+            - get_window_state
+            - restore_window
+            - show_window
+            - activate_window
           description: "Action kind to perform."
+        intent:
+          type: string
+          enum:
+            - observe
+            - activate
+            - navigate
+            - ordinary_edit
+            - login_or_permission
+            - upload
+            - move_or_rename
+            - transmit_sensitive_data
+            - delete_or_overwrite
+            - install_or_execute_download
+            - financial_transaction
+            - account_or_access_change
+            - external_communication
+            - terminal_or_run_dialog
+            - credential_or_authentication
+            - windows_security_or_privacy
+            - safety_bypass
+            - password_change
+            - escape_scope
+          description: >-
+            Consequence classification hint. It can only raise the native host
+            policy tier; host UIA/target/input classification remains authoritative.
         text:
           type: string
           maxLength: 4096

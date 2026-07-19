@@ -177,10 +177,10 @@ runs:
         # stub drift check, use the committed stubs instead of regenerating them.
         vx just stubgen
 
-    - name: Build and stage Windows capture helper
+    - name: Build and stage Windows runtime hosts
       if: runner.os == 'Windows'
       shell: bash
-      run: vx just stage-capture-helper
+      run: vx just stage-windows-runtime-hosts
 
     - name: Build wheel
       uses: PyO3/maturin-action@v1

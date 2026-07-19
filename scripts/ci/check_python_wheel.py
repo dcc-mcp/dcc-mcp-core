@@ -114,6 +114,16 @@ def validate_wheel(
     for member in required_members:
         if member not in names:
             errors.append(f"wheel is missing required member {member!r}")
+    actual_version = str(metadata.get("Version", ""))
+    actual_release = _release_tuple(actual_version)
+    for member, required_from in platform_policy.get("versioned_required_members", {}).items():
+        required_release = _release_tuple(str(required_from))
+        if actual_release is None:
+            errors.append(f"Version {actual_version!r} is not a valid release version")
+        elif required_release is None:
+            errors.append(f"versioned required member {member!r} has invalid version {required_from!r}")
+        elif actual_release >= required_release and member not in names:
+            errors.append(f"wheel is missing required member {member!r}")
     for member in platform_policy.get("forbidden_members", []):
         if member in names:
             errors.append(f"wheel contains forbidden member {member!r}")

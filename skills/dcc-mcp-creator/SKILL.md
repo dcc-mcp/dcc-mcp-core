@@ -79,17 +79,22 @@ does not replace a running server binary.
 6. Keep DCC identity data-driven: `dcc_name`, `server_name`, env-var prefix, skill names, and gateway metadata.
    Leave the instance port unset so core resolves `DCC_MCP_<DCC>_PORT` or asks the OS for a free port.
 7. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers. Python `DccServerBase.collect_skill_search_paths()` includes marketplace-installed skills under `~/.dcc-mcp/marketplace/<dcc>` (or `DCC_MCP_MARKETPLACE_INSTALL_ROOT/<dcc>`) when the directory exists, so adapters should not add a second marketplace path convention. Hermetic adapter tests should set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`; this excludes implicit local/platform defaults, marketplace installs, and Admin custom paths while explicit, bundled, and environment-provided skill paths remain active.
-   - For Windows visual UI fallback, reuse the bundled `app-ui` skill and its
-     native `ComputerUseSession`; do not add adapter-local screenshot or
-     `SendInput` wrappers. Keep `app_ui__snapshot` and the following raw
-     `app_ui__act` in the same long-lived adapter process so the observation
-     and visible control banner remain valid. On Windows, the Ctrl+Alt+Esc token and
-     input owner are additionally coordinated across adapter processes in the
-     same logon session.
+   - For Windows visual UI fallback, reuse the bundled `app-ui` skill and the
+     isolated `dcc-mcp-ui-control-host.exe`; do not instantiate
+     `ComputerUseSession` or add adapter-local screenshot/`SendInput` wrappers.
+     Keep `app_ui__snapshot` and `app_ui__act` in the same long-lived adapter
+     process so one thin named-pipe client retains the opaque host capability.
+     The per-logon-session host owns the screenshot/UIA observations, visible
+     banner, Ctrl+Alt+Esc token, input owner, confirmation, and native input.
      `app-ui` declares `requires_in_process: true` while keeping
      `affinity: any`; register `HostExecutionBridge` before skill loading.
      Never weaken this into per-call subprocess execution or route it onto a
      blocked DCC UI thread.
+     A minimized or hidden exact HWND is recovered only through the host-owned
+     `get_window_state` / `restore_window` / `show_window` /
+     `activate_window` actions. They need no snapshot, must retain the existing
+     capability-bound PID/HWND, and must never become desktop discovery or
+     adapter-local Win32/input fallbacks.
    - Keep structured DCC skills, host APIs, and adapter scripts ahead of
      `app-ui`. Agents should make an explicit, agent-directed transition into the scoped
      `snapshot` → one `act` → `snapshot` loop only when an operation is
@@ -103,15 +108,17 @@ does not replace a running server binary.
       PID/HWND. Require a visible unlocked desktop and matching Windows
       integrity level, preserve the click-through border/banner/pointer feedback, and preserve
       `user_interrupted` without automatic retry, `session_id` changes, or fallback. Once Ctrl+Alt+Esc stops a
-      session, only `app_ui__snapshot(resume_computer_use=true)` may resume it,
-     and an agent must not set that cooperative flag without an explicit user
-      request. Always call `app_ui__stop_computer_use` when the workflow ends.
+      session, only `app_ui__snapshot(resume_computer_use=true)` may request a
+      resume, and the isolated host must still obtain trusted user confirmation
+      before clearing the latch. Always call `app_ui__stop_computer_use` when
+      the workflow ends.
       Never transition or retry through another UI/input path after a policy,
       authorization, authentication, security, confirmation,
       `desktop_unavailable`, or `user_interrupted` result.
-      Keep mutating Computer Use tools annotated as destructive and leave
-      confirmation enforcement to the trusted calling host. Do not introduce
-      a model-supplied `confirmed` flag or environment bypass.
+      Keep mutating UI Control tools annotated as destructive. The optional
+      `intent` may only raise the native host's independent UIA/input
+      classification. Do not introduce a model-supplied `confirmed`/`approved`
+      flag or environment bypass.
 8. Use CLI profiles (`dcc-mcp-cli gateway ...`, `list/search/describe/call`) as the user UX; treat `dcc-mcp-server` modes as runtime plumbing. Read `docs/guide/gateway.md` before changing daemon, guardian, sentinel, registry, or idle-timeout behavior.
 9. Use `dcc_mcp_core.install_lifecycle.build_sidecar_command(...)` / `launch_sidecar(...)` for sidecar startup and readiness. Read `docs/guide/adapter-install-lifecycle.md` before changing host RPC, dispatch readiness, launch stdio, `watch_pid`, or `instance_id` handling.
    - The sidecar MCP listener is dispatch-only. A py37-lite factory can expose local skill metadata, but it cannot advertise or activate declarative skills through the gateway. Require a native py37 wheel for that path, or provide a separate discovery MCP URL; never report lite `load_skill` success without an executable catalog.

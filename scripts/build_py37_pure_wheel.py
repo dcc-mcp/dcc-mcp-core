@@ -14,6 +14,7 @@ PYTHON_ROOT = ROOT / "python"
 PACKAGE_DIR = PYTHON_ROOT / "dcc_mcp_core"
 DIST = ROOT / "dist"
 WINDOWS_CAPTURE_HELPER = Path("dcc_mcp_core/bin/dcc-mcp-capture-helper.exe")
+WINDOWS_UI_CONTROL_HOST = Path("dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe")
 
 
 def _ensure_wheel() -> None:
@@ -66,7 +67,7 @@ def main() -> int:
             if "__pycache__" in file_path.parts:
                 continue
             arcname = file_path.relative_to(PYTHON_ROOT).as_posix()
-            if Path(arcname) == WINDOWS_CAPTURE_HELPER:
+            if Path(arcname) in {WINDOWS_CAPTURE_HELPER, WINDOWS_UI_CONTROL_HOST}:
                 # py37-lite intentionally has no compiled `_core`, therefore
                 # it cannot invoke the native capture backend. Keep this wheel
                 # platform-independent even after a local Windows build staged
