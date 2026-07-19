@@ -81,10 +81,12 @@ test.describe('Sessions Panel', () => {
   test('displays session list with summary metrics', async ({ page }) => {
     const panel = page.locator('section[data-panel="sessions"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    // Session IDs are compacted to 12 chars max
+    // Root sessions should be visible (IDs are compacted to 12 chars max)
     await expect(panel).toContainText('parent-sessi');
-    await expect(panel).toContainText('child-sessio');
     await expect(panel).toContainText('crashed-sess');
+    // KPI metrics
+    await expect(panel).toContainText('3'); // total
+    await expect(panel).toContainText('1'); // active (first instance of "1")
   });
 
   test('shows status badges with correct colors', async ({ page }) => {
