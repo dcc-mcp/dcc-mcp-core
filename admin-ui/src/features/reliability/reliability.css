@@ -1,139 +1,158 @@
 .reliability-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
+  padding: 24px 32px;
+  max-width: 1200px;
 }
 
-.reliability-section {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1.1rem 1.15rem;
-}
-
-.reliability-section-title {
-  align-items: center;
-  color: var(--foreground);
-  display: flex;
-  font-size: 0.95rem;
-  font-weight: 750;
-  gap: 0.4rem;
-  margin: 0 0 0.85rem 0;
-}
-
-.reliability-empty {
-  padding: 1.5rem 0;
-  text-align: center;
-}
-
-.reliability-circuit-list {
+.reliability-panel .reliability-grid {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
 }
 
-.reliability-circuit-card {
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--muted-foreground);
-  border-radius: var(--radius);
-  padding: 0.75rem 0.85rem;
+.reliability-panel .reliability-section {
+  margin-bottom: 28px;
 }
 
-.reliability-circuit-card.ok {
-  border-left-color: var(--ok);
-}
-
-.reliability-circuit-card.warn {
-  border-left-color: var(--warn);
-}
-
-.reliability-circuit-card.err {
-  border-left-color: var(--err);
-}
-
-.reliability-circuit-head {
-  align-items: center;
-  display: flex;
-  gap: 0.5rem;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-}
-
-.reliability-circuit-head strong {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.reliability-circuit-meta {
-  color: var(--muted-foreground);
-  display: grid;
-  font-size: 0.78rem;
-  gap: 0.3rem;
-}
-
-.reliability-circuit-meta strong {
-  color: var(--foreground);
-  font-weight: 650;
-  margin-right: 0.35rem;
-}
-
-.reliability-funnel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin: 0 auto;
-  max-width: 32rem;
-}
-
-.reliability-funnel-row {
-  align-items: center;
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: 6.5rem 1fr 3rem;
-}
-
-.reliability-funnel-label {
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  font-weight: 650;
-  letter-spacing: 0.04em;
+.reliability-panel .reliability-section h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+  margin: 0 0 12px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.reliability-funnel-track {
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  height: 1.1rem;
-  overflow: hidden;
+.reliability-panel .reliability-funnel {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.reliability-funnel-fill {
-  background: linear-gradient(90deg, var(--primary), var(--ok));
-  height: 100%;
-  transition: width 0.3s ease;
+.reliability-panel .reliability-funnel-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  min-width: 120px;
 }
 
-.reliability-funnel-value {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
+.reliability-panel .reliability-funnel-stage .funnel-value {
+  font-size: 1.5rem;
   font-weight: 700;
-  text-align: right;
 }
 
-.reliability-funnel-arrow {
-  color: var(--muted-foreground);
-  grid-column: 1 / -1;
+.reliability-panel .reliability-funnel-stage .funnel-label {
+  font-size: 0.75rem;
+  color: var(--color-muted);
   text-align: center;
 }
 
-@media (max-width: 640px) {
-  .reliability-funnel-row {
-    grid-template-columns: 5rem 1fr 2.5rem;
-  }
+.reliability-panel .reliability-funnel-arrow {
+  display: flex;
+  align-items: center;
+  padding-top: 20px;
+  color: var(--color-muted);
+  font-size: 1.25rem;
+}
+
+.reliability-panel .reliability-election {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.reliability-panel .reliability-election .election-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+}
+
+.reliability-panel .reliability-election .election-label {
+  color: var(--color-muted);
+  min-width: 80px;
+}
+
+.reliability-panel .reliability-election .election-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+.reliability-panel .reliability-election .election-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.reliability-panel .reliability-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.reliability-panel .reliability-config-grid .config-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+
+.reliability-panel .reliability-config-grid .config-label {
+  color: var(--color-muted);
+}
+
+.reliability-panel .reliability-config-grid .config-value {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+
+.reliability-panel .reliability-stability {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.reliability-panel .reliability-stability .uptime-ring {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.reliability-panel .reliability-stability .uptime-ring.ok {
+  background: color-mix(in srgb, var(--color-ok, #22c55e) 15%, transparent);
+  color: var(--color-ok, #22c55e);
+  border: 3px solid var(--color-ok, #22c55e);
+}
+
+.reliability-panel .reliability-stability .uptime-ring.warn {
+  background: color-mix(in srgb, var(--color-warn, #eab308) 15%, transparent);
+  color: var(--color-warn, #eab308);
+  border: 3px solid var(--color-warn, #eab308);
+}
+
+.reliability-panel .reliability-stability .uptime-ring.err {
+  background: color-mix(in srgb, var(--color-err, #ef4444) 15%, transparent);
+  color: var(--color-err, #ef4444);
+  border: 3px solid var(--color-err, #ef4444);
 }
