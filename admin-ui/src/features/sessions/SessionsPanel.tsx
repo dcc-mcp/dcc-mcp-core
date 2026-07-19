@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import { RiRefreshLine } from '@remixicon/react';
 import {
-  API_BASE,
   PanelHeader,
   StatusLine,
   MetricTile,
@@ -196,7 +195,7 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['admin', 'sessions'],
-    queryFn: () => apiJson<SessionsPayload>(`${API_BASE}/sessions`),
+    queryFn: () => apiJson<SessionsPayload>(`/sessions`),
     enabled: active,
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
