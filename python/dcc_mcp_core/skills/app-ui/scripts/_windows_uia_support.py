@@ -752,6 +752,24 @@ def _native_fallback_capture(
     }
 
 
+def _computer_use_session_matches_scope(
+    existing_spec: Any,
+    resolved_spec: Any,
+    scope: Dict[str, Any],
+) -> bool:
+    """Keep a process-scoped session stable across transient UIA root changes."""
+    if existing_spec == resolved_spec:
+        return True
+    if scope.get("window_handles"):
+        return False
+    try:
+        existing_process_id = _positive_int(existing_spec[0])
+        resolved_process_id = _positive_int(resolved_spec[0])
+    except (IndexError, TypeError):
+        return False
+    return existing_process_id is not None and existing_process_id == resolved_process_id
+
+
 def _computer_use_screenshot_impl(
     session_id: str,
     capture: Dict[str, Any],
@@ -850,7 +868,7 @@ def _computer_use_screenshot_impl(
     )
     spec = (process_id, window_handle, window_title, app_name)
     entry = _COMPUTER_USE_SESSIONS.get(session_id)
-    if entry and entry["spec"] != spec:
+    if entry and not _computer_use_session_matches_scope(entry["spec"], spec, scope):
         stop_status = stop_session(session_id)
         if stop_status.get("cleanup_pending"):
             return {
