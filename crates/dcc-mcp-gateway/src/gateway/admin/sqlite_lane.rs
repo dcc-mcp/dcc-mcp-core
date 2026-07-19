@@ -115,6 +115,57 @@ impl AdminSqliteReader {
             .filter_map(|s| serde_json::from_str(&s).ok())
             .collect()
     }
+
+    /// PIP-2751: List sessions with optional filters.
+    pub fn list_sessions(
+        &self,
+        limit: usize,
+        dcc_type: Option<&str>,
+        status: Option<&str>,
+    ) -> Vec<serde_json::Value> {
+        self.inner
+            .list_sessions_json(limit, dcc_type, status)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
+
+    /// PIP-2751: Get a single session by id.
+    pub fn get_session(&self, session_id: &str) -> Option<serde_json::Value> {
+        let s = self.inner.get_session_json(session_id)?;
+        serde_json::from_str(&s).ok()
+    }
+
+    /// PIP-2751: List session events.
+    pub fn list_session_events(&self, session_id: &str, limit: usize) -> Vec<serde_json::Value> {
+        self.inner
+            .list_session_events_json(session_id, limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
+
+    /// PIP-2751: List tool calls for a session.
+    pub fn list_tool_calls(&self, session_id: &str, limit: usize) -> Vec<serde_json::Value> {
+        self.inner
+            .list_tool_calls_json(session_id, limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
+
+    /// PIP-2751: List all tool calls with optional session filter.
+    pub fn list_all_tool_calls(
+        &self,
+        limit: usize,
+        session_id: Option<&str>,
+    ) -> Vec<serde_json::Value> {
+        self.inner
+            .list_all_tool_calls_json(limit, session_id)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
 }
 
 #[cfg(feature = "admin-persist-sqlite")]
@@ -341,6 +392,35 @@ impl AdminSqliteReader {
         _dcc_name: Option<&str>,
         _key_prefix: Option<&str>,
         _limit: usize,
+    ) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn list_sessions(
+        &self,
+        _limit: usize,
+        _dcc_type: Option<&str>,
+        _status: Option<&str>,
+    ) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn get_session(&self, _session_id: &str) -> Option<serde_json::Value> {
+        None
+    }
+
+    pub fn list_session_events(&self, _session_id: &str, _limit: usize) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn list_tool_calls(&self, _session_id: &str, _limit: usize) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn list_all_tool_calls(
+        &self,
+        _limit: usize,
+        _session_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
         vec![]
     }
