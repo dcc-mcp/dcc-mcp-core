@@ -23,9 +23,7 @@ pub struct SessionsPayload {
 /// GET /admin/api/sessions
 ///
 /// Returns all known sessions with summary statistics.
-pub async fn handle_admin_sessions(
-    State(_state): State<AdminState>,
-) -> Json<SessionsPayload> {
+pub async fn handle_admin_sessions(State(_state): State<AdminState>) -> Json<SessionsPayload> {
     // TODO: query sessions from the SQLite sessions table via admin_sqlite_lane
     // when session persistence is wired into AdminState. For now, return an
     // empty list with zeros.
