@@ -16,6 +16,17 @@ fn test_session(process_id: u32) -> ComputerUseSession {
 }
 
 #[test]
+fn status_uses_public_dcc_ui_control_name() {
+    let hint = test_session(std::process::id()).status()["hint"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    assert!(hint.starts_with("DCC UI Control is controlling "));
+    assert!(!hint.contains("Computer Use"));
+}
+
+#[test]
 fn desktop_transitions_advance_generation_once_per_change() {
     let state = AtomicU64::new(desktop_state_value(1, true));
 

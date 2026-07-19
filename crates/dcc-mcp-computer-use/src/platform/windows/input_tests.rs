@@ -326,27 +326,27 @@ fn control_corners_mark_the_scoped_target_without_covering_its_edges() {
     assert_eq!(
         &geometries[..8],
         &[
-            ((-100, 20, 96, 16), 42, true),
-            ((-100, 20, 16, 96), 42, true),
-            ((804, 20, 96, 16), 42, true),
-            ((884, 20, 16, 96), 42, true),
-            ((-100, 604, 96, 16), 42, true),
-            ((-100, 524, 16, 96), 42, true),
-            ((804, 604, 96, 16), 42, true),
-            ((884, 524, 16, 96), 42, true),
+            ((-100, 20, 184, 30), 112, true),
+            ((-100, 20, 30, 184), 112, true),
+            ((716, 20, 184, 30), 112, true),
+            ((870, 20, 30, 184), 112, true),
+            ((-100, 590, 184, 30), 112, true),
+            ((-100, 436, 30, 184), 112, true),
+            ((716, 590, 184, 30), 112, true),
+            ((870, 436, 30, 184), 112, true),
         ]
     );
     assert_eq!(
         &geometries[8..],
         &[
-            ((-100, 20, 72, 6), CONTROL_BORDER_ALPHA, false),
-            ((-100, 20, 6, 72), CONTROL_BORDER_ALPHA, false),
-            ((828, 20, 72, 6), CONTROL_BORDER_ALPHA, false),
-            ((894, 20, 6, 72), CONTROL_BORDER_ALPHA, false),
-            ((-100, 614, 72, 6), CONTROL_BORDER_ALPHA, false),
-            ((-100, 548, 6, 72), CONTROL_BORDER_ALPHA, false),
-            ((828, 614, 72, 6), CONTROL_BORDER_ALPHA, false),
-            ((894, 548, 6, 72), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 144, 12), CONTROL_BORDER_ALPHA, false),
+            ((-100, 20, 12, 144), CONTROL_BORDER_ALPHA, false),
+            ((756, 20, 144, 12), CONTROL_BORDER_ALPHA, false),
+            ((888, 20, 12, 144), CONTROL_BORDER_ALPHA, false),
+            ((-100, 608, 144, 12), CONTROL_BORDER_ALPHA, false),
+            ((-100, 476, 12, 144), CONTROL_BORDER_ALPHA, false),
+            ((756, 608, 144, 12), CONTROL_BORDER_ALPHA, false),
+            ((888, 476, 12, 144), CONTROL_BORDER_ALPHA, false),
         ]
     );
 }
@@ -356,12 +356,15 @@ fn overlay_pixels_scale_at_common_monitor_dpis() {
     assert_eq!(scaled_pixels(36, 96), 36);
     assert_eq!(scaled_pixels(36, 144), 54);
     assert_eq!(scaled_pixels(36, 192), 72);
-    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 96), 16);
-    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 144), 24);
-    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 192), 32);
-    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 96), 120);
-    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 144), 180);
-    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 192), 240);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 96), 30);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 144), 45);
+    assert_eq!(scaled_pixels(CORNER_GLOW_THICKNESS, 192), 60);
+    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 96), 72);
+    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 144), 108);
+    assert_eq!(scaled_pixels(POINTER_EFFECT_SIZE, 192), 144);
+    assert_eq!(scaled_pixels(POINTER_RING_SIZE, 96), 52);
+    assert_eq!(scaled_pixels(POINTER_RING_SIZE, 144), 78);
+    assert_eq!(scaled_pixels(POINTER_RING_SIZE, 192), 104);
 }
 
 #[test]
@@ -378,7 +381,7 @@ fn control_overlay_breathes_smoothly_without_exceeding_base_alpha() {
         CONTROL_PULSE_PERIOD_MS / 2,
     );
 
-    assert_eq!(minimum, 62);
+    assert_eq!(minimum, 136);
     assert!(minimum < quarter && quarter < maximum);
     assert_eq!(maximum, CONTROL_BORDER_ALPHA);
     assert_eq!(
@@ -401,11 +404,14 @@ fn control_overlay_visual_contract_is_prominent_blue() {
     let focus_blue = (CONTROL_FOCUS_COLOR.0 >> 16) & 0xff;
 
     const {
-        assert!(CORNER_ACCENT_THICKNESS >= 4);
-        assert!(CORNER_ACCENT_LENGTH >= 64);
-        assert!(POINTER_EFFECT_SIZE >= 96);
+        assert!(CORNER_ACCENT_THICKNESS >= 12);
+        assert!(CORNER_ACCENT_LENGTH >= 128);
+        assert!(POINTER_EFFECT_SIZE >= 64 && POINTER_EFFECT_SIZE <= 96);
+        assert!(POINTER_RING_SIZE >= 40 && POINTER_RING_SIZE <= 64);
         assert!(CONTROL_CAPSULE_ALPHA > CONTROL_OVERLAY_ALPHA);
         assert!(CONTROL_BORDER_ALPHA < CONTROL_CURSOR_ALPHA);
+        assert!(CONTROL_BORDER_ALPHA >= 210);
+        assert!(CONTROL_BORDER_PULSE_FLOOR_PERCENT >= 60);
         assert!(CONTROL_CAPSULE_FONT_SIZE >= 16);
     }
     assert!((110..=220).contains(&CONTROL_OVERLAY_ALPHA));
@@ -584,6 +590,24 @@ fn pointer_effect_is_a_visible_click_through_overlay() {
     let mut caption = [0_u16; 8];
     let length = unsafe { GetWindowTextW(effect.hwnd, &mut caption) } as usize;
     assert_eq!(String::from_utf16_lossy(&caption[..length]), "●");
+}
+
+#[test]
+fn persistent_pointer_ring_keeps_the_system_cursor_visible() {
+    use windows::Win32::Graphics::Gdi::{CreateRectRgn, GetWindowRgn, PtInRegion};
+
+    let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
+    let geometry = pointer_ring_geometry(200, 240);
+    let hwnd = create_cursor_ring_overlay(geometry, CONTROL_CURSOR_ALPHA).unwrap();
+    let region = unsafe { CreateRectRgn(0, 0, geometry.2, geometry.3) };
+
+    assert_ne!(unsafe { GetWindowRgn(hwnd, region) }, RGN_ERROR);
+    let center = geometry.2 / 2;
+    assert!(!unsafe { PtInRegion(region, center, center) }.as_bool());
+    assert!(unsafe { PtInRegion(region, center, (geometry.2 / 24).max(1)) }.as_bool());
+
+    let _ = unsafe { DeleteObject(HGDIOBJ(region.0)) };
+    unsafe { DestroyWindow(hwnd) }.unwrap();
 }
 
 #[test]

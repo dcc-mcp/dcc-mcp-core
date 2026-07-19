@@ -10,12 +10,13 @@ use windows::Win32::Foundation::{
     WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateRoundRectRgn,
-    CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_END_ELLIPSIS, DT_SINGLELINE,
-    DT_VCENTER, DeleteObject, DrawTextW, EndPaint, EnumDisplayMonitors, FW_SEMIBOLD,
-    GetMonitorInfoW, HDC, HGDIOBJ, HMONITOR, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint,
-    MonitorFromRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor,
-    SetWindowRgn, TRANSPARENT,
+    BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CombineRgn, CreateEllipticRgn, CreateFontW,
+    CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
+    DT_END_ELLIPSIS, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint,
+    EnumDisplayMonitors, FW_SEMIBOLD, GetMonitorInfoW, HDC, HGDIOBJ, HMONITOR,
+    MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint, MonitorFromRect, OUT_DEFAULT_PRECIS,
+    PAINTSTRUCT, RGN_DIFF, RGN_ERROR, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
+    TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::RemoteDesktop::{
@@ -89,20 +90,21 @@ const HOTKEY_ID: i32 = 0x4443;
 const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
 const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
     HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
-const CORNER_GLOW_THICKNESS: i32 = 16;
-const CORNER_ACCENT_THICKNESS: i32 = 6;
-const CORNER_GLOW_LENGTH: i32 = 96;
-const CORNER_ACCENT_LENGTH: i32 = 72;
-const POINTER_EFFECT_SIZE: i32 = 120;
+const CORNER_GLOW_THICKNESS: i32 = 30;
+const CORNER_ACCENT_THICKNESS: i32 = 12;
+const CORNER_GLOW_LENGTH: i32 = 184;
+const CORNER_ACCENT_LENGTH: i32 = 144;
+const POINTER_EFFECT_SIZE: i32 = 72;
+const POINTER_RING_SIZE: i32 = 52;
 const CONTROL_OVERLAY_ALPHA: u8 = 185;
-const CONTROL_BORDER_ALPHA: u8 = 112;
+const CONTROL_BORDER_ALPHA: u8 = 220;
 const CONTROL_CAPSULE_ALPHA: u8 = 238;
-const CONTROL_CURSOR_ALPHA: u8 = 140;
+const CONTROL_CURSOR_ALPHA: u8 = 238;
 const CONTROL_CAPSULE_FONT_SIZE: i32 = 18;
-const CONTROL_PULSE_PERIOD_MS: u64 = 2_400;
-const CONTROL_BORDER_PULSE_FLOOR_PERCENT: u8 = 55;
+const CONTROL_PULSE_PERIOD_MS: u64 = 1_800;
+const CONTROL_BORDER_PULSE_FLOOR_PERCENT: u8 = 62;
 const CONTROL_CAPSULE_PULSE_FLOOR_PERCENT: u8 = 88;
-const CONTROL_CURSOR_PULSE_FLOOR_PERCENT: u8 = 72;
+const CONTROL_CURSOR_PULSE_FLOOR_PERCENT: u8 = 82;
 const CONTROL_ACCENT_COLOR: COLORREF = COLORREF(0x00EB_6325);
 const CONTROL_FOCUS_COLOR: COLORREF = COLORREF(0x0027_1811);
 const CONTROL_OVERLAY_CLASS: PCWSTR = w!("DccMcpComputerUseOverlay");
@@ -782,7 +784,8 @@ impl OverlayLayer {
 struct ControlOverlay {
     capsule: OverlayLayer,
     corners: Vec<OverlayLayer>,
-    cursor_mask: OverlayLayer,
+    cursor_ring: OverlayLayer,
+    cursor_ring_size: Cell<i32>,
     cursor_visible: Cell<bool>,
     pulse_started: Instant,
 }
@@ -887,13 +890,8 @@ impl ControlOverlay {
         }
         let cursor_alpha =
             breathing_alpha(CONTROL_CURSOR_ALPHA, CONTROL_CURSOR_PULSE_FLOOR_PERCENT, 0);
-        let cursor_mask = match create_color_overlay(
-            "",
-            pointer_mask_geometry(cursor.x, cursor.y),
-            cursor_alpha,
-            false,
-            false,
-        ) {
+        let cursor_geometry = pointer_ring_geometry(cursor.x, cursor.y);
+        let cursor_ring = match create_cursor_ring_overlay(cursor_geometry, cursor_alpha) {
             Ok(hwnd) => OverlayLayer::new(hwnd, CONTROL_CURSOR_ALPHA, cursor_alpha),
             Err(error) => {
                 for layer in corners {
@@ -907,7 +905,8 @@ impl ControlOverlay {
         let overlay = Self {
             capsule,
             corners,
-            cursor_mask,
+            cursor_ring,
+            cursor_ring_size: Cell::new(cursor_geometry.2),
             cursor_visible: Cell::new(cursor_visible),
             pulse_started: Instant::now(),
         };
@@ -930,14 +929,15 @@ impl ControlOverlay {
             .map_err(|error| overlay_backend_error("locate the pointer for", error.to_string()))?;
         let cursor_visible = point_in_rect(cursor, target_rect);
         if cursor_visible {
-            position_overlay(
-                self.cursor_mask.hwnd,
-                pointer_mask_geometry(cursor.x, cursor.y),
-                false,
-            )?;
+            let geometry = pointer_ring_geometry(cursor.x, cursor.y);
+            position_overlay(self.cursor_ring.hwnd, geometry, false)?;
+            if geometry.2 != self.cursor_ring_size.get() {
+                set_pointer_ring_region(self.cursor_ring.hwnd, geometry.2, geometry.3)?;
+                self.cursor_ring_size.set(geometry.2);
+            }
         }
         if cursor_visible != self.cursor_visible.get() {
-            set_overlay_visible(self.cursor_mask.hwnd, cursor_visible)?;
+            set_overlay_visible(self.cursor_ring.hwnd, cursor_visible)?;
             self.cursor_visible.set(cursor_visible);
         }
         let elapsed_ms = self.pulse_started.elapsed().as_millis() as u64;
@@ -946,7 +946,7 @@ impl ControlOverlay {
         for layer in &self.corners {
             layer.apply_pulse(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
         }
-        self.cursor_mask
+        self.cursor_ring
             .apply_pulse(CONTROL_CURSOR_PULSE_FLOOR_PERCENT, elapsed_ms)?;
         Ok(())
     }
@@ -958,10 +958,10 @@ impl ControlOverlay {
         }
         if visible {
             if self.cursor_visible.get() {
-                set_overlay_visible(self.cursor_mask.hwnd, true)?;
+                set_overlay_visible(self.cursor_ring.hwnd, true)?;
             }
         } else if self.cursor_visible.replace(false) {
-            set_overlay_visible(self.cursor_mask.hwnd, false)?;
+            set_overlay_visible(self.cursor_ring.hwnd, false)?;
         }
         Ok(())
     }
@@ -972,7 +972,7 @@ impl Drop for ControlOverlay {
         for layer in self.corners.drain(..) {
             let _ = unsafe { DestroyWindow(layer.hwnd) };
         }
-        let _ = unsafe { DestroyWindow(self.cursor_mask.hwnd) };
+        let _ = unsafe { DestroyWindow(self.cursor_ring.hwnd) };
         let _ = unsafe { DestroyWindow(self.capsule.hwnd) };
     }
 }
@@ -1137,6 +1137,40 @@ fn create_color_overlay(
     }
     pump_overlay_messages(hwnd);
     Ok(hwnd)
+}
+
+fn create_cursor_ring_overlay(geometry: OverlayGeometry, alpha: u8) -> ComputerUseResult<HWND> {
+    let hwnd = create_color_overlay("", geometry, alpha, false, false)?;
+    if let Err(error) = set_pointer_ring_region(hwnd, geometry.2, geometry.3) {
+        let _ = unsafe { DestroyWindow(hwnd) };
+        return Err(error);
+    }
+    Ok(hwnd)
+}
+
+fn set_pointer_ring_region(hwnd: HWND, width: i32, height: i32) -> ComputerUseResult<()> {
+    let thickness = (width.min(height) / 12).max(3);
+    let outer = unsafe { CreateEllipticRgn(0, 0, width, height) };
+    let inner =
+        unsafe { CreateEllipticRgn(thickness, thickness, width - thickness, height - thickness) };
+    if outer.0.is_null() || inner.0.is_null() {
+        let _ = unsafe { DeleteObject(HGDIOBJ(outer.0)) };
+        let _ = unsafe { DeleteObject(HGDIOBJ(inner.0)) };
+        return Err(overlay_backend_error(
+            "shape",
+            "Windows could not create the pointer ring",
+        ));
+    }
+    let combined = unsafe { CombineRgn(Some(outer), Some(outer), Some(inner), RGN_DIFF) };
+    let _ = unsafe { DeleteObject(HGDIOBJ(inner.0)) };
+    if combined == RGN_ERROR || unsafe { SetWindowRgn(hwnd, Some(outer), true) } == 0 {
+        let _ = unsafe { DeleteObject(HGDIOBJ(outer.0)) };
+        return Err(overlay_backend_error(
+            "shape",
+            "Windows did not accept the pointer ring",
+        ));
+    }
+    Ok(())
 }
 
 fn set_overlay_alpha(hwnd: HWND, alpha: u8) -> ComputerUseResult<()> {
