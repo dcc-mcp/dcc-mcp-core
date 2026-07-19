@@ -60,18 +60,18 @@ pub async fn handle_admin_artifacts(
             if let Some(output) = &trace.output
                 && let Ok(parsed) = serde_json::from_str::<Value>(&output.content)
             {
-                    let file_refs = extract_file_refs(&parsed);
-                    for fr in file_refs {
-                        // Deduplicate by URI
-                        let uri = fr.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-                        if !artifacts.iter().any(|a| {
-                            a.get("uri")
-                                .and_then(|v| v.as_str())
-                                .is_some_and(|u| u == uri)
-                        }) {
-                            artifacts.push(fr);
-                        }
+                let file_refs = extract_file_refs(&parsed);
+                for fr in file_refs {
+                    // Deduplicate by URI
+                    let uri = fr.get("uri").and_then(|v| v.as_str()).unwrap_or("");
+                    if !artifacts.iter().any(|a| {
+                        a.get("uri")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|u| u == uri)
+                    }) {
+                        artifacts.push(fr);
                     }
+                }
             }
         }
     }
