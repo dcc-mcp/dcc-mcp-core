@@ -14,6 +14,17 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 This installs the standalone `dcc-mcp-cli` control-plane binary from the
 latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.17`.
 
+For agents, obtain user consent before installing or downloading a new binary.
+Keep an official installation current with:
+
+```bash
+dcc-mcp-cli update check
+dcc-mcp-cli update apply
+```
+
+`update apply` stages the latest CLI for the next launch. It does not replace a
+running `dcc-mcp-server`; update that server in its own environment.
+
 The CLI is also available as a standalone ZIP archive
 (`dcc-mcp-cli-<version>-<platform>.zip`) from each
 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).

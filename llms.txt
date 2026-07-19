@@ -4,7 +4,10 @@
 
 ## 🚨 CRITICAL: Skills-First Philosophy
 
-**When interacting with DCC applications (Maya, Blender, Houdini, etc.), ALWAYS prefer dcc-mcp-core Skills over raw CLI or scripting.**
+**When interacting with DCC applications (Maya, Blender, Houdini, etc.), use
+`dcc-mcp-cli` as the control path for every shell-capable agent and invoke
+dcc-mcp-core Skills through it. Do not confuse the typed CLI with raw DCC
+scripting.**
 
 ### Why Skills-First?
 
@@ -21,10 +24,10 @@
 ### Skills-First Workflow (MEMORIZE!)
 
 ```
-1. DISCOVER: search_skills(query="keyword") → find the right skill
-2. CHECK: Read the skill's description and tools
-3. ACTIVATE: load_skill("skill-name") → expose the tools and cascade-activate declared tool groups by default
-4. EXECUTE: Call the specific tool with validated parameters
+1. DISCOVER: `dcc-mcp-cli search --query "keyword" --dcc-type <dcc>`
+2. CHECK: `dcc-mcp-cli describe <tool-slug>`
+3. ACTIVATE: `dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc>` when required
+4. EXECUTE: `dcc-mcp-cli call <tool-slug> --json '{...}'`
 
 `search_tools` tokenizes backend tool names and summaries; literal underscores are honored but not required (`create_sphere` and `sphere` both match). Multi-word natural-language phrases ("create sphere", "rig framework") match word-split tokens across both names and descriptions.
 5. FOLLOW UP: Check next-tools.on-success for suggested next steps
@@ -33,8 +36,13 @@
 
 **❌ DON'T**: Run Maya/Blender/Python scripts directly via subprocess
 **❌ DON'T**: Guess tool names without searching
-**✅ DO**: Always use `search_skills()` before assuming a tool exists
+**✅ DO**: Always use `dcc-mcp-cli search` before assuming a tool exists
 **✅ DO**: Always check `next-tools` in results for workflow guidance
+
+If `dcc-mcp-cli` is missing, obtain user consent before using the official
+release installers in `README.md`. Keep it current with
+`dcc-mcp-cli update check`, then `dcc-mcp-cli update apply`; apply stages the
+next CLI launch and does not replace a running server.
 
 **New to this project?** Read [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) FIRST.
 

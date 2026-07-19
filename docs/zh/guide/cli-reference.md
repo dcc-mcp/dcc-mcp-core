@@ -5,13 +5,14 @@
 `DCC_MCP_*` 环境变量，所以任何部署清单都能驱动同一套配置面板。
 
 `dcc-mcp-cli` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
-Release 资产发布。CLI 可以通过 URL 直接安装：
+Release 资产发布。它是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
+安装，先征得用户同意，再通过官方 URL 安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.17`，或给安装脚本传

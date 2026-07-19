@@ -90,15 +90,26 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 ### 安装独立 CLI
 
-如果你只需要 operator/CI 控制面，不想先准备 Python 环境，直接安装 release 二进制：
+`dcc-mcp-cli` 是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未安装，
+先征得用户同意，再安装最新的官方 release 二进制：
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
+
+官方构建通过 release manifest 保持最新：
+
+```bash
+dcc-mcp-cli update check
+dcc-mcp-cli update apply
+```
+
+`update apply` 会下载并暂存最新版 CLI，在下一次启动时生效；它不会更新正在
+运行的 `dcc-mcp-server`，server 需要在自己的运行环境中单独更新。
 
 安装后：
 
@@ -268,14 +279,15 @@ Admin 重点能力：
 
 ### 安装独立 CLI
 
-如果你只需要 operator/CI 控制面，不想先准备 Python 环境，直接安装 release 二进制：
+对于具备 shell 能力的 Agent，独立 CLI 是首选控制路径。尚未安装时，先征得
+用户同意，再安装官方 release 二进制：
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 默认会下载最新 GitHub Release 里的对应资产：
@@ -291,7 +303,7 @@ powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/s
 ```bash
 export DCC_MCP_VERSION=v0.x.y
 export DCC_MCP_INSTALL_DIR="$HOME/bin"
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
 ```
 
 ```powershell

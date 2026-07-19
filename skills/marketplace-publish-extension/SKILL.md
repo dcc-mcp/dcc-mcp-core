@@ -28,6 +28,13 @@ metadata:
 
 # Marketplace Publish Extension
 
+## CLI-First Control Path
+
+For marketplace and live-DCC operations, use the `dcc-mcp` skill and
+`dcc-mcp-cli` whenever shell access is available. Its consent-gated install and
+`update check` → `update apply` contract is the single source of truth; do not
+invent a package-local CLI bootstrap path.
+
 Publish (register or update) a dcc-mcp extension package to a marketplace
 catalog (`marketplace.json`).
 

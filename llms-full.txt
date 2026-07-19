@@ -3546,14 +3546,24 @@ See `docs/guide/remote-server.md` for the Docker / systemd / k8s / reverse-proxy
 
 When an AI agent needs to interact with DCC software, follow this priority order:
 
-### 1. Skill Discovery (always start here)
-```python
-# Find relevant skills by keyword
-result = search_skills(query="create sphere maya")
-# Load the skill to register its tools
-load_skill(skill_name="maya-geometry")
-# Now the skill's tools appear in tools/list
+### 1. CLI + Skill Discovery (always start here)
+
+Use `dcc-mcp-cli` for every shell-capable agent. Native MCP is the fallback for
+MCP-only clients or an explicit user choice.
+
+```bash
+dcc-mcp-cli dcc-types
+dcc-mcp-cli list
+dcc-mcp-cli search --query "create sphere" --dcc-type maya
+dcc-mcp-cli describe <tool-slug>
+dcc-mcp-cli load-skill maya-geometry --dcc-type maya
+dcc-mcp-cli call <tool-slug> --json '{"radius":2.0}'
 ```
+
+If the CLI is missing, obtain user consent before using the official release
+installers in `README.md`. Keep it current with `dcc-mcp-cli update check`,
+then `dcc-mcp-cli update apply`. The apply step stages the next CLI launch and
+does not replace a running server.
 
 ### 2. Skill-Based Tools (preferred over raw API calls)
 - Use skill tools (e.g. `maya_geometry__create_sphere`) — they have validated schemas, error handling, and `next-tools` guidance

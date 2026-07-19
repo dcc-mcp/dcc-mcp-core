@@ -7,13 +7,15 @@ five deployment scenarios they cover. Flags on each binary map 1:1 onto an
 same configuration surface.
 
 `dcc-mcp-cli` and `dcc-mcp-server` are published as raw GitHub Release
-assets on every release. The CLI can be installed directly from a URL:
+assets on every release. It is the preferred control path for shell-capable
+agents. If it is missing, obtain the user's consent before installing it from
+the official URL:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
 Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing

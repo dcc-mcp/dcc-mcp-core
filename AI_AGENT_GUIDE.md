@@ -48,6 +48,29 @@ automation.
 
 CLI-first does **not** deprecate MCP. The gateway always exposes both MCP and REST side by side.
 
+### Install and keep the CLI current
+
+If `dcc-mcp-cli` is missing, obtain the user's consent before installing the
+latest official release:
+
+```bash
+# Linux/macOS
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+```
+
+Keep an official build current through the release manifest:
+
+```bash
+dcc-mcp-cli update check
+dcc-mcp-cli update apply
+```
+
+`update apply` downloads and stages the latest CLI for the next launch. It does
+not update a running `dcc-mcp-server`; update that server in its own environment.
+
 ### Computer Use is an agent-directed fallback
 
 Do not start with GUI automation. Discover and call structured DCC skills,

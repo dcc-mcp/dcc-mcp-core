@@ -47,6 +47,13 @@ falling back to raw scripting or scoped Computer Use.
 - **Human IDE users** continue using MCP configuration. The gateway serves both paths simultaneously.
 - **CLI-first does not deprecate MCP** — the gateway always exposes both MCP and REST side by side.
 
+**CLI availability and updates:**
+- If `dcc-mcp-cli` is missing, obtain user consent before running an official
+  installer from `scripts/install-cli.sh` or `scripts/install-cli.ps1`.
+- Keep official builds current with `dcc-mcp-cli update check`, then
+  `dcc-mcp-cli update apply`. The apply step stages the latest CLI for the next
+  launch; it does not replace a running `dcc-mcp-server`.
+
 ## Response Language
 
 - Reply to the user in **Simplified Chinese** (中文简体) by default.
