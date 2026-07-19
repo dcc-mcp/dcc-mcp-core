@@ -91,21 +91,23 @@ const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
 const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
     HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
 const CORNER_GLOW_THICKNESS: i32 = 42;
-const CORNER_ACCENT_THICKNESS: i32 = 16;
+const CORNER_MID_THICKNESS: i32 = 28;
+const CORNER_ACCENT_THICKNESS: i32 = 12;
 const CORNER_GLOW_LENGTH: i32 = 232;
+const CORNER_MID_LENGTH: i32 = 208;
 const CORNER_ACCENT_LENGTH: i32 = 180;
 const POINTER_EFFECT_SIZE: i32 = 72;
 const POINTER_RING_SIZE: i32 = 52;
 const CONTROL_OVERLAY_ALPHA: u8 = 185;
-const CONTROL_BORDER_ALPHA: u8 = 244;
+const CONTROL_BORDER_ALPHA: u8 = 232;
 const CONTROL_CAPSULE_ALPHA: u8 = 244;
-const CONTROL_CAPSULE_GLOW_ALPHA: u8 = 144;
-const CONTROL_CURSOR_ALPHA: u8 = 238;
+const CONTROL_CAPSULE_GLOW_ALPHAS: [u8; 3] = [44, 78, 118];
+const CONTROL_CURSOR_ALPHA: u8 = 226;
 const CONTROL_CAPSULE_FONT_SIZE: i32 = 16;
-const CONTROL_PULSE_PERIOD_MS: u64 = 1_800;
-const CONTROL_BORDER_PULSE_FLOOR_PERCENT: u8 = 72;
-const CONTROL_CAPSULE_PULSE_FLOOR_PERCENT: u8 = 88;
-const CONTROL_CURSOR_PULSE_FLOOR_PERCENT: u8 = 82;
+const CONTROL_PULSE_PERIOD_MS: u64 = 3_200;
+const CONTROL_BORDER_PULSE_FLOOR_PERCENT: u8 = 88;
+const CONTROL_CAPSULE_PULSE_FLOOR_PERCENT: u8 = 94;
+const CONTROL_CURSOR_PULSE_FLOOR_PERCENT: u8 = 90;
 const CONTROL_ACCENT_COLOR: COLORREF = COLORREF(0x00FF_840A);
 const CONTROL_GLOW_COLOR: COLORREF = COLORREF(0x00FA_A560);
 const CONTROL_CURSOR_COLOR: COLORREF = COLORREF(0x0043_9FFF);
@@ -787,7 +789,7 @@ impl OverlayLayer {
 }
 
 struct ControlOverlay {
-    capsule_glow: OverlayLayer,
+    capsule_glows: Vec<OverlayLayer>,
     capsule: OverlayLayer,
     corners: Vec<OverlayLayer>,
     cursor_ring: OverlayLayer,
@@ -859,23 +861,19 @@ impl ControlOverlay {
         caption: &str,
     ) -> ComputerUseResult<Self> {
         let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
-        let capsule_glow_geometry = capsule_glow_geometry(capsule_geometry);
-        let capsule_glow_alpha = breathing_alpha(
-            CONTROL_CAPSULE_GLOW_ALPHA,
-            CONTROL_BORDER_PULSE_FLOOR_PERCENT,
-            0,
-        );
-        let capsule_glow = OverlayLayer::new(
-            create_color_overlay(
-                "",
-                capsule_glow_geometry,
-                capsule_glow_alpha,
-                false,
-                OverlayTone::Glow,
-            )?,
-            CONTROL_CAPSULE_GLOW_ALPHA,
-            capsule_glow_alpha,
-        );
+        let mut capsule_glows = Vec::with_capacity(CONTROL_CAPSULE_GLOW_ALPHAS.len());
+        for (geometry, alpha) in capsule_glow_geometries(capsule_geometry) {
+            let initial_alpha = breathing_alpha(alpha, CONTROL_BORDER_PULSE_FLOOR_PERCENT, 0);
+            match create_color_overlay("", geometry, initial_alpha, false, OverlayTone::Glow) {
+                Ok(hwnd) => capsule_glows.push(OverlayLayer::new(hwnd, alpha, initial_alpha)),
+                Err(error) => {
+                    for layer in capsule_glows {
+                        let _ = unsafe { DestroyWindow(layer.hwnd) };
+                    }
+                    return Err(error);
+                }
+            }
+        }
         let capsule_alpha = breathing_alpha(
             CONTROL_CAPSULE_ALPHA,
             CONTROL_CAPSULE_PULSE_FLOOR_PERCENT,
@@ -890,7 +888,9 @@ impl ControlOverlay {
         ) {
             Ok(hwnd) => OverlayLayer::new(hwnd, CONTROL_CAPSULE_ALPHA, capsule_alpha),
             Err(error) => {
-                let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
+                for layer in capsule_glows {
+                    let _ = unsafe { DestroyWindow(layer.hwnd) };
+                }
                 return Err(error);
             }
         };
@@ -909,7 +909,9 @@ impl ControlOverlay {
                         let _ = unsafe { DestroyWindow(layer.hwnd) };
                     }
                     let _ = unsafe { DestroyWindow(capsule.hwnd) };
-                    let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
+                    for layer in capsule_glows {
+                        let _ = unsafe { DestroyWindow(layer.hwnd) };
+                    }
                     return Err(error);
                 }
             }
@@ -920,7 +922,9 @@ impl ControlOverlay {
                 let _ = unsafe { DestroyWindow(layer.hwnd) };
             }
             let _ = unsafe { DestroyWindow(capsule.hwnd) };
-            let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
+            for layer in capsule_glows {
+                let _ = unsafe { DestroyWindow(layer.hwnd) };
+            }
             return Err(overlay_backend_error(
                 "locate the pointer for",
                 error.to_string(),
@@ -936,13 +940,15 @@ impl ControlOverlay {
                     let _ = unsafe { DestroyWindow(layer.hwnd) };
                 }
                 let _ = unsafe { DestroyWindow(capsule.hwnd) };
-                let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
+                for layer in capsule_glows {
+                    let _ = unsafe { DestroyWindow(layer.hwnd) };
+                }
                 return Err(error);
             }
         };
         let cursor_visible = point_in_rect(cursor, target_rect);
         let overlay = Self {
-            capsule_glow,
+            capsule_glows,
             capsule,
             corners,
             cursor_ring,
@@ -960,11 +966,13 @@ impl ControlOverlay {
         target_rect: &windows::Win32::Foundation::RECT,
     ) -> ComputerUseResult<()> {
         let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
-        position_overlay(
-            self.capsule_glow.hwnd,
-            capsule_glow_geometry(capsule_geometry),
-            false,
-        )?;
+        for (layer, (geometry, _alpha)) in self
+            .capsule_glows
+            .iter()
+            .zip(capsule_glow_geometries(capsule_geometry))
+        {
+            position_overlay(layer.hwnd, geometry, false)?;
+        }
         position_overlay(self.capsule.hwnd, capsule_geometry, false)?;
         for (layer, (geometry, _alpha, _focus)) in self.corners.iter().zip(corner_geometries) {
             position_overlay(layer.hwnd, geometry, false)?;
@@ -986,8 +994,9 @@ impl ControlOverlay {
             self.cursor_visible.set(cursor_visible);
         }
         let elapsed_ms = self.pulse_started.elapsed().as_millis() as u64;
-        self.capsule_glow
-            .apply_pulse(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
+        for layer in &self.capsule_glows {
+            layer.apply_pulse(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
+        }
         self.capsule
             .apply_pulse(CONTROL_CAPSULE_PULSE_FLOOR_PERCENT, elapsed_ms)?;
         for layer in &self.corners {
@@ -999,7 +1008,9 @@ impl ControlOverlay {
     }
 
     fn set_visible(&self, visible: bool) -> ComputerUseResult<()> {
-        set_overlay_visible(self.capsule_glow.hwnd, visible)?;
+        for layer in &self.capsule_glows {
+            set_overlay_visible(layer.hwnd, visible)?;
+        }
         set_overlay_visible(self.capsule.hwnd, visible)?;
         for layer in &self.corners {
             set_overlay_visible(layer.hwnd, visible)?;
@@ -1022,7 +1033,9 @@ impl Drop for ControlOverlay {
         }
         let _ = unsafe { DestroyWindow(self.cursor_ring.hwnd) };
         let _ = unsafe { DestroyWindow(self.capsule.hwnd) };
-        let _ = unsafe { DestroyWindow(self.capsule_glow.hwnd) };
+        for layer in self.capsule_glows.drain(..) {
+            let _ = unsafe { DestroyWindow(layer.hwnd) };
+        }
     }
 }
 
