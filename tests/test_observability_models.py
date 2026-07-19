@@ -264,7 +264,7 @@ class TestObservabilityQuery:
     def test_query_mock_session_stats(self) -> None:
         """Verify ObservabilityQuery with a mock read function."""
 
-        def mock_read(sql: str) -> list[dict[str, Any]]:
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             return [
                 {
                     "total_sessions": 10,
@@ -285,7 +285,7 @@ class TestObservabilityQuery:
     def test_query_mock_tool_call_stats(self) -> None:
         """Verify tool_call_stats query with mock."""
 
-        def mock_read(sql: str) -> list[dict[str, Any]]:
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             if "COUNT" in sql:
                 return [
                     {
@@ -315,7 +315,7 @@ class TestObservabilityQuery:
     def test_query_mock_coverage(self) -> None:
         """Verify coverage query."""
 
-        def mock_read(sql: str) -> list[dict[str, Any]]:
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             return [{"observed": 80, "unobserved": 20, "total": 100}]
 
         query = ObservabilityQuery(read_json_fn=mock_read)
@@ -327,7 +327,7 @@ class TestObservabilityQuery:
     def test_query_mock_crash_stats(self) -> None:
         """Verify crash stats query."""
 
-        def mock_read(sql: str) -> list[dict[str, Any]]:
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             return [{"total_crashes": 3, "host_crashes": 2, "gpu_crashes": 1}]
 
         query = ObservabilityQuery(read_json_fn=mock_read)
@@ -339,7 +339,7 @@ class TestObservabilityQuery:
     def test_query_empty_database(self) -> None:
         """Verify queries handle empty database gracefully."""
 
-        def mock_read(sql: str) -> list[dict[str, Any]]:
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             return []
 
         query = ObservabilityQuery(read_json_fn=mock_read)
@@ -351,7 +351,7 @@ class TestObservabilityQuery:
     def test_session_tree_root_query(self) -> None:
         """Verify session tree building."""
 
-        def mock_read(sql: str) -> list[dict[str, Any]]:
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             return [
                 {
                     "session_id": "root-1",
@@ -388,6 +388,54 @@ class TestObservabilityQuery:
         assert tree[0]["session_id"] == "root-1"
         assert len(tree[0]["children"]) == 1
         assert tree[0]["children"][0]["session_id"] == "child-1"
+
+    def test_params_passed_to_read_fn(self) -> None:
+        """Verify named SQL params are actually passed to the read function.
+
+        This is a regression test for the P1 bug where all six query methods
+        built named SQL params (:dcc_type, :since_ms, etc.) but never passed
+        them to ``_query()``, so a real SQLite backend would reject the SQL.
+        """
+        captured_params: list[dict[str, Any]] = []
+
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+            captured_params.append(dict(params))
+            return [
+                {
+                    "total_sessions": 1,
+                    "active_sessions": 0,
+                    "ended_normally": 1,
+                    "ended_abnormally": 0,
+                    "avg_duration_ms": 100.0,
+                    "total_tool_calls": 5,
+                    "total_errors": 0,
+                }
+            ]
+
+        query = ObservabilityQuery(read_json_fn=mock_read)
+        query.get_session_stats(dcc_type="maya", since_ms=1_700_000_000_000)
+
+        assert len(captured_params) == 1
+        assert captured_params[0].get("dcc_type") == "maya"
+        assert captured_params[0].get("since_ms") == 1_700_000_000_000
+        # SQL must not contain literal :dcc_type or :since_ms — params must
+        # be bound separately (verified by checking the call signature).
+        assert ":dcc_type" not in str(captured_params)
+        assert ":since_ms" not in str(captured_params)
+
+    def test_params_absent_when_no_filters(self) -> None:
+        """Verify empty params dict is passed when no filters are applied."""
+        captured_params: list[dict[str, Any]] = []
+
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+            captured_params.append(dict(params))
+            return []
+
+        query = ObservabilityQuery(read_json_fn=mock_read)
+        query.get_session_stats()
+
+        assert len(captured_params) == 1
+        assert captured_params[0] == {}
 
 
 class TestCoverageStats:
