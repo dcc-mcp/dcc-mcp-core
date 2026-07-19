@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react';
-import { RiRefreshLine, RiArrowDownSLine, RiArrowRightSLine } from '@remixicon/react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { RiArrowDownSLine, RiArrowRightSLine, RiInformationLine, RiRefreshLine } from '@remixicon/react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '../../components/ui/button';
-import { Badge } from '../../components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -11,11 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select';
-import { PanelHeader, StatusLine, EmptyRow } from '../../admin-ui-core';
-import { API_BASE } from '../../platform';
-import type { SessionRow, SessionsPayload, SessionStatus, Translator } from '../../admin-types';
+import { EmptyRow, MetricTile, PanelHeader, StatusLine, TimeValue, formatDurationMs } from '../../admin-ui-core';
+import { apiJson } from '../../platform';
+import type { SessionKpi, SessionRow, SessionsPayload, SessionStatus, Translator } from '../../admin-types';
+import type { MessageKey } from '../../i18n';
 import { adminKeys } from '../../hooks/queries';
-import { adminJsonResponse } from '../../admin-ui-core';
 import './sessions.css';
 
 export type SessionsPanelProps = {
@@ -31,21 +30,13 @@ type SessionsQueryParams = {
   status?: string;
   search?: string;
   limit?: number;
-  offset?: number;
 };
 
-async function fetchSessions(params: SessionsQueryParams): Promise<SessionsPayload> {
-  const u = new URL(`${API_BASE}/sessions`, window.location.origin);
-  if (params.dcc_type) u.searchParams.set('dcc_type', params.dcc_type);
-  if (params.status) u.searchParams.set('status', params.status);
-  if (params.search) u.searchParams.set('search', params.search);
-  if (params.limit) u.searchParams.set('limit', String(params.limit));
-  if (params.offset) u.searchParams.set('offset', String(params.offset));
-  const resp = await fetch(u.toString());
-  return adminJsonResponse<SessionsPayload>(resp);
-}
+const EMPTY_KPI: SessionKpi = { total: 0, active: 0, ended: 0, crashed: 0, by_dcc: {} };
 
-const STATUS_COLORS: Record<SessionStatus, string> = {
+const SESSION_STATUSES: SessionStatus[] = ['active', 'ended', 'crashed', 'interrupted', 'timed_out', 'cancelled', 'unknown'];
+
+const STATUS_TONE: Record<SessionStatus, 'ok' | 'warn' | 'err' | 'muted'> = {
   active: 'ok',
   ended: 'muted',
   crashed: 'err',
@@ -55,70 +46,164 @@ const STATUS_COLORS: Record<SessionStatus, string> = {
   unknown: 'muted',
 };
 
+// SessionStatus values are snake_case but locale keys are camelCase (e.g. `timed_out` -> `timedOut`).
+const STATUS_LOCALE_KEY: Record<SessionStatus, string> = {
+  active: 'active',
+  ended: 'ended',
+  crashed: 'crashed',
+  interrupted: 'interrupted',
+  timed_out: 'timedOut',
+  cancelled: 'cancelled',
+  unknown: 'unknown',
+};
+
 function statusLabel(t: Translator, status: SessionStatus): string {
-  return t(`sessions.status.${status}` as Parameters<Translator>[0]);
+  return t(`sessions.status.${STATUS_LOCALE_KEY[status]}` as MessageKey);
 }
 
-function truncateId(id: string): string {
-  return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-6)}` : id;
+function SessionStatusBadge({ status, t }: { status: SessionStatus; t: Translator }) {
+  return <span className={`badge badge-${STATUS_TONE[status]}`}>{statusLabel(t, status)}</span>;
 }
 
-type TreeNode = SessionRow & { children: TreeNode[]; depth: number };
+function truncateId(id: string | null | undefined): string {
+  if (!id) return '-';
+  return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+}
 
-function buildSessionTree(sessions: SessionRow[]): SessionRow[] {
-  const map = new Map<string, TreeNode>();
-  const roots: TreeNode[] = [];
+async function fetchSessions(params: SessionsQueryParams): Promise<SessionsPayload> {
+  const search = new URLSearchParams();
+  if (params.dcc_type) search.set('dcc_type', params.dcc_type);
+  if (params.status) search.set('status', params.status);
+  if (params.search) search.set('search', params.search);
+  if (params.limit) search.set('limit', String(params.limit));
+  const qs = search.toString();
+  return apiJson<SessionsPayload>(qs ? `/sessions?${qs}` : '/sessions');
+}
 
-  for (const s of sessions) {
-    map.set(s.session_id, { ...s, children: [], depth: 0 });
+type SessionNode = SessionRow & { children: SessionNode[] };
+
+function buildSessionTree(sessions: SessionRow[]): SessionNode[] {
+  const nodes = new Map<string, SessionNode>();
+  for (const row of sessions) {
+    nodes.set(row.session_id, { ...row, children: [] });
   }
-  for (const node of map.values()) {
-    if (node.parent_session_id && map.has(node.parent_session_id)) {
-      map.get(node.parent_session_id)!.children.push(node);
+  const roots: SessionNode[] = [];
+  for (const node of nodes.values()) {
+    const parent = node.parent_session_id ? nodes.get(node.parent_session_id) : undefined;
+    if (parent) {
+      parent.children.push(node);
     } else {
       roots.push(node);
     }
   }
+  return roots;
+}
 
-  function flatten(nodes: TreeNode[], depth: number): SessionRow[] {
-    const result: SessionRow[] = [];
-    for (const node of nodes) {
-      node.depth = depth;
-      result.push(node);
-      if (node.children.length > 0) {
-        result.push(...flatten(node.children, depth + 1));
-      }
+type RowRenderContext = {
+  t: Translator;
+  collapsedIds: Set<string>;
+  detailIds: Set<string>;
+  toggleCollapse: (id: string) => void;
+  toggleDetail: (id: string) => void;
+};
+
+function renderSessionRows(nodes: SessionNode[], depth: number, ctx: RowRenderContext): ReactNode[] {
+  const { t, collapsedIds, detailIds, toggleCollapse, toggleDetail } = ctx;
+  const rows: ReactNode[] = [];
+
+  for (const node of nodes) {
+    const hasChildren = node.children.length > 0;
+    const isCollapsed = collapsedIds.has(node.session_id);
+    const showDetail = detailIds.has(node.session_id);
+
+    rows.push(
+      <tr key={node.session_id} className="sessions-row">
+        <td>
+          <span className="sessions-indent" style={{ paddingLeft: `${depth * 20}px` }}>
+            {hasChildren ? (
+              <button
+                type="button"
+                className="sessions-tree-btn"
+                onClick={() => toggleCollapse(node.session_id)}
+                aria-label={isCollapsed ? 'Expand children' : 'Collapse children'}
+              >
+                {isCollapsed ? <RiArrowRightSLine size={14} /> : <RiArrowDownSLine size={14} />}
+              </button>
+            ) : (
+              <span className="sessions-tree-spacer" />
+            )}
+            <button
+              type="button"
+              className="sessions-detail-btn"
+              onClick={() => toggleDetail(node.session_id)}
+              aria-label="Toggle session detail"
+              aria-pressed={showDetail}
+            >
+              <RiInformationLine size={14} />
+            </button>
+            <code className="sessions-id" title={node.session_id}>{truncateId(node.session_id)}</code>
+          </span>
+        </td>
+        <td>
+          {node.parent_session_id ? (
+            <code className="sessions-id sessions-id-muted" title={node.parent_session_id}>
+              {truncateId(node.parent_session_id)}
+            </code>
+          ) : (
+            <span className="sessions-id-muted">{t('sessions.detail.noParent')}</span>
+          )}
+        </td>
+        <td><SessionStatusBadge status={node.status} t={t} /></td>
+        <td>{node.dcc_type || '-'}</td>
+        <td>{node.agent_name || node.agent_id || '-'}</td>
+        <td><TimeValue value={node.started_at} /></td>
+        <td>{formatDurationMs(node.duration_ms)}</td>
+        <td>{node.turn_count}</td>
+        <td>{node.tool_call_count}</td>
+      </tr>,
+    );
+
+    if (showDetail) {
+      rows.push(
+        <tr key={`${node.session_id}-detail`} className="sessions-detail-row">
+          <td colSpan={9}>
+            <div className="sessions-detail">
+              <div className="sessions-detail-grid">
+                <div>
+                  <span className="sessions-detail-label">{t('sessions.detail.parentInfo')}</span>
+                  <code>{node.parent_session_id ? truncateId(node.parent_session_id) : t('sessions.detail.noParent')}</code>
+                </div>
+                <div>
+                  <span className="sessions-detail-label">{t('sessions.detail.version')}</span>
+                  <span>{node.version || '-'}</span>
+                </div>
+                <div>
+                  <span className="sessions-detail-label">{t('sessions.detail.endReason')}</span>
+                  <span>{node.end_reason || t('sessions.detail.noEndReason')}</span>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>,
+      );
     }
-    return result;
+
+    if (hasChildren && !isCollapsed) {
+      rows.push(...renderSessionRows(node.children, depth + 1, ctx));
+    }
   }
 
-  return flatten(roots, 0);
+  return rows;
 }
 
-function KpiCard({ label, value, tone }: { label: string; value: string | number; tone?: 'ok' | 'warn' | 'err' | 'muted' }) {
-  return (
-    <div className="sessions-kpi-card">
-      <span className={`sessions-kpi-value ${tone ? `sessions-kpi-${tone}` : ''}`}>{value}</span>
-      <span className="sessions-kpi-label">{label}</span>
-    </div>
-  );
-}
-
-export function SessionsPanel({
-  active,
-  updatedAt,
-  error,
-  onRefresh,
-  t,
-}: SessionsPanelProps) {
-  const [dccType, setDccType] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+export function SessionsPanel({ active, updatedAt, error, onRefresh, t }: SessionsPanelProps) {
+  const [dccType, setDccType] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [detailIds, setDetailIds] = useState<Set<string>>(new Set());
 
-  const queryParams: SessionsQueryParams = {
-    limit: 200,
-  };
+  const queryParams: SessionsQueryParams = { limit: 200 };
   if (dccType !== 'all') queryParams.dcc_type = dccType;
   if (statusFilter !== 'all') queryParams.status = statusFilter;
   if (search.trim()) queryParams.search = search.trim();
@@ -129,22 +214,25 @@ export function SessionsPanel({
     enabled: active,
     refetchInterval: active ? 5000 : false,
     staleTime: 4000,
-    gcTime: 30000,
+    gcTime: 30_000,
   });
 
   const sessions = sessionsQuery.data?.sessions ?? [];
-  const kpi = sessionsQuery.data?.kpi ?? { total: 0, active: 0, ended: 0, crashed: 0, by_dcc: {} };
+  const kpi = sessionsQuery.data?.kpi ?? EMPTY_KPI;
   const tree = useMemo(() => buildSessionTree(sessions), [sessions]);
-  const dccTypes = useMemo(() => {
-    const types = new Set<string>();
-    for (const s of sessions) {
-      if (s.dcc_type) types.add(s.dcc_type);
-    }
-    return Array.from(types).sort();
-  }, [sessions]);
+  const dccTypeOptions = useMemo(() => Object.keys(kpi.by_dcc).sort(), [kpi.by_dcc]);
 
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
+  const toggleCollapse = (id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleDetail = (id: string) => {
+    setDetailIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -154,73 +242,89 @@ export function SessionsPanel({
 
   if (!active) return null;
 
+  const isLoading = sessionsQuery.isLoading;
+  const statusText = updatedAt || (isLoading ? t('common.status.loading') : `${sessions.length} / ${kpi.total}`);
+  const errorText = error || sessionsQuery.error?.message;
+
   return (
-    <section className="panel active sessions-panel">
+    <section className="panel active sessions-panel" data-panel="sessions">
       <PanelHeader
         title={t('sessions.panel.title')}
+        meta={t('sessions.panel.description')}
         action={(
-          <Button type="button" size="sm" onClick={() => { onRefresh(); sessionsQuery.refetch(); }}>
+          <Button type="button" size="sm" onClick={() => { onRefresh(); void sessionsQuery.refetch(); }}>
             <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
             {t('action.refresh')}
           </Button>
         )}
       />
-      <StatusLine text={updatedAt || (sessionsQuery.isLoading ? t('common.status.loading') : '')} error={error || sessionsQuery.error?.message} />
+      <StatusLine text={statusText} error={errorText} />
 
-      <div className="sessions-kpi-row">
-        <KpiCard label={t('sessions.kpi.total')} value={kpi.total} />
-        <KpiCard label={t('sessions.kpi.active')} value={kpi.active} tone="ok" />
-        <KpiCard label={t('sessions.kpi.ended')} value={kpi.ended} tone="muted" />
-        <KpiCard label={t('sessions.kpi.crashed')} value={kpi.crashed} tone="err" />
+      <div className="metric-grid compact sessions-kpi-row">
+        <MetricTile label={t('sessions.kpi.total')} value={kpi.total} />
+        <MetricTile label={t('sessions.kpi.active')} value={kpi.active} tone="ok" />
+        <MetricTile label={t('sessions.kpi.ended')} value={kpi.ended} />
+        <MetricTile label={t('sessions.kpi.crashed')} value={kpi.crashed} tone={kpi.crashed > 0 ? 'err' : undefined} />
       </div>
+
+      {Object.keys(kpi.by_dcc).length > 0 ? (
+        <div className="sessions-dcc-breakdown">
+          <span className="sessions-dcc-breakdown-label">{t('sessions.kpi.byDcc')}</span>
+          <div className="sessions-dcc-chips">
+            {Object.entries(kpi.by_dcc).map(([dcc, count]) => (
+              <span key={dcc} className="sessions-dcc-chip">
+                <span className="sessions-dcc-chip-name">{dcc}</span>
+                <span className="sessions-dcc-chip-count">{count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="sessions-filter-bar">
-        <div className="sessions-filter-group">
-          <Select value={dccType} onValueChange={setDccType}>
-            <SelectTrigger className="admin-select-trigger sessions-filter-select" size="sm">
-              <SelectValue placeholder={t('sessions.filter.dccType')} />
-            </SelectTrigger>
-            <SelectContent className="admin-select-content" position="popper" align="start">
-              <SelectGroup>
-                <SelectItem value="all">{t('sessions.filter.all')}</SelectItem>
-                {dccTypes.map((dt) => (
-                  <SelectItem key={dt} value={dt}>{dt}</SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="sessions-filter-group">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="admin-select-trigger sessions-filter-select" size="sm">
-              <SelectValue placeholder={t('sessions.filter.status')} />
-            </SelectTrigger>
-            <SelectContent className="admin-select-content" position="popper" align="start">
-              <SelectGroup>
-                <SelectItem value="all">{t('sessions.filter.all')}</SelectItem>
-                <SelectItem value="active">{statusLabel(t, 'active')}</SelectItem>
-                <SelectItem value="ended">{statusLabel(t, 'ended')}</SelectItem>
-                <SelectItem value="crashed">{statusLabel(t, 'crashed')}</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="sessions-search-group">
-          <input
-            type="text"
-            className="sessions-search-input"
-            placeholder={t('sessions.filter.search')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <Select value={dccType} onValueChange={setDccType}>
+          <SelectTrigger className="admin-select-trigger sessions-filter-select" size="sm" aria-label={t('sessions.filter.dccType')}>
+            <SelectValue placeholder={t('sessions.filter.dccType')} />
+          </SelectTrigger>
+          <SelectContent className="admin-select-content" position="popper" align="start">
+            <SelectGroup>
+              <SelectItem value="all">{t('sessions.filter.all')}</SelectItem>
+              {dccTypeOptions.map((dt) => (
+                <SelectItem key={dt} value={dt}>{dt}</SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="admin-select-trigger sessions-filter-select" size="sm" aria-label={t('sessions.filter.status')}>
+            <SelectValue placeholder={t('sessions.filter.status')} />
+          </SelectTrigger>
+          <SelectContent className="admin-select-content" position="popper" align="start">
+            <SelectGroup>
+              <SelectItem value="all">{t('sessions.filter.all')}</SelectItem>
+              {SESSION_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>{statusLabel(t, s)}</SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <input
+          type="text"
+          className="filter-input sessions-search-input"
+          placeholder={t('sessions.filter.search')}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
       </div>
 
-      <div className="sessions-table-wrap">
-        <table className="sessions-table">
+      <div className="table-scroll sessions-table-wrap">
+        <table className="admin-table sessions-table">
           <thead>
             <tr>
               <th>{t('sessions.table.sessionId')}</th>
+              <th>{t('sessions.table.parent')}</th>
               <th>{t('sessions.table.status')}</th>
               <th>{t('sessions.table.dccType')}</th>
               <th>{t('sessions.table.agent')}</th>
@@ -232,64 +336,9 @@ export function SessionsPanel({
           </thead>
           <tbody>
             {tree.length === 0 ? (
-              <EmptyRow columns={8}>{sessionsQuery.isLoading ? t('common.status.loading') : t('sessions.empty.title')}</EmptyRow>
+              <EmptyRow columns={9}>{isLoading ? t('common.status.loading') : t('sessions.empty.title')}</EmptyRow>
             ) : (
-              tree.map((row) => {
-                const isExpanded = expandedIds.has(row.session_id);
-                const indent = (row as any).depth ?? 0;
-                return (
-                  <>
-                    <tr key={row.session_id} className="sessions-row">
-                      <td>
-                        <span className="sessions-indent" style={{ paddingLeft: `${indent * 20}px` }}>
-                          {indent > 0 && (
-                            <button
-                              type="button"
-                              className="sessions-expand-btn"
-                              onClick={() => toggleExpand(row.session_id)}
-                              aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                            >
-                              {isExpanded ? <RiArrowDownSLine size={14} /> : <RiArrowRightSLine size={14} />}
-                            </button>
-                          )}
-                          <code className="sessions-id">{truncateId(row.session_id)}</code>
-                        </span>
-                      </td>
-                      <td>
-                        <Badge className={`sessions-status-badge sessions-status-${row.status}`}>{statusLabel(t, row.status)}</Badge>
-                      </td>
-                      <td>{row.dcc_type || '-'}</td>
-                      <td>{row.agent_name || row.agent_id || '-'}</td>
-                      <td>{row.started_at}</td>
-                      <td>{row.duration_ms != null ? `${Math.round(row.duration_ms / 1000)}s` : '-'}</td>
-                      <td>{row.turn_count}</td>
-                      <td>{row.tool_call_count}</td>
-                    </tr>
-                    {isExpanded && (
-                      <tr key={`${row.session_id}-detail`} className="sessions-detail-row">
-                        <td colSpan={8}>
-                          <div className="sessions-detail">
-                            <div className="sessions-detail-grid">
-                              <div>
-                                <span className="sessions-detail-label">{t('sessions.detail.parentInfo')}</span>
-                                <code>{row.parent_session_id ? truncateId(row.parent_session_id) : t('sessions.detail.noParent')}</code>
-                              </div>
-                              <div>
-                                <span className="sessions-detail-label">{t('sessions.detail.version')}</span>
-                                <span>{row.version || '-'}</span>
-                              </div>
-                              <div>
-                                <span className="sessions-detail-label">{t('sessions.detail.endReason')}</span>
-                                <span>{row.end_reason || t('sessions.detail.noEndReason')}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                );
-              })
+              renderSessionRows(tree, 0, { t, collapsedIds, detailIds, toggleCollapse, toggleDetail })
             )}
           </tbody>
         </table>
