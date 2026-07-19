@@ -276,17 +276,17 @@ export const I18N_MESSAGES = {
     ja: integrationsJa,
     ko: integrationsKo,
   },
-  sessions: {
-    en: sessionsEn,
-    'zh-CN': sessionsZhCN,
-    ja: sessionsJa,
-    ko: sessionsKo,
-  },
   reliability: {
     en: reliabilityEn,
     'zh-CN': reliabilityZhCN,
     ja: reliabilityJa,
     ko: reliabilityKo,
+  },
+  sessions: {
+    en: sessionsEn,
+    'zh-CN': sessionsZhCN,
+    ja: sessionsJa,
+    ko: sessionsKo,
   },
 } as const;
 
