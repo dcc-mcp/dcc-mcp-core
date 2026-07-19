@@ -192,12 +192,12 @@ pub(super) fn display_environment_stamp() -> ComputerUseResult<Vec<MonitorStamp>
     Ok(stamps)
 }
 
-pub(super) fn scaled_pixels(pixels: i32, dpi: u32) -> i32 {
+pub(crate) fn scaled_pixels(pixels: i32, dpi: u32) -> i32 {
     let scaled = (i64::from(pixels) * i64::from(dpi.max(96)) + 48) / 96;
     scaled.clamp(1, i64::from(i32::MAX)) as i32
 }
 
-pub(super) fn breathing_alpha(base_alpha: u8, floor_percent: u8, elapsed_ms: u64) -> u8 {
+pub(crate) fn breathing_alpha(base_alpha: u8, floor_percent: u8, elapsed_ms: u64) -> u8 {
     let floor = f32::from(floor_percent.min(100)) / 100.0;
     let phase = (elapsed_ms % CONTROL_PULSE_PERIOD_MS) as f32 / CONTROL_PULSE_PERIOD_MS as f32;
     let wave = 0.5 - 0.5 * (std::f32::consts::TAU * phase).cos();
@@ -214,7 +214,7 @@ pub(super) fn target_unavailable() -> ComputerUseError {
     )
 }
 
-pub(super) fn overlay_geometries(
+pub(crate) fn overlay_geometries(
     target: HWND,
     target_rect: &RECT,
 ) -> ComputerUseResult<(OverlayGeometry, CornerGeometries)> {
@@ -243,7 +243,7 @@ pub(super) fn capsule_geometry(rect: &RECT, display_rect: &RECT, dpi: u32) -> Ov
     (x, y, width, height)
 }
 
-pub(super) fn capsule_glow_geometry((x, y, width, height): OverlayGeometry) -> OverlayGeometry {
+pub(crate) fn capsule_glow_geometry((x, y, width, height): OverlayGeometry) -> OverlayGeometry {
     let halo = (height / 7).max(4);
     (
         x.saturating_sub(halo),
@@ -341,7 +341,7 @@ pub(super) fn corner_geometries(rect: &RECT, dpi: u32) -> CornerGeometries {
         .collect()
 }
 
-pub(super) fn point_in_rect(point: POINT, rect: &RECT) -> bool {
+pub(crate) fn point_in_rect(point: POINT, rect: &RECT) -> bool {
     point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
 }
 
@@ -349,7 +349,7 @@ pub(super) fn pointer_mask_geometry(screen_x: i32, screen_y: i32) -> OverlayGeom
     pointer_geometry(screen_x, screen_y, POINTER_EFFECT_SIZE)
 }
 
-pub(super) fn pointer_ring_geometry(screen_x: i32, screen_y: i32) -> OverlayGeometry {
+pub(crate) fn pointer_ring_geometry(screen_x: i32, screen_y: i32) -> OverlayGeometry {
     pointer_geometry(screen_x, screen_y, POINTER_RING_SIZE)
 }
 
@@ -378,6 +378,6 @@ fn pointer_geometry(screen_x: i32, screen_y: i32, logical_size: i32) -> OverlayG
     )
 }
 
-pub(super) fn wide(value: &str) -> Vec<u16> {
+pub(crate) fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
