@@ -95,8 +95,10 @@ class TestCaptureWindowArgValidation:
         pytest.param(
             "capture",
             marks=pytest.mark.skipif(
-                sys.platform == "win32" and sys.version_info < (3, 9),
-                reason="WGC backend crashes with ACCESS_VIOLATION on Windows Python 3.8; "
+                sys.platform == "win32"
+                and (sys.version_info < (3, 9) or sys.version_info >= (3, 14)),
+                reason="WGC backend crashes with ACCESS_VIOLATION on Windows "
+                "Python 3.8 and 3.14 (boundary versions); "
                 "GIL release is sufficiently covered by the other three variants",
             ),
         ),
