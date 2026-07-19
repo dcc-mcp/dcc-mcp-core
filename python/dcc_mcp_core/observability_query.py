@@ -89,15 +89,15 @@ class ObservabilityQuery:
 
     def __init__(
         self,
-        read_json_fn: Callable[[str], list[dict[str, Any]]] | None = None,
+        read_json_fn: Callable[[str, dict[str, Any]], list[dict[str, Any]]] | None = None,
         db_path: str | None = None,
     ) -> None:
         """Initialize the query interface.
 
         Args:
-            read_json_fn: A callable that takes a SQL query string and returns
-                a list of dicts.  This allows the caller to inject a real
-                SQLite connection or a mock for testing.
+            read_json_fn: A callable that takes a SQL query string and a
+                params dict, and returns a list of dicts.  This allows the
+                caller to inject a real SQLite connection or a mock for testing.
             db_path: Path to the gateway admin SQLite database.  Used for
                 informational purposes only.
 
@@ -105,12 +105,12 @@ class ObservabilityQuery:
         self._read_fn = read_json_fn
         self._db_path = db_path
 
-    def _query(self, sql: str) -> list[dict[str, Any]]:
+    def _query(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Execute a SQL query via the injected read function."""
         if self._read_fn is None:
             return []
         try:
-            return self._read_fn(sql)
+            return self._read_fn(sql, params or {})
         except Exception as exc:
             logger.warning("ObservabilityQuery query failed: %s", exc)
             return []
@@ -163,7 +163,7 @@ class ObservabilityQuery:
         FROM sessions
         {where}
         """
-        rows = self._query(sql)
+        rows = self._query(sql, params)
         data: dict[str, Any] = {
             "total_sessions": 0,
             "active_sessions": 0,
@@ -233,7 +233,7 @@ class ObservabilityQuery:
         FROM tool_calls
         {where}
         """
-        rows = self._query(agg_sql)
+        rows = self._query(agg_sql, params)
         stats: dict[str, Any] = {
             "total_calls": 0,
             "success_count": 0,
@@ -265,7 +265,7 @@ class ObservabilityQuery:
         LIMIT :limit
         """
         params["limit"] = max(1, min(limit, 1000))
-        events = self._query(events_sql)
+        events = self._query(events_sql, params)
 
         return build_query_response(
             "tool_call_stats",
@@ -302,11 +302,13 @@ class ObservabilityQuery:
                OR parent_session_id = :root_id
             ORDER BY started_at_ms ASC
             """
-            rows = self._query(sql)
+            rows = self._query(sql, {"root_id": root_session_id})
         else:
             conditions = ["parent_session_id IS NULL"]
+            params: dict[str, Any] = {}
             if dcc_type:
                 conditions.append("dcc_type = :dcc_type")
+                params["dcc_type"] = dcc_type
             where = " AND ".join(conditions)
             sql = f"""
             SELECT session_id, parent_session_id, dcc_type, instance_id,
@@ -317,7 +319,7 @@ class ObservabilityQuery:
             ORDER BY started_at_ms DESC
             LIMIT 50
             """
-            rows = self._query(sql)
+            rows = self._query(sql, params)
 
         # Build tree from flat rows
         tree = _build_session_tree(rows, max_depth)
@@ -352,7 +354,7 @@ class ObservabilityQuery:
         FROM tool_calls
         {where}
         """
-        rows = self._query(sql)
+        rows = self._query(sql, params)
         data: dict[str, Any] = {
             "observed_requests": 0,
             "unobserved_requests": 0,
@@ -397,7 +399,7 @@ class ObservabilityQuery:
         FROM sessions
         WHERE {where}
         """
-        rows = self._query(sql)
+        rows = self._query(sql, params)
         data: dict[str, Any] = {
             "total_crashes": 0,
             "host_crashes": 0,
@@ -444,7 +446,7 @@ class ObservabilityQuery:
         FROM tool_calls
         {where}
         """
-        rows = self._query(call_sql)
+        rows = self._query(call_sql, params)
         total_calls = int(rows[0]["total_calls"]) if rows else 0
 
         data = {
