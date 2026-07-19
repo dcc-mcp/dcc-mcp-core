@@ -157,11 +157,16 @@ Generated `tools.yaml` entries follow the modern contract:
   `app_ui__snapshot`, and pass the latest `snapshot_id` unchanged. End every
   path with `app_ui__stop_computer_use`. Screenshot coordinates belong to that
   observation only.
+- When the exact HWND is minimized or hidden before the first snapshot, use
+  only `get_window_state` followed by the necessary `restore_window`,
+  `show_window`, and `activate_window` host actions, then take a fresh
+  snapshot. Never substitute desktop enumeration or open-ended input.
 - Stateful UI tools must declare `requires_in_process: true` independently of
-  `affinity`; keep Computer Use at `affinity: any` so it does not block the DCC
-  UI thread while preserving one process-local observation. On Windows, the
-  Ctrl+Alt+Esc latch and input owner are shared across adapter processes in the same
-  logon session.
+  `affinity`; keep UI Control at `affinity: any` so it does not block the DCC
+  UI thread while preserving one named-pipe client. On Windows, the isolated
+  per-logon-session host owns observations, Ctrl+Alt+Esc, confirmation, and the
+  cross-adapter input owner; skill scripts must not instantiate an in-process
+  `ComputerUseSession` fallback.
 - Prefer a `control_id` and semantic UI Automation action. Use raw coordinates
   only when the UI does not expose a stable semantic control.
 - Never set `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT` from a skill script. It is an
@@ -174,9 +179,10 @@ Generated `tools.yaml` entries follow the modern contract:
   authentication, security, confirmation, `desktop_unavailable`, or
   `user_interrupted` result. Computer Use is a capability fallback, not a way
   around a control boundary.
-- Keep mutating Computer Use tools annotated as destructive so the calling
-  host can apply its confirmation policy. Never add a model-controlled
-  `confirmed` argument or treat an environment variable as per-action user
+- Keep mutating UI Control tools annotated as destructive. An optional
+  consequence `intent` can only raise the native host's independent
+  UIA/input classification. Never add a model-controlled `confirmed` or
+  `approved` argument or treat an environment variable as per-action user
   approval.
 
 ## Authoring Workflow

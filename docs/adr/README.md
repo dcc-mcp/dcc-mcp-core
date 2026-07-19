@@ -17,6 +17,8 @@ Decision / Consequences / Alternatives considered.
 | 010 | [MCP 2026-07-28 Dual Protocol Migration Strategy](./010-mcp-2026-07-28-dual-protocol-migration.md) | Proposed |
 | 011 | [Python 3.7 LTS Compatibility Contract](./011-python-37-lts-compatibility-contract.md)        | Accepted |
 | 012 | [Use OS-assigned ports for DCC instances](./012-os-assigned-dcc-instance-ports.md)             | Accepted |
+| 013 | [Persist tool-call analytics locally and export studio telemetry through OTLP](./013-persistent-tool-call-analytics.md) | Accepted |
+| 014 | [Isolate DCC UI Control behind a native session host](./014-isolate-ui-control-host.md)         | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any

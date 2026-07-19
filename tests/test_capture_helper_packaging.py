@@ -8,6 +8,8 @@ import sys
 
 from scripts.packaging.stage_capture_helper import HELPER_NAME
 from scripts.packaging.stage_capture_helper import stage_helper
+from scripts.packaging.stage_ui_control_host import HOST_NAME
+from scripts.packaging.stage_ui_control_host import stage_host
 
 from conftest import REPO_ROOT
 
@@ -46,6 +48,25 @@ def test_maturin_contract_keeps_helper_out_of_sdist() -> None:
     text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert '{ path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "wheel" }' in text
     assert '{ path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "sdist" }' in text
+
+
+def test_stage_ui_control_host_copies_a_windows_pe(tmp_path: Path) -> None:
+    source = tmp_path / HOST_NAME
+    source.write_bytes(b"MZversion-matched-ui-control-host")
+    python_root = tmp_path / "python"
+
+    destination = stage_host(source, python_root)
+
+    assert destination == python_root / "dcc_mcp_core" / "bin" / HOST_NAME
+    assert destination.read_bytes() == source.read_bytes()
+
+
+def test_ui_control_host_is_wheel_only_and_generated_binary_is_ignored() -> None:
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert '{ path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "wheel" }' in pyproject
+    assert '{ path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "sdist" }' in pyproject
+    assert "/python/dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe" in gitignore
 
 
 def test_missing_stage_source_fails_with_actionable_error(tmp_path: Path) -> None:

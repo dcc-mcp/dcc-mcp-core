@@ -1,626 +1,303 @@
-"""Windows UI Automation backend for the bundled app_ui skill.
-
-The backend is intentionally optional and Windows-only. It uses PowerShell's
-standard UIAutomationClient assembly instead of adding a Python dependency.
-"""
+"""Windows app-ui proxy for the isolated native UI Control host."""
 
 from __future__ import annotations
 
-import atexit
 import base64
 from contextlib import suppress
-from functools import wraps
 import importlib.util
-import json
 import os
 from pathlib import Path
-import shutil
-import subprocess
-import sys
-import tempfile
-import textwrap
+import threading
 import time
 from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import Optional
+from typing import Tuple
 
+from dcc_mcp_core.adapter_contracts import AppUiAuditRecord
 from dcc_mcp_core.adapter_contracts import AppUiPolicy
+from dcc_mcp_core.adapter_contracts import UiActionKind
 from dcc_mcp_core.adapter_contracts import UiActionRequest
 from dcc_mcp_core.adapter_contracts import UiActionResult
 from dcc_mcp_core.adapter_contracts import UiErrorCode
 from dcc_mcp_core.adapter_contracts import UiSnapshot
-from dcc_mcp_core.adapter_contracts import UiWaitResult
 from dcc_mcp_core.skill import skill_error
 from dcc_mcp_core.skill import skill_success
 
-try:
-    from dcc_mcp_core import ComputerUseSession as _ComputerUseSession
-except (AttributeError, ImportError):
-    _ComputerUseSession = None
 
-
-def _load_support_module() -> Any:
-    path = Path(__file__).with_name("_windows_uia_support.py")
-    spec = importlib.util.spec_from_file_location(f"{__name__}._support", path)
+def _load_sibling(name: str) -> Any:
+    path = Path(__file__).with_name(f"{name}.py")
+    spec = importlib.util.spec_from_file_location(f"{__name__}_{name}", path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load Windows UIA support module from {path}")
+        raise ImportError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_SUPPORT = _load_support_module()
-_POLICY_KEYS = _SUPPORT._POLICY_KEYS
-_CONDITION_KEYS = _SUPPORT._CONDITION_KEYS
-_COMPUTER_USE_SESSIONS = _SUPPORT._COMPUTER_USE_SESSIONS
-_COMPUTER_USE_OBSERVATIONS = _SUPPORT._COMPUTER_USE_OBSERVATIONS
-_COMPUTER_USE_INTERRUPTED = _SUPPORT._COMPUTER_USE_INTERRUPTED
-_COMPUTER_USE_STOPPING = _SUPPORT._COMPUTER_USE_STOPPING
-_SESSION_STOP_GENERATIONS = _SUPPORT._SESSION_STOP_GENERATIONS
-_SESSION_LOCKS = _SUPPORT._SESSION_LOCKS
-_SESSION_STOP_LOCKS = _SUPPORT._SESSION_STOP_LOCKS
-_SESSION_LOCKS_GUARD = _SUPPORT._SESSION_LOCKS_GUARD
-_CLEANUP_REQUESTED = _SUPPORT._CLEANUP_REQUESTED
-_MAX_DRAG_POINTS = _SUPPORT._MAX_DRAG_POINTS
-_MAX_KEY_TOKENS = _SUPPORT._MAX_KEY_TOKENS
-_MAX_TEXT_UTF16_UNITS = _SUPPORT._MAX_TEXT_UTF16_UNITS
-_DENIED_PROCESS_NAMES = _SUPPORT._DENIED_PROCESS_NAMES
-_DESKTOP_UNAVAILABLE_MESSAGE = _SUPPORT._DESKTOP_UNAVAILABLE_MESSAGE
+_SUPPORT = _load_sibling("_windows_uia_support")
+_HOST = _load_sibling("_ui_control_host_client")
+UiControlHostError = _HOST.UiControlHostError
+_HostClient = _HOST.UiControlHostClient
 
-_safe_session_id = _SUPPORT._safe_session_id
-_session_lock = _SUPPORT._session_lock
-_session_stop_lock = _SUPPORT._session_stop_lock
-_mark_session_stopping = _SUPPORT._mark_session_stopping
-_session_stop_generation = _SUPPORT._session_stop_generation
-_bump_session_stop_generation = _SUPPORT._bump_session_stop_generation
-_desktop_unavailable_result = _SUPPORT._desktop_unavailable_result
-_state_dir = _SUPPORT._state_dir
-_state_path = _SUPPORT._state_path
-_load_state = _SUPPORT._load_state
-_save_state = _SUPPORT._save_state
-_snapshot_id = _SUPPORT._snapshot_id
 _policy_from_params = _SUPPORT._policy_from_params
-_env_flag = _SUPPORT._env_flag
-_positive_int = _SUPPORT._positive_int
-_intersect_title_constraints = _SUPPORT._intersect_title_constraints
-_process_name_key = _SUPPORT._process_name_key
 _scope_from_params = _SUPPORT._scope_from_params
-_scope_is_explicit = _SUPPORT._scope_is_explicit
 _scope_is_trusted_native_target = _SUPPORT._scope_is_trusted_native_target
-_json_object = _SUPPORT._json_object
-_backend_unavailable = _SUPPORT._backend_unavailable
-_role_from_control_type = _SUPPORT._role_from_control_type
-_bounds_from_raw = _SUPPORT._bounds_from_raw
-_control_id = _SUPPORT._control_id
 _node_from_uia_dict = _SUPPORT._node_from_uia_dict
-_iter_nodes = _SUPPORT._iter_nodes
 _find_by_id = _SUPPORT._find_by_id
 _find_controls = _SUPPORT._find_controls
-_error_from_capture = _SUPPORT._error_from_capture
-_native_fallback_capture = _SUPPORT._native_fallback_capture
-_audit_record = _SUPPORT._audit_record
-_stale_result = _SUPPORT._stale_result
-_stale_observation_result = _SUPPORT._stale_observation_result
-_is_native_action = _SUPPORT._is_native_action
-_native_action_request = _SUPPORT._native_action_request
 _validate_action_limits = _SUPPORT._validate_action_limits
+_is_native_action = _SUPPORT._is_native_action
 _condition_from_params = _SUPPORT._condition_from_params
-_resolve_condition_control = _SUPPORT._resolve_condition_control
 _condition_matches = _SUPPORT._condition_matches
-_node_from_dict = _SUPPORT._node_from_dict
+_safe_session_id = _SUPPORT._safe_session_id
+_session_lock = _SUPPORT._session_lock
 
-_UIA_SCRIPT = Path(__file__).with_name("_windows_uia_backend.ps1").read_text(encoding="utf-8")
-
-_UIA_HELPERS = Path(__file__).with_name("_windows_uia_helpers.ps1").read_text(encoding="utf-8")
-_UIA_SCRIPT = _UIA_SCRIPT.replace("# DCC_MCP_UIA_HELPERS", _UIA_HELPERS)
-
-
-def _read_params() -> Dict[str, Any]:
-    raw = ""
-    try:
-        if not sys.stdin.isatty():
-            raw = sys.stdin.read()
-    except Exception:
-        raw = ""
-    if raw.strip():
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
-
-
-def _native_desktop_interactive() -> bool:
-    if _ComputerUseSession is None:
-        return True
-    checker = getattr(_ComputerUseSession, "desktop_interactive", None)
-    if not callable(checker):
-        return True
-    try:
-        return bool(checker())
-    except Exception:
-        return False
+_CLIENTS: Dict[str, Dict[str, Any]] = {}
+_STOP_EVENT = threading.Event()
+_CLIENTS_LOCK = threading.RLock()
+_MAX_WAIT_MS = 30_000
+_INTENTS = {
+    "observe",
+    "activate",
+    "navigate",
+    "ordinary_edit",
+    "login_or_permission",
+    "upload",
+    "move_or_rename",
+    "transmit_sensitive_data",
+    "delete_or_overwrite",
+    "install_or_execute_download",
+    "financial_transaction",
+    "account_or_access_change",
+    "external_communication",
+    "terminal_or_run_dialog",
+    "credential_or_authentication",
+    "windows_security_or_privacy",
+    "safety_bypass",
+    "password_change",
+    "escape_scope",
+}
+_WINDOW_STATE_OPERATIONS = {
+    UiActionKind.RESTORE_WINDOW: "restore",
+    UiActionKind.SHOW_WINDOW: "show",
+    UiActionKind.ACTIVATE_WINDOW: "activate",
+}
 
 
-def _serialize_session_call(
-    function: Callable[[Optional[Dict[str, Any]]], Dict[str, Any]],
-) -> Callable[[Optional[Dict[str, Any]]], Dict[str, Any]]:
-    @wraps(function)
+def _serialize_session_call(func: Callable[..., Dict[str, Any]]) -> Callable[..., Dict[str, Any]]:
     def wrapped(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        resolved = dict(params) if params is not None else _read_params()
-        session_id = _safe_session_id(resolved.get("session_id"))
-        if session_id in _COMPUTER_USE_STOPPING:
-            return skill_error(
-                "DCC UI Control is stopping; retry after stop completes.",
-                UiErrorCode.BACKEND_UNAVAILABLE,
-            )
+        raw = dict(params or {})
+        session_id = _safe_session_id(raw.get("session_id"))
         with _session_lock(session_id):
-            if session_id in _COMPUTER_USE_STOPPING:
+            if _STOP_EVENT.is_set():
                 return skill_error(
-                    "DCC UI Control is stopping; retry after stop completes.",
+                    "app_ui Windows host proxy is stopping.",
                     UiErrorCode.BACKEND_UNAVAILABLE,
+                    backend="windows-ui-control-host",
                 )
-            if not _native_desktop_interactive():
-                return _desktop_unavailable_result(session_id)
-            return function(resolved)
+            return func(raw)
 
     return wrapped
 
 
-def _request_stop_computer_use_session(session_id: str) -> bool:
-    entry = _COMPUTER_USE_SESSIONS.get(_safe_session_id(session_id))
-    if not entry:
-        return False
-    request_stop = getattr(entry["session"], "request_stop", None)
-    if callable(request_stop):
-        with suppress(Exception):
-            request_stop()
-    return True
-
-
-def _stop_computer_use_session(session_id: str) -> Dict[str, Any]:
-    safe_id = _safe_session_id(session_id)
-    _request_stop_computer_use_session(safe_id)
-    entry = _COMPUTER_USE_SESSIONS.get(safe_id)
-    _COMPUTER_USE_OBSERVATIONS.pop(safe_id, None)
-    if not entry:
-        return {"success": True, "active": False, "cleanup_pending": False}
-    try:
-        raw = _json_object(entry["session"].stop())
-    except Exception as exc:
-        return {
-            "success": False,
-            "active": False,
-            "cleanup_pending": True,
-            "message": f"DCC UI Control cleanup could not be confirmed: {exc}",
-        }
-    if raw.get("cleanup_pending"):
-        return {
-            **raw,
-            "success": False,
-            "active": False,
-            "cleanup_pending": True,
-        }
-    if _COMPUTER_USE_SESSIONS.get(safe_id) is entry:
-        _COMPUTER_USE_SESSIONS.pop(safe_id, None)
-    return {
-        **raw,
-        "success": bool(raw.get("success", True)),
-        "active": False,
-        "cleanup_pending": False,
-    }
-
-
-def _latch_user_interrupt(session_id: str) -> None:
-    safe_id = _safe_session_id(session_id)
-    _COMPUTER_USE_INTERRUPTED.add(safe_id)
-    _stop_computer_use_session(safe_id)
-
-
-def _user_interrupted_capture() -> Dict[str, Any]:
-    return {
-        "success": False,
-        "error": UiErrorCode.USER_INTERRUPTED,
-        "message": (
-            "The user pressed Ctrl+Alt+Esc; DCC UI Control remains stopped. "
-            "Only resume after explicit user approval with resume_computer_use=true."
-        ),
-    }
-
-
-def _native_process_user_interrupted() -> bool:
-    if _ComputerUseSession is None:
-        return False
-    checker = getattr(_ComputerUseSession, "process_user_interrupted", None)
-    if not callable(checker):
-        return False
-    try:
-        return bool(checker())
-    except Exception:
-        return False
-
-
-def _stop_all_computer_use_sessions() -> None:
-    for session_id in list(_COMPUTER_USE_SESSIONS):
-        _stop_computer_use_session(session_id)
-
-
-def request_stop() -> None:
-    """Cooperatively cancel active native input before package cleanup waits."""
-    _CLEANUP_REQUESTED.set()
-    for session_id in list(_COMPUTER_USE_SESSIONS):
-        _request_stop_computer_use_session(session_id)
-
-
-def cleanup() -> None:
-    """Release backend-owned input and overlays before package unload."""
-    _CLEANUP_REQUESTED.set()
-    _stop_all_computer_use_sessions()
-    with suppress(Exception):
-        atexit.unregister(_stop_all_computer_use_sessions)
-
-
-atexit.register(_stop_all_computer_use_sessions)
-
-
-def _is_windows() -> bool:
-    return os.name == "nt"
-
-
-def _powershell_bin() -> Optional[str]:
-    return (
-        shutil.which("powershell.exe") or shutil.which("pwsh.exe") or shutil.which("powershell") or shutil.which("pwsh")
-    )
-
-
-def _uia_guard_failure(session_id: str) -> Optional[Dict[str, Any]]:
-    safe_id = _safe_session_id(session_id)
-    if safe_id in _COMPUTER_USE_INTERRUPTED:
-        return {
-            "ok": False,
-            "error": UiErrorCode.USER_INTERRUPTED,
-            "message": _user_interrupted_capture()["message"],
-        }
-    if _native_process_user_interrupted():
-        _latch_user_interrupt(safe_id)
-        return {
-            "ok": False,
-            "error": UiErrorCode.USER_INTERRUPTED,
-            "message": _user_interrupted_capture()["message"],
-        }
-    if not _native_desktop_interactive():
-        _COMPUTER_USE_OBSERVATIONS.pop(safe_id, None)
-        return {
-            "ok": False,
-            "error": UiErrorCode.DESKTOP_UNAVAILABLE,
-            "message": _DESKTOP_UNAVAILABLE_MESSAGE,
-        }
-    if safe_id in _COMPUTER_USE_STOPPING:
-        return {
-            "ok": False,
-            "error": UiErrorCode.BACKEND_UNAVAILABLE,
-            "message": "DCC UI Control was stopped while the Windows UIA action was running.",
-        }
-    entry = _COMPUTER_USE_SESSIONS.get(safe_id)
-    if not entry or not hasattr(entry["session"], "status"):
-        return None
-    try:
-        status = _json_object(entry["session"].status())
-    except Exception:
-        return {
-            "ok": False,
-            "error": UiErrorCode.BACKEND_ERROR,
-            "message": "The DCC UI Control safety monitor could not verify the active session.",
-        }
-    if status.get("user_interrupted"):
-        _latch_user_interrupt(safe_id)
-        return {
-            "ok": False,
-            "error": UiErrorCode.USER_INTERRUPTED,
-            "message": _user_interrupted_capture()["message"],
-        }
-    if status.get("desktop_interactive") is False:
-        _COMPUTER_USE_OBSERVATIONS.pop(safe_id, None)
-        return {
-            "ok": False,
-            "error": UiErrorCode.DESKTOP_UNAVAILABLE,
-            "message": _DESKTOP_UNAVAILABLE_MESSAGE,
-        }
-    if status.get("active") is False:
-        return {
-            "ok": False,
-            "error": UiErrorCode.BACKEND_UNAVAILABLE,
-            "message": "DCC UI Control was stopped while the Windows UIA action was running.",
-        }
+def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if scope.get("invalid_reason"):
+        return skill_error(str(scope["invalid_reason"]), UiErrorCode.INVALID_TARGET)
+    if not _scope_is_trusted_native_target(scope):
+        return skill_error(
+            (
+                "Isolated DCC UI Control requires an operator-bound process id or window handle. "
+                "Set DCC_MCP_APP_UI_UIA_PROCESS_ID or DCC_MCP_APP_UI_UIA_WINDOW_HANDLE in the adapter environment."
+            ),
+            UiErrorCode.PERMISSION_DENIED,
+        )
+    if scope.get("process_names"):
+        return skill_error(
+            "Process-name and title-only scopes cannot mint native UI Control capabilities.",
+            UiErrorCode.INVALID_TARGET,
+        )
     return None
 
 
-def _stop_uia_process(process: Any) -> None:
-    with suppress(Exception):
-        process.terminate()
-    try:
-        process.communicate(timeout=0.5)
-    except Exception:
-        with suppress(Exception):
-            process.kill()
-        with suppress(Exception):
-            process.communicate(timeout=0.5)
+def _client_spec(session_id: str, params: Dict[str, Any], policy: AppUiPolicy) -> Dict[str, Any]:
+    scope = _scope_from_params(params, policy)
+    failure = _scope_error(scope)
+    if failure is not None:
+        raise UiControlHostError(str(failure.get("error") or "invalid_target"), str(failure.get("message") or ""))
+    process_ids = scope.get("process_ids") or []
+    window_handles = scope.get("window_handles") or []
+    process_id = int(process_ids[0]) if len(process_ids) == 1 else None
+    window_handle = int(window_handles[0]) if len(window_handles) == 1 else None
+    allow_raw_input = str(os.environ.get("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    dcc_type = str(os.environ.get("DCC_MCP_UI_CONTROL_DCC_TYPE") or os.environ.get("DCC_MCP_DCC_TYPE") or "custom")
+    task_grant_id = f"adapter:{dcc_type}:{session_id}:{process_id or 0}:{window_handle or 0}"
+    return {
+        "session_id": session_id,
+        "task_grant_id": task_grant_id,
+        "dcc_type": dcc_type,
+        "process_id": process_id,
+        "window_handle": window_handle,
+        "allow_raw_input": allow_raw_input,
+        "scope": scope,
+    }
 
 
-def _run_uia(payload: Dict[str, Any]) -> Dict[str, Any]:
-    if not _is_windows():
-        raise RuntimeError("Windows UIA backend is only available on Windows")
-    ps = _powershell_bin()
-    if not ps:
-        raise RuntimeError("PowerShell executable not found for Windows UIA backend")
-    payload = dict(payload)
-    guard_session_id = str(payload.pop("_session_id", ""))
-    timeout = float(os.environ.get("DCC_MCP_APP_UI_UIA_TIMEOUT_SECS", "12"))
-    with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8") as handle:
-        handle.write(_UIA_SCRIPT)
-        script_path = handle.name
-    try:
-        if guard_session_id:
-            guarded_failure = _uia_guard_failure(guard_session_id)
-            if guarded_failure is not None:
-                return guarded_failure
-            process = subprocess.Popen(
-                [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+def _client_for(session_id: str, params: Dict[str, Any], policy: AppUiPolicy) -> Tuple[Any, Dict[str, Any]]:
+    spec = _client_spec(session_id, params, policy)
+    identity = tuple(spec[key] for key in ("dcc_type", "process_id", "window_handle", "allow_raw_input"))
+    with _CLIENTS_LOCK:
+        entry = _CLIENTS.get(session_id)
+        if entry is not None and entry["identity"] != identity:
+            with suppress(Exception):
+                entry["client"].stop()
+            _CLIENTS.pop(session_id, None)
+            entry = None
+        if entry is None:
+            client = _HostClient(
+                session_id=session_id,
+                task_grant_id=spec["task_grant_id"],
+                dcc_type=spec["dcc_type"],
+                process_id=spec["process_id"],
+                window_handle=spec["window_handle"],
+                allow_raw_input=spec["allow_raw_input"],
             )
-            input_text: Optional[str] = json.dumps(payload)
-            deadline = time.monotonic() + timeout
-            while True:
-                guarded_failure = _uia_guard_failure(guard_session_id)
-                if guarded_failure is not None:
-                    _stop_uia_process(process)
-                    return guarded_failure
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    _stop_uia_process(process)
-                    raise RuntimeError(f"Windows UIA command timed out after {timeout:g} seconds")
-                try:
-                    stdout, stderr = process.communicate(input=input_text, timeout=min(0.05, remaining))
-                    break
-                except subprocess.TimeoutExpired:
-                    input_text = None
-            guarded_failure = _uia_guard_failure(guard_session_id)
-            if guarded_failure is not None:
-                return guarded_failure
-            returncode = process.returncode
-        else:
-            try:
-                completed = subprocess.run(
-                    [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path],
-                    input=json.dumps(payload),
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError(f"Windows UIA command timed out after {exc.timeout:g} seconds") from exc
-            stdout, stderr, returncode = completed.stdout, completed.stderr, completed.returncode
-    finally:
-        with suppress(OSError):
-            Path(script_path).unlink()
-    if returncode != 0:
-        raise RuntimeError((stderr or stdout or "Windows UIA command failed").strip())
-    try:
-        parsed = json.loads(stdout or "{}")
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Windows UIA command returned invalid JSON: {exc}") from exc
-    return parsed if isinstance(parsed, dict) else {}
+            entry = {"client": client, "identity": identity, "snapshot_id": None, "scope": spec["scope"]}
+            _CLIENTS[session_id] = entry
+        return entry["client"], entry
+
+
+def _host_error(exc: Exception) -> Dict[str, Any]:
+    code = str(getattr(exc, "code", None) or UiErrorCode.BACKEND_UNAVAILABLE)
+    mapping = {
+        "approval_required": "approval_required",
+        "hard_denied": UiErrorCode.PERMISSION_DENIED,
+        "invalid_target": UiErrorCode.INVALID_TARGET,
+        "desktop_unavailable": UiErrorCode.DESKTOP_UNAVAILABLE,
+        "capture_failed": "capture_failed",
+        "user_interrupted": UiErrorCode.USER_INTERRUPTED,
+        "stale_observation": UiErrorCode.STALE_OBSERVATION,
+    }
+    mapped_code = mapping.get(code, code)
+    recovery: Dict[str, Any] = {}
+    if mapped_code == UiErrorCode.INVALID_TARGET:
+        recovery = {
+            "prompt": (
+                "If this exact PID/HWND is still valid but minimized or hidden, call app_ui__act with "
+                "get_window_state, then restore_window or show_window, optionally activate_window, and retry "
+                "app_ui__snapshot. These operations cannot change the authorized PID/HWND scope."
+            ),
+            "possible_solutions": [
+                "Read the authorized window with app_ui__act(action='get_window_state').",
+                "Restore or show only that same window, then take a fresh app_ui__snapshot.",
+            ],
+            "recovery_actions": ["get_window_state", "restore_window", "show_window", "activate_window"],
+            "recovery_scope": "same_exact_pid_hwnd",
+        }
+    return skill_error(
+        str(exc),
+        mapped_code,
+        error_code=mapped_code,
+        backend="windows-ui-control-host",
+        **recovery,
+    )
 
 
 def _capture_snapshot(
     session_id: str,
     policy: AppUiPolicy,
     params: Dict[str, Any],
-    *,
-    bump_revision: bool,
-    guard_session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    scope = _scope_from_params(params, policy)
-    if scope.get("invalid_reason"):
-        return {
-            "success": False,
-            "error": UiErrorCode.INVALID_TARGET,
-            "message": str(scope["invalid_reason"]),
-        }
-    if not _scope_is_explicit(scope):
-        return {
-            "success": False,
-            "error": UiErrorCode.MISSING_WINDOW,
-            "message": (
-                "Windows UIA backend requires an explicit scoped window title, "
-                "process id, or process name; whole-desktop snapshots are disabled."
-            ),
-        }
-    state = _load_state(session_id)
-    if bump_revision:
-        _COMPUTER_USE_OBSERVATIONS.pop(session_id, None)
-        state["revision"] = int(state.get("revision") or 0) + 1
-    snapshot_id = _snapshot_id(state)
-    payload = {
-        "mode": "snapshot",
-        "scope": scope,
-        "max_depth": int(os.environ.get("DCC_MCP_APP_UI_UIA_MAX_DEPTH", "5")),
-        "max_nodes": int(os.environ.get("DCC_MCP_APP_UI_UIA_MAX_NODES", "250")),
-    }
-    if guard_session_id:
-        payload["_session_id"] = guard_session_id
     try:
-        raw = _run_uia(payload)
-    except RuntimeError as exc:
-        return {
-            "success": False,
-            "error": "backend_unavailable",
-            "message": str(exc),
-            "scope": scope,
-            "snapshot_id": snapshot_id,
-            "_state": state,
-        }
-    if not raw.get("ok"):
-        return {
-            "success": False,
-            "error": str(raw.get("error") or UiErrorCode.BACKEND_ERROR),
-            "message": str(raw.get("message") or "Windows UIA snapshot failed."),
-            "scope": scope,
-            "snapshot_id": snapshot_id,
-            "_state": state,
-        }
+        client, entry = _client_for(session_id, params, policy)
+        if params.get("resume_computer_use"):
+            client.resume()
+        max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_APP_UI_UIA_MAX_DEPTH", "5"))))
+        max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_APP_UI_UIA_MAX_NODES", "250"))))
+        raw = client.snapshot(max_depth=max_depth, max_nodes=max_nodes)
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+
+    snapshot_id = str(raw["accessibility_state_id"])
     root = _node_from_uia_dict(raw["root"], snapshot_id)
     focus_runtime_id = str(raw.get("focus_runtime_id") or "")
     snapshot = UiSnapshot(
         root=root,
         session_id=session_id,
         focus_id=f"uia:{focus_runtime_id}" if focus_runtime_id else None,
-        truncated=int(raw.get("node_count") or 0) >= payload["max_nodes"],
+        truncated=int(raw.get("node_count") or 0) >= max_nodes,
         node_count=int(raw.get("node_count") or 1),
         metadata={
             "snapshot_id": snapshot_id,
             "app_ui": {
-                "backend": "windows-uia",
-                "scope": scope,
-                "max_depth": payload["max_depth"],
-                "max_nodes": payload["max_nodes"],
+                "backend": "windows-ui-control-host",
+                "scope": entry["scope"],
+                "target": raw.get("target") or client.target,
+                "max_depth": max_depth,
+                "max_nodes": max_nodes,
             },
+            "computer_use": raw.get("observation") or {},
         },
     ).to_dict()
-    state["last_snapshot_id"] = snapshot_id
-    _save_state(state)
+    entry["snapshot_id"] = snapshot_id
     return {
         "success": True,
-        "snapshot": snapshot,
         "snapshot_id": snapshot_id,
-        "scope": scope,
-        "target": raw["root"],
+        "snapshot": snapshot,
+        "image": raw["image_bytes"],
+        "mime_type": str((raw.get("image") or {}).get("mime_type") or "image/png"),
+        "observation": raw.get("observation") or {},
+        "target": raw.get("target") or client.target,
     }
-
-
-def _computer_use_screenshot(
-    session_id: str,
-    capture: Dict[str, Any],
-    params: Dict[str, Any],
-) -> Dict[str, Any]:
-    return _SUPPORT._computer_use_screenshot_impl(
-        session_id,
-        capture,
-        params,
-        _ComputerUseSession,
-        _stop_computer_use_session,
-        _latch_user_interrupt,
-        _user_interrupted_capture,
-    )
 
 
 @_serialize_session_call
 def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+    params = dict(params or {})
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     if not policy.allow_snapshot:
-        return skill_error(
-            "app_ui snapshot disabled by policy",
-            UiErrorCode.POLICY_DISABLED,
-            error_code=UiErrorCode.POLICY_DISABLED,
-        )
-    capture = _capture_snapshot(session_id, policy, params, bump_revision=True)
+        return skill_error("app_ui snapshot disabled by policy", UiErrorCode.POLICY_DISABLED)
+    capture = _capture_snapshot(session_id, policy, params)
     if not capture.get("success"):
-        fallback = None
-        if capture.get("error") in {UiErrorCode.BACKEND_ERROR, UiErrorCode.BACKEND_UNAVAILABLE}:
-            fallback = _native_fallback_capture(
-                session_id,
-                policy,
-                params,
-                capture,
-            )
-        if fallback is None:
-            return _error_from_capture(capture)
-        capture = fallback
-    native_fallback = (
-        capture["snapshot"].get("metadata", {}).get("app_ui", {}).get("backend") == "windows-native-fallback"
-    )
-    result = skill_success(
-        (
-            "Captured native DCC UI Control screenshot after Windows UIA was unavailable."
-            if native_fallback
-            else "Captured Windows UIA app_ui snapshot."
-        ),
-        prompt=(
-            "Inspect the image, perform one scoped app_ui__act with this snapshot_id, then snapshot again."
-            if native_fallback
-            else "Use app_ui__find to resolve a control, then app_ui__act with the returned snapshot_id."
-        ),
+        return capture
+    return skill_success(
+        "Captured isolated Windows UI Control snapshot.",
+        prompt="Use app_ui__find or perform one scoped app_ui__act with this snapshot_id, then snapshot again.",
         session_id=session_id,
         snapshot_id=capture["snapshot_id"],
         snapshot=capture["snapshot"],
+        observation=capture["observation"],
         policy=policy.to_dict(),
-    )
-    raw_input_enabled = policy.allow_raw_coordinates or policy.allow_keyboard_shortcuts
-    if raw_input_enabled or _scope_is_trusted_native_target(capture["scope"]):
-        computer_use = _computer_use_screenshot(session_id, capture, params)
-        if not computer_use.get("success"):
-            return _error_from_capture(computer_use)
-        observation = computer_use["observation"]
-        snapshot_app_ui = capture["snapshot"].get("metadata", {}).get("app_ui", {})
-        if native_fallback:
-            root = capture["snapshot"]["root"]
-            root_app_ui = root.setdefault("metadata", {}).setdefault("app_ui", {})
-            resolved_target = {
-                "process_id": observation.get("process_id"),
-                "native_window_handle": observation.get("window_handle"),
-                "window_title": observation.get("window_title"),
-            }
-            root_app_ui.update(resolved_target)
-            snapshot_app_ui.update(resolved_target)
-            if observation.get("window_title"):
-                root["label"] = str(observation["window_title"])
-            source_rect = observation.get("source_rect")
-            if isinstance(source_rect, list) and len(source_rect) == 4:
-                root["bounds"] = {
-                    "x": float(source_rect[0]),
-                    "y": float(source_rect[1]),
-                    "width": float(source_rect[2]),
-                    "height": float(source_rect[3]),
-                }
-        capture["snapshot"]["metadata"]["computer_use"] = observation
-        result["context"]["snapshot"] = capture["snapshot"]
-        result["context"]["observation"] = observation
-        result["context"]["computer_use"] = computer_use["status"]
-        result["context"]["control_hint"] = computer_use["status"].get("hint")
-        result["context"]["__rich__"] = {
+        __rich__={
             "kind": "image",
-            "data": base64.b64encode(computer_use["image"]).decode("ascii"),
-            "mime": computer_use["mime_type"],
-            "alt": f"{params.get('app_name') or 'DCC'} UI Control screenshot",
-        }
-    return result
+            "data": base64.b64encode(capture["image"]).decode("ascii"),
+            "mime": capture["mime_type"],
+            "alt": "{} UI Control screenshot".format(params.get("app_name") or "DCC"),
+        },
+    )
 
 
 @_serialize_session_call
 def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+    params = dict(params or {})
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     if not policy.allow_find:
-        return skill_error(
-            "app_ui find disabled by policy",
-            UiErrorCode.POLICY_DISABLED,
-            error_code=UiErrorCode.POLICY_DISABLED,
-        )
-    capture = _capture_snapshot(session_id, policy, params, bump_revision=True)
+        return skill_error("app_ui find disabled by policy", UiErrorCode.POLICY_DISABLED)
+    capture = _capture_snapshot(session_id, policy, params)
     if not capture.get("success"):
-        return _error_from_capture(capture)
+        return capture
     matches = _find_controls(capture["snapshot"], params)
     return skill_success(
-        f"Found {len(matches)} Windows UIA app_ui control(s).",
-        prompt="Use app_ui__act with a returned control id, then app_ui__wait_for.",
+        f"Found {len(matches)} isolated Windows UI Control(s).",
+        prompt="Use app_ui__act with a returned control id and snapshot_id.",
         session_id=session_id,
         snapshot_id=capture["snapshot_id"],
         matches=matches,
@@ -628,363 +305,242 @@ def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
-def _consume_action_observation(session_id: str, state: Dict[str, Any]) -> str:
-    """Invalidate every coordinate binding before a UI dispatch can mutate state."""
-    _COMPUTER_USE_OBSERVATIONS.pop(session_id, None)
-    state["revision"] = int(state.get("revision") or 0) + 1
-    state["last_snapshot_id"] = _snapshot_id(state)
-    _save_state(state)
-    return str(state["last_snapshot_id"])
+def _intent(params: Dict[str, Any]) -> str:
+    requested = str(params.get("intent") or "ordinary_edit").strip().lower()
+    return requested if requested in _INTENTS else "ordinary_edit"
 
 
-def _run_native_action(
-    session_id: str,
-    state: Dict[str, Any],
-    policy: AppUiPolicy,
-    params: Dict[str, Any],
-) -> Dict[str, Any]:
+def _action_payload(params: Dict[str, Any], native: bool) -> Dict[str, Any]:
     action = str(params.get("action") or "")
-    control_id = str(params.get("control_id") or "")
-    requested_snapshot_id = str(params.get("snapshot_id") or "")
-    current_snapshot_id = str(state.get("last_snapshot_id") or "")
-    binding = _COMPUTER_USE_OBSERVATIONS.get(session_id)
-    if (
-        not requested_snapshot_id
-        or requested_snapshot_id != current_snapshot_id
-        or not binding
-        or binding.get("snapshot_id") != requested_snapshot_id
-    ):
-        return _stale_observation_result(
-            action,
-            control_id,
-            session_id,
-            requested_snapshot_id,
-            current_snapshot_id,
-            policy,
-        )
-    entry = _COMPUTER_USE_SESSIONS.get(session_id)
-    if not entry:
-        return _backend_unavailable(
-            "Native DCC UI Control session is not available in this Python process; take a new snapshot in-process."
-        )
-    request = _native_action_request(params, binding["observation_id"])
-    _consume_action_observation(session_id, state)
-    try:
-        raw = _json_object(entry["session"].act(json.dumps(request)))
-    except Exception as exc:
-        raw = {"success": False, "error": UiErrorCode.BACKEND_ERROR, "message": str(exc)}
-    if not raw.get("success"):
-        error = str(raw.get("error") or UiErrorCode.BACKEND_ERROR)
-        message = str(raw.get("message") or "Native DCC UI Control action failed.")
-        result = UiActionResult(
-            success=False,
-            control_id=control_id,
-            error_code=error,
-            message=message,
-            metadata={"snapshot_id": state["last_snapshot_id"], "requires_new_screenshot": True},
-        ).to_dict()
-        audit = _audit_record(action, False, None, session_id, policy, None, None, error, message)
-        if error == UiErrorCode.USER_INTERRUPTED:
-            _latch_user_interrupt(session_id)
-        return skill_error(message, error, result=result, audit=audit)
+    payload = {
+        "action": action,
+        "control_id": str(params.get("control_id") or "") or None,
+        "input_kind": "raw_input" if native else "semantic",
+        "intent": _intent(params),
+        "x": params.get("x"),
+        "y": params.get("y"),
+        "button": params.get("button"),
+        "scroll_x": params.get("scroll_x"),
+        "scroll_y": params.get("scroll_y"),
+        "path": params.get("path") or [],
+        "text": params.get("text"),
+        "keys": params.get("keys") or [],
+        "checked": params.get("checked"),
+        "duration_ms": params.get("duration_ms"),
+    }
+    return {key: value for key, value in payload.items() if value is not None}
 
-    message = f"Completed native DCC UI Control action {action!r}."
-    result = UiActionResult(
-        success=True,
-        control_id=control_id,
+
+def _audit_record(
+    action: str,
+    success: bool,
+    control: Optional[Dict[str, Any]],
+    session_id: str,
+    policy: AppUiPolicy,
+    error_code: Optional[str],
+    message: str,
+) -> Dict[str, Any]:
+    redacted = ["text"] if action in {UiActionKind.SET_TEXT, UiActionKind.TYPE} else []
+    return AppUiAuditRecord(
+        action_kind=action,
+        success=success,
+        target_control_id=control.get("id") if control else None,
+        target_role=control.get("role") if control else None,
+        before_focus_id=None,
+        after_focus_id=None,
+        error_code=error_code,
         message=message,
-        metadata={"snapshot_id": state["last_snapshot_id"], "requires_new_screenshot": True},
-    ).to_dict()
-    audit = _audit_record(action, True, None, session_id, policy, None, None, None, message)
-    return skill_success(
-        message,
-        prompt="Take a new app_ui__snapshot before the next native action.",
         session_id=session_id,
-        snapshot_id=state["last_snapshot_id"],
-        result=result,
-        audit=audit,
-    )
+        redacted_fields=redacted,
+        metadata={"backend": "windows-ui-control-host", "host_enforced": True},
+    ).to_dict()
 
 
 @_serialize_session_call
 def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
+    params = dict(params or {})
     session_id = _safe_session_id(params.get("session_id"))
-    if _native_process_user_interrupted():
-        _COMPUTER_USE_INTERRUPTED.add(session_id)
-        return _user_interrupted_capture()
     policy = _policy_from_params(params)
     action = str(params.get("action") or "")
     limit_error = _validate_action_limits(params)
     if limit_error is not None:
         return limit_error
-    control_id = str(params.get("control_id") or "")
-    requested_snapshot_id = str(params.get("snapshot_id") or "")
-    state = _load_state(session_id)
-    current_snapshot_id = str(state.get("last_snapshot_id") or "")
-    native_action = _is_native_action(action, params)
-    if requested_snapshot_id and requested_snapshot_id != current_snapshot_id:
-        if native_action:
-            return _stale_observation_result(
-                action,
-                control_id,
-                session_id,
-                requested_snapshot_id,
-                current_snapshot_id,
-                policy,
-            )
-        return _stale_result(control_id, session_id, requested_snapshot_id, current_snapshot_id)
     request = UiActionRequest(
-        control_id=control_id or None,
+        control_id=str(params.get("control_id") or "") or None,
         action=action,
         x=params.get("x"),
         y=params.get("y"),
     )
     if not policy.allows_request(request):
-        result = UiActionResult(
-            success=False,
-            control_id=control_id,
-            error_code=UiErrorCode.POLICY_DISABLED,
-            message=f"app_ui action {action!r} disabled by policy",
-        ).to_dict()
-        audit = _audit_record(action, False, None, session_id, policy, None, None, UiErrorCode.POLICY_DISABLED)
-        return skill_error(result["message"], UiErrorCode.POLICY_DISABLED, result=result, audit=audit)
-    if native_action:
-        return _run_native_action(session_id, state, policy, params)
-
-    capture = _capture_snapshot(session_id, policy, params, bump_revision=False)
-    if not capture.get("success"):
-        return _error_from_capture(capture)
-    control = _find_by_id(capture["snapshot"], control_id)
-    if not control:
-        result = UiActionResult(
-            success=False,
-            control_id=control_id,
-            error_code=UiErrorCode.NOT_FOUND,
-            message="control not found in scoped Windows UIA window",
-        ).to_dict()
-        return skill_error("Control not found in scoped Windows UIA window.", UiErrorCode.NOT_FOUND, result=result)
-
-    if not _scope_is_trusted_native_target(capture["scope"]):
-        return skill_error(
-            (
-                "Mutating Windows UIA actions require an operator-bound DCC process id or window handle "
-                "so the visible DCC UI Control session and user interruption monitor target the same window."
-            ),
-            UiErrorCode.PERMISSION_DENIED,
-        )
-    computer_use = _computer_use_screenshot(session_id, capture, params)
-    if not computer_use.get("success"):
-        return _error_from_capture(computer_use)
-
-    payload = {
-        "mode": "act",
-        "_session_id": session_id,
-        "scope": capture["scope"],
-        "max_depth": int(os.environ.get("DCC_MCP_APP_UI_UIA_MAX_DEPTH", "5")),
-        "max_nodes": int(os.environ.get("DCC_MCP_APP_UI_UIA_MAX_NODES", "250")),
-        "action": {
-            "control_id": control_id,
-            "action": action,
-            "text": params.get("text") or "",
-            "checked": bool(params.get("checked")),
-        },
-    }
-    _consume_action_observation(session_id, state)
+        return skill_error(f"app_ui action {action!r} disabled by policy", UiErrorCode.POLICY_DISABLED)
     try:
-        raw = _run_uia(payload)
-    except RuntimeError as exc:
-        return _backend_unavailable(str(exc))
-
-    before_focus = f"uia:{raw.get('before_focus_runtime_id')}" if raw.get("before_focus_runtime_id") else None
-    after_focus = f"uia:{raw.get('after_focus_runtime_id')}" if raw.get("after_focus_runtime_id") else None
-    if not raw.get("ok"):
-        error = str(raw.get("error") or UiErrorCode.BACKEND_ERROR)
-        message = str(raw.get("message") or "Windows UIA action failed.")
-        result = UiActionResult(
-            success=False,
-            control_id=control_id,
-            error_code=error,
-            message=message,
-            before_focus_id=before_focus,
-            after_focus_id=after_focus,
-            metadata={"snapshot_id": state["last_snapshot_id"], "requires_new_screenshot": True},
-        ).to_dict()
-        audit = _audit_record(action, False, control, session_id, policy, before_focus, after_focus, error, message)
-        return skill_error(message, error, result=result, audit=audit)
-
-    message = str(raw.get("message") or "Windows UIA action completed")
+        client, entry = _client_for(session_id, params, policy)
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+    if action == UiActionKind.GET_WINDOW_STATE:
+        try:
+            raw = client.window_state()
+        except (UiControlHostError, OSError, ValueError) as exc:
+            return _host_error(exc)
+        message = "Read exact scoped window state from the isolated UI Control host."
+        return skill_success(
+            message,
+            prompt=(
+                "If minimized, call app_ui__act with restore_window; if hidden, use show_window; "
+                "then activate_window and take a fresh snapshot."
+            ),
+            session_id=session_id,
+            window_state=raw.get("state") or {},
+            audit=_audit_record(action, True, None, session_id, policy, None, message),
+        )
+    if action in _WINDOW_STATE_OPERATIONS:
+        try:
+            raw = client.change_window_state(_WINDOW_STATE_OPERATIONS[action])
+        except (UiControlHostError, OSError, ValueError) as exc:
+            entry["snapshot_id"] = None
+            return _host_error(exc)
+        entry["snapshot_id"] = None
+        message = f"Completed exact scoped window operation {action!r}."
+        return skill_success(
+            message,
+            prompt="Take a fresh app_ui__snapshot before any content interaction.",
+            session_id=session_id,
+            window_state=raw.get("state") or {},
+            audit=_audit_record(action, True, None, session_id, policy, None, message),
+        )
+    requested_snapshot_id = str(params.get("snapshot_id") or "")
+    current_snapshot_id = str(entry.get("snapshot_id") or "")
+    if not requested_snapshot_id or requested_snapshot_id != current_snapshot_id:
+        return skill_error(
+            "The app_ui snapshot is stale; take a new snapshot before acting.",
+            UiErrorCode.STALE_OBSERVATION,
+            requested_snapshot_id=requested_snapshot_id,
+            current_snapshot_id=current_snapshot_id,
+        )
+    control = None
+    if not _is_native_action(action, params):
+        # The host resolves and validates the real UIA node again. This local lookup
+        # only improves the portable audit/result envelope.
+        control_id = str(params.get("control_id") or "")
+        if not control_id:
+            return skill_error("control_id is required for semantic actions", UiErrorCode.INVALID_ACTION)
+    try:
+        raw = client.execute(_action_payload(params, _is_native_action(action, params)))
+    except (UiControlHostError, OSError, ValueError) as exc:
+        entry["snapshot_id"] = None
+        return _host_error(exc)
+    entry["snapshot_id"] = None
+    success = bool(raw.get("success"))
+    error_code = str(raw.get("error")) if raw.get("error") else None
+    message = str(raw.get("message") or "DCC UI Control action completed.")
     result = UiActionResult(
-        success=True,
-        control_id=control_id,
+        success=success,
+        control_id=str(params.get("control_id") or ""),
+        error_code=error_code,
         message=message,
-        before_focus_id=before_focus,
-        after_focus_id=after_focus,
-        metadata={"snapshot_id": state["last_snapshot_id"]},
+        metadata={"requires_new_screenshot": True, "policy_tier": raw.get("policy_tier")},
     ).to_dict()
-    audit = _audit_record(action, True, control, session_id, policy, before_focus, after_focus, None, message)
+    audit = _audit_record(action, success, control, session_id, policy, error_code, message)
+    if not success:
+        return skill_error(message, error_code or UiErrorCode.BACKEND_ERROR, result=result, audit=audit)
     return skill_success(
-        f"Completed Windows UIA action {action!r} on {control_id}.",
-        prompt="Use app_ui__wait_for to poll for the expected UI state, then app_ui__snapshot to verify.",
+        f"Completed isolated Windows UI Control action {action!r}.",
+        prompt="Take a new app_ui__snapshot before the next action.",
         session_id=session_id,
-        snapshot_id=state["last_snapshot_id"],
         result=result,
         audit=audit,
     )
 
 
 def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Stop one visible DCC UI Control session without clearing the Ctrl+Alt+Esc latch."""
-    params = dict(params) if params is not None else _read_params()
+    """Stop one host-owned window session and invalidate every capability."""
+    params = dict(params or {})
     session_id = _safe_session_id(params.get("session_id"))
-    _bump_session_stop_generation(session_id)
-    _mark_session_stopping(session_id, 1)
-    try:
-        was_active = _request_stop_computer_use_session(session_id)
-        with _session_stop_lock(session_id), _session_lock(session_id):
-            was_active = was_active or session_id in _COMPUTER_USE_SESSIONS
-            stop_status = _stop_computer_use_session(session_id)
-            state = _load_state(session_id)
-            state["revision"] = int(state.get("revision") or 0) + 1
-            state["last_snapshot_id"] = _snapshot_id(state)
-            _save_state(state)
-            cleanup_pending = bool(stop_status.get("cleanup_pending"))
-            if cleanup_pending:
-                return skill_error(
-                    (
-                        "DCC UI Control stop was requested, but input-owner or visual cleanup is pending. "
-                        "retry stop shortly."
-                    ),
-                    UiErrorCode.BACKEND_UNAVAILABLE,
-                    session_id=session_id,
-                    active=False,
-                    was_active=was_active,
-                    cleanup_pending=True,
-                    user_interrupted=(session_id in _COMPUTER_USE_INTERRUPTED or _native_process_user_interrupted()),
-                )
-            return skill_success(
-                "Stopped DCC UI Control and removed its visible control effects.",
-                session_id=session_id,
-                active=False,
-                was_active=was_active,
-                cleanup_pending=False,
-                user_interrupted=(session_id in _COMPUTER_USE_INTERRUPTED or _native_process_user_interrupted()),
-            )
-    finally:
-        _mark_session_stopping(session_id, -1)
-
-
-def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    params = dict(params) if params is not None else _read_params()
-    session_id = _safe_session_id(params.get("session_id"))
-    policy = _policy_from_params(params)
-    condition = _condition_from_params(params.get("condition") or {})
-    timeout_ms = min(60_000, max(0, int(condition.timeout_ms)))
-    condition.timeout_ms = timeout_ms
-    interval_ms = max(10, int(condition.interval_ms))
-    deadline = time.monotonic() + (timeout_ms / 1000.0)
-    attempts = 0
-    last_snapshot = None
-    start = time.monotonic()
-    stop_generation = _session_stop_generation(session_id)
-
-    def interrupted() -> Optional[Dict[str, Any]]:
-        if _session_stop_generation(session_id) != stop_generation:
-            return skill_error(
-                "app_ui wait cancelled because DCC UI Control was stopped.",
-                UiErrorCode.BACKEND_UNAVAILABLE,
-                session_id=session_id,
-                attempts=attempts,
-            )
-        guarded_failure = _uia_guard_failure(session_id)
-        if guarded_failure is None:
-            return None
-        error = str(guarded_failure.get("error") or UiErrorCode.BACKEND_UNAVAILABLE)
-        return skill_error(
-            str(guarded_failure.get("message") or "app_ui wait was interrupted."),
-            error,
+    with _CLIENTS_LOCK:
+        entry = _CLIENTS.pop(session_id, None)
+    if entry is None:
+        return skill_success(
+            "No isolated UI Control session was active.",
             session_id=session_id,
-            attempts=attempts,
+            active=False,
+            cleanup_pending=False,
         )
-
-    while True:
-        interruption = interrupted()
-        if interruption is not None:
-            return interruption
-        if _CLEANUP_REQUESTED.is_set():
-            return skill_error(
-                "app_ui wait cancelled because the backend is stopping.",
-                UiErrorCode.BACKEND_UNAVAILABLE,
-                session_id=session_id,
-                attempts=attempts,
-            )
-        with _session_lock(session_id):
-            interruption = interrupted()
-            if interruption is not None:
-                return interruption
-            capture = _capture_snapshot(
-                session_id,
-                policy,
-                params,
-                bump_revision=True,
-                guard_session_id=session_id,
-            )
-        attempts += 1
-        if not capture.get("success"):
-            return _error_from_capture(capture)
-        last_snapshot = capture["snapshot"]
-        if _condition_matches(last_snapshot, condition):
-            elapsed_ms = round((time.monotonic() - start) * 1000.0, 1)
-            result = UiWaitResult(
-                success=True,
-                condition=condition,
-                elapsed_ms=elapsed_ms,
-                attempts=attempts,
-                snapshot=UiSnapshot(
-                    root=_node_from_dict(last_snapshot["root"]),
-                    session_id=session_id,
-                    focus_id=last_snapshot.get("focus_id"),
-                    truncated=bool(last_snapshot.get("truncated")),
-                    node_count=int(last_snapshot.get("node_count") or 1),
-                    metadata=last_snapshot.get("metadata") or {},
-                ),
-                message="condition became true",
-            ).to_dict()
-            return skill_success(
-                "app_ui wait condition satisfied.",
-                session_id=session_id,
-                snapshot_id=capture["snapshot_id"],
-                result=result,
-            )
-        if time.monotonic() >= deadline:
-            break
-        sleep_deadline = min(deadline, time.monotonic() + interval_ms / 1000.0)
-        while time.monotonic() < sleep_deadline:
-            interruption = interrupted()
-            if interruption is not None:
-                return interruption
-            if _CLEANUP_REQUESTED.wait(min(0.05, max(0.0, sleep_deadline - time.monotonic()))):
-                break
-
-    elapsed_ms = round((time.monotonic() - start) * 1000.0, 1)
-    result = UiWaitResult(
-        success=False,
-        condition=condition,
-        elapsed_ms=elapsed_ms,
-        attempts=attempts,
-        snapshot=None,
-        error_code=UiErrorCode.TIMEOUT,
-        message="condition did not become true before timeout",
-        metadata={"last_snapshot": last_snapshot},
-    ).to_dict()
-    return skill_error(
-        "app_ui wait_for timed out.",
-        UiErrorCode.TIMEOUT,
+    try:
+        stopped = entry["client"].stop()
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+    cleanup_pending = bool(stopped.get("cleanup_pending"))
+    if cleanup_pending:
+        return skill_error(
+            "UI Control stopped, but native overlay cleanup is still completing.",
+            UiErrorCode.BACKEND_UNAVAILABLE,
+            cleanup_pending=True,
+        )
+    return skill_success(
+        "Stopped the isolated UI Control session.",
         session_id=session_id,
-        result=result,
-        attempts=attempts,
+        active=False,
+        cleanup_pending=False,
     )
 
 
+@_serialize_session_call
+def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    condition_raw = params.get("condition") or {}
+    if not isinstance(condition_raw, dict):
+        return skill_error("condition must be an object", UiErrorCode.INVALID_ACTION)
+    condition = _condition_from_params(condition_raw)
+    timeout_ms = max(0, min(_MAX_WAIT_MS, int(condition.timeout_ms)))
+    interval_ms = max(10, int(condition.interval_ms))
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    last_snapshot_id = None
+    while True:
+        if _STOP_EVENT.is_set():
+            return skill_error(
+                "app_ui wait cancelled because the backend is stopping.", UiErrorCode.BACKEND_UNAVAILABLE
+            )
+        capture = _capture_snapshot(session_id, policy, params)
+        if not capture.get("success"):
+            return capture
+        last_snapshot_id = capture["snapshot_id"]
+        if _condition_matches(capture["snapshot"], condition):
+            return skill_success(
+                "Windows UI Control wait condition satisfied.",
+                session_id=session_id,
+                snapshot_id=last_snapshot_id,
+                condition=condition.to_dict(),
+            )
+        if time.monotonic() >= deadline:
+            return skill_error(
+                "Timed out waiting for the Windows UI Control condition.",
+                UiErrorCode.TIMEOUT,
+                session_id=session_id,
+                snapshot_id=last_snapshot_id,
+                condition=condition.to_dict(),
+            )
+        time.sleep(min(interval_ms / 1000.0, max(0.0, deadline - time.monotonic())))
+
+
+def request_stop() -> None:
+    """Interrupt package waits and request immediate host-session stops."""
+    _STOP_EVENT.set()
+    with _CLIENTS_LOCK:
+        entries = list(_CLIENTS.values())
+    for entry in entries:
+        with suppress(Exception):
+            entry["client"].stop()
+
+
+def cleanup() -> None:
+    """Stop all host sessions during skill unload."""
+    request_stop()
+    with _CLIENTS_LOCK:
+        _CLIENTS.clear()
+
+
 def _dedent_for_tests() -> str:
-    return textwrap.dedent(_UIA_SCRIPT).strip()
+    """Return the UIA script embedded by the native host for contract tests."""
+    return Path(__file__).with_name("_windows_uia_backend.ps1").read_text(encoding="utf-8")

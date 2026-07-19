@@ -94,7 +94,10 @@
           "required_members": [
             "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ],
-          "required_members_from_version": "0.19.49"
+          "required_members_from_version": "0.19.49",
+          "versioned_required_members": {
+            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
+          }
         }
       }
     },
@@ -110,7 +113,8 @@
             "any"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
+            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         }
       }
@@ -128,7 +132,8 @@
             "manylinux2014_x86_64"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
+            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         },
         "windows-x86_64": {
@@ -138,7 +143,10 @@
           "required_members": [
             "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ],
-          "required_members_from_version": "0.19.49"
+          "required_members_from_version": "0.19.49",
+          "versioned_required_members": {
+            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
+          }
         },
         "macos-universal2": {
           "required_platform_tag_patterns": [
@@ -150,7 +158,8 @@
             "macosx_*_arm64"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
+            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         },
         "macos-native": {
@@ -159,7 +168,8 @@
             "macosx_*_arm64"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
+            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         }
       }

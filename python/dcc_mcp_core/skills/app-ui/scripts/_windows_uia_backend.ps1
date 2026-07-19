@@ -81,6 +81,7 @@ function Element-Raw([System.Windows.Automation.AutomationElement]$element, [int
     automation_id = $current.AutomationId
     class_name = $current.ClassName
     control_type = $current.ControlType.ProgrammaticName
+    is_password = [bool]$current.IsPassword
     process_id = [int]$current.ProcessId
     native_window_handle = [int]$current.NativeWindowHandle
     enabled = [bool]$current.IsEnabled
@@ -291,6 +292,14 @@ function Invoke-Action($element) {
     $current = ([string]$pattern.Current.ToggleState) -eq "On"
     if ($current -ne $desired) { $pattern.Toggle() }
     return @{ok = $true; message = "set checked state"}
+  }
+  if ($action -eq "select_option") {
+    $pattern = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+      $pattern.Select()
+      return @{ok = $true; message = "selected option"}
+    }
+    return @{ok = $false; error = "unsupported_action"; message = "select_option requires SelectionItemPattern"}
   }
   if ($action -eq "click") {
     $pattern = $null

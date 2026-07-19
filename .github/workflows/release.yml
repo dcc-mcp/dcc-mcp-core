@@ -261,10 +261,10 @@ jobs:
           cp target/release/${{ matrix.cli_binary }} ${{ matrix.cli_artifact_name }}
         shell: bash
 
-      - name: Build and stage Windows capture helper
+      - name: Build and stage Windows runtime hosts
         if: matrix.os == 'windows-latest'
         shell: bash
-        run: vx just stage-capture-helper
+        run: vx just stage-windows-runtime-hosts
 
       - name: Create deployable server bundle
         id: server-bundle
@@ -272,7 +272,10 @@ jobs:
         run: |
           helper_args=()
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            helper_args=(--capture-helper target/release/dcc-mcp-capture-helper.exe)
+            helper_args=(
+              --capture-helper target/release/dcc-mcp-capture-helper.exe
+              --ui-control-host target/release/dcc-mcp-ui-control-host.exe
+            )
           fi
           python scripts/release/build_server_bundle.py \
             --version "${{ needs.release-please.outputs.version }}" \
@@ -341,12 +344,13 @@ jobs:
           python -m pip install "maturin>=1.5,<2.0" "wheel>=0.46"
           maturin build --release --out wheels
 
-      - name: Inject capture helper into Windows server wheel
+      - name: Inject Windows runtime hosts into server wheel
         if: matrix.os == 'windows-latest'
         shell: bash
         run: >-
           python scripts/release/inject_capture_helper.py
           --helper target/release/dcc-mcp-capture-helper.exe
+          --ui-control-host target/release/dcc-mcp-ui-control-host.exe
 
       - name: Retag server binary wheel as Python-version independent
         shell: bash

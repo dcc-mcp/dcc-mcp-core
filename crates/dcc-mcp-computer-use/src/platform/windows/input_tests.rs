@@ -652,6 +652,19 @@ fn persistent_overlay_layers_stay_hidden_until_their_geometry_is_ready() {
 }
 
 #[test]
+fn overlay_classes_are_revalidated_for_each_window_creation() {
+    register_color_overlay_classes().unwrap();
+    let instance = unsafe { GetModuleHandleW(None) }.unwrap();
+    let mut class = WNDCLASSW::default();
+
+    unsafe { GetClassInfoW(Some(instance.into()), CONTROL_OVERLAY_CLASS, &raw mut class) }.unwrap();
+
+    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Accent).unwrap();
+    assert!(unsafe { IsWindow(Some(hwnd)) }.as_bool());
+    unsafe { DestroyWindow(hwnd) }.unwrap();
+}
+
+#[test]
 fn visual_overlay_verification_fails_closed_for_a_destroyed_window() {
     let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
     let effect = PointerEffect::new(200, 240, "●").unwrap();
@@ -961,6 +974,52 @@ fn minimized_window_is_identity_checked_then_restored_for_input() {
 
     restore_target_for_input(effect.hwnd, process_id).unwrap();
     assert!(!unsafe { IsIconic(effect.hwnd) }.as_bool());
+}
+
+#[test]
+fn exact_window_state_can_restore_and_show_without_a_screenshot() {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_MINIMIZE};
+
+    let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
+    let effect = PointerEffect::new(240, 280, "●").unwrap();
+    let process_id = unsafe { GetCurrentProcessId() };
+    let window_handle = effect.hwnd.0 as usize as u64;
+
+    let _ = unsafe { ShowWindow(effect.hwnd, SW_MINIMIZE) };
+    let minimized = scoped_window_state(window_handle, process_id).unwrap();
+    assert!(minimized.exists);
+    assert!(minimized.minimized);
+
+    let wrong_process = transition_scoped_window(
+        window_handle,
+        process_id.saturating_add(1),
+        ScopedWindowOperation::Restore,
+    )
+    .unwrap_err();
+    assert_eq!(wrong_process.code, ComputerUseErrorCode::InvalidTarget);
+    assert!(unsafe { IsIconic(effect.hwnd) }.as_bool());
+
+    if !desktop_interactive() {
+        return;
+    }
+
+    let restored =
+        transition_scoped_window(window_handle, process_id, ScopedWindowOperation::Restore)
+            .unwrap();
+    assert!(!restored.minimized);
+
+    let _ = unsafe { ShowWindow(effect.hwnd, SW_HIDE) };
+    let hidden = scoped_window_state(window_handle, process_id).unwrap();
+    assert!(!hidden.visible);
+    let activate_hidden =
+        transition_scoped_window(window_handle, process_id, ScopedWindowOperation::Activate)
+            .unwrap_err();
+    assert_eq!(activate_hidden.code, ComputerUseErrorCode::InvalidAction);
+
+    let shown =
+        transition_scoped_window(window_handle, process_id, ScopedWindowOperation::Show).unwrap();
+    assert!(shown.visible);
 }
 
 #[test]

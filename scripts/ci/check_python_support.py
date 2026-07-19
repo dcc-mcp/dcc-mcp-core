@@ -266,8 +266,15 @@ def calendar_expiry_lines(text: str) -> list[int]:
     lines: list[int] = []
     offset = 0
     for block in re.split(r"\n\s*\n", text):
-        if _PY37.search(block) and _ISO_DATE.search(block) and _EXPIRY_LANGUAGE.search(block):
-            lines.append(text.count("\n", 0, offset) + 1)
+        block_start = text.count("\n", 0, offset) + 1
+        block_lines = block.splitlines()
+        table_rows = [
+            (block_start + index, line) for index, line in enumerate(block_lines) if line.lstrip().startswith("|")
+        ]
+        candidates = table_rows if table_rows else [(block_start, block)]
+        for line_number, candidate in candidates:
+            if _PY37.search(candidate) and _ISO_DATE.search(candidate) and _EXPIRY_LANGUAGE.search(candidate):
+                lines.append(line_number)
         offset += len(block)
         separator = re.match(r"\n\s*\n", text[offset:])
         if separator:

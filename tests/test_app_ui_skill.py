@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 from typing import Any
+from typing import ClassVar
 
 import pytest
 
@@ -38,7 +39,6 @@ def _load_windows_uia_module() -> Any:
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    module._ComputerUseSession = None
     return module
 
 
@@ -69,17 +69,13 @@ def _run_tool(
     return json.loads(result.stdout)
 
 
-def test_app_ui_windows_uia_spec_loads_isolated_support_state() -> None:
+def test_app_ui_windows_uia_spec_loads_isolated_host_client_state() -> None:
     first = _load_windows_uia_module()
     second = _load_windows_uia_module()
 
-    first._COMPUTER_USE_OBSERVATIONS["isolated"] = {"observation_id": "first"}
-    first._COMPUTER_USE_INTERRUPTED.add("isolated")
+    first._CLIENTS["isolated"] = {"client": object()}
 
-    assert first._COMPUTER_USE_OBSERVATIONS is first._SUPPORT._COMPUTER_USE_OBSERVATIONS
-    assert first._COMPUTER_USE_INTERRUPTED is first._SUPPORT._COMPUTER_USE_INTERRUPTED
-    assert "isolated" not in second._COMPUTER_USE_OBSERVATIONS
-    assert "isolated" not in second._COMPUTER_USE_INTERRUPTED
+    assert "isolated" not in second._CLIENTS
 
 
 def test_app_ui_skill_metadata_and_tool_names() -> None:
@@ -144,8 +140,13 @@ def test_app_ui_tool_schema_supports_computer_use_actions() -> None:
         "set_text",
         "toggle",
         "set_checked",
+        "select_option",
         "focus",
         "keyboard_shortcut",
+        "get_window_state",
+        "restore_window",
+        "show_window",
+        "activate_window",
     }
     assert {
         "control_id",
@@ -185,6 +186,9 @@ def test_app_ui_entrypoints_accept_inprocess_parameters(
     """Sidecar hosts must not require subprocess stdin for bundled app-ui."""
     monkeypatch.setenv("DCC_MCP_APP_UI_BACKEND", "mock")
     monkeypatch.setenv("DCC_MCP_APP_UI_MOCK_STATE_DIR", str(tmp_path))
+    log_dir = tmp_path / "logs"
+    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_DCC_TYPE", "unreal")
 
     snapshot = run_skill_script(
         str(_SCRIPTS / "snapshot.py"),
@@ -231,6 +235,49 @@ def test_app_ui_entrypoints_accept_inprocess_parameters(
     )
     assert stopped["success"] is True
     assert stopped["context"]["active"] is False
+
+    log_text = next(log_dir.glob("dcc-mcp-app-ui.*.log")).read_text(encoding="utf-8")
+    audit_rows = [json.loads(line.split(": ", 1)[1]) for line in log_text.splitlines()]
+    assert [row["tool"] for row in audit_rows] == [
+        "app_ui__snapshot",
+        "app_ui__find",
+        "app_ui__act",
+        "app_ui__wait_for",
+        "app_ui__stop_computer_use",
+    ]
+    assert all(row["event"] == "ui_control_operation" for row in audit_rows)
+    assert all(row["dcc_type"] == "unreal" for row in audit_rows)
+    assert "Signal Forge" not in log_text
+
+
+def test_app_ui_admin_audit_records_rejection_without_sensitive_text(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setenv("DCC_MCP_APP_UI_BACKEND", "mock")
+    monkeypatch.setenv("DCC_MCP_APP_UI_MOCK_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path / "logs"))
+
+    snapshot = run_skill_script(str(_SCRIPTS / "snapshot.py"), {"session_id": "denied"})
+    result = run_skill_script(
+        str(_SCRIPTS / "act.py"),
+        {
+            "session_id": "denied",
+            "control_id": "project-name",
+            "action": "set_text",
+            "text": "never-log-this-secret",
+            "snapshot_id": snapshot["context"]["snapshot_id"],
+            "policy": {"allow_text_entry": False},
+        },
+    )
+
+    assert result["success"] is False
+    log_text = next((tmp_path / "logs").glob("dcc-mcp-app-ui.*.log")).read_text(encoding="utf-8")
+    assert "never-log-this-secret" not in log_text
+    row = json.loads(log_text.splitlines()[-1].split(": ", 1)[1])
+    assert row["tool"] == "app_ui__act"
+    assert row["success"] is False
+    assert row["error"] == "policy_disabled"
 
 
 def test_app_ui_mock_observe_act_wait_verify_loop(tmp_path: Path) -> None:
@@ -463,1602 +510,415 @@ def test_app_ui_backend_router_reports_unknown_backend(tmp_path: Path) -> None:
     ]
 
 
-def test_app_ui_windows_uia_maps_control_tree_to_contract() -> None:
-    backend = _load_windows_uia_module()
-    raw = {
-        "runtime_id": "42.7",
-        "fallback_path": "0",
-        "name": "Project name",
-        "automation_id": "projectNameEdit",
-        "class_name": "Edit",
-        "control_type": "ControlType.Edit",
-        "process_id": 1234,
-        "native_window_handle": 500,
-        "enabled": True,
-        "offscreen": False,
-        "focused": True,
-        "bounds": {"x": 10, "y": 20, "width": 200, "height": 24},
-        "value": "Hero",
-        "children": [
-            {
-                "runtime_id": "42.8",
-                "fallback_path": "0.0",
-                "name": "Apply",
-                "automation_id": "applyButton",
-                "class_name": "Button",
-                "control_type": "ControlType.Button",
+class _FakeHostClient:
+    instances: ClassVar[list[_FakeHostClient]] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.executed: list[dict[str, Any]] = []
+        self.window_operations: list[str] = []
+        self.resumed = False
+        self.stopped = False
+        self.__class__.instances.append(self)
+
+    @property
+    def target(self) -> dict[str, Any]:
+        return {"process_id": 1234, "window_handle": 500, "window_title": "Godot"}
+
+    def snapshot(self, *, max_depth: int, max_nodes: int) -> dict[str, Any]:
+        del max_depth, max_nodes
+        return {
+            "type": "snapshot",
+            "observation_id": "obs-1",
+            "accessibility_state_id": "accessibility:1",
+            "target": self.target,
+            "observation": {
+                "observation_id": "obs-1",
                 "process_id": 1234,
-                "native_window_handle": 501,
+                "window_handle": 500,
+                "window_title": "Godot",
+                "source_rect": [0, 0, 640, 480],
+            },
+            "root": {
+                "runtime_id": "42.1",
+                "fallback_path": "0",
+                "name": "Godot",
+                "automation_id": "",
+                "class_name": "Godot",
+                "control_type": "ControlType.Window",
+                "is_password": False,
+                "process_id": 1234,
+                "native_window_handle": 500,
                 "enabled": True,
                 "offscreen": False,
-                "bounds": {"x": 220, "y": 20, "width": 80, "height": 24},
-                "children": [],
-            }
-        ],
-    }
-
-    node = backend._node_from_uia_dict(raw, "uia-session:1").to_dict()
-
-    assert node["id"] == "uia:42.7"
-    assert node["role"] == "text_field"
-    assert node["label"] == "Project name"
-    assert node["object_name"] == "projectNameEdit"
-    assert node["value"] == "Hero"
-    assert node["bounds"] == {"x": 10.0, "y": 20.0, "width": 200.0, "height": 24.0}
-    assert node["metadata"]["app_ui"]["backend"] == "windows-uia"
-    assert node["metadata"]["app_ui"]["process_id"] == 1234
-    assert node["children"][0]["role"] == "button"
-    assert node["children"][0]["id"] == "uia:42.8"
-
-
-def test_app_ui_windows_uia_requires_explicit_scope(tmp_path: Path) -> None:
-    result = _run_tool(
-        "snapshot",
-        {"session_id": "uia-no-scope"},
-        tmp_path,
-        extra_env={"DCC_MCP_APP_UI_BACKEND": "windows-uia"},
-    )
-
-    assert result["success"] is False
-    assert result["error"] == "missing_window"
-    assert "whole-desktop snapshots are disabled" in result["message"]
-
-
-def test_app_ui_windows_uia_accepts_process_id_scope() -> None:
-    """PowerShell's read-only $PID automatic variable must not be shadowed."""
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests()
-
-    assert "foreach ($pid in" not in script.lower()
-    assert "foreach ($processId in As-Array $payload.scope.process_ids)" in script
-
-
-def test_app_ui_windows_uia_uses_main_window_handle_for_single_process() -> None:
-    """Heavy DCC providers should not require a whole-desktop UIA scan."""
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests()
-
-    assert "function Find-Process-Root" in script
-    assert "[System.Windows.Automation.AutomationElement]::FromHandle" in script
-    assert "$proc.MainWindowHandle" in script
-    assert "$requestedHandles = As-Array $payload.scope.window_handles" in script
-    assert "foreach ($windowHandle in $requestedHandles)" in script
-
-
-def test_app_ui_windows_uia_click_has_native_button_fallback() -> None:
-    """Native dialogs can expose an InvokePattern that still rejects Invoke()."""
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests()
-
-    assert "function Invoke-NativeButtonClick" in script
-    assert "[DccMcpNativeUi]::SendMessage" in script
-    assert "0x00F5" in script
-    assert "invoked native button" in script
-    assert "focused control because InvokePattern is unavailable" not in script
-    assert "click requires InvokePattern, TogglePattern, or a native button handle" in script
-
-
-def test_app_ui_windows_uia_raw_input_policy_is_an_environment_ceiling(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-
-    monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
-    denied = backend._policy_from_params({"policy": {"allow_raw_coordinates": True, "allow_keyboard_shortcuts": True}})
-    assert denied.allow_raw_coordinates is False
-    assert denied.allow_keyboard_shortcuts is False
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    enabled = backend._policy_from_params({})
-    assert enabled.allow_raw_coordinates is True
-    assert enabled.allow_keyboard_shortcuts is True
-
-    narrowed = backend._policy_from_params(
-        {"policy": {"allow_raw_coordinates": False, "allow_keyboard_shortcuts": False}}
-    )
-    assert narrowed.allow_raw_coordinates is False
-    assert narrowed.allow_keyboard_shortcuts is False
-
-
-def test_app_ui_windows_uia_scope_intersects_request_with_policy(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_TITLE", raising=False)
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_ID", raising=False)
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_NAME", raising=False)
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", raising=False)
-
-    pid_policy = backend.AppUiPolicy(allowed_process_ids=[42])
-    rejected_pid = backend._scope_from_params({"process_id": 7}, pid_policy)
-    assert rejected_pid["invalid_reason"]
-
-    title_policy = backend.AppUiPolicy(allowed_window_titles=["Godot Editor"])
-    narrowed_title = backend._scope_from_params({"window_title": "Godot"}, title_policy)
-    assert narrowed_title["invalid_reason"] is None
-    assert narrowed_title["window_titles"] == ["Godot Editor"]
-    rejected_title = backend._scope_from_params({"window_title": "Maya"}, title_policy)
-    assert rejected_title["invalid_reason"]
-
-    accepted = backend._scope_from_params(
-        {"process_id": 42, "window_title": "Project - Godot Editor"},
-        backend.AppUiPolicy(allowed_process_ids=[42], allowed_window_titles=["Godot Editor"]),
-    )
-    assert accepted["invalid_reason"] is None
-    assert accepted["process_ids"] == [42]
-    assert accepted["window_titles"] == ["Project - Godot Editor"]
-    assert os.getpid() not in accepted["excluded_process_ids"]
-
-    embedded = backend._scope_from_params(
-        {"process_id": os.getpid()},
-        backend.AppUiPolicy(),
-    )
-    assert embedded["excluded_process_ids"] == []
-
-
-@pytest.mark.parametrize(
-    "process_name",
-    [
-        "LockApp.exe",
-        "SecHealthUI",
-        "CredentialUIBroker",
-        "PowerShell.exe",
-        "powershell_ise.exe",
-        "cmd",
-        "Bitwarden",
-    ],
-)
-def test_app_ui_windows_uia_rejects_named_system_and_sensitive_targets(
-    process_name: str,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_NAME", raising=False)
-
-    scope = backend._scope_from_params({"process_name": process_name}, backend.AppUiPolicy())
-
-    assert "not allowed app_ui targets" in scope["invalid_reason"]
-
-
-def test_app_ui_windows_uia_resolved_root_enforces_target_denylist() -> None:
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests().lower()
-
-    assert "function denied-target-reason" in script
-    assert 'error = "permission_denied"' in script
-    assert '"consolewindowclass"' in script
-    assert '"powershell_ise"' in script
-    assert '$processname -eq "explorer"' in script
-    assert '$classname -eq "#32770"' in script
-    assert "-and $title" not in script
-
-
-def test_app_ui_windows_uia_mutation_rechecks_descendant_security_boundary() -> None:
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests()
-
-    assert "function Denied-Action-Target-Reason" in script
-    assert "$currentProcessId -ne $rootProcessId" in script
-    assert "$currentInfo.IsPassword" in script
-    assert "$deniedReason = Denied-Target-Reason $current" in script
-    assert '"credential dialog xaml host"' in script.lower()
-    assert "Cross-process descendant controls are not allowed mutation targets." in script
-    assert "Password controls are not allowed mutation targets." in script
-    boundary_check = script.index("Denied-Action-Target-Reason $root $target")
-    mutation = script.index("$actionResult = Invoke-Action $target")
-    assert boundary_check < mutation
-
-
-def test_app_ui_windows_uia_permission_denial_never_falls_back(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-
-    class UnexpectedComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            raise AssertionError("permission denial must not enter native fallback")
-
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", UnexpectedComputerUseSession)
-    monkeypatch.setattr(
-        backend,
-        "_run_uia",
-        lambda _payload: {
-            "ok": False,
-            "error": "permission_denied",
-            "message": "sensitive target denied",
-        },
-    )
-
-    result = backend.snapshot_tool({"session_id": "denied", "window_handle": 500})
-
-    assert result["success"] is False
-    assert result["error"] == "permission_denied"
-
-
-def test_app_ui_windows_uia_native_fallback_propagates_target_policy_denial(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-
-    class DeniedComputerUseSession:
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return True
-
-        @staticmethod
-        def process_user_interrupted() -> bool:
-            return False
-
-        def __init__(self, **_kwargs: Any) -> None:
-            pass
-
-        def start(self) -> str:
-            return '{"success":false,"error":"permission_denied","message":"sensitive target denied"}'
-
-        def screenshot(self) -> tuple[str, bytes]:
-            raise AssertionError("denied native targets must not be captured")
-
-        def stop(self) -> str:
-            return '{"success":true}'
-
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", DeniedComputerUseSession)
-    monkeypatch.setattr(
-        backend,
-        "_run_uia",
-        lambda _payload: {
-            "ok": False,
-            "error": "backend_unavailable",
-            "message": "UIA unavailable",
-        },
-    )
-
-    result = backend.snapshot_tool({"session_id": "native-denied", "window_handle": 500})
-
-    assert result["success"] is False
-    assert result["error"] == "permission_denied"
-
-
-def test_app_ui_windows_uia_script_fails_closed_for_unresolved_processes_and_handles() -> None:
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests()
-
-    assert "$payload.scope.require_process_match -and $processIds.Count -eq 0" in script
-    assert "Match-Scope $windowRoot $processIds" in script
-    assert "$requestedHandles.Count -gt 0" in script
-    assert "The explicit HWND did not satisfy every PID, process-name, and title constraint." in script
-    assert "$excludedProcessIds -contains [int]$element.Current.ProcessId" in script
-    assert "$matches.Count -gt 1" in script
-    assert (
-        '$scopeErrorCode = if ($null -eq $script:scopeError) { "missing_window" } else { "invalid_target" }' in script
-    )
-
-
-def test_app_ui_windows_uia_serializes_one_session(tmp_path: Path, monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
-    active = 0
-    max_active = 0
-    gate = threading.Lock()
-
-    def slow_snapshot(_payload: dict[str, Any]) -> dict[str, Any]:
-        nonlocal active, max_active
-        with gate:
-            active += 1
-            max_active = max(max_active, active)
-        time.sleep(0.03)
-        with gate:
-            active -= 1
-        return _uia_snapshot_payload()
-
-    monkeypatch.setattr(backend, "_run_uia", slow_snapshot)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(
-            pool.map(
-                lambda _: backend.snapshot_tool({"session_id": "serialized", "process_id": 1234}),
-                range(4),
-            )
-        )
-
-    ids = [item["context"]["snapshot_id"] for item in results]
-    assert max_active == 1
-    assert len(set(ids)) == 4
-
-
-def test_app_ui_windows_uia_normalizes_powershell_timeout(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.setattr(backend, "_is_windows", lambda: True)
-    monkeypatch.setattr(backend, "_powershell_bin", lambda: "powershell.exe")
-
-    def time_out(*_args: Any, **_kwargs: Any) -> None:
-        raise subprocess.TimeoutExpired("powershell.exe", 0.25)
-
-    monkeypatch.setattr(backend.subprocess, "run", time_out)
-
-    try:
-        backend._run_uia({"mode": "snapshot"})
-    except RuntimeError as exc:
-        assert "timed out after 0.25 seconds" in str(exc)
-    else:
-        raise AssertionError("PowerShell timeout was not normalized")
-
-
-def test_app_ui_windows_uia_inflight_guard_terminates_powershell(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.setattr(backend, "_is_windows", lambda: True)
-    monkeypatch.setattr(backend, "_powershell_bin", lambda: "powershell.exe")
-    checks = 0
-
-    class SlowProcess:
-        returncode = None
-        terminated = False
-
-        def communicate(self, input: Any = None, timeout: Any = None) -> tuple[str, str]:
-            del input
-            if self.terminated:
-                self.returncode = -1
-                return "", ""
-            raise subprocess.TimeoutExpired("powershell.exe", timeout)
-
-        def terminate(self) -> None:
-            self.terminated = True
-
-        def kill(self) -> None:
-            self.terminated = True
-
-    process = SlowProcess()
-
-    def guard(_session_id: str) -> Any:
-        nonlocal checks
-        checks += 1
-        if checks < 3:
-            return None
-        return {
-            "ok": False,
-            "error": "user_interrupted",
-            "message": "Ctrl+Alt+Esc stopped Computer Use",
-        }
-
-    monkeypatch.setattr(backend, "_uia_guard_failure", guard)
-    monkeypatch.setattr(backend.subprocess, "Popen", lambda *_args, **_kwargs: process)
-
-    result = backend._run_uia({"mode": "act", "_session_id": "guarded"})
-
-    assert result["ok"] is False
-    assert result["error"] == "user_interrupted"
-    assert process.terminated is True
-
-
-def test_app_ui_windows_uia_inflight_guard_detects_session_desktop_transition(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-
-    class NativeBindings:
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return True
-
-        @staticmethod
-        def process_user_interrupted() -> bool:
-            return False
-
-    class LockedSession:
-        def status(self) -> str:
-            return '{"success":true,"active":true,"desktop_interactive":false}'
-
-    monkeypatch.setattr(backend, "_ComputerUseSession", NativeBindings)
-    backend._COMPUTER_USE_SESSIONS["guarded"] = {"session": LockedSession()}
-
-    result = backend._uia_guard_failure("guarded")
-
-    assert result is not None
-    assert result["error"] == "desktop_unavailable"
-
-
-def test_app_ui_windows_uia_locked_desktop_blocks_uia_before_snapshot(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-
-    class LockedComputerUseSession:
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return False
-
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", LockedComputerUseSession)
-    monkeypatch.setattr(
-        backend,
-        "_run_uia",
-        lambda _payload: (_ for _ in ()).throw(AssertionError("UIA must not inspect LockApp")),
-    )
-
-    result = backend.snapshot_tool({"session_id": "locked", "process_id": 1234})
-
-    assert result["success"] is False
-    assert result["error"] == "desktop_unavailable"
-    assert backend.UiErrorCode.DESKTOP_UNAVAILABLE == "desktop_unavailable"
-    assert "unlock" in result["message"].lower()
-
-
-def test_app_ui_windows_uia_wait_stops_when_desktop_locks_mid_poll(
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    checks = 0
-    captures = 0
-
-    def desktop_interactive() -> bool:
-        nonlocal checks
-        checks += 1
-        return checks < 3
-
-    def capture(session_id: str, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        nonlocal captures
-        captures += 1
-        return {
-            "success": True,
-            "snapshot_id": f"snapshot-{captures}",
-            "snapshot": {
-                "root": {"id": "root", "role": "window", "children": []},
-                "session_id": session_id,
-                "metadata": {},
-            },
-        }
-
-    monkeypatch.setattr(backend, "_native_desktop_interactive", desktop_interactive)
-    monkeypatch.setattr(backend, "_capture_snapshot", capture)
-
-    result = backend.wait_for_tool(
-        {
-            "session_id": "lock-during-wait",
-            "condition": {
-                "kind": "control_exists",
-                "control_id": "never",
-                "timeout_ms": 100,
-                "interval_ms": 10,
-            },
-        }
-    )
-
-    assert result["success"] is False
-    assert result["error"] == "desktop_unavailable"
-    assert captures == 1
-
-
-def test_app_ui_windows_uia_wait_stops_immediately_on_process_hotkey(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    interrupted = threading.Event()
-    captures = 0
-
-    class NativeBindings:
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return True
-
-        @staticmethod
-        def process_user_interrupted() -> bool:
-            return interrupted.is_set()
-
-    def capture(session_id: str, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        nonlocal captures
-        captures += 1
-        interrupted.set()
-        return {
-            "success": True,
-            "snapshot_id": f"snapshot-{captures}",
-            "snapshot": {
-                "root": {"id": "root", "role": "window", "children": []},
-                "session_id": session_id,
-                "metadata": {},
-            },
-        }
-
-    monkeypatch.setattr(backend, "_ComputerUseSession", NativeBindings)
-    monkeypatch.setattr(backend, "_capture_snapshot", capture)
-
-    result = backend.wait_for_tool(
-        {
-            "session_id": "hotkey-wait",
-            "condition": {
-                "kind": "control_exists",
-                "control_id": "never",
-                "timeout_ms": 60_000,
-                "interval_ms": 10_000,
-            },
-        }
-    )
-
-    assert result["success"] is False
-    assert result["error"] == "user_interrupted"
-    assert captures == 1
-
-
-def test_app_ui_windows_uia_explicit_stop_interrupts_wait_without_lock_delay(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    captured = threading.Event()
-
-    def capture(session_id: str, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        captured.set()
-        return {
-            "success": True,
-            "snapshot_id": "snapshot-1",
-            "snapshot": {
-                "root": {"id": "root", "role": "window", "children": []},
-                "session_id": session_id,
-                "metadata": {},
-            },
-        }
-
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_capture_snapshot", capture)
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        waiting = pool.submit(
-            backend.wait_for_tool,
-            {
-                "session_id": "explicit-stop-wait",
-                "condition": {
-                    "kind": "control_exists",
-                    "control_id": "never",
-                    "timeout_ms": 60_000,
-                    "interval_ms": 10_000,
-                },
-            },
-        )
-        assert captured.wait(1)
-        started = time.monotonic()
-        stopped = backend.stop_computer_use_tool({"session_id": "explicit-stop-wait"})
-        stop_elapsed = time.monotonic() - started
-        result = waiting.result(timeout=1)
-
-    assert stop_elapsed < 0.5
-    assert stopped["success"] is True
-    assert result["success"] is False
-    assert result["error"] == "backend_unavailable"
-    assert "stopped" in result["message"].lower()
-
-
-def test_app_ui_windows_uia_desktop_unavailable_capture_retains_session_for_unlock(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    created = []
-
-    class RecoveringComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            self.capture_count = 0
-            self.stopped = False
-            created.append(self)
-
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return True
-
-        def start(self) -> str:
-            return '{"success":true,"active":true}'
-
-        def screenshot(self) -> tuple[str, bytes | None]:
-            self.capture_count += 1
-            if self.capture_count == 1:
-                return (
-                    '{"success":false,"error":"desktop_unavailable","message":"desktop locked"}',
-                    None,
-                )
-            return (
-                '{"success":true,"mime_type":"image/png","observation":{"observation_id":"after-unlock"}}',
-                b"png",
-            )
-
-        def stop(self) -> str:
-            self.stopped = True
-            return '{"success":true}'
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", RecoveringComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    unavailable = backend.snapshot_tool({"session_id": "unlock", "window_handle": 500})
-
-    assert unavailable["success"] is False
-    assert unavailable["error"] == "desktop_unavailable"
-    assert len(created) == 1
-    assert created[0].stopped is False
-    assert "unlock" in backend._COMPUTER_USE_SESSIONS
-    assert "unlock" not in backend._COMPUTER_USE_OBSERVATIONS
-
-    recovered = backend.snapshot_tool({"session_id": "unlock", "window_handle": 500})
-
-    assert recovered["success"] is True
-    assert recovered["context"]["observation"]["observation_id"] == "after-unlock"
-    assert len(created) == 1
-
-
-def test_app_ui_windows_uia_desktop_unavailable_start_retains_session_for_unlock(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    created = []
-
-    class RecoveringStartComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            self.start_count = 0
-            self.stopped = False
-            created.append(self)
-
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return True
-
-        def start(self) -> str:
-            self.start_count += 1
-            if self.start_count == 1:
-                return '{"success":false,"error":"desktop_unavailable","message":"desktop locked"}'
-            return '{"success":true,"active":true}'
-
-        def screenshot(self) -> tuple[str, bytes | None]:
-            return (
-                '{"success":true,"mime_type":"image/png","observation":{"observation_id":"after-unlock"}}',
-                b"png",
-            )
-
-        def stop(self) -> str:
-            self.stopped = True
-            return '{"success":true}'
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", RecoveringStartComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    unavailable = backend.snapshot_tool({"session_id": "unlock-start", "window_handle": 500})
-
-    assert unavailable["success"] is False
-    assert unavailable["error"] == "desktop_unavailable"
-    assert len(created) == 1
-    assert created[0].stopped is False
-    assert "unlock-start" in backend._COMPUTER_USE_SESSIONS
-
-    recovered = backend.snapshot_tool({"session_id": "unlock-start", "window_handle": 500})
-
-    assert recovered["success"] is True
-    assert recovered["context"]["observation"]["observation_id"] == "after-unlock"
-    assert len(created) == 1
-
-
-def test_app_ui_windows_uia_temporarily_hidden_target_retains_active_session(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    created = []
-
-    class RecoveringTargetComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            self.capture_count = 0
-            self.stopped = False
-            created.append(self)
-
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return True
-
-        def start(self) -> str:
-            return '{"success":true,"active":true}'
-
-        def status(self) -> str:
-            return '{"success":true,"active":true,"overlay_visible":false}'
-
-        def screenshot(self) -> tuple[str, bytes | None]:
-            self.capture_count += 1
-            if self.capture_count == 1:
-                return (
-                    '{"success":false,"error":"missing_window","message":"target temporarily hidden"}',
-                    None,
-                )
-            return (
-                '{"success":true,"mime_type":"image/png","observation":{"observation_id":"visible-again"}}',
-                b"png",
-            )
-
-        def stop(self) -> str:
-            self.stopped = True
-            return '{"success":true}'
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", RecoveringTargetComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    unavailable = backend.snapshot_tool({"session_id": "target-return", "window_handle": 500})
-
-    assert unavailable["success"] is False
-    assert unavailable["error"] == "missing_window"
-    assert len(created) == 1
-    assert created[0].stopped is False
-    assert "target-return" in backend._COMPUTER_USE_SESSIONS
-
-    recovered = backend.snapshot_tool({"session_id": "target-return", "window_handle": 500})
-
-    assert recovered["success"] is True
-    assert recovered["context"]["observation"]["observation_id"] == "visible-again"
-    assert len(created) == 1
-
-
-def test_app_ui_windows_uia_falls_back_to_native_snapshot_for_exact_process(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    created = []
-
-    class FakeComputerUseSession:
-        def __init__(self, **kwargs: Any) -> None:
-            created.append(kwargs)
-
-        def start(self) -> str:
-            return '{"success":true,"hint":"press Ctrl+Alt+Esc to stop"}'
-
-        def screenshot(self) -> tuple[str, bytes]:
-            return (
-                '{"success":true,"mime_type":"image/png","observation":'
-                '{"observation_id":"native-1","window_handle":500,"process_id":1234,'
-                '"window_title":"Project - Godot","source_rect":[10,20,640,480]}}',
-                b"png",
-            )
-
-        def stop(self) -> str:
-            return '{"success":true}'
-
-    def unavailable(_payload: dict[str, Any]) -> dict[str, Any]:
-        raise RuntimeError("Windows UIA command timed out after 12 seconds")
-
-    monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_PROCESS_ID", "1234")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", FakeComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", unavailable)
-
-    result = backend.snapshot_tool({"session_id": "native-fallback", "process_id": 1234, "app_name": "Godot"})
-
-    assert result["success"] is True
-    assert "after Windows UIA was unavailable" in result["message"]
-    assert "perform one scoped app_ui__act" in result["prompt"]
-    assert created == [
-        {
-            "process_id": 1234,
-            "window_handle": None,
-            "window_title": None,
-            "app_name": "Godot",
-        }
-    ]
-    snapshot = result["context"]["snapshot"]
-    assert snapshot["root"]["id"] == "native:process:1234"
-    assert snapshot["root"]["label"] == "Project - Godot"
-    assert snapshot["root"]["bounds"] == {
-        "x": 10.0,
-        "y": 20.0,
-        "width": 640.0,
-        "height": 480.0,
-    }
-    assert snapshot["root"]["metadata"]["app_ui"]["native_window_handle"] == 500
-    assert snapshot["metadata"]["app_ui"]["backend"] == "windows-native-fallback"
-    assert snapshot["metadata"]["app_ui"]["native_window_handle"] == 500
-    assert "timed out" in snapshot["metadata"]["app_ui"]["fallback_reason"]
-    assert result["context"]["observation"]["observation_id"] == "native-1"
-
-    backend._stop_computer_use_session("native-fallback")
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_ID")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    handle_result = backend.snapshot_tool(
-        {"session_id": "native-handle-fallback", "window_handle": 500, "app_name": "Godot"}
-    )
-    assert handle_result["success"] is True
-    assert created[-1] == {
-        "process_id": None,
-        "window_handle": 500,
-        "window_title": None,
-        "app_name": "Godot",
-    }
-    assert handle_result["context"]["snapshot"]["root"]["id"] == "native:window:500"
-
-    backend._stop_computer_use_session("native-handle-fallback")
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_PROCESS_ID", "1234")
-    env_scoped = backend.snapshot_tool({"session_id": "native-env-fallback", "app_name": "Godot"})
-    assert env_scoped["success"] is True
-    assert created[-1]["process_id"] == 1234
-
-
-def test_app_ui_windows_uia_does_not_fallback_without_exact_raw_scope(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_ID", raising=False)
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", raising=False)
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_NAME", raising=False)
-
-    class UnexpectedComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            raise AssertionError("native session must not start")
-
-    def unavailable(_payload: dict[str, Any]) -> dict[str, Any]:
-        raise RuntimeError("UIA unavailable")
-
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", UnexpectedComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", unavailable)
-
-    monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
-    semantic = backend.snapshot_tool({"session_id": "semantic", "process_id": 1234})
-    assert semantic["success"] is False
-    assert semantic["error"] == "backend_unavailable"
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    semantic_find = backend.find_tool({"session_id": "semantic-find", "process_id": 1234})
-    assert semantic_find["success"] is False
-    assert semantic_find["error"] == "backend_unavailable"
-
-    for session_id, scope in (
-        ("title-only-failure", {"window_title": "Godot"}),
-        ("name-only-failure", {"process_name": "godot"}),
-        ("name-combination-failure", {"process_id": 1234, "process_name": "godot"}),
-    ):
-        result = backend.snapshot_tool({"session_id": session_id, **scope})
-        assert result["success"] is False
-        assert result["error"] == "backend_unavailable"
-
-
-def test_app_ui_windows_uia_snapshot_returns_native_png_without_raw_input(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    created = []
-
-    class FakeComputerUseSession:
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-            self.stopped = False
-            created.append(self)
-
-        def start(self) -> str:
-            return json.dumps(
-                {
-                    "success": True,
-                    "active": True,
-                    "overlay_visible": True,
-                    "hint": "DCC MCP Computer Use is controlling Godot - press Ctrl+Alt+Esc to stop",
-                }
-            )
-
-        def screenshot(self) -> tuple[str, bytes]:
-            return (
-                json.dumps(
+                "bounds": {"x": 0, "y": 0, "width": 640, "height": 480},
+                "children": [
                     {
-                        "success": True,
-                        "mime_type": "image/png",
-                        "observation": {
-                            "observation_id": "500:1",
-                            "window_handle": 500,
-                            "process_id": 1234,
-                            "width": 640,
-                            "height": 480,
-                        },
+                        "runtime_id": "42.2",
+                        "fallback_path": "0.0",
+                        "name": "Apply",
+                        "automation_id": "applyButton",
+                        "class_name": "Button",
+                        "control_type": "ControlType.Button",
+                        "is_password": False,
+                        "process_id": 1234,
+                        "native_window_handle": 501,
+                        "enabled": True,
+                        "offscreen": False,
+                        "bounds": {"x": 20, "y": 20, "width": 80, "height": 24},
+                        "children": [],
                     }
-                ),
-                b"\x89PNG\r\n\x1a\ncomputer-use",
-            )
-
-        def stop(self) -> str:
-            self.stopped = True
-            return '{"success":true}'
-
-    monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", FakeComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    result = backend.snapshot_tool(
-        {
-            "session_id": "godot",
-            "window_handle": 500,
-            "app_name": "Godot",
+                ],
+            },
+            "focus_runtime_id": "42.2",
+            "node_count": 2,
+            "image": {"mime_type": "image/png"},
+            "image_bytes": b"png",
         }
-    )
 
-    assert result["success"] is True
-    assert created[0].kwargs == {
-        "process_id": 1234,
-        "window_handle": 500,
-        "window_title": "Godot",
-        "app_name": "Godot",
-    }
-    assert result["context"]["observation"]["observation_id"] == "500:1"
-    assert result["context"]["snapshot"]["metadata"]["computer_use"]["width"] == 640
-    assert result["context"]["control_hint"].endswith("press Ctrl+Alt+Esc to stop")
-    rich = result["context"]["__rich__"]
-    assert rich["kind"] == "image"
-    assert rich["mime"] == "image/png"
-    assert base64.b64decode(rich["data"]).startswith(b"\x89PNG")
-
-    stopped = backend.stop_computer_use_tool({"session_id": "godot"})
-    assert stopped["success"] is True
-    assert stopped["context"]["active"] is False
-    assert stopped["context"]["was_active"] is True
-    assert created[0].stopped is True
-
-
-def test_app_ui_windows_uia_semantic_mutation_starts_visible_session(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    calls = []
-
-    class FakeComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            calls.append("created")
-
-        def start(self) -> str:
-            calls.append("started")
-            return '{"success":true,"active":true,"overlay_visible":true}'
-
-        def screenshot(self) -> tuple[str, bytes]:
-            calls.append("screenshot")
-            return ('{"success":true,"observation":{"observation_id":"semantic:1"}}', b"png")
-
-        def stop(self) -> str:
-            return '{"success":true}'
-
-    def run_uia(payload: dict[str, Any]) -> dict[str, Any]:
-        if payload["mode"] == "snapshot":
-            return _uia_snapshot_payload()
-        calls.append("uia-act")
+    def execute(self, action: dict[str, Any]) -> dict[str, Any]:
+        self.executed.append(action)
         return {
-            "ok": True,
-            "message": "invoked control",
-            "before_focus_runtime_id": "",
-            "after_focus_runtime_id": "42.1",
+            "type": "action_completed",
+            "success": True,
+            "policy_tier": "task_grant",
+            "message": "completed",
         }
 
-    monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", FakeComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", run_uia)
-
-    result = backend.act_tool(
-        {
-            "session_id": "semantic-visible",
-            "window_handle": 500,
-            "control_id": "uia:42.1",
-            "action": "click",
+    def window_state(self) -> dict[str, Any]:
+        return {
+            "type": "window_state",
+            "state": {
+                "process_id": 1234,
+                "window_handle": 500,
+                "exists": True,
+                "visible": True,
+                "minimized": True,
+                "foreground": False,
+            },
         }
-    )
+
+    def change_window_state(self, operation: str) -> dict[str, Any]:
+        self.window_operations.append(operation)
+        return {
+            "type": "window_state_changed",
+            "operation": operation,
+            "state": {
+                "process_id": 1234,
+                "window_handle": 500,
+                "exists": True,
+                "visible": True,
+                "minimized": False,
+                "foreground": operation == "activate",
+            },
+        }
+
+    def resume(self) -> None:
+        self.resumed = True
+
+    def stop(self) -> dict[str, Any]:
+        self.stopped = True
+        return {"type": "session_stopped", "cleanup_pending": False}
+
+
+def _configure_fake_host(backend: Any, monkeypatch: Any, *, raw: bool = False) -> None:
+    _FakeHostClient.instances.clear()
+    monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
+    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_PROCESS_ID", "1234")
+    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", raising=False)
+    if raw:
+        monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "1")
+    else:
+        monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
+
+
+def test_app_ui_windows_host_maps_snapshot_and_shared_image(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+
+    result = backend.snapshot_tool({"session_id": "godot", "app_name": "Godot"})
 
     assert result["success"] is True
-    assert calls == ["created", "started", "screenshot", "uia-act"]
-    backend.stop_computer_use_tool({"session_id": "semantic-visible"})
-
-    calls.clear()
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE")
-    denied = backend.act_tool(
-        {
-            "session_id": "semantic-unbound",
-            "process_id": 1234,
-            "control_id": "uia:42.1",
-            "action": "click",
-        }
-    )
-    assert denied["success"] is False
-    assert denied["error"] == "permission_denied"
-    assert calls == []
+    context = result["context"]
+    assert context["snapshot_id"] == "accessibility:1"
+    assert context["snapshot"]["root"]["id"] == "uia:42.1"
+    assert context["snapshot"]["root"]["children"][0]["role"] == "button"
+    assert context["snapshot"]["metadata"]["app_ui"]["backend"] == "windows-ui-control-host"
+    assert context["snapshot"]["metadata"]["computer_use"]["observation_id"] == "obs-1"
+    assert base64.b64decode(context["__rich__"]["data"]) == b"png"
+    assert _FakeHostClient.instances[0].kwargs["allow_raw_input"] is False
 
 
-def test_app_ui_windows_uia_stop_interrupts_inflight_native_action(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
+def test_app_ui_windows_host_requires_operator_bound_scope(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
-    action_started = threading.Event()
-    stop_requested = threading.Event()
-    created = []
-
-    class FakeComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            self.stopped = False
-            created.append(self)
-
-        def start(self) -> str:
-            return '{"success":true,"hint":"press Ctrl+Alt+Esc to stop"}'
-
-        def screenshot(self) -> tuple[str, bytes]:
-            return (
-                '{"success":true,"mime_type":"image/png","observation":{"observation_id":"obs-stop"}}',
-                b"png",
-            )
-
-        def act(self, _request_json: str) -> str:
-            action_started.set()
-            if not stop_requested.wait(5):
-                raise AssertionError("request_stop did not interrupt the native action")
-            return '{"success":false,"error":"backend_unavailable","message":"Computer Use stopped"}'
-
-        def request_stop(self) -> None:
-            stop_requested.set()
-
-        def stop(self) -> str:
-            self.stopped = True
-            return '{"success":true}'
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", FakeComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    snapshot = backend.snapshot_tool({"session_id": "stop-race", "window_handle": 500})
-    snapshot_id = snapshot["context"]["snapshot_id"]
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        action = pool.submit(
-            backend.act_tool,
-            {
-                "session_id": "stop-race",
-                "action": "drag",
-                "path": [{"x": 1, "y": 1}, {"x": 10, "y": 10}],
-                "snapshot_id": snapshot_id,
-                "duration_ms": 5_000,
-            },
-        )
-        assert action_started.wait(1)
-        started = time.monotonic()
-        stopped = backend.stop_computer_use_tool({"session_id": "stop-race"})
-        elapsed = time.monotonic() - started
-        action_result = action.result(timeout=1)
-
-    assert elapsed < 1
-    assert stopped["success"] is True
-    assert stopped["context"]["was_active"] is True
-    assert action_result["error"] == "backend_unavailable"
-    assert created[0].stopped is True
-    assert "stop-race" not in backend._COMPUTER_USE_SESSIONS
-
-
-def test_app_ui_windows_uia_overlapping_stops_keep_actions_blocked(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    stop_entered = threading.Event()
-    release_stop = threading.Event()
-
-    class _Session:
-        def request_stop(self) -> None:
-            pass
-
-        def stop(self) -> None:
-            stop_entered.set()
-            assert release_stop.wait(2)
-
-    backend._COMPUTER_USE_SESSIONS["same"] = {"session": _Session()}
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(
-        backend,
-        "_capture_snapshot",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("action bypassed overlapping stops")),
-    )
-
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        first = pool.submit(backend.stop_computer_use_tool, {"session_id": "same"})
-        assert stop_entered.wait(1)
-        second = pool.submit(backend.stop_computer_use_tool, {"session_id": "same"})
-        blocked = backend.snapshot_tool({"session_id": "same"})
-        release_stop.set()
-        first.result(timeout=1)
-        second.result(timeout=1)
-
-    assert blocked["success"] is False
-    assert blocked["error"] == "backend_unavailable"
-
-
-def test_app_ui_wait_backends_cancel_on_package_stop(tmp_path: Path, monkeypatch: Any) -> None:
-    modules = []
-    for filename in ("_backend.py", "_chrome_backend.py", "_windows_uia_backend.py"):
-        module_name = f"_test_cancel_{filename[:-3].lstrip('_')}"
-        spec = importlib.util.spec_from_file_location(module_name, _SCRIPTS / filename)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.path.insert(0, str(_SCRIPTS))
-        try:
-            spec.loader.exec_module(module)
-        finally:
-            sys.path.remove(str(_SCRIPTS))
-        modules.append(module)
-
-    _mock, chrome, windows = modules
-    monkeypatch.setattr(windows, "_ComputerUseSession", None)
-    monkeypatch.setenv("DCC_MCP_APP_UI_MOCK_STATE_DIR", str(tmp_path / "mock"))
-    monkeypatch.setenv("DCC_MCP_APP_UI_CHROME_STATE_DIR", str(tmp_path / "chrome"))
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path / "windows"))
-    monkeypatch.setattr(chrome, "_ensure_chrome", lambda state: state)
-    monkeypatch.setattr(chrome, "_refresh_from_browser", lambda state: state)
-    monkeypatch.setattr(
-        windows,
-        "_capture_snapshot",
-        lambda session_id, _policy, _params, **_kwargs: {
-            "success": True,
-            "snapshot_id": "snapshot",
-            "snapshot": {
-                "root": {"id": "root", "role": "window", "children": []},
-                "session_id": session_id,
-                "metadata": {},
-            },
-        },
-    )
-
-    for module in modules:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            waiting = pool.submit(
-                module.wait_for_tool,
-                {
-                    "session_id": "cleanup",
-                    "condition": {
-                        "kind": "control_exists",
-                        "control_id": "never",
-                        "timeout_ms": 600_000,
-                        "interval_ms": 10_000,
-                    },
-                },
-            )
-            time.sleep(0.05)
-            started = time.monotonic()
-            module.request_stop()
-            result = waiting.result(timeout=1)
-        assert time.monotonic() - started < 1
-        assert result["success"] is False
-        assert result["error"] == "backend_unavailable"
-
-
-def test_app_ui_windows_uia_cleanup_stops_all_sessions() -> None:
-    backend = _load_windows_uia_module()
-
-    class _Session:
-        def __init__(self) -> None:
-            self.stop_requested = False
-            self.stopped = False
-
-        def request_stop(self) -> None:
-            self.stop_requested = True
-
-        def stop(self) -> None:
-            self.stopped = True
-
-    session = _Session()
-    backend._COMPUTER_USE_SESSIONS["godot"] = {"session": session}
-    backend._COMPUTER_USE_OBSERVATIONS["godot"] = {"observation_id": "obs-1"}
-
-    backend.request_stop()
-    assert session.stop_requested is True
-    backend.cleanup()
-
-    assert session.stopped is True
-    assert backend._COMPUTER_USE_SESSIONS == {}
-    assert backend._COMPUTER_USE_OBSERVATIONS == {}
-
-
-def test_app_ui_windows_uia_stop_retains_pending_cleanup_for_retry(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-
-    class PendingThenCleanSession:
-        def __init__(self) -> None:
-            self.stop_calls = 0
-
-        def request_stop(self) -> None:
-            pass
-
-        def stop(self) -> str:
-            self.stop_calls += 1
-            return json.dumps(
-                {
-                    "success": True,
-                    "active": False,
-                    "cleanup_pending": self.stop_calls == 1,
-                }
-            )
-
-    session = PendingThenCleanSession()
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    backend._COMPUTER_USE_SESSIONS["pending"] = {"session": session}
-
-    pending = backend.stop_computer_use_tool({"session_id": "pending"})
-
-    assert pending["success"] is False
-    assert pending["context"]["cleanup_pending"] is True
-    assert "pending" in backend._COMPUTER_USE_SESSIONS
-
-    cleaned = backend.stop_computer_use_tool({"session_id": "pending"})
-
-    assert cleaned["success"] is True
-    assert cleaned["context"]["cleanup_pending"] is False
-    assert "pending" not in backend._COMPUTER_USE_SESSIONS
-    assert session.stop_calls == 2
-
-
-def test_app_ui_windows_uia_process_stop_hotkey_blocks_semantic_actions(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-
-    class InterruptedComputerUseSession:
-        @staticmethod
-        def process_user_interrupted() -> bool:
-            return True
-
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", InterruptedComputerUseSession)
-    monkeypatch.setattr(
-        backend,
-        "_run_uia",
-        lambda _payload: (_ for _ in ()).throw(AssertionError("UIA must remain blocked after Ctrl+Alt+Esc")),
-    )
-
-    result = backend.act_tool(
-        {
-            "session_id": "changed-session-id",
-            "process_id": 1234,
-            "control_id": "uia:42.1",
-            "action": "set_text",
-            "text": "must not be sent",
-        }
-    )
-
-    assert result["success"] is False
-    assert result["error"] == "user_interrupted"
-    assert "changed-session-id" in backend._COMPUTER_USE_INTERRUPTED
-
-
-def test_app_ui_windows_uia_action_limits_apply_before_backend_dispatch(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    too_much_text = backend.act_tool(
-        {
-            "session_id": "bounded",
-            "process_id": 1234,
-            "control_id": "uia:42.1",
-            "action": "set_text",
-            "text": "x" * 4097,
-        }
-    )
-    assert too_much_text["success"] is False
-    assert too_much_text["error"] == "invalid_action"
-
-    too_many_keys = backend.act_tool(
-        {
-            "session_id": "bounded",
-            "process_id": 1234,
-            "action": "keypress",
-            "keys": ["CTRL+SHIFT+ALT+A+B+C+D+E+F+G+H+I+J+K+L+M+N"],
-        }
-    )
-    assert too_many_keys["success"] is False
-    assert too_many_keys["error"] == "invalid_action"
-
-
-def test_app_ui_windows_uia_native_control_requires_operator_bound_pid_or_hwnd(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    backend = _load_windows_uia_module()
+    _FakeHostClient.instances.clear()
+    monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
     monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_ID", raising=False)
     monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", raising=False)
 
-    class UnexpectedComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            raise AssertionError("native session must not start from title-only scope")
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", UnexpectedComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    result = backend.snapshot_tool({"session_id": "untrusted", "window_handle": 500})
+    result = backend.snapshot_tool({"session_id": "untrusted", "process_id": 1234})
 
     assert result["success"] is False
     assert result["error"] == "permission_denied"
-    assert "operator-bound DCC scope" in result["message"]
+    assert not _FakeHostClient.instances
 
 
-@pytest.mark.parametrize(
-    ("scope_variable", "scope_value", "scope_label"),
-    [
-        ("DCC_MCP_APP_UI_UIA_PROCESS_ID", "9999", "process"),
-        ("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "999", "window"),
-    ],
-)
-def test_app_ui_windows_uia_rejects_native_target_outside_operator_scope(
-    tmp_path: Path,
-    monkeypatch: Any,
-    scope_variable: str,
-    scope_value: str,
-    scope_label: str,
-) -> None:
+def test_app_ui_windows_host_scope_cannot_be_widened(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_PROCESS_ID", raising=False)
-    monkeypatch.delenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", raising=False)
-    monkeypatch.setenv(scope_variable, scope_value)
+    _configure_fake_host(backend, monkeypatch)
 
-    class UnexpectedComputerUseSession:
-        def __init__(self, **_kwargs: Any) -> None:
-            raise AssertionError("an out-of-scope UIA target must not create a native session")
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", UnexpectedComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    result = backend.snapshot_tool({"session_id": f"wrong-{scope_label}"})
+    result = backend.snapshot_tool({"session_id": "wrong", "process_id": 7})
 
     assert result["success"] is False
     assert result["error"] == "invalid_target"
-    assert f"operator-bound DCC {scope_label} scope" in result["message"]
+    assert not _FakeHostClient.instances
 
 
-def test_app_ui_windows_uia_failed_semantic_dispatch_consumes_native_observation(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
+def test_app_ui_windows_host_raw_input_is_runtime_ceiling(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
-    native_requests = []
+    _configure_fake_host(backend, monkeypatch)
 
-    class NativeBindings:
-        @staticmethod
-        def desktop_interactive() -> bool:
-            return True
-
-        @staticmethod
-        def process_user_interrupted() -> bool:
-            return False
-
-    class NativeSession:
-        def act(self, request_json: str) -> str:
-            native_requests.append(json.loads(request_json))
-            return '{"success":true}'
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", NativeBindings)
-    monkeypatch.setattr(
-        backend,
-        "_capture_snapshot",
-        lambda *_args, **_kwargs: {
-            "success": True,
-            "scope": {
-                "process_ids": [1234],
-                "process_names": [],
-                "window_handles": [],
-                "native_scope_trusted": True,
-                "invalid_reason": None,
-            },
-            "snapshot": {
-                "root": {
-                    "id": "uia:42.1",
-                    "role": "window",
-                    "label": "Godot",
-                    "children": [],
-                }
-            },
-        },
-    )
-    monkeypatch.setattr(
-        backend,
-        "_computer_use_screenshot",
-        lambda *_args, **_kwargs: {"success": True},
-    )
-    monkeypatch.setattr(
-        backend,
-        "_run_uia",
-        lambda _payload: {
-            "ok": False,
-            "error": "backend_error",
-            "message": "UIA action may have partially changed the application",
-        },
-    )
-    state = {"session_id": "consume", "revision": 1, "last_snapshot_id": "consume:1"}
-    backend._save_state(state)
-    backend._COMPUTER_USE_SESSIONS["consume"] = {"session": NativeSession()}
-    backend._COMPUTER_USE_OBSERVATIONS["consume"] = {
-        "snapshot_id": "consume:1",
-        "observation_id": "native:1",
-    }
-
-    failed = backend.act_tool(
+    denied = backend.snapshot_tool(
         {
-            "session_id": "consume",
-            "snapshot_id": "consume:1",
-            "control_id": "uia:42.1",
-            "action": "focus",
+            "session_id": "denied",
+            "policy": {"allow_raw_coordinates": True, "allow_keyboard_shortcuts": True},
         }
     )
-    assert failed["success"] is False
-    assert backend._load_state("consume")["last_snapshot_id"] == "consume:2"
-    assert "consume" not in backend._COMPUTER_USE_OBSERVATIONS
+    assert denied["success"] is True
+    assert denied["context"]["policy"]["allow_raw_coordinates"] is False
+    assert _FakeHostClient.instances[-1].kwargs["allow_raw_input"] is False
 
-    stale = backend.act_tool(
-        {
-            "session_id": "consume",
-            "snapshot_id": "consume:1",
-            "action": "click",
-            "x": 10,
-            "y": 20,
-        }
-    )
-
-    assert stale["success"] is False
-    assert stale["error"] == "stale_observation"
-    assert native_requests == []
+    enabled_backend = _load_windows_uia_module()
+    _configure_fake_host(enabled_backend, monkeypatch, raw=True)
+    enabled = enabled_backend.snapshot_tool({"session_id": "enabled"})
+    assert enabled["context"]["policy"]["allow_raw_coordinates"] is True
+    assert _FakeHostClient.instances[-1].kwargs["allow_raw_input"] is True
 
 
-def test_app_ui_windows_uia_native_actions_require_latest_snapshot_and_preserve_escape(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
+def test_app_ui_windows_host_semantic_action_is_thin_proxy(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
-    requests = []
-
-    class FakeComputerUseSession:
-        interrupted = False
-
-        def __init__(self, **_kwargs: Any) -> None:
-            self.stopped = False
-
-        def start(self) -> str:
-            return '{"success":true,"hint":"press Ctrl+Alt+Esc to stop"}'
-
-        def status(self) -> str:
-            return json.dumps({"success": True, "user_interrupted": self.interrupted})
-
-        def screenshot(self) -> tuple[str, bytes]:
-            return (
-                '{"success":true,"mime_type":"image/png","observation":{"observation_id":"obs-7"}}',
-                b"png",
-            )
-
-        def act(self, request_json: str) -> str:
-            request = json.loads(request_json)
-            requests.append(request)
-            return '{"success":true,"requires_new_screenshot":true}'
-
-        def stop(self) -> str:
-            self.stopped = True
-            return '{"success":true}'
-
-        def resume_after_user_approval(self) -> str:
-            self.interrupted = False
-            return '{"success":true,"user_interrupted":false}'
-
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE", "500")
-    monkeypatch.setenv("DCC_MCP_APP_UI_UIA_STATE_DIR", str(tmp_path))
-    monkeypatch.setattr(backend, "_ComputerUseSession", FakeComputerUseSession)
-    monkeypatch.setattr(backend, "_run_uia", lambda _payload: _uia_snapshot_payload())
-
-    snapshot = backend.snapshot_tool({"session_id": "native", "window_handle": 500})
+    _configure_fake_host(backend, monkeypatch)
+    snapshot = backend.snapshot_tool({"session_id": "semantic"})
     snapshot_id = snapshot["context"]["snapshot_id"]
 
-    missing = backend.act_tool({"session_id": "native", "action": "click", "x": 10, "y": 20})
+    result = backend.act_tool(
+        {
+            "session_id": "semantic",
+            "snapshot_id": snapshot_id,
+            "control_id": "uia:42.2",
+            "action": "click",
+            "intent": "external_communication",
+        }
+    )
+
+    assert result["success"] is True
+    payload = _FakeHostClient.instances[0].executed[0]
+    assert payload["input_kind"] == "semantic"
+    assert payload["control_id"] == "uia:42.2"
+    assert payload["intent"] == "external_communication"
+    source = (_SCRIPTS / "_windows_uia_backend.py").read_text(encoding="utf-8")
+    assert "ComputerUseSession" not in source
+    assert "subprocess" not in source
+    assert "powershell" not in source.lower()
+
+
+def test_app_ui_windows_host_native_action_requires_fresh_snapshot(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch, raw=True)
+
+    missing = backend.act_tool({"session_id": "raw", "action": "raw_coordinate_click", "x": 10, "y": 20})
     assert missing["success"] is False
     assert missing["error"] == "stale_observation"
-    assert requests == []
 
-    clicked = backend.act_tool(
+    snapshot = backend.snapshot_tool({"session_id": "raw"})
+    completed = backend.act_tool(
         {
-            "session_id": "native",
-            "action": "click",
+            "session_id": "raw",
+            "snapshot_id": snapshot["context"]["snapshot_id"],
+            "action": "raw_coordinate_click",
             "x": 10,
             "y": 20,
-            "button": "left",
-            "duration_ms": 75,
-            "snapshot_id": snapshot_id,
         }
     )
-    assert clicked["success"] is True
-    assert requests[0] == {
-        "action": "click",
-        "observation_id": "obs-7",
-        "x": 10,
-        "y": 20,
-        "button": "left",
-        "duration_ms": 75,
-    }
+    assert completed["success"] is True
+    assert _FakeHostClient.instances[0].executed[0]["input_kind"] == "raw_input"
 
-    refreshed = backend.snapshot_tool({"session_id": "native", "window_handle": 500})
-    escaped = backend.act_tool(
+    replayed = backend.act_tool(
         {
-            "session_id": "native",
-            "action": "keypress",
-            "keys": ["ESC"],
-            "snapshot_id": refreshed["context"]["snapshot_id"],
+            "session_id": "raw",
+            "snapshot_id": snapshot["context"]["snapshot_id"],
+            "action": "raw_coordinate_click",
+            "x": 10,
+            "y": 20,
         }
     )
-    assert escaped["success"] is True
-    assert requests[1]["action"] == "keypress"
-    assert requests[1]["keys"] == ["ESC"]
-    assert "native" in backend._COMPUTER_USE_SESSIONS
-
-    FakeComputerUseSession.interrupted = True
-    blocked = backend.snapshot_tool({"session_id": "native", "window_handle": 500})
-    assert blocked["success"] is False
-    assert blocked["error"] == "user_interrupted"
-    assert "Ctrl+Alt+Esc" in blocked["message"]
-    assert "resume_computer_use=true" in blocked["message"]
-
-    resumed = backend.snapshot_tool({"session_id": "native", "window_handle": 500, "resume_computer_use": True})
-    assert resumed["success"] is True
+    assert replayed["success"] is False
+    assert replayed["error"] == "stale_observation"
 
 
-def _uia_snapshot_payload() -> dict[str, Any]:
-    return {
-        "ok": True,
-        "focus_runtime_id": "",
-        "node_count": 1,
-        "root": {
-            "runtime_id": "42.1",
-            "fallback_path": "0",
-            "name": "Godot",
-            "automation_id": "",
-            "class_name": "Godot",
-            "control_type": "ControlType.Window",
-            "process_id": 1234,
-            "native_window_handle": 500,
-            "enabled": True,
-            "offscreen": False,
-            "bounds": {"x": 0, "y": 0, "width": 640, "height": 480},
-            "children": [],
-        },
-    }
+def test_app_ui_windows_host_restores_minimized_exact_window_without_snapshot(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+
+    state = backend.act_tool({"session_id": "minimized", "action": "get_window_state"})
+    restored = backend.act_tool({"session_id": "minimized", "action": "restore_window"})
+
+    assert state["success"] is True
+    assert state["context"]["window_state"]["minimized"] is True
+    assert restored["success"] is True
+    assert restored["context"]["window_state"]["minimized"] is False
+    assert _FakeHostClient.instances[0].window_operations == ["restore"]
+    assert _FakeHostClient.instances[0].executed == []
+    assert state["context"]["audit"]["metadata"]["host_enforced"] is True
+
+
+def test_app_ui_windows_host_invalid_snapshot_target_exposes_scoped_recovery() -> None:
+    backend = _load_windows_uia_module()
+
+    result = backend._host_error(backend.UiControlHostError("invalid_target", "window is not capturable"))
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_target"
+    assert result["context"]["recovery_scope"] == "same_exact_pid_hwnd"
+    assert result["context"]["recovery_actions"] == [
+        "get_window_state",
+        "restore_window",
+        "show_window",
+        "activate_window",
+    ]
+    assert "cannot change the authorized PID/HWND scope" in result["prompt"]
+
+
+def test_app_ui_windows_host_propagates_trusted_confirmation_denial(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+
+    class DenyingHost(_FakeHostClient):
+        def execute(self, action: dict[str, Any]) -> dict[str, Any]:
+            self.executed.append(action)
+            return {
+                "type": "action_completed",
+                "success": False,
+                "policy_tier": "action_confirmation",
+                "error": "approval_required",
+                "message": "the user did not approve this action",
+            }
+
+    _configure_fake_host(backend, monkeypatch)
+    monkeypatch.setattr(backend, "_HostClient", DenyingHost)
+    snapshot = backend.snapshot_tool({"session_id": "confirm"})
+    result = backend.act_tool(
+        {
+            "session_id": "confirm",
+            "snapshot_id": snapshot["context"]["snapshot_id"],
+            "control_id": "uia:42.2",
+            "action": "click",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "approval_required"
+    assert result["context"]["result"]["metadata"]["policy_tier"] == "action_confirmation"
+
+
+def test_app_ui_windows_host_find_wait_stop_and_cleanup(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+
+    found = backend.find_tool({"session_id": "workflow", "role": "button"})
+    assert found["success"] is True
+    assert found["context"]["matches"][0]["id"] == "uia:42.2"
+
+    waited = backend.wait_for_tool(
+        {
+            "session_id": "workflow",
+            "condition": {"kind": "control_exists", "control_id": "uia:42.2", "timeout_ms": 50},
+        }
+    )
+    assert waited["success"] is True
+
+    stopped = backend.stop_computer_use_tool({"session_id": "workflow"})
+    assert stopped["success"] is True
+    assert _FakeHostClient.instances[0].stopped is True
+    assert backend._CLIENTS == {}
+
+    backend.cleanup()
+    assert backend._STOP_EVENT.is_set()
+
+
+def test_app_ui_windows_host_resume_always_round_trips_to_trusted_surface(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+
+    result = backend.snapshot_tool({"session_id": "resume", "resume_computer_use": True})
+
+    assert result["success"] is True
+    assert _FakeHostClient.instances[0].resumed is True
+
+
+def test_app_ui_windows_uia_script_retains_hard_target_boundaries() -> None:
+    backend = _load_windows_uia_module()
+    script = backend._dedent_for_tests()
+
+    assert "Denied-Target-Reason" in script
+    assert "Denied-Action-Target-Reason" in script
+    assert "$currentInfo.IsPassword" in script
+    assert "is_password = [bool]$current.IsPassword" in script
+    assert "Cross-process descendant controls are not allowed" in script
+    assert "Windows Run dialog is not an allowed" in script
+
+
+def test_ui_control_host_client_wire_has_no_approval_boolean() -> None:
+    import io
+    import struct
+
+    backend = _load_windows_uia_module()
+    client_module = backend._HOST
+
+    def frame(value: dict[str, Any]) -> bytes:
+        body = json.dumps(value).encode("utf-8")
+        return struct.pack(">I", len(body)) + body
+
+    class ScriptedPipe:
+        def __init__(self) -> None:
+            self.responses = io.BytesIO(
+                frame({"type": "hello", "protocol_version": 1, "capabilities": []})
+                + frame(
+                    {
+                        "type": "session_opened",
+                        "session_id": "wire",
+                        "window_capability": "window:opaque",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
+                    }
+                )
+            )
+            self.requests = bytearray()
+
+        def read(self, length: int) -> bytes:
+            return self.responses.read(length)
+
+        def write(self, data: bytes) -> int:
+            self.requests.extend(data)
+            return len(data)
+
+        def close(self) -> None:
+            return None
+
+    stream = ScriptedPipe()
+    client = client_module.UiControlHostClient(
+        session_id="wire",
+        task_grant_id="grant",
+        dcc_type="unreal",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=True,
+        stream=stream,
+    )
+
+    assert client.target["window_handle"] == 500
+    wire = bytes(stream.requests).decode("utf-8", errors="ignore").lower()
+    assert "approved" not in wire
+    assert "confirmed" not in wire
+    assert "window:opaque" not in wire
 
 
 def test_app_ui_chrome_cdp_preset_aliases(monkeypatch: Any) -> None:

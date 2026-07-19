@@ -158,6 +158,26 @@ def test_calendar_policy_rejects_any_expiry_date_without_flagging_metadata(tmp_p
     assert len(errors) == 2
 
 
+def test_calendar_policy_does_not_join_unrelated_markdown_table_rows(tmp_path: Path) -> None:
+    contract = load_contract(_REPO_ROOT)
+    contract["projections"]["calendar_policy_globs"] = ["docs/**/*.md"]
+    index = tmp_path / "docs" / "index.md"
+    index.parent.mkdir(parents=True)
+    index.write_text(
+        "| Decision | Status |\n"
+        "| --- | --- |\n"
+        "| Protocol 2026-07-28 | Proposed |\n"
+        "| Python 3.7 LTS | Accepted |\n"
+        "| Export telemetry through OTLP | Accepted |\n",
+        encoding="utf-8",
+    )
+
+    assert collect_calendar_policy_errors(tmp_path, contract) == []
+
+    index.write_text("| Python 3.7 support ends on 2027-12-31 | Rejected |\n", encoding="utf-8")
+    assert len(collect_calendar_policy_errors(tmp_path, contract)) == 1
+
+
 def test_semantic_extra_requires_a_python37_safe_fallback_marker(tmp_path: Path) -> None:
     contract = load_contract(_REPO_ROOT)
     contract["distributions"] = {

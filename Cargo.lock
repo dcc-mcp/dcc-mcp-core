@@ -1175,14 +1175,19 @@ dependencies = [
 name = "dcc-mcp-computer-use"
 version = "0.19.60"
 dependencies = [
+ "dcc-mcp-app-ui",
  "dcc-mcp-capture",
+ "dcc-mcp-paths",
+ "dcc-mcp-shm",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
  "serde",
  "serde_json",
  "thiserror",
+ "time",
  "tracing",
+ "uuid",
  "windows",
  "workspace-hack",
 ]
@@ -8093,6 +8098,7 @@ dependencies = [
  "syn",
  "sync_wrapper",
  "time",
+ "time-macros",
  "tokio",
  "tokio-stream",
  "tokio-util",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inject the companion capture helper into a Windows server binary wheel."""
+"""Inject Windows UI Control companion executables into a server binary wheel."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 
 HELPER_NAME = "dcc-mcp-capture-helper.exe"
+HOST_NAME = "dcc-mcp-ui-control-host.exe"
 
 
 def _build_record_csv(filenames_and_data: list[tuple[str, bytes]], *, record_path: str) -> str:
@@ -26,12 +27,16 @@ def _build_record_csv(filenames_and_data: list[tuple[str, bytes]], *, record_pat
     return "\n".join(lines) + "\n"
 
 
-def inject_helper(wheel_path: Path, helper: Path) -> None:
-    """Rewrite ``wheel_path`` with ``helper`` beside its server script."""
+def inject_helpers(wheel_path: Path, helper: Path, ui_control_host: Path) -> None:
+    """Rewrite ``wheel_path`` with both companions beside its server script."""
     if not helper.is_file():
         raise FileNotFoundError(f"capture helper not found: {helper}")
     if helper.name.lower() != HELPER_NAME or helper.read_bytes()[:2] != b"MZ":
         raise ValueError(f"invalid Windows capture helper: {helper}")
+    if not ui_control_host.is_file():
+        raise FileNotFoundError(f"UI Control host not found: {ui_control_host}")
+    if ui_control_host.name.lower() != HOST_NAME or ui_control_host.read_bytes()[:2] != b"MZ":
+        raise ValueError(f"invalid Windows UI Control host: {ui_control_host}")
 
     with tempfile.TemporaryDirectory(dir=wheel_path.parent) as temp_dir:
         replacement = Path(temp_dir) / wheel_path.name
@@ -44,6 +49,7 @@ def inject_helper(wheel_path: Path, helper: Path) -> None:
             if len(script_members) != 1:
                 raise ValueError(f"expected one bundled dcc-mcp-server.exe, found {script_members}")
             helper_member = str(Path(script_members[0]).parent / HELPER_NAME).replace("\\", "/")
+            host_member = str(Path(script_members[0]).parent / HOST_NAME).replace("\\", "/")
             records = [name for name in source.namelist() if name.endswith(".dist-info/RECORD")]
             if len(records) != 1:
                 raise ValueError(f"expected one wheel RECORD, found {records}")
@@ -52,7 +58,7 @@ def inject_helper(wheel_path: Path, helper: Path) -> None:
             entries: list[tuple[str, bytes]] = []
             with zipfile.ZipFile(str(replacement), "w") as destination:
                 for info in source.infolist():
-                    if info.filename in {record, helper_member}:
+                    if info.filename in {record, helper_member, host_member}:
                         continue
                     data = source.read(info.filename)
                     destination.writestr(info, data)
@@ -60,6 +66,9 @@ def inject_helper(wheel_path: Path, helper: Path) -> None:
                 helper_data = helper.read_bytes()
                 destination.writestr(helper_member, helper_data)
                 entries.append((helper_member, helper_data))
+                host_data = ui_control_host.read_bytes()
+                destination.writestr(host_member, host_data)
+                entries.append((host_member, host_data))
                 # Rebuild RECORD — written last (PEP 427).
                 entries.sort(key=lambda e: e[0])
                 record_csv = _build_record_csv(entries, record_path=record)
@@ -72,13 +81,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wheel-dir", type=Path, default=Path("pkg/dcc-mcp-server-bin/wheels"))
     parser.add_argument("--helper", type=Path, required=True)
+    parser.add_argument("--ui-control-host", type=Path, required=True)
     args = parser.parse_args(argv)
     wheels = sorted(args.wheel_dir.glob("dcc_mcp_server-*-win_amd64.whl"))
     if len(wheels) != 1:
         print(f"expected one Windows server wheel under {args.wheel_dir}, found {wheels}", file=sys.stderr)
         return 1
     try:
-        inject_helper(wheels[0], args.helper)
+        inject_helpers(wheels[0], args.helper, args.ui_control_host)
     except (OSError, ValueError) as exc:
         print(f"capture helper injection failed: {exc}", file=sys.stderr)
         return 1

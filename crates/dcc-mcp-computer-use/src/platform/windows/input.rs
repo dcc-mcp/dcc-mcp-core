@@ -215,7 +215,7 @@ fn pointer_effect_dwell(request: &ComputerUseAction) -> Duration {
     )
 }
 
-fn set_target_foreground(hwnd: HWND) {
+pub(super) fn set_target_foreground(hwnd: HWND) {
     // AttachThreadInput requires a USER message queue. Adapter worker threads
     // often do not have one until they call PeekMessage at least once.
     let mut queue_probe = MSG::default();

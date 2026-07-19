@@ -227,6 +227,10 @@ class UiActionKind:
     SELECT_OPTION = "select_option"
     FOCUS = "focus"
     KEYBOARD_SHORTCUT = "keyboard_shortcut"
+    GET_WINDOW_STATE = "get_window_state"
+    RESTORE_WINDOW = "restore_window"
+    SHOW_WINDOW = "show_window"
+    ACTIVATE_WINDOW = "activate_window"
 
 
 @dataclass
@@ -284,6 +288,8 @@ class AppUiPolicy:
         """Return whether this policy permits an action kind."""
         if self.scope_denied:
             return False
+        if action == UiActionKind.GET_WINDOW_STATE:
+            return self.allow_snapshot
         if (
             action
             in (
@@ -323,6 +329,9 @@ class AppUiPolicy:
             UiActionKind.SELECT_OPTION,
             UiActionKind.FOCUS,
             UiActionKind.KEYBOARD_SHORTCUT,
+            UiActionKind.RESTORE_WINDOW,
+            UiActionKind.SHOW_WINDOW,
+            UiActionKind.ACTIVATE_WINDOW,
         ):
             return self.allow_mutating_actions
         return False

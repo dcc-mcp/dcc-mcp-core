@@ -47,6 +47,7 @@ def build_bundle(
     server_bin: Path,
     cli_bin: Path,
     capture_helper: Path | None,
+    ui_control_host: Path | None,
     out_dir: Path,
 ) -> Path:
     """Create a deployable server zip and return its path."""
@@ -58,14 +59,20 @@ def build_bundle(
 
     if platform.startswith("windows-") and capture_helper is None:
         raise ValueError("Windows server bundles require --capture-helper")
+    if platform.startswith("windows-") and ui_control_host is None:
+        raise ValueError("Windows server bundles require --ui-control-host")
     if capture_helper is not None and capture_helper.suffix.lower() != ".exe":
         raise ValueError("capture helper must be a Windows .exe")
+    if ui_control_host is not None and ui_control_host.suffix.lower() != ".exe":
+        raise ValueError("UI Control host must be a Windows .exe")
 
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as zf:
         _write_binary(zf, server_bin, _archive_binary_name("server", server_bin))
         _write_binary(zf, cli_bin, _archive_binary_name("cli", cli_bin))
         if capture_helper is not None:
             _write_binary(zf, capture_helper, "dcc-mcp-capture-helper.exe")
+        if ui_control_host is not None:
+            _write_binary(zf, ui_control_host, "dcc-mcp-ui-control-host.exe")
 
     return bundle_path
 
@@ -78,6 +85,7 @@ def main() -> int:
     parser.add_argument("--server-bin", type=Path, required=True)
     parser.add_argument("--cli-bin", type=Path, required=True)
     parser.add_argument("--capture-helper", type=Path)
+    parser.add_argument("--ui-control-host", type=Path)
     parser.add_argument("--out-dir", type=Path, default=Path())
     args = parser.parse_args()
 
@@ -88,6 +96,7 @@ def main() -> int:
             server_bin=args.server_bin,
             cli_bin=args.cli_bin,
             capture_helper=args.capture_helper,
+            ui_control_host=args.ui_control_host,
             out_dir=args.out_dir,
         )
     except Exception as exc:

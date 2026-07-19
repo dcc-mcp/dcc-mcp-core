@@ -106,9 +106,11 @@ bindings = "pyo3"
 # another platform must not redistribute a stale Windows executable.
 include = [
     { path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "wheel" },
+    { path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "wheel" },
 ]
 exclude = [
     { path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "sdist" },
+    { path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "sdist" },
 ]
 
 [tool.mypy]

@@ -119,11 +119,20 @@ def _validate(wheel_dir: Path) -> None:
             raise SystemExit(1)
 
         capture_helpers = [name for name in names if name.endswith(".data/scripts/dcc-mcp-capture-helper.exe")]
+        ui_control_hosts = [name for name in names if name.endswith(".data/scripts/dcc-mcp-ui-control-host.exe")]
         if "win_amd64" in wheel.name and len(capture_helpers) != 1:
             _github_error(f"{wheel.name} must contain exactly one dcc-mcp-capture-helper.exe, found {capture_helpers}")
             raise SystemExit(1)
+        if "win_amd64" in wheel.name and len(ui_control_hosts) != 1:
+            _github_error(
+                f"{wheel.name} must contain exactly one dcc-mcp-ui-control-host.exe, found {ui_control_hosts}"
+            )
+            raise SystemExit(1)
         if "win_amd64" not in wheel.name and capture_helpers:
             _github_error(f"{wheel.name} must not contain the Windows capture helper: {capture_helpers}")
+            raise SystemExit(1)
+        if "win_amd64" not in wheel.name and ui_control_hosts:
+            _github_error(f"{wheel.name} must not contain the Windows UI Control host: {ui_control_hosts}")
             raise SystemExit(1)
 
         print(f"{wheel.name}: Python 3.7+ metadata OK")

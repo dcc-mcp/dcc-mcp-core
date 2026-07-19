@@ -37,12 +37,11 @@ The default backend is deterministic mock state for CI and adapter authoring.
 Set `DCC_MCP_APP_UI_BACKEND=chrome` to use the experimental CDP backend through
 the same `app_ui__*` contract.
 
-Set `DCC_MCP_APP_UI_BACKEND=windows-uia` on Windows to use the reference
-Windows UI Automation backend. Scope it explicitly with
-`policy.allowed_window_titles`, `policy.allowed_process_ids`,
-`DCC_MCP_APP_UI_UIA_WINDOW_TITLE`, `DCC_MCP_APP_UI_UIA_PROCESS_ID`, or
-`DCC_MCP_APP_UI_UIA_PROCESS_NAME`; whole-desktop snapshots are disabled by
-default.
+Set `DCC_MCP_APP_UI_BACKEND=windows-uia` on Windows to use the isolated
+`dcc-mcp-ui-control-host.exe`. Bind it at adapter startup with exactly one
+`DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`;
+request parameters may narrow that scope but cannot create or widen it.
+Whole-desktop and title/process-name-only native sessions are disabled.
 
 ## Windows Reference Backend
 
@@ -66,10 +65,15 @@ dcc-mcp-cli ui-control wait --instance-id <id> --json '{"session_id":"ui","condi
 dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
 
-All app-ui tools require the adapter's persistent in-process executor. This
-keeps the screenshot observation, Ctrl+Alt+Esc latch, visible overlay, and native input
-owner in one long-lived process while retaining `affinity: any`; loading fails
-loudly when an adapter would otherwise launch a fresh subprocess per call.
+All app-ui tools require the adapter's persistent in-process executor so one
+thin named-pipe client survives across snapshot/action calls. The independent
+per-Windows-session host owns screenshots, UIA, observation ids, the
+Ctrl+Alt+Esc latch, visible overlay, global input owner, confirmation, and
+native input; adapters do not retain an alternate native path.
+Every snapshot, find, action, wait, stop, and rejected operation also appends a
+redacted `ui_control_operation` event to the shared DCC-MCP log directory, so
+the existing Admin Logs panel can display it without exposing entered text or
+screenshot coordinates.
 
 Use semantic UI Automation first: resolve a stable `control_id` with
 `app_ui__find`, then use `click`, `set_text`, `toggle`, `set_checked`,
@@ -78,16 +82,16 @@ control is not exposed semantically.
 
 The adapter/operator must bind a trusted DCC target with
 `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE` before
-any Windows UIA mutation. This starts the same visible session, screenshot,
-and user-interruption monitor for semantic UIA and native input. Semantic UIA
-observation may still use an exact title or process name.
+any Windows snapshot or mutation. The host resolves an exact PID/HWND,
+validates the caller's Windows session, user, and integrity level, then asks
+the user to approve that visible window before minting its opaque capability.
 
 The native DCC UI Control boundary imports that PID/HWND as a separate trusted
 scope, rejects construction without it, and revalidates the resolved native
 identity before the capsule, every capture, and every action. A request-supplied
 title, process name, PID, or HWND cannot authorize a different process.
 
-Before a semantic mutation, the backend re-resolves the actual descendant
+Before a semantic mutation, the host re-resolves the actual descendant
 control and checks it plus every ancestor back to the scoped root. Password
 controls, cross-process descendants, and authentication or credential subtrees
 are hard denied even when the outer DCC window itself is allowed.
@@ -101,18 +105,26 @@ intersected; a request can narrow the trusted target but cannot replace it
 with another application. Process-name scopes are observation-only. Never
 widen the scope to the desktop.
 
-`app_ui__act` advertises a destructive annotation for the calling host's
-confirmation policy. Never treat a model-supplied `confirmed` argument or an
-environment flag as per-action user approval. If the host requires confirmation
-but cannot obtain it, stop rather than switching automation paths.
+`app_ui__act` advertises a destructive annotation and accepts an optional
+`intent` consequence hint. The native host independently classifies the UIA
+control, focused/pointed control, keyboard chord, and requested intent; the hint
+can only raise the tier. Tier 2/3 operations use a trusted host-owned Windows
+confirmation dialog. There is no `confirmed`, `approved`, or environment-based
+approval field. A missing or denied confirmation returns `approval_required`.
 
-With that operator-bound exact scope, `app_ui__snapshot` returns a bounded
-native image even when raw input is disabled. If UIA is unavailable or fails
-internally, the same scope may fall back to a minimal native tree. Policy
-denial, an invalid/missing target, lock, interruption, or authentication never
-triggers that fallback. The minimal tree is not suitable for `app_ui__find`;
-inspect the image and perform one native action only when both raw-input gates
-are enabled.
+With that operator-bound exact scope, `app_ui__snapshot` returns a bounded PNG
+through versioned shared memory plus a UIA tree, even when raw input is
+disabled. Host absence, protocol mismatch, UIA failure, and capture failure
+fail closed with no in-process or alternate-input fallback.
+
+If that exact HWND is valid but minimized or hidden, do not search the desktop
+or switch input backends. `app_ui__act` supports the pre-snapshot actions
+`get_window_state`, `restore_window`, `show_window`, and `activate_window`.
+They carry the existing task grant and opaque HWND capability, never accept a
+replacement target, and use no pointer or keyboard input. The host revalidates
+PID/HWND ownership and hard target policy, audits each operation, and
+invalidates any old observation. After recovery, take a fresh snapshot before
+interacting with content.
 
 For native DCC UI Control actions, keep one `session_id` and use this loop:
 
@@ -162,12 +174,10 @@ the agent is acting. The user stops control with `Ctrl+Alt+Esc`; ordinary
 not retry, do not switch to another input path, do not change `session_id`, and
 do not automatically start a new DCC UI Control session. Ctrl+Alt+Esc is latched across
 all DCC adapter processes in the same Windows logon session. Return control to
-the user. Resume only through an
-explicit `app_ui__snapshot` call with `resume_computer_use=true`, and only after
-the user asks to resume and while no DCC UI Control owner is active.
-`resume_computer_use` is a cooperative agent/host
-contract, not an unforgeable operator capability: runtimes must only forward it
-after an explicit user instruction. The native backend releases any held keys
+the user. Resume only through an explicit `app_ui__snapshot` call with
+`resume_computer_use=true`. That flag only requests the flow: the native host
+always displays its own confirmation surface before clearing the global latch,
+so a model or adapter cannot approve itself. The native backend releases any held keys
 or mouse buttons before allowing more input. If Windows disconnects after a
 partial injection, those releases remain pending and retain the global input
 owner until reconnect makes them confirmable.
