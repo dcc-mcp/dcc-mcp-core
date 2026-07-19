@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.60](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.59...v0.19.60) (2026-07-19)
+
+
+### Features
+
+* add DCC UI Control entrypoint ([b2ee1e5](https://github.com/dcc-mcp/dcc-mcp-core/commit/b2ee1e55bbe51d39c0fb999a8945f2fc14d77004))
+* **observability:** session lifecycle, tool-call attribution, and metrics data model ([53917aa](https://github.com/dcc-mcp/dcc-mcp-core/commit/53917aa7e449eef7bb2abef38a76a013a1f6bdfa))
+* refine UI Control visual language ([5f33c83](https://github.com/dcc-mcp/dcc-mcp-core/commit/5f33c835afd96d7c35c408c89ee769220d204f0b))
+* soften UI Control glow animation ([a696a6d](https://github.com/dcc-mcp/dcc-mcp-core/commit/a696a6db275ffeeb6da2aaf6050acc36fac1fa0e))
+
+
+### Bug Fixes
+
+* **computer-use:** isolate unrelated UI overlays ([06e3e78](https://github.com/dcc-mcp/dcc-mcp-core/commit/06e3e78573ef7eff749cb1de9fd32e2c9f586e87))
+* **observability:** pass SQL named params to query backend ([8b7ba2c](https://github.com/dcc-mcp/dcc-mcp-core/commit/8b7ba2c2c14c968cc7f8a783c80379416c47b07a))
+* preserve process-scoped app-ui sessions ([375a400](https://github.com/dcc-mcp/dcc-mcp-core/commit/375a400f19aee548a01b65dfe703f579db343a1b))
+* refine DCC UI Control feedback ([6e41fc5](https://github.com/dcc-mcp/dcc-mcp-core/commit/6e41fc50b8d20d6d815544855f1527a789cd61a0))
+* strengthen UI Control corner indicators ([b1554d0](https://github.com/dcc-mcp/dcc-mcp-core/commit/b1554d0ce4752e5b9c050be8520a801d87644fee))
+
+
+### Code Refactoring
+
+* split Windows overlay lifecycle ([19b8e2a](https://github.com/dcc-mcp/dcc-mcp-core/commit/19b8e2a67376f0bdb39218720d624961b593b39e))
+
+
+### Documentation
+
+* make dcc-mcp-cli the default agent path ([e1e02f3](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1e02f3bf88ecb8229d51e4f331ae1796f0ac5af))
+
 ## [0.19.59](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.58...v0.19.59) (2026-07-19)
 
 
