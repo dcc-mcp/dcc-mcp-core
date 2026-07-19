@@ -12,7 +12,7 @@ impl PointerEffect {
             (x, y, size, size),
             CONTROL_OVERLAY_ALPHA,
             true,
-            false,
+            OverlayTone::Cursor,
         )?;
         Ok(Self { hwnd })
     }

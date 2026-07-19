@@ -98,17 +98,20 @@ const POINTER_EFFECT_SIZE: i32 = 72;
 const POINTER_RING_SIZE: i32 = 52;
 const CONTROL_OVERLAY_ALPHA: u8 = 185;
 const CONTROL_BORDER_ALPHA: u8 = 244;
-const CONTROL_CAPSULE_ALPHA: u8 = 238;
+const CONTROL_CAPSULE_ALPHA: u8 = 244;
+const CONTROL_CAPSULE_GLOW_ALPHA: u8 = 144;
 const CONTROL_CURSOR_ALPHA: u8 = 238;
-const CONTROL_CAPSULE_FONT_SIZE: i32 = 18;
+const CONTROL_CAPSULE_FONT_SIZE: i32 = 16;
 const CONTROL_PULSE_PERIOD_MS: u64 = 1_800;
 const CONTROL_BORDER_PULSE_FLOOR_PERCENT: u8 = 72;
 const CONTROL_CAPSULE_PULSE_FLOOR_PERCENT: u8 = 88;
 const CONTROL_CURSOR_PULSE_FLOOR_PERCENT: u8 = 82;
-const CONTROL_ACCENT_COLOR: COLORREF = COLORREF(0x00EB_6325);
-const CONTROL_FOCUS_COLOR: COLORREF = COLORREF(0x0027_1811);
+const CONTROL_ACCENT_COLOR: COLORREF = COLORREF(0x00FF_840A);
+const CONTROL_GLOW_COLOR: COLORREF = COLORREF(0x00FA_A560);
+const CONTROL_CURSOR_COLOR: COLORREF = COLORREF(0x0043_9FFF);
 const CONTROL_OVERLAY_CLASS: PCWSTR = w!("DccMcpComputerUseOverlay");
-const CONTROL_FOCUS_CLASS: PCWSTR = w!("DccMcpComputerUseFocusOverlay");
+const CONTROL_GLOW_CLASS: PCWSTR = w!("DccMcpComputerUseGlowOverlay");
+const CONTROL_CURSOR_CLASS: PCWSTR = w!("DccMcpComputerUseCursorOverlay");
 const DEFAULT_POINTER_EFFECT_DWELL_MS: u64 = 350;
 const DRAG_UPDATE_INTERVAL_MS: u64 = 16;
 const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -121,7 +124,9 @@ fn is_control_overlay_window(hwnd: HWND) -> bool {
     let length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
     matches!(
         String::from_utf16_lossy(&class_name[..length]).as_str(),
-        "DccMcpComputerUseOverlay" | "DccMcpComputerUseFocusOverlay"
+        "DccMcpComputerUseOverlay"
+            | "DccMcpComputerUseGlowOverlay"
+            | "DccMcpComputerUseCursorOverlay"
     )
 }
 
@@ -782,6 +787,7 @@ impl OverlayLayer {
 }
 
 struct ControlOverlay {
+    capsule_glow: OverlayLayer,
     capsule: OverlayLayer,
     corners: Vec<OverlayLayer>,
     cursor_ring: OverlayLayer,
@@ -853,26 +859,57 @@ impl ControlOverlay {
         caption: &str,
     ) -> ComputerUseResult<Self> {
         let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
+        let capsule_glow_geometry = capsule_glow_geometry(capsule_geometry);
+        let capsule_glow_alpha = breathing_alpha(
+            CONTROL_CAPSULE_GLOW_ALPHA,
+            CONTROL_BORDER_PULSE_FLOOR_PERCENT,
+            0,
+        );
+        let capsule_glow = OverlayLayer::new(
+            create_color_overlay(
+                "",
+                capsule_glow_geometry,
+                capsule_glow_alpha,
+                false,
+                OverlayTone::Glow,
+            )?,
+            CONTROL_CAPSULE_GLOW_ALPHA,
+            capsule_glow_alpha,
+        );
         let capsule_alpha = breathing_alpha(
             CONTROL_CAPSULE_ALPHA,
             CONTROL_CAPSULE_PULSE_FLOOR_PERCENT,
             0,
         );
-        let capsule = OverlayLayer::new(
-            create_color_overlay(caption, capsule_geometry, capsule_alpha, false, true)?,
-            CONTROL_CAPSULE_ALPHA,
+        let capsule = match create_color_overlay(
+            caption,
+            capsule_geometry,
             capsule_alpha,
-        );
+            false,
+            OverlayTone::Accent,
+        ) {
+            Ok(hwnd) => OverlayLayer::new(hwnd, CONTROL_CAPSULE_ALPHA, capsule_alpha),
+            Err(error) => {
+                let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
+                return Err(error);
+            }
+        };
         let mut corners = Vec::with_capacity(corner_geometries.len());
         for (geometry, alpha, focus) in corner_geometries {
             let initial_alpha = breathing_alpha(alpha, CONTROL_BORDER_PULSE_FLOOR_PERCENT, 0);
-            match create_color_overlay("", geometry, initial_alpha, false, focus) {
+            let tone = if focus {
+                OverlayTone::Glow
+            } else {
+                OverlayTone::Accent
+            };
+            match create_color_overlay("", geometry, initial_alpha, false, tone) {
                 Ok(hwnd) => corners.push(OverlayLayer::new(hwnd, alpha, initial_alpha)),
                 Err(error) => {
                     for layer in corners {
                         let _ = unsafe { DestroyWindow(layer.hwnd) };
                     }
                     let _ = unsafe { DestroyWindow(capsule.hwnd) };
+                    let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
                     return Err(error);
                 }
             }
@@ -883,6 +920,7 @@ impl ControlOverlay {
                 let _ = unsafe { DestroyWindow(layer.hwnd) };
             }
             let _ = unsafe { DestroyWindow(capsule.hwnd) };
+            let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
             return Err(overlay_backend_error(
                 "locate the pointer for",
                 error.to_string(),
@@ -898,11 +936,13 @@ impl ControlOverlay {
                     let _ = unsafe { DestroyWindow(layer.hwnd) };
                 }
                 let _ = unsafe { DestroyWindow(capsule.hwnd) };
+                let _ = unsafe { DestroyWindow(capsule_glow.hwnd) };
                 return Err(error);
             }
         };
         let cursor_visible = point_in_rect(cursor, target_rect);
         let overlay = Self {
+            capsule_glow,
             capsule,
             corners,
             cursor_ring,
@@ -920,6 +960,11 @@ impl ControlOverlay {
         target_rect: &windows::Win32::Foundation::RECT,
     ) -> ComputerUseResult<()> {
         let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
+        position_overlay(
+            self.capsule_glow.hwnd,
+            capsule_glow_geometry(capsule_geometry),
+            false,
+        )?;
         position_overlay(self.capsule.hwnd, capsule_geometry, false)?;
         for (layer, (geometry, _alpha, _focus)) in self.corners.iter().zip(corner_geometries) {
             position_overlay(layer.hwnd, geometry, false)?;
@@ -941,6 +986,8 @@ impl ControlOverlay {
             self.cursor_visible.set(cursor_visible);
         }
         let elapsed_ms = self.pulse_started.elapsed().as_millis() as u64;
+        self.capsule_glow
+            .apply_pulse(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms)?;
         self.capsule
             .apply_pulse(CONTROL_CAPSULE_PULSE_FLOOR_PERCENT, elapsed_ms)?;
         for layer in &self.corners {
@@ -952,6 +999,7 @@ impl ControlOverlay {
     }
 
     fn set_visible(&self, visible: bool) -> ComputerUseResult<()> {
+        set_overlay_visible(self.capsule_glow.hwnd, visible)?;
         set_overlay_visible(self.capsule.hwnd, visible)?;
         for layer in &self.corners {
             set_overlay_visible(layer.hwnd, visible)?;
@@ -974,7 +1022,15 @@ impl Drop for ControlOverlay {
         }
         let _ = unsafe { DestroyWindow(self.cursor_ring.hwnd) };
         let _ = unsafe { DestroyWindow(self.capsule.hwnd) };
+        let _ = unsafe { DestroyWindow(self.capsule_glow.hwnd) };
     }
+}
+
+#[derive(Clone, Copy)]
+enum OverlayTone {
+    Accent,
+    Glow,
+    Cursor,
 }
 
 fn register_color_overlay_classes() -> ComputerUseResult<()> {
@@ -985,7 +1041,8 @@ fn register_color_overlay_classes() -> ComputerUseResult<()> {
                 .map_err(|error| format!("resolve module handle: {error}"))?;
             for (class_name, color) in [
                 (CONTROL_OVERLAY_CLASS, CONTROL_ACCENT_COLOR),
-                (CONTROL_FOCUS_CLASS, CONTROL_FOCUS_COLOR),
+                (CONTROL_GLOW_CLASS, CONTROL_GLOW_COLOR),
+                (CONTROL_CURSOR_CLASS, CONTROL_CURSOR_COLOR),
             ] {
                 let class = WNDCLASSW {
                     lpfnWndProc: Some(overlay_window_proc),
@@ -1022,12 +1079,10 @@ unsafe extern "system" fn overlay_window_proc(
             let _ = unsafe { GetClientRect(hwnd, &raw mut bounds) };
             let mut class_name = [0_u16; 64];
             let class_length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
-            let color = if String::from_utf16_lossy(&class_name[..class_length])
-                == "DccMcpComputerUseFocusOverlay"
-            {
-                CONTROL_FOCUS_COLOR
-            } else {
-                CONTROL_ACCENT_COLOR
+            let color = match String::from_utf16_lossy(&class_name[..class_length]).as_ref() {
+                "DccMcpComputerUseGlowOverlay" => CONTROL_GLOW_COLOR,
+                "DccMcpComputerUseCursorOverlay" => CONTROL_CURSOR_COLOR,
+                _ => CONTROL_ACCENT_COLOR,
             };
             let brush = unsafe { CreateSolidBrush(color) };
             let _ = unsafe { windows::Win32::Graphics::Gdi::FillRect(device, &bounds, brush) };
@@ -1081,7 +1136,7 @@ fn create_color_overlay(
     (x, y, width, height): OverlayGeometry,
     alpha: u8,
     show: bool,
-    focus: bool,
+    tone: OverlayTone,
 ) -> ComputerUseResult<HWND> {
     register_color_overlay_classes()?;
     let caption = wide(caption);
@@ -1096,10 +1151,10 @@ fn create_color_overlay(
     let hwnd = unsafe {
         CreateWindowExW(
             ex_style,
-            if focus {
-                CONTROL_FOCUS_CLASS
-            } else {
-                CONTROL_OVERLAY_CLASS
+            match tone {
+                OverlayTone::Accent => CONTROL_OVERLAY_CLASS,
+                OverlayTone::Glow => CONTROL_GLOW_CLASS,
+                OverlayTone::Cursor => CONTROL_CURSOR_CLASS,
             },
             PCWSTR(caption.as_ptr()),
             style,
@@ -1140,7 +1195,7 @@ fn create_color_overlay(
 }
 
 fn create_cursor_ring_overlay(geometry: OverlayGeometry, alpha: u8) -> ComputerUseResult<HWND> {
-    let hwnd = create_color_overlay("", geometry, alpha, false, false)?;
+    let hwnd = create_color_overlay("", geometry, alpha, false, OverlayTone::Cursor)?;
     if let Err(error) = set_pointer_ring_region(hwnd, geometry.2, geometry.3) {
         let _ = unsafe { DestroyWindow(hwnd) };
         return Err(error);
@@ -1274,7 +1329,7 @@ fn run_banner(
 ) -> ComputerUseResult<()> {
     ensure_interactive_desktop()?;
     let target = HWND(window_handle as *mut core::ffi::c_void);
-    let caption = format!("●  DCC UI Control · {app_name}   |   {STOP_HOTKEY_LABEL} to stop");
+    let caption = format!("DCC UI Control  ·  {app_name}  ·  {STOP_HOTKEY_LABEL} to stop");
     let mut rect = available_target_rect_for_process(target, process_id)?;
     let overlay = ControlOverlay::new(target, &rect, &caption)?;
 
