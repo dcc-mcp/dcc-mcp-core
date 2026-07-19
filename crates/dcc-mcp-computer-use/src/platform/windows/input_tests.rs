@@ -818,12 +818,12 @@ fn hidden_and_reused_windows_fail_closed() {
         prepare_point_target(200, 240, effect.hwnd, process_id.saturating_add(1)).unwrap_err();
     assert_eq!(occluded.code, ComputerUseErrorCode::InvalidTarget);
 
-    let same_process_wrong_window =
-        prepare_point_target(200, 240, other_window.hwnd, process_id).unwrap_err();
-    assert_eq!(
-        same_process_wrong_window.code,
-        ComputerUseErrorCode::InvalidTarget
-    );
+    assert!(!point_belongs_to_target(
+        process_id,
+        effect.hwnd,
+        process_id,
+        other_window.hwnd,
+    ));
 
     let _ = unsafe { ShowWindow(effect.hwnd, SW_HIDE) };
     let hidden = available_target_rect(effect.hwnd).unwrap_err();
@@ -853,16 +853,30 @@ fn protected_system_ui_is_not_eligible_for_transient_occlusion_recovery() {
 }
 
 #[test]
-fn focus_recovery_policy_allows_only_ordinary_cross_process_blockers() {
-    assert!(focus_recovery_allowed(100, 200, "ChatGPT.exe", "Chrome_WidgetWin_1",).unwrap());
+fn focus_recovery_policy_attempts_all_cross_process_blockers() {
+    assert!(focus_recovery_allowed(100, 200).unwrap());
 
-    let same_process =
-        focus_recovery_allowed(100, 100, "Nuke15.2.exe", "Qt5152QWindowIcon").unwrap_err();
+    let same_process = focus_recovery_allowed(100, 100).unwrap_err();
     assert_eq!(same_process.code, ComputerUseErrorCode::FocusLost);
+}
 
-    let protected =
-        focus_recovery_allowed(100, 200, "PickerHost.exe", "Shell_SystemDialog").unwrap_err();
+#[test]
+fn point_recovery_failure_preserves_protected_ui_boundary() {
+    let protected = point_recovery_failure(
+        "PickerHost.exe",
+        "Shell_SystemDim",
+        "PickerHost / Shell_SystemDim",
+    );
     assert_eq!(protected.code, ComputerUseErrorCode::InvalidTarget);
+    assert!(protected.message.contains("protected system UI"));
+
+    let ordinary = point_recovery_failure(
+        "ChatGPT.exe",
+        "Chrome_WidgetWin_1",
+        "ChatGPT / Chrome_WidgetWin_1",
+    );
+    assert_eq!(ordinary.code, ComputerUseErrorCode::InvalidTarget);
+    assert!(ordinary.message.contains("occluded by"));
 }
 
 #[test]

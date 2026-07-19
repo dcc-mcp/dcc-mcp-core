@@ -248,8 +248,6 @@ fn set_target_foreground(hwnd: HWND) {
 fn focus_recovery_allowed(
     target_process_id: u32,
     blocker_process_id: u32,
-    blocker_process: &str,
-    blocker_class: &str,
 ) -> ComputerUseResult<bool> {
     if blocker_process_id == 0 {
         return Err(ComputerUseError::new(
@@ -261,14 +259,6 @@ fn focus_recovery_allowed(
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::FocusLost,
             "another window owned by the scoped DCC has foreground focus; resolve the in-app modal before retrying",
-        ));
-    }
-    if protected_input_blocker(blocker_process, blocker_class) {
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::InvalidTarget,
-            format!(
-                "the scoped DCC cannot recover foreground focus through protected system UI: {blocker_process} / {blocker_class}"
-            ),
         ));
     }
     Ok(true)
@@ -301,17 +291,20 @@ fn focus_target(
     } else {
         blocker_process_and_class(blocker)
     };
-    focus_recovery_allowed(
-        process_id,
-        blocker_process_id,
-        &blocker_process,
-        &blocker_class,
-    )?;
+    focus_recovery_allowed(process_id, blocker_process_id)?;
 
     let elevation = TransientTopmostTarget::raise(hwnd)?;
     set_target_foreground(hwnd);
     thread::sleep(Duration::from_millis(30));
     if unsafe { GetForegroundWindow() } != hwnd {
+        if protected_input_blocker(&blocker_process, &blocker_class) {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::InvalidTarget,
+                format!(
+                    "the scoped DCC could not recover foreground focus through protected system UI: {blocker_process} / {blocker_class}"
+                ),
+            ));
+        }
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::FocusLost,
             format!(
@@ -335,6 +328,34 @@ fn protected_input_blocker(process: &str, class_name: &str) -> bool {
         class_name,
         "Credential Dialog Xaml Host" | "Shell_SystemDialog" | "Shell_SystemDim"
     )
+}
+
+fn point_recovery_failure(
+    blocker_process: &str,
+    blocker_class: &str,
+    blocker_identity: &str,
+) -> ComputerUseError {
+    if protected_input_blocker(blocker_process, blocker_class) {
+        return ComputerUseError::new(
+            ComputerUseErrorCode::InvalidTarget,
+            format!(
+                "the requested pointer coordinate remains blocked by protected system UI: {blocker_identity}"
+            ),
+        );
+    }
+    ComputerUseError::new(
+        ComputerUseErrorCode::InvalidTarget,
+        format!("the requested pointer coordinate is occluded by {blocker_identity}"),
+    )
+}
+
+fn point_belongs_to_target(
+    hit_process_id: u32,
+    hit_root: HWND,
+    target_process_id: u32,
+    target: HWND,
+) -> bool {
+    hit_process_id == target_process_id && hit_root == target
 }
 
 fn blocker_process_and_class(hwnd: HWND) -> (String, String) {
@@ -442,16 +463,6 @@ fn prepare_point_target(
     let mut hit_process_id = 0_u32;
     unsafe { GetWindowThreadProcessId(hit, Some(&mut hit_process_id)) };
     if hit_process_id != process_id {
-        let (process, class_name) = blocker_process_and_class(hit);
-        if protected_input_blocker(&process, &class_name) {
-            return Err(ComputerUseError::new(
-                ComputerUseErrorCode::InvalidTarget,
-                format!(
-                    "the requested pointer coordinate is blocked by protected system UI: {}",
-                    input_blocker_identity(hit)
-                ),
-            ));
-        }
         let elevation = TransientTopmostTarget::raise(target)?;
         thread::sleep(Duration::from_millis(16));
         let retry = unsafe {
@@ -469,19 +480,18 @@ fn prepare_point_target(
         let mut retry_process_id = 0_u32;
         unsafe { GetWindowThreadProcessId(retry, Some(&mut retry_process_id)) };
         let retry_root = unsafe { GetAncestor(retry, GA_ROOT) };
-        if retry_process_id == process_id && retry_root == target {
+        if point_belongs_to_target(retry_process_id, retry_root, process_id, target) {
             return Ok(Some(elevation));
         }
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::InvalidTarget,
-            format!(
-                "the requested pointer coordinate is occluded by {}",
-                input_blocker_identity(hit)
-            ),
+        let (retry_process, retry_class) = blocker_process_and_class(retry);
+        return Err(point_recovery_failure(
+            &retry_process,
+            &retry_class,
+            &input_blocker_identity(retry),
         ));
     }
     let hit_root = unsafe { GetAncestor(hit, GA_ROOT) };
-    if hit_root != target {
+    if !point_belongs_to_target(hit_process_id, hit_root, process_id, target) {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::InvalidTarget,
             "the requested pointer coordinate is outside the scoped top-level window",
