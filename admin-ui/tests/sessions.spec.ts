@@ -81,9 +81,10 @@ test.describe('Sessions Panel', () => {
   test('displays session list with summary metrics', async ({ page }) => {
     const panel = page.locator('section[data-panel="sessions"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    await expect(panel).toContainText('parent-session-1');
-    await expect(panel).toContainText('child-session-1');
-    await expect(panel).toContainText('crashed-session');
+    // Session IDs are compacted to 12 chars max
+    await expect(panel).toContainText('parent-sessi');
+    await expect(panel).toContainText('child-sessio');
+    await expect(panel).toContainText('crashed-sess');
   });
 
   test('shows status badges with correct colors', async ({ page }) => {
@@ -97,7 +98,7 @@ test.describe('Sessions Panel', () => {
   test('shows parent-child tree indentation', async ({ page }) => {
     const panel = page.locator('section[data-panel="sessions"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    // Parent session should be visible
-    await expect(panel.getByText('parent-session-1')).toBeVisible();
+    // Parent session should be visible (ID is compacted)
+    await expect(panel.getByText('parent-sessi')).toBeVisible();
   });
 });

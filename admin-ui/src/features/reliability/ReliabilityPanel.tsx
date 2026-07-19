@@ -53,28 +53,28 @@ function toneForRatio(ready: number, total: number): 'ok' | 'warn' | 'err' {
 export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator }) {
   const healthQuery = useQuery({
     queryKey: ['admin', 'health'],
-    queryFn: () => apiJson<HealthPayload>(`/admin/api/health`),
+    queryFn: () => apiJson<HealthPayload>(`/health`),
     enabled: active,
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
 
   const instancesQuery = useQuery({
     queryKey: ['admin', 'instances'],
-    queryFn: () => apiJson<InstanceRow[]>(`/admin/api/instances`),
+    queryFn: () => apiJson<InstanceRow[]>(`/instances`),
     enabled: active,
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
 
   const skillsQuery = useQuery({
     queryKey: ['admin', 'skills'],
-    queryFn: () => apiJson<SkillPayload>(`/admin/api/skills`),
+    queryFn: () => apiJson<SkillPayload>(`/skills`),
     enabled: active,
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
 
   const statsQuery = useQuery({
     queryKey: ['admin', 'stats', '24h'],
-    queryFn: () => apiJson<StatsPayload>(`/admin/api/stats?range=24h`),
+    queryFn: () => apiJson<StatsPayload>(`/stats?range=24h`),
     enabled: active,
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
