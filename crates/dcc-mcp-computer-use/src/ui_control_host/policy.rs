@@ -205,6 +205,7 @@ pub(super) fn verify_action_fence(
     ))
 }
 
+#[cfg(any(windows, test))]
 pub(super) fn verify_expected_action_fence(
     action: &UiControlAction,
     expected: &ActionFenceExpectation,

@@ -602,6 +602,7 @@ impl ComputerUseSession {
         self.perform_inner(request, None)
     }
 
+    #[cfg(windows)]
     fn perform_with_pre_input_fence(
         &self,
         request: &ComputerUseAction,

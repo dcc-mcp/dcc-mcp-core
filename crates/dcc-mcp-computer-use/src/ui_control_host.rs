@@ -24,14 +24,15 @@ mod system_operations;
 #[cfg(windows)]
 mod windows;
 
-use policy::{
-    ActionControlFence, classify_action, stale_accessibility_state, verify_action_fence,
-    verify_expected_action_fence,
-};
+#[cfg(any(windows, test))]
+use policy::{ActionControlFence, verify_expected_action_fence};
+use policy::{classify_action, stale_accessibility_state, verify_action_fence};
 #[cfg(test)]
 use policy::{classify_control, classify_control_text};
+#[cfg(windows)]
+use system_operations::load_system_grants;
 use system_operations::{
-    invalid_system_operation, load_system_grants, run_system_operation, validate_system_operation,
+    invalid_system_operation, run_system_operation, validate_system_operation,
 };
 
 #[derive(Debug)]
@@ -63,6 +64,7 @@ struct RuntimeSnapshot {
 struct RuntimeAccessibilityState {
     root: Value,
     focus_runtime_id: Option<String>,
+    #[cfg(any(windows, test))]
     node_count: u32,
 }
 
@@ -130,10 +132,15 @@ struct HostSession {
 }
 
 struct ActionFenceExpectation {
+    #[cfg(any(windows, test))]
     controls: Vec<ActionControlFence>,
+    #[cfg(any(windows, test))]
     observation: Option<Value>,
+    #[cfg(windows)]
     max_depth: u32,
+    #[cfg(windows)]
     max_nodes: u32,
+    #[cfg(any(windows, test))]
     policy_tier: UiControlPolicyTier,
 }
 
@@ -291,6 +298,7 @@ fn request_session(request: &UiControlHostRequest) -> Option<(&str, bool, bool)>
 }
 
 impl UiControlHost {
+    #[cfg(windows)]
     fn from_operator_config() -> Result<Self, String> {
         Ok(Self {
             system_grants: load_system_grants()?,
@@ -1033,7 +1041,7 @@ fn refresh_action_policy(
         .accessibility_max_nodes
         .ok_or_else(stale_accessibility_state)?;
     let live = session.runtime.accessibility_state(max_depth, max_nodes)?;
-    let (policy_tier, controls) = verify_action_fence(
+    let (policy_tier, _action_controls) = verify_action_fence(
         action,
         session
             .accessibility_root
@@ -1046,10 +1054,15 @@ fn refresh_action_policy(
     Ok((
         policy_tier,
         ActionFenceExpectation {
-            controls,
+            #[cfg(any(windows, test))]
+            controls: _action_controls,
+            #[cfg(any(windows, test))]
             observation: session.observation.clone(),
+            #[cfg(windows)]
             max_depth,
+            #[cfg(windows)]
             max_nodes,
+            #[cfg(any(windows, test))]
             policy_tier,
         },
     ))

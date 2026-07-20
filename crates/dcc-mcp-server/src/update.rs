@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use crate::cli::UpdateAction;
 

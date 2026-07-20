@@ -12,9 +12,11 @@ use serde::{Deserialize, Serialize};
 use super::{UpdateError, sha256_bytes, sha256_file, staging_dir};
 
 const PENDING_SET_DIR: &str = "pending-set";
+const PREVIOUS_SET_DIR: &str = "pending-set.previous";
 const COMMITTED_SET_PREFIX: &str = "pending-set.committed-";
 const MANIFEST_FILE: &str = "manifest.json";
 const JOURNAL_FILE: &str = "journal.json";
+const APPLIED_GENERATION_FILE: &str = "applied-generation.json";
 const TRANSACTION_LOCK_FILE: &str = "transaction.lock";
 const REMOVED_CAPTURE_HELPER: &str = "dcc-mcp-capture-helper.exe";
 const UPDATE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -68,7 +70,18 @@ pub struct UpdateSetSource<'a> {
 struct UpdateSetManifest {
     format_version: u8,
     bound_executable: PathBuf,
+    source_build_version: String,
+    source_server_sha256: String,
     components: Vec<StagedComponent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppliedGeneration {
+    format_version: u8,
+    bound_executable: PathBuf,
+    source_build_version: String,
+    source_server_sha256: String,
+    target_server_sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,8 +110,8 @@ struct JournalEntry {
     prepared: PathBuf,
     backup: PathBuf,
     had_original: bool,
-    backed_up: bool,
-    installed: bool,
+    original_sha256: Option<String>,
+    expected_sha256: String,
 }
 
 /// Stage a complete update set and bind it to this executable installation.
@@ -129,10 +142,34 @@ fn stage_update_set_for_with_timeout(
     sources: &[UpdateSetSource<'_>],
     lock_timeout: Duration,
 ) -> Result<(), UpdateError> {
+    stage_update_set_for_build_with_timeout(
+        binary_name,
+        current_exe,
+        env!("CARGO_PKG_VERSION"),
+        sources,
+        lock_timeout,
+    )
+}
+
+fn stage_update_set_for_build_with_timeout(
+    binary_name: &str,
+    current_exe: &Path,
+    source_build_version: &str,
+    sources: &[UpdateSetSource<'_>],
+    lock_timeout: Duration,
+) -> Result<(), UpdateError> {
     let bound_executable = canonical_existing(current_exe)?;
     let root = installation_staging_dir(binary_name, &bound_executable)?;
     let _lock = acquire_installation_lock(&root, &bound_executable, lock_timeout)?;
-    cleanup_committed_sets(&root);
+    recover_stage_swap(&root)?;
+    cleanup_committed_sets(&root)?;
+
+    let pending = root.join(PENDING_SET_DIR);
+    if pending.join(JOURNAL_FILE).exists() {
+        return Err(UpdateError::Stage(
+            "recover the pending update transaction before staging another set".into(),
+        ));
+    }
 
     if sources.is_empty() {
         return Err(UpdateError::Stage("update set must not be empty".into()));
@@ -168,6 +205,12 @@ fn stage_update_set_for_with_timeout(
             "update set must include the current executable".into(),
         ));
     }
+    if source_build_version.is_empty() || source_build_version.len() > 128 {
+        return Err(UpdateError::Stage(
+            "source build version must contain 1 to 128 characters".into(),
+        ));
+    }
+    let source_server_sha256 = sha256_file(&bound_executable)?;
 
     let nonce = unique_nonce()?;
     let temp_dir = root.join(format!("{PENDING_SET_DIR}.{nonce}.tmp"));
@@ -193,8 +236,10 @@ fn stage_update_set_for_with_timeout(
             });
         }
         let manifest = UpdateSetManifest {
-            format_version: 1,
+            format_version: 2,
             bound_executable,
+            source_build_version: source_build_version.to_owned(),
+            source_server_sha256,
             components,
         };
         write_json_atomic(&temp_dir.join(MANIFEST_FILE), &manifest)?;
@@ -205,9 +250,7 @@ fn stage_update_set_for_with_timeout(
         return Err(error);
     }
 
-    let pending = root.join(PENDING_SET_DIR);
-    let previous = root.join(format!("{PENDING_SET_DIR}.previous"));
-    let _ = std::fs::remove_dir_all(&previous);
+    let previous = root.join(PREVIOUS_SET_DIR);
     if pending.exists() {
         std::fs::rename(&pending, &previous)?;
     }
@@ -218,7 +261,9 @@ fn stage_update_set_for_with_timeout(
         let _ = std::fs::remove_dir_all(&temp_dir);
         return Err(error.into());
     }
-    let _ = std::fs::remove_dir_all(previous);
+    if previous.exists() {
+        std::fs::remove_dir_all(previous)?;
+    }
     tracing::info!(path = %pending.display(), "complete update set staged");
     Ok(())
 }
@@ -243,17 +288,32 @@ fn apply_staged_update_set_for_with_timeout(
     current_exe: &Path,
     lock_timeout: Duration,
 ) -> Result<bool, UpdateError> {
+    apply_staged_update_set_for_build_with_timeout(
+        binary_name,
+        current_exe,
+        env!("CARGO_PKG_VERSION"),
+        lock_timeout,
+    )
+}
+
+fn apply_staged_update_set_for_build_with_timeout(
+    binary_name: &str,
+    current_exe: &Path,
+    current_build_version: &str,
+    lock_timeout: Duration,
+) -> Result<bool, UpdateError> {
     let current_exe = canonical_existing(current_exe)?;
     let root = installation_staging_dir(binary_name, &current_exe)?;
     let _lock = acquire_installation_lock(&root, &current_exe, lock_timeout)?;
-    cleanup_committed_sets(&root);
+    recover_stage_swap(&root)?;
+    cleanup_committed_sets(&root)?;
 
     let pending = root.join(PENDING_SET_DIR);
     if !pending.is_dir() {
-        return Ok(false);
+        return applied_generation_requires_reexec(&root, &current_exe, current_build_version);
     }
     let manifest: UpdateSetManifest = read_json(&pending.join(MANIFEST_FILE))?;
-    if manifest.format_version != 1 {
+    if manifest.format_version != 2 {
         return Err(UpdateError::Stage(
             "unsupported staged update-set format".into(),
         ));
@@ -264,16 +324,35 @@ fn apply_staged_update_set_for_with_timeout(
             manifest.bound_executable.display()
         )));
     }
+    if super::is_newer_version(&manifest.source_build_version, current_build_version) {
+        if applied_generation_requires_reexec(&root, &current_exe, current_build_version)? {
+            return Ok(true);
+        }
+        return Err(UpdateError::Stage(format!(
+            "staged update source build {} is newer than running build {current_build_version}",
+            manifest.source_build_version
+        )));
+    }
 
     let journal_path = pending.join(JOURNAL_FILE);
     if journal_path.is_file() {
         let journal: UpdateJournal = read_json(&journal_path)?;
         if journal.state == JournalState::Committed {
+            persist_applied_generation(&root, &manifest)?;
             finish_committed(&pending, &journal)?;
-            return Ok(false);
+            return applied_generation_requires_reexec(&root, &current_exe, current_build_version);
         }
         rollback(&journal)?;
-        let _ = std::fs::remove_file(&journal_path);
+        std::fs::remove_file(&journal_path)?;
+        cleanup_committed_entries(&journal)?;
+    }
+
+    let actual_source_sha = sha256_file(&current_exe)?;
+    if !actual_source_sha.eq_ignore_ascii_case(&manifest.source_server_sha256) {
+        return Err(UpdateError::Stage(format!(
+            "staged update source changed: expected {}, got {actual_source_sha}",
+            manifest.source_server_sha256
+        )));
     }
 
     let install_dir = current_exe
@@ -313,17 +392,14 @@ fn apply_staged_update_set_for_with_timeout(
             .ok_or_else(|| UpdateError::Stage("update target has no filename".into()))?;
         let prepared = target.with_file_name(format!("{file_name}.dcc-mcp-new"));
         let backup = target.with_file_name(format!("{file_name}.dcc-mcp-backup"));
-        let had_original = target.exists();
-        let _ = std::fs::remove_file(&prepared);
-        std::fs::copy(&source, &prepared)?;
-        let prepared_sha = sha256_file(&prepared)?;
-        if !prepared_sha.eq_ignore_ascii_case(&component.sha256) {
-            let _ = std::fs::remove_file(&prepared);
-            return Err(UpdateError::ChecksumMismatch {
-                expected: component.sha256.clone(),
-                actual: prepared_sha,
-            });
-        }
+        let had_original = ensure_reserved_file_path(&target, "update target")?;
+        let original_sha256 = had_original.then(|| sha256_file(&target)).transpose()?;
+        prepare_verified_copy(
+            &source,
+            &prepared,
+            "prepared update path",
+            &component.sha256,
+        )?;
         entries.push(JournalEntry {
             target,
             prepared,
@@ -333,8 +409,8 @@ fn apply_staged_update_set_for_with_timeout(
             // must not mistake an untouched original for a newly installed
             // file and delete it.
             had_original,
-            backed_up: false,
-            installed: false,
+            original_sha256,
+            expected_sha256: component.sha256.clone(),
         });
     }
     entries.sort_by_key(|entry| paths_equal(&entry.target, &current_exe));
@@ -344,21 +420,23 @@ fn apply_staged_update_set_for_with_timeout(
         entries,
     };
     write_json_atomic(&journal_path, &journal)?;
-    let result = apply_entries(&journal_path, &mut journal);
+    let result = apply_entries(&journal);
     if let Err(error) = result {
         if let Err(rollback_error) = rollback(&journal) {
             return Err(UpdateError::Stage(format!(
                 "update failed ({error}); rollback also failed ({rollback_error})"
             )));
         }
-        let _ = std::fs::remove_file(&journal_path);
+        std::fs::remove_file(&journal_path)?;
+        cleanup_committed_entries(&journal)?;
         return Err(error);
     }
     journal.state = JournalState::Committed;
     write_json_atomic(&journal_path, &journal)?;
+    persist_applied_generation(&root, &manifest)?;
     finish_committed(&pending, &journal)?;
     tracing::info!(path = %current_exe.display(), "staged update set applied successfully");
-    Ok(true)
+    applied_generation_requires_reexec(&root, &current_exe, current_build_version)
 }
 
 /// Install one verified runtime beside the current executable.
@@ -395,7 +473,7 @@ fn install_verified_sibling_with_timeout(
     let current_exe = canonical_existing(current_exe)?;
     let root = installation_staging_dir(binary_name, &current_exe)?;
     let _lock = acquire_installation_lock(&root, &current_exe, lock_timeout)?;
-    cleanup_committed_sets(&root);
+    cleanup_committed_sets(&root)?;
 
     let actual = sha256_file(downloaded)?;
     if !actual.eq_ignore_ascii_case(expected_sha256) {
@@ -451,58 +529,190 @@ fn install_verified_sibling_with_timeout(
     Ok(())
 }
 
-fn apply_entries(journal_path: &Path, journal: &mut UpdateJournal) -> Result<(), UpdateError> {
+fn apply_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
     for index in 0..journal.entries.len() {
         let target = journal.entries[index].target.clone();
         let prepared = journal.entries[index].prepared.clone();
         let backup = journal.entries[index].backup.clone();
-        if backup.exists() {
-            if !backup.is_file() {
-                return Err(UpdateError::Stage(format!(
-                    "update backup path is not a regular file: {}",
-                    backup.display()
-                )));
-            }
+        let expected_sha256 = journal.entries[index].expected_sha256.clone();
+        validate_expected_sha(&expected_sha256)?;
+        if ensure_reserved_file_path(&backup, "update backup path")? {
+            let original_sha256 = journal.entries[index]
+                .original_sha256
+                .as_deref()
+                .ok_or_else(|| {
+                    UpdateError::Stage(format!(
+                        "unexpected backup without an original digest: {}",
+                        backup.display()
+                    ))
+                })?;
+            require_file_hash(&backup, original_sha256, "stale update backup")?;
+            require_file_hash(&target, original_sha256, "restored update target")?;
             std::fs::remove_file(&backup)?;
         }
         if journal.entries[index].had_original {
+            let original_sha256 = journal.entries[index]
+                .original_sha256
+                .as_deref()
+                .ok_or_else(|| {
+                    UpdateError::Stage(format!(
+                        "update target has no recorded original digest: {}",
+                        target.display()
+                    ))
+                })?;
+            require_file_hash(&target, original_sha256, "update target")?;
             std::fs::rename(&target, &backup)?;
-            journal.entries[index].backed_up = true;
-            write_json_atomic(journal_path, journal)?;
+        } else if ensure_reserved_file_path(&target, "new update target")? {
+            return Err(UpdateError::Stage(format!(
+                "new update target appeared during the transaction: {}",
+                target.display()
+            )));
         }
+        require_file_hash(&prepared, &expected_sha256, "prepared update component")?;
         std::fs::rename(&prepared, &target)?;
-        journal.entries[index].installed = true;
-        write_json_atomic(journal_path, journal)?;
+        require_file_hash(&target, &expected_sha256, "installed update component")?;
     }
     Ok(())
 }
 
 fn rollback(journal: &UpdateJournal) -> Result<(), UpdateError> {
-    for entry in &journal.entries {
-        if entry.backed_up && !entry.backup.is_file() {
+    let mut first_error = None;
+    for entry in journal.entries.iter().rev() {
+        if let Err(error) = rollback_entry(entry)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
+    validate_expected_sha(&entry.expected_sha256)?;
+    if entry.had_original {
+        let original_sha256 = entry.original_sha256.as_deref().ok_or_else(|| {
+            UpdateError::Stage(format!(
+                "cannot roll back update without the original digest: {}",
+                entry.target.display()
+            ))
+        })?;
+        validate_expected_sha(original_sha256)?;
+        let target_is_file = ensure_reserved_file_path(&entry.target, "rollback update target")?;
+
+        if target_is_file && sha256_file(&entry.target)?.eq_ignore_ascii_case(original_sha256) {
+            if ensure_reserved_file_path(&entry.backup, "update backup")? {
+                require_file_hash(&entry.backup, original_sha256, "update backup")?;
+            }
+            remove_reserved_file(&entry.prepared, "rollback prepared path")?;
+            return Ok(());
+        }
+        require_file_hash(&entry.backup, original_sha256, "update backup")?;
+        if target_is_file {
+            require_file_hash(
+                &entry.target,
+                &entry.expected_sha256,
+                "installed update component",
+            )?;
+        }
+        prepare_verified_copy(
+            &entry.backup,
+            &entry.prepared,
+            "rollback prepared path",
+            original_sha256,
+        )?;
+        if target_is_file {
+            std::fs::remove_file(&entry.target)?;
+        }
+        std::fs::rename(&entry.prepared, &entry.target)?;
+        require_file_hash(&entry.target, original_sha256, "restored update target")?;
+    } else {
+        if entry.original_sha256.is_some()
+            || ensure_reserved_file_path(&entry.backup, "unexpected update backup")?
+        {
             return Err(UpdateError::Stage(format!(
-                "cannot roll back update because the recorded backup is missing: {}",
+                "cannot roll back a new target with an unexpected backup: {}",
                 entry.backup.display()
             )));
         }
-    }
-    for entry in journal.entries.iter().rev() {
-        if entry.installed && entry.target.exists() {
-            let _ = std::fs::remove_file(&entry.prepared);
-            std::fs::rename(&entry.target, &entry.prepared)?;
-        }
-        // The backup itself is authoritative when `had_original` is true.
-        // A crash can occur after target -> backup but before `backed_up` is
-        // flushed to the journal.
-        if entry.had_original && entry.backup.is_file() {
-            if entry.target.exists() {
-                std::fs::remove_file(&entry.target)?;
-            }
-            std::fs::rename(&entry.backup, &entry.target)?;
-        } else if !entry.had_original && entry.target.exists() {
+        if ensure_reserved_file_path(&entry.target, "new update target")? {
+            require_file_hash(&entry.target, &entry.expected_sha256, "new update target")?;
             std::fs::remove_file(&entry.target)?;
         }
-        let _ = std::fs::remove_file(&entry.prepared);
+        if ensure_reserved_file_path(&entry.prepared, "rollback prepared path")? {
+            remove_reserved_file(&entry.prepared, "rollback prepared path")?;
+        }
+    }
+    Ok(())
+}
+
+fn prepare_verified_copy(
+    source: &Path,
+    target: &Path,
+    label: &str,
+    expected_sha256: &str,
+) -> Result<(), UpdateError> {
+    ensure_reserved_file_path(target, label)?;
+    std::fs::copy(source, target)?;
+    require_file_hash(target, expected_sha256, label)
+}
+
+fn remove_reserved_file(path: &Path, label: &str) -> Result<(), UpdateError> {
+    if ensure_reserved_file_path(path, label)? {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn ensure_reserved_file_path(path: &Path, label: &str) -> Result<bool, UpdateError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(true),
+        Ok(_) => Err(UpdateError::Stage(format!(
+            "{label} is not a regular file: {}",
+            path.display()
+        ))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn remove_known_file(
+    path: &Path,
+    label: &str,
+    expected_sha256: &str,
+    alternate_sha256: Option<&str>,
+) -> Result<(), UpdateError> {
+    if !ensure_reserved_file_path(path, label)? {
+        return Ok(());
+    }
+    let digest = sha256_file(path)?;
+    if !digest.eq_ignore_ascii_case(expected_sha256)
+        && !alternate_sha256.is_some_and(|value| digest.eq_ignore_ascii_case(value))
+    {
+        return Err(UpdateError::Stage(format!(
+            "refusing to remove an unrecognized {label}: {}",
+            path.display()
+        )));
+    }
+    std::fs::remove_file(path)?;
+    Ok(())
+}
+
+fn require_file_hash(path: &Path, expected: &str, label: &str) -> Result<(), UpdateError> {
+    if !ensure_reserved_file_path(path, label)? {
+        return Err(UpdateError::Stage(format!(
+            "{label} is missing or not a regular file: {}",
+            path.display()
+        )));
+    }
+    let actual = sha256_file(path)?;
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(UpdateError::ChecksumMismatch {
+            expected: expected.to_ascii_lowercase(),
+            actual,
+        });
     }
     Ok(())
 }
@@ -513,23 +723,35 @@ fn finish_committed(pending: &Path, journal: &UpdateJournal) -> Result<(), Updat
         .ok_or_else(|| UpdateError::Stage("pending update has no parent directory".into()))?;
     let detached = root.join(format!("{COMMITTED_SET_PREFIX}{}", unique_nonce()?));
     std::fs::rename(pending, &detached)?;
-    cleanup_committed_entries(journal);
-    let _ = std::fs::remove_dir_all(detached);
+    cleanup_committed_entries(journal)?;
+    std::fs::remove_dir_all(detached)?;
     Ok(())
 }
 
-fn cleanup_committed_entries(journal: &UpdateJournal) {
+fn cleanup_committed_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
     for entry in &journal.entries {
-        let _ = std::fs::remove_file(&entry.prepared);
-        let _ = std::fs::remove_file(&entry.backup);
+        remove_known_file(
+            &entry.prepared,
+            "transaction prepared file",
+            &entry.expected_sha256,
+            entry.original_sha256.as_deref(),
+        )?;
+        if ensure_reserved_file_path(&entry.backup, "transaction backup")? {
+            let original_sha256 = entry.original_sha256.as_deref().ok_or_else(|| {
+                UpdateError::Stage(format!(
+                    "unexpected backup for a newly created update target: {}",
+                    entry.backup.display()
+                ))
+            })?;
+            remove_known_file(&entry.backup, "transaction backup", original_sha256, None)?;
+        }
     }
+    Ok(())
 }
 
-fn cleanup_committed_sets(root: &Path) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
+fn cleanup_committed_sets(root: &Path) -> Result<(), UpdateError> {
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
         let path = entry.path();
         let is_committed_set = entry
             .file_name()
@@ -538,13 +760,110 @@ fn cleanup_committed_sets(root: &Path) {
         if !is_committed_set || !path.is_dir() {
             continue;
         }
-        if let Ok(journal) = read_json::<UpdateJournal>(&path.join(JOURNAL_FILE))
-            && journal.state == JournalState::Committed
-        {
-            cleanup_committed_entries(&journal);
+        let journal: UpdateJournal = read_json(&path.join(JOURNAL_FILE))?;
+        if journal.state != JournalState::Committed {
+            return Err(UpdateError::Stage(format!(
+                "detached update set is not committed: {}",
+                path.display()
+            )));
         }
-        let _ = std::fs::remove_dir_all(path);
+        cleanup_committed_entries(&journal)?;
+        std::fs::remove_dir_all(path)?;
     }
+    Ok(())
+}
+
+fn recover_stage_swap(root: &Path) -> Result<(), UpdateError> {
+    let previous = root.join(PREVIOUS_SET_DIR);
+    if !previous.exists() {
+        return Ok(());
+    }
+    if !previous.is_dir() {
+        return Err(UpdateError::Stage(format!(
+            "previous staged update is not a directory: {}",
+            previous.display()
+        )));
+    }
+    let pending = root.join(PENDING_SET_DIR);
+    if pending.exists() {
+        if !pending.is_dir() || !pending.join(MANIFEST_FILE).is_file() {
+            return Err(UpdateError::Stage(format!(
+                "pending update is incomplete while a previous set exists: {}",
+                pending.display()
+            )));
+        }
+        std::fs::remove_dir_all(previous)?;
+    } else {
+        std::fs::rename(previous, pending)?;
+    }
+    Ok(())
+}
+
+fn persist_applied_generation(
+    root: &Path,
+    manifest: &UpdateSetManifest,
+) -> Result<(), UpdateError> {
+    validate_expected_sha(&manifest.source_server_sha256)?;
+    if manifest.source_build_version.is_empty() || manifest.source_build_version.len() > 128 {
+        return Err(UpdateError::Stage(
+            "staged update has an invalid source build version".into(),
+        ));
+    }
+    let mut server_components = manifest
+        .components
+        .iter()
+        .filter(|component| matches!(component.target, UpdateTarget::CurrentExecutable));
+    let target_server_sha256 = server_components
+        .next()
+        .ok_or_else(|| UpdateError::Stage("staged update has no server component".into()))?
+        .sha256
+        .clone();
+    if server_components.next().is_some() {
+        return Err(UpdateError::Stage(
+            "staged update has duplicate server components".into(),
+        ));
+    }
+    validate_expected_sha(&target_server_sha256)?;
+    require_file_hash(
+        &manifest.bound_executable,
+        &target_server_sha256,
+        "committed server executable",
+    )?;
+    let generation = AppliedGeneration {
+        format_version: 1,
+        bound_executable: manifest.bound_executable.clone(),
+        source_build_version: manifest.source_build_version.clone(),
+        source_server_sha256: manifest.source_server_sha256.clone(),
+        target_server_sha256,
+    };
+    write_json_atomic(&root.join(APPLIED_GENERATION_FILE), &generation)
+}
+
+fn applied_generation_requires_reexec(
+    root: &Path,
+    current_exe: &Path,
+    current_build_version: &str,
+) -> Result<bool, UpdateError> {
+    let path = root.join(APPLIED_GENERATION_FILE);
+    if !ensure_reserved_file_path(&path, "applied update generation")? {
+        return Ok(false);
+    }
+    let generation: AppliedGeneration = read_json(&path)?;
+    if generation.format_version != 1 || !paths_equal(current_exe, &generation.bound_executable) {
+        return Err(UpdateError::Stage(
+            "applied update generation does not match this installation".into(),
+        ));
+    }
+    validate_expected_sha(&generation.source_server_sha256)?;
+    validate_expected_sha(&generation.target_server_sha256)?;
+    if generation
+        .source_server_sha256
+        .eq_ignore_ascii_case(&generation.target_server_sha256)
+        || super::is_newer_version(current_build_version, &generation.source_build_version)
+    {
+        return Ok(false);
+    }
+    Ok(sha256_file(current_exe)?.eq_ignore_ascii_case(&generation.target_server_sha256))
 }
 
 fn process_installation_locks() -> &'static (Mutex<HashSet<String>>, Condvar) {
@@ -739,463 +1058,4 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, UpdateError
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn unique_name(label: &str) -> String {
-        format!(
-            "dcc-mcp-updater-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        )
-    }
-
-    fn write_fixture(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
-        let path = root.join(name);
-        std::fs::write(&path, bytes).unwrap();
-        path
-    }
-
-    fn installation_root(binary_name: &str, current_exe: &Path) -> PathBuf {
-        let current_exe = canonical_existing(current_exe).unwrap();
-        installation_staging_dir(binary_name, &current_exe).unwrap()
-    }
-
-    #[test]
-    fn stage_set_rejects_missing_and_hash_mismatch_without_marker() {
-        let temp = tempfile::tempdir().unwrap();
-        let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
-        let missing = temp.path().join("missing.exe");
-        let target = UpdateTarget::CurrentExecutable;
-        let binary_name = unique_name("invalid");
-        let error = stage_update_set_for(
-            &binary_name,
-            &current,
-            &[UpdateSetSource {
-                downloaded: &missing,
-                target: &target,
-                expected_sha256: &"0".repeat(64),
-            }],
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("missing"));
-        assert!(
-            !installation_root(&binary_name, &current)
-                .join(PENDING_SET_DIR)
-                .exists()
-        );
-
-        let downloaded = write_fixture(temp.path(), "new.exe", b"new-server");
-        let error = stage_update_set_for(
-            &binary_name,
-            &current,
-            &[UpdateSetSource {
-                downloaded: &downloaded,
-                target: &target,
-                expected_sha256: &"f".repeat(64),
-            }],
-        )
-        .unwrap_err();
-        assert!(matches!(error, UpdateError::ChecksumMismatch { .. }));
-        assert!(
-            !installation_root(&binary_name, &current)
-                .join(PENDING_SET_DIR)
-                .exists()
-        );
-    }
-
-    #[test]
-    fn stage_set_rejects_removed_capture_helper() {
-        let temp = tempfile::tempdir().unwrap();
-        let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
-        let downloaded = write_fixture(temp.path(), "new.exe", b"new-server");
-        let sha = sha256_file(&downloaded).unwrap();
-        let current_target = UpdateTarget::CurrentExecutable;
-        let removed_target = UpdateTarget::Sibling {
-            file_name: REMOVED_CAPTURE_HELPER.into(),
-        };
-        let binary_name = unique_name("removed-helper");
-        let error = stage_update_set_for(
-            &binary_name,
-            &current,
-            &[
-                UpdateSetSource {
-                    downloaded: &downloaded,
-                    target: &current_target,
-                    expected_sha256: &sha,
-                },
-                UpdateSetSource {
-                    downloaded: &downloaded,
-                    target: &removed_target,
-                    expected_sha256: &sha,
-                },
-            ],
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("invalid sibling"));
-    }
-
-    #[test]
-    fn sibling_target_rejects_windows_ads_and_ambiguous_names() {
-        for file_name in [
-            "host.exe:stream",
-            "host.exe.",
-            "host.exe ",
-            "host name.exe",
-            "host\n.exe",
-            "..\\host.exe",
-        ] {
-            assert!(
-                validate_sibling_name(file_name).is_err(),
-                "unsafe sibling target was accepted: {file_name:?}"
-            );
-        }
-        validate_sibling_name("dcc-mcp-ui-control-host.exe").unwrap();
-    }
-
-    #[test]
-    fn update_set_applies_server_and_host_together() {
-        let temp = tempfile::tempdir().unwrap();
-        let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
-        let host = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
-        let server_download = write_fixture(temp.path(), "server.download", b"new-server");
-        let host_download = write_fixture(temp.path(), "host.download", b"new-host");
-        let server_sha = sha256_file(&server_download).unwrap();
-        let host_sha = sha256_file(&host_download).unwrap();
-        let current_target = UpdateTarget::CurrentExecutable;
-        let host_target = UpdateTarget::Sibling {
-            file_name: "dcc-mcp-ui-control-host.exe".into(),
-        };
-        let binary_name = unique_name("apply");
-        stage_update_set_for(
-            &binary_name,
-            &current,
-            &[
-                UpdateSetSource {
-                    downloaded: &server_download,
-                    target: &current_target,
-                    expected_sha256: &server_sha,
-                },
-                UpdateSetSource {
-                    downloaded: &host_download,
-                    target: &host_target,
-                    expected_sha256: &host_sha,
-                },
-            ],
-        )
-        .unwrap();
-        assert!(apply_staged_update_set_for(&binary_name, &current).unwrap());
-        assert_eq!(std::fs::read(&current).unwrap(), b"new-server");
-        assert_eq!(std::fs::read(&host).unwrap(), b"new-host");
-        assert!(
-            !installation_root(&binary_name, &current)
-                .join(PENDING_SET_DIR)
-                .exists()
-        );
-    }
-
-    #[test]
-    fn update_set_rolls_back_first_component_when_second_replace_fails() {
-        let temp = tempfile::tempdir().unwrap();
-        let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
-        let host = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
-        let server_download = write_fixture(temp.path(), "server.download", b"new-server");
-        let host_download = write_fixture(temp.path(), "host.download", b"new-host");
-        let server_sha = sha256_file(&server_download).unwrap();
-        let host_sha = sha256_file(&host_download).unwrap();
-        let current_target = UpdateTarget::CurrentExecutable;
-        let host_target = UpdateTarget::Sibling {
-            file_name: "dcc-mcp-ui-control-host.exe".into(),
-        };
-        let binary_name = unique_name("rollback");
-        stage_update_set_for(
-            &binary_name,
-            &current,
-            &[
-                UpdateSetSource {
-                    downloaded: &server_download,
-                    target: &current_target,
-                    expected_sha256: &server_sha,
-                },
-                UpdateSetSource {
-                    downloaded: &host_download,
-                    target: &host_target,
-                    expected_sha256: &host_sha,
-                },
-            ],
-        )
-        .unwrap();
-
-        // A directory at the deterministic server backup path forces the
-        // second replacement to fail after the sibling host was installed.
-        // The transaction must restore the already-replaced host.
-        let blocking_backup = current.with_file_name("dcc-mcp-server.exe.dcc-mcp-backup");
-        std::fs::create_dir(&blocking_backup).unwrap();
-        let error = apply_staged_update_set_for(&binary_name, &current).unwrap_err();
-        assert!(matches!(error, UpdateError::Stage(_)));
-        assert!(error.to_string().contains("not a regular file"));
-        assert_eq!(std::fs::read(&current).unwrap(), b"old-server");
-        assert_eq!(std::fs::read(&host).unwrap(), b"old-host");
-        assert!(
-            installation_root(&binary_name, &current)
-                .join(PENDING_SET_DIR)
-                .is_dir()
-        );
-        std::fs::remove_dir(&blocking_backup).unwrap();
-        std::fs::remove_dir_all(installation_root(&binary_name, &current)).unwrap();
-    }
-
-    #[test]
-    fn rollback_preserves_original_before_first_rename() {
-        let temp = tempfile::tempdir().unwrap();
-        let target = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
-        let prepared = write_fixture(
-            temp.path(),
-            "dcc-mcp-ui-control-host.exe.dcc-mcp-new",
-            b"new-host",
-        );
-        let backup = temp
-            .path()
-            .join("dcc-mcp-ui-control-host.exe.dcc-mcp-backup");
-        let journal = UpdateJournal {
-            state: JournalState::Applying,
-            entries: vec![JournalEntry {
-                target: target.clone(),
-                prepared: prepared.clone(),
-                backup,
-                had_original: true,
-                backed_up: false,
-                installed: false,
-            }],
-        };
-
-        rollback(&journal).unwrap();
-
-        assert_eq!(std::fs::read(target).unwrap(), b"old-host");
-        assert!(!prepared.exists());
-    }
-
-    #[test]
-    fn rollback_recovers_rename_before_backup_state_is_journaled() {
-        let temp = tempfile::tempdir().unwrap();
-        let target = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
-        let prepared = write_fixture(
-            temp.path(),
-            "dcc-mcp-ui-control-host.exe.dcc-mcp-new",
-            b"new-host",
-        );
-        let backup = temp
-            .path()
-            .join("dcc-mcp-ui-control-host.exe.dcc-mcp-backup");
-        std::fs::rename(&target, &backup).unwrap();
-        let journal = UpdateJournal {
-            state: JournalState::Applying,
-            entries: vec![JournalEntry {
-                target: target.clone(),
-                prepared: prepared.clone(),
-                backup: backup.clone(),
-                had_original: true,
-                backed_up: false,
-                installed: false,
-            }],
-        };
-
-        rollback(&journal).unwrap();
-
-        assert_eq!(std::fs::read(target).unwrap(), b"old-host");
-        assert!(!backup.exists());
-        assert!(!prepared.exists());
-    }
-
-    #[test]
-    fn staged_sets_are_isolated_by_exact_server_installation() {
-        let temp = tempfile::tempdir().unwrap();
-        let first_dir = temp.path().join("first");
-        let second_dir = temp.path().join("second");
-        std::fs::create_dir_all(&first_dir).unwrap();
-        std::fs::create_dir_all(&second_dir).unwrap();
-        let first = write_fixture(&first_dir, "dcc-mcp-server.exe", b"old-first");
-        let second = write_fixture(&second_dir, "dcc-mcp-server.exe", b"old-second");
-        let downloaded = write_fixture(temp.path(), "server.download", b"new-server");
-        let sha = sha256_file(&downloaded).unwrap();
-        let target = UpdateTarget::CurrentExecutable;
-        let binary_name = unique_name("bound");
-        stage_update_set_for(
-            &binary_name,
-            &first,
-            &[UpdateSetSource {
-                downloaded: &downloaded,
-                target: &target,
-                expected_sha256: &sha,
-            }],
-        )
-        .unwrap();
-        stage_update_set_for(
-            &binary_name,
-            &second,
-            &[UpdateSetSource {
-                downloaded: &downloaded,
-                target: &target,
-                expected_sha256: &sha,
-            }],
-        )
-        .unwrap();
-
-        let first_root = installation_root(&binary_name, &first);
-        let second_root = installation_root(&binary_name, &second);
-        assert_ne!(first_root, second_root);
-        assert!(first_root.join(PENDING_SET_DIR).is_dir());
-        assert!(second_root.join(PENDING_SET_DIR).is_dir());
-        assert!(apply_staged_update_set_for(&binary_name, &second).unwrap());
-        assert!(apply_staged_update_set_for(&binary_name, &first).unwrap());
-        assert_eq!(std::fs::read(&first).unwrap(), b"new-server");
-        assert_eq!(std::fs::read(&second).unwrap(), b"new-server");
-    }
-
-    #[test]
-    fn installation_lock_times_out_without_blocking_another_installation() {
-        let temp = tempfile::tempdir().unwrap();
-        let first_dir = temp.path().join("first");
-        let second_dir = temp.path().join("second");
-        std::fs::create_dir_all(&first_dir).unwrap();
-        std::fs::create_dir_all(&second_dir).unwrap();
-        let first = write_fixture(&first_dir, "dcc-mcp-server.exe", b"old-first");
-        let second = write_fixture(&second_dir, "dcc-mcp-server.exe", b"old-second");
-        let downloaded = write_fixture(temp.path(), "server.download", b"new-server");
-        let sha = sha256_file(&downloaded).unwrap();
-        let target = UpdateTarget::CurrentExecutable;
-        let source = UpdateSetSource {
-            downloaded: &downloaded,
-            target: &target,
-            expected_sha256: &sha,
-        };
-        let binary_name = unique_name("file-lock");
-        let first_root = installation_root(&binary_name, &first);
-        std::fs::create_dir_all(&first_root).unwrap();
-        let external_lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(first_root.join(TRANSACTION_LOCK_FILE))
-            .unwrap();
-        FileExt::lock(&external_lock).unwrap();
-
-        stage_update_set_for_with_timeout(
-            &binary_name,
-            &second,
-            &[source],
-            Duration::from_millis(25),
-        )
-        .unwrap();
-        let error = stage_update_set_for_with_timeout(
-            &binary_name,
-            &first,
-            &[source],
-            Duration::from_millis(25),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("timed out waiting"));
-        FileExt::unlock(&external_lock).unwrap();
-    }
-
-    #[test]
-    fn in_process_installation_lock_times_out_fail_closed() {
-        let temp = tempfile::tempdir().unwrap();
-        let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
-        let downloaded = write_fixture(temp.path(), "server.download", b"new-server");
-        let sha = sha256_file(&downloaded).unwrap();
-        let target = UpdateTarget::CurrentExecutable;
-        let binary_name = unique_name("process-lock");
-        let canonical = canonical_existing(&current).unwrap();
-        let root = installation_staging_dir(&binary_name, &canonical).unwrap();
-        let _held =
-            acquire_installation_lock(&root, &canonical, Duration::from_millis(25)).unwrap();
-
-        let error = stage_update_set_for_with_timeout(
-            &binary_name,
-            &current,
-            &[UpdateSetSource {
-                downloaded: &downloaded,
-                target: &target,
-                expected_sha256: &sha,
-            }],
-            Duration::from_millis(25),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("in-process update mutex"));
-    }
-
-    #[test]
-    fn committed_recovery_clears_marker_without_requesting_reexec() {
-        let temp = tempfile::tempdir().unwrap();
-        let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"new-server");
-        let downloaded = write_fixture(temp.path(), "server.download", b"new-server");
-        let sha = sha256_file(&downloaded).unwrap();
-        let target = UpdateTarget::CurrentExecutable;
-        let binary_name = unique_name("committed-recovery");
-        stage_update_set_for(
-            &binary_name,
-            &current,
-            &[UpdateSetSource {
-                downloaded: &downloaded,
-                target: &target,
-                expected_sha256: &sha,
-            }],
-        )
-        .unwrap();
-        let prepared = write_fixture(temp.path(), "server.dcc-mcp-new", b"leftover");
-        let backup = write_fixture(temp.path(), "server.dcc-mcp-backup", b"leftover");
-        let journal = UpdateJournal {
-            state: JournalState::Committed,
-            entries: vec![JournalEntry {
-                target: current.clone(),
-                prepared: prepared.clone(),
-                backup: backup.clone(),
-                had_original: true,
-                backed_up: true,
-                installed: true,
-            }],
-        };
-        let pending = installation_root(&binary_name, &current).join(PENDING_SET_DIR);
-        write_json_atomic(&pending.join(JOURNAL_FILE), &journal).unwrap();
-
-        assert!(!apply_staged_update_set_for(&binary_name, &current).unwrap());
-        assert!(!pending.exists());
-        assert!(!prepared.exists());
-        assert!(!backup.exists());
-        assert!(!apply_staged_update_set_for(&binary_name, &current).unwrap());
-    }
-
-    #[test]
-    fn bootstrap_replaces_missing_or_stale_sibling_after_hash_check() {
-        let temp = tempfile::tempdir().unwrap();
-        let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"server");
-        let host_download = write_fixture(temp.path(), "host.download", b"new-host");
-        let host_sha = sha256_file(&host_download).unwrap();
-        let binary_name = unique_name("bootstrap");
-        install_verified_sibling(
-            &binary_name,
-            &current,
-            &host_download,
-            "dcc-mcp-ui-control-host.exe",
-            &host_sha,
-        )
-        .unwrap();
-        let host = temp.path().join("dcc-mcp-ui-control-host.exe");
-        assert_eq!(std::fs::read(&host).unwrap(), b"new-host");
-        std::fs::write(&host, b"stale-host").unwrap();
-        install_verified_sibling(
-            &binary_name,
-            &current,
-            &host_download,
-            "dcc-mcp-ui-control-host.exe",
-            &host_sha,
-        )
-        .unwrap();
-        assert_eq!(std::fs::read(host).unwrap(), b"new-host");
-    }
-}
+mod tests;

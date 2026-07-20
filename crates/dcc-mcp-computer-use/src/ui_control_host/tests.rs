@@ -814,7 +814,9 @@ fn execution_fence_rejects_same_identity_with_a_changed_security_signature() {
     let expected = ActionFenceExpectation {
         controls,
         observation: Some(observation),
+        #[cfg(windows)]
         max_depth: 12,
+        #[cfg(windows)]
         max_nodes: 2_000,
         policy_tier: UiControlPolicyTier::TaskGrant,
     };
@@ -1178,7 +1180,9 @@ fn execution_fence_rejects_keyboard_authentication_tier_escalation() {
     let expected = ActionFenceExpectation {
         controls,
         observation: None,
+        #[cfg(windows)]
         max_depth: 12,
+        #[cfg(windows)]
         max_nodes: 2_000,
         policy_tier,
     };

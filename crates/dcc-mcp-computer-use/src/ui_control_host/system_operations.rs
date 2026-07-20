@@ -1,17 +1,26 @@
+#[cfg(any(windows, test))]
 use std::collections::{HashMap, HashSet};
+#[cfg(windows)]
 use std::path::PathBuf;
 
+#[cfg(any(windows, test))]
+use dcc_mcp_ui_control::host_protocol::UiControlSystemGrant;
 use dcc_mcp_ui_control::host_protocol::{
-    UiControlEnsureOutcome, UiControlHostErrorCode, UiControlSystemGrant, UiControlSystemOperation,
+    UiControlEnsureOutcome, UiControlHostErrorCode, UiControlSystemOperation,
 };
 
+use super::HostFailure;
 #[cfg(windows)]
 use super::runtime_windows;
-use super::{HostFailure, valid_wire_label};
+#[cfg(any(windows, test))]
+use super::valid_wire_label;
 
+#[cfg(windows)]
 const SYSTEM_GRANTS_FILE_ENV: &str = "DCC_MCP_UI_CONTROL_SYSTEM_GRANTS_FILE";
+#[cfg(windows)]
 const MAX_SYSTEM_GRANTS_FILE_BYTES: u64 = 1024 * 1024;
 
+#[cfg(windows)]
 pub(super) fn load_system_grants() -> Result<HashMap<String, UiControlSystemGrant>, String> {
     let Some(path) = std::env::var_os(SYSTEM_GRANTS_FILE_ENV) else {
         return Ok(HashMap::new());
@@ -30,6 +39,7 @@ pub(super) fn load_system_grants() -> Result<HashMap<String, UiControlSystemGran
     parse_system_grants(&bytes)
 }
 
+#[cfg(any(windows, test))]
 pub(super) fn parse_system_grants(
     bytes: &[u8],
 ) -> Result<HashMap<String, UiControlSystemGrant>, String> {

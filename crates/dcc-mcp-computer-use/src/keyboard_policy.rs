@@ -14,6 +14,7 @@ pub(crate) enum CommonKey {
 }
 
 impl CommonKey {
+    #[cfg(windows)]
     pub(crate) const fn virtual_key(self) -> Option<u16> {
         match self {
             Self::Control(value) | Self::Shift(value) | Self::Alt(value) => Some(value),
