@@ -139,8 +139,8 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
                 axum::Json(json!({
                     "total": 1,
                     "hits": [{
-                        "action": "app_ui__snapshot",
-                        "summary": "Capture app UI snapshot",
+                        "action": "ui_control__snapshot",
+                        "summary": "Capture UI Control snapshot",
                         "has_schema": true,
                         "loaded": true,
                         "annotations": {
@@ -178,8 +178,8 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
             "/v1/describe",
             axum::routing::post(|| async {
                 axum::Json(json!({
-                    "entry": {"action": "app_ui__snapshot"},
-                    "description": "Capture app UI snapshot",
+                    "entry": {"action": "ui_control__snapshot"},
+                    "description": "Capture UI Control snapshot",
                     "input_schema": {"type": "object", "properties": {"session_id": {"type": "string"}}},
                     "annotations": {"readOnlyHint": true, "idempotentHint": true},
                     "metadata": {
@@ -190,7 +190,7 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
                             "risk": "read-only"
                         },
                         "dcc.next_tools": {
-                            "on_success": ["app_ui__inspect"],
+                            "on_success": ["ui_control__inspect"],
                             "on_failure": ["dcc_diagnostics__screenshot"]
                         }
                     }
@@ -215,7 +215,7 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
             .search_tokens
             .contains(&"required:destination_path".to_string())
     );
-    assert_eq!(tools[0].name, "app_ui__snapshot");
+    assert_eq!(tools[0].name, "ui_control__snapshot");
     assert_eq!(
         tools[0]
             .annotations
@@ -256,7 +256,7 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
     let described = try_describe_tool(
         &client,
         &mcp_url,
-        "app_ui__snapshot",
+        "ui_control__snapshot",
         Duration::from_secs(2),
     )
     .await
@@ -283,7 +283,7 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
     );
     assert_eq!(
         next_tools.get("on_success").and_then(Value::as_array),
-        Some(&vec![Value::String("app_ui__inspect".into())])
+        Some(&vec![Value::String("ui_control__inspect".into())])
     );
     let _ = stop.send(());
 }

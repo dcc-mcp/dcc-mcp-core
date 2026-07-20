@@ -24,10 +24,10 @@
   "state.aria": "인스턴스 상태",
   "summary": "요약: live {live}, stale {stale}, unhealthy {unhealthy}",
   "update.action": "업데이트 확인",
-  "update.aria": "{name} 서버 업데이트 확인 및 스테이징",
+  "update.aria": "{name} 서버 업데이트 확인",
   "update.checking": "확인 중",
   "update.current": "현재 버전: {version}",
-  "update.help": "서버 업데이트 매니페스트를 확인하고 업데이트가 있으면 바이너리를 스테이징합니다. 수동 CLI 명령은 필요하지 않습니다.",
+  "update.help": "서버 업데이트 매니페스트를 확인합니다. 업데이트는 대상 서버 환경에서 dcc-mcp-server update apply로 스테이징하세요.",
   "update.label": "업데이트",
   "update.restartRequired": "스테이징된 서버를 사용하려면 이 DCC 백엔드를 다시 시작하세요.",
   "update.status.available": "{version} 사용 가능",
@@ -40,6 +40,7 @@
   "update.status.notConfigured": "업데이트 매니페스트가 설정되지 않았습니다.",
   "update.status.stageFailed": "업데이트를 스테이징할 수 없습니다: {message}",
   "update.status.staged": "{version} 스테이징 완료. 재시작 후 적용됩니다.",
+  "update.status.targetEnvironment": "대상 서버 환경에서 dcc-mcp-server update apply를 실행하세요.",
   "update.status.upToDate": "최신 상태 {version}",
   "update.unknownCurrent": "버전 알 수 없음"
 }

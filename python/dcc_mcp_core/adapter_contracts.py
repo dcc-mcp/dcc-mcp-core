@@ -192,7 +192,7 @@ class UiWaitConditionKind:
 
 @dataclass
 class UiWaitCondition:
-    """Condition that ``app_ui__wait_for`` evaluates inside one tool call."""
+    """Condition that ``ui_control__wait_for`` evaluates inside one tool call."""
 
     kind: str
     control_id: Optional[str] = None
@@ -234,8 +234,8 @@ class UiActionKind:
 
 
 @dataclass
-class AppUiPolicy:
-    """Policy controls for scoped ``app_ui`` observation and actions."""
+class UiControlPolicy:
+    """Policy controls for scoped ``ui_control`` observation and actions."""
 
     allow_snapshot: bool = True
     allow_find: bool = True
@@ -249,7 +249,7 @@ class AppUiPolicy:
     audit_sensitive_values: bool = False
     scope_denied: bool = False
 
-    def narrowed(self, overrides: Optional[Dict[str, Any]] = None) -> "AppUiPolicy":
+    def narrowed(self, overrides: Optional[Dict[str, Any]] = None) -> "UiControlPolicy":
         """Apply request overrides as restrictions; never widen this policy ceiling."""
         raw = overrides if isinstance(overrides, dict) else {}
 
@@ -270,7 +270,7 @@ class AppUiPolicy:
             requested_process_ids = [item for item in requested_process_ids if item in self.allowed_process_ids]
             scope_denied = scope_denied or not requested_process_ids
 
-        return AppUiPolicy(
+        return UiControlPolicy(
             allow_snapshot=allowed("allow_snapshot"),
             allow_find=allowed("allow_find"),
             allow_mutating_actions=allowed("allow_mutating_actions"),
@@ -444,8 +444,8 @@ class UiWaitResult:
 
 
 @dataclass
-class AppUiAuditRecord:
-    """Small audit record for an ``app_ui`` action decision or outcome."""
+class UiControlAuditRecord:
+    """Small audit record for a ``ui_control`` action decision or outcome."""
 
     action_kind: str
     success: bool
@@ -466,8 +466,6 @@ class AppUiAuditRecord:
 
 
 __all__ = [
-    "AppUiAuditRecord",
-    "AppUiPolicy",
     "DebugPathMapping",
     "DebugSessionDescriptor",
     "DebugSessionStatus",
@@ -476,7 +474,9 @@ __all__ = [
     "UiActionResult",
     "UiArtifactRef",
     "UiBounds",
+    "UiControlAuditRecord",
     "UiControlNode",
+    "UiControlPolicy",
     "UiErrorCode",
     "UiFindRequest",
     "UiPoint",

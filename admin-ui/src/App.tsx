@@ -67,6 +67,7 @@ function instanceUpdateTone(payload: InstanceUpdatePayload): InstanceUpdateNotic
     || payload.status === 'binary_not_found'
     || payload.status === 'manifest_error'
     || payload.status === 'not_configured'
+    || payload.status === 'target_environment_required'
   ) {
     return 'warn';
   }
@@ -1046,6 +1047,8 @@ function App() {
         return t('instances.update.status.downloadFailed', { message: detail });
       case 'stage_failed':
         return t('instances.update.status.stageFailed', { message: detail });
+      case 'target_environment_required':
+        return t('instances.update.status.targetEnvironment');
       default:
         return detail || t('instances.update.status.failed');
     }
@@ -1063,7 +1066,7 @@ function App() {
     try {
       const payload = await instanceUpdateMutation.mutateAsync({
         instanceId: instance.instance_id,
-        apply: true,
+        apply: false,
       });
       setInstanceUpdateNotices((prev) => ({
         ...prev,

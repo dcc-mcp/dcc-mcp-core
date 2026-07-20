@@ -857,7 +857,7 @@ mod unit_tests {
     #[test]
     fn dcc_execution_metadata_surfaces_on_records() {
         let iid = Uuid::from_u128(8);
-        let mut t = tool("app_ui__act", "act", json!({"type": "object"}));
+        let mut t = tool("ui_control__act", "act", json!({"type": "object"}));
         t.meta = Some(
             [(
                 "dcc".to_string(),

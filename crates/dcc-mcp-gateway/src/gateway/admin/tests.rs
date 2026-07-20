@@ -901,13 +901,13 @@ filters:
     }
 
     #[tokio::test]
-    async fn test_gateway_call_routes_app_ui_to_sidecar_discovery_endpoint() {
+    async fn test_gateway_call_routes_ui_control_to_sidecar_discovery_endpoint() {
         let gs = make_gateway_state();
         let (discovery_port, stop_discovery, discovery_calls) =
             spawn_discovery_dispatch_backend(json!([{
                 "skill": "core",
-                "action": "app_ui__snapshot",
-                "summary": "Capture a bounded app UI snapshot",
+                "action": "ui_control__snapshot",
+                "summary": "Capture a bounded UI Control snapshot",
                 "loaded": true,
                 "has_schema": true
             }]))
@@ -938,7 +938,7 @@ filters:
         )
         .await;
         let slug =
-            crate::gateway::capability::tool_slug("3dsmax", &instance_id, "app_ui__snapshot");
+            crate::gateway::capability::tool_slug("3dsmax", &instance_id, "ui_control__snapshot");
 
         let result = crate::gateway::capability_service::call_service(
             &gs,
@@ -949,7 +949,7 @@ filters:
             None,
         )
         .await
-        .expect("app-ui calls should use the in-process discovery endpoint");
+        .expect("ui-control calls should use the in-process discovery endpoint");
         let _ = stop_discovery.send(());
         let _ = stop_sidecar.send(());
 
@@ -957,7 +957,7 @@ filters:
         assert_eq!(discovery_calls.lock().len(), 1);
         assert!(
             sidecar_calls.lock().is_empty(),
-            "app-ui calls must not be sent to the sidecar action dispatcher"
+            "ui-control calls must not be sent to the sidecar action dispatcher"
         );
     }
 

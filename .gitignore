@@ -43,7 +43,6 @@ run-ide.bat
 /.venv/
 .venv/
 dist/
-/python/dcc_mcp_core/bin/dcc-mcp-capture-helper.exe
 /python/dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe
 
 # Python cache

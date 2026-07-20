@@ -33,7 +33,7 @@
 //! # Layer-based rank penalty (issue #1398)
 //!
 //! AI agents naturally rank skills by raw BM25 score alone, which lets broad
-//! infrastructure skills (e.g. `app-ui`, `dcc-adapter`, `dcc-diagnostics`)
+//! infrastructure skills (e.g. `ui-control`, `dcc-adapter`, `dcc-diagnostics`)
 //! that cover dozens of generic tokens outrank domain skills that map a
 //! specific user intent. To make those low-level skills behave as the
 //! "fallback" the layering rules say they are, the final score is multiplied

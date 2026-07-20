@@ -50,7 +50,7 @@ fn input_payload_redacts_script_source_fields() {
 fn input_payload_deeply_redacts_ui_text_and_credentials() {
     let raw = json!({
         "calls": [{
-            "tool_slug": "maya.abc.app_ui__act",
+            "tool_slug": "maya.abc.ui_control__act",
             "arguments": {
                 "action": "set_text",
                 "text": "private typed text",

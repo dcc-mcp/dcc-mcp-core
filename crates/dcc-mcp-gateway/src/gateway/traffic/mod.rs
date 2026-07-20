@@ -670,7 +670,7 @@ mod tests {
                 "client_to_gateway",
                 "http",
                 json!({
-                    "tool_slug": "maya.abc.app_ui__act",
+                    "tool_slug": "maya.abc.ui_control__act",
                     "arguments": {
                         "action": "set_text",
                         "text": "traffic-private-text",

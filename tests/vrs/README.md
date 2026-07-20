@@ -106,8 +106,8 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-host-ui-dispatcher-http-affinity.jsonl` | Yes (Substance 3D Designer) | A `HostUiDispatcherBase` adapter must pump main-affinity `/v1/call` work instead of returning `THREAD_AFFINITY_UNAVAILABLE`. |
 | `traces/core-rest-async-call-accepted.jsonl` | Yes (Nuke layered-compositing skill) | A declared async `/v1/call` returns `202` with a pending `job_id` instead of blocking the DCC HTTP worker. |
 | `traces/core-1125-3dsmax-diagnostics-screenshot-dict.jsonl` | Yes (3ds Max) | After `load_skill`, bundled `dcc_diagnostics__screenshot` must return a normal dict envelope through gateway REST. |
-| `traces/core-1133-app-ui-gateway-rest.jsonl` | Yes (any app_ui-capable instance) | `app_ui__snapshot` must be discoverable through gateway REST, describe must expose UI metadata, and call must preserve the structured envelope. |
-| `traces/core-1134-app-ui-mock-workflow.jsonl` | Yes (any app_ui-capable instance) | `app_ui` mock workflow must support snapshot -> find -> act -> wait and structured stale/policy/timeout/missing-window errors through REST. |
+| `traces/core-1133-ui-control-gateway-rest.jsonl` | Yes (any ui_control-capable instance) | `ui_control__snapshot` must be discoverable through gateway REST, describe must expose UI metadata, and call must preserve the structured envelope. |
+| `traces/core-1134-ui-control-mock-workflow.jsonl` | Yes (any ui_control-capable instance) | `ui_control` mock workflow must support snapshot -> find -> act -> wait and structured stale/policy/timeout/missing-window errors through REST. |
 | `traces/core-1652-load-skill-backend-failure.jsonl` | Yes (affected Maya/backend) | Gateway `load_skill` must surface backend `unknown-action` / `success:false` as a failure instead of decorating it as `loaded:true`. |
 | `traces/core-1659-load-skill-indexes-mgear-tools.jsonl` | Yes (Maya + maya-mgear) | Gateway `load_skill` must index the mGear tools returned by the backend response so `/v1/search` and `/v1/call` work even if the refresh route cannot rebuild the index. |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
@@ -133,8 +133,8 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 - core [#1093](https://github.com/dcc-mcp/dcc-mcp-core/issues/1093) — first-class Trace Context for full-chain debug bundles
 - core [#1124](https://github.com/dcc-mcp/dcc-mcp-core/issues/1124) — HostExecutionBridge registration must satisfy main-affinity tools/call routing
 - core [#1125](https://github.com/dcc-mcp/dcc-mcp-core/issues/1125) — bundled diagnostics screenshot must return a dict through REST dispatch
-- core [#1133](https://github.com/dcc-mcp/dcc-mcp-core/issues/1133) — app_ui gateway discovery and REST dispatch
-- core [#1134](https://github.com/dcc-mcp/dcc-mcp-core/issues/1134) — app_ui DCC debugging workflow examples and REST traces
+- core [#1133](https://github.com/dcc-mcp/dcc-mcp-core/issues/1133) — ui_control gateway discovery and REST dispatch
+- core [#1134](https://github.com/dcc-mcp/dcc-mcp-core/issues/1134) — ui_control DCC debugging workflow examples and REST traces
 - core [#1365](https://github.com/dcc-mcp/dcc-mcp-core/issues/1365) — gateway must enforce authentication and scope-bound DCC registration
 - core [#1652](https://github.com/dcc-mcp/dcc-mcp-core/issues/1652) — gateway load_skill must not report loaded=true when backend load fails
 - core [#1659](https://github.com/dcc-mcp/dcc-mcp-core/issues/1659) — gateway load_skill must index loaded skill tools after backend refresh failures

@@ -1132,7 +1132,7 @@ observe `(skill, registered_actions)` after a successful load.
 ### Bundled Skills
 
 Core skills ship inside the wheel under `dcc_mcp_core/skills/`:
-`app-ui`, `dcc-diagnostics`, `workflow`.
+`ui-control`, `dcc-diagnostics`, `workflow`.
 
 ```python
 from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths

@@ -905,7 +905,7 @@ export type InstanceSummary = {
 };
 
 export type InstanceUpdatePayload = {
-  status: 'available' | 'binary_not_found' | 'download_failed' | 'manifest_error' | 'not_configured' | 'stage_failed' | 'staged' | 'up_to_date';
+  status: 'available' | 'binary_not_found' | 'download_failed' | 'manifest_error' | 'not_configured' | 'stage_failed' | 'staged' | 'target_environment_required' | 'up_to_date';
   error?: string | null;
   message?: string | null;
   hint?: string | null;

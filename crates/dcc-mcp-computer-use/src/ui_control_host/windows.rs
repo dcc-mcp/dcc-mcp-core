@@ -4,7 +4,7 @@ use std::mem::size_of;
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::sync::{Arc, Mutex};
 
-use dcc_mcp_app_ui::host_protocol::{
+use dcc_mcp_ui_control::host_protocol::{
     UI_CONTROL_HOST_MAX_FRAME_BYTES, UiControlHostErrorCode, UiControlHostRequest,
     UiControlHostResponse,
 };
@@ -42,9 +42,9 @@ pub(super) fn run() -> Result<(), String> {
     let security = OwnerOnlySecurity::new()?;
     let _singleton = acquire_singleton(session_id, security.attributes())?;
     let pipe_name = wide(&format!(
-        r"\\.\pipe\dcc-mcp-ui-control-host-v1-session-{session_id}"
+        r"\\.\pipe\dcc-mcp-ui-control-host-v2-session-{session_id}"
     ));
-    let host = Arc::new(Mutex::new(UiControlHost::default()));
+    let host = Arc::new(Mutex::new(UiControlHost::from_operator_config()?));
 
     loop {
         let handle = create_pipe(&pipe_name, security.attributes())?;
@@ -73,7 +73,7 @@ fn acquire_singleton(
     security: &SECURITY_ATTRIBUTES,
 ) -> Result<OwnedKernelHandle, String> {
     let name = wide(&format!(
-        r"Local\dcc-mcp-ui-control-host-v1-session-{session_id}"
+        r"Local\dcc-mcp-ui-control-host-v2-session-{session_id}"
     ));
     let handle = unsafe { CreateMutexW(Some(security), false, PCWSTR(name.as_ptr())) }
         .map_err(|error| format!("create the per-session host mutex: {error}"))?;

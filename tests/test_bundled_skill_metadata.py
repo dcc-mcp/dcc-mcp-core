@@ -10,11 +10,18 @@ SKILL_ROOTS = [
     REPO_ROOT / "skills" / "dcc-mcp-skills-creator",
     REPO_ROOT / "skills" / "dcc-mcp-creator",
     REPO_ROOT / "skills" / "dcc-mcp",
-    REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "app-ui",
+    REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "dcc-diagnostics",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "media",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "workflow",
 ]
+
+
+def test_removed_app_ui_skill_is_not_bundled() -> None:
+    bundled = REPO_ROOT / "python" / "dcc_mcp_core" / "skills"
+
+    assert (bundled / "ui-control").is_dir()
+    assert not (bundled / "app-ui").exists()
 
 
 def test_official_and_bundled_skills_validate_clean() -> None:

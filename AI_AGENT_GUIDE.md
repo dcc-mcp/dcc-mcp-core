@@ -74,32 +74,39 @@ not update a running `dcc-mcp-server`; update that server in its own environment
 ### Computer Use is an agent-directed fallback
 
 Do not start with GUI automation. Discover and call structured DCC skills,
-host APIs, or adapter scripts first. Load `app-ui` only when that path returns
+host APIs, or adapter scripts first. Load `ui-control` only when that path returns
 `unsupported` or `capability_missing`. Policy denial, user interruption,
 authentication, or desktop unavailability are stop conditions, not fallback
 signals:
 
-1. `app_ui__snapshot` scoped to the exact process or window. Every Windows UIA
+1. `ui_control__snapshot` scoped to the exact process or window. Every Windows UIA
    mutation requires the adapter/operator to bind its DCC with
-   `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`.
+   `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`.
    A request may select that exact PID/HWND or narrow it further, but cannot
    replace the trusted runtime scope with another application.
    The visible session and bounded native screenshot do not require raw input.
    Native pointer or keyboard control has a second gate and additionally
    requires `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`.
 2. One semantic action when possible, otherwise one screenshot-coordinate
-   `app_ui__act` using the returned `snapshot_id`.
-3. `app_ui__snapshot` after every action before deciding what to do next.
-4. `app_ui__stop_computer_use` when the task completes, fails, or is abandoned.
+   `ui_control__act` using the returned `snapshot_id`.
+3. `ui_control__snapshot` after every action before deciding what to do next.
+4. `ui_control__stop_computer_use` when the task completes, fails, or is abandoned.
+
+Windows plug-in setup that needs an HKCU string/DWORD or a file/directory
+symbolic link uses the separate `ui_control__system_operation` tool. It requires an
+exact operator-owned grant catalog and trusted action-time confirmation, and it
+does not require a PID, HWND, or snapshot. It has no shell, deletion,
+replacement, alternate-hive, or elevation form. Treat `elevation_required`,
+`approval_required`, and `system_operation_not_granted` as stop conditions.
 
 Never automate the whole desktop or reuse coordinates from an older snapshot.
 The Windows session shows a click-through target border, control banner, and
-pointer-action markers. While UI Control is active, the user stops control with
-`Esc`; outside an active session, `Esc` behaves normally.
+pointer-action markers. The user stops control with `Ctrl+Alt+Esc`; ordinary
+`Esc` remains available to the target application.
 After `user_interrupted`, stop and do not retry, change `session_id`, or
-automatically restart; Esc is latched across DCC adapter processes in the
+automatically restart; the stop is latched across DCC adapter processes in the
 same Windows logon session.
-Resume only with `app_ui__snapshot(resume_computer_use=true)` after the user
+Resume only with `ui_control__snapshot(resume_computer_use=true)` after the user
 explicitly asks to continue and while no Computer Use owner is active.
 
 Treat `desktop_unavailable` as a Windows desktop pause, not a failed logical
@@ -129,8 +136,10 @@ Never target LockApp, Windows Security, credential/authentication/password
 manager windows, the Windows Run dialog, terminals, PowerShell, or `cmd`.
 These backend-enforced boundaries cannot be bypassed by switching automation
 methods. A script editor hosted by the bound DCC process remains in scope.
+Passwords stay a user hand-off or application-owned OAuth/browser flow; never
+place them in `ui_control__act.text` or a system-operation registry value.
 
-`app_ui__act` advertises a destructive annotation so the calling host can
+`ui_control__act` advertises a destructive annotation so the calling host can
 apply its confirmation policy. A model-supplied `confirmed` argument or
 environment bypass is not a trusted approval. If host policy requires user
 confirmation and none is available, stop; do not use another automation path.

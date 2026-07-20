@@ -5,21 +5,35 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
-use dcc_mcp_app_ui::host_protocol::{
+use dcc_mcp_ui_control::host_protocol::{
     UI_CONTROL_HOST_CAPABILITIES, UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlAction,
     UiControlHostErrorCode, UiControlHostHello, UiControlHostRequest, UiControlHostResponse,
-    UiControlInputKind, UiControlPolicyTier, UiControlSharedImage, UiControlTarget,
-    UiControlTaskGrant, UiControlWindowOperation, UiControlWindowState,
+    UiControlInputKind, UiControlPolicyTier, UiControlSharedImage, UiControlSystemGrant,
+    UiControlSystemOperation, UiControlTarget, UiControlTaskGrant, UiControlWindowOperation,
+    UiControlWindowState,
 };
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
+mod policy;
 #[cfg(windows)]
 mod runtime_windows;
+mod system_operations;
 #[cfg(windows)]
 mod windows;
+
+#[cfg(any(windows, test))]
+use policy::{ActionControlFence, verify_expected_action_fence};
+use policy::{classify_action, stale_accessibility_state, verify_action_fence};
+#[cfg(test)]
+use policy::{classify_control, classify_control_text};
+#[cfg(windows)]
+use system_operations::load_system_grants;
+use system_operations::{
+    invalid_system_operation, run_system_operation, validate_system_operation,
+};
 
 #[derive(Debug)]
 struct HostFailure {
@@ -46,6 +60,14 @@ struct RuntimeSnapshot {
     image: UiControlSharedImage,
 }
 
+#[derive(Clone)]
+struct RuntimeAccessibilityState {
+    root: Value,
+    focus_runtime_id: Option<String>,
+    #[cfg(any(windows, test))]
+    node_count: u32,
+}
+
 struct RuntimeActionResult {
     message: String,
     before_focus_runtime_id: Option<String>,
@@ -61,10 +83,16 @@ trait HostRuntimeSession: Send {
         operation: UiControlWindowOperation,
     ) -> Result<UiControlWindowState, HostFailure>;
     fn snapshot(&mut self, max_depth: u32, max_nodes: u32) -> Result<RuntimeSnapshot, HostFailure>;
+    fn accessibility_state(
+        &mut self,
+        max_depth: u32,
+        max_nodes: u32,
+    ) -> Result<RuntimeAccessibilityState, HostFailure>;
     fn execute(
         &mut self,
         observation_id: &str,
         action: &UiControlAction,
+        fence: &ActionFenceExpectation,
     ) -> Result<RuntimeActionResult, HostFailure>;
     fn resume_after_approval(&mut self) -> Result<(), HostFailure>;
     fn stop(&mut self) -> bool;
@@ -75,16 +103,17 @@ trait HostRuntime: Send + Sync {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum ConfirmationKind {
+enum ConfirmationKind<'a> {
     ConsequentialAction(UiControlPolicyTier),
+    SystemOperation(&'a UiControlSystemOperation),
     ResumeAfterStop,
 }
 
 trait ConfirmationSurface: Send + Sync {
     fn confirm(
         &self,
-        kind: ConfirmationKind,
-        target: &UiControlTarget,
+        kind: ConfirmationKind<'_>,
+        target: Option<&UiControlTarget>,
         action: Option<&UiControlAction>,
     ) -> Result<bool, HostFailure>;
 }
@@ -96,12 +125,35 @@ struct HostSession {
     observation: Option<Value>,
     accessibility_state_id: Option<String>,
     accessibility_root: Option<Value>,
+    focus_runtime_id: Option<String>,
+    accessibility_max_depth: Option<u32>,
+    accessibility_max_nodes: Option<u32>,
     runtime: Box<dyn HostRuntimeSession>,
+}
+
+struct ActionFenceExpectation {
+    #[cfg(any(windows, test))]
+    controls: Vec<ActionControlFence>,
+    #[cfg(any(windows, test))]
+    observation: Option<Value>,
+    #[cfg(windows)]
+    max_depth: u32,
+    #[cfg(windows)]
+    max_nodes: u32,
+    #[cfg(any(windows, test))]
+    policy_tier: UiControlPolicyTier,
+}
+
+struct SystemHostSession {
+    grant: UiControlSystemGrant,
+    system_capability: String,
 }
 
 /// Process-owned capability, policy, confirmation, and native execution authority.
 pub struct UiControlHost {
     sessions: HashMap<String, HostSession>,
+    system_sessions: HashMap<String, SystemHostSession>,
+    system_grants: HashMap<String, UiControlSystemGrant>,
     runtime: Box<dyn HostRuntime>,
     confirmation: Box<dyn ConfirmationSurface>,
 }
@@ -110,6 +162,8 @@ impl Default for UiControlHost {
     fn default() -> Self {
         Self {
             sessions: HashMap::new(),
+            system_sessions: HashMap::new(),
+            system_grants: HashMap::new(),
             runtime: default_runtime(),
             confirmation: default_confirmation_surface(),
         }
@@ -121,6 +175,7 @@ impl Default for UiControlHost {
 pub struct UiControlHostConnection {
     negotiated: bool,
     owned_sessions: HashSet<String>,
+    owned_system_sessions: HashSet<String>,
 }
 
 impl UiControlHostConnection {
@@ -140,23 +195,43 @@ impl UiControlHostConnection {
                 "hello must negotiate the exact protocol version first",
             );
         }
-        let session_id = request_session_id(&request).map(str::to_owned);
-        if let Some(session_id) = session_id.as_deref()
-            && !matches!(request, UiControlHostRequest::OpenSession { .. })
-            && !self.owned_sessions.contains(session_id)
+        if let Some((session_id, system, opening)) = request_session(&request)
+            && !opening
         {
-            return error(
-                UiControlHostErrorCode::SessionNotFound,
-                "UI Control session is not owned by this named-pipe connection",
-            );
+            let owned = if system {
+                &self.owned_system_sessions
+            } else {
+                &self.owned_sessions
+            };
+            if !owned.contains(session_id) {
+                return error(
+                    UiControlHostErrorCode::SessionNotFound,
+                    "UI Control session is not owned by this named-pipe connection",
+                );
+            }
         }
+        let consumed_system_session = match &request {
+            UiControlHostRequest::ExecuteSystemOperation { session_id, .. } => {
+                Some(session_id.clone())
+            }
+            _ => None,
+        };
         let response = host.handle(request);
+        if let Some(session_id) = consumed_system_session {
+            self.owned_system_sessions.remove(&session_id);
+        }
         match &response {
             UiControlHostResponse::SessionOpened { session_id, .. } => {
                 self.owned_sessions.insert(session_id.clone());
             }
             UiControlHostResponse::SessionStopped { session_id, .. } => {
                 self.owned_sessions.remove(session_id);
+            }
+            UiControlHostResponse::SystemSessionOpened { session_id, .. } => {
+                self.owned_system_sessions.insert(session_id.clone());
+            }
+            UiControlHostResponse::SystemSessionStopped { session_id } => {
+                self.owned_system_sessions.remove(session_id);
             }
             _ => {}
         }
@@ -168,6 +243,9 @@ impl UiControlHostConnection {
     fn disconnect(&mut self, host: &mut UiControlHost) {
         for session_id in self.owned_sessions.drain() {
             let _ = host.stop_session(session_id);
+        }
+        for session_id in self.owned_system_sessions.drain() {
+            let _ = host.stop_system_session(session_id);
         }
         self.negotiated = false;
     }
@@ -201,16 +279,31 @@ impl UiControlHostConnection {
     }
 }
 
-fn request_session_id(request: &UiControlHostRequest) -> Option<&str> {
+fn request_session(request: &UiControlHostRequest) -> Option<(&str, bool, bool)> {
     match request {
         UiControlHostRequest::Hello(_) => None,
-        UiControlHostRequest::OpenSession { session_id, .. }
-        | UiControlHostRequest::GetWindowState { session_id, .. }
+        UiControlHostRequest::OpenSession { session_id, .. } => Some((session_id, false, true)),
+        UiControlHostRequest::OpenSystemSession { session_id, .. } => {
+            Some((session_id, true, true))
+        }
+        UiControlHostRequest::GetWindowState { session_id, .. }
         | UiControlHostRequest::ChangeWindowState { session_id, .. }
         | UiControlHostRequest::Snapshot { session_id, .. }
         | UiControlHostRequest::ExecuteAction { session_id, .. }
         | UiControlHostRequest::ResumeSession { session_id, .. }
-        | UiControlHostRequest::StopSession { session_id } => Some(session_id),
+        | UiControlHostRequest::StopSession { session_id } => Some((session_id, false, false)),
+        UiControlHostRequest::ExecuteSystemOperation { session_id, .. }
+        | UiControlHostRequest::StopSystemSession { session_id } => Some((session_id, true, false)),
+    }
+}
+
+impl UiControlHost {
+    #[cfg(windows)]
+    fn from_operator_config() -> Result<Self, String> {
+        Ok(Self {
+            system_grants: load_system_grants()?,
+            ..Self::default()
+        })
     }
 }
 
@@ -221,6 +314,10 @@ impl UiControlHost {
             UiControlHostRequest::OpenSession { session_id, grant } => {
                 self.open_session(session_id, grant)
             }
+            UiControlHostRequest::OpenSystemSession {
+                session_id,
+                system_grant_id,
+            } => self.open_system_session(session_id, &system_grant_id),
             UiControlHostRequest::GetWindowState {
                 session_id,
                 task_grant_id,
@@ -262,12 +359,26 @@ impl UiControlHost {
                 &accessibility_state_id,
                 *action,
             ),
+            UiControlHostRequest::ExecuteSystemOperation {
+                session_id,
+                system_grant_id,
+                system_capability,
+                operation_id,
+            } => self.execute_system_operation(
+                &session_id,
+                &system_grant_id,
+                &system_capability,
+                &operation_id,
+            ),
             UiControlHostRequest::ResumeSession {
                 session_id,
                 task_grant_id,
                 window_capability,
             } => self.resume_session(&session_id, &task_grant_id, &window_capability),
             UiControlHostRequest::StopSession { session_id } => self.stop_session(session_id),
+            UiControlHostRequest::StopSystemSession { session_id } => {
+                self.stop_system_session(session_id)
+            }
         }
     }
 
@@ -288,7 +399,8 @@ impl UiControlHost {
                 "session, grant, DCC, and exact PID or HWND scope must be explicit",
             );
         }
-        if self.sessions.contains_key(&session_id) {
+        if self.sessions.contains_key(&session_id) || self.system_sessions.contains_key(&session_id)
+        {
             return error(
                 UiControlHostErrorCode::SessionAlreadyExists,
                 "stop the existing session before replacing its task grant",
@@ -315,6 +427,9 @@ impl UiControlHost {
                 observation: None,
                 accessibility_state_id: None,
                 accessibility_root: None,
+                focus_runtime_id: None,
+                accessibility_max_depth: None,
+                accessibility_max_nodes: None,
                 runtime,
             },
         );
@@ -329,6 +444,52 @@ impl UiControlHost {
             session_id,
             window_capability,
             target,
+        }
+    }
+
+    fn open_system_session(
+        &mut self,
+        session_id: String,
+        system_grant_id: &str,
+    ) -> UiControlHostResponse {
+        if !valid_wire_label(&session_id, 128) || !valid_wire_label(system_grant_id, 256) {
+            return error(
+                UiControlHostErrorCode::InvalidRequest,
+                "system session and operator grant ids must be explicit",
+            );
+        }
+        if self.sessions.contains_key(&session_id) || self.system_sessions.contains_key(&session_id)
+        {
+            return error(
+                UiControlHostErrorCode::SessionAlreadyExists,
+                "stop the existing session before opening a system grant",
+            );
+        }
+        let Some(grant) = self.system_grants.get(system_grant_id).cloned() else {
+            return error(
+                UiControlHostErrorCode::SystemOperationNotGranted,
+                "the operator-owned system grant is unavailable",
+            );
+        };
+        let system_capability = new_capability("system");
+        self.system_sessions.insert(
+            session_id.clone(),
+            SystemHostSession {
+                grant: grant.clone(),
+                system_capability: system_capability.clone(),
+            },
+        );
+        audit_system_event(
+            &grant,
+            "open_system_session",
+            true,
+            UiControlPolicyTier::TaskGrant,
+            None,
+        );
+        UiControlHostResponse::SystemSessionOpened {
+            session_id,
+            system_capability,
+            dcc_type: grant.dcc_type,
         }
     }
 
@@ -394,6 +555,9 @@ impl UiControlHost {
         session.observation = None;
         session.accessibility_state_id = None;
         session.accessibility_root = None;
+        session.focus_runtime_id = None;
+        session.accessibility_max_depth = None;
+        session.accessibility_max_nodes = None;
         let action = match operation {
             UiControlWindowOperation::Restore => "restore_window",
             UiControlWindowOperation::Show => "show_window",
@@ -459,6 +623,9 @@ impl UiControlHost {
         session.observation = Some(snapshot.observation.clone());
         session.accessibility_state_id = Some(accessibility_state_id.clone());
         session.accessibility_root = Some(snapshot.root.clone());
+        session.focus_runtime_id = snapshot.focus_runtime_id.clone();
+        session.accessibility_max_depth = Some(max_depth);
+        session.accessibility_max_nodes = Some(max_nodes);
         UiControlHostResponse::Snapshot {
             observation_id: snapshot.observation_id,
             accessibility_state_id,
@@ -524,7 +691,7 @@ impl UiControlHost {
             );
         }
 
-        let policy_tier = classify_action(
+        let mut policy_tier = classify_action(
             &action,
             session.accessibility_root.as_ref(),
             session.observation.as_ref(),
@@ -546,10 +713,21 @@ impl UiControlHost {
                 None,
             );
         }
+        let (refreshed_tier, mut action_fence) = match refresh_action_policy(session, &action) {
+            Ok(refreshed) => refreshed,
+            Err(failure) => {
+                return action_fence_failure(session, &action, policy_tier, failure);
+            }
+        };
+        policy_tier = refreshed_tier;
+        if policy_tier == UiControlPolicyTier::HardDeny {
+            return hard_deny_action(session, &action);
+        }
         if policy_tier >= UiControlPolicyTier::PreApproval {
+            let confirmed_tier = policy_tier;
             match confirmation.confirm(
                 ConfirmationKind::ConsequentialAction(policy_tier),
-                session.runtime.target(),
+                Some(session.runtime.target()),
                 Some(&action),
             ) {
                 Ok(true) => {}
@@ -572,14 +750,33 @@ impl UiControlHost {
                 }
                 Err(failure) => return failure.into_response(),
             }
+            let (refreshed_tier, refreshed_fence) = match refresh_action_policy(session, &action) {
+                Ok(refreshed) => refreshed,
+                Err(failure) => {
+                    return action_fence_failure(session, &action, policy_tier, failure);
+                }
+            };
+            if refreshed_tier == UiControlPolicyTier::HardDeny {
+                return hard_deny_action(session, &action);
+            }
+            if refreshed_tier != confirmed_tier {
+                return action_fence_failure(
+                    session,
+                    &action,
+                    confirmed_tier,
+                    stale_accessibility_state(),
+                );
+            }
+            policy_tier = refreshed_tier;
+            action_fence = refreshed_fence;
         }
 
         // Every attempted mutation consumes both fences, including backend failures.
-        session.observation_id = None;
-        session.observation = None;
-        session.accessibility_state_id = None;
-        session.accessibility_root = None;
-        match session.runtime.execute(observation_id, &action) {
+        consume_observation(session);
+        match session
+            .runtime
+            .execute(observation_id, &action, &action_fence)
+        {
             Ok(result) => {
                 audit_event(&session.grant, &action.action, true, policy_tier, None);
                 action_response(
@@ -629,7 +826,7 @@ impl UiControlHost {
         };
         match confirmation.confirm(
             ConfirmationKind::ResumeAfterStop,
-            session.runtime.target(),
+            Some(session.runtime.target()),
             None,
         ) {
             Ok(true) => {}
@@ -648,8 +845,122 @@ impl UiControlHost {
         session.observation = None;
         session.accessibility_state_id = None;
         session.accessibility_root = None;
+        session.focus_runtime_id = None;
+        session.accessibility_max_depth = None;
+        session.accessibility_max_nodes = None;
         UiControlHostResponse::SessionResumed {
             session_id: session_id.to_owned(),
+        }
+    }
+
+    fn execute_system_operation(
+        &mut self,
+        session_id: &str,
+        system_grant_id: &str,
+        system_capability: &str,
+        operation_id: &str,
+    ) -> UiControlHostResponse {
+        let confirmation = &self.confirmation;
+        let Some(session) = self.system_sessions.remove(session_id) else {
+            return error(
+                UiControlHostErrorCode::SessionNotFound,
+                "UI Control system session does not exist",
+            );
+        };
+        if session.grant.system_grant_id != system_grant_id {
+            return error(
+                UiControlHostErrorCode::GrantMismatch,
+                "operator system grant does not own this session",
+            );
+        }
+        if session.system_capability != system_capability {
+            return error(
+                UiControlHostErrorCode::CapabilityMismatch,
+                "system capability is invalid or stale",
+            );
+        }
+        if !valid_wire_label(operation_id, 256) {
+            audit_system_event(
+                &session.grant,
+                "invalid_system_operation_id",
+                false,
+                UiControlPolicyTier::ActionConfirmation,
+                Some(UiControlHostErrorCode::InvalidRequest),
+            );
+            return invalid_system_operation().into_response();
+        }
+        let Some(operation) = session
+            .grant
+            .operations
+            .iter()
+            .find(|entry| entry.operation_id == operation_id)
+            .map(|entry| entry.operation.clone())
+        else {
+            audit_system_event(
+                &session.grant,
+                "ungranted_system_operation",
+                false,
+                UiControlPolicyTier::ActionConfirmation,
+                Some(UiControlHostErrorCode::SystemOperationNotGranted),
+            );
+            return error(
+                UiControlHostErrorCode::SystemOperationNotGranted,
+                "the named operation is outside the operator-owned system grant",
+            );
+        };
+        if let Err(failure) = validate_system_operation(&operation) {
+            audit_system_event(
+                &session.grant,
+                operation.audit_name(),
+                false,
+                UiControlPolicyTier::ActionConfirmation,
+                Some(failure.code),
+            );
+            return failure.into_response();
+        }
+        match confirmation.confirm(ConfirmationKind::SystemOperation(&operation), None, None) {
+            Ok(true) => {}
+            Ok(false) => {
+                audit_system_event(
+                    &session.grant,
+                    operation.audit_name(),
+                    false,
+                    UiControlPolicyTier::ActionConfirmation,
+                    Some(UiControlHostErrorCode::ApprovalRequired),
+                );
+                return error(
+                    UiControlHostErrorCode::ApprovalRequired,
+                    "the user did not approve this system configuration operation",
+                );
+            }
+            Err(failure) => return failure.into_response(),
+        }
+        match run_system_operation(&operation) {
+            Ok(outcome) => {
+                audit_system_event(
+                    &session.grant,
+                    operation.audit_name(),
+                    true,
+                    UiControlPolicyTier::ActionConfirmation,
+                    None,
+                );
+                UiControlHostResponse::SystemOperationCompleted {
+                    operation_type: operation.audit_name().to_owned(),
+                    outcome,
+                    policy_tier: UiControlPolicyTier::ActionConfirmation,
+                    message: "the approved system configuration state is ensured".to_owned(),
+                }
+            }
+            Err(failure) => {
+                audit_system_event(
+                    &session.grant,
+                    operation.audit_name(),
+                    false,
+                    UiControlPolicyTier::ActionConfirmation,
+                    Some(failure.code),
+                );
+                failure.into_response()
+            }
         }
     }
 
@@ -672,6 +983,23 @@ impl UiControlHost {
             session_id,
             cleanup_pending,
         }
+    }
+
+    fn stop_system_session(&mut self, session_id: String) -> UiControlHostResponse {
+        let Some(session) = self.system_sessions.remove(&session_id) else {
+            return error(
+                UiControlHostErrorCode::SessionNotFound,
+                "UI Control system session does not exist",
+            );
+        };
+        audit_system_event(
+            &session.grant,
+            "stop_system_session",
+            true,
+            UiControlPolicyTier::TaskGrant,
+            None,
+        );
+        UiControlHostResponse::SystemSessionStopped { session_id }
     }
 
     fn authorized_session_mut<'a>(
@@ -700,6 +1028,96 @@ impl UiControlHost {
         }
         Ok(session)
     }
+}
+
+fn refresh_action_policy(
+    session: &mut HostSession,
+    action: &UiControlAction,
+) -> Result<(UiControlPolicyTier, ActionFenceExpectation), HostFailure> {
+    let max_depth = session
+        .accessibility_max_depth
+        .ok_or_else(stale_accessibility_state)?;
+    let max_nodes = session
+        .accessibility_max_nodes
+        .ok_or_else(stale_accessibility_state)?;
+    let live = session.runtime.accessibility_state(max_depth, max_nodes)?;
+    let (policy_tier, _action_controls) = verify_action_fence(
+        action,
+        session
+            .accessibility_root
+            .as_ref()
+            .ok_or_else(stale_accessibility_state)?,
+        session.focus_runtime_id.as_deref(),
+        session.observation.as_ref(),
+        &live,
+    )?;
+    Ok((
+        policy_tier,
+        ActionFenceExpectation {
+            #[cfg(any(windows, test))]
+            controls: _action_controls,
+            #[cfg(any(windows, test))]
+            observation: session.observation.clone(),
+            #[cfg(windows)]
+            max_depth,
+            #[cfg(windows)]
+            max_nodes,
+            #[cfg(any(windows, test))]
+            policy_tier,
+        },
+    ))
+}
+
+fn consume_observation(session: &mut HostSession) {
+    session.observation_id = None;
+    session.observation = None;
+    session.accessibility_state_id = None;
+    session.accessibility_root = None;
+    session.focus_runtime_id = None;
+    session.accessibility_max_depth = None;
+    session.accessibility_max_nodes = None;
+}
+
+fn action_fence_failure(
+    session: &mut HostSession,
+    action: &UiControlAction,
+    policy_tier: UiControlPolicyTier,
+    failure: HostFailure,
+) -> UiControlHostResponse {
+    consume_observation(session);
+    audit_event(
+        &session.grant,
+        &action.action,
+        false,
+        policy_tier,
+        Some(failure.code),
+    );
+    action_response(
+        false,
+        policy_tier,
+        failure.message,
+        Some(failure.code),
+        None,
+        None,
+    )
+}
+
+fn hard_deny_action(session: &HostSession, action: &UiControlAction) -> UiControlHostResponse {
+    audit_event(
+        &session.grant,
+        &action.action,
+        false,
+        UiControlPolicyTier::HardDeny,
+        Some(UiControlHostErrorCode::HardDenied),
+    );
+    action_response(
+        false,
+        UiControlPolicyTier::HardDeny,
+        "this target or action is outside the non-bypassable UI Control boundary",
+        Some(UiControlHostErrorCode::HardDenied),
+        None,
+        None,
+    )
 }
 
 fn valid_wire_label(value: &str, max_bytes: usize) -> bool {
@@ -749,6 +1167,7 @@ fn validate_action_descriptor(action: &UiControlAction) -> Result<(), HostFailur
         .filter(|item| !item.trim().is_empty())
         .count();
     if !allowed
+        || !action_fields_are_valid(action)
         || !points_are_finite
         || action.path.len() > 256
         || key_tokens > 16
@@ -764,6 +1183,86 @@ fn validate_action_descriptor(action: &UiControlAction) -> Result<(), HostFailur
         ));
     }
     Ok(())
+}
+
+fn action_fields_are_valid(action: &UiControlAction) -> bool {
+    let point = action.x.is_some() && action.y.is_some();
+    let no_point = action.x.is_none() && action.y.is_none();
+    let no_scroll = action.scroll_x.is_none() && action.scroll_y.is_none();
+    let no_pointer = no_point
+        && action.button.is_none()
+        && no_scroll
+        && action.path.is_empty()
+        && action.duration_ms.is_none();
+    let no_value = action.text.is_none() && action.checked.is_none();
+    let has_keys = action
+        .keys
+        .iter()
+        .flat_map(|item| item.split('+'))
+        .any(|item| !item.trim().is_empty());
+    let pointer_modifiers_are_valid = crate::keyboard_policy::are_pointer_modifiers(&action.keys);
+
+    match action.input_kind {
+        UiControlInputKind::Semantic => {
+            no_pointer
+                && action.keys.is_empty()
+                && match action.action.as_str() {
+                    "set_text" | "select_option" => {
+                        action.text.is_some() && action.checked.is_none()
+                    }
+                    "set_checked" => action.text.is_none() && action.checked.is_some(),
+                    _ => no_value,
+                }
+        }
+        UiControlInputKind::RawInput => {
+            if action.control_id.is_some() {
+                return false;
+            }
+            match action.action.as_str() {
+                "move" => {
+                    point
+                        && action.button.is_none()
+                        && no_scroll
+                        && action.path.is_empty()
+                        && no_value
+                        && action.keys.is_empty()
+                }
+                "click" | "double_click" | "raw_coordinate_click" => {
+                    point
+                        && no_scroll
+                        && action.path.is_empty()
+                        && no_value
+                        && pointer_modifiers_are_valid
+                }
+                "scroll" => {
+                    point
+                        && action.button.is_none()
+                        && (action.scroll_x.is_some_and(|value| value != 0)
+                            || action.scroll_y.is_some_and(|value| value != 0))
+                        && action.path.is_empty()
+                        && no_value
+                        && pointer_modifiers_are_valid
+                }
+                "drag" => {
+                    no_point
+                        && no_scroll
+                        && action.path.len() >= 2
+                        && no_value
+                        && pointer_modifiers_are_valid
+                }
+                "type" => {
+                    no_pointer
+                        && action.text.is_some()
+                        && action.keys.is_empty()
+                        && action.checked.is_none()
+                }
+                "keypress" | "keyboard_shortcut" => {
+                    no_pointer && action.text.is_none() && action.checked.is_none() && has_keys
+                }
+                _ => false,
+            }
+        }
+    }
 }
 
 impl HostFailure {
@@ -801,172 +1300,28 @@ fn action_response(
     }
 }
 
-fn classify_action(
-    action: &UiControlAction,
-    root: Option<&Value>,
-    observation: Option<&Value>,
-) -> UiControlPolicyTier {
-    let mut tier = action.intent.policy_tier();
-    let normalized_keys = action
-        .keys
-        .iter()
-        .map(|key| key.to_ascii_lowercase().replace(' ', ""))
-        .collect::<Vec<_>>()
-        .join("+");
-    if normalized_keys.contains("win+r")
-        || normalized_keys.contains("meta+r")
-        || normalized_keys.contains("ctrl+shift+esc")
-    {
-        return UiControlPolicyTier::HardDeny;
-    }
-
-    if let Some(control_id) = action.control_id.as_deref()
-        && let Some(control) = root.and_then(|root| find_control(root, control_id))
-    {
-        tier = tier.max(classify_control(control));
-    } else if action.input_kind == UiControlInputKind::RawInput
-        && let Some(root) = root
-    {
-        let visual_target = action
-            .x
-            .zip(action.y)
-            .and_then(|point| screenshot_to_desktop(point, observation))
-            .and_then(|(x, y)| find_control_at_point(root, x, y))
-            .or_else(|| find_focused_control(root));
-        if let Some(control) = visual_target {
-            tier = tier.max(classify_control(control));
-        }
-    }
-    tier
-}
-
-fn screenshot_to_desktop(point: (f64, f64), observation: Option<&Value>) -> Option<(f64, f64)> {
-    let observation = observation?;
-    let rect = observation.get("source_rect")?.as_array()?;
-    if rect.len() != 4 {
-        return None;
-    }
-    let source_x = rect[0].as_i64()? as f64;
-    let source_y = rect[1].as_i64()? as f64;
-    let source_width = rect[2].as_i64()? as f64;
-    let source_height = rect[3].as_i64()? as f64;
-    let image_width = observation.get("width")?.as_u64()? as f64;
-    let image_height = observation.get("height")?.as_u64()? as f64;
-    if source_width <= 0.0 || source_height <= 0.0 || image_width <= 0.0 || image_height <= 0.0 {
-        return None;
-    }
-    Some((
-        source_x + point.0 * source_width / image_width,
-        source_y + point.1 * source_height / image_height,
-    ))
-}
-
-fn classify_control(control: &Value) -> UiControlPolicyTier {
-    if control
-        .get("is_password")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return UiControlPolicyTier::HardDeny;
-    }
-    let classification_text = ["name", "automation_id", "class_name"]
-        .iter()
-        .filter_map(|key| control.get(key).and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase();
-    classify_control_text(&classification_text)
-}
-
-fn classify_control_text(text: &str) -> UiControlPolicyTier {
-    const HARD_DENY: &[&str] = &[
-        "password",
-        "credential",
-        "authentication code",
-        "security settings",
-        "privacy settings",
-    ];
-    const ALWAYS_CONFIRM: &[&str] = &[
-        "delete",
-        "remove permanently",
-        "overwrite",
-        "install",
-        "purchase",
-        "buy now",
-        "pay",
-        "send",
-        "publish",
-        "submit",
-        "share",
-        "grant access",
-        "revoke access",
-    ];
-    const PRE_APPROVE: &[&str] = &[
-        "sign in",
-        "log in",
-        "login",
-        "permission",
-        "upload",
-        "move",
-        "rename",
-        "connect account",
-    ];
-    if HARD_DENY.iter().any(|needle| text.contains(needle)) {
-        UiControlPolicyTier::HardDeny
-    } else if ALWAYS_CONFIRM.iter().any(|needle| text.contains(needle)) {
-        UiControlPolicyTier::ActionConfirmation
-    } else if PRE_APPROVE.iter().any(|needle| text.contains(needle)) {
-        UiControlPolicyTier::PreApproval
-    } else {
-        UiControlPolicyTier::TaskGrant
-    }
-}
-
-fn find_control<'a>(node: &'a Value, control_id: &str) -> Option<&'a Value> {
-    let runtime_id = control_id.strip_prefix("uia:").unwrap_or(control_id);
-    if node.get("runtime_id").and_then(Value::as_str) == Some(runtime_id) {
-        return Some(node);
-    }
-    node.get("children")
-        .and_then(Value::as_array)
-        .and_then(|children| {
-            children
-                .iter()
-                .find_map(|child| find_control(child, control_id))
-        })
-}
-
-fn find_control_at_point(node: &Value, x: f64, y: f64) -> Option<&Value> {
-    let bounds = node.get("bounds")?;
-    let left = bounds.get("x")?.as_f64()?;
-    let top = bounds.get("y")?.as_f64()?;
-    let width = bounds.get("width")?.as_f64()?;
-    let height = bounds.get("height")?.as_f64()?;
-    if x < left || y < top || x >= left + width || y >= top + height {
-        return None;
-    }
-    node.get("children")
-        .and_then(Value::as_array)
-        .and_then(|children| {
-            children
-                .iter()
-                .rev()
-                .find_map(|child| find_control_at_point(child, x, y))
-        })
-        .or(Some(node))
-}
-
-fn find_focused_control(node: &Value) -> Option<&Value> {
-    if node.get("focused").and_then(Value::as_bool) == Some(true) {
-        return Some(node);
-    }
-    node.get("children")
-        .and_then(Value::as_array)
-        .and_then(|children| children.iter().find_map(find_focused_control))
-}
-
 fn audit_event(
     grant: &UiControlTaskGrant,
+    action: &str,
+    success: bool,
+    policy_tier: UiControlPolicyTier,
+    error_code: Option<UiControlHostErrorCode>,
+) {
+    audit_event_for_dcc(&grant.dcc_type, action, success, policy_tier, error_code);
+}
+
+fn audit_system_event(
+    grant: &UiControlSystemGrant,
+    action: &str,
+    success: bool,
+    policy_tier: UiControlPolicyTier,
+    error_code: Option<UiControlHostErrorCode>,
+) {
+    audit_event_for_dcc(&grant.dcc_type, action, success, policy_tier, error_code);
+}
+
+fn audit_event_for_dcc(
+    dcc_type: &str,
     action: &str,
     success: bool,
     policy_tier: UiControlPolicyTier,
@@ -975,7 +1330,7 @@ fn audit_event(
     let payload = json!({
         "event": "ui_control_operation",
         "tool": "dcc-mcp-ui-control-host",
-        "dcc_type": grant.dcc_type,
+        "dcc_type": dcc_type,
         "action": action,
         "success": success,
         "error": error_code,
@@ -1054,12 +1409,18 @@ struct RejectingConfirmationSurface;
 impl ConfirmationSurface for RejectingConfirmationSurface {
     fn confirm(
         &self,
-        kind: ConfirmationKind,
-        _target: &UiControlTarget,
+        kind: ConfirmationKind<'_>,
+        _target: Option<&UiControlTarget>,
         _action: Option<&UiControlAction>,
     ) -> Result<bool, HostFailure> {
-        if let ConfirmationKind::ConsequentialAction(tier) = kind {
-            let _ = tier;
+        match kind {
+            ConfirmationKind::ConsequentialAction(tier) => {
+                let _ = tier;
+            }
+            ConfirmationKind::SystemOperation(operation) => {
+                let _ = operation;
+            }
+            ConfirmationKind::ResumeAfterStop => {}
         }
         Ok(false)
     }
@@ -1103,389 +1464,4 @@ fn self_check() -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use dcc_mcp_app_ui::host_protocol::{UiControlInputKind, UiControlIntent};
-
-    struct FakeRuntime;
-
-    struct FakeSession {
-        target: UiControlTarget,
-    }
-
-    impl HostRuntime for FakeRuntime {
-        fn open(
-            &self,
-            grant: &UiControlTaskGrant,
-        ) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
-            Ok(Box::new(FakeSession {
-                target: UiControlTarget {
-                    process_id: grant.process_id.unwrap_or(42),
-                    window_handle: grant.window_handle.unwrap_or(0x1234),
-                    window_title: "Test DCC".to_owned(),
-                },
-            }))
-        }
-    }
-
-    impl HostRuntimeSession for FakeSession {
-        fn target(&self) -> &UiControlTarget {
-            &self.target
-        }
-
-        fn start_visible_notice(&mut self) -> Result<(), HostFailure> {
-            Ok(())
-        }
-
-        fn window_state(&mut self) -> Result<UiControlWindowState, HostFailure> {
-            Ok(UiControlWindowState {
-                process_id: self.target.process_id,
-                window_handle: self.target.window_handle,
-                exists: true,
-                visible: true,
-                minimized: false,
-                foreground: true,
-            })
-        }
-
-        fn change_window_state(
-            &mut self,
-            _operation: UiControlWindowOperation,
-        ) -> Result<UiControlWindowState, HostFailure> {
-            self.window_state()
-        }
-
-        fn snapshot(
-            &mut self,
-            _max_depth: u32,
-            _max_nodes: u32,
-        ) -> Result<RuntimeSnapshot, HostFailure> {
-            Ok(RuntimeSnapshot {
-                observation_id: "obs-1".to_owned(),
-                target: self.target.clone(),
-                observation: json!({"observation_id": "obs-1"}),
-                root: json!({
-                    "runtime_id": "42.1",
-                    "name": "Delete",
-                    "is_password": false,
-                    "children": [],
-                }),
-                focus_runtime_id: None,
-                node_count: 1,
-                image: UiControlSharedImage {
-                    name: "test".to_owned(),
-                    id: "test".to_owned(),
-                    length: 3,
-                    mime_type: "image/png".to_owned(),
-                },
-            })
-        }
-
-        fn execute(
-            &mut self,
-            _observation_id: &str,
-            _action: &UiControlAction,
-        ) -> Result<RuntimeActionResult, HostFailure> {
-            Ok(RuntimeActionResult {
-                message: "completed".to_owned(),
-                before_focus_runtime_id: None,
-                after_focus_runtime_id: None,
-            })
-        }
-
-        fn resume_after_approval(&mut self) -> Result<(), HostFailure> {
-            Ok(())
-        }
-
-        fn stop(&mut self) -> bool {
-            false
-        }
-    }
-
-    struct AllowConfirmation;
-
-    impl ConfirmationSurface for AllowConfirmation {
-        fn confirm(
-            &self,
-            _kind: ConfirmationKind,
-            _target: &UiControlTarget,
-            _action: Option<&UiControlAction>,
-        ) -> Result<bool, HostFailure> {
-            Ok(true)
-        }
-    }
-
-    struct DenyConfirmation;
-
-    impl ConfirmationSurface for DenyConfirmation {
-        fn confirm(
-            &self,
-            _kind: ConfirmationKind,
-            _target: &UiControlTarget,
-            _action: Option<&UiControlAction>,
-        ) -> Result<bool, HostFailure> {
-            Ok(false)
-        }
-    }
-
-    fn host() -> UiControlHost {
-        UiControlHost {
-            sessions: HashMap::new(),
-            runtime: Box::new(FakeRuntime),
-            confirmation: Box::new(AllowConfirmation),
-        }
-    }
-
-    fn grant(raw: bool) -> UiControlTaskGrant {
-        UiControlTaskGrant {
-            task_grant_id: "grant-1".to_owned(),
-            dcc_type: "unreal".to_owned(),
-            process_id: Some(42),
-            window_handle: Some(0x1234),
-            allow_raw_input: raw,
-        }
-    }
-
-    fn action(control_id: Option<&str>, input_kind: UiControlInputKind) -> UiControlAction {
-        UiControlAction {
-            action: "click".to_owned(),
-            control_id: control_id.map(str::to_owned),
-            input_kind,
-            intent: UiControlIntent::OrdinaryEdit,
-            x: None,
-            y: None,
-            button: None,
-            scroll_x: None,
-            scroll_y: None,
-            path: Vec::new(),
-            text: None,
-            keys: Vec::new(),
-            checked: None,
-            duration_ms: None,
-        }
-    }
-
-    fn negotiated() -> (UiControlHost, UiControlHostConnection) {
-        let mut host = host();
-        let mut connection = UiControlHostConnection::default();
-        assert!(matches!(
-            connection.handle(
-                &mut host,
-                UiControlHostRequest::Hello(UiControlHostHello {
-                    protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
-                    client_name: "test".to_owned(),
-                })
-            ),
-            UiControlHostResponse::Hello { .. }
-        ));
-        (host, connection)
-    }
-
-    #[test]
-    fn handshake_is_required_and_exact() {
-        let mut host = host();
-        let mut connection = UiControlHostConnection::default();
-        assert!(matches!(
-            connection.handle(
-                &mut host,
-                UiControlHostRequest::StopSession {
-                    session_id: "missing".to_owned(),
-                }
-            ),
-            UiControlHostResponse::Error {
-                code: UiControlHostErrorCode::HandshakeRequired,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn routine_session_is_notice_only() {
-        let (mut host, mut connection) = negotiated();
-        host.confirmation = Box::new(DenyConfirmation);
-        assert!(matches!(
-            connection.handle(
-                &mut host,
-                UiControlHostRequest::OpenSession {
-                    session_id: "notice-only".to_owned(),
-                    grant: grant(false),
-                },
-            ),
-            UiControlHostResponse::SessionOpened { .. }
-        ));
-    }
-
-    #[test]
-    fn exact_target_capability_and_observation_are_required() {
-        let (mut host, mut connection) = negotiated();
-        let opened = connection.handle(
-            &mut host,
-            UiControlHostRequest::OpenSession {
-                session_id: "session-1".to_owned(),
-                grant: grant(false),
-            },
-        );
-        let UiControlHostResponse::SessionOpened {
-            window_capability,
-            target,
-            ..
-        } = opened
-        else {
-            panic!("session not opened: {opened:?}");
-        };
-        assert_eq!(target.process_id, 42);
-        let state = connection.handle(
-            &mut host,
-            UiControlHostRequest::GetWindowState {
-                session_id: "session-1".to_owned(),
-                task_grant_id: "grant-1".to_owned(),
-                window_capability: window_capability.clone(),
-            },
-        );
-        assert!(matches!(
-            state,
-            UiControlHostResponse::WindowState {
-                state: UiControlWindowState {
-                    exists: true,
-                    minimized: false,
-                    ..
-                },
-                ..
-            }
-        ));
-        let snapshot = connection.handle(
-            &mut host,
-            UiControlHostRequest::Snapshot {
-                session_id: "session-1".to_owned(),
-                task_grant_id: "grant-1".to_owned(),
-                window_capability: window_capability.clone(),
-                max_depth: 5,
-                max_nodes: 250,
-            },
-        );
-        let UiControlHostResponse::Snapshot {
-            observation_id,
-            accessibility_state_id,
-            ..
-        } = snapshot
-        else {
-            panic!("snapshot failed: {snapshot:?}");
-        };
-        let completed = connection.handle(
-            &mut host,
-            UiControlHostRequest::ExecuteAction {
-                session_id: "session-1".to_owned(),
-                task_grant_id: "grant-1".to_owned(),
-                window_capability,
-                observation_id,
-                accessibility_state_id,
-                action: Box::new(action(Some("uia:42.1"), UiControlInputKind::Semantic)),
-            },
-        );
-        assert!(matches!(
-            completed,
-            UiControlHostResponse::ActionCompleted {
-                success: true,
-                policy_tier: UiControlPolicyTier::ActionConfirmation,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn window_recovery_does_not_require_an_observation_and_disconnect_revokes_it() {
-        let (mut host, mut connection) = negotiated();
-        let opened = connection.handle(
-            &mut host,
-            UiControlHostRequest::OpenSession {
-                session_id: "session-recovery".to_owned(),
-                grant: grant(false),
-            },
-        );
-        let UiControlHostResponse::SessionOpened {
-            window_capability, ..
-        } = opened
-        else {
-            panic!("session not opened: {opened:?}");
-        };
-        let changed = connection.handle(
-            &mut host,
-            UiControlHostRequest::ChangeWindowState {
-                session_id: "session-recovery".to_owned(),
-                task_grant_id: "grant-1".to_owned(),
-                window_capability,
-                operation: UiControlWindowOperation::Restore,
-            },
-        );
-        assert!(matches!(
-            changed,
-            UiControlHostResponse::WindowStateChanged {
-                operation: UiControlWindowOperation::Restore,
-                ..
-            }
-        ));
-        connection.disconnect(&mut host);
-        assert!(host.sessions.is_empty());
-    }
-
-    #[test]
-    fn one_pipe_cannot_address_another_pipes_session() {
-        let (mut host, mut owner) = negotiated();
-        let opened = owner.handle(
-            &mut host,
-            UiControlHostRequest::OpenSession {
-                session_id: "owned".to_owned(),
-                grant: grant(false),
-            },
-        );
-        let UiControlHostResponse::SessionOpened {
-            window_capability, ..
-        } = opened
-        else {
-            panic!("session not opened: {opened:?}");
-        };
-        let (_, mut other) = negotiated();
-        let response = other.handle(
-            &mut host,
-            UiControlHostRequest::GetWindowState {
-                session_id: "owned".to_owned(),
-                task_grant_id: "grant-1".to_owned(),
-                window_capability,
-            },
-        );
-        assert!(matches!(
-            response,
-            UiControlHostResponse::Error {
-                code: UiControlHostErrorCode::SessionNotFound,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn raw_input_grant_and_hard_denies_cannot_be_bypassed() {
-        assert_eq!(
-            classify_action(
-                &UiControlAction {
-                    keys: vec!["WIN+R".to_owned()],
-                    input_kind: UiControlInputKind::RawInput,
-                    ..action(None, UiControlInputKind::RawInput)
-                },
-                None,
-                None,
-            ),
-            UiControlPolicyTier::HardDeny
-        );
-        assert_eq!(
-            classify_control_text("password field"),
-            UiControlPolicyTier::HardDeny
-        );
-        assert!(
-            validate_action_descriptor(&UiControlAction {
-                action: "secret supplied as an action name".to_owned(),
-                ..action(Some("uia:42.1"), UiControlInputKind::Semantic)
-            })
-            .is_err()
-        );
-    }
-}
+mod tests;

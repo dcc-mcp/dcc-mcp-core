@@ -135,8 +135,10 @@ mod imp {
     use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
     use crate::backend::win_dpi::ThreadDpiAwareness;
+    use crate::capture_worker::{
+        capture_same_thread_bgra, capture_via_worker, window_is_same_thread,
+    };
     use crate::error::{CaptureError, CaptureResult};
-    use crate::helper::{capture_same_thread_bgra, capture_via_helper, window_is_same_thread};
     use crate::types::{CaptureConfig, CaptureFormat, CaptureFrame, CaptureTarget};
     use crate::window::WindowFinder;
 
@@ -173,11 +175,11 @@ mod imp {
 
         // PrintWindow is synchronous and unbounded. Keep same-thread windows
         // on a local, non-message BitBlt path; every other target is captured
-        // by the killable helper process so timeout_ms is enforceable.
+        // by the killable worker process so timeout_ms is enforceable.
         let raw_bgra = if window_is_same_thread(info.handle) {
             capture_same_thread_bgra(info.handle, w, h)?
         } else {
-            capture_via_helper(info.handle, w, h, config.timeout_ms)?
+            capture_via_worker(info.handle, w, h, config.timeout_ms)?
         };
 
         let timestamp_ms = SystemTime::now()

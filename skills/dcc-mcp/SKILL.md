@@ -140,7 +140,7 @@ new CLI for the next launch; it does not update a running `dcc-mcp-server`.
 ### DCC UI Control fallback
 
 **DCC UI Control** is the public capability name and `ui-control` is its stable
-CLI command. The `app_ui__*` names below are legacy runtime tool identifiers;
+CLI command. The `ui_control__*` names below are canonical runtime tool identifiers;
 do not call the feature “Computer Use” in agent-facing text.
 
 Do not choose UI Control first. Search, describe, and call the structured DCC
@@ -149,12 +149,12 @@ reported as unsupported, no suitable tool exists, or semantic UI Automation
 cannot reach the required control, make an agent-directed transition to DCC UI
 Control:
 
-1. `app_ui__snapshot` with an exact `process_id`, `window_handle`, or
+1. `ui_control__snapshot` with an exact `process_id`, `window_handle`, or
    `window_title`.
-2. `app_ui__find` and a semantic `app_ui__act` when possible; otherwise one
-   screenshot-coordinate `app_ui__act` using that snapshot.
-3. `app_ui__snapshot` after every action before choosing the next action.
-4. `app_ui__stop_computer_use` when the fallback completes, fails, or is
+2. `ui_control__find` and a semantic `ui_control__act` when possible; otherwise one
+   screenshot-coordinate `ui_control__act` using that snapshot.
+3. `ui_control__snapshot` after every action before choosing the next action.
+4. `ui_control__stop_computer_use` when the fallback completes, fails, or is
    abandoned so the visible effects and input owner are released.
 
 Shell agents should use the stable CLI wrapper instead of hand-building legacy
@@ -173,6 +173,22 @@ dcc-mcp-cli ui-control stop --instance-id <id> \
   --json '{"session_id":"menu"}'
 ```
 
+For an operator-preapproved Windows plug-in setup, use the separate typed
+system-operation route. It does not use a window or snapshot. The request sends
+only a non-sensitive operation id; the native host resolves it from the catalog
+selected by `DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID`:
+
+```bash
+dcc-mcp-cli ui-control system-operation --instance-id <id> \
+  --json '{"operation_id":"enable-remote-control"}'
+```
+
+The host always confirms the exact target. Never use this route for passwords,
+tokens, shell commands, HKLM, deletion/replacement, UAC, or security settings.
+If it returns `elevation_required`, `approval_required`, or
+`system_operation_not_granted`, stop and hand the operation to the user or the
+approved installer.
+
 Use `ui-control wait` for condition-based waits. Every subcommand accepts
 `--dcc-type`, `--json-file`, `--meta-json`, and `--timeout-secs` with the same
 meaning as `call`. Output is compact JSON by default so agents receive ids,
@@ -187,15 +203,15 @@ resolve the boundary first.
 Never widen the scope to the desktop or reuse coordinates across snapshots.
 Native pointer or keyboard fallback requires one exact `process_id` or
 `window_handle` already bound by the adapter/operator through
-`DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; request
+`DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; request
 scope can only narrow that trusted target. Title-only and process-name scopes
 are observation-only.
-If the user presses Esc during an active session and the tool returns `user_interrupted`, stop without
+If the user presses Ctrl+Alt+Esc and the tool returns `user_interrupted`, stop without
 retrying, changing `session_id`, or starting a new session. Only call
-`app_ui__snapshot(resume_computer_use=true)` after the user explicitly asks to
+`ui_control__snapshot(resume_computer_use=true)` after the user explicitly asks to
 resume DCC UI Control.
 
-For an exact PID/HWND, `app_ui__snapshot` automatically uses native window
+For an exact PID/HWND, `ui_control__snapshot` automatically uses native window
 capture if Windows UIA enumeration fails or times out; treat the returned tree
 as image-only and continue with one bounded native action.
 On the CLI+REST path, rich images are materialized into a bounded local
@@ -474,6 +490,11 @@ server binary, run the server-side command in that server environment:
 dcc-mcp-server update check
 dcc-mcp-server update apply
 ```
+
+The Admin Instances panel is check-only because a gateway cannot prove the
+selected instance's installation root. On Windows, server-side apply requires
+the same-version `dcc-mcp-ui-control-host` manifest entry and both SHA-256
+digests, then stages the server and host in one installation-bound transaction.
 
 Use marketplace commands for skills:
 

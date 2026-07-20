@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-from dcc_mcp_core.adapter_contracts import AppUiAuditRecord
-from dcc_mcp_core.adapter_contracts import AppUiPolicy
 from dcc_mcp_core.adapter_contracts import DebugPathMapping
 from dcc_mcp_core.adapter_contracts import DebugSessionDescriptor
 from dcc_mcp_core.adapter_contracts import DebugSessionStatus
@@ -14,7 +12,9 @@ from dcc_mcp_core.adapter_contracts import UiActionRequest
 from dcc_mcp_core.adapter_contracts import UiActionResult
 from dcc_mcp_core.adapter_contracts import UiArtifactRef
 from dcc_mcp_core.adapter_contracts import UiBounds
+from dcc_mcp_core.adapter_contracts import UiControlAuditRecord
 from dcc_mcp_core.adapter_contracts import UiControlNode
+from dcc_mcp_core.adapter_contracts import UiControlPolicy
 from dcc_mcp_core.adapter_contracts import UiErrorCode
 from dcc_mcp_core.adapter_contracts import UiPoint
 from dcc_mcp_core.adapter_contracts import UiSnapshot
@@ -27,6 +27,17 @@ def test_ui_point_is_available_from_the_top_level_package() -> None:
     import dcc_mcp_core
 
     assert dcc_mcp_core.UiPoint is UiPoint
+
+
+def test_removed_app_ui_contract_aliases_are_not_exported() -> None:
+    import dcc_mcp_core
+    import dcc_mcp_core.adapter_contracts as contracts
+
+    for removed_name in ("AppUiPolicy", "AppUiAuditRecord"):
+        assert removed_name not in dcc_mcp_core.__all__
+        assert removed_name not in contracts.__all__
+        assert not hasattr(dcc_mcp_core, removed_name)
+        assert not hasattr(contracts, removed_name)
 
 
 def test_computer_use_error_codes_match_the_rust_wire_contract() -> None:
@@ -131,8 +142,8 @@ def test_ui_action_request_serializes_computer_use_inputs() -> None:
     assert payload["snapshot_id"] == "observation-1"
 
 
-def test_app_ui_policy_blocks_high_risk_actions_by_default() -> None:
-    policy = AppUiPolicy()
+def test_ui_control_policy_blocks_high_risk_actions_by_default() -> None:
+    policy = UiControlPolicy()
 
     assert policy.allows_action(UiActionKind.CLICK) is True
     assert policy.allows_action(UiActionKind.SET_TEXT) is True
@@ -145,8 +156,8 @@ def test_app_ui_policy_blocks_high_risk_actions_by_default() -> None:
     assert policy.to_dict()["require_scoped_window"] is True
 
 
-def test_app_ui_policy_requires_explicit_raw_input_for_computer_use_actions() -> None:
-    policy = AppUiPolicy()
+def test_ui_control_policy_requires_explicit_raw_input_for_computer_use_actions() -> None:
+    policy = UiControlPolicy()
 
     for action in (
         UiActionKind.MOVE,
@@ -158,7 +169,7 @@ def test_app_ui_policy_requires_explicit_raw_input_for_computer_use_actions() ->
     ):
         assert policy.allows_action(action) is False
 
-    enabled = AppUiPolicy(
+    enabled = UiControlPolicy(
         allow_raw_coordinates=True,
         allow_keyboard_shortcuts=True,
     )
@@ -172,7 +183,7 @@ def test_app_ui_policy_requires_explicit_raw_input_for_computer_use_actions() ->
     ):
         assert enabled.allows_action(action) is True
 
-    keyboard_only = AppUiPolicy(
+    keyboard_only = UiControlPolicy(
         allow_text_entry=False,
         allow_keyboard_shortcuts=True,
     )
@@ -180,8 +191,8 @@ def test_app_ui_policy_requires_explicit_raw_input_for_computer_use_actions() ->
     assert keyboard_only.allows_action(UiActionKind.TYPE) is False
 
 
-def test_app_ui_request_policy_can_only_narrow_the_runtime_ceiling() -> None:
-    ceiling = AppUiPolicy(
+def test_ui_control_request_policy_can_only_narrow_the_runtime_ceiling() -> None:
+    ceiling = UiControlPolicy(
         allow_raw_coordinates=False,
         allow_keyboard_shortcuts=False,
         audit_sensitive_values=False,
@@ -218,10 +229,10 @@ def test_app_ui_request_policy_can_only_narrow_the_runtime_ceiling() -> None:
         x=10,
         y=20,
     )
-    assert AppUiPolicy(allow_raw_coordinates=True, scope_denied=True).allows_request(coordinate_click) is False
+    assert UiControlPolicy(allow_raw_coordinates=True, scope_denied=True).allows_request(coordinate_click) is False
 
 
-def test_app_ui_wait_result_and_audit_record_are_structured() -> None:
+def test_ui_control_wait_result_and_audit_record_are_structured() -> None:
     condition = UiWaitCondition(
         kind=UiWaitConditionKind.TEXT_EQUALS,
         control_id="status",
@@ -237,7 +248,7 @@ def test_app_ui_wait_result_and_audit_record_are_structured() -> None:
         error_code=UiErrorCode.TIMEOUT,
         message="condition did not become true",
     )
-    audit = AppUiAuditRecord(
+    audit = UiControlAuditRecord(
         action_kind=UiActionKind.SET_TEXT,
         success=False,
         target_control_id="project-name",

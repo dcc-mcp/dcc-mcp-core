@@ -65,7 +65,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-protocols     # MCP-facing Tool/Resource/Prompt/DccAdapter models
 ├── dcc-mcp-jsonrpc       # MCP 2025-03-26 JSON-RPC builders
 ├── dcc-mcp-wire          # Canonical MCP/REST call envelopes, validation, normalization
-├── dcc-mcp-app-ui        # DCC-agnostic app_ui observation/action contracts
+├── dcc-mcp-ui-control        # DCC-agnostic ui_control observation/action contracts
 ├── dcc-mcp-job           # Async job tracking + optional persistence
 ├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
@@ -135,7 +135,7 @@ dcc-mcp-server ← dcc-mcp-http, dcc-mcp-sidecar
 
 dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
-dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit contracts)
+dcc-mcp-ui-control (independent pure ui_control observation/action/wait/policy/audit contracts)
 ```
 
 ## Crate Responsibilities
@@ -392,7 +392,7 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 
 **Dependencies**: `dcc-mcp-gateway`, `dcc-mcp-host-rpc`, `dcc-mcp-transport`, `axum`, `reqwest`, `tokio`, `sysinfo`.
 
-### dcc-mcp-app-ui
+### dcc-mcp-ui-control
 
 **Purpose**: DCC-agnostic application UI observation/action contract values. Keep these schemas independent from HTTP, Python bindings, OS accessibility, Qt, or webview automation so adapters can share the same contract without inheriting a backend.
 
@@ -400,7 +400,7 @@ dcc-mcp-app-ui (independent pure app_ui observation/action/wait/policy/audit con
 - `UiBounds`, `UiControlNode`, `UiSnapshot` — bounded UI tree snapshots.
 - `UiFindRequest`, `UiActionRequest`, `UiActionKind`, `UiActionResult` — find-and-act envelopes for scoped controls.
 - `UiWaitCondition`, `UiWaitResult` — in-tool polling contract.
-- `AppUiPolicy`, `AppUiAuditRecord` — action policy and audit records.
+- `UiControlPolicy`, `UiControlAuditRecord` — action policy and audit records.
 
 **Compatibility**: The Rust types are not re-exported through `dcc-mcp-http` because this surface has not shipped yet. The Python-facing contract names remain stable in `dcc_mcp_core.adapter_contracts`, and CLI/server behavior is unchanged.
 

@@ -1080,15 +1080,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dcc-mcp-app-ui"
-version = "0.19.62"
-dependencies = [
- "serde",
- "serde_json",
- "workspace-hack",
-]
-
-[[package]]
 name = "dcc-mcp-artefact"
 version = "0.19.62"
 dependencies = [
@@ -1175,10 +1166,10 @@ dependencies = [
 name = "dcc-mcp-computer-use"
 version = "0.19.62"
 dependencies = [
- "dcc-mcp-app-ui",
  "dcc-mcp-capture",
  "dcc-mcp-paths",
  "dcc-mcp-shm",
+ "dcc-mcp-ui-control",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
@@ -1962,14 +1953,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-ui-control"
+version = "0.19.62"
+dependencies = [
+ "serde",
+ "serde_json",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-updater"
 version = "0.19.62"
 dependencies = [
  "anyhow",
+ "fs4",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",

@@ -200,7 +200,7 @@ enum Command {
         #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
         timeout_secs: u64,
     },
-    /// Run the scoped DCC UI Control fallback through stable app-ui tools.
+    /// Run the scoped DCC UI Control fallback through stable ui-control tools.
     UiControl {
         #[command(subcommand)]
         action: UiControlAction,
@@ -281,6 +281,8 @@ enum UiControlAction {
     Find(UiControlArgs),
     /// Perform one scoped semantic, pointer, or keyboard action.
     Act(UiControlArgs),
+    /// Perform one typed, policy-gated operating-system configuration operation.
+    SystemOperation(UiControlArgs),
     /// Wait for one semantic UI condition inside the scoped DCC window.
     Wait(UiControlArgs),
     /// Stop the scoped session and release its visible effects and input owner.
@@ -290,11 +292,12 @@ enum UiControlAction {
 impl UiControlAction {
     fn into_call(self) -> (&'static str, UiControlArgs) {
         match self {
-            Self::Snapshot(args) => ("app_ui__snapshot", args),
-            Self::Find(args) => ("app_ui__find", args),
-            Self::Act(args) => ("app_ui__act", args),
-            Self::Wait(args) => ("app_ui__wait_for", args),
-            Self::Stop(args) => ("app_ui__stop_computer_use", args),
+            Self::Snapshot(args) => ("ui_control__snapshot", args),
+            Self::Find(args) => ("ui_control__find", args),
+            Self::Act(args) => ("ui_control__act", args),
+            Self::SystemOperation(args) => ("ui_control__system_operation", args),
+            Self::Wait(args) => ("ui_control__wait_for", args),
+            Self::Stop(args) => ("ui_control__stop_computer_use", args),
         }
     }
 }
@@ -307,7 +310,7 @@ struct UiControlArgs {
     /// Full instance UUID or unique >=4-character prefix.
     #[arg(long)]
     instance_id: Option<String>,
-    /// Operation arguments using the underlying app-ui tool schema.
+    /// Operation arguments using the underlying ui-control tool schema.
     #[arg(long = "json", default_value = "{}")]
     arguments_json: String,
     /// Read operation arguments from a UTF-8 JSON file, or '-' for stdin.

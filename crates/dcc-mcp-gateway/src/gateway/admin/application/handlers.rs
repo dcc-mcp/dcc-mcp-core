@@ -307,6 +307,31 @@ pub async fn handle_admin_instance_update(
         .into_response();
     }
 
+    // The gateway cannot prove that a selected instance uses its own current
+    // executable or installation root. Staging a server update here would let
+    // another local/remote instance consume a binary_name-only marker and,
+    // on Windows, could pair the server with the wrong sibling host. Keep
+    // Admin check-only and require apply from the exact target environment.
+    if binary_name == "dcc-mcp-server" {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "status": "target_environment_required",
+                "error": "server_update_target_unproven",
+                "message": "Server updates must be staged from the target installation. Run `dcc-mcp-server update apply` in that server environment.",
+                "instance_id": instance_id,
+                "instance_short": instance_short_id,
+                "binary_name": binary_name,
+                "current_version": displayed_current_version,
+                "current_version_source": current_version_source,
+                "latest_version": manifest_entry.version,
+                "update_available": true,
+                "requires_restart": false,
+            })),
+        )
+            .into_response();
+    }
+
     if manifest_entry.url.is_none() {
         return (
             StatusCode::NOT_FOUND,

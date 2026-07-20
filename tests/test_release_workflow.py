@@ -128,19 +128,17 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
     assert '--platform "${{ matrix.platform }}"' in run
     assert '--server-bin "${{ matrix.artifact_name }}"' in run
     assert '--cli-bin "${{ matrix.cli_artifact_name }}"' in run
-    assert "--capture-helper target/release/dcc-mcp-capture-helper.exe" in run
     assert "--ui-control-host target/release/dcc-mcp-ui-control-host.exe" in run
 
-    host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows runtime hosts")
+    host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows UI Control host")
     assert host_build["if"] == "matrix.os == 'windows-latest'"
-    assert "vx just stage-windows-runtime-hosts" in host_build["run"]
+    assert "vx just stage-ui-control-host" in host_build["run"]
 
     host_inject = next(
-        step for step in build["steps"] if step.get("name") == "Inject Windows runtime hosts into server wheel"
+        step for step in build["steps"] if step.get("name") == "Inject Windows UI Control host into server wheel"
     )
     assert host_inject["if"] == "matrix.os == 'windows-latest'"
-    assert "scripts/release/inject_capture_helper.py" in host_inject["run"]
-    assert "target/release/dcc-mcp-capture-helper.exe" in host_inject["run"]
+    assert "scripts/release/inject_ui_control_host.py" in host_inject["run"]
     assert "target/release/dcc-mcp-ui-control-host.exe" in host_inject["run"]
 
     raw_upload = next(

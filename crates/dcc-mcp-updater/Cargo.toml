@@ -16,5 +16,7 @@ reqwest.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+fs4 = "1.1.0"
 sha2 = "0.11"
+tempfile = "3"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

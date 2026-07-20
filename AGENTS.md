@@ -147,12 +147,13 @@ Support check (only when unclear): `dcc-mcp-cli dcc-types` lists canonical adapt
 5. Package as a skill: fork or extend `dcc-mcp` to reuse `dcc-mcp-cli` calls as structured MCP tools.
 6. Review reusable friction only after acceptance: query narrowly scoped `dcc-mcp-cli stats`, then use the `review_skill_improvement` prompt from `dcc-mcp-skills-creator`; zero calls means no evidence, and review never expands edit/publish authority.
 7. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
-8. Use `app-ui` Computer Use only when a structured DCC skill/script/API is unsupported, missing, or cannot reach the required semantic UI. Never switch to another UI/input path after a policy, authorization, authentication, security, confirmation, desktop-availability, or user-interruption failure. The adapter/operator must bind native input to its DCC with `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; requests may only narrow that trusted scope. Use `snapshot` → one `act` → `snapshot`, then `stop_computer_use` on every exit path.
-9. While UI Control is active, Esc sets a Windows-logon-session-wide hard user stop across DCC adapter processes. Outside an active session, Esc behaves normally. After the hard stop, do not retry, change `session_id`, or restart. Resume only with `app_ui__snapshot(resume_computer_use=true)` after an explicit user request and only while no Computer Use owner is active.
+8. Use `ui-control` Computer Use only when a structured DCC skill/script/API is unsupported, missing, or cannot reach the required semantic UI. Never switch to another UI/input path after a policy, authorization, authentication, security, confirmation, desktop-availability, or user-interruption failure. The adapter/operator must bind native input to its DCC with `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; requests may only narrow that trusted scope. Use `snapshot` → one `act` → `snapshot`, then `stop_computer_use` on every exit path.
+9. Ctrl+Alt+Esc sets a Windows-logon-session-wide hard user stop across DCC adapter processes; ordinary Esc remains available to the target app. After the hard stop, do not retry, change `session_id`, or restart. Resume only with `ui_control__snapshot(resume_computer_use=true)` after an explicit user request and only while no Computer Use owner is active.
 10. Treat `desktop_unavailable` as a pause when Windows is locked, disconnected, or on a secure desktop. No UIA/raw input runs, but the logical `session_id` remains and structured DCC/MCP calls may continue subject to host readiness. Never automate LockApp. After unlock, discard old ids and take a fresh exact-target snapshot so the banner returns.
 11. An ordinary process cannot show the banner on the Windows lock screen. Use a dedicated, always-unlocked VM for uninterrupted Windows GUI control. Public `openai/codex` `codex-rs` contains policy/plugin wiring, not the desktop Computer Use helper implementation; this repository's backend is independent.
 12. Computer Use executes on the adapter host in the interactive Windows logon session that owns the DCC. A central gateway routes calls but does not own coordinates. Never reuse gateway, other-host, or other-session coordinates. RDP disconnect/session switch pauses with `desktop_unavailable`; reconnect to the DCC session and take a fresh snapshot.
 13. Multi-monitor observations remain bounded to the scoped target window, which may sit at a negative virtual-desktop origin or span monitors with different DPI values. Any topology, resolution, or DPI/scaling change invalidates the observation and requires a fresh snapshot. The banner follows the scoped target within its owning session.
+14. Windows plug-in setup may use `ui_control__system_operation` only for an exact operator-owned HKCU String/DWORD or file/directory symlink grant. It is windowless and always confirmed, but never permits shell commands, arbitrary file operations, alternate registry hives, overwrite/delete, credentials, elevation, UAC, or security surfaces. Stop on `elevation_required`, `approval_required`, or `system_operation_not_granted`.
 
 IDE MCP (for human IDE users — Cursor, Claude Desktop, VS Code):
 1. Discover: MCP `search(query="keyword", dcc_type="maya")` → get `tool_slug`.
@@ -354,7 +355,7 @@ The ranking rules (#1398) keep low-level skills out of the agent's primary
 flow for neutral queries:
 
 - `domain` skills win by default.
-- `infrastructure` skills (e.g. `app-ui`, `dcc-adapter`, `dcc-diagnostics`)
+- `infrastructure` skills (e.g. `ui-control`, `dcc-adapter`, `dcc-diagnostics`)
   stay around as fallbacks but rank below domain.
 - `thin-harness` skills are the lowest tier that still appears — useful as a
   last-resort wrapper around a raw script.

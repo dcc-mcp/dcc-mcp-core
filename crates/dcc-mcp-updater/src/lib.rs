@@ -20,6 +20,16 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+mod update_set;
+
+pub use update_set::{
+    UpdateSetSource, UpdateTarget, apply_staged_update_set, install_verified_sibling,
+    stage_update_set,
+};
+
+#[doc(hidden)]
+pub use update_set::{apply_staged_update_set_for, stage_update_set_for};
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /// Response from the gateway's version-check endpoint.
@@ -227,9 +237,7 @@ impl Updater {
 
         // Verify SHA-256 if provided
         if let Some(expected_sha) = &info.sha256 {
-            let mut hasher = Sha256::new();
-            hasher.update(&bytes);
-            let actual_sha = hex::encode(hasher.finalize().as_slice());
+            let actual_sha = sha256_bytes(&bytes);
             if !actual_sha.eq_ignore_ascii_case(expected_sha) {
                 return Err(UpdateError::ChecksumMismatch {
                     expected: expected_sha.clone(),
@@ -345,6 +353,29 @@ fn staging_dir(binary_name: &str) -> Result<PathBuf, UpdateError> {
     // Falls back to a temp dir if we can't determine the data dir
     let base = dirs_data_dir().unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp"));
     Ok(base.join("update").join(binary_name))
+}
+
+/// Return the lowercase SHA-256 digest for a local file.
+pub fn sha256_file(path: &Path) -> Result<String, UpdateError> {
+    use std::io::Read as _;
+
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize().as_slice()))
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize().as_slice())
 }
 
 fn dirs_data_dir() -> Option<PathBuf> {

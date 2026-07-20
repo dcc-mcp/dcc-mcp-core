@@ -19,7 +19,7 @@ paths so existing call sites keep compiling while the migration is in
 flight.
 
 Application UI observation/action contracts intentionally live in
-`dcc-mcp-app-ui`, not here. That keeps the `app_ui` schema independent from the
+`dcc-mcp-ui-control`, not here. That keeps the `ui_control` schema independent from the
 HTTP wire/config layer and from any host-specific UI automation backend.
 
 ## Stability

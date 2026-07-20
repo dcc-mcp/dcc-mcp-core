@@ -101,15 +101,13 @@ module-name = "dcc_mcp_core._core"
 # for downstream `pip install .` / sdist rebuilds that bypass our CI.
 features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler", "prometheus", "job-persist-sqlite"]
 bindings = "pyo3"
-# The Windows build pipeline stages the version-matched capture helper here.
+# The Windows build pipeline stages the version-matched UI Control host here.
 # It is a wheel runtime artefact, never an sdist input: rebuilding an sdist on
 # another platform must not redistribute a stale Windows executable.
 include = [
-    { path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "wheel" },
     { path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "wheel" },
 ]
 exclude = [
-    { path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "sdist" },
     { path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "sdist" },
 ]
 
@@ -160,7 +158,7 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/metadata_registration.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_registration.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/usd_resources.py" = ["UP006", "UP007", "UP045"]
-"python/dcc_mcp_core/skills/app-ui/scripts/*.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/skills/ui-control/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/skills/media/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/adapter_contracts.py" = ["UP006", "UP037", "UP045"]
 "python/dcc_mcp_core/asset_import.py" = ["UP006", "UP045"]

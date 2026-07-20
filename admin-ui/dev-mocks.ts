@@ -1286,12 +1286,12 @@ export function adminApiMockPlugin(): Plugin {
             binary: 'dcc-mcp-server',
             current_version: instanceId.startsWith('maya') ? '0.17.38-dev' : null,
             latest_version: '0.18.0',
-            status: instanceId.startsWith('maya') ? 'staged' : 'binary_not_found',
+            status: instanceId.startsWith('maya') ? 'available' : 'binary_not_found',
             message: instanceId.startsWith('maya')
-              ? 'Update staged. Restart the adapter to use 0.18.0.'
+              ? 'An update is available. Run dcc-mcp-server update apply in the target installation.'
               : 'dcc-mcp-server binary was not found for this mocked instance.',
             download_url: 'https://github.com/dcc-mcp/dcc-mcp-core/releases/latest',
-            staged_path: instanceId.startsWith('maya') ? 'C:/Users/demo/.dcc-mcp/updates/dcc-mcp-server.exe' : null,
+            staged_path: null,
           });
         }
         if (url.startsWith('/instances')) return send(res, 200, INSTANCES_PAYLOAD);
