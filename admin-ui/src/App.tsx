@@ -1610,16 +1610,6 @@ function App() {
           />
         )}
 
-        <ReliabilityPanel
-          active={activePanel === 'reliability'}
-          t={t}
-        />
-
-        <SessionsPanel
-          active={activePanel === 'sessions'}
-          t={t}
-        />
-
         {activePanel === 'instances' && (
           <InstancesPanel
             updatedAt={updatedAt.instances}
