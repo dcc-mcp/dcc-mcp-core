@@ -41,12 +41,12 @@ pub async fn handle_admin_artifacts(
     // 1. From trace log ring buffer
     if let Some(trace_log) = &s.trace_log {
         for trace in trace_log.recent(limit) {
-            if let Some(output) = &trace.output {
-                if let Ok(parsed) = serde_json::from_str::<Value>(&output.content) {
-                    let file_refs = extract_file_refs(&parsed);
-                    for fr in file_refs {
-                        artifacts.push(fr);
-                    }
+            if let Some(output) = &trace.output
+                && let Ok(parsed) = serde_json::from_str::<Value>(&output.content)
+            {
+                let file_refs = extract_file_refs(&parsed);
+                for fr in file_refs {
+                    artifacts.push(fr);
                 }
             }
         }
@@ -57,11 +57,12 @@ pub async fn handle_admin_artifacts(
         let reader = lane.reader();
         let traces = reader.list_traces_since(None, limit);
         for trace in traces {
-            if let Some(output) = &trace.output {
-                if let Ok(parsed) = serde_json::from_str::<Value>(&output.content) {
-                    let file_refs = extract_file_refs(&parsed);
-                    for fr in file_refs {
-                        // Deduplicate by URI
+            if let Some(output) = &trace.output
+                && let Ok(parsed) = serde_json::from_str::<Value>(&output.content)
+            {
+                let file_refs = extract_file_refs(&parsed);
+                for fr in file_refs {
+                    // Deduplicate by URI
                         let uri = fr.get("uri").and_then(|v| v.as_str()).unwrap_or("");
                         if !artifacts.iter().any(|a| {
                             a.get("uri")
@@ -71,7 +72,6 @@ pub async fn handle_admin_artifacts(
                             artifacts.push(fr);
                         }
                     }
-                }
             }
         }
     }
