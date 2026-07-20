@@ -612,24 +612,22 @@ pub async fn tool_call_tool(
         };
         persist_tool_call_event(
             gs,
-            request_id.unwrap_or_default(),
-            session_id,
-            parent_request_id,
-            None, // batch_id — single calls don't have one
-            slug.to_string(),
-            None, // skill_name — not available at this layer
-            None, // dcc_type — resolved at the backend level
-            None, // instance_id
-            agent_id,
-            "mcp",
-            started_at_ms,
-            duration_ms,
-            !is_error,
-            error_message,
-            error_kind,
-            "call",
-            trace_id,
-            span_id,
+            ToolCallEventRecord {
+                request_id: request_id.unwrap_or_default(),
+                session_id,
+                parent_request_id,
+                batch_id: None,
+                tool_name: slug.to_string(),
+                agent_id,
+                started_at_ms,
+                duration_ms,
+                success: !is_error,
+                error_message,
+                error_kind,
+                mcp_method: "call",
+                trace_id,
+                span_id,
+            },
         );
     }
 
@@ -808,24 +806,22 @@ pub async fn gateway_call_batch_inner(
                     };
                     persist_tool_call_event(
                         gs,
-                        child_request_id.clone(),
-                        session_id.clone(),
-                        parent_request_id.clone(),
-                        Some(batch_id.clone()),
-                        slug.to_string(),
-                        None,
-                        None,
-                        None,
-                        agent_id.clone(),
-                        "mcp",
-                        call_started_at_ms,
-                        call_duration_ms,
-                        !tool_failed,
-                        error_msg,
-                        ek,
-                        "call_batch",
-                        child_trace_id.clone(),
-                        child_span_id.clone(),
+                        ToolCallEventRecord {
+                            request_id: child_request_id.clone(),
+                            session_id: session_id.clone(),
+                            parent_request_id: parent_request_id.clone(),
+                            batch_id: Some(batch_id.clone()),
+                            tool_name: slug.to_string(),
+                            agent_id: agent_id.clone(),
+                            started_at_ms: call_started_at_ms,
+                            duration_ms: call_duration_ms,
+                            success: !tool_failed,
+                            error_message: error_msg,
+                            error_kind: ek,
+                            mcp_method: "call_batch",
+                            trace_id: child_trace_id.clone(),
+                            span_id: child_span_id.clone(),
+                        },
                     );
                 }
 
@@ -866,24 +862,22 @@ pub async fn gateway_call_batch_inner(
                 {
                     persist_tool_call_event(
                         gs,
-                        child_request_id.clone(),
-                        session_id.clone(),
-                        parent_request_id.clone(),
-                        Some(batch_id.clone()),
-                        slug.to_string(),
-                        None,
-                        None,
-                        None,
-                        agent_id.clone(),
-                        "mcp",
-                        call_started_at_ms,
-                        call_duration_ms,
-                        false,
-                        Some(err.message.clone()),
-                        ek,
-                        "call_batch",
-                        child_trace_id.clone(),
-                        child_span_id.clone(),
+                        ToolCallEventRecord {
+                            request_id: child_request_id.clone(),
+                            session_id: session_id.clone(),
+                            parent_request_id: parent_request_id.clone(),
+                            batch_id: Some(batch_id.clone()),
+                            tool_name: slug.to_string(),
+                            agent_id: agent_id.clone(),
+                            started_at_ms: call_started_at_ms,
+                            duration_ms: call_duration_ms,
+                            success: false,
+                            error_message: Some(err.message.clone()),
+                            error_kind: ek,
+                            mcp_method: "call_batch",
+                            trace_id: child_trace_id.clone(),
+                            span_id: child_span_id.clone(),
+                        },
                     );
                 }
 
@@ -1368,60 +1362,50 @@ pub fn gateway_tool_defs() -> serde_json::Value {
 /// Persist a [`dcc_mcp_models::ToolCallEvent`] to the admin SQLite database
 /// when the persistence lane is available.
 #[cfg(feature = "admin-persist-sqlite")]
-fn persist_tool_call_event(
-    gs: &GatewayState,
+struct ToolCallEventRecord {
     request_id: String,
     session_id: Option<String>,
     parent_request_id: Option<String>,
     batch_id: Option<String>,
     tool_name: String,
-    skill_name: Option<String>,
-    dcc_type: Option<String>,
-    instance_id: Option<String>,
     agent_id: Option<String>,
-    transport: &str,
     started_at_ms: i64,
     duration_ms: i64,
     success: bool,
     error_message: Option<String>,
     error_kind: Option<String>,
-    mcp_method: &str,
+    mcp_method: &'static str,
     trace_id: Option<String>,
     span_id: Option<String>,
-) {
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+fn persist_tool_call_event(gs: &GatewayState, record: ToolCallEventRecord) {
     let Some(ref lane) = gs.admin_sqlite_lane else {
         return;
     };
-    let session_id = session_id.unwrap_or_default();
+    let session_id = record.session_id.unwrap_or_default();
     let event = dcc_mcp_models::ToolCallEvent::new(
-        request_id,
+        record.request_id,
         session_id,
-        tool_name,
-        started_at_ms,
-        duration_ms,
-        success,
+        record.tool_name,
+        record.started_at_ms,
+        record.duration_ms,
+        record.success,
     )
-    .with_transport(transport.to_string(), true)
-    .with_mcp_method(mcp_method.to_string());
+    .with_transport("mcp".to_string(), true)
+    .with_mcp_method(record.mcp_method.to_string());
     let mut event = event;
-    if let Some(pid) = parent_request_id {
-        if let Some(bid) = batch_id {
-            event = event.with_batch_parent(pid, bid);
-        }
+    if let (Some(parent_request_id), Some(batch_id)) = (record.parent_request_id, record.batch_id) {
+        event = event.with_batch_parent(parent_request_id, batch_id);
     }
-    if let Some(dt) = dcc_type {
-        event = event.with_dcc_context(dt, instance_id);
-    }
-    if let Some(aid) = agent_id {
+    if let Some(aid) = record.agent_id {
         event = event.with_agent(aid);
     }
-    if let Some(sn) = skill_name {
-        event = event.with_skill(sn);
+    if let Some(msg) = record.error_message {
+        event = event.with_error(msg, record.error_kind);
     }
-    if let Some(msg) = error_message {
-        event = event.with_error(msg, error_kind);
-    }
-    if let (Some(tid), Some(sid)) = (trace_id, span_id) {
+    if let (Some(tid), Some(sid)) = (record.trace_id, record.span_id) {
         event = event.with_trace(tid, sid);
     }
     lane.try_persist_tool_call_event(&event);
