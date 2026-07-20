@@ -16,6 +16,7 @@ import sqlite3
 import tempfile
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -198,7 +199,7 @@ def bench_sqlite_write(iterations: int = 1000) -> None:
 
         conn.close()
     finally:
-        os.unlink(path)
+        Path(path).unlink()
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +321,7 @@ def bench_funnel_query(iterations: int = 100) -> None:
 
         conn.close()
     finally:
-        os.unlink(path)
+        Path(path).unlink()
 
 
 # ---------------------------------------------------------------------------

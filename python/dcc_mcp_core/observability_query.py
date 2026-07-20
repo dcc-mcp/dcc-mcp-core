@@ -445,13 +445,31 @@ class ObservabilityQuery:
         SELECT
             COUNT(*) AS total_calls,
             SUM(CASE WHEN mcp_method = 'search' THEN 1 ELSE 0 END) AS searches_total,
-            SUM(CASE WHEN mcp_method = 'search' AND error_kind = 'zero_results' THEN 1 ELSE 0 END) AS searches_zero_results,
-            SUM(CASE WHEN mcp_method = 'load_skill' AND success = 1 THEN 1 ELSE 0 END) AS skills_loaded,
-            SUM(CASE WHEN mcp_method IN ('call', 'call_batch') THEN 1 ELSE 0 END) AS skills_called,
-            SUM(CASE WHEN mcp_method IN ('call', 'call_batch') AND success = 1 THEN 1 ELSE 0 END) AS skills_succeeded,
-            SUM(CASE WHEN error_kind = 'script_fallback' THEN 1 ELSE 0 END) AS script_fallbacks,
-            SUM(CASE WHEN error_kind = 'ui_control_fallback' THEN 1 ELSE 0 END) AS ui_control_fallbacks,
-            COALESCE(MIN(CASE WHEN mcp_method IN ('call', 'call_batch') AND success = 1 THEN duration_ms END), 0) AS first_success_duration_ms
+            SUM(CASE
+                WHEN mcp_method = 'search'
+                AND error_kind = 'zero_results'
+                THEN 1 ELSE 0 END) AS searches_zero_results,
+            SUM(CASE
+                WHEN mcp_method = 'load_skill'
+                AND success = 1
+                THEN 1 ELSE 0 END) AS skills_loaded,
+            SUM(CASE
+                WHEN mcp_method IN ('call', 'call_batch')
+                THEN 1 ELSE 0 END) AS skills_called,
+            SUM(CASE
+                WHEN mcp_method IN ('call', 'call_batch')
+                AND success = 1
+                THEN 1 ELSE 0 END) AS skills_succeeded,
+            SUM(CASE
+                WHEN error_kind = 'script_fallback'
+                THEN 1 ELSE 0 END) AS script_fallbacks,
+            SUM(CASE
+                WHEN error_kind = 'ui_control_fallback'
+                THEN 1 ELSE 0 END) AS ui_control_fallbacks,
+            COALESCE(MIN(CASE
+                WHEN mcp_method IN ('call', 'call_batch')
+                AND success = 1
+                THEN duration_ms END), 0) AS first_success_duration_ms
         FROM tool_calls
         {where}
         """

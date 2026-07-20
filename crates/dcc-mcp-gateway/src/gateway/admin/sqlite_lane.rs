@@ -262,10 +262,7 @@ impl AdminSqliteLane {
         self.inner.try_delete_skill_path(id)
     }
 
-    pub fn try_persist_tool_call_event(
-        &self,
-        event: &dcc_mcp_models::ToolCallEvent,
-    ) {
+    pub fn try_persist_tool_call_event(&self, event: &dcc_mcp_models::ToolCallEvent) {
         if let Ok(json) = serde_json::to_string(event) {
             self.inner.try_persist_tool_call_event_json(&json);
         }

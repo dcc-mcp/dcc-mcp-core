@@ -8,4 +8,9 @@
 pub mod handlers;
 
 #[cfg(feature = "admin")]
+pub mod health;
+
+#[cfg(feature = "admin")]
 pub use handlers::*;
+#[cfg(feature = "admin")]
+pub use health::*;
