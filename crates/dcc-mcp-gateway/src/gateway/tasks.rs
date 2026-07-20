@@ -957,6 +957,8 @@ pub(crate) async fn start_gateway_tasks(
         gateway_persist,
         gateway_idle_timeout_secs,
         semantic_search_enabled,
+        #[cfg(feature = "admin-persist-sqlite")]
+        admin_sqlite_lane: None,
     };
 
     let idle_shutdown_handle = if matches!(gw_state.adapter_dcc.as_deref(), Some("gateway"))
@@ -997,6 +999,11 @@ pub(crate) async fn start_gateway_tasks(
     } else {
         None
     };
+
+    #[cfg(feature = "admin-persist-sqlite")]
+    {
+        gw_state.admin_sqlite_lane = sqlite_lane.clone();
+    }
 
     #[cfg(feature = "admin")]
     persist_startup_probe_evictions(&sqlite_lane, &startup_probe_evictions);

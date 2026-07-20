@@ -1,6 +1,10 @@
 //! MCP discovery meta-tools served by the gateway's `/mcp` endpoint.
 
+pub mod instances;
+pub use instances::*;
+
 use serde_json::{Value, json};
+use uuid;
 
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::capability::search_cache::SearchCacheKey;
@@ -12,153 +16,6 @@ use crate::gateway::search_telemetry::{
 
 use super::state::GatewayState;
 use dcc_mcp_jsonrpc::coerce_tool_arguments_object;
-use dcc_mcp_transport::discovery::types::ServiceKey;
-
-// ── tools ──────────────────────────────────────────────────────────────────
-
-/// `acquire_dcc_instance` — reserve an idle DCC instance for a workflow/client.
-pub async fn tool_acquire_instance(gs: &GatewayState, args: &Value) -> Result<String, String> {
-    let dcc_type = args
-        .get("dcc_type")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "Provide dcc_type".to_string())?;
-    let owner = args
-        .get("lease_owner")
-        .and_then(|v| v.as_str())
-        .filter(|value| !value.is_empty() && *value == value.trim())
-        .ok_or_else(|| {
-            serde_json::to_string_pretty(&json!({
-                "success": false,
-                "reason": "lease_owner_required",
-                "message": "Acquiring a lease requires a non-empty lease_owner coordination label without surrounding whitespace.",
-            }))
-            .unwrap_or_else(|_| "lease_owner_required".to_string())
-        })?;
-    let instance_id = args.get("instance_id").and_then(|v| v.as_str());
-    let current_job_id = args
-        .get("current_job_id")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned);
-    let ttl_secs = args
-        .get("ttl_secs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3600)
-        .max(1);
-
-    let reg = gs.registry.read().await;
-    let resolved_instance_id = if instance_id.is_some() {
-        Some(
-            gs.resolve_instance(&reg, instance_id, Some(dcc_type))
-                .map_err(|err| err.to_string())?
-                .instance_id
-                .to_string(),
-        )
-    } else {
-        None
-    };
-    let Some(entry) = reg
-        .acquire_lease(
-            dcc_type,
-            resolved_instance_id.as_deref(),
-            owner,
-            current_job_id,
-            Some(std::time::Duration::from_secs(ttl_secs)),
-        )
-        .map_err(|e| e.to_string())?
-    else {
-        return Err(format!(
-            "No idle '{dcc_type}' instance is available for lease. \
-             Release a busy instance or start another DCC process."
-        ));
-    };
-
-    serde_json::to_string_pretty(&json!({
-        "success": true,
-        "message": format!("Leased {dcc_type} instance {}", entry.instance_id),
-        "instance": gs.instance_json(&entry),
-    }))
-    .map_err(|e| e.to_string())
-}
-
-/// `release_dcc_instance` — release a previously acquired instance lease.
-pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<String, String> {
-    let instance_id = args
-        .get("instance_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "Provide instance_id".to_string())?;
-    let reg = gs.registry.read().await;
-
-    let entry = gs
-        .resolve_instance(&reg, Some(instance_id), None)
-        .map_err(|err| err.to_string())?;
-    let key = ServiceKey {
-        dcc_type: entry.dcc_type.clone(),
-        instance_id: entry.instance_id,
-    };
-
-    let Some(row) = reg.get(&key) else {
-        return Err(serde_json::to_string_pretty(&json!({
-            "success": false,
-            "reason": "unknown_instance",
-            "message": format!("No FileRegistry row for instance_id {instance_id} after resolve"),
-        }))
-        .unwrap_or_else(|_| "unknown_instance".to_string()));
-    };
-
-    let Some(current) = row.active_lease_owner(std::time::SystemTime::now()) else {
-        return Err(serde_json::to_string_pretty(&json!({
-            "success": false,
-            "reason": "no_active_lease",
-            "message": "This instance has no active pool lease in the shared registry.",
-            "hint": "Call acquire_dcc_instance first (same lease_owner string you plan to pass to release). release_dcc_instance only clears pool metadata in services.json — it does not close Maya or drop MCP connections.",
-            "instance_id": entry.instance_id.to_string(),
-            "instance": gs.instance_json(&entry),
-        }))
-        .unwrap_or_else(|_| "no_active_lease".to_string()));
-    };
-    let owner = args
-        .get("lease_owner")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            serde_json::to_string_pretty(&json!({
-                "success": false,
-                "reason": "lease_owner_required",
-                "message": "Releasing an active lease requires the same lease_owner used to acquire it.",
-                "instance_id": instance_id,
-            }))
-            .unwrap_or_else(|_| "lease_owner_required".to_string())
-        })?;
-    if owner != current {
-        return Err(serde_json::to_string_pretty(&json!({
-            "success": false,
-            "reason": "lease_owner_mismatch",
-            "message": "lease_owner does not match the active lease holder.",
-            "hint": "Pass the exact lease_owner used in acquire_dcc_instance.",
-            "instance_id": entry.instance_id.to_string(),
-        }))
-        .unwrap_or_else(|_| "lease_owner_mismatch".to_string()));
-    }
-
-    let Some(released) = reg
-        .release_lease(&key, Some(owner))
-        .map_err(|e| e.to_string())?
-    else {
-        return Err(serde_json::to_string_pretty(&json!({
-            "success": false,
-            "reason": "release_rejected",
-            "message": "Registry refused to clear the lease after pre-flight checks — possible concurrent mutation; retry once.",
-            "instance_id": entry.instance_id.to_string(),
-        }))
-        .unwrap_or_else(|_| "release_rejected".to_string()));
-    };
-
-    serde_json::to_string_pretty(&json!({
-        "success": true,
-        "message": format!("Released lease for instance {}", released.instance_id),
-        "instance": gs.instance_json(&released),
-    }))
-    .map_err(|e| e.to_string())
-}
 
 // ── Gateway MCP tools ────────────────────────────────────────────────────
 
@@ -610,6 +467,11 @@ pub async fn tool_call_tool(
     trace_context: Option<&TraceContext>,
     agent_context: Option<&AgentContext>,
 ) -> (String, bool) {
+    let started_at = std::time::Instant::now();
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
     let Some(slug) = args.get("tool_slug").and_then(|v| v.as_str()) else {
         return ("missing required argument: tool_slug".to_string(), true);
     };
@@ -619,10 +481,22 @@ pub async fn tool_call_tool(
     };
     let forwarded_meta = args.get("meta").cloned().or_else(|| meta.cloned());
     let search_id = search_id_from_inputs(args, meta);
+
+    let session_id = agent_context
+        .and_then(|ctx| ctx.session_id.as_deref())
+        .map(str::to_string);
+    let agent_id = agent_context
+        .and_then(|ctx| ctx.agent_id.as_deref())
+        .map(str::to_string);
+    let request_id = trace_context.map(|ctx| ctx.request_id.clone());
+    let trace_id = trace_context.map(|ctx| ctx.trace_id.clone());
+    let span_id = trace_context.and_then(|ctx| ctx.span_id.clone());
+    let parent_request_id = trace_context.and_then(|ctx| ctx.parent_request_id.clone());
+
     // No eager refresh here: `call_tool` is the hot path and callers often
     // arrive from `describe_tool` / `search_tools`. If the cached route is
     // absent or stale, refresh once after that concrete routing error.
-    match crate::gateway::capability_service::call_service(
+    let (result_str, is_error, error_kind) = match crate::gateway::capability_service::call_service(
         gs,
         slug,
         arguments.clone(),
@@ -646,6 +520,7 @@ pub async fn tool_call_tool(
             (
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()),
                 is_error,
+                None,
             )
         }
         Err(err) if call_error_needs_refresh(&err) => {
@@ -682,9 +557,11 @@ pub async fn tool_call_tool(
                         serde_json::to_string_pretty(&result)
                             .unwrap_or_else(|_| result.to_string()),
                         is_error,
+                        None,
                     )
                 }
                 Err(err2) => {
+                    let ek = Some(err2.kind.clone());
                     record_search_followup(
                         gs,
                         search_id.as_deref(),
@@ -699,11 +576,13 @@ pub async fn tool_call_tool(
                         serde_json::to_string_pretty(&payload)
                             .unwrap_or_else(|_| err2.message.clone()),
                         true,
+                        ek,
                     )
                 }
             }
         }
         Err(err) => {
+            let ek = Some(err.kind.clone());
             record_search_followup(
                 gs,
                 search_id.as_deref(),
@@ -717,9 +596,42 @@ pub async fn tool_call_tool(
             (
                 serde_json::to_string_pretty(&payload).unwrap_or_else(|_| err.message.clone()),
                 true,
+                ek,
             )
         }
+    };
+
+    // Persist ToolCallEvent for observability funnel
+    #[cfg(feature = "admin-persist-sqlite")]
+    {
+        let duration_ms = started_at.elapsed().as_millis() as i64;
+        let error_message = if is_error {
+            Some(result_str.clone())
+        } else {
+            None
+        };
+        persist_tool_call_event(
+            gs,
+            ToolCallEventRecord {
+                request_id: request_id.unwrap_or_default(),
+                session_id,
+                parent_request_id,
+                batch_id: None,
+                tool_name: slug.to_string(),
+                agent_id,
+                started_at_ms,
+                duration_ms,
+                success: !is_error,
+                error_message,
+                error_kind,
+                mcp_method: "call",
+                trace_id,
+                span_id,
+            },
+        );
     }
+
+    (result_str, is_error)
 }
 
 pub(super) fn call_error_needs_refresh(
@@ -771,6 +683,18 @@ pub async fn gateway_call_batch_inner(
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
+    let batch_id = uuid::Uuid::new_v4().to_string();
+    let _parent_request_id = trace_context.map(|ctx| ctx.request_id.clone());
+    let parent_request_id = trace_context.map(|ctx| ctx.request_id.clone());
+    let _parent_trace_id = trace_context.map(|ctx| ctx.trace_id.clone());
+    let _parent_span_id = trace_context.map(|ctx| ctx.span_id.clone());
+    let session_id = agent_context
+        .and_then(|ctx| ctx.session_id.as_deref())
+        .map(str::to_string);
+    let agent_id = agent_context
+        .and_then(|ctx| ctx.agent_id.as_deref())
+        .map(str::to_string);
+
     let mut results: Vec<Value> = Vec::with_capacity(calls.len());
     let mut all_ok = true;
 
@@ -805,6 +729,12 @@ pub async fn gateway_call_batch_inner(
             trace_context.map(|ctx| ctx.child_request(format!("{}:batch-{idx}", ctx.request_id)));
         let child_trace_context = child_trace_context.as_ref().or(trace_context);
 
+        let call_started = std::time::Instant::now();
+        let call_started_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+
         let single_outcome = async {
             match crate::gateway::capability_service::call_service(
                 gs,
@@ -838,6 +768,13 @@ pub async fn gateway_call_batch_inner(
         }
         .await;
 
+        let call_duration_ms = call_started.elapsed().as_millis() as i64;
+        let child_request_id = child_trace_context
+            .map(|ctx| ctx.request_id.clone())
+            .unwrap_or_default();
+        let child_trace_id = child_trace_context.map(|ctx| ctx.trace_id.clone());
+        let child_span_id = child_trace_context.and_then(|ctx| ctx.span_id.clone());
+
         match single_outcome {
             Ok(result) => {
                 let tool_failed =
@@ -851,6 +788,43 @@ pub async fn gateway_call_batch_inner(
                     !tool_failed,
                     trace_context,
                 );
+
+                #[cfg(feature = "admin-persist-sqlite")]
+                {
+                    let error_msg = if tool_failed {
+                        Some(
+                            serde_json::to_string(&result)
+                                .unwrap_or_else(|_| "tool reported failure".to_string()),
+                        )
+                    } else {
+                        None
+                    };
+                    let ek = if tool_failed {
+                        Some("tool_error".to_string())
+                    } else {
+                        None
+                    };
+                    persist_tool_call_event(
+                        gs,
+                        ToolCallEventRecord {
+                            request_id: child_request_id.clone(),
+                            session_id: session_id.clone(),
+                            parent_request_id: parent_request_id.clone(),
+                            batch_id: Some(batch_id.clone()),
+                            tool_name: slug.to_string(),
+                            agent_id: agent_id.clone(),
+                            started_at_ms: call_started_at_ms,
+                            duration_ms: call_duration_ms,
+                            success: !tool_failed,
+                            error_message: error_msg,
+                            error_kind: ek,
+                            mcp_method: "call_batch",
+                            trace_id: child_trace_id.clone(),
+                            span_id: child_span_id.clone(),
+                        },
+                    );
+                }
+
                 let mut item = json!({
                     "index": idx,
                     "tool_slug": slug,
@@ -873,6 +847,7 @@ pub async fn gateway_call_batch_inner(
                 }
             }
             Err(err) => {
+                let ek = Some(err.kind.clone());
                 record_search_followup(
                     gs,
                     search_id.as_deref(),
@@ -882,6 +857,30 @@ pub async fn gateway_call_batch_inner(
                     false,
                     trace_context,
                 );
+
+                #[cfg(feature = "admin-persist-sqlite")]
+                {
+                    persist_tool_call_event(
+                        gs,
+                        ToolCallEventRecord {
+                            request_id: child_request_id.clone(),
+                            session_id: session_id.clone(),
+                            parent_request_id: parent_request_id.clone(),
+                            batch_id: Some(batch_id.clone()),
+                            tool_name: slug.to_string(),
+                            agent_id: agent_id.clone(),
+                            started_at_ms: call_started_at_ms,
+                            duration_ms: call_duration_ms,
+                            success: false,
+                            error_message: Some(err.message.clone()),
+                            error_kind: ek,
+                            mcp_method: "call_batch",
+                            trace_id: child_trace_id.clone(),
+                            span_id: child_span_id.clone(),
+                        },
+                    );
+                }
+
                 all_ok = false;
                 let payload = crate::gateway::capability_service::service_error_to_json(&err);
                 let mut item = json!({
@@ -1358,4 +1357,56 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             }
         }
     ])
+}
+
+/// Persist a [`dcc_mcp_models::ToolCallEvent`] to the admin SQLite database
+/// when the persistence lane is available.
+#[cfg(feature = "admin-persist-sqlite")]
+struct ToolCallEventRecord {
+    request_id: String,
+    session_id: Option<String>,
+    parent_request_id: Option<String>,
+    batch_id: Option<String>,
+    tool_name: String,
+    agent_id: Option<String>,
+    started_at_ms: i64,
+    duration_ms: i64,
+    success: bool,
+    error_message: Option<String>,
+    error_kind: Option<String>,
+    mcp_method: &'static str,
+    trace_id: Option<String>,
+    span_id: Option<String>,
+}
+
+#[cfg(feature = "admin-persist-sqlite")]
+fn persist_tool_call_event(gs: &GatewayState, record: ToolCallEventRecord) {
+    let Some(ref lane) = gs.admin_sqlite_lane else {
+        return;
+    };
+    let session_id = record.session_id.unwrap_or_default();
+    let event = dcc_mcp_models::ToolCallEvent::new(
+        record.request_id,
+        session_id,
+        record.tool_name,
+        record.started_at_ms,
+        record.duration_ms,
+        record.success,
+    )
+    .with_transport("mcp".to_string(), true)
+    .with_mcp_method(record.mcp_method.to_string());
+    let mut event = event;
+    if let (Some(parent_request_id), Some(batch_id)) = (record.parent_request_id, record.batch_id) {
+        event = event.with_batch_parent(parent_request_id, batch_id);
+    }
+    if let Some(aid) = record.agent_id {
+        event = event.with_agent(aid);
+    }
+    if let Some(msg) = record.error_message {
+        event = event.with_error(msg, record.error_kind);
+    }
+    if let (Some(tid), Some(sid)) = (record.trace_id, record.span_id) {
+        event = event.with_trace(tid, sid);
+    }
+    lane.try_persist_tool_call_event(&event);
 }

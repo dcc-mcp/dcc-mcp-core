@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { apiJson } from '../../admin-ui-core';
 import type { Translator } from '../../admin-types';
-import type { HealthPayload, InstanceRow, StatsPayload, SkillPayload } from '../../admin-types';
+import type { HealthPayload, InstanceRow, StatsPayload, SkillPayload, ReliabilityPayload } from '../../admin-types';
 import './reliability.css';
 
 const POLL_INTERVAL_MS = 5_000;
@@ -79,6 +79,13 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
 
+  const reliabilityQuery = useQuery({
+    queryKey: ['admin', 'reliability'],
+    queryFn: () => apiJson<ReliabilityPayload>(`/reliability`),
+    enabled: active,
+    refetchInterval: active ? POLL_INTERVAL_MS : false,
+  });
+
   const error = healthQuery.error
     ? `Health: ${String(healthQuery.error)}`
     : instancesQuery.error
@@ -87,13 +94,16 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
         ? `Skills: ${String(skillsQuery.error)}`
         : statsQuery.error
           ? `Stats: ${String(statsQuery.error)}`
-          : undefined;
+          : reliabilityQuery.error
+            ? `Reliability: ${String(reliabilityQuery.error)}`
+            : undefined;
 
   const handleRefresh = () => {
     healthQuery.refetch();
     instancesQuery.refetch();
     skillsQuery.refetch();
     statsQuery.refetch();
+    reliabilityQuery.refetch();
   };
 
   if (!active) return null;
@@ -102,6 +112,7 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
   const instances = instancesQuery.data ?? [];
   const skills = skillsQuery.data;
   const stats = statsQuery.data;
+  const reliability = reliabilityQuery.data;
 
   const isLoading = healthQuery.isLoading || instancesQuery.isLoading || skillsQuery.isLoading || statsQuery.isLoading;
 
@@ -130,14 +141,14 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
   const toolsRegistered = skills?.action_count ?? 0;
   const resourcesExposed = instancesTotal > 0 ? instancesTotal : 0; // approximate
 
-  // stability
-  const crashes24h = 0; // not directly in API — derived from stats
-  const reconnects24h = 0;
-  const recoveries24h = 0;
-  const uptimePct = stats?.success_rate ? Number(stats.success_rate) : 0;
+  // Stability data comes from /api/reliability.
+  const crashes24h = reliability?.stability?.crashes_24h ?? 0;
+  const reconnects24h = reliability?.stability?.reconnects_24h ?? 0;
+  const recoveries24h = reliability?.stability?.recoveries_24h ?? 0;
+  const uptimePct = reliability?.stability?.uptime_pct ?? (stats?.success_rate ? Number(stats.success_rate) : 0);
   const uptimeTone = toneForUptime(uptimePct);
 
-  const successRate = stats?.success_rate ? Number(stats.success_rate) : 0;
+  const successRate = reliability?.stability?.uptime_pct ?? (stats?.success_rate ? Number(stats.success_rate) : 0);
   const p50Ms = stats?.p50_ms ?? null;
 
   const circuitThreshold = limits?.circuit_failure_threshold ?? 0;

@@ -77,6 +77,8 @@ mod endpoint_contracts {
             gateway_persist: false,
             gateway_idle_timeout_secs: 30,
             semantic_search_enabled: false,
+            #[cfg(feature = "admin-persist-sqlite")]
+            admin_sqlite_lane: None,
         }
     }
 

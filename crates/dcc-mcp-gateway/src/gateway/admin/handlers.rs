@@ -4,3 +4,4 @@
 //! `crate::gateway::admin::application::handlers` or `crate::gateway::admin::handlers`.
 
 pub use super::application::handlers::*;
+pub use super::application::health::*;
