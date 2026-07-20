@@ -88,8 +88,9 @@ control is not exposed semantically.
 The adapter/operator must bind a trusted DCC target with
 `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE` before
 any Windows snapshot or mutation. The host resolves an exact PID/HWND,
-validates the caller's Windows session, user, and integrity level, then asks
-the user to approve that visible window before minting its opaque capability.
+validates the caller's Windows session, user, and integrity level, then starts
+the prominent non-modal control notice before minting its opaque capability.
+Routine session start does not open a confirmation dialog.
 
 The native DCC UI Control boundary imports that PID/HWND as a separate trusted
 scope, rejects construction without it, and revalidates the resolved native

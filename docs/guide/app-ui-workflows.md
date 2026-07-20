@@ -93,10 +93,10 @@ Enter `app_ui` only after a typed DCC tool returns `unsupported` or
 adapter or operator must bind that target with
 `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE` before a
 Windows UIA mutation; request arguments may narrow that scope but must not
-widen it. The host visibly asks the user to approve the resolved exact window
-before it mints an opaque capability. The bound session supplies the visible
-capsule, shared-memory screenshot, and user interruption monitor even for
-semantic UIA. Raw pointer and keyboard input has
+widen it. The host starts the prominent, non-modal control capsule before it
+mints an opaque capability; routine session start does not open a confirmation
+dialog. The bound session supplies the visible capsule, shared-memory screenshot,
+and user interruption monitor even for semantic UIA. Raw pointer and keyboard input has
 a second gate: the operator must also set
 `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`.
 

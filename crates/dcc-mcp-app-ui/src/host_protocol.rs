@@ -35,8 +35,8 @@ pub struct UiControlHostHello {
 /// Runtime-selected task scope used to open one host session.
 ///
 /// The target identifiers come from the adapter/runtime boundary and never from
-/// an agent-facing approval flag. The native host validates the target and asks
-/// the user to approve the resulting exact window before minting a capability.
+/// an agent-facing approval flag. The native host validates the target and
+/// starts a visible, non-modal notice before minting a capability.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UiControlTaskGrant {
     /// Stable correlation id issued by the trusted adapter/runtime layer.
@@ -265,7 +265,7 @@ pub struct UiControlSharedImage {
 pub enum UiControlHostRequest {
     /// Negotiate one exact protocol version.
     Hello(UiControlHostHello),
-    /// Resolve, visibly approve, and bind exactly one target window.
+    /// Resolve, visibly announce, and bind exactly one target window.
     OpenSession {
         /// Logical session id chosen by the adapter.
         session_id: String,

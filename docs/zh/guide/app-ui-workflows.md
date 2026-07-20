@@ -60,7 +60,7 @@ dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 当前 Windows 提供原生范围窗口覆盖层和输入参考后端。macOS/Linux 适配器应保持同一
 CLI 和工具契约，并分别使用平台 API 实现截图、可访问性、安全提示和用户中断。
 
-仅当类型化 DCC 工具返回 `unsupported` 或 `capability_missing` 时才进入 `app_ui`。始终将操作限定到准确的 DCC 窗口。执行 Windows UIA 写操作前，适配器或运维人员必须通过 `DCC_MCP_APP_UI_UIA_PROCESS_ID` 或 `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE` 绑定目标；请求参数只能缩小该范围，不能扩大范围。即使执行语义 UIA，该绑定会话也会提供可见横幅、截图和用户中断监控。原生鼠标和键盘输入还有第二道门槛：运维人员必须同时设置 `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`。
+仅当类型化 DCC 工具返回 `unsupported` 或 `capability_missing` 时才进入 `app_ui`。始终将操作限定到准确的 DCC 窗口。执行 Windows UIA 写操作前，适配器或运维人员必须通过 `DCC_MCP_APP_UI_UIA_PROCESS_ID` 或 `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE` 绑定目标；请求参数只能缩小该范围，不能扩大范围。宿主会先显示显著、非模态的控制提示再开始常规会话，不弹出启动确认对话框。即使执行语义 UIA，该绑定会话也会提供可见横幅、截图和用户中断监控。原生鼠标和键盘输入还有第二道门槛：运维人员必须同时设置 `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`。
 
 原生会话会把绑定的 PID/HWND 作为独立授权范围：没有绑定时拒绝创建，并在显示横幅、每次截图及每次动作前重新校验真实进程与窗口。仅标题或进程名的范围不能授权原生输入。
 
