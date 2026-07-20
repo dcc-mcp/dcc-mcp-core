@@ -141,7 +141,7 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
   const toolsRegistered = skills?.action_count ?? 0;
   const resourcesExposed = instancesTotal > 0 ? instancesTotal : 0; // approximate
 
-  // stability — from /api/reliability (PIP-2766)
+  // Stability data comes from /api/reliability.
   const crashes24h = reliability?.stability?.crashes_24h ?? 0;
   const reconnects24h = reliability?.stability?.reconnects_24h ?? 0;
   const recoveries24h = reliability?.stability?.recoveries_24h ?? 0;

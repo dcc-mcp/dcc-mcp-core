@@ -1,4 +1,4 @@
-"""Observability collection overhead baseline benchmark (PIP-2766).
+"""Observability collection overhead baseline benchmark.
 
 Measures the incremental cost of observability instrumentation on tool-call
 paths to validate that default configs are safe for DCC main-thread interaction.
@@ -343,7 +343,7 @@ def main() -> None:
     args = parser.parse_args()
 
     print("=" * 60)
-    print("Observability Collection Overhead Baseline (PIP-2766)")
+    print("Observability Collection Overhead Baseline")
     print("=" * 60)
     print(f"Python version: {os.sys.version}")
     print(f"Iterations: {args.iterations}")

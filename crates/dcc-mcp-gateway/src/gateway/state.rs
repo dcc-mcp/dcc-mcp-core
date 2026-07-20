@@ -308,7 +308,7 @@ pub struct GatewayState {
     pub semantic_search_enabled: bool,
 
     /// SQLite persistence lane for tool-call events, sessions, and
-    /// session events (PIP-2751 / PIP-2766).
+    /// session events.
     ///
     /// `None` when the `admin-persist-sqlite` feature is off or when
     /// `--no-admin` is passed.
