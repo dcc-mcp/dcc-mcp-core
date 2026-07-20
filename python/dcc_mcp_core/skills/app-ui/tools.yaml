@@ -38,8 +38,8 @@ tools:
           type: boolean
           default: false
           description: >-
-            Explicitly resume native DCC UI Control after the user stopped it
-            with Ctrl+Alt+Esc. Agents must leave this false unless the user asks to
+            Explicitly resume native DCC UI Control after the user stopped an
+            active session with Esc. Agents must leave this false unless the user asks to
             resume control.
         policy:
           type: object
@@ -289,7 +289,7 @@ tools:
       Stop the native DCC UI Control session for one app_ui session id, remove
       its visible corner brackets/capsule, release the global input owner, and invalidate
       the latest observation. This remains safe while the desktop is
-      unavailable and does not clear a Ctrl+Alt+Esc interruption latch.
+      unavailable and does not clear an active-session Esc interruption latch.
     input_schema:
       type: object
       properties:

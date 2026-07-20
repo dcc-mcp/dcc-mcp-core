@@ -175,7 +175,9 @@ dcc-mcp-cli ui-control stop --instance-id <id> \
 
 Use `ui-control wait` for condition-based waits. Every subcommand accepts
 `--dcc-type`, `--json-file`, `--meta-json`, and `--timeout-secs` with the same
-meaning as `call`.
+meaning as `call`. Output is compact JSON by default so agents receive ids,
+matches, errors, and screenshot artifact paths without the repeated MCP
+envelope or full UIA tree. Add `--full-output` only for targeted diagnostics.
 
 Do not transition or retry through another UI/input path after a policy,
 authorization, authentication, security, confirmation, `desktop_unavailable`,
@@ -188,7 +190,7 @@ Native pointer or keyboard fallback requires one exact `process_id` or
 `DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; request
 scope can only narrow that trusted target. Title-only and process-name scopes
 are observation-only.
-If the user presses Ctrl+Alt+Esc and the tool returns `user_interrupted`, stop without
+If the user presses Esc during an active session and the tool returns `user_interrupted`, stop without
 retrying, changing `session_id`, or starting a new session. Only call
 `app_ui__snapshot(resume_computer_use=true)` after the user explicitly asks to
 resume DCC UI Control.

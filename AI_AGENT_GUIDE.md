@@ -94,10 +94,10 @@ signals:
 
 Never automate the whole desktop or reuse coordinates from an older snapshot.
 The Windows session shows a click-through target border, control banner, and
-pointer-action markers. The user stops control with `Ctrl+Alt+Esc`; ordinary
-`Esc` remains available to the target DCC.
+pointer-action markers. While UI Control is active, the user stops control with
+`Esc`; outside an active session, `Esc` behaves normally.
 After `user_interrupted`, stop and do not retry, change `session_id`, or
-automatically restart; Ctrl+Alt+Esc is latched across DCC adapter processes in the
+automatically restart; Esc is latched across DCC adapter processes in the
 same Windows logon session.
 Resume only with `app_ui__snapshot(resume_computer_use=true)` after the user
 explicitly asks to continue and while no Computer Use owner is active.

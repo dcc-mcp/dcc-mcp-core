@@ -127,6 +127,7 @@ fn ui_control_contract_parses_a_stable_snapshot_command() {
     assert_eq!(snapshot.dcc_type.as_deref(), Some("unreal"));
     assert_eq!(snapshot.instance_id.as_deref(), Some("abc12345"));
     assert_eq!(snapshot.timeout_secs, 12);
+    assert!(!snapshot.full_output);
     assert_eq!(
         read_call_arguments(&snapshot.arguments_json, snapshot.json_file.as_deref()).unwrap(),
         serde_json::json!({"session_id": "menu", "process_id": 42})
@@ -142,6 +143,7 @@ fn ui_control_operations_map_to_legacy_app_ui_tools() {
         json_file: None,
         meta_json: None,
         timeout_secs: 30,
+        full_output: false,
     };
     for (action, expected) in [
         (UiControlAction::Snapshot(args.clone()), "app_ui__snapshot"),
@@ -155,6 +157,95 @@ fn ui_control_operations_map_to_legacy_app_ui_tools() {
     ] {
         assert_eq!(action.into_call().0, expected);
     }
+}
+
+#[test]
+fn ui_control_full_output_flag_preserves_the_diagnostic_escape_hatch() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "ui-control",
+        "snapshot",
+        "--instance-id",
+        "abc12345",
+        "--full-output",
+    ])
+    .expect("parse --full-output");
+
+    let Command::UiControl {
+        action: UiControlAction::Snapshot(snapshot),
+    } = args.command
+    else {
+        panic!("expected ui-control snapshot command");
+    };
+    assert!(snapshot.full_output);
+}
+
+#[test]
+fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let artifact = root.path().join("computer-use-frame.png");
+    let payload = serde_json::json!({
+        "success": true,
+        "message": "Captured isolated Windows UI Control snapshot.",
+        "prompt": "Act once, then snapshot again.",
+        "error": null,
+        "context": {
+            "session_id": "fab",
+            "snapshot_id": "snapshot-7",
+            "snapshot": {
+                "session_id": "fab",
+                "focus_id": "search",
+                "truncated": false,
+                "node_count": 501,
+                "root": {"id": "desktop", "children": [{"text": "bulk"}]},
+                "metadata": {
+                    "snapshot_id": "snapshot-7",
+                    "backend": "windows-ui-control-host",
+                    "computer_use": {"raw": "bulk"}
+                }
+            },
+            "observation": {
+                "observation_id": "observation-7",
+                "process_id": 42,
+                "width": 1280,
+                "height": 720
+            },
+            "policy": {"allow_raw_coordinates": true},
+            "audit": {"coordinates": [1, 2]},
+            "__rich__": {
+                "kind": "image",
+                "data": "<materialized:image>",
+                "mime": "image/png",
+                "artifact_path": artifact
+            }
+        }
+    });
+    let value = serde_json::json!({
+        "success": true,
+        "tool_slug": "unreal.app_ui__snapshot",
+        "dcc_type": "unreal",
+        "instance_id": "abc12345",
+        "arguments": {"large": "request echo"},
+        "result": {"structuredContent": payload},
+        "source": "local_mcp"
+    });
+
+    let compact = compact_ui_control_result("app_ui__snapshot", &value);
+
+    assert_eq!(compact["success"], true);
+    assert_eq!(compact["tool"], "app_ui__snapshot");
+    assert_eq!(compact["snapshot_id"], "snapshot-7");
+    assert_eq!(compact["snapshot"]["node_count"], 501);
+    assert_eq!(compact["observation"]["observation_id"], "observation-7");
+    assert_eq!(
+        compact["__rich__"]["artifact_path"],
+        artifact.display().to_string()
+    );
+    let encoded = serde_json::to_string(&compact).unwrap();
+    assert!(!encoded.contains("request echo"));
+    assert!(!encoded.contains("children"));
+    assert!(!encoded.contains("allow_raw_coordinates"));
+    assert!(!encoded.contains("coordinates"));
 }
 
 #[test]

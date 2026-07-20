@@ -85,7 +85,7 @@ does not replace a running server binary.
      Keep `app_ui__snapshot` and `app_ui__act` in the same long-lived adapter
      process so one thin named-pipe client retains the opaque host capability.
      The per-logon-session host owns the screenshot/UIA observations, visible
-     banner, Ctrl+Alt+Esc token, input owner, confirmation, and native input.
+     banner, active-session Esc token, input owner, confirmation, and native input.
      `app-ui` declares `requires_in_process: true` while keeping
      `affinity: any`; register `HostExecutionBridge` before skill loading.
      Never weaken this into per-call subprocess execution or route it onto a
@@ -107,7 +107,7 @@ does not replace a running server binary.
       the adapter's own DCC target; request scope may only narrow that trusted
       PID/HWND. Require a visible unlocked desktop and matching Windows
       integrity level, preserve the click-through border/banner/pointer feedback, and preserve
-      `user_interrupted` without automatic retry, `session_id` changes, or fallback. Once Ctrl+Alt+Esc stops a
+      `user_interrupted` without automatic retry, `session_id` changes, or fallback. Once Esc stops an active
       session, only `app_ui__snapshot(resume_computer_use=true)` may request a
       resume, and the isolated host must still obtain trusted user confirmation
       before clearing the latch. Always call `app_ui__stop_computer_use` when

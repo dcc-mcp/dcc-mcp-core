@@ -523,7 +523,7 @@ class ComputerUseSession:
     @staticmethod
     def process_user_interrupted() -> builtins.bool:
         r"""
-        Return whether Ctrl+Alt+Esc stopped Computer Use in this Windows logon session.
+        Return whether Esc stopped an active Computer Use session in this Windows logon session.
         """
     @staticmethod
     def desktop_interactive() -> builtins.bool:
@@ -532,7 +532,7 @@ class ComputerUseSession:
         """
     def start(self) -> builtins.str:
         r"""
-        Start the visible banner and reserve Ctrl+Alt+Esc as the stop chord.
+        Start the visible banner and reserve Esc as the active-session stop key.
         """
     def screenshot(self) -> tuple[builtins.str, typing.Optional[bytes]]:
         r"""

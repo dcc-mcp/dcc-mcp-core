@@ -78,7 +78,7 @@ Adapters keep the public `app_ui__snapshot`, `find`, `act`, `wait_for`, and
 - application/window discovery and opaque window handles;
 - target binding, focus checks, UIA state, and screenshot observation ids;
 - session grants, action-time approval requests, and hard denies;
-- the cross-adapter input lock and Ctrl+Alt+Esc interruption latch;
+- the cross-adapter input lock and active-session Esc interruption latch;
 - visible target overlays and cleanup of held keys/buttons;
 - redacted `ui_control_operation` audit events for the existing Admin Logs
   panel.
@@ -229,7 +229,7 @@ smoke test.
 | Capture helper hangs | Kill and wait at deadline; return `capture_failed` or `timeout` |
 | Desktop locks or disconnects | Suspend input, hide overlays, return `desktop_unavailable` |
 | Exact target is minimized or hidden | Read exact-window state, then explicitly restore/show/activate the same capability-bound HWND before taking a fresh snapshot |
-| User presses Ctrl+Alt+Esc | Release held input, latch global stop, require explicit resume |
+| User presses Esc while UI Control is active | Release held input, latch global stop, require explicit resume |
 | Confirmation surface unavailable | Fail closed with `approval_required` |
 | Target HWND/PID is reused | Reject stale capability and require discovery |
 | Audit sink fails | Preserve action result, emit a local diagnostic, never log sensitive payloads |
