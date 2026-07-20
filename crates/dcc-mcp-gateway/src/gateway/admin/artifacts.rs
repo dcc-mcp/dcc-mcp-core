@@ -63,15 +63,15 @@ pub async fn handle_admin_artifacts(
                 let file_refs = extract_file_refs(&parsed);
                 for fr in file_refs {
                     // Deduplicate by URI
-                        let uri = fr.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-                        if !artifacts.iter().any(|a| {
-                            a.get("uri")
-                                .and_then(|v| v.as_str())
-                                .is_some_and(|u| u == uri)
-                        }) {
-                            artifacts.push(fr);
-                        }
+                    let uri = fr.get("uri").and_then(|v| v.as_str()).unwrap_or("");
+                    if !artifacts.iter().any(|a| {
+                        a.get("uri")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|u| u == uri)
+                    }) {
+                        artifacts.push(fr);
                     }
+                }
             }
         }
     }
