@@ -205,6 +205,7 @@ pub(super) fn verify_action_fence(
     ))
 }
 
+#[allow(dead_code)]
 pub(super) fn verify_expected_action_fence(
     action: &UiControlAction,
     expected: &ActionFenceExpectation,

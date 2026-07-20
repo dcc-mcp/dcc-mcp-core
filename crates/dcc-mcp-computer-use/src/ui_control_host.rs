@@ -24,6 +24,7 @@ mod system_operations;
 #[cfg(windows)]
 mod windows;
 
+#[allow(unused_imports)]
 use policy::{
     ActionControlFence, classify_action, stale_accessibility_state, verify_action_fence,
     verify_expected_action_fence,
@@ -60,6 +61,7 @@ struct RuntimeSnapshot {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct RuntimeAccessibilityState {
     root: Value,
     focus_runtime_id: Option<String>,
@@ -129,6 +131,7 @@ struct HostSession {
     runtime: Box<dyn HostRuntimeSession>,
 }
 
+#[allow(dead_code)]
 struct ActionFenceExpectation {
     controls: Vec<ActionControlFence>,
     observation: Option<Value>,
@@ -291,6 +294,7 @@ fn request_session(request: &UiControlHostRequest) -> Option<(&str, bool, bool)>
 }
 
 impl UiControlHost {
+    #[allow(dead_code)]
     fn from_operator_config() -> Result<Self, String> {
         Ok(Self {
             system_grants: load_system_grants()?,

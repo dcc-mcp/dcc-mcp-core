@@ -9,9 +9,12 @@ use dcc_mcp_ui_control::host_protocol::{
 use super::runtime_windows;
 use super::{HostFailure, valid_wire_label};
 
+#[allow(dead_code)]
 const SYSTEM_GRANTS_FILE_ENV: &str = "DCC_MCP_UI_CONTROL_SYSTEM_GRANTS_FILE";
+#[allow(dead_code)]
 const MAX_SYSTEM_GRANTS_FILE_BYTES: u64 = 1024 * 1024;
 
+#[allow(dead_code)]
 pub(super) fn load_system_grants() -> Result<HashMap<String, UiControlSystemGrant>, String> {
     let Some(path) = std::env::var_os(SYSTEM_GRANTS_FILE_ENV) else {
         return Ok(HashMap::new());
@@ -30,6 +33,7 @@ pub(super) fn load_system_grants() -> Result<HashMap<String, UiControlSystemGran
     parse_system_grants(&bytes)
 }
 
+#[allow(dead_code)]
 pub(super) fn parse_system_grants(
     bytes: &[u8],
 ) -> Result<HashMap<String, UiControlSystemGrant>, String> {
