@@ -12,12 +12,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import sqlite3
 import tempfile
 import time
-import uuid
-from pathlib import Path
 from typing import Any
+import uuid
 
 # ---------------------------------------------------------------------------
 # Bench helpers

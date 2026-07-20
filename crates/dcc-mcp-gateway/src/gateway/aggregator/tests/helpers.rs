@@ -128,6 +128,8 @@ pub(crate) async fn make_gateway_state(
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
         semantic_search_enabled: false,
+        #[cfg(feature = "admin-persist-sqlite")]
+        admin_sqlite_lane: None,
     }
 }
 
@@ -422,6 +424,8 @@ pub(crate) async fn gateway_state_with_instances(
         gateway_persist: false,
         gateway_idle_timeout_secs: 30,
         semantic_search_enabled: false,
+        #[cfg(feature = "admin-persist-sqlite")]
+        admin_sqlite_lane: None,
     };
     (state, dir, ids)
 }

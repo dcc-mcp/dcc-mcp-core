@@ -102,6 +102,8 @@ fn test_gateway_state_with_debug_routes(
         semantic_search_enabled: false,
         #[cfg(feature = "prometheus")]
         gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        #[cfg(feature = "admin-persist-sqlite")]
+        admin_sqlite_lane: None,
     }
 }
 
