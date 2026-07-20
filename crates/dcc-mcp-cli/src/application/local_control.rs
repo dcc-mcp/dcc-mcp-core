@@ -635,7 +635,7 @@ async fn mcp_request(
     Ok(response)
 }
 
-fn call_result_payload(result: &Value) -> Option<Value> {
+pub(crate) fn call_result_payload(result: &Value) -> Option<Value> {
     if let Some(value) = result.get("structuredContent") {
         return Some(value.clone());
     }

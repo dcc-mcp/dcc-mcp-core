@@ -1,6 +1,12 @@
 use super::*;
 
 #[test]
+fn active_ui_control_reserves_escape_as_the_stop_key() {
+    assert_eq!(STOP_HOTKEY_LABEL, "Esc");
+    assert_eq!(STOP_HOTKEY_MODIFIERS.0, MOD_NOREPEAT.0);
+}
+
+#[test]
 fn non_interactive_desktop_is_reported_explicitly() {
     let error = require_interactive_desktop(false).unwrap_err();
 

@@ -75,6 +75,12 @@ dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","contro
 dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
 
+The wrapper prints compact machine-readable JSON by default: routing ids,
+message/error, observation ids, bounded snapshot metadata, semantic matches,
+and materialized image paths. It omits the repeated MCP envelope and full UIA
+tree. Add `--full-output` to one subcommand only when raw protocol or tree
+diagnostics are required.
+
 Windows supplies an isolated, per-logon-session
 `dcc-mcp-ui-control-host.exe`. The adapter is a versioned named-pipe proxy; the
 host owns exact-window selection, shared-memory screenshots, UIA, input,
@@ -127,9 +133,9 @@ the host, and invalidate any older observation. Take a fresh snapshot after
 the window becomes visible, non-minimized, and foreground.
 
 The visible corner brackets, control capsule, and pointer effects belong to the adapter
-host's interactive Windows logon session. If the user presses `Ctrl+Alt+Esc`
-and the tool returns `user_interrupted`, stop immediately. Ordinary `Esc`
-remains available to the target DCC. Do not retry, change
+host's interactive Windows logon session. While UI Control is active, if the user
+presses `Esc` and the tool returns `user_interrupted`, stop immediately. Outside
+an active UI Control session, `Esc` behaves normally. Do not retry, change
 `session_id`, or start another session. Set `resume_computer_use=true` only
 after the user explicitly asks to resume. The flag cannot approve resumption:
 the isolated host always presents its own trusted confirmation before clearing
