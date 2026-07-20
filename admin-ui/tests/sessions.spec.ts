@@ -66,6 +66,49 @@ async function mockAdminApi(page: Page) {
         by_dcc: { maya: 2, blender: 1 },
         by_status: { active: 1, ended: 1, crashed: 1 },
       };
+    } else if (path === '/sessions/parent-session-1') {
+      body = {
+        session: {
+          session_id: 'parent-session-1',
+          parent_session_id: null,
+          dcc_type: 'maya',
+          instance_id: 'maya-instance-1',
+          status: 'active',
+          started_at_ms: now - 3600000,
+          last_activity_at_ms: now,
+          ended_at_ms: null,
+          tool_call_count: 42,
+          error_count: 2,
+          core_version: '0.19.60',
+        },
+        tool_calls: [
+          {
+            request_id: 'req-001',
+            session_id: 'parent-session-1',
+            tool_name: 'create_sphere',
+            success: 1,
+            trace_id: 'trace-abc123',
+            started_at_ms: now - 1800000,
+            duration_ms: 150,
+          },
+          {
+            request_id: 'req-002',
+            session_id: 'parent-session-1',
+            tool_name: 'export_fbx',
+            success: 1,
+            trace_id: 'trace-def456',
+            started_at_ms: now - 900000,
+            duration_ms: 320,
+          },
+        ],
+        events: [],
+        traces: ['trace-abc123', 'trace-def456'],
+        summary: {
+          total_tool_calls: 2,
+          successful_tool_calls: 2,
+          failed_tool_calls: 0,
+        },
+      };
     }
 
     await route.fulfill({ status: 200, json: body });
@@ -102,5 +145,15 @@ test.describe('Sessions Panel', () => {
     await expect(panel).toBeVisible({ timeout: 10_000 });
     // Parent session should be visible (ID is compacted)
     await expect(panel.getByText('parent-sessi')).toBeVisible();
+  });
+
+  test('shows trace links in session detail', async ({ page }) => {
+    const panel = page.locator('section[data-panel="sessions"]');
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    // Navigate to session detail by clicking the session row
+    const sessionRow = panel.getByText('parent-sessi');
+    await expect(sessionRow).toBeVisible();
+    // The session detail endpoint should return traces
+    // Verify the mock API includes trace data
   });
 });

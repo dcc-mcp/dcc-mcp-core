@@ -183,6 +183,15 @@ pub async fn handle_admin_session_detail(
     let tool_calls = reader.list_tool_calls(&session_id, 500);
     let events = reader.list_session_events(&session_id, 200);
 
+    // Extract trace_ids from tool calls for trace drill-down
+    let trace_ids: Vec<&str> = tool_calls
+        .iter()
+        .filter_map(|tc| tc.get("trace_id").and_then(|v| v.as_str()))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .take(20)
+        .collect();
+
     // Compute tool-call stats
     let total_calls = tool_calls.len();
     let successful_calls = tool_calls
@@ -195,6 +204,7 @@ pub async fn handle_admin_session_detail(
         "session": session,
         "tool_calls": tool_calls,
         "events": events,
+        "traces": trace_ids,
         "summary": {
             "total_tool_calls": total_calls,
             "successful_tool_calls": successful_calls,

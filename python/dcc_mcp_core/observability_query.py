@@ -422,8 +422,9 @@ class ObservabilityQuery:
     ) -> dict[str, Any]:
         """Get capability funnel statistics.
 
-        Note: Funnel data requires instrumentation at the search/load/call
-        points.  Until those are wired, this returns zeroes.
+        Queries the tool_calls table for real funnel data: search → load →
+        call → success, plus fallback paths.  Falls back to zeroes when the
+        underlying instrumentation has not yet recorded matching events.
 
         """
         params: dict[str, Any] = {}
@@ -439,25 +440,45 @@ class ObservabilityQuery:
             conditions.append("started_at_ms >= :since_ms")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        # Count tool calls as "skills called" (upper bound until skill-level
-        # instrumentation is fully wired)
-        call_sql = f"""
-        SELECT COUNT(*) AS total_calls
+        # Aggregate all funnel stages in one query.
+        funnel_sql = f"""
+        SELECT
+            COUNT(*) AS total_calls,
+            SUM(CASE WHEN mcp_method = 'search' THEN 1 ELSE 0 END) AS searches_total,
+            SUM(CASE WHEN mcp_method = 'search' AND error_kind = 'zero_results' THEN 1 ELSE 0 END) AS searches_zero_results,
+            SUM(CASE WHEN mcp_method = 'load_skill' AND success = 1 THEN 1 ELSE 0 END) AS skills_loaded,
+            SUM(CASE WHEN mcp_method IN ('call', 'call_batch') THEN 1 ELSE 0 END) AS skills_called,
+            SUM(CASE WHEN mcp_method IN ('call', 'call_batch') AND success = 1 THEN 1 ELSE 0 END) AS skills_succeeded,
+            SUM(CASE WHEN error_kind = 'script_fallback' THEN 1 ELSE 0 END) AS script_fallbacks,
+            SUM(CASE WHEN error_kind = 'ui_control_fallback' THEN 1 ELSE 0 END) AS ui_control_fallbacks,
+            COALESCE(MIN(CASE WHEN mcp_method IN ('call', 'call_batch') AND success = 1 THEN duration_ms END), 0) AS first_success_duration_ms
         FROM tool_calls
         {where}
         """
-        rows = self._query(call_sql, params)
-        total_calls = int(rows[0]["total_calls"]) if rows else 0
+        rows = self._query(funnel_sql, params)
 
-        data = {
+        data: dict[str, Any] = {
             "searches_total": 0,
             "searches_zero_results": 0,
             "skills_loaded": 0,
-            "skills_called": total_calls,
+            "skills_called": 0,
             "skills_succeeded": 0,
             "script_fallbacks": 0,
             "ui_control_fallbacks": 0,
+            "first_success_duration_ms": 0,
         }
+        if rows:
+            row = rows[0]
+            data = {
+                "searches_total": int(row.get("searches_total", 0)),
+                "searches_zero_results": int(row.get("searches_zero_results", 0)),
+                "skills_loaded": int(row.get("skills_loaded", 0)),
+                "skills_called": int(row.get("skills_called", 0)),
+                "skills_succeeded": int(row.get("skills_succeeded", 0)),
+                "script_fallbacks": int(row.get("script_fallbacks", 0)),
+                "ui_control_fallbacks": int(row.get("ui_control_fallbacks", 0)),
+                "first_success_duration_ms": int(row.get("first_success_duration_ms", 0)),
+            }
         return build_query_response("funnel_stats", data, query_params=params)
 
 

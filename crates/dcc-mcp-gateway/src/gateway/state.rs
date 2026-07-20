@@ -306,6 +306,14 @@ pub struct GatewayState {
     /// Default: `false`. When `false`, `mode=hybrid` silently falls back to
     /// `mode=fuzzy`.  Mirrors [`GatewayConfig::semantic_search_enabled`].
     pub semantic_search_enabled: bool,
+
+    /// SQLite persistence lane for tool-call events, sessions, and
+    /// session events (PIP-2751 / PIP-2766).
+    ///
+    /// `None` when the `admin-persist-sqlite` feature is off or when
+    /// `--no-admin` is passed.
+    #[cfg(feature = "admin-persist-sqlite")]
+    pub admin_sqlite_lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
 }
 
 impl GatewayState {

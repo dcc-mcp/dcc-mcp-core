@@ -15,6 +15,7 @@ use super::general::{
 };
 use super::handlers::{
     handle_admin_calls, handle_admin_debug_bundle, handle_admin_deregistered, handle_admin_health,
+    handle_admin_reliability,
     handle_admin_instance_update, handle_admin_instances, handle_admin_issue_report,
     handle_admin_logs, handle_admin_search_telemetry, handle_admin_skill_detail,
     handle_admin_skills, handle_admin_stats, handle_admin_tasks, handle_admin_tools,
@@ -135,6 +136,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
+        .route(
+            "/api/reliability",
+            routing::get(handle_admin_reliability),
+        )
         .route(
             "/api/sessions/{session_id}",
             routing::get(handle_admin_session_detail),

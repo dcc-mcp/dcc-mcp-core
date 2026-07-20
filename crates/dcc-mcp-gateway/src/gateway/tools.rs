@@ -1,6 +1,7 @@
 //! MCP discovery meta-tools served by the gateway's `/mcp` endpoint.
 
 use serde_json::{Value, json};
+use uuid;
 
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::capability::search_cache::SearchCacheKey;
@@ -610,6 +611,11 @@ pub async fn tool_call_tool(
     trace_context: Option<&TraceContext>,
     agent_context: Option<&AgentContext>,
 ) -> (String, bool) {
+    let started_at = std::time::Instant::now();
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
     let Some(slug) = args.get("tool_slug").and_then(|v| v.as_str()) else {
         return ("missing required argument: tool_slug".to_string(), true);
     };
@@ -619,10 +625,23 @@ pub async fn tool_call_tool(
     };
     let forwarded_meta = args.get("meta").cloned().or_else(|| meta.cloned());
     let search_id = search_id_from_inputs(args, meta);
+
+    let session_id = agent_context
+        .and_then(|ctx| ctx.session_id.as_deref())
+        .map(str::to_string);
+    let agent_id = agent_context
+        .and_then(|ctx| ctx.agent_id.as_deref())
+        .map(str::to_string);
+    let request_id = trace_context.map(|ctx| ctx.request_id.clone());
+    let trace_id = trace_context.map(|ctx| ctx.trace_id.clone());
+    let span_id = trace_context.and_then(|ctx| ctx.span_id.clone());
+    let parent_request_id = trace_context
+        .and_then(|ctx| ctx.parent_request_id.clone());
+
     // No eager refresh here: `call_tool` is the hot path and callers often
     // arrive from `describe_tool` / `search_tools`. If the cached route is
     // absent or stale, refresh once after that concrete routing error.
-    match crate::gateway::capability_service::call_service(
+    let (result_str, is_error, error_kind) = match crate::gateway::capability_service::call_service(
         gs,
         slug,
         arguments.clone(),
@@ -646,6 +665,7 @@ pub async fn tool_call_tool(
             (
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()),
                 is_error,
+                None,
             )
         }
         Err(err) if call_error_needs_refresh(&err) => {
@@ -682,9 +702,11 @@ pub async fn tool_call_tool(
                         serde_json::to_string_pretty(&result)
                             .unwrap_or_else(|_| result.to_string()),
                         is_error,
+                        None,
                     )
                 }
                 Err(err2) => {
+                    let ek = Some(err2.kind.clone());
                     record_search_followup(
                         gs,
                         search_id.as_deref(),
@@ -699,11 +721,13 @@ pub async fn tool_call_tool(
                         serde_json::to_string_pretty(&payload)
                             .unwrap_or_else(|_| err2.message.clone()),
                         true,
+                        ek,
                     )
                 }
             }
         }
         Err(err) => {
+            let ek = Some(err.kind.clone());
             record_search_followup(
                 gs,
                 search_id.as_deref(),
@@ -717,9 +741,44 @@ pub async fn tool_call_tool(
             (
                 serde_json::to_string_pretty(&payload).unwrap_or_else(|_| err.message.clone()),
                 true,
+                ek,
             )
         }
+    };
+
+    // Persist ToolCallEvent for observability funnel
+    #[cfg(feature = "admin-persist-sqlite")]
+    {
+        let duration_ms = started_at.elapsed().as_millis() as i64;
+        let error_message = if is_error {
+            Some(result_str.clone())
+        } else {
+            None
+        };
+        persist_tool_call_event(
+            gs,
+            request_id.unwrap_or_default(),
+            session_id,
+            parent_request_id,
+            None, // batch_id — single calls don't have one
+            slug.to_string(),
+            None, // skill_name — not available at this layer
+            None, // dcc_type — resolved at the backend level
+            None, // instance_id
+            agent_id,
+            "mcp",
+            started_at_ms,
+            duration_ms,
+            !is_error,
+            error_message,
+            error_kind,
+            "call",
+            trace_id,
+            span_id,
+        );
     }
+
+    (result_str, is_error)
 }
 
 pub(super) fn call_error_needs_refresh(
@@ -771,6 +830,18 @@ pub async fn gateway_call_batch_inner(
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
+    let batch_id = uuid::Uuid::new_v4().to_string();
+    let _parent_request_id = trace_context.map(|ctx| ctx.request_id.clone());
+    let parent_request_id = trace_context.map(|ctx| ctx.request_id.clone());
+    let _parent_trace_id = trace_context.map(|ctx| ctx.trace_id.clone());
+    let _parent_span_id = trace_context.map(|ctx| ctx.span_id.clone());
+    let session_id = agent_context
+        .and_then(|ctx| ctx.session_id.as_deref())
+        .map(str::to_string);
+    let agent_id = agent_context
+        .and_then(|ctx| ctx.agent_id.as_deref())
+        .map(str::to_string);
+
     let mut results: Vec<Value> = Vec::with_capacity(calls.len());
     let mut all_ok = true;
 
@@ -805,6 +876,12 @@ pub async fn gateway_call_batch_inner(
             trace_context.map(|ctx| ctx.child_request(format!("{}:batch-{idx}", ctx.request_id)));
         let child_trace_context = child_trace_context.as_ref().or(trace_context);
 
+        let call_started = std::time::Instant::now();
+        let call_started_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+
         let single_outcome = async {
             match crate::gateway::capability_service::call_service(
                 gs,
@@ -838,6 +915,13 @@ pub async fn gateway_call_batch_inner(
         }
         .await;
 
+        let call_duration_ms = call_started.elapsed().as_millis() as i64;
+        let child_request_id = child_trace_context
+            .map(|ctx| ctx.request_id.clone())
+            .unwrap_or_default();
+        let child_trace_id = child_trace_context.map(|ctx| ctx.trace_id.clone());
+        let child_span_id = child_trace_context.and_then(|ctx| ctx.span_id.clone());
+
         match single_outcome {
             Ok(result) => {
                 let tool_failed =
@@ -851,6 +935,42 @@ pub async fn gateway_call_batch_inner(
                     !tool_failed,
                     trace_context,
                 );
+
+                #[cfg(feature = "admin-persist-sqlite")]
+                {
+                    let error_msg = if tool_failed {
+                        Some(serde_json::to_string(&result).unwrap_or_else(|_| "tool reported failure".to_string()))
+                    } else {
+                        None
+                    };
+                    let ek = if tool_failed {
+                        Some("tool_error".to_string())
+                    } else {
+                        None
+                    };
+                    persist_tool_call_event(
+                        gs,
+                        child_request_id.clone(),
+                        session_id.clone(),
+                        parent_request_id.clone(),
+                        Some(batch_id.clone()),
+                        slug.to_string(),
+                        None,
+                        None,
+                        None,
+                        agent_id.clone(),
+                        "mcp",
+                        call_started_at_ms,
+                        call_duration_ms,
+                        !tool_failed,
+                        error_msg,
+                        ek,
+                        "call_batch",
+                        child_trace_id.clone(),
+                        child_span_id.clone(),
+                    );
+                }
+
                 let mut item = json!({
                     "index": idx,
                     "tool_slug": slug,
@@ -873,6 +993,7 @@ pub async fn gateway_call_batch_inner(
                 }
             }
             Err(err) => {
+                let ek = Some(err.kind.clone());
                 record_search_followup(
                     gs,
                     search_id.as_deref(),
@@ -882,6 +1003,32 @@ pub async fn gateway_call_batch_inner(
                     false,
                     trace_context,
                 );
+
+                #[cfg(feature = "admin-persist-sqlite")]
+                {
+                    persist_tool_call_event(
+                        gs,
+                        child_request_id.clone(),
+                        session_id.clone(),
+                        parent_request_id.clone(),
+                        Some(batch_id.clone()),
+                        slug.to_string(),
+                        None,
+                        None,
+                        None,
+                        agent_id.clone(),
+                        "mcp",
+                        call_started_at_ms,
+                        call_duration_ms,
+                        false,
+                        Some(err.message.clone()),
+                        ek,
+                        "call_batch",
+                        child_trace_id.clone(),
+                        child_span_id.clone(),
+                    );
+                }
+
                 all_ok = false;
                 let payload = crate::gateway::capability_service::service_error_to_json(&err);
                 let mut item = json!({
@@ -1358,4 +1505,66 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             }
         }
     ])
+}
+
+/// Persist a [`dcc_mcp_models::ToolCallEvent`] to the admin SQLite database
+/// when the persistence lane is available.
+#[cfg(feature = "admin-persist-sqlite")]
+fn persist_tool_call_event(
+    gs: &GatewayState,
+    request_id: String,
+    session_id: Option<String>,
+    parent_request_id: Option<String>,
+    batch_id: Option<String>,
+    tool_name: String,
+    skill_name: Option<String>,
+    dcc_type: Option<String>,
+    instance_id: Option<String>,
+    agent_id: Option<String>,
+    transport: &str,
+    started_at_ms: i64,
+    duration_ms: i64,
+    success: bool,
+    error_message: Option<String>,
+    error_kind: Option<String>,
+    mcp_method: &str,
+    trace_id: Option<String>,
+    span_id: Option<String>,
+) {
+    let Some(ref lane) = gs.admin_sqlite_lane else {
+        return;
+    };
+    let session_id = session_id.unwrap_or_default();
+    let event = dcc_mcp_models::ToolCallEvent::new(
+        request_id,
+        session_id,
+        tool_name,
+        started_at_ms,
+        duration_ms,
+        success,
+    )
+    .with_transport(transport.to_string(), true)
+    .with_mcp_method(mcp_method.to_string());
+    let mut event = event;
+    if let Some(pid) = parent_request_id {
+        if let Some(bid) = batch_id {
+            event = event.with_batch_parent(pid, bid);
+        }
+    }
+    if let Some(dt) = dcc_type {
+        event = event.with_dcc_context(dt, instance_id);
+    }
+    if let Some(aid) = agent_id {
+        event = event.with_agent(aid);
+    }
+    if let Some(sn) = skill_name {
+        event = event.with_skill(sn);
+    }
+    if let Some(msg) = error_message {
+        event = event.with_error(msg, error_kind);
+    }
+    if let (Some(tid), Some(sid)) = (trace_id, span_id) {
+        event = event.with_trace(tid, sid);
+    }
+    lane.try_persist_tool_call_event(&event);
 }
