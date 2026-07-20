@@ -1,9 +1,37 @@
 use super::*;
 
 #[test]
-fn active_ui_control_reserves_escape_as_the_stop_key() {
-    assert_eq!(STOP_HOTKEY_LABEL, "Esc");
-    assert_eq!(STOP_HOTKEY_MODIFIERS.0, MOD_NOREPEAT.0);
+fn active_ui_control_reserves_ctrl_alt_escape_as_the_stop_key() {
+    assert_eq!(STOP_HOTKEY_LABEL, "Ctrl+Alt+Esc");
+    assert_eq!(
+        STOP_HOTKEY_MODIFIERS.0,
+        MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0
+    );
+}
+
+#[test]
+fn pre_input_fence_can_guard_preparatory_and_mutating_input() {
+    let mut calls = 0;
+    let error = {
+        let mut callback = || {
+            calls += 1;
+            if calls == 1 {
+                Ok(())
+            } else {
+                Err(ComputerUseError::new(
+                    ComputerUseErrorCode::StaleObservation,
+                    "changed target",
+                ))
+            }
+        };
+        let mut fence: Option<&mut PreInputFence<'_>> = Some(&mut callback);
+
+        run_pre_input_fence(&mut fence).unwrap();
+        run_pre_input_fence(&mut fence).unwrap_err()
+    };
+
+    assert_eq!(calls, 2);
+    assert_eq!(error.code, ComputerUseErrorCode::StaleObservation);
 }
 
 #[test]
@@ -205,6 +233,103 @@ fn keypress_batch_releases_every_pressed_key_in_reverse_order() {
 }
 
 #[test]
+fn pointer_modifiers_release_every_held_key_in_reverse_order() {
+    let (presses, releases) = pointer_modifier_inputs(&["CTRL+SHIFT+ALT".to_string()]).unwrap();
+    let key = |input: &INPUT| unsafe { input.Anonymous.ki };
+
+    assert_eq!(
+        presses
+            .iter()
+            .map(|input| key(input).wVk.0)
+            .collect::<Vec<_>>(),
+        [0x11, 0x10, 0x12]
+    );
+    assert_eq!(
+        releases
+            .iter()
+            .map(|input| key(input).wVk.0)
+            .collect::<Vec<_>>(),
+        [0x12, 0x10, 0x11]
+    );
+    assert!(
+        releases
+            .iter()
+            .all(|input| key(input).dwFlags.contains(KEYEVENTF_KEYUP))
+    );
+}
+
+#[test]
+fn keypress_rejects_canonical_and_aliased_scope_escape_chords() {
+    for chord in [
+        "CONTROL+SHIFT+ESCAPE",
+        "ALT+TAB",
+        "ALT+SPACE",
+        "CONTROL+ESCAPE",
+        "WIN+R",
+        "PRINT_SCREEN",
+    ] {
+        let error = match keypress_inputs(&[chord.to_owned()]) {
+            Ok(_) => panic!("{chord} must not be accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, ComputerUseErrorCode::InvalidAction, "{chord}");
+        assert!(error.message.contains("scope-escape"), "{chord}");
+    }
+}
+
+#[test]
+fn host_confirmed_close_shortcuts_remain_buildable() {
+    for chord in ["CTRL+W", "CONTROL+F04", "CTRL+Q"] {
+        assert!(keypress_inputs(&[chord.to_owned()]).is_ok(), "{chord}");
+    }
+}
+
+#[test]
+fn keypress_cannot_bypass_the_raw_text_entry_denial() {
+    for chord in [
+        "A",
+        "1",
+        "SHIFT+A",
+        "SHIFT+SEMICOLON",
+        "SPACE",
+        "KP_1",
+        "A+CTRL",
+        "A+ALT",
+        "ALTGR+Q",
+        "RIGHTALT+Q",
+    ] {
+        let error = match keypress_inputs(&[chord.to_owned()]) {
+            Ok(_) => panic!("{chord} must not be accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, ComputerUseErrorCode::InvalidAction, "{chord}");
+        assert!(error.message.contains("ordinary text"), "{chord}");
+    }
+    for chord in ["LEFT", "ENTER", "F5", "CTRL+A", "ALT+A"] {
+        assert!(keypress_inputs(&[chord.to_owned()]).is_ok(), "{chord}");
+    }
+}
+
+#[test]
+fn pointer_keys_reject_non_modifiers_and_system_keys() {
+    for key in ["A", "LEFT"] {
+        let error = match pointer_modifier_inputs(&[key.to_string()]) {
+            Ok(_) => panic!("{key} must not be accepted as a pointer modifier"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, ComputerUseErrorCode::InvalidAction);
+        assert!(error.message.contains("only allow Ctrl, Shift, Alt"));
+    }
+
+    let system_key = match pointer_modifier_inputs(&["WIN".to_string()]) {
+        Ok(_) => panic!("WIN must remain unavailable to pointer actions"),
+        Err(error) => error,
+    };
+    assert_eq!(system_key.code, ComputerUseErrorCode::InvalidAction);
+    assert!(system_key.message.contains("system key"));
+}
+
+#[test]
 fn navigation_and_right_modifiers_use_extended_key_events() {
     let inputs = keypress_inputs(&["RCTRL+LEFT".to_string()]).unwrap();
     let key = |index: usize| unsafe { inputs[index].Anonymous.ki };
@@ -241,6 +366,34 @@ fn drag_duration_interpolates_visible_steps_along_the_path() {
     let timed_corner = interpolated_drag_path(&cornered, 48);
     assert!(timed_corner.contains(&cornered[1]));
     assert_eq!(timed_corner.last(), Some(&cornered[2]));
+}
+
+#[test]
+fn drag_preflight_rejects_a_late_out_of_bounds_point_before_input() {
+    let observation = ComputerUseObservation {
+        observation_id: "drag:1".to_string(),
+        window_handle: 1,
+        process_id: 2,
+        window_title: "Maya".to_string(),
+        width: 100,
+        height: 100,
+        source_rect: [0, 0, 100, 100],
+        dpi_scale: 1.0,
+        window_dpi: 96,
+        capture_backend: "test".to_string(),
+        timestamp_ms: 0,
+        desktop_generation: 1,
+    };
+    let path = [
+        ComputerUsePoint { x: 10.0, y: 50.0 },
+        ComputerUsePoint { x: 100.0, y: 50.0 },
+    ];
+
+    let error =
+        preflight_drag_path_for_desktop(&observation, &path, 64, [0, 0, 1920, 1080]).unwrap_err();
+
+    assert_eq!(error.code, ComputerUseErrorCode::InvalidAction);
+    assert!(error.message.contains("outside the latest screenshot"));
 }
 
 #[test]

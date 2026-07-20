@@ -1,9 +1,11 @@
 //! Scoped native computer-use sessions for one DCC application window.
 //!
 //! The crate owns OS input injection, foreground validation, a visible control
-//! banner, and the active-session Esc stop token. Screenshot encoding remains in
-//! `dcc-mcp-capture`; UI semantics remain in `dcc-mcp-app-ui`.
+//! banner, and the Ctrl+Alt+Esc stop token. Screenshot encoding remains in
+//! `dcc-mcp-capture`; UI semantics remain in `dcc-mcp-ui-control`.
 
+mod drag_path;
+mod keyboard_policy;
 mod platform;
 pub mod ui_control_host;
 
@@ -104,7 +106,7 @@ pub struct ComputerUseAction {
     /// Literal Unicode text for the `type` action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Keys or key chords for the `keypress` action.
+    /// Keys or key chords for `keypress`, or held modifiers for pointer actions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keys: Vec<String>,
     /// Action duration, or wait time, in milliseconds.
@@ -168,7 +170,7 @@ pub enum ComputerUseErrorCode {
     InvalidTarget,
     /// A new screenshot is required before the action.
     StaleObservation,
-    /// The user pressed Esc while UI Control was active.
+    /// The user pressed Ctrl+Alt+Esc while UI Control was active.
     UserInterrupted,
     /// The target could not be made the foreground window.
     FocusLost,
@@ -215,6 +217,8 @@ impl ComputerUseError {
 
 /// Result alias for native computer-use operations.
 pub type ComputerUseResult<T> = Result<T, ComputerUseError>;
+
+type PreInputFence<'a> = dyn FnMut() -> ComputerUseResult<()> + 'a;
 
 #[derive(Debug, Clone)]
 struct TargetSpec {
@@ -447,14 +451,14 @@ impl ComputerUseSession {
             state: Mutex::new(SessionState::default()),
             stop_requested: Arc::new(AtomicBool::new(false)),
             generation: AtomicU64::new(0),
-            // App-UI feedback lives in separate overlay windows. Use a static
+            // UI Control feedback lives in separate overlay windows. Use a static
             // HWND capture so those excluded overlays cannot race an in-flight
             // WGC worker and can never leak into the observation.
             capturer: Capturer::new_window_static(),
         })
     }
 
-    /// Start the visible session banner and active-session Esc watcher.
+    /// Start the visible session banner and Ctrl+Alt+Esc watcher.
     pub fn start(&self) -> ComputerUseResult<Value> {
         let _dpi_awareness = platform::ThreadDpiAwareness::enter()?;
         let mut state = self.lock_state();
@@ -595,6 +599,22 @@ impl ComputerUseSession {
 
     /// Perform one action against the most recent observation.
     pub fn perform(&self, request: &ComputerUseAction) -> ComputerUseResult<Value> {
+        self.perform_inner(request, None)
+    }
+
+    fn perform_with_pre_input_fence(
+        &self,
+        request: &ComputerUseAction,
+        pre_input_fence: &mut PreInputFence<'_>,
+    ) -> ComputerUseResult<Value> {
+        self.perform_inner(request, Some(pre_input_fence))
+    }
+
+    fn perform_inner(
+        &self,
+        request: &ComputerUseAction,
+        pre_input_fence: Option<&mut PreInputFence<'_>>,
+    ) -> ComputerUseResult<Value> {
         validate_action_limits(request)?;
         let _dpi_awareness = platform::ThreadDpiAwareness::enter()?;
         let mut state = self.lock_state();
@@ -608,6 +628,7 @@ impl ComputerUseSession {
             &self.stop_requested,
             &state.desktop_state,
             &state.desktop_barrier,
+            pre_input_fence,
         );
         action_result?;
         Ok(json!({
@@ -773,7 +794,7 @@ impl ComputerUseSession {
             "process_id": state.target.as_ref().map(|target| target.pid),
             "window_title": state.target.as_ref().map(|target| target.title.clone()),
             "hint": format!(
-                "DCC UI Control is controlling {} - press Esc to stop",
+                "DCC UI Control is controlling {} - press Ctrl+Alt+Esc to stop",
                 self.spec.app_name
             ),
         })
@@ -809,7 +830,7 @@ impl ComputerUseSession {
         if state.interrupted.load(Ordering::Acquire) || platform::user_interrupted() {
             return Err(ComputerUseError::new(
                 ComputerUseErrorCode::UserInterrupted,
-                "the user pressed Esc; no further input was sent",
+                "the user pressed Ctrl+Alt+Esc; no further input was sent",
             ));
         }
         if self.stop_requested.load(Ordering::Acquire) {
@@ -912,7 +933,7 @@ fn check_action_cancellation(stop_requested: &AtomicBool) -> ComputerUseResult<(
     if platform::user_interrupted() {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::UserInterrupted,
-            "the user pressed Esc; input was stopped and held keys/buttons were released",
+            "the user pressed Ctrl+Alt+Esc; input was stopped and held keys/buttons were released",
         ));
     }
     if stop_requested.load(Ordering::Acquire) {

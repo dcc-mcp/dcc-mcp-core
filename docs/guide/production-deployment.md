@@ -49,12 +49,39 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 
 GitHub Releases attach deployable bundles named
 `dcc-mcp-server-<version>-<platform>.zip`, for example
-`dcc-mcp-server-0.18.12-linux-x86_64.zip`. Each zip contains both
-`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows), so a
-deployment host can unpack one archive and put both binaries on `PATH`.
+`dcc-mcp-server-0.18.12-linux-x86_64.zip`. Each zip contains
+`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows). Windows
+bundles also contain the required `dcc-mcp-ui-control-host.exe`; deploy all
+three files together in the same directory.
 
 A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published
 alongside the server bundle for environments that only need the CLI binary.
+Windows releases additionally publish
+`dcc-mcp-ui-control-host-windows-x86_64.exe` as a checksummed update asset.
+It is not an optional legacy helper: its manifest version must exactly match
+the server version.
+
+### Server self-update transaction
+
+Run `dcc-mcp-server update apply` from the exact target installation. On
+Windows it downloads both the raw server and UI Control host entries, requires
+matching versions and SHA-256 digests, and writes one installation-bound
+transaction. The next server launch verifies both staged files, replaces the
+host and server with rollback/journal recovery, then immediately starts the
+new server image. Linux and macOS keep the single-server-binary update path.
+
+The Admin Instances panel is check-only. A gateway cannot prove the selected
+local or remote instance's executable directory, so it never stages a
+`dcc-mcp-server` update by binary name alone.
+
+The hard-cut upgrade from `0.19.62` is necessarily a two-restart bootstrap:
+that release's updater knows only the raw server, and its first restart swaps
+the file while the already-running process still executes the old image. The
+second restart runs the new server, verifies the sibling host against the
+same-version manifest SHA, and installs a missing or stale host before UI
+Control is used. Later paired updates return to one restart. UI Control wire
+protocol v2 uses a new pipe/singleton, while the version-neutral global input
+owner and Ctrl+Alt+Esc stop latch remain shared across the transition.
 
 ### Install Location
 

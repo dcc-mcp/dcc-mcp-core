@@ -6,7 +6,7 @@ members = [
     "crates/dcc-mcp-naming",
     "crates/dcc-mcp-models",
     "crates/dcc-mcp-actions",
-    "crates/dcc-mcp-app-ui",
+    "crates/dcc-mcp-ui-control",
     "crates/dcc-mcp-computer-use",
     "crates/dcc-mcp-skills",
     "crates/dcc-mcp-protocols",
@@ -67,7 +67,7 @@ repository = "https://github.com/dcc-mcp/dcc-mcp-core"
 dcc-mcp-naming = { path = "crates/dcc-mcp-naming" }
 dcc-mcp-models = { path = "crates/dcc-mcp-models" }
 dcc-mcp-actions = { path = "crates/dcc-mcp-actions" }
-dcc-mcp-app-ui = { path = "crates/dcc-mcp-app-ui" }
+dcc-mcp-ui-control = { path = "crates/dcc-mcp-ui-control" }
 dcc-mcp-computer-use = { path = "crates/dcc-mcp-computer-use" }
 dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }

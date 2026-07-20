@@ -593,7 +593,7 @@ handle = server.start()
 
 | Skill | 工具 | 用途 |
 |---|---|---|
-| `app-ui` | `snapshot`、`find`、`act`、`wait_for` | 限定作用域的 DCC UI 观测/操作模拟后端 |
+| `ui-control` | `snapshot`、`find`、`act`、`wait_for` | 限定作用域的 DCC UI 观测/操作模拟后端 |
 | `dcc-diagnostics` | `screenshot`、`audit_log`、`tool_metrics`、`process_status` | 任意 DCC 的可观测性与调试 |
 | `media` | `probe`、`sequence_to_mp4`、`transcode`、`extract_frames`、`thumbnail` | vx 管理的 FFmpeg 媒体处理，用于渲染/playblast 产物 |
 | `workflow` | `run_chain` | 多步 action 串联，上下文透传 |

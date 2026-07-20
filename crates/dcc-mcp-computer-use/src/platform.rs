@@ -8,7 +8,10 @@ use std::thread::JoinHandle;
 
 use crate::ComputerUseError;
 #[cfg(not(windows))]
-use crate::{ComputerUseAction, ComputerUseErrorCode, ComputerUseObservation, ComputerUseResult};
+use crate::{
+    ComputerUseAction, ComputerUseErrorCode, ComputerUseObservation, ComputerUseResult,
+    PreInputFence,
+};
 
 #[cfg(windows)]
 mod windows;
@@ -228,6 +231,7 @@ pub(crate) fn perform_action(
     _interrupted: &Arc<AtomicBool>,
     _desktop_state: &Arc<AtomicU64>,
     _desktop_barrier: &Arc<DesktopEventBarrier>,
+    _pre_input_fence: Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
     Err(ComputerUseError::new(
         ComputerUseErrorCode::BackendUnavailable,

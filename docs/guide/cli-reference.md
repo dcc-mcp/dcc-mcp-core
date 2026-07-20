@@ -181,7 +181,7 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | Build a release zip for a marketplace package and print its SHA-256 digest. |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
-| `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; use Admin's instance update button or `dcc-mcp-server update apply` in the server environment. |
+| `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
 | `gateway list` | local profile config | Show configured remote profiles and the active local/remote selection. |
 | `gateway set <profile\|local>` | local profile config | Select the active gateway profile. |
@@ -268,10 +268,11 @@ manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or
 `GatewayConfig.update_manifest_url`). `update check` is safe for both humans
 and agents because it only reads `/v1/update/check`; the CLI auto-ensures the
 local gateway before the request. `update apply` stages only the CLI binary.
-For server instances, prefer the Admin Instances panel update button, which
-calls `POST /admin/api/instances/{instance_id}/update` and stages
-`dcc-mcp-server` with restart-required status. When operating from the server
-host itself, use `dcc-mcp-server update apply` instead.
+The Admin Instances panel checks server availability but does not stage an
+update because the gateway cannot prove a selected local or remote instance's
+installation root. Run `dcc-mcp-server update apply` in the exact server
+environment. On Windows that command validates and stages the server and
+`dcc-mcp-ui-control-host.exe` as one installation-bound transaction.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command
@@ -316,7 +317,7 @@ daemon can be re-ensured after a crash.
 | `dcc-mcp-server sidecar` | Per-DCC sidecar worker. | Ensures the standalone gateway daemon, registers a `per-dcc-sidecar` row, and dispatches through host RPC. Runtime is implemented by `dcc-mcp-sidecar`. |
 | `dcc-mcp-server translate` | External stdio MCP bridge. | Ensures the standalone gateway daemon and registers the bridge as a backend unless `--no-register` is set. |
 | `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
-| `dcc-mcp-server update check/apply` | Server binary update helper. | Reads the gateway update manifest on `127.0.0.1:<gateway-port>` and stages `dcc-mcp-server` for the next server launch. |
+| `dcc-mcp-server update check/apply` | Server runtime update helper. | Reads the gateway update manifest on `127.0.0.1:<gateway-port>`; Windows stages the server and version-matched UI Control host as one transaction, while other platforms stage the server binary. |
 
 `auto` and `serve` share the server flags below. `gateway` has its own smaller
 flag surface and rejects server-only flags such as `--app`.

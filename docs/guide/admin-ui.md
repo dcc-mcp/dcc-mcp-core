@@ -1073,8 +1073,8 @@ The HTML dashboard includes:
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **DCC icons**: common hosts such as Maya/Autodesk, Blender, GIMP, Inkscape, Krita, Unity, and Unreal get recognizable icons, with a safe fallback for custom hosts.
 - **Instance cards**: Per-instance status, heartbeat, routing metadata, server
-  version, and a direct update action that stages `dcc-mcp-server` updates and
-  clearly marks restart-required results.
+  version, and an update check. Staging is intentionally delegated to
+  `dcc-mcp-server update apply` in the exact target installation.
 - **OpenAPI Inspector**: summarizes the gateway or selected instance `/v1/openapi.json` contract, filters REST operations by method/path/tag, and exposes copy/download links for the raw JSON plus the matching `/docs`.
 - **Instance OpenAPI links**: Debug Workbench and instance cards expose `Inspector`, `spec`, and `docs` links generated from each backend `mcp_url`, so an operator can jump from MCP-level telemetry to the lower OpenAPI contract for that exact backend.
 - **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
@@ -1104,7 +1104,7 @@ when a human needs to inspect the state visually.
 |-------------|-----------|-------------|----------------|-------------------|
 | Command Center | `/admin?panel=setup` | `GET /admin/api/health`, `GET /admin/api/instances` | Onboard agents and humans to the current gateway. Shows copyable agent prompts, CLI commands, and MCP client configuration snippets derived from the live gateway URL. | Start here when a user asks how to connect Codex, Claude Desktop, Cursor, CodeBuddy, VS Code, Cline, or a shell workflow to the gateway. Copy the generated command/config instead of inventing one. |
 | Debug Workbench | `/admin?panel=debug` | `GET /admin/api/health`, `GET /admin/api/instances`, `GET /admin/api/calls`, `GET /admin/api/traces`, `GET /admin/api/logs` | First triage screen for gateway health, recent calls, traces, warning logs, and backend links. | Use when the user reports "gateway not working", stale instances, missing tools, or unexplained call failures. |
-| Instances | `/admin?panel=instances` | `GET /admin/api/instances`, `POST /admin/api/instances/{instance_id}/update` | Live backend inventory with readiness, DCC type, route/source metadata, versions, and staged server update actions. | Verify which DCC sessions are registered and whether a backend needs restart after an update. |
+| Instances | `/admin?panel=instances` | `GET /admin/api/instances`, `POST /admin/api/instances/{instance_id}/update` | Live backend inventory with readiness, DCC type, route/source metadata, versions, and check-only server update status. | Verify which DCC sessions are registered, then apply from the exact target environment. |
 | Health | `/admin?panel=health` | `GET /admin/api/health` | Gateway readiness, owner identity, version, audit/log status, and high-level counters. | Check whether the elected gateway is up before deeper debugging. |
 | Tools | `/admin?panel=tools` | `GET /admin/api/tools` | Aggregated tool inventory exposed through gateway discovery. | Confirm whether a tool slug exists and which DCC/backend owns it before using REST/CLI calls. |
 | Discover / Skills | `/admin?panel=discover&discoverTab=skills` | `GET /admin/api/skills`, `GET/POST/DELETE /admin/api/skill-paths`, `GET /admin/api/skill-detail?name=...&dcc_type=...` | Skill inventory, load state, adoption metadata, custom skill search paths, and skill detail modal. Opening the skill paths view triggers live backend reload. | Use for "why is this skill missing", "which skills are loaded", custom path setup, and skill package inspection. |
@@ -1146,11 +1146,12 @@ Use the dashboard as an operations surface, not as a static report:
    `dcc-mcp-cli` auto-ensures a local loopback gateway for normal gateway-backed
    commands, so operators should not add a separate preflight step unless they
    are troubleshooting lifecycle state.
-2. **Use Instances for server updates.** Each instance row shows the current
-   server/adapter version and posts to
-   `POST /admin/api/instances/{instance_id}/update` when the update button is
-   clicked. The request stages `dcc-mcp-server` updates and reports whether the
-   DCC backend must restart to apply the staged binary.
+2. **Use Instances to check server updates.** Each instance row shows the
+   current server/adapter version and posts a check-only request to
+   `POST /admin/api/instances/{instance_id}/update`. Apply is fail-closed because
+   the gateway cannot prove a selected instance's executable root. Run
+   `dcc-mcp-server update apply` in that exact server environment; Windows then
+   stages the server and UI Control host as one transaction.
 3. **Use Skills and Marketplace for capability changes.** The Skills panel shows
    live gateway inventory and custom path state; Marketplace installs, updates,
    and uninstalls packages through `/admin/api/marketplace/*`. After a package
@@ -1281,7 +1282,7 @@ The admin UI has **no authentication** by default. It binds to the same host as
 the elected gateway, which defaults to `127.0.0.1`. Several panels are
 read-only, but the dashboard also exposes local operator mutations such as
 custom skill-path changes, marketplace install/update/uninstall, integration
-config saves under `~/dcc-mcp/etc`, and per-instance update staging. For
+config saves under `~/dcc-mcp/etc`, and per-instance update checks. For
 production:
 
 - Keep it bound to localhost, or place it behind a reverse proxy with IP

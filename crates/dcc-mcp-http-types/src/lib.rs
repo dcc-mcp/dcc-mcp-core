@@ -68,8 +68,8 @@
 //! | [`session::SessionLogLevel`] |                                  |
 //! | [`session::SessionLogMessage`] |                                |
 //!
-//! `app_ui` observation/action contracts live in the sibling
-//! `dcc-mcp-app-ui` crate so UI automation can evolve independently of the
+//! `ui_control` observation/action contracts live in the sibling
+//! `dcc-mcp-ui-control` crate so UI automation can evolve independently of the
 //! HTTP wire layer.
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a

@@ -1,5 +1,13 @@
 use super::*;
 
+mod send_input;
+
+pub(crate) use send_input::flush_pending_input_releases;
+pub(super) use send_input::flush_pending_input_releases_locked;
+#[cfg(test)]
+use send_input::{compensating_releases, flush_pending_input_releases_with, send_inputs_with};
+use send_input::{defer_input_releases, send_inputs};
+
 struct PointerEffect {
     hwnd: HWND,
 }
@@ -51,7 +59,18 @@ pub(crate) fn perform_action(
     stop_requested: &Arc<AtomicBool>,
     desktop_state: &Arc<AtomicU64>,
     desktop_barrier: &Arc<DesktopEventBarrier>,
+    mut pre_input_fence: Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
+    if matches!(
+        request.action.as_str(),
+        "click" | "raw_coordinate_click" | "double_click" | "scroll" | "drag"
+    ) && !crate::keyboard_policy::are_pointer_modifiers(&request.keys)
+    {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidAction,
+            "pointer action keys only allow Ctrl, Shift, Alt, and their left/right variants",
+        ));
+    }
     let _input_guard = INPUT_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -70,72 +89,104 @@ pub(crate) fn perform_action(
     match request.action.as_str() {
         "move" => {
             let point = required_point(request)?;
-            let (screen_x, screen_y) = move_to(window_handle, observation, point, &guard, true)?;
+            let (screen_x, screen_y) = move_to(
+                window_handle,
+                observation,
+                point,
+                &guard,
+                true,
+                &mut pre_input_fence,
+            )?;
             let effect = PointerEffect::new(screen_x, screen_y, "●")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
         "click" | "raw_coordinate_click" => {
             let point = required_point(request)?;
-            let (screen_x, screen_y) = move_to(window_handle, observation, point, &guard, true)?;
+            let (screen_x, screen_y) = move_to(
+                window_handle,
+                observation,
+                point,
+                &guard,
+                true,
+                &mut pre_input_fence,
+            )?;
             click(
                 window_handle,
                 observation,
-                screen_x,
-                screen_y,
-                request.button.as_deref().unwrap_or("left"),
+                (screen_x, screen_y),
+                request,
+                1,
                 &guard,
+                &mut pre_input_fence,
             )?;
             let effect = PointerEffect::new(screen_x, screen_y, "●")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
         "double_click" => {
             let point = required_point(request)?;
-            let (screen_x, screen_y) = move_to(window_handle, observation, point, &guard, true)?;
-            click(
+            let (screen_x, screen_y) = move_to(
                 window_handle,
                 observation,
-                screen_x,
-                screen_y,
-                request.button.as_deref().unwrap_or("left"),
+                point,
                 &guard,
+                true,
+                &mut pre_input_fence,
             )?;
-            guard.sleep(Duration::from_millis(60))?;
             click(
                 window_handle,
                 observation,
-                screen_x,
-                screen_y,
-                request.button.as_deref().unwrap_or("left"),
+                (screen_x, screen_y),
+                request,
+                2,
                 &guard,
+                &mut pre_input_fence,
             )?;
             let effect = PointerEffect::new(screen_x, screen_y, "◎")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
         "scroll" => {
             let point = required_point(request)?;
-            let (screen_x, screen_y) = move_to(window_handle, observation, point, &guard, true)?;
+            let (screen_x, screen_y) = move_to(
+                window_handle,
+                observation,
+                point,
+                &guard,
+                true,
+                &mut pre_input_fence,
+            )?;
             scroll(
                 window_handle,
                 observation,
                 screen_x,
                 screen_y,
-                request.scroll_x.unwrap_or(0),
-                request.scroll_y.unwrap_or(0),
+                request,
                 &guard,
+                &mut pre_input_fence,
             )?;
             let effect = PointerEffect::new(screen_x, screen_y, "↕")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
-        "drag" => drag(window_handle, observation, request, &guard)?,
+        "drag" => drag(
+            window_handle,
+            observation,
+            request,
+            &guard,
+            &mut pre_input_fence,
+        )?,
         "type" => type_text(
             window_handle,
             observation.process_id,
             request.text.as_deref().unwrap_or(""),
             &guard,
+            &mut pre_input_fence,
         )?,
-        "keypress" | "keyboard_shortcut" => {
-            keypress(window_handle, observation.process_id, &request.keys, &guard)?
-        }
+        "keypress" | "keyboard_shortcut" => keypress(
+            window_handle,
+            observation.process_id,
+            &request.keys,
+            &guard,
+            &mut pre_input_fence,
+        )?,
         "wait" => guard.sleep(Duration::from_millis(
             request.duration_ms.unwrap_or(1000).min(60_000),
         ))?,
@@ -601,10 +652,29 @@ fn move_to(
     point: ComputerUsePoint,
     guard: &ActionGuard<'_>,
     require_target_hit: bool,
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
+) -> ComputerUseResult<(i32, i32)> {
+    let mapped = mapped_pointer_point(observation, point)?;
+    move_to_mapped(
+        window_handle,
+        observation,
+        mapped,
+        guard,
+        require_target_hit,
+        pre_input_fence,
+    )
+}
+
+fn move_to_mapped(
+    window_handle: u64,
+    observation: &ComputerUseObservation,
+    mapped: MappedPointerPoint,
+    guard: &ActionGuard<'_>,
+    require_target_hit: bool,
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<(i32, i32)> {
     guard.synchronize()?;
     ensure_observation_target(window_handle, observation)?;
-    let (screen_x, screen_y, absolute_x, absolute_y) = mapped_pointer_point(observation, point)?;
     // No input has been sent yet. Reacquire the already-scoped target after
     // the desktop-barrier handshake so a caller window cannot steal focus in
     // the small gap between initial preparation and the first pointer move.
@@ -612,8 +682,8 @@ fn move_to(
     ensure_observation_target(window_handle, observation)?;
     let _elevation = if require_target_hit {
         prepare_point_target(
-            screen_x,
-            screen_y,
+            mapped.screen_x,
+            mapped.screen_y,
             HWND(window_handle as *mut core::ffi::c_void),
             observation.process_id,
         )?
@@ -621,19 +691,36 @@ fn move_to(
         None
     };
     guard.check()?;
+    run_pre_input_fence(pre_input_fence)?;
     send_mouse(
         MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-        absolute_x,
-        absolute_y,
+        mapped.absolute_x,
+        mapped.absolute_y,
         0,
     )?;
-    Ok((screen_x, screen_y))
+    Ok((mapped.screen_x, mapped.screen_y))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MappedPointerPoint {
+    screen_x: i32,
+    screen_y: i32,
+    absolute_x: i32,
+    absolute_y: i32,
 }
 
 fn mapped_pointer_point(
     observation: &ComputerUseObservation,
     point: ComputerUsePoint,
-) -> ComputerUseResult<(i32, i32, i32, i32)> {
+) -> ComputerUseResult<MappedPointerPoint> {
+    mapped_pointer_point_for_desktop(observation, point, virtual_desktop_geometry())
+}
+
+fn mapped_pointer_point_for_desktop(
+    observation: &ComputerUseObservation,
+    point: ComputerUsePoint,
+    virtual_desktop: [i32; 4],
+) -> ComputerUseResult<MappedPointerPoint> {
     let Some((screen_x, screen_y)) = screenshot_point_to_screen(
         point,
         [observation.width, observation.height],
@@ -644,10 +731,9 @@ fn mapped_pointer_point(
             "pointer coordinates are outside the latest screenshot",
         ));
     };
-    let virtual_x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
-    let virtual_y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
-    let virtual_width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) }.max(2);
-    let virtual_height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) }.max(2);
+    let [virtual_x, virtual_y, virtual_width, virtual_height] = virtual_desktop;
+    let virtual_width = virtual_width.max(2);
+    let virtual_height = virtual_height.max(2);
     let virtual_right = virtual_x.saturating_add(virtual_width);
     let virtual_bottom = virtual_y.saturating_add(virtual_height);
     if !(virtual_x..virtual_right).contains(&screen_x)
@@ -662,7 +748,39 @@ fn mapped_pointer_point(
         .clamp(0, 65_535) as i32;
     let absolute_y = ((screen_y - virtual_y) as i64 * 65_535 / (virtual_height - 1) as i64)
         .clamp(0, 65_535) as i32;
-    Ok((screen_x, screen_y, absolute_x, absolute_y))
+    Ok(MappedPointerPoint {
+        screen_x,
+        screen_y,
+        absolute_x,
+        absolute_y,
+    })
+}
+
+fn virtual_desktop_geometry() -> [i32; 4] {
+    [
+        unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) },
+        unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) },
+        unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) }.max(2),
+        unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) }.max(2),
+    ]
+}
+
+fn preflight_drag_path_for_desktop(
+    observation: &ComputerUseObservation,
+    path: &[ComputerUsePoint],
+    duration_ms: u64,
+    virtual_desktop: [i32; 4],
+) -> ComputerUseResult<Vec<MappedPointerPoint>> {
+    if path.len() < 2 {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidAction,
+            "drag requires at least two path points",
+        ));
+    }
+    std::iter::once(path[0])
+        .chain(interpolated_drag_path(path, duration_ms))
+        .map(|point| mapped_pointer_point_for_desktop(observation, point, virtual_desktop))
+        .collect()
 }
 
 fn screenshot_point_to_screen(
@@ -699,13 +817,15 @@ fn screenshot_point_to_screen(
 fn click(
     window_handle: u64,
     observation: &ComputerUseObservation,
-    screen_x: i32,
-    screen_y: i32,
-    button: &str,
+    screen: (i32, i32),
+    request: &ComputerUseAction,
+    click_count: usize,
     guard: &ActionGuard<'_>,
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
+    let (screen_x, screen_y) = screen;
     guard.synchronize()?;
-    let inputs = click_inputs(button)?;
+    let inputs = click_inputs(request.button.as_deref().unwrap_or("left"))?;
     ensure_target_foreground(window_handle, observation.process_id)?;
     ensure_observation_target(window_handle, observation)?;
     ensure_cursor_at(screen_x, screen_y)?;
@@ -716,7 +836,28 @@ fn click(
         observation.process_id,
     )?;
     guard.check()?;
-    send_inputs(&inputs)?;
+    run_pre_input_fence(pre_input_fence)?;
+    let mut held_keys = HeldKeys::press(&request.keys)?;
+    for index in 0..click_count {
+        if index != 0 {
+            guard.sleep(Duration::from_millis(60))?;
+            guard.synchronize()?;
+            ensure_target_foreground(window_handle, observation.process_id)?;
+            ensure_observation_target(window_handle, observation)?;
+            ensure_cursor_at(screen_x, screen_y)?;
+            let _elevation = prepare_point_target(
+                screen_x,
+                screen_y,
+                HWND(window_handle as *mut core::ffi::c_void),
+                observation.process_id,
+            )?;
+            guard.check()?;
+            run_pre_input_fence(pre_input_fence)?;
+        }
+        send_inputs(&inputs)?;
+        guard.check()?;
+    }
+    held_keys.release()?;
     guard.check()
 }
 
@@ -725,15 +866,32 @@ fn drag(
     observation: &ComputerUseObservation,
     request: &ComputerUseAction,
     guard: &ActionGuard<'_>,
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
-    if request.path.len() < 2 {
+    let duration_ms = request.duration_ms.unwrap_or(0);
+    // Complete mapping is a no-input preflight: a late invalid point cannot
+    // turn a partial drag into a click or edit.
+    let mapped_path = preflight_drag_path_for_desktop(
+        observation,
+        &request.path,
+        duration_ms,
+        virtual_desktop_geometry(),
+    )?;
+    let Some((start, drag_path)) = mapped_path.split_first() else {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::InvalidAction,
             "drag requires at least two path points",
         ));
-    }
+    };
     let button = request.button.as_deref().unwrap_or("left");
-    let (screen_x, screen_y) = move_to(window_handle, observation, request.path[0], guard, true)?;
+    let (screen_x, screen_y) = move_to_mapped(
+        window_handle,
+        observation,
+        *start,
+        guard,
+        true,
+        pre_input_fence,
+    )?;
     let effect = PointerEffect::new(screen_x, screen_y, "◆")?;
     guard.synchronize()?;
     ensure_target_foreground(window_handle, observation.process_id)?;
@@ -745,14 +903,14 @@ fn drag(
         HWND(window_handle as *mut core::ffi::c_void),
         observation.process_id,
     )?;
-    let duration_ms = request.duration_ms.unwrap_or(0);
-    let drag_path = interpolated_drag_path(&request.path, duration_ms);
     let step_count = drag_path.len();
     guard.check()?;
+    run_pre_input_fence(pre_input_fence)?;
+    let mut held_keys = HeldKeys::press(&request.keys)?;
     let mut held_button = HeldMouseButton::press(button)?;
     let started = Instant::now();
     let mut previous_screen = (screen_x, screen_y);
-    for (index, point) in drag_path.into_iter().enumerate() {
+    for (index, point) in drag_path.iter().copied().enumerate() {
         let step = index + 1;
         let deadline = started
             + Duration::from_millis(duration_ms.saturating_mul(step as u64) / step_count as u64);
@@ -761,25 +919,24 @@ fn drag(
         ensure_target_foreground(window_handle, observation.process_id)?;
         ensure_observation_target(window_handle, observation)?;
         ensure_cursor_at(previous_screen.0, previous_screen.1)?;
-        let (mapped_x, mapped_y, absolute_x, absolute_y) =
-            mapped_pointer_point(observation, point)?;
         let _step_elevation = prepare_point_target(
-            mapped_x,
-            mapped_y,
+            point.screen_x,
+            point.screen_y,
             HWND(window_handle as *mut core::ffi::c_void),
             observation.process_id,
         )?;
         guard.check()?;
         send_mouse(
             MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-            absolute_x,
-            absolute_y,
+            point.absolute_x,
+            point.absolute_y,
             0,
         )?;
-        previous_screen = (mapped_x, mapped_y);
-        effect.reposition(mapped_x, mapped_y)?;
+        previous_screen = (point.screen_x, point.screen_y);
+        effect.reposition(point.screen_x, point.screen_y)?;
     }
     held_button.release()?;
+    held_keys.release()?;
     guard.check()?;
     effect.dwell(
         guard,
@@ -787,43 +944,18 @@ fn drag(
     )
 }
 
-fn drag_step_count(path_len: usize, duration_ms: u64) -> usize {
-    path_len
-        .saturating_sub(1)
-        .max(duration_ms.div_ceil(DRAG_UPDATE_INTERVAL_MS) as usize)
-}
-
-fn interpolated_drag_path(path: &[ComputerUsePoint], duration_ms: u64) -> Vec<ComputerUsePoint> {
-    let segment_count = path.len() - 1;
-    let step_count = drag_step_count(path.len(), duration_ms);
-    let mut points = Vec::with_capacity(step_count);
-    let mut allocated = 0;
-    for segment in 0..segment_count {
-        let segment_end = (segment + 1) * step_count / segment_count;
-        let segment_steps = segment_end - allocated;
-        let from = path[segment];
-        let to = path[segment + 1];
-        for step in 1..=segment_steps {
-            let fraction = step as f64 / segment_steps as f64;
-            points.push(ComputerUsePoint {
-                x: from.x + (to.x - from.x) * fraction,
-                y: from.y + (to.y - from.y) * fraction,
-            });
-        }
-        allocated = segment_end;
-    }
-    points
-}
-
 fn scroll(
     window_handle: u64,
     observation: &ComputerUseObservation,
     screen_x: i32,
     screen_y: i32,
-    horizontal: i32,
-    vertical: i32,
+    request: &ComputerUseAction,
     guard: &ActionGuard<'_>,
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
+    let horizontal = request.scroll_x.unwrap_or(0);
+    let vertical = request.scroll_y.unwrap_or(0);
+    let mut held_keys = None;
     if vertical != 0 {
         guard.synchronize()?;
         ensure_target_foreground(window_handle, observation.process_id)?;
@@ -835,6 +967,8 @@ fn scroll(
             HWND(window_handle as *mut core::ffi::c_void),
             observation.process_id,
         )?;
+        run_pre_input_fence(pre_input_fence)?;
+        held_keys = Some(HeldKeys::press(&request.keys)?);
         send_mouse(MOUSEEVENTF_WHEEL, 0, 0, vertical_wheel_data(vertical))?;
     }
     if horizontal != 0 {
@@ -848,7 +982,14 @@ fn scroll(
             HWND(window_handle as *mut core::ffi::c_void),
             observation.process_id,
         )?;
+        run_pre_input_fence(pre_input_fence)?;
+        if held_keys.is_none() {
+            held_keys = Some(HeldKeys::press(&request.keys)?);
+        }
         send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, horizontal as u32)?;
+    }
+    if let Some(mut held_keys) = held_keys {
+        held_keys.release()?;
     }
     Ok(())
 }
@@ -862,11 +1003,13 @@ fn type_text(
     process_id: u32,
     text: &str,
     guard: &ActionGuard<'_>,
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
     for unit in text.encode_utf16() {
         guard.synchronize()?;
         ensure_target_foreground(window_handle, process_id)?;
         guard.check()?;
+        run_pre_input_fence(pre_input_fence)?;
         send_inputs(&[keyboard_unicode(unit, false), keyboard_unicode(unit, true)])?;
         guard.check()?;
     }
@@ -878,6 +1021,7 @@ fn keypress(
     process_id: u32,
     keys: &[String],
     guard: &ActionGuard<'_>,
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
     let inputs = keypress_inputs(keys)?;
     guard.synchronize()?;
@@ -886,11 +1030,46 @@ fn keypress(
     // to fail closed if focus changes after their first input.
     let _focus_elevation = focus_target(window_handle, process_id)?;
     guard.check()?;
+    run_pre_input_fence(pre_input_fence)?;
     send_inputs(&inputs)?;
     guard.check()
 }
 
+fn run_pre_input_fence(
+    pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
+) -> ComputerUseResult<()> {
+    if let Some(fence) = pre_input_fence.as_mut() {
+        (**fence)()?;
+    }
+    Ok(())
+}
+
 fn keypress_inputs(keys: &[String]) -> ComputerUseResult<Vec<INPUT>> {
+    if crate::keyboard_policy::is_unmodified_text_entry(keys) {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidAction,
+            "keypress cannot synthesize ordinary text; use the separately governed text-entry path",
+        ));
+    }
+    if crate::keyboard_policy::shortcut_risk(keys) == crate::keyboard_policy::ShortcutRisk::HardDeny
+    {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidAction,
+            "system or scope-escape keyboard shortcuts are not allowed in Computer Use",
+        ));
+    }
+    let (mut inputs, releases) = held_key_inputs(keys)?;
+    if inputs.is_empty() {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidAction,
+            "keypress requires at least one key",
+        ));
+    }
+    inputs.extend(releases);
+    Ok(inputs)
+}
+
+fn held_key_inputs(keys: &[String]) -> ComputerUseResult<(Vec<INPUT>, Vec<INPUT>)> {
     let flattened: Vec<String> = keys
         .iter()
         .flat_map(|item| item.split('+'))
@@ -898,38 +1077,50 @@ fn keypress_inputs(keys: &[String]) -> ComputerUseResult<Vec<INPUT>> {
         .filter(|item| !item.is_empty())
         .map(str::to_string)
         .collect();
-    if flattened.is_empty() {
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::InvalidAction,
-            "keypress requires at least one key",
-        ));
-    }
     let pressed = flattened
         .iter()
         .map(|key| virtual_key(key))
         .collect::<ComputerUseResult<Vec<_>>>()?;
-    let mut inputs = Vec::with_capacity(pressed.len() * 2);
-    inputs.extend(pressed.iter().copied().map(|vk| keyboard_vk(vk, false)));
-    inputs.extend(
-        pressed
-            .iter()
-            .rev()
-            .copied()
-            .map(|vk| keyboard_vk(vk, true)),
-    );
+    let inputs = pressed
+        .iter()
+        .copied()
+        .map(|vk| keyboard_vk(vk, false))
+        .collect();
+    let releases = pressed
+        .iter()
+        .rev()
+        .copied()
+        .map(|vk| keyboard_vk(vk, true))
+        .collect();
+    Ok((inputs, releases))
+}
+
+fn pointer_modifier_inputs(keys: &[String]) -> ComputerUseResult<(Vec<INPUT>, Vec<INPUT>)> {
+    let inputs = held_key_inputs(keys)?;
+    if inputs.0.iter().any(|input| {
+        let virtual_key = unsafe { input.Anonymous.ki.wVk.0 };
+        !matches!(virtual_key, 0x10..=0x12 | 0xA0..=0xA5)
+    }) {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidAction,
+            "pointer action keys only allow Ctrl, Shift, Alt, and their left/right variants",
+        ));
+    }
     Ok(inputs)
 }
 
 fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
     let upper = key.to_ascii_uppercase();
-    if matches!(
-        upper.as_str(),
-        "META" | "WIN" | "WINDOWS" | "SUPER" | "CMD" | "COMMAND"
-    ) {
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::InvalidAction,
-            format!("system key {key:?} is not allowed in Computer Use"),
-        ));
+    if let Some(common) = crate::keyboard_policy::common_key(key) {
+        return common.virtual_key().map(VIRTUAL_KEY).ok_or_else(|| {
+            ComputerUseError::new(
+                ComputerUseErrorCode::InvalidAction,
+                format!("system key {key:?} is not allowed in Computer Use"),
+            )
+        });
+    }
+    if let Some(virtual_key) = crate::keyboard_policy::function_key_virtual_key(key) {
+        return Ok(VIRTUAL_KEY(virtual_key));
     }
     if let Some(digit) = upper
         .strip_prefix("KP_")
@@ -940,21 +1131,10 @@ fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
         return Ok(VIRTUAL_KEY(0x60 + u16::from(digit - b'0')));
     }
     let raw = match upper.as_str() {
-        "CTRL" | "CONTROL" => 0x11,
-        "LCTRL" | "LEFTCTRL" | "LEFT_CTRL" | "CTRL_L" | "CONTROL_L" => 0xA2,
-        "RCTRL" | "RIGHTCTRL" | "RIGHT_CTRL" | "CTRL_R" | "CONTROL_R" => 0xA3,
-        "SHIFT" => 0x10,
-        "LSHIFT" | "LEFTSHIFT" | "LEFT_SHIFT" | "SHIFT_L" => 0xA0,
-        "RSHIFT" | "RIGHTSHIFT" | "RIGHT_SHIFT" | "SHIFT_R" => 0xA1,
-        "ALT" => 0x12,
-        "LALT" | "LEFTALT" | "LEFT_ALT" | "ALT_L" => 0xA4,
-        "RALT" | "RIGHTALT" | "RIGHT_ALT" | "ALT_R" | "ALTGR" => 0xA5,
         "ENTER" | "RETURN" => 0x0D,
-        "TAB" => 0x09,
         "BACKSPACE" => 0x08,
         "DELETE" | "DEL" => 0x2E,
         "INSERT" | "INS" => 0x2D,
-        "SPACE" => 0x20,
         "LEFT" | "ARROWLEFT" | "ARROW_LEFT" => 0x25,
         "UP" | "ARROWUP" | "ARROW_UP" => 0x26,
         "RIGHT" | "ARROWRIGHT" | "ARROW_RIGHT" => 0x27,
@@ -963,11 +1143,9 @@ fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
         "END" => 0x23,
         "PAGEUP" | "PAGE_UP" | "PGUP" => 0x21,
         "PAGEDOWN" | "PAGE_DOWN" | "PGDN" => 0x22,
-        "ESC" | "ESCAPE" => 0x1B,
         "CAPSLOCK" | "CAPS_LOCK" => 0x14,
         "NUMLOCK" | "NUM_LOCK" => 0x90,
         "SCROLLLOCK" | "SCROLL_LOCK" => 0x91,
-        "PRINTSCREEN" | "PRINT_SCREEN" | "PRTSC" => 0x2C,
         "PAUSE" => 0x13,
         "KP_DECIMAL" | "KPDECIMAL" | "NUMPAD_DECIMAL" => 0x6E,
         ";" | "SEMICOLON" => 0xBA,
@@ -990,12 +1168,6 @@ fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
         {
             u16::from(value.as_bytes()[0])
         }
-        value if value.starts_with('F') => value[1..]
-            .parse::<u16>()
-            .ok()
-            .filter(|number| (1..=24).contains(number))
-            .map(|number| 0x70 + number - 1)
-            .ok_or_else(|| invalid_key(key))?,
         _ => return Err(invalid_key(key)),
     };
     Ok(VIRTUAL_KEY(raw))
@@ -1065,6 +1237,43 @@ fn button_flags(button: &str) -> ComputerUseResult<(MOUSE_EVENT_FLAGS, MOUSE_EVE
             ComputerUseErrorCode::InvalidAction,
             format!("unsupported mouse button {button:?}"),
         )),
+    }
+}
+
+/// Keys held while a pointer action runs. Releases are ordered in reverse and
+/// use the same deferred cleanup fence as held mouse buttons.
+struct HeldKeys {
+    releases: Vec<INPUT>,
+}
+
+impl HeldKeys {
+    fn press(keys: &[String]) -> ComputerUseResult<Self> {
+        let (presses, releases) = pointer_modifier_inputs(keys)?;
+        if !presses.is_empty() {
+            send_inputs(&presses)?;
+        }
+        Ok(Self { releases })
+    }
+
+    fn release(&mut self) -> ComputerUseResult<()> {
+        let releases = std::mem::take(&mut self.releases);
+        if releases.is_empty() {
+            return Ok(());
+        }
+        if let Err(error) = send_inputs(&releases) {
+            defer_input_releases(&releases);
+            return Err(error);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for HeldKeys {
+    fn drop(&mut self) {
+        let releases = std::mem::take(&mut self.releases);
+        if !releases.is_empty() && send_inputs(&releases).is_err() {
+            defer_input_releases(&releases);
+        }
     }
 }
 
@@ -1155,245 +1364,6 @@ fn mouse_input(flags: MOUSE_EVENT_FLAGS, dx: i32, dy: i32, mouse_data: u32) -> I
 fn click_inputs(button: &str) -> ComputerUseResult<[INPUT; 2]> {
     let (down, up) = button_flags(button)?;
     Ok([mouse_input(down, 0, 0, 0), mouse_input(up, 0, 0, 0)])
-}
-
-fn send_inputs(inputs: &[INPUT]) -> ComputerUseResult<()> {
-    send_inputs_with(
-        inputs,
-        |batch| unsafe { SendInput(batch, size_of::<INPUT>() as i32) },
-        desktop_interactive,
-        defer_input_releases,
-    )
-}
-
-pub(crate) fn flush_pending_input_releases() -> ComputerUseResult<()> {
-    let _input_guard = INPUT_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    flush_pending_input_releases_locked()
-}
-
-pub(super) fn flush_pending_input_releases_locked() -> ComputerUseResult<()> {
-    let mut pending = PENDING_INPUT_RELEASES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    flush_pending_input_releases_with(
-        &mut pending,
-        |batch| unsafe { SendInput(batch, size_of::<INPUT>() as i32) },
-        desktop_interactive,
-    )
-}
-
-fn defer_input_releases(releases: &[INPUT]) {
-    if releases.is_empty() {
-        return;
-    }
-    PENDING_INPUT_RELEASES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .extend_from_slice(releases);
-}
-
-fn flush_pending_input_releases_with(
-    pending: &mut Vec<INPUT>,
-    mut inject: impl FnMut(&[INPUT]) -> u32,
-    mut is_desktop_interactive: impl FnMut() -> bool,
-) -> ComputerUseResult<()> {
-    if pending.is_empty() {
-        return Ok(());
-    }
-    require_interactive_desktop(is_desktop_interactive())?;
-    let original_count = pending.len();
-    while !pending.is_empty() {
-        if !is_desktop_interactive() {
-            return Err(ComputerUseError::new(
-                ComputerUseErrorCode::DesktopUnavailable,
-                format!(
-                    "the Windows desktop is unavailable with {} pending input-release events; no new input may run until they are confirmed",
-                    pending.len()
-                ),
-            ));
-        }
-        let released = (inject(pending) as usize).min(pending.len());
-        if released == 0 {
-            let code = if is_desktop_interactive() {
-                ComputerUseErrorCode::InputFailed
-            } else {
-                ComputerUseErrorCode::DesktopUnavailable
-            };
-            return Err(ComputerUseError::new(
-                code,
-                format!(
-                    "Windows could not confirm {} of {original_count} pending input-release events; no new input was sent",
-                    pending.len()
-                ),
-            ));
-        }
-        pending.drain(..released);
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PressedInput {
-    LeftMouse,
-    RightMouse,
-    MiddleMouse,
-    Keyboard {
-        virtual_key: u16,
-        scan: u16,
-        unicode: bool,
-    },
-}
-
-fn update_pressed_inputs(pressed: &mut Vec<PressedInput>, item: PressedInput, released: bool) {
-    if released {
-        if let Some(index) = pressed.iter().rposition(|candidate| *candidate == item) {
-            pressed.remove(index);
-        }
-    } else {
-        pressed.push(item);
-    }
-}
-
-fn compensating_releases(inserted: &[INPUT]) -> Vec<INPUT> {
-    let mut pressed = Vec::new();
-    for input in inserted {
-        if input.r#type == INPUT_KEYBOARD {
-            let keyboard = unsafe { input.Anonymous.ki };
-            update_pressed_inputs(
-                &mut pressed,
-                PressedInput::Keyboard {
-                    virtual_key: keyboard.wVk.0,
-                    scan: keyboard.wScan,
-                    unicode: keyboard.dwFlags.contains(KEYEVENTF_UNICODE),
-                },
-                keyboard.dwFlags.contains(KEYEVENTF_KEYUP),
-            );
-        } else if input.r#type == INPUT_MOUSE {
-            let flags = unsafe { input.Anonymous.mi.dwFlags };
-            for (down, up, item) in [
-                (
-                    MOUSEEVENTF_LEFTDOWN,
-                    MOUSEEVENTF_LEFTUP,
-                    PressedInput::LeftMouse,
-                ),
-                (
-                    MOUSEEVENTF_RIGHTDOWN,
-                    MOUSEEVENTF_RIGHTUP,
-                    PressedInput::RightMouse,
-                ),
-                (
-                    MOUSEEVENTF_MIDDLEDOWN,
-                    MOUSEEVENTF_MIDDLEUP,
-                    PressedInput::MiddleMouse,
-                ),
-            ] {
-                if flags.contains(down) {
-                    update_pressed_inputs(&mut pressed, item, false);
-                }
-                if flags.contains(up) {
-                    update_pressed_inputs(&mut pressed, item, true);
-                }
-            }
-        }
-    }
-    pressed
-        .into_iter()
-        .rev()
-        .map(|item| match item {
-            PressedInput::LeftMouse => mouse_input(MOUSEEVENTF_LEFTUP, 0, 0, 0),
-            PressedInput::RightMouse => mouse_input(MOUSEEVENTF_RIGHTUP, 0, 0, 0),
-            PressedInput::MiddleMouse => mouse_input(MOUSEEVENTF_MIDDLEUP, 0, 0, 0),
-            PressedInput::Keyboard {
-                virtual_key,
-                scan,
-                unicode,
-            } => {
-                if unicode {
-                    keyboard_unicode(scan, true)
-                } else {
-                    keyboard_vk(VIRTUAL_KEY(virtual_key), true)
-                }
-            }
-        })
-        .collect()
-}
-
-fn send_inputs_with(
-    inputs: &[INPUT],
-    mut inject: impl FnMut(&[INPUT]) -> u32,
-    mut is_desktop_interactive: impl FnMut() -> bool,
-    mut defer_releases: impl FnMut(&[INPUT]),
-) -> ComputerUseResult<()> {
-    require_interactive_desktop(is_desktop_interactive())?;
-    let sent = inject(inputs);
-    if sent == inputs.len() as u32 {
-        return Ok(());
-    }
-
-    let inserted_count = (sent as usize).min(inputs.len());
-    let releases = compensating_releases(&inputs[..inserted_count]);
-    if !is_desktop_interactive() {
-        defer_releases(&releases);
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::DesktopUnavailable,
-            format!(
-                "the Windows desktop became unavailable after SendInput inserted {inserted_count} of {} events; {} release events are pending and block new input until confirmed",
-                inputs.len(),
-                releases.len()
-            ),
-        ));
-    }
-
-    let mut released_count = 0_usize;
-    while released_count < releases.len() {
-        if !is_desktop_interactive() {
-            defer_releases(&releases[released_count..]);
-            return Err(ComputerUseError::new(
-                ComputerUseErrorCode::DesktopUnavailable,
-                format!(
-                    "the Windows desktop became unavailable after SendInput inserted {inserted_count} of {} events; only {released_count} of {} compensating releases were confirmed and the remainder block new input",
-                    inputs.len(),
-                    releases.len()
-                ),
-            ));
-        }
-        let released =
-            (inject(&releases[released_count..]) as usize).min(releases.len() - released_count);
-        if released == 0 {
-            break;
-        }
-        released_count += released;
-    }
-    let cleanup_confirmed = released_count == releases.len();
-    if !cleanup_confirmed {
-        defer_releases(&releases[released_count..]);
-    }
-    if !is_desktop_interactive() {
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::DesktopUnavailable,
-            format!(
-                "the Windows desktop became unavailable after SendInput inserted {inserted_count} of {} events; unconfirmed compensating releases block new input",
-                inputs.len()
-            ),
-        ));
-    }
-
-    let cleanup = if releases.is_empty() {
-        "no pressed input required compensation"
-    } else if cleanup_confirmed {
-        "compensating release events were sent"
-    } else {
-        "compensating release events could not be confirmed"
-    };
-    Err(ComputerUseError::new(
-        ComputerUseErrorCode::InputFailed,
-        format!(
-            "SendInput inserted {inserted_count} of {} events; {cleanup}. Windows does not identify whether a short write was caused by UIPI, a desktop transition, or another input policy; take a fresh screenshot before retrying",
-            inputs.len()
-        ),
-    ))
 }
 
 #[cfg(test)]

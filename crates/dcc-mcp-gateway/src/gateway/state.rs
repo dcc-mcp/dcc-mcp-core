@@ -373,11 +373,11 @@ impl GatewayState {
     pub fn instance_json(&self, e: &ServiceEntry) -> Value {
         let diag = self.instance_diagnostics.get(&e.instance_id);
         let mut row = entry_to_json(e, self.stale_timeout, diag.as_ref());
-        let app_ui = app_ui_diagnostics(e, &self.capability_index.snapshot());
+        let ui_control = ui_control_diagnostics(e, &self.capability_index.snapshot());
         if !row.get("diagnostics").is_some_and(Value::is_object) {
             row["diagnostics"] = json!({});
         }
-        row["diagnostics"]["app_ui"] = app_ui;
+        row["diagnostics"]["ui_control"] = ui_control;
         row
     }
 
@@ -701,22 +701,25 @@ fn dispatch_json(e: &ServiceEntry, stale: bool) -> Value {
     })
 }
 
-fn app_ui_diagnostics(e: &ServiceEntry, snap: &crate::gateway::capability::IndexSnapshot) -> Value {
+fn ui_control_diagnostics(
+    e: &ServiceEntry,
+    snap: &crate::gateway::capability::IndexSnapshot,
+) -> Value {
     let explicit_status = first_metadata_value(
         &e.metadata,
         &[
-            "app_ui.status",
-            "dcc_mcp_app_ui_status",
-            "dcc_mcp.app_ui.status",
+            "ui_control.status",
+            "dcc_mcp_ui_control_status",
+            "dcc_mcp.ui_control.status",
         ],
     )
     .map(|value| value.trim().to_ascii_lowercase());
     let explicit_reason = first_metadata_value(
         &e.metadata,
         &[
-            "app_ui.reason",
-            "dcc_mcp_app_ui_reason",
-            "dcc_mcp.app_ui.reason",
+            "ui_control.reason",
+            "dcc_mcp_ui_control_reason",
+            "dcc_mcp.ui_control.reason",
         ],
     );
 
@@ -725,7 +728,7 @@ fn app_ui_diagnostics(e: &ServiceEntry, snap: &crate::gateway::capability::Index
         .iter()
         .filter(|record| record.instance_id == e.instance_id)
         .filter(|record| record.loaded)
-        .filter(|record| record.callable_id.starts_with("app_ui__"))
+        .filter(|record| record.callable_id.starts_with("ui_control__"))
         .map(|record| record.callable_id.clone())
         .collect();
     tools.sort();

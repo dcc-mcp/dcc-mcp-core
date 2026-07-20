@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted; capture executable packaging superseded by [ADR-015](./015-bounded-ui-control-system-operations.md)
 
 ## Context
 
@@ -263,6 +263,6 @@ optional agent guidance.
 
 - `crates/dcc-mcp-app-ui`
 - `crates/dcc-mcp-computer-use`
-- `crates/dcc-mcp-capture/src/helper.rs`
+- `crates/dcc-mcp-capture/src/capture_worker.rs`
 - `python/dcc_mcp_core/skills/app-ui`
 - `docs/guide/app-ui-workflows.md`

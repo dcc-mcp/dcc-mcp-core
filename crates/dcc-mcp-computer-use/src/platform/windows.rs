@@ -37,11 +37,11 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_NOREPEAT, MOUSE_EVENT_FLAGS,
-    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, RegisterHotKey,
-    SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
+    MOUSEINPUT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
@@ -61,10 +61,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{BOOL, PCWSTR, PWSTR, w};
 
+#[cfg(test)]
+use crate::drag_path::drag_step_count;
+use crate::drag_path::interpolated_drag_path;
 use crate::{
     ComputerUseAction, ComputerUseError, ComputerUseErrorCode, ComputerUseObservation,
-    ComputerUsePoint, ComputerUseResult, denied_target_reason, desktop_state_snapshot,
-    record_desktop_environment_change, record_desktop_transition,
+    ComputerUsePoint, ComputerUseResult, PreInputFence, denied_target_reason,
+    desktop_state_snapshot, record_desktop_environment_change, record_desktop_transition,
 };
 
 use super::{
@@ -88,8 +91,9 @@ const USER_INTERRUPT_EVENT_NAME: &str = "Local\\DccMcpComputerUseUserInterrupted
 #[cfg(test)]
 const TEST_ISOLATION_MUTEX_NAME: &str = "Local\\DccMcpComputerUseTestIsolation-v1";
 const HOTKEY_ID: i32 = 0x4443;
-const STOP_HOTKEY_LABEL: &str = "Esc";
-const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS = HOT_KEY_MODIFIERS(MOD_NOREPEAT.0);
+const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
+const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
+    HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
 const CORNER_GLOW_THICKNESS: i32 = 42;
 const CORNER_MID_THICKNESS: i32 = 28;
 const CORNER_ACCENT_THICKNESS: i32 = 12;
@@ -115,7 +119,6 @@ const CONTROL_OVERLAY_CLASS: PCWSTR = w!("DccMcpComputerUseOverlay");
 const CONTROL_GLOW_CLASS: PCWSTR = w!("DccMcpComputerUseGlowOverlay");
 const CONTROL_CURSOR_CLASS: PCWSTR = w!("DccMcpComputerUseCursorOverlay");
 const DEFAULT_POINTER_EFFECT_DWELL_MS: u64 = 350;
-const DRAG_UPDATE_INTERVAL_MS: u64 = 16;
 const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
 const DESKTOP_BARRIER_MESSAGE: u32 = WM_APP + 0x443;
 const DESKTOP_BARRIER_TIMEOUT: Duration = Duration::from_millis(500);

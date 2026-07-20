@@ -31,7 +31,7 @@ async fn seed_call_backend(
         .metadata
         .insert("mcp_url".into(), format!("http://127.0.0.1:{port}/mcp"));
     gs.registry.read().await.register(entry).unwrap();
-    let record = policy_record("maya", instance_id, "capture", "app-ui", true);
+    let record = policy_record("maya", instance_id, "capture", "ui-control", true);
     let slug = record.tool_slug.clone();
     gs.capability_index.upsert_instance(
         instance_id,

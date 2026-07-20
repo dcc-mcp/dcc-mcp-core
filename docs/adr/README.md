@@ -19,6 +19,8 @@ Decision / Consequences / Alternatives considered.
 | 012 | [Use OS-assigned ports for DCC instances](./012-os-assigned-dcc-instance-ports.md)             | Accepted |
 | 013 | [Persist tool-call analytics locally and export studio telemetry through OTLP](./013-persistent-tool-call-analytics.md) | Accepted |
 | 014 | [Isolate DCC UI Control behind a native session host](./014-isolate-ui-control-host.md)         | Accepted |
+| 015 | [Bound Windows system configuration to operator grants](./015-bounded-ui-control-system-operations.md) | Accepted |
+| 016 | [Unify application automation under UI Control naming](./016-unify-ui-control-naming.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any

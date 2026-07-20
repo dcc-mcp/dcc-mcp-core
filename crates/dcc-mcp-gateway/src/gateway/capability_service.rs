@@ -589,7 +589,7 @@ pub async fn call_service(
             format!("{error} for instance {}", entry.instance_id),
         )
     })?;
-    let use_discovery_dispatch = app_ui_uses_discovery_dispatch(entry, &record);
+    let use_discovery_dispatch = ui_control_uses_discovery_dispatch(entry, &record);
     let url = if use_discovery_dispatch {
         entry_discovery_mcp_url(entry)
     } else {
@@ -676,9 +676,9 @@ pub async fn call_service(
     }
 }
 
-fn app_ui_uses_discovery_dispatch(entry: &ServiceEntry, record: &CapabilityRecord) -> bool {
+fn ui_control_uses_discovery_dispatch(entry: &ServiceEntry, record: &CapabilityRecord) -> bool {
     entry_uses_sidecar_dispatch(entry)
-        && record.callable_id.starts_with("app_ui__")
+        && record.callable_id.starts_with("ui_control__")
         && !entry_discovery_mcp_url(entry).is_empty()
 }
 

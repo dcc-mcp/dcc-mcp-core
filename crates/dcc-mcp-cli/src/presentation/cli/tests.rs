@@ -135,7 +135,35 @@ fn ui_control_contract_parses_a_stable_snapshot_command() {
 }
 
 #[test]
-fn ui_control_operations_map_to_legacy_app_ui_tools() {
+fn ui_control_contract_parses_a_stable_system_operation_command() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "ui-control",
+        "system-operation",
+        "--instance-id",
+        "abc12345",
+        "--json",
+        r#"{"operation_id":"link-vendor-plugin"}"#,
+        "--full-output",
+    ])
+    .expect("parse ui-control system-operation");
+
+    let Command::UiControl {
+        action: UiControlAction::SystemOperation(operation),
+    } = args.command
+    else {
+        panic!("expected ui-control system-operation command");
+    };
+    assert_eq!(operation.instance_id.as_deref(), Some("abc12345"));
+    assert!(operation.full_output);
+    assert_eq!(
+        read_call_arguments(&operation.arguments_json, operation.json_file.as_deref()).unwrap(),
+        serde_json::json!({"operation_id": "link-vendor-plugin"})
+    );
+}
+
+#[test]
+fn ui_control_operations_map_to_canonical_ui_control_tools() {
     let args = UiControlArgs {
         dcc_type: None,
         instance_id: None,
@@ -146,13 +174,20 @@ fn ui_control_operations_map_to_legacy_app_ui_tools() {
         full_output: false,
     };
     for (action, expected) in [
-        (UiControlAction::Snapshot(args.clone()), "app_ui__snapshot"),
-        (UiControlAction::Find(args.clone()), "app_ui__find"),
-        (UiControlAction::Act(args.clone()), "app_ui__act"),
-        (UiControlAction::Wait(args.clone()), "app_ui__wait_for"),
+        (
+            UiControlAction::Snapshot(args.clone()),
+            "ui_control__snapshot",
+        ),
+        (UiControlAction::Find(args.clone()), "ui_control__find"),
+        (UiControlAction::Act(args.clone()), "ui_control__act"),
+        (
+            UiControlAction::SystemOperation(args.clone()),
+            "ui_control__system_operation",
+        ),
+        (UiControlAction::Wait(args.clone()), "ui_control__wait_for"),
         (
             UiControlAction::Stop(args.clone()),
-            "app_ui__stop_computer_use",
+            "ui_control__stop_computer_use",
         ),
     ] {
         assert_eq!(action.into_call().0, expected);
@@ -222,7 +257,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
     });
     let value = serde_json::json!({
         "success": true,
-        "tool_slug": "unreal.app_ui__snapshot",
+        "tool_slug": "unreal.ui_control__snapshot",
         "dcc_type": "unreal",
         "instance_id": "abc12345",
         "arguments": {"large": "request echo"},
@@ -230,10 +265,10 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
         "source": "local_mcp"
     });
 
-    let compact = compact_ui_control_result("app_ui__snapshot", &value);
+    let compact = compact_ui_control_result("ui_control__snapshot", &value);
 
     assert_eq!(compact["success"], true);
-    assert_eq!(compact["tool"], "app_ui__snapshot");
+    assert_eq!(compact["tool"], "ui_control__snapshot");
     assert_eq!(compact["snapshot_id"], "snapshot-7");
     assert_eq!(compact["snapshot"]["node_count"], 501);
     assert_eq!(compact["observation"]["observation_id"], "observation-7");

@@ -12,7 +12,7 @@ description = "Scoped native computer-use sessions for DCC application windows"
 workspace = true
 
 [dependencies]
-dcc-mcp-app-ui.workspace = true
+dcc-mcp-ui-control.workspace = true
 dcc-mcp-capture.workspace = true
 dcc-mcp-paths.workspace = true
 dcc-mcp-shm.workspace = true
@@ -37,6 +37,7 @@ windows = { version = "0.62", features = [
     "Win32_System_IO",
     "Win32_System_Pipes",
     "Win32_System_RemoteDesktop",
+    "Win32_System_Registry",
     "Win32_System_LibraryLoader",
     "Win32_System_StationsAndDesktops",
     "Win32_System_Threading",

@@ -151,8 +151,10 @@ jobs:
   #   2. Raw binary `dcc-mcp-cli[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the same GitHub Release and consumed by scripts/install-cli.*.
   #   3. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
-  #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform.
-  #   4. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
+  #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform,
+  #      plus `dcc-mcp-ui-control-host.exe` on Windows.
+  #   4. Raw Windows UI Control host used by the paired server self-updater.
+  #   5. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
@@ -261,19 +263,23 @@ jobs:
           cp target/release/${{ matrix.cli_binary }} ${{ matrix.cli_artifact_name }}
         shell: bash
 
-      - name: Build and stage Windows runtime hosts
+      - name: Build and stage Windows UI Control host
+        id: windows-ui-control-host
         if: matrix.os == 'windows-latest'
         shell: bash
-        run: vx just stage-windows-runtime-hosts
+        run: |
+          vx just stage-ui-control-host
+          host_asset="dcc-mcp-ui-control-host-windows-x86_64.exe"
+          cp target/release/dcc-mcp-ui-control-host.exe "$host_asset"
+          echo "host_asset=$host_asset" >> "$GITHUB_OUTPUT"
 
       - name: Create deployable server bundle
         id: server-bundle
         shell: bash
         run: |
-          helper_args=()
+          host_args=()
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            helper_args=(
-              --capture-helper target/release/dcc-mcp-capture-helper.exe
+            host_args=(
               --ui-control-host target/release/dcc-mcp-ui-control-host.exe
             )
           fi
@@ -282,7 +288,7 @@ jobs:
             --platform "${{ matrix.platform }}" \
             --server-bin "${{ matrix.artifact_name }}" \
             --cli-bin "${{ matrix.cli_artifact_name }}" \
-            "${helper_args[@]}" \
+            "${host_args[@]}" \
             --out-dir .
 
       - name: Create standalone CLI zip
@@ -299,6 +305,12 @@ jobs:
         id: update-manifest
         shell: bash
         run: |
+          host_args=()
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            host_args=(
+              --ui-control-host "${{ steps.windows-ui-control-host.outputs.host_asset }}"
+            )
+          fi
           python scripts/release/generate_update_manifest.py \
             --version "${{ needs.release-please.outputs.version }}" \
             --platform "${{ matrix.platform }}" \
@@ -306,6 +318,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --server-bin "${{ matrix.artifact_name }}" \
             --cli-bin "${{ matrix.cli_artifact_name }}" \
+            "${host_args[@]}" \
             --out-dir .
 
       # ── PyPI wheel build ──────────────────────────────────────────
@@ -344,12 +357,11 @@ jobs:
           python -m pip install "maturin>=1.5,<2.0" "wheel>=0.46"
           maturin build --release --out wheels
 
-      - name: Inject Windows runtime hosts into server wheel
+      - name: Inject Windows UI Control host into server wheel
         if: matrix.os == 'windows-latest'
         shell: bash
         run: >-
-          python scripts/release/inject_capture_helper.py
-          --helper target/release/dcc-mcp-capture-helper.exe
+          python scripts/release/inject_ui_control_host.py
           --ui-control-host target/release/dcc-mcp-ui-control-host.exe
 
       - name: Retag server binary wheel as Python-version independent
@@ -369,6 +381,7 @@ jobs:
           path: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
+            ${{ steps.windows-ui-control-host.outputs.host_asset }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.cli-bundle.outputs.cli_bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
@@ -386,6 +399,7 @@ jobs:
           files: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
+            ${{ steps.windows-ui-control-host.outputs.host_asset }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.cli-bundle.outputs.cli_bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
@@ -878,6 +892,7 @@ jobs:
             '^dcc_mcp_core_semantic-.*\.whl$'
             '^dcc-mcp-server-'
             '^dcc-mcp-cli-'
+            '^dcc-mcp-ui-control-host-windows-x86_64\.exe$'
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'

@@ -58,10 +58,13 @@ def generate_manifest(
     """
     manifest: dict[str, dict] = {}
 
+    removed_helper = "dcc-mcp-capture-helper.exe"
+    if any(path.name.lower() == removed_helper for path in assets.values()):
+        raise ValueError(f"removed runtime asset is forbidden: {removed_helper}")
+
     for binary_name, asset_path in assets.items():
         if not asset_path.is_file():
-            _github_error(f"Asset not found for {binary_name}: {asset_path}")
-            continue
+            raise FileNotFoundError(f"Asset not found for {binary_name}: {asset_path}")
 
         asset_filename = asset_path.name
         download_url = f"https://github.com/{repo}/releases/download/{release_tag}/{asset_filename}"
@@ -90,6 +93,7 @@ def main() -> int:
     parser.add_argument("--repo", default="dcc-mcp/dcc-mcp-core")
     parser.add_argument("--server-bin", type=Path, required=True)
     parser.add_argument("--cli-bin", type=Path, required=True)
+    parser.add_argument("--ui-control-host", type=Path)
     parser.add_argument("--out-dir", type=Path, default=Path())
     args = parser.parse_args()
 
@@ -97,6 +101,15 @@ def main() -> int:
         "dcc-mcp-server": args.server_bin,
         "dcc-mcp-cli": args.cli_bin,
     }
+    is_windows = args.platform.startswith("windows-")
+    if is_windows and args.ui_control_host is None:
+        _github_error("Windows update manifests require --ui-control-host")
+        return 1
+    if not is_windows and args.ui_control_host is not None:
+        _github_error("Non-Windows update manifests must not include --ui-control-host")
+        return 1
+    if args.ui_control_host is not None:
+        assets["dcc-mcp-ui-control-host"] = args.ui_control_host
     try:
         manifest_path = generate_manifest(
             version=args.version,

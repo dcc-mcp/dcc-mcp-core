@@ -24,7 +24,7 @@ import dcc_mcp_core
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="HwndBackend is Windows-only")
 
 
-_HELPER_PROBE = textwrap.dedent(
+_WORKER_PROBE = textwrap.dedent(
     r"""
     import ctypes
     from collections import Counter
@@ -238,14 +238,13 @@ _HELPER_PROBE = textwrap.dedent(
             height = rect.bottom - rect.top
             response_len = 32 + width * height * 4
             buffer = dcc_mcp_core.PySharedBuffer.create(response_len)
-            helper = os.path.join(
-                os.path.dirname(dcc_mcp_core.__file__),
-                "bin",
-                "dcc-mcp-capture-helper.exe",
+            worker = os.environ.get("DCC_MCP_UI_CONTROL_HOST") or os.path.join(
+                os.path.dirname(dcc_mcp_core.__file__), "bin", "dcc-mcp-ui-control-host.exe"
             )
+            worker_command = [worker, "--dcc-mcp-ui-control-capture-worker"]
             result = subprocess.run(
-                [
-                    helper,
+                worker_command
+                + [
                     "--protocol-version",
                     "1",
                     "--hwnd",
@@ -294,10 +293,10 @@ _HELPER_PROBE = textwrap.dedent(
 )
 
 
-def _run_helper_probe(mode: str, *, timeout: float) -> subprocess.CompletedProcess[str]:
+def _run_worker_probe(mode: str, *, timeout: float) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as temp_dir:
-        script = Path(temp_dir, "capture_helper_probe.py")
-        script.write_text(_HELPER_PROBE, encoding="utf-8")
+        script = Path(temp_dir, "capture_worker_probe.py")
+        script.write_text(_WORKER_PROBE, encoding="utf-8")
         return subprocess.run(
             [sys.executable, str(script), mode],
             capture_output=True,
@@ -343,8 +342,8 @@ class TestHwndBackendErrors:
                 timeout_ms=500,
             )
 
-    def test_responsive_helper_preserves_literal_printwindow_quality(self) -> None:
-        result = _run_helper_probe("responsive", timeout=8)
+    def test_responsive_worker_preserves_literal_printwindow_quality(self) -> None:
+        result = _run_worker_probe("responsive", timeout=8)
         assert result.returncode == 0, result.stderr or result.stdout
 
 

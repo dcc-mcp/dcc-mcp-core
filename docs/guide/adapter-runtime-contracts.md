@@ -54,16 +54,16 @@ descriptor = DebugSessionDescriptor.listening("debugpy", "127.0.0.1", 5678)
 Publish the resulting `descriptor.to_dict()` through a docs/custom resource or
 an adapter-owned optional tool.
 
-## App UI automation contract
+## UI Control automation contract
 
-The `app_ui` contract is a schema and workflow, not a universal click bot.
+The `ui_control` contract is a schema and workflow, not a universal click bot.
 Adapters may implement it with Qt, native accessibility APIs, webviews, or
-DCC-specific UI APIs. The public tool names use `app_ui__*` because the
+DCC-specific UI APIs. The public tool names use `ui_control__*` because the
 capability is intentionally broader than a DCC-only UI namespace: the same
 contract can describe a DCC preferences dialog, an external launcher, a license
 utility, or another adapter-owned application window.
 
-The Rust schema lives in the `dcc-mcp-app-ui` crate so UI automation contracts
+The Rust schema lives in the `dcc-mcp-ui-control` crate so UI automation contracts
 can evolve independently from the HTTP server layer. Python adapters continue
 to import the matching dataclasses from `dcc_mcp_core.adapter_contracts`.
 
@@ -77,7 +77,7 @@ Core shapes include:
   status text equals Applied" or "wait until the modal is gone".
 - `UiActionResult` with structured errors such as `stale_control`, `denied`,
   `unsupported_action`, and optional screenshot/artefact refs.
-- `AppUiPolicy` and `AppUiAuditRecord` for scoped action controls and
+- `UiControlPolicy` and `UiControlAuditRecord` for scoped action controls and
   privacy-preserving audit output.
 
 Adapters must return structured errors instead of hanging when controls go
@@ -85,21 +85,21 @@ stale, and adapter-side safety policy still decides which actions are allowed.
 
 Preferred agent loop:
 
-1. `app_ui__snapshot` observes a scoped application window and returns a
+1. `ui_control__snapshot` observes a scoped application window and returns a
    `snapshot_id`.
-2. `app_ui__find` resolves a stable control id by query, role, label, or object
+2. `ui_control__find` resolves a stable control id by query, role, label, or object
    name.
-3. `app_ui__act` performs one action against that control id. Pass the
+3. `ui_control__act` performs one action against that control id. Pass the
    `snapshot_id` when available so stale controls fail with `stale_control`
    instead of acting on the wrong target.
-4. `app_ui__wait_for` polls inside one call until the expected UI state is true
+4. `ui_control__wait_for` polls inside one call until the expected UI state is true
    or returns `timeout` with structured details.
-5. `app_ui__snapshot` verifies the final state.
+5. `ui_control__snapshot` verifies the final state.
 
-Use native DCC skills or APIs first. Use `app_ui__*` only when the behavior is
+Use native DCC skills or APIs first. Use `ui_control__*` only when the behavior is
 visible in the application UI but not exposed through a reliable host API.
 Workflow examples and recovery patterns live in
-[app-ui-workflows.md](app-ui-workflows.md).
+[ui-control-workflows.md](ui-control-workflows.md).
 
 Safety expectations:
 
@@ -111,13 +111,13 @@ Safety expectations:
   `timeout_hint_secs` in `tools.yaml`. Gateway `search_tools` / `/v1/search`
   carry compact safety hints, and `describe_tool` / `/v1/describe` expose the
   full schema plus `_meta.dcc` affinity, execution, timeout, and risk hints.
-- Gateway instance rows include `diagnostics.app_ui.status`: `available` when
-  `app_ui__*` capabilities are indexed, `unavailable` when none are present,
+- Gateway instance rows include `diagnostics.ui_control.status`: `available` when
+  `ui_control__*` capabilities are indexed, `unavailable` when none are present,
   or `disabled_by_policy` when adapter registry metadata publishes
-  `app_ui.status=disabled` (optionally with `app_ui.reason`).
+  `ui_control.status=disabled` (optionally with `ui_control.reason`).
 - Policy should disable whole-desktop access by default. Scope to an
   adapter-owned process, window, or explicit allow-list. Keep
-  `AppUiPolicy.require_scoped_window` enabled unless the user explicitly opts
+  `UiControlPolicy.require_scoped_window` enabled unless the user explicitly opts
   into a backend-specific whole-desktop fallback.
 - Raw coordinate clicks and keyboard shortcuts are high risk. Keep them disabled
   unless an adapter explicitly opts in and documents the fallback.
@@ -126,25 +126,25 @@ Safety expectations:
   Sensitive typed text and screenshot bytes should be redacted or returned only
   as artefact/resource references.
 
-The bundled `app-ui` skill defaults to a deterministic mock backend for tests
-and adapter authoring. Set `DCC_MCP_APP_UI_BACKEND=chrome` to use the
+The bundled `ui-control` skill defaults to a deterministic mock backend for tests
+and adapter authoring. Set `DCC_MCP_UI_CONTROL_BACKEND=chrome` to use the
 experimental CDP backend and drive browser or webview search through the same
-`app_ui__snapshot`, `app_ui__find`, `app_ui__act`, and `app_ui__wait_for`
+`ui_control__snapshot`, `ui_control__find`, `ui_control__act`, and `ui_control__wait_for`
 tools. The CDP backend supports presets: `reuse` attaches to an existing
 DevTools endpoint first so current browser tokens can be reused, `isolated`
 launches a temporary Chrome profile, and `auroraview` attaches to AuroraView's
-CDP endpoint using `DCC_MCP_APP_UI_AURORAVIEW_CDP_PORT`,
-`AURORAVIEW_CDP_PORT`, `DCC_MCP_APP_UI_CDP_PORT`, or port `9222`. The same
+CDP endpoint using `DCC_MCP_UI_CONTROL_AURORAVIEW_CDP_PORT`,
+`AURORAVIEW_CDP_PORT`, `DCC_MCP_UI_CONTROL_CDP_PORT`, or port `9222`. The same
 runtime also supports `edge` for Microsoft Edge CDP and `agent-browser` for
 Vercel's `agent-browser` CLI, which exposes its DevTools URL through
 `agent-browser get cdp-url` and can be provisioned in CI with
 `agent-browser install`.
 
-Set `DCC_MCP_APP_UI_BACKEND=windows-uia` on Windows to use the reference
+Set `DCC_MCP_UI_CONTROL_BACKEND=windows-uia` on Windows to use the reference
 Windows UI Automation backend. It uses the OS UIAutomationClient API through a
 PowerShell helper and stays behind the same contract. The backend refuses
 unscoped whole-desktop access: provide an allowed window title, process id, or
-process name through the call policy or `DCC_MCP_APP_UI_UIA_*` environment
-variables. It maps UIA control types into normalized app_ui roles and returns
+process name through the call policy or `DCC_MCP_UI_CONTROL_UIA_*` environment
+variables. It maps UIA control types into normalized ui_control roles and returns
 structured `missing_window`, `not_found`, `unsupported_action`,
 `policy_disabled`, `stale_control`, and `timeout` errors.

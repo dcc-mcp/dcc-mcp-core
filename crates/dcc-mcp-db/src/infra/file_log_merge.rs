@@ -197,11 +197,11 @@ mod tests {
 
     #[test]
     fn ui_control_json_is_exposed_as_structured_admin_log() {
-        let line = r#"2026-07-20T12:00:00.000Z WARN dcc_mcp_core.app_ui.audit: {"action":"set_text","dcc_type":"unreal","detail":"backend=windows-uia action=set_text session=lookdev error=policy_disabled","error":"policy_disabled","event":"ui_control_operation","message":"DCC UI Control act rejected","success":false,"tool":"app_ui__act"}"#;
+        let line = r#"2026-07-20T12:00:00.000Z WARN dcc_mcp_core.ui_control.audit: {"action":"set_text","dcc_type":"unreal","detail":"backend=windows-uia action=set_text session=lookdev error=policy_disabled","error":"policy_disabled","event":"ui_control_operation","message":"DCC UI Control act rejected","success":false,"tool":"ui_control__act"}"#;
         let v = parse_gateway_file_log_line(line).expect("parsable UI Control event");
         assert_eq!(v["event"], "ui_control_operation");
         assert_eq!(v["dcc_type"], "unreal");
-        assert_eq!(v["tool"], "app_ui__act");
+        assert_eq!(v["tool"], "ui_control__act");
         assert_eq!(v["success"], false);
         assert_eq!(v["reason"], "policy_disabled");
         assert_eq!(v["message"], "DCC UI Control act rejected");

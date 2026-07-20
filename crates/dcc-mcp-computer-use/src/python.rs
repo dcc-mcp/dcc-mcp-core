@@ -29,11 +29,11 @@ where
 }
 
 fn runtime_target_scope() -> PyResult<ComputerUseTargetScope> {
-    let process_id = runtime_scope_value::<u32>("DCC_MCP_APP_UI_UIA_PROCESS_ID")?;
-    let window_handle = runtime_scope_value::<u64>("DCC_MCP_APP_UI_UIA_WINDOW_HANDLE")?;
+    let process_id = runtime_scope_value::<u32>("DCC_MCP_UI_CONTROL_UIA_PROCESS_ID")?;
+    let window_handle = runtime_scope_value::<u64>("DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE")?;
     ComputerUseTargetScope::new(process_id, window_handle).map_err(|error| {
         PyValueError::new_err(format!(
-            "{}; bind the adapter at process launch with DCC_MCP_APP_UI_UIA_PROCESS_ID or DCC_MCP_APP_UI_UIA_WINDOW_HANDLE",
+            "{}; bind the adapter at process launch with DCC_MCP_UI_CONTROL_UIA_PROCESS_ID or DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE",
             error.message
         ))
     })
@@ -70,7 +70,7 @@ impl PyComputerUseSession {
         Ok(Self { inner })
     }
 
-    /// Return whether Esc stopped an active Computer Use session in this Windows logon session.
+    /// Return whether Ctrl+Alt+Esc stopped Computer Use in this Windows logon session.
     #[staticmethod]
     fn process_user_interrupted() -> bool {
         crate::platform::user_interrupted()
@@ -82,7 +82,7 @@ impl PyComputerUseSession {
         crate::platform::desktop_interactive()
     }
 
-    /// Start the visible banner and reserve Esc while the session is active.
+    /// Start the visible banner and reserve Ctrl+Alt+Esc for the stop action.
     fn start(&self) -> String {
         let result = Python::attach(|py| py.detach(|| self.inner.start()));
         match result {

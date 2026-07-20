@@ -229,7 +229,7 @@ export async function mockAdminApi(page: Page) {
         };
       } else {
         body = {
-          status: 'staged',
+          status: 'available',
           instance_id: instanceId,
           instance_short: 'maya-123',
           binary_name: 'dcc-mcp-server',
@@ -237,9 +237,8 @@ export async function mockAdminApi(page: Page) {
           current_version_source: 'instance_metadata',
           latest_version: '0.18.0',
           update_available: true,
-          requires_restart: true,
-          staged_at: 'C:/Users/test/AppData/Roaming/dcc-mcp/update/dcc-mcp-server/dcc-mcp-server.download',
-          message: 'Update downloaded and staged. Restart the binary to apply.',
+          requires_restart: false,
+          message: 'An update is available.',
         };
       }
     } else if (path === '/tools') {

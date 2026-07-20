@@ -629,7 +629,7 @@ fn test_entry_json_marks_dispatch_not_reported_for_in_process_servers() {
 }
 
 #[tokio::test]
-async fn test_instance_json_reports_app_ui_availability_from_capabilities() {
+async fn test_instance_json_reports_ui_control_availability_from_capabilities() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
     let mut entry = ServiceEntry::new("python", "127.0.0.1", 18812);
@@ -641,12 +641,12 @@ async fn test_instance_json_reports_app_ui_availability_from_capabilities() {
 
     let gs = test_gateway_state(registry.clone());
     let record = crate::gateway::capability::CapabilityRecord::new(
-        crate::gateway::capability::tool_slug("python", &entry.instance_id, "app_ui__snapshot"),
-        "app_ui__snapshot".into(),
-        "app_ui__snapshot".into(),
-        Some("app-ui".into()),
-        "Capture app UI snapshot",
-        vec!["app-ui".into()],
+        crate::gateway::capability::tool_slug("python", &entry.instance_id, "ui_control__snapshot"),
+        "ui_control__snapshot".into(),
+        "ui_control__snapshot".into(),
+        Some("ui-control".into()),
+        "Capture UI Control snapshot",
+        vec!["ui-control".into()],
         "python".into(),
         entry.instance_id,
         true,
@@ -661,20 +661,23 @@ async fn test_instance_json_reports_app_ui_availability_from_capabilities() {
 
     let row = gs.instance_json(&entry);
 
-    assert_eq!(row["diagnostics"]["app_ui"]["status"], "available");
-    assert_eq!(row["diagnostics"]["app_ui"]["tools"][0], "app_ui__snapshot");
+    assert_eq!(row["diagnostics"]["ui_control"]["status"], "available");
+    assert_eq!(
+        row["diagnostics"]["ui_control"]["tools"][0],
+        "ui_control__snapshot"
+    );
 }
 
 #[tokio::test]
-async fn test_instance_json_reports_app_ui_disabled_by_policy() {
+async fn test_instance_json_reports_ui_control_disabled_by_policy() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
     let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 18812);
     entry
         .metadata
-        .insert("app_ui.status".into(), "disabled".into());
+        .insert("ui_control.status".into(), "disabled".into());
     entry.metadata.insert(
-        "app_ui.reason".into(),
+        "ui_control.reason".into(),
         "adapter policy denied UI automation".into(),
     );
     {
@@ -685,9 +688,12 @@ async fn test_instance_json_reports_app_ui_disabled_by_policy() {
     let gs = test_gateway_state(registry.clone());
     let row = gs.instance_json(&entry);
 
-    assert_eq!(row["diagnostics"]["app_ui"]["status"], "disabled_by_policy");
     assert_eq!(
-        row["diagnostics"]["app_ui"]["reason"],
+        row["diagnostics"]["ui_control"]["status"],
+        "disabled_by_policy"
+    );
+    assert_eq!(
+        row["diagnostics"]["ui_control"]["reason"],
         "adapter policy denied UI automation"
     );
 }

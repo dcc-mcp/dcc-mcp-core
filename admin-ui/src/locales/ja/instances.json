@@ -24,10 +24,10 @@
   "state.aria": "インスタンス状態",
   "summary": "概要: live {live}, stale {stale}, unhealthy {unhealthy}",
   "update.action": "更新を確認",
-  "update.aria": "{name} のサーバー更新を確認してステージ",
+  "update.aria": "{name} のサーバー更新を確認",
   "update.checking": "確認中",
   "update.current": "現在のバージョン: {version}",
-  "update.help": "サーバー更新マニフェストを確認し、更新があればバイナリをステージします。手動 CLI コマンドは不要です。",
+  "update.help": "サーバー更新マニフェストを確認します。更新のステージは対象環境で dcc-mcp-server update apply を実行してください。",
   "update.label": "更新",
   "update.restartRequired": "ステージ済みサーバーを使うにはこの DCC バックエンドを再起動してください。",
   "update.status.available": "{version} が利用可能",
@@ -40,6 +40,7 @@
   "update.status.notConfigured": "更新マニフェストが未設定です。",
   "update.status.stageFailed": "更新をステージできません: {message}",
   "update.status.staged": "{version} をステージしました。再起動で適用されます。",
+  "update.status.targetEnvironment": "対象サーバー環境で dcc-mcp-server update apply を実行してください。",
   "update.status.upToDate": "最新です {version}",
   "update.unknownCurrent": "バージョン不明"
 }

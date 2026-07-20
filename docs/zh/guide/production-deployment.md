@@ -50,11 +50,23 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 GitHub Release 会附带可直接解压部署的
 `dcc-mcp-server-<version>-<platform>.zip`，例如
 `dcc-mcp-server-0.18.12-linux-x86_64.zip`。每个 zip 根目录包含
-`dcc-mcp-server` 和 `dcc-mcp-cli` 两个二进制（Windows 上带 `.exe`），
-部署机器只需要解压一次，再把两个二进制所在目录加入 `PATH`。
+`dcc-mcp-server` 和 `dcc-mcp-cli` 两个二进制（Windows 上带 `.exe`）。Windows
+发布包还必须包含 `dcc-mcp-ui-control-host.exe`；三个文件需要部署到同一目录。
 
 同时还会发布仅含 CLI 的 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
 供仅需 CLI 二进制的环境使用。
+
+Windows 还会发布带 SHA-256 的
+`dcc-mcp-ui-control-host-windows-x86_64.exe` 更新资产，其版本必须与 server
+完全一致。请在目标安装目录运行 `dcc-mcp-server update apply`：Windows 会先
+校验 server 与 host 的版本和两个哈希，再作为一个绑定安装目录、可回滚恢复的
+事务共同暂存和替换。Admin 实例页只检查更新，不会按 binary name 替远端或其它
+安装目录暂存文件。
+
+从 `0.19.62` 硬切升级时需要重启两次：旧 updater 第一次只会替换 raw server，
+且当次进程仍执行旧映像；第二次启动才会运行新 server，按同版本 manifest SHA
+自动补齐或替换 host。之后的成对 updater 恢复为一次重启。UI Control wire/pipe
+升级为 v2，但全局输入互斥与 Ctrl+Alt+Esc stop latch 在迁移期间继续共享。
 
 ### 安装路径
 

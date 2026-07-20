@@ -149,13 +149,13 @@ Generated `tools.yaml` entries follow the modern contract:
 
 ### Computer Use Fallback Contract
 
-- Reuse the bundled `app-ui` skill instead of creating another screenshot,
+- Reuse the bundled `ui-control` skill instead of creating another screenshot,
   pointer, keyboard, or Windows `SendInput` tool set. Declare
-  `metadata.dcc-mcp.depends: ["app-ui"]` only when it is a hard workflow
+  `metadata.dcc-mcp.depends: ["ui-control"]` only when it is a hard workflow
   dependency.
-- Keep the visual loop as `app_ui__snapshot` -> `app_ui__act` ->
-  `app_ui__snapshot`, and pass the latest `snapshot_id` unchanged. End every
-  path with `app_ui__stop_computer_use`. Screenshot coordinates belong to that
+- Keep the visual loop as `ui_control__snapshot` -> `ui_control__act` ->
+  `ui_control__snapshot`, and pass the latest `snapshot_id` unchanged. End every
+  path with `ui_control__stop_computer_use`. Screenshot coordinates belong to that
   observation only.
 - When the exact HWND is minimized or hidden before the first snapshot, use
   only `get_window_state` followed by the necessary `restore_window`,
@@ -164,17 +164,21 @@ Generated `tools.yaml` entries follow the modern contract:
 - Stateful UI tools must declare `requires_in_process: true` independently of
   `affinity`; keep UI Control at `affinity: any` so it does not block the DCC
   UI thread while preserving one named-pipe client. On Windows, the isolated
-  per-logon-session host owns observations, active-session Esc, confirmation, and the
+  per-logon-session host owns observations, Ctrl+Alt+Esc interruption, confirmation, and the
   cross-adapter input owner; skill scripts must not instantiate an in-process
   `ComputerUseSession` fallback.
 - Prefer a `control_id` and semantic UI Automation action. Use raw coordinates
   only when the UI does not expose a stable semantic control.
+- For custom-drawn canvases, viewport manipulators, or face controls, use one
+  `drag` path from the latest snapshot. `keys` may hold Ctrl, Shift, or Alt for
+  pointer-modified drags; snapshot again immediately before deriving another
+  path.
 - Never set `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT` from a skill script. It is an
   operator-owned environment ceiling. Native input also requires the
-  adapter/operator to bind its DCC with `DCC_MCP_APP_UI_UIA_PROCESS_ID` or
-  `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; a skill request may only narrow that
+  adapter/operator to bind its DCC with `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or
+  `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; a skill request may only narrow that
   trusted scope. Propagate `user_interrupted` immediately;
-  do not retry the action or fall back to another input path after Esc interrupts an active session.
+  do not retry the action or fall back to another input path after Ctrl+Alt+Esc interrupts a session.
 - Never enter or retry another UI/input path after a policy, authorization,
   authentication, security, confirmation, `desktop_unavailable`, or
   `user_interrupted` result. Computer Use is a capability fallback, not a way

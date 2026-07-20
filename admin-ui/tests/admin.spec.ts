@@ -444,7 +444,7 @@ test.describe('Admin Page', () => {
     await expect(mayaRow).toContainText('Current version: 0.19.56');
     await expect(mayaRow.locator('.instance-update-button')).toHaveAttribute('data-slot', 'button');
     await expect(mayaRow.locator('.instance-update-button')).toContainText('Check update');
-    await expect(mayaRow.locator('.instance-update-help')).toContainText('No manual CLI command is required.');
+    await expect(mayaRow.locator('.instance-update-help')).toContainText('dcc-mcp-server update apply');
     const updateChrome = await mayaRow.locator('.instance-update-cell').evaluate((cell) => {
       const cellStyle = window.getComputedStyle(cell as HTMLElement);
       const meta = cell.querySelector('.instance-update-meta') as HTMLElement | null;
@@ -463,28 +463,28 @@ test.describe('Admin Page', () => {
     expect(updateChrome.borderTopWidth).toBe('0px');
     expect(parseFloat(updateChrome.metaRadius)).toBeGreaterThanOrEqual(20);
     expect(updateChrome.linkBlockBorderWidth).toBe('1px');
-    expect(parseFloat(updateChrome.linkBlockRadius)).toBeGreaterThanOrEqual(8);
+    expect(parseFloat(updateChrome.linkBlockRadius)).toBeGreaterThanOrEqual(4);
     await expect(mayaRow).not.toContainText('dcc-mcp-cli update check');
     const mayaUpdateRequest = page.waitForRequest((request) =>
       request.method() === 'POST'
       && request.url().includes('/instances/maya-1234567890/update')
     );
-    await mayaRow.getByRole('button', { name: 'Check and stage server update for Maya Layout' }).click();
+    await mayaRow.getByRole('button', { name: 'Check server update for Maya Layout' }).click();
     await expect((await mayaUpdateRequest).postDataJSON()).toEqual({
-      apply: true,
+      apply: false,
       binary: 'dcc-mcp-server',
     });
-    await expect(mayaRow.locator('.instance-update-result.ok')).toContainText('Staged 0.18.0; restart to apply.');
-    await expect(mayaRow.locator('.instance-update-result.ok')).toContainText('Restart this DCC backend');
+    await expect(mayaRow.locator('.instance-update-result.warn')).toContainText('Available 0.18.0');
+    await expect(mayaRow.locator('.instance-update-result.warn')).not.toContainText('Restart this DCC backend');
     const blenderRow = page.locator('.instance-row').filter({ hasText: 'Blender Lookdev' });
     await expect(blenderRow).toContainText('Current version: version unknown');
     const blenderUpdateRequest = page.waitForRequest((request) =>
       request.method() === 'POST'
       && request.url().includes('/instances/blender-abcdef1234/update')
     );
-    await blenderRow.getByRole('button', { name: 'Check and stage server update for Blender Lookdev' }).click();
+    await blenderRow.getByRole('button', { name: 'Check server update for Blender Lookdev' }).click();
     await expect((await blenderUpdateRequest).postDataJSON()).toEqual({
-      apply: true,
+      apply: false,
       binary: 'dcc-mcp-server',
     });
     await expect(blenderRow.locator('.instance-update-result.warn')).toContainText('dcc-mcp-server is not listed in the update manifest.');

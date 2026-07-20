@@ -24,7 +24,7 @@ def _write_wheel(
     tags: list[str] | None = None,
     distribution: str = "dcc-mcp-core",
     extension_module: str = "dcc_mcp_core/_core",
-    with_capture_helper: bool | None = None,
+    with_removed_capture_helper: bool = False,
     with_ui_control_host: bool | None = None,
 ) -> None:
     root_is_pure = "true" if pure else "false"
@@ -46,10 +46,8 @@ def _write_wheel(
         archive.writestr(f"{package}/__init__.py", "")
         if with_core:
             archive.writestr(f"{extension_module}.pyd", b"native")
-        if with_capture_helper is None:
-            with_capture_helper = distribution == "dcc-mcp-core" and with_core and "win_amd64" in path.name
-        if with_capture_helper:
-            archive.writestr("dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", b"MZhelper")
+        if with_removed_capture_helper:
+            archive.writestr("dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", b"MZremoved")
         if with_ui_control_host is None:
             with_ui_control_host = distribution == "dcc-mcp-core" and with_core and "win_amd64" in path.name
         if with_ui_control_host:
@@ -60,13 +58,6 @@ def test_native_py37_wheel_requires_cp37_tag_and_core(tmp_path: Path) -> None:
     wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-win_amd64.whl"
     _write_wheel(wheel, pure=False, with_core=True)
     assert validate_wheel(wheel, "native_py37", "windows-x86_64", load_contract(_REPO_ROOT)) == []
-
-
-def test_windows_core_wheel_requires_capture_helper(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
-    _write_wheel(wheel, pure=False, with_core=True, with_capture_helper=False)
-    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
-    assert any("missing required member" in error and "capture-helper.exe" in error for error in errors)
 
 
 def test_windows_core_wheel_requires_ui_control_host_from_01960(tmp_path: Path) -> None:
@@ -82,22 +73,10 @@ def test_windows_core_wheel_requires_ui_control_host_from_01960(tmp_path: Path) 
     assert any("missing required member" in error and "ui-control-host.exe" in error for error in errors)
 
 
-def test_historical_windows_core_wheel_does_not_backfill_capture_helper(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-0.19.48-cp38-abi3-win_amd64.whl"
-    _write_wheel(
-        wheel,
-        pure=False,
-        with_core=True,
-        version="0.19.48",
-        with_capture_helper=False,
-    )
-    assert validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT)) == []
-
-
-def test_lite_wheel_rejects_staged_capture_helper(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
-    _write_wheel(wheel, pure=True, with_core=False, with_capture_helper=True)
-    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+def test_windows_core_wheel_rejects_removed_capture_helper(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
+    _write_wheel(wheel, pure=False, with_core=True, with_removed_capture_helper=True)
+    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
     assert any("forbidden member" in error and "capture-helper.exe" in error for error in errors)
 
 
@@ -105,6 +84,13 @@ def test_lite_wheel_rejects_staged_ui_control_host(tmp_path: Path) -> None:
     wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
     _write_wheel(wheel, pure=True, with_core=False, with_ui_control_host=True)
     errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("forbidden member" in error and "ui-control-host.exe" in error for error in errors)
+
+
+def test_linux_native_wheel_rejects_staged_ui_control_host(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-manylinux2014_x86_64.whl"
+    _write_wheel(wheel, pure=False, with_core=True, with_ui_control_host=True)
+    errors = validate_wheel(wheel, "native_py37", "linux-x86_64", load_contract(_REPO_ROOT))
     assert any("forbidden member" in error and "ui-control-host.exe" in error for error in errors)
 
 

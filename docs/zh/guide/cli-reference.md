@@ -155,7 +155,7 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | 生成 marketplace 发布 ZIP 并输出 SHA-256 摘要。 |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | 根据 `SKILL.md` 元数据和 CLI 覆盖字段创建或更新 `marketplace.json` 条目。 |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | 检查 gateway update manifest。默认检查 CLI 自身；检查 Admin 面板里的实例版本时，传 `--binary dcc-mcp-server` 和对应 server 版本。 |
-| `update apply` | `GET /v1/update/check` + download URL | 下载并暂存 CLI binary，下一次 CLI 启动时应用。它不会更新正在运行的 server 实例；server 请用 Admin 实例页升级按钮，或在 server 环境里运行 `dcc-mcp-server update apply`。 |
+| `update apply` | `GET /v1/update/check` + download URL | 下载并暂存 CLI binary，下一次 CLI 启动时应用。它不会更新正在运行的 server 实例；请在目标 server 环境里运行 `dcc-mcp-server update apply`。 |
 | `gateway register <url> --name <profile>` | local profile config | 保存命名远程 gateway profile。 |
 | `gateway list` | local profile config | 显示已配置的远程 profile 和当前 local/remote 选择。 |
 | `gateway set <profile\|local>` | local profile config | 选择当前 gateway profile。 |
@@ -201,10 +201,10 @@ adapter 启动时，或下一次
 manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 `GatewayConfig.update_manifest_url`）配置。`update check` 只读取
 `/v1/update/check`，适合人和 agent 使用；CLI 会在请求前默认确保本机 gateway
-存在。`update apply` 只暂存 CLI binary。对于 server 实例，优先使用 Admin
-实例页的升级按钮：它调用 `POST /admin/api/instances/{instance_id}/update`，
-并以需要重启的状态暂存 `dcc-mcp-server`。如果你就在 server 所在环境操作，
-则使用 `dcc-mcp-server update apply`。
+存在。`update apply` 只暂存 CLI binary。Admin 实例页只检查 server 是否有更新；
+gateway 无法证明本机或远端实例的实际安装目录，因此不会代替实例暂存 server。
+请在目标 server 环境运行 `dcc-mcp-server update apply`。Windows 会把 server 与
+版本匹配的 `dcc-mcp-ui-control-host.exe` 作为一个绑定安装目录的事务共同校验和暂存。
 
 `lint` 复用生产 `dcc-mcp-skills` validator，因此本地检查与运行时加载会因同一类
 结构问题失败。CI 也通过 `just lint-skills` 显式传入仓库 skill roots，跑同一条
@@ -246,7 +246,7 @@ per-DCC server 为 backend，并在 backend 存活期间保留轻量 guardian。
 | `dcc-mcp-server auto --legacy-gateway-election` | 旧的嵌入式 gateway 模式。 | per-DCC 进程直接竞争 gateway port。 |
 | `dcc-mcp-server sidecar` | per-DCC sidecar worker。 | 确保独立 gateway daemon，注册 `per-dcc-sidecar` 行，并通过 host RPC 派发。运行时由 `dcc-mcp-sidecar` 实现。 |
 | `dcc-mcp-server gateway` | 整机 gateway daemon。 | 只托管 discovery、routing、resources/prompts、admin 与 audit，不内联执行 DCC tool。 |
-| `dcc-mcp-server update check/apply` | Server binary 更新助手。 | 读取 `127.0.0.1:<gateway-port>` 上的 gateway update manifest，并为下一次 server 启动暂存 `dcc-mcp-server`。 |
+| `dcc-mcp-server update check/apply` | Server runtime 更新助手。 | 读取 `127.0.0.1:<gateway-port>` 上的 gateway update manifest；Windows 将 server 与同版本 UI Control host 成对暂存，其他平台只暂存 server binary。 |
 
 `auto` 与 `serve` 共享下面的 server 旗标。`gateway` 有更小的独立旗标面，
 会拒绝 `--app` 这类 server-only 旗标。

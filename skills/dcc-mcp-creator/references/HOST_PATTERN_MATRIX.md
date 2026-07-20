@@ -10,7 +10,7 @@ Use this table when choosing adapter runtime wiring for a new DCC.
 | ZBrush | ZScript, GoZ, HTTP/IPC helper | External bridge; no embedded Python assumption | Keep bridge commands typed and bounded; avoid generic remote execution. |
 | Houdini | `hou` | Event-loop callback or headless hython dispatcher | Node graph writes are main-thread-sensitive. |
 | Maya | `maya.cmds` / OpenMaya | UI dispatcher in GUI; standalone serialized dispatcher in mayapy | Do not special-case Maya patterns into core without parameterizing host identity. |
-| Photoshop / Adobe | UXP/CEP/ExtendScript | External bridge or app UI contract | Use structured bridge calls; do not depend on a Python-in-host runtime. |
+| Photoshop / Adobe | UXP/CEP/ExtendScript | External bridge or UI Control contract | Use structured bridge calls; do not depend on a Python-in-host runtime. |
 | Custom studio tool | Python, socket, HTTP, or CLI | Start with the least-powerful bridge that can satisfy typed tools | Document auth, scope, and shutdown behavior up front. |
 
 ## Host API Rules

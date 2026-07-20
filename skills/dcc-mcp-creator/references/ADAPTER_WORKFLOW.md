@@ -101,7 +101,7 @@ Escalate to core when more than one adapter would need the same helper:
 - resource registration patterns;
 - sidecar/install lifecycle;
 - gateway search/describe/call response shape;
-- app UI automation contracts;
+- UI Control automation contracts;
 - file/artifact handoff;
 - diagnostics, agent trace packets, compact debug negotiation, and issue-report exports.
 

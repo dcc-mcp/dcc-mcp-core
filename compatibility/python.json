@@ -85,19 +85,22 @@
           "allowed_platform_tags": [
             "manylinux_2_17_x86_64",
             "manylinux2014_x86_64"
+          ],
+          "forbidden_members": [
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
+            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         },
         "windows-x86_64": {
           "allowed_platform_tags": [
             "win_amd64"
           ],
-          "required_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
-          ],
-          "required_members_from_version": "0.19.49",
           "versioned_required_members": {
             "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
-          }
+          },
+          "forbidden_members": [
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
+          ]
         }
       }
     },
@@ -140,13 +143,12 @@
           "allowed_platform_tags": [
             "win_amd64"
           ],
-          "required_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
-          ],
-          "required_members_from_version": "0.19.49",
           "versioned_required_members": {
             "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
-          }
+          },
+          "forbidden_members": [
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
+          ]
         },
         "macos-universal2": {
           "required_platform_tag_patterns": [
