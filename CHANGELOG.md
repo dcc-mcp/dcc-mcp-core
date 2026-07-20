@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.61](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.60...v0.19.61) (2026-07-20)
+
+
+### Features
+
+* **admin-ui:** add reliability panel with gateway health and circuit breakers ([2d39470](https://github.com/dcc-mcp/dcc-mcp-core/commit/2d394707dd6c79a9ea0cea1a777b9e4a4123dc89))
+* **admin-ui:** add sessions panel with parent-child tree and status badges ([7f5f3c5](https://github.com/dcc-mcp/dcc-mcp-core/commit/7f5f3c5bd13798cbba9d435045c992c68bd62a01))
+* **admin-ui:** add SSE-based real-time data hook with polling fallback ([0073b57](https://github.com/dcc-mcp/dcc-mcp-core/commit/0073b572f07feb5679af58f1932eeae4588585b5))
+* **admin-ui:** register sessions and reliability panels in navigation and types ([487ee33](https://github.com/dcc-mcp/dcc-mcp-core/commit/487ee33778a81fe565162488a07c03a091f03690))
+* **admin:** add Sessions and Reliability panels with realtime hook ([9d9e42f](https://github.com/dcc-mcp/dcc-mcp-core/commit/9d9e42f82f7069e55c58ed302b3ece92b595da0b))
+* **admin:** add sessions API, SSE events endpoint, and artifact verification ([e2108d8](https://github.com/dcc-mcp/dcc-mcp-core/commit/e2108d83da7f1891f4462a168711354b61795cff))
+* **gateway:** add admin sessions API endpoint ([992225a](https://github.com/dcc-mcp/dcc-mcp-core/commit/992225a8a2f7e1e3dcd8188f12be83cad95eeec9))
+* isolate UI control host ([d95c4c6](https://github.com/dcc-mcp/dcc-mcp-core/commit/d95c4c6d24959675cd6dd118b74b69d1d2cb6101))
+
+
+### Bug Fixes
+
+* **admin-ui:** add sessions mock data to dev-mocks and fix realtime E2E test routes ([aefd5d9](https://github.com/dcc-mcp/dcc-mcp-core/commit/aefd5d97cdb3157be77b0308238bf7b058f02706))
+* **admin-ui:** fix ReliabilityPanel API paths and sessions test selectors ([0e5405c](https://github.com/dcc-mcp/dcc-mcp-core/commit/0e5405cf084169caea784ce78ac44a54abc3d150))
+* **admin-ui:** fix sessions test to only check root-level sessions ([c9aa04c](https://github.com/dcc-mcp/dcc-mcp-core/commit/c9aa04c69980685a619720c401eb173978b0c1aa))
+* **admin-ui:** fix SessionsPanel API path to use relative path instead of full API_BASE ([1757673](https://github.com/dcc-mcp/dcc-mcp-core/commit/1757673e57cb858eb975832f67ea1b1e3fec3edb))
+* **admin-ui:** move test helpers to fixtures, pass file size gate ([71d9440](https://github.com/dcc-mcp/dcc-mcp-core/commit/71d9440d439b031a11e619fda288282f82e06586))
+* **admin-ui:** remove duplicate panel imports and fix prop types after rebase ([d137555](https://github.com/dcc-mcp/dcc-mcp-core/commit/d137555de53bca90931acf2a00372179a957e1bf))
+* **admin-ui:** remove duplicate panel rendering and navigation entries ([9f2161c](https://github.com/dcc-mcp/dcc-mcp-core/commit/9f2161c8f10b497f11e663ebb942040f9d712d0d))
+* apply cargo fmt to artifacts.rs to fix CI fmt-check ([6958e72](https://github.com/dcc-mcp/dcc-mcp-core/commit/6958e72e5428a60417e4a58ffea7e9e4da344952))
+* collapse nested if blocks to satisfy clippy::collapsible_if ([66e1e6a](https://github.com/dcc-mcp/dcc-mcp-core/commit/66e1e6a600b56e3c0107376653332d40fe8918de))
+* **docs:** remove internal references from observability schema ([cccc470](https://github.com/dcc-mcp/dcc-mcp-core/commit/cccc4706dc06e4eef91bf4a0e177792941b5d2a7))
+* **gateway:** remove duplicate sessions module and route declaration after rebase ([4f265bb](https://github.com/dcc-mcp/dcc-mcp-core/commit/4f265bb582a2aef8a305ed7d5ac241b3d1979403))
+
+
+### Documentation
+
+* **observability:** add metric dictionary, schema docs, usage guide, and troubleshooting runbook ([a0d7aa6](https://github.com/dcc-mcp/dcc-mcp-core/commit/a0d7aa6f103128a4fd76c78d61b99b5c4bf80d71))
+
 ## [0.19.60](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.59...v0.19.60) (2026-07-19)
 
 
