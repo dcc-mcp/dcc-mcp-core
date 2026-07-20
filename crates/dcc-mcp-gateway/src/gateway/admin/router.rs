@@ -135,7 +135,6 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
-        .route("/api/sessions", routing::get(handle_admin_sessions))
         .route(
             "/api/sessions/{session_id}",
             routing::get(handle_admin_session_detail),
