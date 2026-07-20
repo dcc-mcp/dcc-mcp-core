@@ -532,7 +532,7 @@ class ComputerUseSession:
         """
     def start(self) -> builtins.str:
         r"""
-        Start the visible banner and reserve Esc as the active-session stop key.
+        Start the visible banner and reserve Esc while the session is active.
         """
     def screenshot(self) -> tuple[builtins.str, typing.Optional[bytes]]:
         r"""
