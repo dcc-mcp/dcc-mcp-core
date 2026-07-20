@@ -75,6 +75,18 @@ impl HostRuntimeSession for WindowsRuntimeSession {
         &self.target
     }
 
+    fn start_visible_notice(&mut self) -> Result<(), HostFailure> {
+        self.window_generation.verify()?;
+        if self.started {
+            return Ok(());
+        }
+        let status = self.session.start().map_err(map_computer_use_error)?;
+        self.target = target_from_status(&status)?;
+        self.window_generation.verify()?;
+        self.started = true;
+        Ok(())
+    }
+
     fn window_state(&mut self) -> Result<UiControlWindowState, HostFailure> {
         self.window_generation.verify()?;
         let state =
@@ -104,12 +116,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
     }
 
     fn snapshot(&mut self, max_depth: u32, max_nodes: u32) -> Result<RuntimeSnapshot, HostFailure> {
-        self.window_generation.verify()?;
-        if !self.started {
-            let status = self.session.start().map_err(map_computer_use_error)?;
-            self.target = target_from_status(&status)?;
-            self.started = true;
-        }
+        self.start_visible_notice()?;
         let screenshot = self.session.screenshot().map_err(map_computer_use_error)?;
         self.window_generation.verify()?;
         let observation = serde_json::to_value(&screenshot.observation).map_err(|error| {
@@ -397,10 +404,6 @@ impl ConfirmationSurface for WindowsConfirmationSurface {
         action: Option<&UiControlAction>,
     ) -> Result<bool, HostFailure> {
         let (heading, detail) = match kind {
-            ConfirmationKind::TaskGrant => (
-                "Allow DCC UI Control?",
-                "This grants visible, single-window control until the session is stopped.",
-            ),
             ConfirmationKind::ConsequentialAction(UiControlPolicyTier::PreApproval) => (
                 "Approve this DCC UI Control action?",
                 "The action may sign in, upload, move, rename, or transmit identified data.",

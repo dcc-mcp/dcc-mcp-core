@@ -143,8 +143,8 @@ the already capability-bound HWND. `get_window_state` reports only
 requests carry the same session, grant, and opaque window capability; the host
 rechecks HWND ownership and the hard target policy before changing state. They
 cannot enumerate windows, accept a replacement target, or emit desktop input.
-The initial exact-window grant confirmation covers them, every transition is
-audited, and every transition invalidates prior observation fences.
+The initial exact-window notice covers them, every transition is audited, and
+every transition invalidates prior observation fences.
 
 The host validates the pipe ACL, caller identity, target process ownership,
 window generation, desktop generation, integrity level, policy grant, and
@@ -153,8 +153,8 @@ window capability and observation. Recovery requires discovery and a fresh
 snapshot; input is never retried from stale state.
 
 The protocol does not contain `confirmed`, `approved`, or equivalent client
-booleans. The host visibly confirms the initial exact-window grant and every
-tier 2/3 action. An optional `intent` is a lower-bound classification hint: the
+booleans. The host starts a prominent non-modal notice for the initial
+exact-window grant and confirms every tier 2/3 action. An optional `intent` is a lower-bound classification hint: the
 host independently classifies UIA controls, pointed/focused controls, and
 keyboard chords, and may only raise the tier. Agent-controlled arguments and
 environment variables cannot resolve confirmation.

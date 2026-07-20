@@ -54,6 +54,7 @@ struct RuntimeActionResult {
 
 trait HostRuntimeSession: Send {
     fn target(&self) -> &UiControlTarget;
+    fn start_visible_notice(&mut self) -> Result<(), HostFailure>;
     fn window_state(&mut self) -> Result<UiControlWindowState, HostFailure>;
     fn change_window_state(
         &mut self,
@@ -75,7 +76,6 @@ trait HostRuntime: Send + Sync {
 
 #[derive(Debug, Clone, Copy)]
 enum ConfirmationKind {
-    TaskGrant,
     ConsequentialAction(UiControlPolicyTier),
     ResumeAfterStop,
 }
@@ -299,31 +299,11 @@ impl UiControlHost {
             Ok(runtime) => runtime,
             Err(failure) => return failure.into_response(),
         };
-        let target = runtime.target().clone();
-        match self
-            .confirmation
-            .confirm(ConfirmationKind::TaskGrant, &target, None)
-        {
-            Ok(true) => {}
-            Ok(false) => {
-                runtime.stop();
-                audit_event(
-                    &grant,
-                    "open_session",
-                    false,
-                    UiControlPolicyTier::PreApproval,
-                    Some(UiControlHostErrorCode::ApprovalRequired),
-                );
-                return error(
-                    UiControlHostErrorCode::ApprovalRequired,
-                    "the user did not approve UI Control for the selected window",
-                );
-            }
-            Err(failure) => {
-                runtime.stop();
-                return failure.into_response();
-            }
+        if let Err(failure) = runtime.start_visible_notice() {
+            runtime.stop();
+            return failure.into_response();
         }
+        let target = runtime.target().clone();
 
         let window_capability = new_capability("window");
         self.sessions.insert(
@@ -342,7 +322,7 @@ impl UiControlHost {
             &grant,
             "open_session",
             true,
-            UiControlPolicyTier::PreApproval,
+            UiControlPolicyTier::TaskGrant,
             None,
         );
         UiControlHostResponse::SessionOpened {
@@ -1153,6 +1133,10 @@ mod tests {
             &self.target
         }
 
+        fn start_visible_notice(&mut self) -> Result<(), HostFailure> {
+            Ok(())
+        }
+
         fn window_state(&mut self) -> Result<UiControlWindowState, HostFailure> {
             Ok(UiControlWindowState {
                 process_id: self.target.process_id,
@@ -1231,6 +1215,19 @@ mod tests {
         }
     }
 
+    struct DenyConfirmation;
+
+    impl ConfirmationSurface for DenyConfirmation {
+        fn confirm(
+            &self,
+            _kind: ConfirmationKind,
+            _target: &UiControlTarget,
+            _action: Option<&UiControlAction>,
+        ) -> Result<bool, HostFailure> {
+            Ok(false)
+        }
+    }
+
     fn host() -> UiControlHost {
         UiControlHost {
             sessions: HashMap::new(),
@@ -1297,6 +1294,76 @@ mod tests {
             ),
             UiControlHostResponse::Error {
                 code: UiControlHostErrorCode::HandshakeRequired,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn routine_session_is_notice_only_but_consequential_actions_still_confirm() {
+        let mut host = UiControlHost {
+            sessions: HashMap::new(),
+            runtime: Box::new(FakeRuntime),
+            confirmation: Box::new(DenyConfirmation),
+        };
+        let mut connection = UiControlHostConnection::default();
+        assert!(matches!(
+            connection.handle(
+                &mut host,
+                UiControlHostRequest::Hello(UiControlHostHello {
+                    protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
+                    client_name: "test".to_owned(),
+                })
+            ),
+            UiControlHostResponse::Hello { .. }
+        ));
+        let opened = connection.handle(
+            &mut host,
+            UiControlHostRequest::OpenSession {
+                session_id: "notice-only".to_owned(),
+                grant: grant(false),
+            },
+        );
+        let UiControlHostResponse::SessionOpened {
+            window_capability, ..
+        } = opened
+        else {
+            panic!("session not opened: {opened:?}");
+        };
+        let snapshot = connection.handle(
+            &mut host,
+            UiControlHostRequest::Snapshot {
+                session_id: "notice-only".to_owned(),
+                task_grant_id: "grant-1".to_owned(),
+                window_capability: window_capability.clone(),
+                max_depth: 5,
+                max_nodes: 250,
+            },
+        );
+        let UiControlHostResponse::Snapshot {
+            observation_id,
+            accessibility_state_id,
+            ..
+        } = snapshot
+        else {
+            panic!("snapshot failed: {snapshot:?}");
+        };
+        assert!(matches!(
+            connection.handle(
+                &mut host,
+                UiControlHostRequest::ExecuteAction {
+                    session_id: "notice-only".to_owned(),
+                    task_grant_id: "grant-1".to_owned(),
+                    window_capability,
+                    observation_id,
+                    accessibility_state_id,
+                    action: Box::new(action(Some("uia:42.1"), UiControlInputKind::Semantic)),
+                }
+            ),
+            UiControlHostResponse::ActionCompleted {
+                success: false,
+                policy_tier: UiControlPolicyTier::ActionConfirmation,
+                error: Some(UiControlHostErrorCode::ApprovalRequired),
                 ..
             }
         ));
