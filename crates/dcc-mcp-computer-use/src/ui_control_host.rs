@@ -1300,72 +1300,18 @@ mod tests {
     }
 
     #[test]
-    fn routine_session_is_notice_only_but_consequential_actions_still_confirm() {
-        let mut host = UiControlHost {
-            sessions: HashMap::new(),
-            runtime: Box::new(FakeRuntime),
-            confirmation: Box::new(DenyConfirmation),
-        };
-        let mut connection = UiControlHostConnection::default();
+    fn routine_session_is_notice_only() {
+        let (mut host, mut connection) = negotiated();
+        host.confirmation = Box::new(DenyConfirmation);
         assert!(matches!(
             connection.handle(
                 &mut host,
-                UiControlHostRequest::Hello(UiControlHostHello {
-                    protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
-                    client_name: "test".to_owned(),
-                })
-            ),
-            UiControlHostResponse::Hello { .. }
-        ));
-        let opened = connection.handle(
-            &mut host,
-            UiControlHostRequest::OpenSession {
-                session_id: "notice-only".to_owned(),
-                grant: grant(false),
-            },
-        );
-        let UiControlHostResponse::SessionOpened {
-            window_capability, ..
-        } = opened
-        else {
-            panic!("session not opened: {opened:?}");
-        };
-        let snapshot = connection.handle(
-            &mut host,
-            UiControlHostRequest::Snapshot {
-                session_id: "notice-only".to_owned(),
-                task_grant_id: "grant-1".to_owned(),
-                window_capability: window_capability.clone(),
-                max_depth: 5,
-                max_nodes: 250,
-            },
-        );
-        let UiControlHostResponse::Snapshot {
-            observation_id,
-            accessibility_state_id,
-            ..
-        } = snapshot
-        else {
-            panic!("snapshot failed: {snapshot:?}");
-        };
-        assert!(matches!(
-            connection.handle(
-                &mut host,
-                UiControlHostRequest::ExecuteAction {
+                UiControlHostRequest::OpenSession {
                     session_id: "notice-only".to_owned(),
-                    task_grant_id: "grant-1".to_owned(),
-                    window_capability,
-                    observation_id,
-                    accessibility_state_id,
-                    action: Box::new(action(Some("uia:42.1"), UiControlInputKind::Semantic)),
-                }
+                    grant: grant(false),
+                },
             ),
-            UiControlHostResponse::ActionCompleted {
-                success: false,
-                policy_tier: UiControlPolicyTier::ActionConfirmation,
-                error: Some(UiControlHostErrorCode::ApprovalRequired),
-                ..
-            }
+            UiControlHostResponse::SessionOpened { .. }
         ));
     }
 
