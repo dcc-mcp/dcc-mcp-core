@@ -270,7 +270,14 @@ def bench_funnel_query(iterations: int = 100) -> None:
         methods = ["search", "search", "search", "load_skill", "call", "call", "call", "call_batch"]
         success_vals = [1, 1, 1, 1, 1, 1, 0, 0]
         error_kinds = [
-            None, None, "zero_results", None, None, None, "script_fallback", "ui_control_fallback",
+            None,
+            None,
+            "zero_results",
+            None,
+            None,
+            None,
+            "script_fallback",
+            "ui_control_fallback",
         ]
         for i in range(1000):
             idx = i % len(methods)
@@ -331,12 +338,8 @@ def bench_funnel_query(iterations: int = 100) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Observability overhead benchmark")
-    parser.add_argument(
-        "--iterations", type=int, default=1000, help="Number of iterations per bench"
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=10, help="Number of sub-calls per batch"
-    )
+    parser.add_argument("--iterations", type=int, default=1000, help="Number of iterations per bench")
+    parser.add_argument("--batch-size", type=int, default=10, help="Number of sub-calls per batch")
     args = parser.parse_args()
 
     print("=" * 60)
