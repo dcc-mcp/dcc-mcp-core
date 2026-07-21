@@ -52,7 +52,7 @@ marketplace Skill must start with the official CLI catalog, even when the user
 says “Skill store”, “marketplace”, or “商城” without naming DCC-MCP:
 
 ```bash
-dcc-mcp-cli marketplace search maya rigging --limit 20
+dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
 dcc-mcp-cli marketplace inspect <exact-name-from-search>
 ```
 
@@ -316,7 +316,7 @@ Only run this when inventory shows at least one non-stale target:
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli search create sphere --dcc-type maya --limit 20
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
 
 # Python fallback
 python scripts/dcc_gateway.py search --query sphere --dcc-type maya --limit 20
@@ -436,7 +436,7 @@ dcc-mcp-cli update apply
 For marketplace Skills, preserve the mandatory search-first sequence:
 
 ```bash
-dcc-mcp-cli marketplace search maya rigging --limit 20
+dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
 dcc-mcp-cli marketplace inspect <package_name>
 dcc-mcp-cli marketplace install <package_name> --dcc maya
 dcc-mcp-cli reload-skills --dcc-type maya

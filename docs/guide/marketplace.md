@@ -72,7 +72,7 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 |-------------------------------------------|------------------------------------------------|
 | `marketplace add <source>`                | Register a marketplace source                  |
 | `marketplace list`                        | List configured sources                        |
-| `marketplace search [QUERY...]`           | Fuzzy-rank entries across all sources; `--query <q>` remains supported |
+| `marketplace search --query <q>`           | Fuzzy-rank entries across all sources; current builds also accept positional query words |
 | `marketplace inspect <name>`              | Show full entry metadata                       |
 | `marketplace install <name> --dcc <dcc>`  | Install a skill package                        |
 | `marketplace list-installed --dcc <dcc>`  | List installed packages                        |
@@ -364,7 +364,7 @@ future phase.
 
 | Aspect | CLI | Admin UI |
 |--------|-----|----------|
-| Catalog search | `marketplace search [QUERY...]` | Browse tab with search + DCC filter |
+| Catalog search | `marketplace search --query <q>` | Browse tab with search + DCC filter |
 | Install | `marketplace install <name> --dcc <dcc>` | Install button on card or detail modal |
 | Uninstall | `marketplace uninstall <name> --dcc <dcc>` | Uninstall button in Installed tab |
 | List installed | `marketplace list-installed --dcc <dcc>` | Installed tab |
