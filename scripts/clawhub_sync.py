@@ -34,6 +34,12 @@ RETRYABLE_RE = re.compile(
     re.IGNORECASE,
 )
 RESET_IN_RE = re.compile(r"\breset in (\d+)s\b", re.IGNORECASE)
+OWNER_VERSION_NOT_FOUND_RE = re.compile(r"\bVersion not found\b", re.IGNORECASE)
+OWNER_REVIEW_PENDING_RE = re.compile(
+    r"\b(?:This skill is pending a ClawScan security review|"
+    r"Skill is hidden while security scan is pending)\b",
+    re.IGNORECASE,
+)
 REQUIRED_PUBLIC_FILES = ("SKILL.md", "agents/openai.yaml")
 # ClawHub creates this asynchronously and excludes it from the source bundle fingerprint.
 GENERATED_PUBLIC_FILES = {"skill-card.md"}
@@ -371,6 +377,125 @@ def preview_publish_metadata(
     return file_count, fingerprint
 
 
+def parse_publish_response(raw: str) -> dict[str, Any]:
+    """Parse one successful JSON response from the pinned ClawHub CLI."""
+    payload = json.loads(raw)
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise ValueError("publish response is not a successful JSON object")
+    return payload
+
+
+def validate_publish_receipt(
+    raw: str,
+    *,
+    slug: str,
+    version: str,
+    expected_file_count: int,
+    expected_fingerprint: str,
+    expected_folder: Path,
+) -> str:
+    """Validate one authenticated ClawHub publish acknowledgement."""
+    payload = parse_publish_response(raw)
+    if payload.get("status") != "published":
+        raise ValueError(f"publish receipt has unexpected status: {payload.get('status')!r}")
+    if payload.get("slug") != slug or payload.get("version") != version:
+        raise ValueError(
+            f"publish receipt identity mismatch: slug={payload.get('slug')!r}, version={payload.get('version')!r}"
+        )
+    file_count = payload.get("fileCount")
+    if type(file_count) is not int or file_count != expected_file_count:
+        raise ValueError(f"publish receipt fileCount {file_count!r}, expected {expected_file_count}")
+    if payload.get("fingerprint") != expected_fingerprint:
+        raise ValueError(f"publish receipt fingerprint {payload.get('fingerprint')!r}, expected {expected_fingerprint}")
+    version_id = payload.get("versionId")
+    if not isinstance(version_id, str) or not version_id.strip():
+        raise ValueError(f"publish receipt has invalid versionId: {version_id!r}")
+    folder = payload.get("folder")
+    if not isinstance(folder, str) or Path(folder).resolve() != expected_folder.resolve():
+        raise ValueError(f"publish receipt folder {folder!r}, expected {str(expected_folder.resolve())!r}")
+    return version_id.strip()
+
+
+def fingerprint_resolve_command(cli: str, skill_dir: Path, slug: str, owner: str) -> list[str]:
+    """Build a no-version dry-run that resolves an existing content fingerprint."""
+    return npx_cmd(
+        cli,
+        "--no-input",
+        "skill",
+        "publish",
+        str(skill_dir),
+        "--slug",
+        slug,
+        "--owner",
+        owner,
+        "--json",
+        "--dry-run",
+    )
+
+
+def verify_resolved_fingerprint(
+    cli: str,
+    slug: str,
+    owner: str,
+    expected_version: str,
+    skill_dir: Path,
+    expected_file_count: int,
+    expected_fingerprint: str,
+) -> bool:
+    """Require ClawHub's resolver to bind this fingerprint to this version."""
+    cmd = fingerprint_resolve_command(cli, skill_dir, slug, owner)
+    last_error = "fingerprint was not resolved"
+    for attempt in range(1, MAX_RETRIES + 1):
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if proc.returncode == 0:
+            try:
+                payload = json.loads(proc.stdout)
+                if not isinstance(payload, dict) or payload.get("ok") is not True:
+                    raise ValueError("fingerprint resolver response is not a successful JSON object")
+                if payload.get("status") != "unchanged":
+                    raise ValueError(f"fingerprint resolver has unexpected status: {payload.get('status')!r}")
+                if payload.get("slug") != slug or payload.get("version") != expected_version:
+                    raise ValueError(
+                        f"fingerprint resolver identity mismatch: slug={payload.get('slug')!r}, "
+                        f"version={payload.get('version')!r}"
+                    )
+                if payload.get("fileCount") != expected_file_count:
+                    raise ValueError(
+                        f"fingerprint resolver fileCount {payload.get('fileCount')!r}, expected {expected_file_count}"
+                    )
+                if payload.get("fingerprint") != expected_fingerprint:
+                    raise ValueError(
+                        f"fingerprint resolver fingerprint {payload.get('fingerprint')!r}, "
+                        f"expected {expected_fingerprint}"
+                    )
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = str(exc)
+                break
+            print(
+                f"Verified @{owner}/{slug}@{expected_version} through ClawHub's immutable content-fingerprint resolver."
+            )
+            return True
+
+        output = "\n".join(part.strip() for part in (proc.stdout, proc.stderr) if part.strip())
+        last_error = output or f"resolver exited with code {proc.returncode}"
+        if attempt < MAX_RETRIES and is_retryable(proc):
+            wait = retry_delay(proc, attempt)
+            print(
+                f"ClawHub fingerprint resolution pending for @{owner}/{slug}@{expected_version}; "
+                f"retrying in {wait}s (attempt {attempt}/{MAX_RETRIES}) ...",
+                flush=True,
+            )
+            time.sleep(wait)
+            continue
+        break
+
+    print(
+        f"ClawHub fingerprint resolution failed for @{owner}/{slug}@{expected_version}: {last_error}",
+        file=sys.stderr,
+    )
+    return False
+
+
 def owner_inspect_command(cli: str, slug: str, owner: str, version: str) -> list[str]:
     """Build the authenticated, owner-qualified release inspection command."""
     return npx_cmd(
@@ -385,17 +510,8 @@ def owner_inspect_command(cli: str, slug: str, owner: str, version: str) -> list
     )
 
 
-def parse_owner_release(
-    raw: str,
-    *,
-    slug: str,
-    owner: str,
-    version: str,
-) -> tuple[dict[str, Any], str]:
-    """Parse and identity-check one authenticated ClawHub inspect response."""
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError("ClawHub inspect response is not a JSON object")
+def owner_moderation_label(payload: dict[str, Any]) -> str:
+    """Return the moderation label, rejecting blocked owner responses."""
     moderation = payload.get("moderation")
     moderation_label = "not reported"
     if isinstance(moderation, dict):
@@ -409,6 +525,28 @@ def parse_owner_release(
             moderation_label = str(verdict)
         elif moderation.get("isSuspicious") is True:
             moderation_label = "suspicious"
+    return moderation_label
+
+
+def is_moderation_only_owner_response(payload: dict[str, Any]) -> bool:
+    """Return whether inspect exposed only review state, not release bytes."""
+    return (
+        isinstance(payload.get("moderation"), dict)
+        and payload.get("skill") is None
+        and payload.get("owner") is None
+        and payload.get("version") is None
+    )
+
+
+def parse_owner_release_payload(
+    payload: dict[str, Any],
+    *,
+    slug: str,
+    owner: str,
+    version: str,
+) -> tuple[dict[str, Any], str]:
+    """Identity-check one parsed authenticated ClawHub inspect response."""
+    moderation_label = owner_moderation_label(payload)
     skill = payload.get("skill")
     publisher = payload.get("owner")
     published = payload.get("version")
@@ -432,6 +570,20 @@ def parse_owner_release(
     return published, moderation_label
 
 
+def parse_owner_release(
+    raw: str,
+    *,
+    slug: str,
+    owner: str,
+    version: str,
+) -> tuple[dict[str, Any], str]:
+    """Parse and identity-check one authenticated ClawHub inspect response."""
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("ClawHub inspect response is not a JSON object")
+    return parse_owner_release_payload(payload, slug=slug, owner=owner, version=version)
+
+
 def verify_owner_version(
     cli: str,
     slug: str,
@@ -440,16 +592,26 @@ def verify_owner_version(
     skill_dir: Path,
     expected_file_count: int,
     expected_fingerprint: str,
-) -> bool:
-    """Require the authenticated owner view to match every local Skill file."""
+) -> bool | None:
+    """Verify owner-visible bytes, returning None while review hides them."""
     cmd = owner_inspect_command(cli, slug, owner, expected_version)
     last_error = "owner-visible version was not checked"
     for attempt in range(1, MAX_RETRIES + 1):
         proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
         if proc.returncode == 0:
             try:
-                published, moderation_label = parse_owner_release(
-                    proc.stdout,
+                payload = json.loads(proc.stdout)
+                if not isinstance(payload, dict):
+                    raise ValueError("ClawHub inspect response is not a JSON object")
+                moderation_label = owner_moderation_label(payload)
+                if is_moderation_only_owner_response(payload):
+                    print(
+                        f"@{owner}/{slug}@{expected_version} returned moderation-only review state "
+                        f"({moderation_label}); owner visibility is pending."
+                    )
+                    return None
+                published, moderation_label = parse_owner_release_payload(
+                    payload,
                     slug=slug,
                     owner=owner,
                     version=expected_version,
@@ -473,6 +635,15 @@ def verify_owner_version(
         else:
             output = "\n".join(part.strip() for part in (proc.stdout, proc.stderr) if part.strip())
             last_error = output or f"inspect exited with code {proc.returncode}"
+            if (
+                OWNER_VERSION_NOT_FOUND_RE.search(last_error) is not None
+                or OWNER_REVIEW_PENDING_RE.search(last_error) is not None
+            ):
+                print(
+                    f"@{owner}/{slug}@{expected_version} is not owner-visible yet; "
+                    f"ClawHub review or moderation may still be pending ({last_error})."
+                )
+                return None
 
         if attempt < MAX_RETRIES:
             wait = retry_delay(proc, attempt) if is_retryable(proc) else 2**attempt
@@ -566,14 +737,44 @@ def verify_uploaded_version(
     owner: str,
     expected_version: str,
     skill_dir: Path,
+    publish_receipt: str | None = None,
+    *,
+    publish_metadata: tuple[int, str] | None = None,
 ) -> bool:
-    """Verify owner-visible bytes, then report public or pending-review state."""
-    cmd = publish_command(cli, skill_dir, slug, owner, expected_version)
-    preview = preview_publish_metadata(cmd, slug=slug, version=expected_version)
-    if preview is None:
-        return False
-    expected_file_count, expected_fingerprint = preview
-    if not verify_owner_version(
+    """Verify a publish receipt or immutable fingerprint, then visibility."""
+    if publish_metadata is None:
+        cmd = publish_command(cli, skill_dir, slug, owner, expected_version)
+        publish_metadata = preview_publish_metadata(cmd, slug=slug, version=expected_version)
+        if publish_metadata is None:
+            return False
+    expected_file_count, expected_fingerprint = publish_metadata
+    requires_fingerprint_resolution = publish_receipt is None
+    if publish_receipt is not None:
+        try:
+            status = parse_publish_response(publish_receipt).get("status")
+            if status == "published":
+                version_id = validate_publish_receipt(
+                    publish_receipt,
+                    slug=slug,
+                    version=expected_version,
+                    expected_file_count=expected_file_count,
+                    expected_fingerprint=expected_fingerprint,
+                    expected_folder=skill_dir,
+                )
+            elif status == "unchanged":
+                requires_fingerprint_resolution = True
+                version_id = None
+            else:
+                raise ValueError(f"publish response has unexpected status: {status!r}")
+        except (json.JSONDecodeError, ValueError) as exc:
+            print(
+                f"ClawHub publish response validation failed for {slug}@{expected_version}: {exc}",
+                file=sys.stderr,
+            )
+            return False
+        if version_id is not None:
+            print(f"Verified authenticated publish receipt for @{owner}/{slug}@{expected_version} ({version_id}).")
+    if requires_fingerprint_resolution and not verify_resolved_fingerprint(
         cli,
         slug,
         owner,
@@ -583,6 +784,24 @@ def verify_uploaded_version(
         expected_fingerprint,
     ):
         return False
+
+    owner_status = verify_owner_version(
+        cli,
+        slug,
+        owner,
+        expected_version,
+        skill_dir,
+        expected_file_count,
+        expected_fingerprint,
+    )
+    if owner_status is False:
+        return False
+    if owner_status is None:
+        print(
+            f"Verified upload evidence for @{owner}/{slug}@{expected_version}; "
+            "owner/public visibility is pending ClawHub review."
+        )
+        return True
     public_status = verify_published_version(
         slug,
         owner,
@@ -655,15 +874,36 @@ def publish_one(
         preview = preview_publish_metadata(cmd, slug=str(slug), version=version, announce=True)
         return 0 if preview is not None else 1
 
+    publish_metadata = preview_publish_metadata(cmd, slug=str(slug), version=version)
+    if publish_metadata is None:
+        return 1
+
     print(f"Publishing {slug}@{version} from {skill_dir} ...", flush=True)
     for attempt in range(1, MAX_RETRIES + 1):
         proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
         print_completed_process_output(proc)
         if proc.returncode == 0:
-            return 0 if verify_uploaded_version(cli, str(slug), str(owner), version, skill_dir) else 1
+            verified = verify_uploaded_version(
+                cli,
+                str(slug),
+                str(owner),
+                version,
+                skill_dir,
+                proc.stdout,
+                publish_metadata=publish_metadata,
+            )
+            return 0 if verified else 1
         if version_already_exists(proc):
             print(f"{slug}@{version} already exists on ClawHub; skipping.")
-            return 0 if verify_uploaded_version(cli, str(slug), str(owner), version, skill_dir) else 1
+            verified = verify_uploaded_version(
+                cli,
+                str(slug),
+                str(owner),
+                version,
+                skill_dir,
+                publish_metadata=publish_metadata,
+            )
+            return 0 if verified else 1
         if attempt < MAX_RETRIES and is_retryable(proc):
             wait = retry_delay(proc, attempt)
             print(
