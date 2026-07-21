@@ -1,6 +1,7 @@
 //! Service discovery — unified registry supporting file-based and future mDNS strategies.
 
 pub mod file_registry;
+mod liveness;
 #[cfg(feature = "mdns")]
 pub mod mdns;
 pub mod types;
