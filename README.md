@@ -117,14 +117,14 @@ Then discover a live capability before calling it:
 ~~~bash
 dcc-mcp-cli dcc-types
 dcc-mcp-cli list
-dcc-mcp-cli search create sphere --dcc-type maya --limit 20
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
 dcc-mcp-cli describe <tool-slug>
 dcc-mcp-cli call <tool-slug> --json '{"radius": 2.0}' \
   --meta-json '{"agent_context":{"session_id":"task-42"}}'
 ~~~
 
-Search accepts unquoted positional words; `--query "create sphere"` remains
-available for existing scripts.
+`--query "create sphere"` is compatible with released CLI builds. Builds that
+contain the unified search parser also accept unquoted positional words.
 
 `dcc-types` is an offline, catalog-backed capability query. It reports
 canonical adapter identifiers and install-plan availability; `list` remains

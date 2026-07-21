@@ -69,9 +69,25 @@ class TestDccMcpSkill:
         body = " ".join((Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8").lower().split())
         assert "marketplace intent" in body
         assert "dcc-mcp-cli marketplace search" in body
+        assert 'dcc-mcp-cli marketplace search --query "maya rigging"' in body
         assert "does not require a live dcc instance" in body
         assert "never invent a package name" in body
         assert "dcc-mcp-cli marketplace inspect" in body
+
+        release_compatible_examples = {
+            REPO_ROOT / "README.md": 'dcc-mcp-cli search --query "create sphere"',
+            REPO_ROOT / "docs" / "guide" / "cli-reference.md": (
+                'dcc-mcp-cli marketplace search --query "maya rigging"'
+            ),
+            REPO_ROOT / "docs" / "guide" / "marketplace.md": "marketplace search --query <q>",
+            Path(DCC_MCP_SKILL_DIR) / "references" / "CLI_CHEATSHEET.md": (
+                'dcc-mcp-cli marketplace search --query "maya rigging"'
+            ),
+        }
+        for path, example in release_compatible_examples.items():
+            assert example in path.read_text(encoding="utf-8"), path
+        cli_reference = (REPO_ROOT / "docs" / "guide" / "cli-reference.md").read_text(encoding="utf-8")
+        assert "marketplace search [-q\\|--query <q>] [--dcc <dcc>]" in cli_reference
 
     def test_body_prioritizes_structured_dcc_mcp_tools_for_user_intent(self) -> None:
         body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8").lower()
