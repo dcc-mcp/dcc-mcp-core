@@ -22,6 +22,8 @@ import pytest
 
 # Import local modules
 import dcc_mcp_core
+from dcc_mcp_core import CancelToken
+from dcc_mcp_core import current_job_id
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
@@ -577,6 +579,73 @@ def test_host_execution_bridge_executes_script_inline(tmp_path: Path) -> None:
     bridge = HostExecutionBridge()
 
     assert bridge.execute_script(str(p), {"x": 40}) == {"value": 42}
+
+
+def test_host_execution_bridge_exposes_job_context_without_forwarding_meta(tmp_path: Path) -> None:
+    script = _write_script(
+        tmp_path,
+        "from dcc_mcp_core import current_job_id\n"
+        "def main(**kwargs):\n"
+        "    return {'job_id': current_job_id(), 'keys': sorted(kwargs)}\n",
+    )
+    bridge = HostExecutionBridge()
+    token = CancelToken("job-123")
+
+    result = bridge.execute_script(
+        str(script),
+        {"color": "red", "_meta": {"dcc": {"jobId": "client-spoofed"}}},
+        cancel_token=token,
+    )
+
+    assert result == {"job_id": "job-123", "keys": ["color"]}
+    assert current_job_id() is None
+
+
+def test_host_execution_bridge_does_not_trust_job_id_from_params(tmp_path: Path) -> None:
+    script = _write_script(
+        tmp_path,
+        "from dcc_mcp_core import current_job_id\ndef main():\n    return {'job_id': current_job_id()}\n",
+    )
+    bridge = HostExecutionBridge()
+
+    result = bridge.execute_script(
+        str(script),
+        {"_meta": {"dcc": {"jobId": "client-spoofed"}}},
+    )
+
+    assert result == {"job_id": None}
+
+
+def test_host_execution_bridge_connects_cooperative_cancel_token(tmp_path: Path) -> None:
+    script = _write_script(
+        tmp_path,
+        "import time\n"
+        "from dcc_mcp_core import check_dcc_cancelled\n"
+        "def main(started):\n"
+        "    started.set()\n"
+        "    while True:\n"
+        "        check_dcc_cancelled()\n"
+        "        time.sleep(0.001)\n",
+    )
+    bridge = HostExecutionBridge()
+    token = CancelToken("job-cancel")
+    started = threading.Event()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        call = pool.submit(
+            bridge.execute_script,
+            str(script),
+            {"started": started},
+            job_id="job-cancel",
+            cancel_token=token,
+        )
+        assert started.wait(1)
+        token.cancel()
+        result = call.result(timeout=2)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "CancelledError"
+    assert current_job_id() is None
 
 
 def test_host_execution_bridge_shutdown_rejects_queued_and_new_scripts(tmp_path: Path) -> None:

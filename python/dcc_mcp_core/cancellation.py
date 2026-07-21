@@ -19,7 +19,7 @@ sprinkle inside long-running loops:
             do_one_unit_of_work()
         return skill_success("done")
 
-The dispatcher is expected to install a :class:`CancelToken` via
+The dispatcher installs a :class:`CancellationProbe` via
 :func:`set_cancel_token` before invoking the skill and to
 :func:`reset_cancel_token` in a ``finally`` block.  When no token is
 installed, :func:`check_cancelled` is a no-op, which keeps the helper
@@ -30,10 +30,9 @@ concurrent requests (e.g. under an asyncio dispatcher or in worker
 threads with their own ``contextvars.Context``) do not leak cancel
 flags into one another.
 
-Dispatcher integration inside the Rust ``ToolDispatcher`` / async
-``JobManager`` is deferred to issues #318 and #332; this module only
-provides the Python surface so skill authors can start writing
-cancellation-aware scripts today.
+Async MCP and REST dispatch install a read-only probe backed by the
+server-owned Rust cancellation token. Direct Python dispatchers may use
+:class:`CancelToken` as the mutable implementation of the same contract.
 """
 
 from __future__ import annotations
@@ -56,12 +55,14 @@ from dcc_mcp_core._typing_compat import runtime_checkable
 
 __all__ = [
     "CancelToken",
+    "CancellationProbe",
     "CancelledError",
     "JobHandle",
     "check_cancelled",
     "check_dcc_cancelled",
     "current_cancel_token",
     "current_job",
+    "current_job_id",
     "reset_cancel_token",
     "reset_current_job",
     "set_cancel_token",
@@ -80,6 +81,21 @@ class CancelledError(Exception):
     convert an unhandled :class:`CancelledError` into a standard skill
     error dict, so most authors will never need to catch it directly.
     """
+
+
+@runtime_checkable
+class CancellationProbe(Protocol):
+    """Read-only cancellation state exposed to running skill code."""
+
+    @property
+    def cancelled(self) -> bool:
+        """Whether the owning dispatcher has cancelled the operation."""
+        ...
+
+    @property
+    def job_id(self) -> str | None:
+        """Server-owned asynchronous job id, when one exists."""
+        ...
 
 
 class CancelToken:
@@ -102,10 +118,11 @@ class CancelToken:
 
     """
 
-    __slots__ = ("_cancelled", "_lock")
+    __slots__ = ("_cancelled", "_job_id", "_lock")
 
-    def __init__(self) -> None:
+    def __init__(self, job_id: str | None = None) -> None:
         self._cancelled: bool = False
+        self._job_id = job_id or None
         self._lock = threading.Lock()
 
     def cancel(self) -> None:
@@ -123,6 +140,11 @@ class CancelToken:
         with self._lock:
             return self._cancelled
 
+    @property
+    def job_id(self) -> str | None:
+        """Server-owned job id associated with this token, when available."""
+        return self._job_id
+
     def __bool__(self) -> bool:  # pragma: no cover - trivial
         return self.cancelled
 
@@ -130,8 +152,13 @@ class CancelToken:
         return f"CancelToken(cancelled={self.cancelled})"
 
 
-_current_token: contextvars.ContextVar[CancelToken | None] = contextvars.ContextVar(
+_current_token: contextvars.ContextVar[CancellationProbe | None] = contextvars.ContextVar(
     "dcc_mcp_core_cancel_token",
+    default=None,
+)
+
+_current_job_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "dcc_mcp_core_job_id",
     default=None,
 )
 
@@ -156,8 +183,8 @@ def check_cancelled() -> None:
         raise CancelledError("Request cancelled by client")
 
 
-def current_cancel_token() -> CancelToken | None:
-    """Return the :class:`CancelToken` installed in the current context.
+def current_cancel_token() -> CancellationProbe | None:
+    """Return the read-only cancellation probe for the current context.
 
     Returns:
         The active token, or ``None`` when no dispatcher has installed
@@ -169,7 +196,35 @@ def current_cancel_token() -> CancelToken | None:
     return _current_token.get()
 
 
-def set_cancel_token(token: CancelToken | None) -> contextvars.Token:
+def current_job_id() -> str | None:
+    """Return the authoritative id of the job executing this skill.
+
+    The id is installed by :class:`HostExecutionBridge` and is intentionally
+    read-only to skill code. Calls outside an asynchronous job return ``None``.
+    """
+    explicit = _current_job_id.get()
+    if explicit:
+        return explicit
+    token = _current_token.get()
+    token_job_id = getattr(token, "job_id", None)
+    if isinstance(token_job_id, str) and token_job_id:
+        return token_job_id
+    job = current_job.get()
+    dispatcher_job_id = getattr(job, "job_id", None)
+    if isinstance(dispatcher_job_id, str) and dispatcher_job_id:
+        return dispatcher_job_id
+    return None
+
+
+def _set_current_job_id(job_id: str | None) -> contextvars.Token:
+    return _current_job_id.set(job_id or None)
+
+
+def _reset_current_job_id(reset: contextvars.Token) -> None:
+    _current_job_id.reset(reset)
+
+
+def set_cancel_token(token: CancellationProbe | None) -> contextvars.Token:
     """Install *token* as the active cancel token for the current context.
 
     This function is intended for **dispatcher** use only — skill
@@ -179,7 +234,7 @@ def set_cancel_token(token: CancelToken | None) -> contextvars.Token:
     value.
 
     Args:
-        token: The token to install, or ``None`` to explicitly clear
+        token: The read-only probe to install, or ``None`` to explicitly clear
             any inherited token for this context.
 
     Returns:

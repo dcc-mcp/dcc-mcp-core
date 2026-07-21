@@ -211,6 +211,24 @@ fn test_execute_script_allows_hython() {
 #[cfg(feature = "python-bindings")]
 #[test]
 fn test_execute_script_in_process_not_initialized() {
+    const CHILD_ENV: &str = "DCC_MCP_TEST_PYTHON_NOT_INITIALIZED_CHILD";
+    if std::env::var_os(CHILD_ENV).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().expect("current test exe"))
+            .arg("catalog::tests::test_execute_script_env::test_execute_script_in_process_not_initialized")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(CHILD_ENV, "1")
+            .output()
+            .expect("run isolated uninitialized-Python test");
+        assert!(
+            output.status.success(),
+            "isolated test failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return;
+    }
+
     let result =
         super::execute::execute_script_in_process("/fake/script.py", serde_json::json!({}));
     let err = result.expect_err("must fail when Python is not initialized");

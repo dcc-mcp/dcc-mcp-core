@@ -135,28 +135,16 @@ impl SkillCatalog {
                             kwargs
                                 .set_item("timeout_hint_secs", context.timeout_hint_secs)
                                 .map_err(|e| format!("executor kwargs: {e}"))?;
-                            let args = (script_path.as_str(), py_params);
-                            let result = match py_fn.call(py, args, Some(&kwargs)) {
-                                Ok(value) => value,
-                                Err(err)
-                                    if err.is_instance_of::<pyo3::exceptions::PyTypeError>(py) =>
-                                {
-                                    drop(err);
-                                    py_fn
-                                        .call1(
-                                            py,
-                                            (
-                                                script_path,
-                                                json_value_to_pyobject(py, &params)
-                                                    .map_err(|e| format!("params → Python: {e}"))?,
-                                            ),
-                                        )
-                                        .map_err(|e| format!("in-process executor failed: {e}"))?
-                                }
-                                Err(err) => {
-                                    return Err(format!("in-process executor failed: {err}"));
-                                }
-                            };
+                            crate::catalog::execute::set_job_context_kwargs(py, &kwargs)
+                                .map_err(|e| format!("executor kwargs: {e}"))?;
+                            let result = crate::catalog::execute::call_python_executor(
+                                py,
+                                &py_fn,
+                                script_path.as_str(),
+                                py_params.bind(py),
+                                &kwargs,
+                            )
+                            .map_err(|e| format!("in-process executor failed: {e}"))?;
                             let bound = result.into_bound(py);
                             py_any_to_json_value(&bound).map_err(|e| format!("result → JSON: {e}"))
                         })
@@ -495,5 +483,70 @@ impl SkillCatalog {
             self.len(),
             self.loaded_count()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Once;
+
+    use dcc_mcp_actions::ToolDispatcher;
+    use dcc_mcp_models::ToolDeclaration;
+    use pyo3::ffi::c_str;
+    use pyo3::types::PyDict;
+
+    use super::*;
+
+    static PYTHON_INIT: Once = Once::new();
+
+    #[test]
+    fn legacy_metadata_executor_is_called_once() {
+        PYTHON_INIT.call_once(Python::initialize);
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = SkillCatalog::new_with_dispatcher(registry, Arc::clone(&dispatcher));
+
+        Python::attach(|py| -> PyResult<()> {
+            let locals = PyDict::new(py);
+            py.run(
+                c_str!(
+                    r#"
+calls = 0
+def executor(script_path, params, *, action_name, skill_name, thread_affinity, execution, timeout_hint_secs):
+    global calls
+    calls += 1
+    return {"calls": calls, "action_name": action_name}
+"#
+                ),
+                Some(&locals),
+                Some(&locals),
+            )?;
+            let executor = locals
+                .get_item("executor")?
+                .expect("executor")
+                .unbind();
+            catalog.py_set_in_process_executor(Some(executor))
+        })
+        .expect("register legacy executor");
+
+        catalog.add_skill(SkillMetadata {
+            name: "legacy-metadata".into(),
+            description: "legacy metadata executor".into(),
+            dcc: "python".into(),
+            version: "1.0.0".into(),
+            tools: vec![ToolDeclaration {
+                name: "run".into(),
+                source_file: "scripts/run.py".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        catalog.load_skill("legacy-metadata").expect("load skill");
+
+        let result = dispatcher
+            .dispatch("legacy_metadata__run", serde_json::json!({}), None)
+            .expect("dispatch skill");
+        assert_eq!(result.output["calls"], 1);
+        assert_eq!(result.output["action_name"], "legacy_metadata__run");
     }
 }

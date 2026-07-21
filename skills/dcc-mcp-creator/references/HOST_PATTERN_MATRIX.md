@@ -22,7 +22,20 @@ Use this table when choosing adapter runtime wiring for a new DCC.
   operations.
 - If a tool can exceed two seconds, declare `execution: async` and a realistic
   `timeout_hint_secs`.
-- Long host loops must check core cancellation where available.
+- Long host loops must check core cancellation between short chunks. Rust
+  handlers use `current_dispatch_job_context()`; metadata-driven Python skills
+  use `current_job_id()` because reserved `_meta` keys are not forwarded to
+  `main()`. Use `check_dcc_cancelled()` in Python and
+  `DispatchJobContext::is_cancelled()` in Rust. Never trust or mint a
+  client-supplied job id.
+- The built-in propagation contract covers in-process Rust/Python handlers over
+  MCP and REST. Subprocess, native IPC, and remote bridge adapters must forward
+  both the server-owned job id and cancellation signal explicitly, then prove
+  that wiring in an adapter test.
+- Cancellation skips queued work and cooperatively stops running chunks. It
+  cannot safely interrupt a DCC-native API call or an uncooperative hot loop
+  already executing on the host thread; use typed, bounded operations and
+  return control to the pump between chunks.
 - Every bridge path must normalize arguments and return structured envelopes.
 
 ## Dispatcher Smoke Tests

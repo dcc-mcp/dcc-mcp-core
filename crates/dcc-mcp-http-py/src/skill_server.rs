@@ -366,6 +366,8 @@ impl PyMcpHttpServer {
     /// - ``thread_affinity`` (kw-only ``"main" | "any"``).
     /// - ``execution`` (kw-only ``"sync" | "async"``).
     /// - ``timeout_hint_secs`` (kw-only ``int | None``).
+    /// - ``job_id`` (kw-only ``str | None``) — server-owned async job id.
+    /// - ``cancel_token`` (kw-only read-only probe | ``None``).
     ///
     /// It must return a JSON-serialisable value (``dict``, ``list``, scalar…).
     /// Legacy two-argument callables remain supported.
@@ -426,19 +428,16 @@ impl PyMcpHttpServer {
                     kwargs
                         .set_item("timeout_hint_secs", context.timeout_hint_secs)
                         .map_err(|e| format!("executor kwargs: {e}"))?;
-                    let args = (script_path.as_str(), py_params);
-                    let raw = match executor_ref.call(gil, args, Some(&kwargs)) {
-                        Ok(value) => value,
-                        Err(err) if err.is_instance_of::<pyo3::exceptions::PyTypeError>(gil) => {
-                            drop(err);
-                            let py_params = json_value_to_bound_py(gil, &params)
-                                .map_err(|e| format!("failed to convert params: {e}"))?;
-                            executor_ref
-                                .call1(gil, (script_path, py_params))
-                                .map_err(|e| format!("executor error: {e}"))?
-                        }
-                        Err(err) => return Err(format!("executor error: {err}")),
-                    };
+                    dcc_mcp_skills::catalog::execute::set_job_context_kwargs(gil, &kwargs)
+                        .map_err(|e| format!("executor kwargs: {e}"))?;
+                    let raw = dcc_mcp_skills::catalog::execute::call_python_executor(
+                        gil,
+                        &executor_ref,
+                        script_path.as_str(),
+                        &py_params,
+                        &kwargs,
+                    )
+                    .map_err(|e| format!("executor error: {e}"))?;
                     py_any_to_json_value(raw.bind(gil)).map_err(|e| e.to_string())
                 })
             });
@@ -857,5 +856,72 @@ impl PyMcpHttpServer {
             self.config.server_name(),
             self.config.port()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Once;
+
+    use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+    use pyo3::ffi::c_str;
+    use pyo3::types::PyDict;
+
+    use super::*;
+
+    static PYTHON_INIT: Once = Once::new();
+
+    #[test]
+    fn legacy_metadata_executor_is_called_once() {
+        PYTHON_INIT.call_once(Python::initialize);
+        let registry = ToolRegistry::new();
+        let server = PyMcpHttpServer::new(&registry, None).expect("create server");
+
+        Python::attach(|py| -> PyResult<()> {
+            let locals = PyDict::new(py);
+            py.run(
+                c_str!(
+                    r#"
+calls = 0
+def executor(script_path, params, *, action_name, skill_name, thread_affinity, execution, timeout_hint_secs):
+    global calls
+    calls += 1
+    return {"calls": calls, "action_name": action_name}
+"#
+                ),
+                Some(&locals),
+                Some(&locals),
+            )?;
+            let executor = locals
+                .get_item("executor")?
+                .expect("executor")
+                .unbind();
+            server.set_in_process_executor(py, executor)
+        })
+        .expect("register legacy executor");
+
+        server.catalog.add_skill(SkillMetadata {
+            name: "legacy-metadata".into(),
+            description: "legacy metadata executor".into(),
+            dcc: "python".into(),
+            version: "1.0.0".into(),
+            tools: vec![ToolDeclaration {
+                name: "run".into(),
+                source_file: "scripts/run.py".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        server
+            .catalog
+            .load_skill("legacy-metadata")
+            .expect("load skill");
+
+        let result = server
+            .dispatcher
+            .dispatch("legacy_metadata__run", serde_json::json!({}), None)
+            .expect("dispatch skill");
+        assert_eq!(result.output["calls"], 1);
+        assert_eq!(result.output["action_name"], "legacy_metadata__run");
     }
 }

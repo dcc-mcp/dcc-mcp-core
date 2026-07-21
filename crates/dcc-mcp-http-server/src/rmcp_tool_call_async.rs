@@ -6,9 +6,11 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use dcc_mcp_actions::registry::ToolMeta;
+use dcc_mcp_actions::{DispatchJobContext, with_dispatch_job_context};
 use dcc_mcp_jsonrpc::{CallToolMeta, CallToolResult, ToolContent};
 use dcc_mcp_models::{ExecutionMode, ThreadAffinity};
 
+use crate::job_aware_invoker::attach_job_id_to_meta;
 use crate::server_state::ServerState;
 
 use crate::rmcp_tool_call_dispatch::{
@@ -20,6 +22,21 @@ pub(super) struct AsyncDispatchConfig {
     pub progress_token: Option<Value>,
     pub thread_affinity: ThreadAffinity,
     pub enforce_thread_affinity: bool,
+}
+
+struct AsyncExecutionRequest {
+    job_id: String,
+    cancel_token: CancellationToken,
+    resolved_name: String,
+    call_params: Value,
+    call_meta: Option<Value>,
+    thread_affinity: ThreadAffinity,
+    enforce_thread_affinity: bool,
+}
+
+fn dispatch_job_context(job_id: &str, cancel_token: &CancellationToken) -> DispatchJobContext {
+    let cancel_token = cancel_token.clone();
+    DispatchJobContext::new(job_id.to_string(), move || cancel_token.is_cancelled())
 }
 
 pub(super) fn async_dispatch_config(
@@ -81,12 +98,18 @@ fn build_pending_envelope(job_id: &str, parent_job_id: Option<String>) -> CallTo
 
 async fn run_async_execution_lane(
     state: &ServerState,
-    resolved_name: String,
-    call_params: Value,
-    cancel_token: CancellationToken,
-    thread_affinity: ThreadAffinity,
-    enforce_thread_affinity: bool,
+    request: AsyncExecutionRequest,
 ) -> Result<Value, String> {
+    let AsyncExecutionRequest {
+        job_id,
+        cancel_token,
+        resolved_name,
+        call_params,
+        call_meta,
+        thread_affinity,
+        enforce_thread_affinity,
+    } = request;
+    let call_meta = attach_job_id_to_meta(call_meta, &job_id);
     let dispatcher = state.dispatcher.as_ref().clone();
     let use_main_thread = use_main_thread_route(thread_affinity, state.executor.is_some());
     let standalone_main =
@@ -114,16 +137,19 @@ async fn run_async_execution_lane(
         let dispatch_name = resolved_name.clone();
         let dispatch_params = call_params.clone();
         let dispatch = dispatcher.clone();
+        let job_context = dispatch_job_context(&job_id, &cancel_token);
         let response = executor.submit_deferred(
             &resolved_name,
             cancel_token.clone(),
             Box::new(move || {
-                match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
-                    dispatch.dispatch(&dispatch_name, dispatch_params, None)
-                }) {
-                    Ok(result) => encode_dispatch_wire(Ok(result)),
-                    Err(err) => encode_dispatch_wire(Err(err)),
-                }
+                with_dispatch_job_context(job_context, || {
+                    match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+                        dispatch.dispatch(&dispatch_name, dispatch_params, call_meta)
+                    }) {
+                        Ok(result) => encode_dispatch_wire(Ok(result)),
+                        Err(err) => encode_dispatch_wire(Err(err)),
+                    }
+                })
             }),
         );
 
@@ -139,17 +165,20 @@ async fn run_async_execution_lane(
         let dispatch_name = resolved_name;
         let dispatch_params = call_params;
         let dispatch_cancel = cancel_token.clone();
+        let job_context = dispatch_job_context(&job_id, &cancel_token);
         let blocking = tokio::task::spawn_blocking(move || {
             if dispatch_cancel.is_cancelled() {
                 return Err("CANCELLED".to_string());
             }
-            let result = if standalone_main {
-                dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
-                    dispatch.dispatch(&dispatch_name, dispatch_params, None)
-                })
-            } else {
-                dispatch.dispatch(&dispatch_name, dispatch_params, None)
-            };
+            let result = with_dispatch_job_context(job_context, || {
+                if standalone_main {
+                    dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+                        dispatch.dispatch(&dispatch_name, dispatch_params, call_meta)
+                    })
+                } else {
+                    dispatch.dispatch(&dispatch_name, dispatch_params, call_meta)
+                }
+            });
             result
                 .map(|result| result.output)
                 .map_err(|err| err.to_string())
@@ -162,21 +191,13 @@ async fn run_async_execution_lane(
     }
 }
 
-fn spawn_async_registry_dispatch(
-    state: &ServerState,
-    job_id: String,
-    cancel_token: CancellationToken,
-    resolved_name: String,
-    call_params: Value,
-    thread_affinity: ThreadAffinity,
-    enforce_thread_affinity: bool,
-) {
+fn spawn_async_registry_dispatch(state: &ServerState, request: AsyncExecutionRequest) {
     let jobs = Arc::clone(&state.jobs);
     let server = state.clone();
-    let spawn_job_id = job_id.clone();
+    let spawn_job_id = request.job_id.clone();
 
     tokio::spawn(async move {
-        if cancel_token.is_cancelled() {
+        if request.cancel_token.is_cancelled() {
             tracing::debug!(job_id = %spawn_job_id, "job cancelled before execution");
             return;
         }
@@ -185,15 +206,7 @@ fn spawn_async_registry_dispatch(
             return;
         }
 
-        let exec_result = run_async_execution_lane(
-            &server,
-            resolved_name,
-            call_params,
-            cancel_token.clone(),
-            thread_affinity,
-            enforce_thread_affinity,
-        )
-        .await;
+        let exec_result = run_async_execution_lane(&server, request).await;
 
         match exec_result {
             Ok(output) => {
@@ -225,6 +238,7 @@ pub(super) async fn dispatch_async_registry_tool(
     session_id: Option<&str>,
     resolved_name: String,
     call_params: Value,
+    call_meta: Option<Value>,
     cfg: AsyncDispatchConfig,
 ) -> CallToolResult {
     let job_handle = state
@@ -252,12 +266,15 @@ pub(super) async fn dispatch_async_registry_tool(
 
     spawn_async_registry_dispatch(
         state,
-        job_id.clone(),
-        cancel_token,
-        resolved_name,
-        call_params,
-        cfg.thread_affinity,
-        cfg.enforce_thread_affinity,
+        AsyncExecutionRequest {
+            job_id: job_id.clone(),
+            cancel_token,
+            resolved_name,
+            call_params,
+            call_meta,
+            thread_affinity: cfg.thread_affinity,
+            enforce_thread_affinity: cfg.enforce_thread_affinity,
+        },
     );
 
     build_pending_envelope(&job_id, cfg.parent_job_id)

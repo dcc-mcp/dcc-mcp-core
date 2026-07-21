@@ -11,6 +11,7 @@ import time
 import pytest
 
 # Import local modules
+from dcc_mcp_core import CancellationProbe
 from dcc_mcp_core import CancelledError
 from dcc_mcp_core import CancelToken
 from dcc_mcp_core import JobHandle
@@ -18,6 +19,7 @@ from dcc_mcp_core import check_cancelled
 from dcc_mcp_core import check_dcc_cancelled
 from dcc_mcp_core import current_cancel_token
 from dcc_mcp_core import current_job
+from dcc_mcp_core import current_job_id
 from dcc_mcp_core import reset_cancel_token
 from dcc_mcp_core import reset_current_job
 from dcc_mcp_core import set_cancel_token
@@ -32,8 +34,10 @@ def test_exports_available() -> None:
     for name in (
         "CancelToken",
         "CancelledError",
+        "CancellationProbe",
         "check_cancelled",
         "current_cancel_token",
+        "current_job_id",
         "reset_cancel_token",
         "set_cancel_token",
     ):
@@ -74,6 +78,24 @@ def test_cancel_is_idempotent() -> None:
     token.cancel()
     token.cancel()
     assert token.cancelled is True
+
+
+def test_current_job_id_follows_ambient_token() -> None:
+    token = CancelToken("job-42")
+    reset = set_cancel_token(token)
+    try:
+        assert current_job_id() == "job-42"
+    finally:
+        reset_cancel_token(reset)
+    assert current_job_id() is None
+
+
+def test_cancel_token_implements_read_only_probe_contract() -> None:
+    token = CancelToken("job-42")
+
+    assert isinstance(token, CancellationProbe)
+    assert token.cancelled is False
+    assert token.job_id == "job-42"
 
 
 def test_set_reset_contextvar_restores_previous() -> None:
