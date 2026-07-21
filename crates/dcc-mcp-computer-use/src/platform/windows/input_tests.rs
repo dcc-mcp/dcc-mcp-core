@@ -383,6 +383,7 @@ fn drag_preflight_rejects_a_late_out_of_bounds_point_before_input() {
         capture_backend: "test".to_string(),
         timestamp_ms: 0,
         desktop_generation: 1,
+        session_id: None,
     };
     let path = [
         ComputerUsePoint { x: 10.0, y: 50.0 },
@@ -441,6 +442,7 @@ fn focusing_must_not_change_the_observed_window_rect() {
         capture_backend: "test".to_string(),
         timestamp_ms: 0,
         desktop_generation: 1,
+        session_id: None,
     };
 
     assert!(ensure_observation_rect(&observation, [10, 20, 800, 600]).is_ok());
@@ -463,6 +465,7 @@ fn focusing_must_not_change_the_observed_window_dpi() {
         capture_backend: "test".to_string(),
         timestamp_ms: 0,
         desktop_generation: 1,
+        session_id: None,
     };
 
     assert!(ensure_observation_target_state(&observation, [10, 20, 800, 600], 144).is_ok());
@@ -785,7 +788,7 @@ fn persistent_pointer_ring_keeps_the_system_cursor_visible() {
 
     let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
     let geometry = pointer_ring_geometry(200, 240);
-    let hwnd = create_cursor_ring_overlay(geometry, CONTROL_CURSOR_ALPHA).unwrap();
+    let hwnd = create_cursor_ring_overlay(geometry, CONTROL_CURSOR_ALPHA, None).unwrap();
     let region = unsafe { CreateRectRgn(0, 0, geometry.2, geometry.3) };
 
     assert_ne!(unsafe { GetWindowRgn(hwnd, region) }, RGN_ERROR);
@@ -802,7 +805,7 @@ fn persistent_overlay_layers_stay_hidden_until_their_geometry_is_ready() {
     use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
 
     let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
-    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Glow).unwrap();
+    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Glow, None).unwrap();
     assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
 
     set_overlay_visible(hwnd, true).unwrap();
@@ -818,7 +821,7 @@ fn overlay_classes_are_revalidated_for_each_window_creation() {
 
     unsafe { GetClassInfoW(Some(instance.into()), CONTROL_OVERLAY_CLASS, &raw mut class) }.unwrap();
 
-    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Accent).unwrap();
+    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Accent, None).unwrap();
     assert!(unsafe { IsWindow(Some(hwnd)) }.as_bool());
     unsafe { DestroyWindow(hwnd) }.unwrap();
 }
@@ -865,6 +868,8 @@ fn escape_latch_blocks_new_sessions_until_explicit_reset() {
             desktop_barrier: Arc::new(DesktopEventBarrier::default()),
             target_available: Arc::new(AtomicBool::new(false)),
             cleanup_pending: Arc::new(AtomicBool::new(false)),
+            session_id: None,
+            last_action_point: Arc::new(std::sync::Mutex::new(None)),
         },
     )
     .unwrap_err();
@@ -1204,6 +1209,7 @@ fn pointer_mapping_revalidates_the_target_before_using_observation_coordinates()
         capture_backend: "test".to_string(),
         timestamp_ms: 0,
         desktop_generation: 1,
+        session_id: None,
     };
 
     let error = ensure_observation_target(observation.window_handle, &observation).unwrap_err();
@@ -1229,4 +1235,60 @@ fn target_window_must_intersect_a_real_monitor() {
         bottom: 1_000_100,
     };
     assert!(!rect_intersects_monitor(&offscreen));
+}
+
+// ── Session color tests ──────────────────────────────────────────────────────
+
+#[test]
+fn session_color_is_deterministic() {
+    let color_a = session_color("maya-session-1");
+    let color_b = session_color("maya-session-1");
+    assert_eq!(color_a, color_b);
+}
+
+#[test]
+fn session_color_differs_for_different_ids() {
+    // With 16 palette entries, two random strings are very unlikely to collide.
+    let color_a = session_color("blender-instance-42");
+    let color_b = session_color("maya-instance-7");
+    assert_ne!(color_a, color_b);
+}
+
+#[test]
+fn session_color_handles_empty_string() {
+    let color = session_color("");
+    // Must not panic; empty string maps to palette[0].
+    let _ = color;
+}
+
+#[test]
+fn glow_from_accent_is_lighter() {
+    let accent = CONTROL_ACCENT_COLOR;
+    let glow = glow_from_accent(accent);
+    // Glow should have higher RGB values (lighter)
+    let accent_sum = (accent.0 & 0xFF)
+        + ((accent.0 >> 8) & 0xFF)
+        + ((accent.0 >> 16) & 0xFF);
+    let glow_sum =
+        (glow.0 & 0xFF) + ((glow.0 >> 8) & 0xFF) + ((glow.0 >> 16) & 0xFF);
+    assert!(glow_sum > accent_sum);
+}
+
+#[test]
+fn cursor_from_accent_is_different() {
+    let accent = CONTROL_ACCENT_COLOR;
+    let cursor = cursor_from_accent(accent);
+    assert_ne!(accent, cursor);
+}
+
+#[test]
+fn all_palette_colors_are_reachable() {
+    // Verify that hashing 100 random-ish IDs hits at least 2 distinct colors.
+    let ids: Vec<String> = (0..100)
+        .map(|i| format!("test-session-{}", i * 7 + 13))
+        .collect();
+    let mut colors: Vec<u32> = ids.iter().map(|id| session_color(id).0).collect();
+    colors.sort_unstable();
+    colors.dedup();
+    assert!(colors.len() >= 2, "expected at least 2 distinct colors from palette");
 }

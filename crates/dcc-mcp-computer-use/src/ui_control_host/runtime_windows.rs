@@ -356,6 +356,7 @@ impl HostRuntime for WindowsHostRuntime {
             Some(target.window_handle),
             None,
             Some(grant.dcc_type.clone()),
+            None, // session_id from UI Control host protocol not yet threaded
         )
         .map_err(map_computer_use_error)?;
         let window_generation = WindowGenerationGuard::bind(&target)?;

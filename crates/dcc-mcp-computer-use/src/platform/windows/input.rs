@@ -21,6 +21,7 @@ impl PointerEffect {
             CONTROL_OVERLAY_ALPHA,
             true,
             OverlayTone::Cursor,
+            None,
         )?;
         Ok(Self { hwnd })
     }
@@ -60,6 +61,7 @@ pub(crate) fn perform_action(
     desktop_state: &Arc<AtomicU64>,
     desktop_barrier: &Arc<DesktopEventBarrier>,
     mut pre_input_fence: Option<&mut PreInputFence<'_>>,
+    last_action_point: &Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
 ) -> ComputerUseResult<()> {
     if matches!(
         request.action.as_str(),
@@ -97,6 +99,9 @@ pub(crate) fn perform_action(
                 true,
                 &mut pre_input_fence,
             )?;
+            if let Ok(mut pt) = last_action_point.lock() {
+                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
+            }
             let effect = PointerEffect::new(screen_x, screen_y, "●")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
@@ -119,6 +124,9 @@ pub(crate) fn perform_action(
                 &guard,
                 &mut pre_input_fence,
             )?;
+            if let Ok(mut pt) = last_action_point.lock() {
+                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
+            }
             let effect = PointerEffect::new(screen_x, screen_y, "●")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
@@ -141,6 +149,9 @@ pub(crate) fn perform_action(
                 &guard,
                 &mut pre_input_fence,
             )?;
+            if let Ok(mut pt) = last_action_point.lock() {
+                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
+            }
             let effect = PointerEffect::new(screen_x, screen_y, "◎")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
@@ -163,6 +174,9 @@ pub(crate) fn perform_action(
                 &guard,
                 &mut pre_input_fence,
             )?;
+            if let Ok(mut pt) = last_action_point.lock() {
+                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
+            }
             let effect = PointerEffect::new(screen_x, screen_y, "↕")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
