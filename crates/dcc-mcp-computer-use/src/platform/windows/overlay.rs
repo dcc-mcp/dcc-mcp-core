@@ -281,15 +281,29 @@ impl ControlOverlay {
 
         let elapsed_ms = self.pulse_started.elapsed().as_millis() as u64;
         for layer in &self.capsule_glows {
-            layer.apply_pulse_with_boost(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms, scope_boost)?;
+            layer.apply_pulse_with_boost(
+                CONTROL_BORDER_PULSE_FLOOR_PERCENT,
+                elapsed_ms,
+                scope_boost,
+            )?;
         }
-        self.capsule
-            .apply_pulse_with_boost(CONTROL_CAPSULE_PULSE_FLOOR_PERCENT, elapsed_ms, scope_boost)?;
+        self.capsule.apply_pulse_with_boost(
+            CONTROL_CAPSULE_PULSE_FLOOR_PERCENT,
+            elapsed_ms,
+            scope_boost,
+        )?;
         for layer in &self.corners {
-            layer.apply_pulse_with_boost(CONTROL_BORDER_PULSE_FLOOR_PERCENT, elapsed_ms, scope_boost)?;
+            layer.apply_pulse_with_boost(
+                CONTROL_BORDER_PULSE_FLOOR_PERCENT,
+                elapsed_ms,
+                scope_boost,
+            )?;
         }
-        self.cursor_ring
-            .apply_pulse_with_boost(CONTROL_CURSOR_PULSE_FLOOR_PERCENT, elapsed_ms, scope_boost)?;
+        self.cursor_ring.apply_pulse_with_boost(
+            CONTROL_CURSOR_PULSE_FLOOR_PERCENT,
+            elapsed_ms,
+            scope_boost,
+        )?;
 
         // Update the last-action fading dot
         self.update_last_action_dot();

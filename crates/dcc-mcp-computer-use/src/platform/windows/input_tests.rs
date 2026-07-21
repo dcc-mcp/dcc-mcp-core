@@ -3,10 +3,7 @@ use super::*;
 #[test]
 fn active_ui_control_reserves_ctrl_alt_escape_as_the_stop_key() {
     assert_eq!(STOP_HOTKEY_LABEL, "Esc");
-    assert_eq!(
-        STOP_HOTKEY_MODIFIERS.0,
-        0
-    );
+    assert_eq!(STOP_HOTKEY_MODIFIERS.0, 0);
 }
 
 #[test]
@@ -805,7 +802,8 @@ fn persistent_overlay_layers_stay_hidden_until_their_geometry_is_ready() {
     use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
 
     let _dpi_awareness = ThreadDpiAwareness::enter().unwrap();
-    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Glow, None).unwrap();
+    let hwnd =
+        create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Glow, None).unwrap();
     assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
 
     set_overlay_visible(hwnd, true).unwrap();
@@ -821,7 +819,8 @@ fn overlay_classes_are_revalidated_for_each_window_creation() {
 
     unsafe { GetClassInfoW(Some(instance.into()), CONTROL_OVERLAY_CLASS, &raw mut class) }.unwrap();
 
-    let hwnd = create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Accent, None).unwrap();
+    let hwnd =
+        create_color_overlay("", (80, 90, 160, 24), 42, false, OverlayTone::Accent, None).unwrap();
     assert!(unsafe { IsWindow(Some(hwnd)) }.as_bool());
     unsafe { DestroyWindow(hwnd) }.unwrap();
 }
@@ -1266,11 +1265,8 @@ fn glow_from_accent_is_lighter() {
     let accent = CONTROL_ACCENT_COLOR;
     let glow = glow_from_accent(accent);
     // Glow should have higher RGB values (lighter)
-    let accent_sum = (accent.0 & 0xFF)
-        + ((accent.0 >> 8) & 0xFF)
-        + ((accent.0 >> 16) & 0xFF);
-    let glow_sum =
-        (glow.0 & 0xFF) + ((glow.0 >> 8) & 0xFF) + ((glow.0 >> 16) & 0xFF);
+    let accent_sum = (accent.0 & 0xFF) + ((accent.0 >> 8) & 0xFF) + ((accent.0 >> 16) & 0xFF);
+    let glow_sum = (glow.0 & 0xFF) + ((glow.0 >> 8) & 0xFF) + ((glow.0 >> 16) & 0xFF);
     assert!(glow_sum > accent_sum);
 }
 
@@ -1290,5 +1286,8 @@ fn all_palette_colors_are_reachable() {
     let mut colors: Vec<u32> = ids.iter().map(|id| session_color(id).0).collect();
     colors.sort_unstable();
     colors.dedup();
-    assert!(colors.len() >= 2, "expected at least 2 distinct colors from palette");
+    assert!(
+        colors.len() >= 2,
+        "expected at least 2 distinct colors from palette"
+    );
 }

@@ -17,3 +17,5 @@ crates/dcc-mcp-gateway/src/gateway/admin/trace.rs
 crates/dcc-mcp-skill-rest/src/service.rs
 # PIP-1799 — capability_service.rs 1507L, exceeds 1500 limit by 7 lines
 crates/dcc-mcp-gateway/src/gateway/capability_service.rs
+# PIP-2805 — windows.rs 1529L, overlay helper functions need extraction into submodule
+crates/dcc-mcp-computer-use/src/platform/windows.rs

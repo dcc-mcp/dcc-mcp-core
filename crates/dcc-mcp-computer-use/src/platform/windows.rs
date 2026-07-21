@@ -1040,8 +1040,7 @@ unsafe extern "system" fn overlay_window_proc(
                 COLORREF(stored_color)
             } else {
                 let mut class_name = [0_u16; 64];
-                let class_length =
-                    unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
+                let class_length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
                 match String::from_utf16_lossy(&class_name[..class_length]).as_ref() {
                     "DccMcpComputerUseGlowOverlay" => CONTROL_GLOW_COLOR,
                     "DccMcpComputerUseCursorOverlay" => CONTROL_CURSOR_COLOR,
@@ -1173,7 +1172,14 @@ fn create_cursor_ring_overlay(
     alpha: u8,
     session_color: Option<COLORREF>,
 ) -> ComputerUseResult<HWND> {
-    let hwnd = create_color_overlay("", geometry, alpha, false, OverlayTone::Cursor, session_color)?;
+    let hwnd = create_color_overlay(
+        "",
+        geometry,
+        alpha,
+        false,
+        OverlayTone::Cursor,
+        session_color,
+    )?;
     if let Err(error) = set_pointer_ring_region(hwnd, geometry.2, geometry.3) {
         let _ = unsafe { DestroyWindow(hwnd) };
         return Err(error);
