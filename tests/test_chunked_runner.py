@@ -166,6 +166,7 @@ def test_mid_sequence_cancellation() -> None:
 
 def test_generator_failure() -> None:
     """Chunk raises exception → outcome is "failed" with error message."""
+
     def _bad() -> None:
         raise ValueError("mesh data corrupted")
 
@@ -180,6 +181,7 @@ def test_generator_failure() -> None:
 
 def test_terminal_idempotence() -> None:
     """Calling step() after terminal state is a no-op."""
+
     def _ok() -> None:
         pass
 

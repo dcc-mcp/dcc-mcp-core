@@ -81,10 +81,7 @@ class ChunkedProgress:
         self.last_step_at = last_step_at
 
     def __repr__(self) -> str:  # pragma: no cover
-        return (
-            f"ChunkedProgress(completed={self.completed}, "
-            f"total={self.total}, last_step_at={self.last_step_at:.3f})"
-        )
+        return f"ChunkedProgress(completed={self.completed}, total={self.total}, last_step_at={self.last_step_at:.3f})"
 
 
 class ChunkedOutcome:
@@ -111,10 +108,7 @@ class ChunkedOutcome:
         self.error = error
 
     def __repr__(self) -> str:  # pragma: no cover
-        return (
-            f"ChunkedOutcome(status={self.status!r}, "
-            f"progress={self.progress!r}, error={self.error!r})"
-        )
+        return f"ChunkedOutcome(status={self.status!r}, progress={self.progress!r}, error={self.error!r})"
 
 
 class ChunkedRunner:
@@ -151,9 +145,7 @@ class ChunkedRunner:
             elif callable(item):
                 self._steps.append(ChunkedStep(i, item))
             else:
-                raise TypeError(
-                    f"Expected ChunkedStep or callable, got {type(item).__name__}"
-                )
+                raise TypeError(f"Expected ChunkedStep or callable, got {type(item).__name__}")
         self._cancel_token = cancel_token
         self._clock = clock
         self._index: int = 0
