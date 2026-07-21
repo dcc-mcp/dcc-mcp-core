@@ -208,7 +208,11 @@ def test_jobs_get_status_polls_async_dispatch_to_completion():
         # `result` is present once terminal + include_result=true.
         assert "result" in final, f"missing result once completed: {final}"
         assert final["result"]["ok"] is True
-        assert final["result"]["echoed"] == {"hello": "world"}
+        echoed = final["result"]["echoed"]
+        assert echoed["hello"] == "world"
+        # Async handlers receive the authoritative core-owned id as reserved
+        # metadata in addition to their validated business arguments.
+        assert echoed["_meta"]["dcc"]["jobId"] == job_id
     finally:
         handle.shutdown()
 
