@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,6 +34,7 @@ def _required_args(tmp_path: Path) -> list[str]:
     ]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="_validate_target requires Windows")
 def test_validate_target_requires_live_window_owned_by_exact_process(monkeypatch: pytest.MonkeyPatch) -> None:
     class User32:
         @staticmethod

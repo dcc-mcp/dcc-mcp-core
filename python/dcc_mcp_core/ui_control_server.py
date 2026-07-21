@@ -35,6 +35,9 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def _validate_target(process_id: int, window_handle: int) -> str:
+    if sys.platform != "win32":
+        raise RuntimeError("UI Control target validation requires Windows")
+
     if process_id <= 0 or window_handle <= 0:
         raise ValueError("process-id and window-handle must be positive")
 
