@@ -357,7 +357,7 @@ struct SessionState {
     target_available: Arc<AtomicBool>,
     cleanup_pending: Arc<AtomicBool>,
     overlay_thread: Option<JoinHandle<()>>,
-    last_action_point: Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
+    last_action_point: Arc<platform::LastActionPoint>,
 }
 
 impl Default for SessionState {

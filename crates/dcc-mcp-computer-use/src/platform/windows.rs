@@ -1311,7 +1311,7 @@ fn run_banner(
     signals: &BannerRuntimeSignals,
     ready: &std::sync::mpsc::SyncSender<ComputerUseResult<()>>,
     session_id: Option<&str>,
-    last_action_point: &Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
+    last_action_point: &Arc<crate::platform::LastActionPoint>,
 ) -> ComputerUseResult<()> {
     ensure_interactive_desktop()?;
     let target = HWND(window_handle as *mut core::ffi::c_void);
