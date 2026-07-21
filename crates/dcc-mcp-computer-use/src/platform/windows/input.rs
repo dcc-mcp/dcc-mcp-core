@@ -1,5 +1,9 @@
 use super::*;
 
+use windows::Win32::Graphics::Gdi::{DeleteObject, HGDIOBJ, RGN_ERROR};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::WindowsAndMessaging::{GetClassInfoW, WNDCLASSW, WS_EX_NOACTIVATE};
+
 mod send_input;
 
 pub(crate) use send_input::flush_pending_input_releases;
