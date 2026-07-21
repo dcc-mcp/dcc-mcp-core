@@ -21,6 +21,8 @@ class InProcessExecutionContext:
     thread_affinity: str = "any"
     execution: str = "sync"
     timeout_hint_secs: int | None = None
+    job_id: str | None = None
+    cancel_token: Any | None = None
 
 
 @dataclass
@@ -55,6 +57,8 @@ def context_from_kwargs(
     thread_affinity: str = "any",
     execution: str = "sync",
     timeout_hint_secs: int | None = None,
+    job_id: str | None = None,
+    cancel_token: Any | None = None,
 ) -> InProcessExecutionContext:
     return InProcessExecutionContext(
         action_name=action_name,
@@ -62,6 +66,8 @@ def context_from_kwargs(
         thread_affinity=thread_affinity or "any",
         execution=execution or "sync",
         timeout_hint_secs=timeout_hint_secs,
+        job_id=job_id or None,
+        cancel_token=cancel_token,
     )
 
 

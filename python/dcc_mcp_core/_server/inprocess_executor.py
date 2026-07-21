@@ -43,6 +43,11 @@ from dcc_mcp_core._server._inprocess_contracts import exception_to_error_envelop
 from dcc_mcp_core._server._inprocess_contracts import is_host_queue_dispatcher as _is_host_queue_dispatcher
 from dcc_mcp_core._server._inprocess_contracts import resolve_sandbox_action_name as _resolve_sandbox_action_name
 from dcc_mcp_core._server._inprocess_contracts import sandbox_denied_envelope
+from dcc_mcp_core.cancellation import _reset_current_job_id
+from dcc_mcp_core.cancellation import _set_current_job_id
+from dcc_mcp_core.cancellation import check_cancelled
+from dcc_mcp_core.cancellation import reset_cancel_token
+from dcc_mcp_core.cancellation import set_cancel_token
 from dcc_mcp_core.script_execution import FileBackedScriptExecutionParams
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 
@@ -217,6 +222,8 @@ class HostExecutionBridge:
         thread_affinity: str | None = None,
         execution: str | None = None,
         timeout_hint_secs: int | None = None,
+        job_id: str | None = None,
+        cancel_token: Any | None = None,
     ) -> InProcessExecutionContext:
         """Build the normalized metadata envelope passed to dispatchers."""
         return _context_from_kwargs(
@@ -225,6 +232,8 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity or self.default_thread_affinity,
             execution=execution or self.default_execution,
             timeout_hint_secs=timeout_hint_secs if timeout_hint_secs is not None else self.default_timeout_hint_secs,
+            job_id=job_id,
+            cancel_token=cancel_token,
         )
 
     def dispatch_callable(
@@ -236,6 +245,8 @@ class HostExecutionBridge:
         thread_affinity: str | None = None,
         execution: str | None = None,
         timeout_hint_secs: int | None = None,
+        job_id: str | None = None,
+        cancel_token: Any | None = None,
         **kwargs: Any,
     ) -> Any:
         """Run a Python callable through the configured host dispatcher."""
@@ -245,6 +256,8 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity,
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
+            job_id=job_id,
+            cancel_token=cancel_token,
         )
         result = self._dispatch_raw(func, args, kwargs, context)
         return self._resolve_deferred_result(result, context)
@@ -302,7 +315,14 @@ class HostExecutionBridge:
         def _invoke(*_args: Any, **_kwargs: Any) -> Any:
             if not self._is_current_generation(generation):
                 return self._shutdown_error()
-            return func(*args, **kwargs)
+            token_reset = set_cancel_token(context.cancel_token)
+            job_id_reset = _set_current_job_id(context.job_id)
+            try:
+                check_cancelled()
+                return func(*args, **kwargs)
+            finally:
+                _reset_current_job_id(job_id_reset)
+                reset_cancel_token(token_reset)
 
         try:
             if self.dispatcher is None:
@@ -407,12 +427,15 @@ class HostExecutionBridge:
         thread_affinity: str | None = None,
         execution: str | None = None,
         timeout_hint_secs: int | None = None,
+        job_id: str | None = None,
+        cancel_token: Any | None = None,
     ) -> Any:
         """Execute a skill script using the same bridge as direct callables."""
         generation = self._current_generation()
         if generation is None:
             return self._shutdown_error()
         script_admission = self._remember_script_dir(script_path)
+        resolved_job_id = job_id or getattr(cancel_token, "job_id", None)
         resolved_action = _resolve_sandbox_action_name(action_name, script_path)
         if self.sandbox_context is not None:
             return self._execute_script_sandboxed(
@@ -423,6 +446,8 @@ class HostExecutionBridge:
                 thread_affinity=thread_affinity,
                 execution=execution,
                 timeout_hint_secs=timeout_hint_secs,
+                job_id=resolved_job_id,
+                cancel_token=cancel_token,
                 admission_generation=generation,
                 script_admission=script_admission,
             )
@@ -435,6 +460,8 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity,
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
+            job_id=resolved_job_id,
+            cancel_token=cancel_token,
         )
 
     def _script_runner(
@@ -568,6 +595,8 @@ class HostExecutionBridge:
         thread_affinity: str | None,
         execution: str | None,
         timeout_hint_secs: int | None,
+        job_id: str | None,
+        cancel_token: Any | None,
         admission_generation: int,
         script_admission: tuple[str, int] | None,
     ) -> Any:
@@ -578,6 +607,8 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity,
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
+            job_id=job_id,
+            cancel_token=cancel_token,
         )
         params_json = json.dumps(dict(params))
 
@@ -611,6 +642,8 @@ class HostExecutionBridge:
             thread_affinity: str = "any",
             execution: str = "sync",
             timeout_hint_secs: int | None = None,
+            job_id: str | None = None,
+            cancel_token: Any | None = None,
         ) -> Any:
             return self.execute_script(
                 script_path,
@@ -620,6 +653,8 @@ class HostExecutionBridge:
                 thread_affinity=thread_affinity,
                 execution=execution,
                 timeout_hint_secs=timeout_hint_secs,
+                job_id=job_id,
+                cancel_token=cancel_token,
             )
 
         return _executor
@@ -988,8 +1023,9 @@ def build_inprocess_executor(
 
     Returns:
         A callable accepting ``(script_path, params, *, action_name,
-        skill_name, thread_affinity, execution, timeout_hint_secs)``. Older
-        two-argument callers remain supported because all metadata is optional.
+        skill_name, thread_affinity, execution, timeout_hint_secs, job_id,
+        cancel_token)``. Older two-argument callers remain supported because
+        all metadata is optional.
 
     """
     return HostExecutionBridge(

@@ -29,6 +29,7 @@ axum = { version = "0.8", features = ["http1", "tokio"] }
 futures = "0.3"
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # OpenAPI generation
 utoipa = { version = "5.4", features = ["axum_extras"] }

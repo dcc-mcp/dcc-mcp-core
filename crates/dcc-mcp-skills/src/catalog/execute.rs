@@ -25,6 +25,13 @@
 
 use dcc_mcp_models::{ExecutionMode, ThreadAffinity, ToolDeclaration};
 
+#[cfg(feature = "python-bindings")]
+use dcc_mcp_actions::{DispatchJobContext, current_dispatch_job_context};
+#[cfg(feature = "python-bindings")]
+use pyo3::prelude::*;
+#[cfg(feature = "python-bindings")]
+use pyo3::types::PyDict;
+
 /// Metadata passed to an in-process skill executor for a specific tool call.
 #[derive(Clone, Debug)]
 pub struct ScriptExecutionContext {
@@ -34,6 +41,208 @@ pub struct ScriptExecutionContext {
     pub enforce_thread_affinity: bool,
     pub execution: ExecutionMode,
     pub timeout_hint_secs: Option<u32>,
+}
+
+/// Python-facing read-only view of a Rust cancellation probe.
+#[cfg(feature = "python-bindings")]
+#[pyclass(frozen)]
+pub struct DispatchCancellationProbe {
+    context: DispatchJobContext,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl DispatchCancellationProbe {
+    #[getter]
+    fn cancelled(&self) -> bool {
+        self.context.is_cancelled()
+    }
+
+    #[getter]
+    fn job_id(&self) -> &str {
+        self.context.job_id()
+    }
+}
+
+/// Add server-owned job identity and a read-only cancellation probe to Python
+/// executor keyword arguments.
+#[cfg(feature = "python-bindings")]
+pub fn set_job_context_kwargs(py: Python<'_>, kwargs: &Bound<'_, PyDict>) -> PyResult<()> {
+    let job_context = current_dispatch_job_context();
+    if let Some(job_context) = job_context {
+        kwargs.set_item("job_id", job_context.job_id())?;
+        kwargs.set_item(
+            "cancel_token",
+            Py::new(
+                py,
+                DispatchCancellationProbe {
+                    context: job_context,
+                },
+            )?,
+        )?;
+    } else {
+        kwargs.set_item("job_id", py.None())?;
+        kwargs.set_item("cancel_token", py.None())?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "python-bindings")]
+fn signature_accepts(
+    signature: &Bound<'_, PyAny>,
+    script_path: &str,
+    params: &Bound<'_, PyAny>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<bool> {
+    match signature.call_method("bind", (script_path, params), kwargs) {
+        Ok(_) => Ok(true),
+        Err(err) if err.is_instance_of::<pyo3::exceptions::PyTypeError>(signature.py()) => {
+            Ok(false)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Invoke an in-process Python executor without re-running user code when its
+/// callable signature only supports an older metadata contract.
+#[cfg(feature = "python-bindings")]
+pub fn call_python_executor<'py>(
+    py: Python<'py>,
+    executor: &Py<PyAny>,
+    script_path: &str,
+    params: &Bound<'py, PyAny>,
+    kwargs: &Bound<'py, PyDict>,
+) -> PyResult<Py<PyAny>> {
+    let signature = match py
+        .import("inspect")
+        .and_then(|inspect| inspect.call_method1("signature", (executor.bind(py),)))
+    {
+        Ok(signature) => signature,
+        Err(err)
+            if err.is_instance_of::<pyo3::exceptions::PyTypeError>(py)
+                || err.is_instance_of::<pyo3::exceptions::PyValueError>(py) =>
+        {
+            return executor.call(py, (script_path, params), Some(kwargs));
+        }
+        Err(err) => return Err(err),
+    };
+
+    if signature_accepts(&signature, script_path, params, Some(kwargs))? {
+        return executor.call(py, (script_path, params), Some(kwargs));
+    }
+
+    let legacy_kwargs = PyDict::new(py);
+    for key in [
+        "action_name",
+        "skill_name",
+        "thread_affinity",
+        "execution",
+        "timeout_hint_secs",
+    ] {
+        if let Some(value) = kwargs.get_item(key)? {
+            legacy_kwargs.set_item(key, value)?;
+        }
+    }
+    if signature_accepts(&signature, script_path, params, Some(&legacy_kwargs))? {
+        return executor.call(py, (script_path, params), Some(&legacy_kwargs));
+    }
+
+    if signature_accepts(&signature, script_path, params, None)? {
+        return executor.call1(py, (script_path, params));
+    }
+
+    // Preserve Python's native error for unsupported signatures. The bind
+    // probes above never execute user code, and the executor is called once.
+    executor.call(py, (script_path, params), Some(kwargs))
+}
+
+#[cfg(all(test, feature = "python-bindings"))]
+mod python_executor_compat_tests {
+    use std::sync::Once;
+
+    use pyo3::ffi::c_str;
+
+    use super::*;
+
+    static PYTHON_INIT: Once = Once::new();
+
+    fn executor_kwargs<'py>(py: Python<'py>) -> Bound<'py, PyDict> {
+        let kwargs = PyDict::new(py);
+        for key in [
+            "action_name",
+            "skill_name",
+            "thread_affinity",
+            "execution",
+            "timeout_hint_secs",
+            "job_id",
+            "cancel_token",
+        ] {
+            kwargs.set_item(key, py.None()).unwrap();
+        }
+        kwargs
+    }
+
+    #[test]
+    fn supports_all_executor_generations_without_reexecuting_type_errors() {
+        PYTHON_INIT.call_once(Python::initialize);
+        Python::attach(|py| {
+            let params = PyDict::new(py);
+            let kwargs = executor_kwargs(py);
+            for (source, expected) in [
+                (
+                    c_str!(
+                        "lambda path, params, *, action_name, skill_name, thread_affinity, execution, timeout_hint_secs, job_id, cancel_token: 'full'"
+                    ),
+                    "full",
+                ),
+                (
+                    c_str!(
+                        "lambda path, params, *, action_name, skill_name, thread_affinity, execution, timeout_hint_secs: 'legacy'"
+                    ),
+                    "legacy",
+                ),
+                (c_str!("lambda path, params: 'positional'"), "positional"),
+            ] {
+                let executor = py.eval(source, None, None).unwrap().unbind();
+                let result =
+                    call_python_executor(py, &executor, "skill.py", params.as_any(), &kwargs)
+                        .unwrap();
+                assert_eq!(result.bind(py).extract::<String>().unwrap(), expected);
+            }
+
+            let globals = PyDict::new(py);
+            py.run(
+                c_str!(
+                    r#"
+calls = []
+def executor(path, params, **kwargs):
+    calls.append(1)
+    raise TypeError("internal executor error")
+"#
+                ),
+                Some(&globals),
+                Some(&globals),
+            )
+            .unwrap();
+            let executor = globals
+                .get_item("executor")
+                .unwrap()
+                .expect("executor")
+                .unbind();
+            let err = call_python_executor(py, &executor, "skill.py", params.as_any(), &kwargs)
+                .expect_err("internal TypeError must escape");
+            assert!(err.to_string().contains("internal executor error"));
+            assert_eq!(
+                globals
+                    .get_item("calls")
+                    .unwrap()
+                    .expect("calls")
+                    .len()
+                    .unwrap(),
+                1
+            );
+        });
+    }
 }
 
 /// A pluggable script executor that runs a skill script inside the **current**

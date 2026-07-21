@@ -773,9 +773,11 @@ _LAZY_EXPORTS: dict[str, str] = {
     "schema_from_doc": "dcc_mcp_core.schema",
     "tool_spec_from_callable": "dcc_mcp_core.schema",
     # Cooperative cancellation.
+    "CancellationProbe": "dcc_mcp_core.cancellation",
     "CancelledError": "dcc_mcp_core.cancellation",
     "check_cancelled": "dcc_mcp_core.cancellation",
     "check_dcc_cancelled": "dcc_mcp_core.cancellation",
+    "current_job_id": "dcc_mcp_core.cancellation",
     # Pure-Python skill script result helpers.
     "run_main": "dcc_mcp_core.skill",
     "skill_entry": "dcc_mcp_core.skill",

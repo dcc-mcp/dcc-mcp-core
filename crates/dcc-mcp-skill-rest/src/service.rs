@@ -20,11 +20,13 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher, with_thread_affinity};
 use dcc_mcp_actions::{
-    DispatchExecutionContext, current_execution_context, with_execution_context,
+    DispatchExecutionContext, DispatchJobContext, current_execution_context,
+    with_dispatch_job_context, with_execution_context,
 };
 use dcc_mcp_models::{
     CallExample, ExecutionMode, NextTools, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations,
@@ -96,7 +98,9 @@ fn should_dispatch_async(meta: Option<&Value>, action: &CatalogAction) -> bool {
             || value.get("progressToken").is_some()
             || value.get("progress_token").is_some()
     });
-    request_opt_in || matches!(action.execution, ExecutionMode::Async)
+    request_opt_in
+        || matches!(action.execution, ExecutionMode::Async)
+        || action.timeout_hint_secs.unwrap_or(0) > 0
 }
 
 /// A single search hit — deliberately compact.
@@ -436,6 +440,56 @@ pub trait ToolInvoker: Send + Sync {
         _meta: Option<Value>,
     ) -> Result<Option<PendingCall>, ServiceError> {
         Ok(None)
+    }
+
+    /// Invoke with a server-owned cancellation context.
+    ///
+    /// The default preserves compatibility for invokers that cannot route
+    /// cancellation. Host-aware invokers should override this method so a
+    /// queued task can be skipped and a running task can observe cooperative
+    /// cancellation checkpoints.
+    fn invoke_with_cancellation(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+        _cancellation: InvocationCancellation,
+    ) -> Result<CallOutcome, ServiceError> {
+        self.invoke(action_name, params, meta)
+    }
+}
+
+/// Server-owned identity and cancellation token for one asynchronous call.
+#[derive(Clone, Debug)]
+pub struct InvocationCancellation {
+    job_id: String,
+    cancel_token: CancellationToken,
+}
+
+impl InvocationCancellation {
+    #[must_use]
+    pub fn new(job_id: impl Into<String>, cancel_token: CancellationToken) -> Self {
+        Self {
+            job_id: job_id.into(),
+            cancel_token,
+        }
+    }
+
+    #[must_use]
+    pub fn job_id(&self) -> &str {
+        &self.job_id
+    }
+
+    #[must_use]
+    pub fn cancel_token(&self) -> &CancellationToken {
+        &self.cancel_token
+    }
+
+    /// Build the transport-neutral context exposed during handler dispatch.
+    #[must_use]
+    pub fn dispatch_job_context(&self) -> DispatchJobContext {
+        let cancel_token = self.cancel_token.clone();
+        DispatchJobContext::new(self.job_id.clone(), move || cancel_token.is_cancelled())
     }
 }
 
@@ -858,6 +912,55 @@ impl DispatcherInvoker {
             standalone_main_thread_execution: true,
         }
     }
+
+    fn invoke_inner(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+        cancellation: Option<InvocationCancellation>,
+    ) -> Result<CallOutcome, ServiceError> {
+        // Default REST path has no host main-thread bridge — publish that so
+        // affinity diagnostics can surface host_dispatcher_attached=false (#1075).
+        let exec_ctx = DispatchExecutionContext {
+            host_dispatcher_attached: Some(false),
+        };
+        let standalone_main = self.standalone_main_thread_execution
+            && self
+                .dispatcher
+                .registry()
+                .get_action(action_name, None)
+                .is_some_and(|meta| matches!(meta.thread_affinity, ThreadAffinity::Main));
+        with_execution_context(exec_ctx, || {
+            let dispatch = || {
+                let dispatched = if standalone_main {
+                    with_thread_affinity(ThreadAffinity::Main, || {
+                        self.dispatcher.dispatch(action_name, params, meta)
+                    })
+                } else {
+                    self.dispatcher.dispatch(action_name, params, meta)
+                };
+                match dispatched {
+                    Ok(r) => Ok(CallOutcome {
+                        slug: ToolSlug(r.action.clone()),
+                        output: r.output,
+                        validation_skipped: r.validation_skipped,
+                    }),
+                    Err(err) => Err(dispatch_error_to_service_error(err)),
+                }
+            };
+
+            match cancellation {
+                Some(cancellation) if cancellation.cancel_token().is_cancelled() => Err(
+                    ServiceError::new(ServiceErrorKind::BackendError, "CANCELLED"),
+                ),
+                Some(cancellation) => {
+                    with_dispatch_job_context(cancellation.dispatch_job_context(), dispatch)
+                }
+                None => dispatch(),
+            }
+        })
+    }
 }
 
 /// Map [`DispatchError`] to REST [`ServiceError`] — shared by [`DispatcherInvoker`]
@@ -950,34 +1053,17 @@ impl ToolInvoker for DispatcherInvoker {
         params: Value,
         meta: Option<Value>,
     ) -> Result<CallOutcome, ServiceError> {
-        // Default REST path has no host main-thread bridge — publish that so
-        // affinity diagnostics can surface host_dispatcher_attached=false (#1075).
-        let exec_ctx = DispatchExecutionContext {
-            host_dispatcher_attached: Some(false),
-        };
-        let standalone_main = self.standalone_main_thread_execution
-            && self
-                .dispatcher
-                .registry()
-                .get_action(action_name, None)
-                .is_some_and(|meta| matches!(meta.thread_affinity, ThreadAffinity::Main));
-        with_execution_context(exec_ctx, || {
-            let dispatched = if standalone_main {
-                with_thread_affinity(ThreadAffinity::Main, || {
-                    self.dispatcher.dispatch(action_name, params, meta.clone())
-                })
-            } else {
-                self.dispatcher.dispatch(action_name, params, meta.clone())
-            };
-            match dispatched {
-                Ok(r) => Ok(CallOutcome {
-                    slug: ToolSlug(r.action.clone()),
-                    output: r.output,
-                    validation_skipped: r.validation_skipped,
-                }),
-                Err(err) => Err(dispatch_error_to_service_error(err)),
-            }
-        })
+        self.invoke_inner(action_name, params, meta, None)
+    }
+
+    fn invoke_with_cancellation(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+        cancellation: InvocationCancellation,
+    ) -> Result<CallOutcome, ServiceError> {
+        self.invoke_inner(action_name, params, meta, Some(cancellation))
     }
 }
 
@@ -1231,7 +1317,8 @@ impl SkillRestService {
     ///
     /// Existing embedders that do not implement [`ToolInvoker::invoke_async`]
     /// retain synchronous behavior. Runtimes with a job-aware invoker return
-    /// a pending envelope immediately for explicitly asynchronous tools.
+    /// a pending envelope immediately for explicitly asynchronous or
+    /// timeout-hinted tools, matching MCP dispatch semantics.
     pub fn dispatch_call(&self, req: &CallRequest) -> Result<CallDispatchOutcome, ServiceError> {
         let action = self.resolve_callable_action(&req.tool_slug)?;
         if should_dispatch_async(req.meta.as_ref(), &action)
