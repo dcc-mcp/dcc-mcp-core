@@ -403,6 +403,242 @@ class TestClawhubSync:
                 version="1.2.3",
             )
 
+    def test_owner_inspect_reports_pending_review_for_hidden_version(self, monkeypatch, capsys) -> None:
+        sync = load_sync_module()
+
+        monkeypatch.setattr(
+            sync.subprocess,
+            "run",
+            lambda cmd, **_kwargs: subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="",
+                stderr="Error: Version not found (reset in 52s)\n",
+            ),
+        )
+        monkeypatch.setattr(sync, "MAX_RETRIES", 1)
+
+        assert (
+            sync.verify_owner_version(
+                "clawhub@test",
+                "example",
+                "loonghao",
+                "1.2.3",
+                Path("example"),
+                3,
+                "a" * 64,
+            )
+            is None
+        )
+        assert "review or moderation may still be pending" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "This skill is pending a ClawScan security review. Please try again in a few minutes.",
+            "Skill is hidden while security scan is pending. Try again in a few minutes.",
+        ],
+    )
+    def test_owner_inspect_reports_explicit_security_review_lock_as_pending(self, message, monkeypatch, capsys) -> None:
+        sync = load_sync_module()
+
+        monkeypatch.setattr(
+            sync.subprocess,
+            "run",
+            lambda cmd, **_kwargs: subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="",
+                stderr=f"Error: HTTP 423: {message}\n",
+            ),
+        )
+        monkeypatch.setattr(sync, "MAX_RETRIES", 1)
+
+        assert (
+            sync.verify_owner_version(
+                "clawhub@test",
+                "example",
+                "loonghao",
+                "1.2.3",
+                Path("example"),
+                3,
+                "a" * 64,
+            )
+            is None
+        )
+        assert "review or moderation may still be pending" in capsys.readouterr().out
+
+    def test_owner_inspect_reports_moderation_only_payload_as_pending(self, monkeypatch, capsys) -> None:
+        sync = load_sync_module()
+        payload = {
+            "skill": None,
+            "latestVersion": None,
+            "owner": None,
+            "moderation": {
+                "isMalwareBlocked": False,
+                "isSuspicious": False,
+                "verdict": "clean",
+            },
+            "version": None,
+            "versions": None,
+            "file": None,
+        }
+        monkeypatch.setattr(
+            sync.subprocess,
+            "run",
+            lambda cmd, **_kwargs: subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=json.dumps(payload),
+                stderr="",
+            ),
+        )
+        monkeypatch.setattr(sync, "MAX_RETRIES", 1)
+
+        assert (
+            sync.verify_owner_version(
+                "clawhub@test",
+                "example",
+                "loonghao",
+                "1.2.3",
+                Path("example"),
+                3,
+                "a" * 64,
+            )
+            is None
+        )
+        assert "moderation-only" in capsys.readouterr().out
+
+    def test_publish_receipt_requires_exact_server_acknowledgement(self) -> None:
+        sync = load_sync_module()
+        payload = {
+            "ok": True,
+            "status": "published",
+            "slug": "example",
+            "version": "1.2.3",
+            "fileCount": 3,
+            "fingerprint": "a" * 64,
+            "versionId": "k97example",
+            "folder": str(Path("example").resolve()),
+        }
+
+        assert (
+            sync.validate_publish_receipt(
+                json.dumps(payload),
+                slug="example",
+                version="1.2.3",
+                expected_file_count=3,
+                expected_fingerprint="a" * 64,
+                expected_folder=Path("example"),
+            )
+            == "k97example"
+        )
+
+        payload["fingerprint"] = "b" * 64
+        with pytest.raises(ValueError, match="fingerprint"):
+            sync.validate_publish_receipt(
+                json.dumps(payload),
+                slug="example",
+                version="1.2.3",
+                expected_file_count=3,
+                expected_fingerprint="a" * 64,
+                expected_folder=Path("example"),
+            )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("fileCount", True), ("versionId", ""), ("folder", "other-skill")],
+    )
+    def test_publish_receipt_rejects_invalid_acknowledgement_fields(self, field, value) -> None:
+        sync = load_sync_module()
+        payload = {
+            "ok": True,
+            "status": "published",
+            "slug": "example",
+            "version": "1.2.3",
+            "fileCount": 3,
+            "fingerprint": "a" * 64,
+            "versionId": "k97example",
+            "folder": str(Path("example").resolve()),
+        }
+        payload[field] = value
+
+        with pytest.raises(ValueError, match=field):
+            sync.validate_publish_receipt(
+                json.dumps(payload),
+                slug="example",
+                version="1.2.3",
+                expected_file_count=3,
+                expected_fingerprint="a" * 64,
+                expected_folder=Path("example"),
+            )
+
+    def test_hidden_immutable_version_is_resolved_by_exact_fingerprint(self, monkeypatch) -> None:
+        sync = load_sync_module()
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(cmd)
+            payload = {
+                "ok": True,
+                "status": "unchanged",
+                "slug": "example",
+                "version": "1.2.3",
+                "fileCount": 3,
+                "fingerprint": "a" * 64,
+            }
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+
+        monkeypatch.setattr(sync.subprocess, "run", fake_run)
+
+        assert sync.verify_resolved_fingerprint(
+            "clawhub@test",
+            "example",
+            "loonghao",
+            "1.2.3",
+            Path("example"),
+            3,
+            "a" * 64,
+        )
+        assert calls[0][-2:] == ["--json", "--dry-run"]
+        assert "--version" not in calls[0]
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("status", "would-publish"), ("version", "1.2.4"), ("fingerprint", "b" * 64)],
+    )
+    def test_fingerprint_resolver_rejects_unmatched_remote_state(self, field, value, monkeypatch) -> None:
+        sync = load_sync_module()
+        payload = {
+            "ok": True,
+            "status": "unchanged",
+            "slug": "example",
+            "version": "1.2.3",
+            "fileCount": 3,
+            "fingerprint": "a" * 64,
+        }
+        payload[field] = value
+        monkeypatch.setattr(
+            sync.subprocess,
+            "run",
+            lambda cmd, **_kwargs: subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=json.dumps(payload),
+                stderr="",
+            ),
+        )
+
+        assert not sync.verify_resolved_fingerprint(
+            "clawhub@test",
+            "example",
+            "loonghao",
+            "1.2.3",
+            Path("example"),
+            3,
+            "a" * 64,
+        )
+
     @pytest.mark.parametrize(
         "payload",
         [
@@ -502,6 +738,7 @@ class TestClawhubSync:
     def test_uploaded_version_accepts_owner_match_while_public_review_is_pending(self, monkeypatch) -> None:
         sync = load_sync_module()
         monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
+        monkeypatch.setattr(sync, "verify_resolved_fingerprint", lambda *_args: True)
         monkeypatch.setattr(sync, "verify_owner_version", lambda *_args: True)
         monkeypatch.setattr(sync, "verify_published_version", lambda *_args: None)
 
@@ -516,9 +753,123 @@ class TestClawhubSync:
             is True
         )
 
+    def test_uploaded_version_accepts_exact_publish_receipt_while_review_is_pending(self, monkeypatch, capsys) -> None:
+        sync = load_sync_module()
+        receipt = json.dumps(
+            {
+                "ok": True,
+                "status": "published",
+                "slug": "example",
+                "version": "1.2.3",
+                "fileCount": 3,
+                "fingerprint": "a" * 64,
+                "versionId": "k97example",
+                "folder": str(Path("example").resolve()),
+            }
+        )
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
+        monkeypatch.setattr(sync, "verify_owner_version", lambda *_args: None)
+        monkeypatch.setattr(sync, "verify_published_version", lambda *_args: None)
+
+        assert sync.verify_uploaded_version(
+            "clawhub@test",
+            "example",
+            "loonghao",
+            "1.2.3",
+            Path("example"),
+            receipt,
+        )
+        assert "authenticated publish receipt" in capsys.readouterr().out
+
+    def test_fresh_receipt_uses_frozen_preflight_without_post_publish_preview(self, monkeypatch) -> None:
+        sync = load_sync_module()
+        receipt = json.dumps(
+            {
+                "ok": True,
+                "status": "published",
+                "slug": "example",
+                "version": "1.2.3",
+                "fileCount": 3,
+                "fingerprint": "a" * 64,
+                "versionId": "k97example",
+                "folder": str(Path("example").resolve()),
+            }
+        )
+
+        def fail_preview(*_args, **_kwargs):
+            raise AssertionError("fresh receipt verification must not perform a post-publish preview")
+
+        monkeypatch.setattr(sync, "preview_publish_metadata", fail_preview)
+        monkeypatch.setattr(sync, "verify_owner_version", lambda *_args: None)
+
+        assert sync.verify_uploaded_version(
+            "clawhub@test",
+            "example",
+            "loonghao",
+            "1.2.3",
+            Path("example"),
+            receipt,
+            publish_metadata=(3, "a" * 64),
+        )
+
+    def test_existing_hidden_version_requires_fingerprint_resolution(self, monkeypatch) -> None:
+        sync = load_sync_module()
+        calls: list[tuple] = []
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
+
+        def resolve(*args):
+            calls.append(args)
+            return True
+
+        monkeypatch.setattr(sync, "verify_resolved_fingerprint", resolve)
+        monkeypatch.setattr(sync, "verify_owner_version", lambda *_args: None)
+        monkeypatch.setattr(sync, "verify_published_version", lambda *_args: None)
+
+        assert sync.verify_uploaded_version(
+            "clawhub@test",
+            "example",
+            "loonghao",
+            "1.2.3",
+            Path("example"),
+        )
+        assert calls
+
+    def test_unchanged_publish_response_uses_fingerprint_resolution(self, monkeypatch) -> None:
+        sync = load_sync_module()
+        calls: list[tuple] = []
+        unchanged = json.dumps(
+            {
+                "ok": True,
+                "status": "unchanged",
+                "slug": "example",
+                "version": "1.2.3",
+                "fileCount": 3,
+                "fingerprint": "a" * 64,
+            }
+        )
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
+
+        def resolve(*args):
+            calls.append(args)
+            return True
+
+        monkeypatch.setattr(sync, "verify_resolved_fingerprint", resolve)
+        monkeypatch.setattr(sync, "verify_owner_version", lambda *_args: None)
+
+        assert sync.verify_uploaded_version(
+            "clawhub@test",
+            "example",
+            "loonghao",
+            "1.2.3",
+            Path("example"),
+            unchanged,
+        )
+        assert calls
+
     def test_uploaded_version_rejects_public_hash_mismatch(self, monkeypatch) -> None:
         sync = load_sync_module()
         monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
+        monkeypatch.setattr(sync, "verify_resolved_fingerprint", lambda *_args: True)
         monkeypatch.setattr(sync, "verify_owner_version", lambda *_args: True)
         monkeypatch.setattr(sync, "verify_published_version", lambda *_args: False)
 
@@ -624,8 +975,9 @@ class TestClawhubSync:
         monkeypatch.setattr(sync, "skill_version", lambda _skill_dir: "1.2.3")
         monkeypatch.setattr(sync, "skill_license", lambda _skill_dir: sync.CLAWHUB_LICENSE)
         monkeypatch.setattr(sync.dcc_mcp_core, "validate_skill", lambda _skill_dir: CleanReport())
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
         monkeypatch.setattr(sync.subprocess, "run", fake_run)
-        monkeypatch.setattr(sync, "verify_uploaded_version", lambda *_args: False)
+        monkeypatch.setattr(sync, "verify_uploaded_version", lambda *_args, **_kwargs: False)
 
         rc = sync.publish_one(
             {"path": "skills/example", "slug": "example", "owner": "loonghao", "version": "1.2.3"},
@@ -648,6 +1000,19 @@ class TestClawhubSync:
             issues: tuple[str, ...] = ()
 
         calls: list[list[str]] = []
+        verify_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        receipt = json.dumps(
+            {
+                "ok": True,
+                "status": "published",
+                "slug": "example",
+                "version": "1.2.3",
+                "fileCount": 3,
+                "fingerprint": "a" * 64,
+                "versionId": "k97example",
+                "folder": str(skill_dir.resolve()),
+            }
+        )
 
         def fake_run(cmd, *, check, capture_output, text):
             assert check is False
@@ -664,17 +1029,22 @@ class TestClawhubSync:
             return subprocess.CompletedProcess(
                 cmd,
                 0,
-                stdout="- Published example@1.2.3\n",
+                stdout=receipt,
                 stderr="",
             )
+
+        def fake_verify(*args, **kwargs):
+            verify_calls.append((args, kwargs))
+            return True
 
         monkeypatch.setattr(sync, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(sync, "skill_version", lambda _skill_dir: "1.2.3")
         monkeypatch.setattr(sync, "skill_license", lambda _skill_dir: sync.CLAWHUB_LICENSE)
         monkeypatch.setattr(sync.dcc_mcp_core, "validate_skill", lambda _skill_dir: CleanReport())
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
         monkeypatch.setattr(sync.subprocess, "run", fake_run)
         monkeypatch.setattr(sync.time, "sleep", lambda _s: None)
-        monkeypatch.setattr(sync, "verify_uploaded_version", lambda *_args: True)
+        monkeypatch.setattr(sync, "verify_uploaded_version", fake_verify)
 
         rc = sync.publish_one(
             {"path": "skills/example", "slug": "example", "owner": "loonghao", "version": "1.2.3"},
@@ -685,9 +1055,15 @@ class TestClawhubSync:
         captured = capsys.readouterr()
         assert rc == 0
         assert len(calls) == 2
+        assert verify_calls == [
+            (
+                ("clawhub@test", "example", "loonghao", "1.2.3", skill_dir.resolve(), receipt),
+                {"publish_metadata": (3, "a" * 64)},
+            )
+        ]
         assert "Embedding failed" in captured.err
         assert "retrying in 23s" in captured.out
-        assert "Published example@1.2.3" in captured.out
+        assert '"status": "published"' in captured.out
 
     def test_publish_retries_embedding_failure_then_treats_existing_as_success(
         self, tmp_path, monkeypatch, capsys
@@ -725,9 +1101,10 @@ class TestClawhubSync:
         monkeypatch.setattr(sync, "skill_version", lambda _skill_dir: "1.2.3")
         monkeypatch.setattr(sync, "skill_license", lambda _skill_dir: sync.CLAWHUB_LICENSE)
         monkeypatch.setattr(sync.dcc_mcp_core, "validate_skill", lambda _skill_dir: CleanReport())
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
         monkeypatch.setattr(sync.subprocess, "run", fake_run)
         monkeypatch.setattr(sync.time, "sleep", lambda _s: None)
-        monkeypatch.setattr(sync, "verify_uploaded_version", lambda *_args: True)
+        monkeypatch.setattr(sync, "verify_uploaded_version", lambda *_args, **_kwargs: True)
 
         rc = sync.publish_one(
             {"path": "skills/example", "slug": "example", "owner": "loonghao", "version": "1.2.3"},
@@ -767,6 +1144,7 @@ class TestClawhubSync:
         monkeypatch.setattr(sync, "skill_version", lambda _skill_dir: "1.2.3")
         monkeypatch.setattr(sync, "skill_license", lambda _skill_dir: sync.CLAWHUB_LICENSE)
         monkeypatch.setattr(sync.dcc_mcp_core, "validate_skill", lambda _skill_dir: CleanReport())
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
         monkeypatch.setattr(sync.subprocess, "run", fake_run)
         monkeypatch.setattr(sync.time, "sleep", lambda _s: None)
 
@@ -808,6 +1186,7 @@ class TestClawhubSync:
         monkeypatch.setattr(sync, "skill_version", lambda _skill_dir: "1.2.3")
         monkeypatch.setattr(sync, "skill_license", lambda _skill_dir: sync.CLAWHUB_LICENSE)
         monkeypatch.setattr(sync.dcc_mcp_core, "validate_skill", lambda _skill_dir: CleanReport())
+        monkeypatch.setattr(sync, "preview_publish_metadata", lambda *_args, **_kwargs: (3, "a" * 64))
         monkeypatch.setattr(sync.subprocess, "run", fake_run)
         monkeypatch.setattr(sync.time, "sleep", lambda _s: None)
 
