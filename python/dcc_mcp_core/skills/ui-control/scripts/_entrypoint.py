@@ -8,6 +8,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import sys
 import threading
 from typing import Any
 from typing import Callable
@@ -22,6 +23,23 @@ _AUDIT_LOCK = threading.Lock()
 def emit(result: Dict[str, Any]) -> None:
     """Emit a JSON tool result."""
     print(json.dumps(result, sort_keys=True))
+
+
+def _read_subprocess_params() -> Dict[str, Any]:
+    """Read the authoritative JSON payload written by the skill executor."""
+    try:
+        if sys.stdin.isatty():
+            return {}
+        raw = sys.stdin.read()
+    except (OSError, ValueError):
+        return {}
+    if not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _import_sibling(name: str) -> Any:
@@ -108,7 +126,11 @@ def _record_operation(name: str, params: Dict[str, Any], result: Dict[str, Any])
 
 
 def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    call_params = params or {}
+    # Older standalone servers execute skill scripts as subprocesses and put
+    # the complete tool arguments on stdin.  Read them at the shared boundary
+    # so every backend receives the same contract; backend-specific readers
+    # previously made mock/CDP work while Windows UIA silently received `{}`.
+    call_params = dict(params) if params is not None else _read_subprocess_params()
     backend = _load_backend()
     if backend is None:
         selected = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "mock")
@@ -130,7 +152,7 @@ def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return result
     func: Callable[[Optional[Dict[str, Any]]], Dict[str, Any]] = getattr(backend, name)
     try:
-        result = func(params)
+        result = func(call_params)
     except Exception as exc:
         _record_operation(name, call_params, {"success": False, "error": type(exc).__name__})
         raise

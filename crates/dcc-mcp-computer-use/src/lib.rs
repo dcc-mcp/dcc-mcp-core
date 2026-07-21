@@ -472,7 +472,11 @@ impl ComputerUseSession {
         let target = self.resolve_target()?;
         self.trusted_scope.validate_target(&target)?;
         platform::validate_target_policy(target.handle, target.pid, &target.title)?;
-        platform::prepare_target_window(target.handle)?;
+        // Session ownership and the global Esc watcher must exist before any
+        // capability-bound restore/show/activate transition. A minimized or
+        // hidden exact HWND is therefore allowed to start with its cosmetic
+        // overlay hidden; screenshots still require an available target.
+        platform::prepare_control_session_target(target.handle, target.pid)?;
         let interrupted = Arc::new(AtomicBool::new(false));
         let overlay_visible = Arc::new(AtomicBool::new(false));
         let desktop_state = Arc::new(AtomicU64::new(desktop_state_value(1, true)));

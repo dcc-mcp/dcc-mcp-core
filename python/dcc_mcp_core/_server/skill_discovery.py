@@ -19,7 +19,7 @@ from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
 from dcc_mcp_core.hotreload import DccSkillHotReloader
-from dcc_mcp_core.skill import get_bundled_skill_paths
+from dcc_mcp_core.skill import _get_bundled_skill_discovery_paths
 from dcc_mcp_core.skills.builtin import register_all_builtin_skills
 
 try:
@@ -127,7 +127,7 @@ class SkillDiscoveryController:
 
         if include_bundled:
             try:
-                paths.extend(get_bundled_skill_paths(include_bundled=True))
+                paths.extend(_get_bundled_skill_discovery_paths())
             except Exception as exc:
                 logger.debug("[%s] Could not load bundled skill paths: %s", owner._dcc_name, exc)
 

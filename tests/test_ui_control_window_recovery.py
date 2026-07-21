@@ -96,6 +96,7 @@ def test_process_scoped_host_session_ignores_transient_uia_root(monkeypatch: Any
 
     monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_UIA_PROCESS_ID", "1234")
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE", raising=False)
     monkeypatch.setattr(backend, "_HostClient", FakeHostClient)
 
     policy = {"allow_keyboard_shortcuts": True}

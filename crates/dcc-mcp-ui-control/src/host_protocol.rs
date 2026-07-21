@@ -576,6 +576,10 @@ pub enum UiControlHostResponse {
     ActionCompleted {
         /// Whether the requested mutation completed.
         success: bool,
+        /// The exact capability-bound HWND closed after the action completed.
+        /// The host revokes the session and never follows a replacement HWND.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        target_closed: bool,
         /// Host-enforced policy tier.
         policy_tier: UiControlPolicyTier,
         /// Safe result message with sensitive values removed.
@@ -720,6 +724,39 @@ mod tests {
         let response = serde_json::to_value(response).unwrap();
         assert_eq!(response["type"], "snapshot");
         assert_eq!(response["image"]["name"], "shared");
+    }
+
+    #[test]
+    fn target_closed_is_an_additive_action_completion_field() {
+        let legacy = serde_json::json!({
+            "type": "action_completed",
+            "success": true,
+            "policy_tier": "task_grant",
+            "message": "completed",
+            "error": null,
+            "before_focus_runtime_id": null,
+            "after_focus_runtime_id": null
+        });
+        let decoded: UiControlHostResponse = serde_json::from_value(legacy).unwrap();
+        assert!(matches!(
+            decoded,
+            UiControlHostResponse::ActionCompleted {
+                target_closed: false,
+                ..
+            }
+        ));
+
+        let closed = serde_json::to_value(UiControlHostResponse::ActionCompleted {
+            success: true,
+            target_closed: true,
+            policy_tier: UiControlPolicyTier::TaskGrant,
+            message: "completed and closed".to_owned(),
+            error: None,
+            before_focus_runtime_id: None,
+            after_focus_runtime_id: None,
+        })
+        .unwrap();
+        assert_eq!(closed["target_closed"], true);
     }
 
     #[test]

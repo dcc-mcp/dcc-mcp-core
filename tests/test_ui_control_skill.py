@@ -49,6 +49,7 @@ def _run_tool(
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     env = dict(os.environ)
+    env["DCC_MCP_UI_CONTROL_BACKEND"] = "mock"
     env["DCC_MCP_UI_CONTROL_MOCK_STATE_DIR"] = str(state_dir)
     if extra_env:
         env.update(extra_env)
@@ -273,6 +274,33 @@ def test_ui_control_entrypoints_accept_inprocess_parameters(
     assert all(row["event"] == "ui_control_operation" for row in audit_rows)
     assert all(row["dcc_type"] == "unreal" for row in audit_rows)
     assert "Signal Forge" not in log_text
+
+
+def test_ui_control_subprocess_forwards_action_to_windows_backend_without_host(tmp_path: Path) -> None:
+    """Standalone-server stdin transport must preserve schema key ``action``."""
+    result = _run_tool(
+        "act",
+        {
+            "session_id": "subprocess-action-transport",
+            "process_id": 424242,
+            "window_handle": 31337,
+            "window_title": "transport-probe",
+            "action": "keyboard_shortcut",
+            "intent": "navigate",
+            "keys": ["ALT", "F4"],
+            "snapshot_id": "accessibility:probe",
+            "policy": {"allow_keyboard_shortcuts": False},
+        },
+        tmp_path,
+        {
+            "DCC_MCP_UI_CONTROL_BACKEND": "windows-uia",
+            "DCC_MCP_DISABLE_FILE_LOGGING": "1",
+        },
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "policy_disabled"
+    assert result["message"] == "ui_control action 'keyboard_shortcut' disabled by policy"
 
 
 def test_ui_control_admin_audit_records_rejection_without_sensitive_text(
@@ -747,6 +775,20 @@ def test_ui_control_windows_host_semantic_action_is_thin_proxy(monkeypatch: Any)
     assert "powershell" not in source.lower()
 
 
+def test_ui_control_windows_uia_post_state_is_optional_after_semantic_success() -> None:
+    source = (_SCRIPTS / "_windows_uia_backend.ps1").read_text(encoding="utf-8")
+    invoke = source.index("$actionResult = Invoke-Action $target")
+    reject_failure = source.index("if (-not [bool]$actionResult.ok)", invoke)
+    optional_control = source.index("$control = $null", reject_failure)
+    success = source.index("ok = $true", optional_control)
+    post_read = source[optional_control:success]
+
+    assert invoke < reject_failure < optional_control < success
+    assert "ok = $false" in source[reject_failure:optional_control]
+    assert 'try {\n      $control = Element-Raw $target 0 "target"\n    } catch {}' in post_read
+    assert "control = $control" in source[success:]
+
+
 def test_ui_control_windows_host_native_action_requires_fresh_snapshot(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
     _configure_fake_host(backend, monkeypatch, raw=True)
@@ -797,6 +839,42 @@ def test_ui_control_windows_host_restores_minimized_exact_window_without_snapsho
     assert state["context"]["audit"]["metadata"]["host_enforced"] is True
 
 
+def test_ui_control_windows_host_reports_closed_target_success_and_requires_explicit_rebind(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+
+    class ClosingTargetHost(_FakeHostClient):
+        def execute(self, action: dict[str, Any]) -> dict[str, Any]:
+            self.executed.append(action)
+            return {
+                "type": "action_completed",
+                "success": True,
+                "target_closed": True,
+                "policy_tier": "task_grant",
+                "message": "completed; the exact target window closed",
+            }
+
+    _configure_fake_host(backend, monkeypatch)
+    monkeypatch.setattr(backend, "_HostClient", ClosingTargetHost)
+    snapshot = backend.snapshot_tool({"session_id": "transition"})
+    result = backend.act_tool(
+        {
+            "session_id": "transition",
+            "snapshot_id": snapshot["context"]["snapshot_id"],
+            "control_id": "uia:42.2",
+            "action": "click",
+        }
+    )
+
+    assert result["success"] is True
+    assert result["context"]["target_closed"] is True
+    assert result["context"]["session_active"] is False
+    assert result["context"]["result"]["metadata"]["target_closed"] is True
+    assert result["context"]["result"]["metadata"]["requires_new_screenshot"] is False
+    assert result["context"]["audit"]["metadata"]["target_closed"] is True
+    assert "Explicitly bind the intended new PID/HWND" in result["prompt"]
+    assert backend._CLIENTS == {}
+
+
 def test_ui_control_windows_host_invalid_snapshot_target_exposes_scoped_recovery() -> None:
     backend = _load_windows_uia_module()
 
@@ -812,6 +890,25 @@ def test_ui_control_windows_host_invalid_snapshot_target_exposes_scoped_recovery
         "activate_window",
     ]
     assert "cannot change the authorized PID/HWND scope" in result["prompt"]
+
+
+def test_ui_control_windows_host_protected_system_ui_requires_manual_operator_recovery() -> None:
+    backend = _load_windows_uia_module()
+
+    result = backend._host_error(
+        backend.UiControlHostError(
+            "invalid_target",
+            "the requested pointer coordinate remains blocked by protected system UI: PickerHost / Shell_SystemDim",
+        )
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_target"
+    assert result["context"]["recovery_scope"] == "same_exact_pid_hwnd"
+    assert result["context"]["recovery_actions"] == ["stop", "snapshot"]
+    assert "ask the operator to close or move" in result["prompt"]
+    assert "Do not hide, override, click through, or ignore" in result["prompt"]
+    assert "fresh ui_control__snapshot" in result["prompt"]
 
 
 def test_ui_control_windows_host_propagates_trusted_confirmation_denial(monkeypatch: Any) -> None:
@@ -953,6 +1050,74 @@ def test_ui_control_host_client_uses_v2_only_pipe(monkeypatch: Any) -> None:
 
     assert client_module._PROTOCOL_VERSION == 2
     assert client_module._pipe_path() == r"\\.\pipe\dcc-mcp-ui-control-host-v2-session-42"
+
+
+def test_ui_control_host_client_revokes_local_capability_when_exact_target_closes() -> None:
+    import io
+    import struct
+
+    backend = _load_windows_uia_module()
+    client_module = backend._HOST
+
+    def frame(value: dict[str, Any]) -> bytes:
+        body = json.dumps(value).encode("utf-8")
+        return struct.pack(">I", len(body)) + body
+
+    class ScriptedPipe:
+        def __init__(self) -> None:
+            self.responses = io.BytesIO(
+                frame({"type": "hello", "protocol_version": 2, "capabilities": []})
+                + frame(
+                    {
+                        "type": "session_opened",
+                        "session_id": "transition",
+                        "window_capability": "window:opaque",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
+                    }
+                )
+                + frame(
+                    {
+                        "type": "action_completed",
+                        "success": True,
+                        "target_closed": True,
+                        "policy_tier": "task_grant",
+                        "message": "completed; the exact target window closed",
+                    }
+                )
+            )
+            self.requests = bytearray()
+            self.closed = False
+
+        def read(self, length: int) -> bytes:
+            return self.responses.read(length)
+
+        def write(self, data: bytes) -> int:
+            self.requests.extend(data)
+            return len(data)
+
+        def close(self) -> None:
+            self.closed = True
+
+    stream = ScriptedPipe()
+    client = client_module.UiControlHostClient(
+        session_id="transition",
+        task_grant_id="grant",
+        dcc_type="unity",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        stream=stream,
+    )
+    client._latest_observation_id = "obs-1"
+    client._latest_accessibility_state_id = "accessibility:1"
+
+    response = client.execute({"action": "click"})
+
+    assert response["target_closed"] is True
+    assert client._window_capability is None
+    assert stream.closed is True
+    with pytest.raises(client_module.UiControlHostError, match="session is closed"):
+        client.window_state()
 
 
 def test_ui_control_system_operation_uses_only_operator_grant_and_redacts_result(monkeypatch: Any) -> None:

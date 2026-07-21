@@ -1031,6 +1031,7 @@ fn keypress(
     let _focus_elevation = focus_target(window_handle, process_id)?;
     guard.check()?;
     run_pre_input_fence(pre_input_fence)?;
+    ensure_target_foreground(window_handle, process_id)?;
     send_inputs(&inputs)?;
     guard.check()
 }
