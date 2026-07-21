@@ -148,9 +148,8 @@ the host, and invalidate any older observation. Take a fresh snapshot after
 the window becomes visible, non-minimized, and foreground.
 
 The visible corner brackets, control capsule, and pointer effects belong to the adapter
-host's interactive Windows logon session. If the user presses `Ctrl+Alt+Esc`
-and the tool returns `user_interrupted`, stop immediately. Ordinary `Esc`
-remains available to the target application. Do not retry, change
+host's interactive Windows logon session. The user stops control by pressing `Esc`
+and the tool returns `user_interrupted`; stop immediately. Do not retry, change
 `session_id`, or start another session. Set `resume_computer_use=true` only
 after the user explicitly asks to resume. The flag cannot approve resumption:
 the isolated host always presents its own trusted confirmation before clearing

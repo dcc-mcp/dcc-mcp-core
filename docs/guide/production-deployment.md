@@ -81,7 +81,7 @@ second restart runs the new server, verifies the sibling host against the
 same-version manifest SHA, and installs a missing or stale host before UI
 Control is used. Later paired updates return to one restart. UI Control wire
 protocol v2 uses a new pipe/singleton, while the version-neutral global input
-owner and Ctrl+Alt+Esc stop latch remain shared across the transition.
+owner and Esc stop latch remain shared across the transition.
 
 ### Install Location
 

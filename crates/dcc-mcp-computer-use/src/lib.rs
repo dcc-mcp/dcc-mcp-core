@@ -1,7 +1,7 @@
 //! Scoped native computer-use sessions for one DCC application window.
 //!
 //! The crate owns OS input injection, foreground validation, a visible control
-//! banner, and the Ctrl+Alt+Esc stop token. Screenshot encoding remains in
+//! banner, and the Esc stop token. Screenshot encoding remains in
 //! `dcc-mcp-capture`; UI semantics remain in `dcc-mcp-ui-control`.
 
 mod drag_path;
@@ -170,7 +170,7 @@ pub enum ComputerUseErrorCode {
     InvalidTarget,
     /// A new screenshot is required before the action.
     StaleObservation,
-    /// The user pressed Ctrl+Alt+Esc while UI Control was active.
+    /// The user pressed Esc while UI Control was active.
     UserInterrupted,
     /// The target could not be made the foreground window.
     FocusLost,
@@ -458,7 +458,7 @@ impl ComputerUseSession {
         })
     }
 
-    /// Start the visible session banner and Ctrl+Alt+Esc watcher.
+    /// Start the visible session banner and Esc watcher.
     pub fn start(&self) -> ComputerUseResult<Value> {
         let _dpi_awareness = platform::ThreadDpiAwareness::enter()?;
         let mut state = self.lock_state();
@@ -795,7 +795,7 @@ impl ComputerUseSession {
             "process_id": state.target.as_ref().map(|target| target.pid),
             "window_title": state.target.as_ref().map(|target| target.title.clone()),
             "hint": format!(
-                "DCC UI Control is controlling {} - press Ctrl+Alt+Esc to stop",
+                "DCC UI Control is controlling {} - press Esc to stop",
                 self.spec.app_name
             ),
         })
@@ -831,7 +831,7 @@ impl ComputerUseSession {
         if state.interrupted.load(Ordering::Acquire) || platform::user_interrupted() {
             return Err(ComputerUseError::new(
                 ComputerUseErrorCode::UserInterrupted,
-                "the user pressed Ctrl+Alt+Esc; no further input was sent",
+                "the user pressed Esc; no further input was sent",
             ));
         }
         if self.stop_requested.load(Ordering::Acquire) {
@@ -934,7 +934,7 @@ fn check_action_cancellation(stop_requested: &AtomicBool) -> ComputerUseResult<(
     if platform::user_interrupted() {
         return Err(ComputerUseError::new(
             ComputerUseErrorCode::UserInterrupted,
-            "the user pressed Ctrl+Alt+Esc; input was stopped and held keys/buttons were released",
+            "the user pressed Esc; input was stopped and held keys/buttons were released",
         ));
     }
     if stop_requested.load(Ordering::Acquire) {

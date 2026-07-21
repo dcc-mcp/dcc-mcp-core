@@ -727,7 +727,7 @@ impl ConfirmationSurface for WindowsConfirmationSurface {
             ),
             ConfirmationKind::ResumeAfterStop => (
                 "Resume DCC UI Control?",
-                "The global Ctrl+Alt+Esc stop latch will be cleared for this Windows session.",
+                "The global Esc stop latch will be cleared for this Windows session.",
             ),
         };
         let action_name = match kind {

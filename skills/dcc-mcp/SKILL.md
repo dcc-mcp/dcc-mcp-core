@@ -206,7 +206,7 @@ Native pointer or keyboard fallback requires one exact `process_id` or
 `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; request
 scope can only narrow that trusted target. Title-only and process-name scopes
 are observation-only.
-If the user presses Ctrl+Alt+Esc and the tool returns `user_interrupted`, stop without
+If the user presses Esc and the tool returns `user_interrupted`, stop without
 retrying, changing `session_id`, or starting a new session. Only call
 `ui_control__snapshot(resume_computer_use=true)` after the user explicitly asks to
 resume DCC UI Control.

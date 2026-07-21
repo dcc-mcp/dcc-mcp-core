@@ -85,7 +85,7 @@ does not replace a running server binary.
      Keep `ui_control__snapshot` and `ui_control__act` in the same long-lived adapter
      process so one thin named-pipe client retains the opaque host capability.
      The per-logon-session host owns the screenshot/UIA observations, visible
-     banner, Ctrl+Alt+Esc stop token, input owner, confirmation, and native input.
+     banner, Esc stop token, input owner, confirmation, and native input.
      `ui-control` declares `requires_in_process: true` while keeping
      `affinity: any`; register `HostExecutionBridge` before skill loading.
      Never weaken this into per-call subprocess execution or route it onto a
@@ -107,7 +107,7 @@ does not replace a running server binary.
       the adapter's own DCC target; request scope may only narrow that trusted
       PID/HWND. Require a visible unlocked desktop and matching Windows
       integrity level, preserve the click-through border/banner/pointer feedback, and preserve
-      `user_interrupted` without automatic retry, `session_id` changes, or fallback. Once Ctrl+Alt+Esc stops an
+      `user_interrupted` without automatic retry, `session_id` changes, or fallback. Once Esc stops an
       session, only `ui_control__snapshot(resume_computer_use=true)` may request a
       resume, and the isolated host must still obtain trusted user confirmation
       before clearing the latch. Always call `ui_control__stop_computer_use` when

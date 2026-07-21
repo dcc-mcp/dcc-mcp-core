@@ -510,9 +510,9 @@ tools:
 
 ### Scoped Computer Use (`dcc_mcp_core`, Windows)
 
-- `ComputerUseSession(process_id=None, window_handle=None, window_title=None, app_name=None)` — persistent exact-window native input session with visible border/banner, pointer effects, and a Ctrl+Alt+Esc stop latch shared across DCC adapter processes in the Windows logon session
+- `ComputerUseSession(process_id=None, window_handle=None, window_title=None, app_name=None)` — persistent exact-window native input session with visible border/banner, pointer effects, and a Esc stop latch shared across DCC adapter processes in the Windows logon session
 - `.start() -> str`, `.screenshot() -> tuple[str, bytes|None]`, `.act(request_json) -> str`, `.status() -> str`, `.stop() -> str`
-- `.resume_after_user_approval() -> str` clears the Ctrl+Alt+Esc latch only after an explicit user instruction and only when the named input owner is idle; the historically named `ComputerUseSession.process_user_interrupted() -> bool` inspects the shared Windows logon-session latch
+- `.resume_after_user_approval() -> str` clears the Esc latch only after an explicit user instruction and only when the named input owner is idle; the historically named `ComputerUseSession.process_user_interrupted() -> bool` inspects the shared Windows logon-session latch
 - `UiPoint(x, y)` and `UiActionRequest(..., path=[UiPoint(...)])` use coordinates relative to the latest (possibly scaled) screenshot
 - Prefer bundled `ui-control`: structured DCC tool first, then semantic UIA, then one screenshot-coordinate action. `ui-control` requires a persistent in-process executor and must end with `ui_control__stop_computer_use`.
 - Windows lock, disconnect, or secure desktop returns `desktop_unavailable` before UIA/raw input. Keep the logical session; structured DCC/MCP work may continue subject to host readiness. Never automate LockApp. After unlock, discard old ids and take a fresh snapshot so the banner returns.
