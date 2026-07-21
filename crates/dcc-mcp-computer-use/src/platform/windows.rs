@@ -92,9 +92,8 @@ const USER_INTERRUPT_EVENT_NAME: &str = "Local\\DccMcpComputerUseUserInterrupted
 #[cfg(test)]
 const TEST_ISOLATION_MUTEX_NAME: &str = "Local\\DccMcpComputerUseTestIsolation-v1";
 const HOTKEY_ID: i32 = 0x4443;
-const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
-const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
-    HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
+const STOP_HOTKEY_LABEL: &str = "Esc";
+const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS = HOT_KEY_MODIFIERS(0);
 const CORNER_GLOW_THICKNESS: i32 = 42;
 const CORNER_MID_THICKNESS: i32 = 28;
 const CORNER_ACCENT_THICKNESS: i32 = 12;

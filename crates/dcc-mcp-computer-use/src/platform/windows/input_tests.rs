@@ -2,10 +2,10 @@ use super::*;
 
 #[test]
 fn active_ui_control_reserves_ctrl_alt_escape_as_the_stop_key() {
-    assert_eq!(STOP_HOTKEY_LABEL, "Ctrl+Alt+Esc");
+    assert_eq!(STOP_HOTKEY_LABEL, "Esc");
     assert_eq!(
         STOP_HOTKEY_MODIFIERS.0,
-        MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0
+        0
     );
 }
 
