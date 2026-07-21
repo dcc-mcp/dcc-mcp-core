@@ -115,15 +115,19 @@ pub(crate) type ControlBannerStartResult = Result<JoinHandle<()>, ControlBannerS
 /// Session-level signals that `perform_action` reads during execution.
 /// Grouped to stay under clippy's `too_many_arguments` limit.
 ///
-/// Fields are read on Windows when a real DCC host is attached;
-/// on Linux the `perform_action` stub never dereferences them,
-/// so allow dead_code to keep the API consistent across platforms.
-#[allow(dead_code)]
+/// On Windows these fields are read by `ActionGuard` inside `perform_action`;
+/// on non-Windows the struct is a ZST because `perform_action` is a stub
+/// that immediately returns `BackendUnavailable`.
+#[cfg(windows)]
 pub(crate) struct ActionSessionState {
     pub(crate) stop_requested: Arc<AtomicBool>,
     pub(crate) desktop_state: Arc<AtomicU64>,
     pub(crate) desktop_barrier: Arc<DesktopEventBarrier>,
 }
+
+/// Non-Windows stub: `ActionSessionState` is a ZST.
+#[cfg(not(windows))]
+pub(crate) struct ActionSessionState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg(windows)]

@@ -640,8 +640,11 @@ impl ComputerUseSession {
             &observation,
             request,
             &platform::ActionSessionState {
+                #[cfg(windows)]
                 stop_requested: self.stop_requested.clone(),
+                #[cfg(windows)]
                 desktop_state: state.desktop_state.clone(),
+                #[cfg(windows)]
                 desktop_barrier: state.desktop_barrier.clone(),
             },
             pre_input_fence,
