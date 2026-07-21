@@ -1,0 +1,33 @@
+name: npm ci with retry
+description: Install locked npm dependencies with bounded retries.
+
+inputs:
+  working-directory:
+    description: Directory containing package-lock.json.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install locked dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NPM_CONFIG_FETCH_RETRIES: "3"
+        NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "20000"
+        NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "120000"
+      run: |
+        for attempt in 1 2 3; do
+          if npm ci --prefer-offline --no-audit; then
+            exit 0
+          fi
+
+          if [[ "$attempt" -eq 3 ]]; then
+            echo "::error::npm ci failed after ${attempt} attempts"
+            exit 1
+          fi
+
+          delay=$((attempt * 15))
+          echo "::warning::npm ci attempt ${attempt} failed; retrying in ${delay}s"
+          sleep "$delay"
+        done

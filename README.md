@@ -86,9 +86,9 @@ Add `--global` to each command when every local OpenClaw agent should see the
 suite. Other ClawHub-compatible workspaces can use the registry CLI directly:
 
 ~~~bash
-npx --yes clawhub@0.17.0 install dcc-mcp
-npx --yes clawhub@0.17.0 install dcc-mcp-skills-creator
-npx --yes clawhub@0.17.0 install dcc-mcp-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
 ~~~
 
 | Skill | Agent role |
@@ -98,9 +98,13 @@ npx --yes clawhub@0.17.0 install dcc-mcp-creator
 | [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | Create or modernize a complete DCC adapter and its runtime wiring |
 
 All three packages carry Codex `agents/openai.yaml` metadata while preserving
-their DCC-MCP and ClawHub contracts. They are versioned with the core release,
-listed in [`.github/clawhub-skills.json`](.github/clawhub-skills.json), and
-published to ClawHub by the release workflow.
+their DCC-MCP and ClawHub contracts. Their immutable ClawHub releases are
+versioned independently in
+[`.github/clawhub-skills.json`](.github/clawhub-skills.json), so Skill updates
+do not collide with an already-published core version. The sync workflow
+publishes the manifest versions and verifies their packaged files. Bump both
+the manifest entry and the matching `SKILL.md` metadata version for every new
+immutable Skill release.
 
 Keep an official build current through the release manifest:
 

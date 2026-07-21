@@ -13,7 +13,7 @@ import dcc_mcp_core
 
 DCC_MCP_SKILL_DIR = str(REPO_ROOT / "skills" / "dcc-mcp")
 CHECK_SCRIPT = Path(DCC_MCP_SKILL_DIR) / "scripts" / "check_cli.py"
-RELEASE_MANIFEST = REPO_ROOT / ".release-please-manifest.json"
+CLAWHUB_MANIFEST = REPO_ROOT / ".github" / "clawhub-skills.json"
 
 sys.path.insert(0, str(CHECK_SCRIPT.parent))
 import check_cli as check_cli_mod  # noqa: E402
@@ -30,8 +30,9 @@ class TestDccMcpSkill:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None
         assert meta.name == "dcc-mcp"
-        release_version = json.loads(RELEASE_MANIFEST.read_text(encoding="utf-8"))["."]
-        assert meta.version == release_version
+        entries = json.loads(CLAWHUB_MANIFEST.read_text(encoding="utf-8"))
+        manifest_version = next(entry["version"] for entry in entries if entry["slug"] == "dcc-mcp")
+        assert meta.version == manifest_version
 
     def test_validate_skill_clean(self) -> None:
         report = dcc_mcp_core.validate_skill(DCC_MCP_SKILL_DIR)

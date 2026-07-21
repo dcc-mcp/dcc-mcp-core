@@ -591,15 +591,6 @@ jobs:
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
       release-tag-name: ${{ needs.release-please.outputs.tag_name }}
 
-  publish-clawhub-skills:
-    needs: [release-please]
-    if: needs.release-please.outputs.release_created == 'true'
-    uses: ./.github/workflows/clawhub.yml
-    with:
-      checkout-ref: ${{ needs.release-please.outputs.tag_name }}
-      publish: true
-    secrets: inherit
-
   # ── Validate release metadata once before publishing artefacts ──
   validate-release-version:
     needs: [release-please]

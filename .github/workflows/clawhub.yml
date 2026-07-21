@@ -15,7 +15,7 @@ on:
         default: false
     secrets:
       CLAWHUB_TOKEN:
-        required: true
+        required: false
   pull_request:
     branches:
       - main
@@ -52,7 +52,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CLAWHUB_CLI_PACKAGE: clawhub@0.17.0
+  CLAWHUB_CLI_PACKAGE: clawhub@0.23.1
   CLAWHUB_CONFIG_PATH: .clawhub/config.json
   CLAWHUB_DISABLE_TELEMETRY: "1"
 
@@ -71,28 +71,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Remove pre-installed Rust component shims
+        run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install dcc-mcp-core (for validate_skill / parse_skill_md)
         run: pip install -e .
 
       - name: Package ClawHub skill archives
-        env:
-          CLAWHUB_SKILLS_MANIFEST: .github/clawhub-skills.json
-        run: |
-          mkdir -p dist/skills
-          python - <<'PY'
-          import json
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          manifest = json.loads(Path(os.environ["CLAWHUB_SKILLS_MANIFEST"]).read_text(encoding="utf-8"))
-          for entry in manifest:
-              subprocess.run(
-                  [sys.executable, "scripts/package_openclaw_skill.py", entry["path"], "dist/skills"],
-                  check=True,
-              )
-          PY
+        run: python scripts/package_openclaw_skill.py .github/clawhub-skills.json dist/skills --manifest
 
       - name: Upload packaged skill artifacts
         uses: actions/upload-artifact@v4
@@ -125,7 +114,7 @@ jobs:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           mkdir -p "$(dirname "$CLAWHUB_CONFIG_PATH")"
-          npx "$CLAWHUB_CLI_PACKAGE" login --token "$CLAWHUB_TOKEN" --no-browser --no-input
+          npx "$CLAWHUB_CLI_PACKAGE" --no-input login --token "$CLAWHUB_TOKEN" --no-browser
 
       - name: Dry-run ClawHub publish
         if: >-
