@@ -83,7 +83,7 @@ Windows `keypress` 同样拒绝普通可打印字符、Shift 修饰文本和 Alt
 4. 操作后立即重新调用 `ui_control__snapshot`。绝不复用旧截图中的坐标、控件 ID 或 observation ID。
 5. 每次只执行一个操作并重复观察；无论成功、失败、取消还是放弃，都必须调用 `ui_control__stop_computer_use`。
 
-可见角标、底部胶囊和鼠标效果属于适配器宿主的交互式 Windows 登录会话。如果用户按下 `Ctrl+Alt+Esc` 并收到 `user_interrupted`，请立即停止；普通 `Esc` 仍交给目标应用。不要重试、改变 `session_id` 或启动新会话。只有用户明确要求恢复后，才能设置 `resume_computer_use=true`。
+可见角标、底部胶囊和鼠标效果属于适配器宿主的交互式 Windows 登录会话。用户按下 `Esc` 即可停止控制，工具返回 `user_interrupted`；请立即停止。不要重试、改变 `session_id` 或启动新会话。只有用户明确要求恢复后，才能设置 `resume_computer_use=true`。
 
 ### 锁屏、RDP 与显示变化
 

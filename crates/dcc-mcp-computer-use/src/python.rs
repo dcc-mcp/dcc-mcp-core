@@ -70,7 +70,7 @@ impl PyComputerUseSession {
         Ok(Self { inner })
     }
 
-    /// Return whether Ctrl+Alt+Esc stopped Computer Use in this Windows logon session.
+    /// Return whether Esc stopped Computer Use in this Windows logon session.
     #[staticmethod]
     fn process_user_interrupted() -> bool {
         crate::platform::user_interrupted()
@@ -82,7 +82,7 @@ impl PyComputerUseSession {
         crate::platform::desktop_interactive()
     }
 
-    /// Start the visible banner and reserve Ctrl+Alt+Esc for the stop action.
+    /// Start the visible banner and reserve Esc for the stop action.
     fn start(&self) -> String {
         let result = Python::attach(|py| py.detach(|| self.inner.start()));
         match result {

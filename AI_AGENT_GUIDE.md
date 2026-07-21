@@ -101,8 +101,7 @@ replacement, alternate-hive, or elevation form. Treat `elevation_required`,
 
 Never automate the whole desktop or reuse coordinates from an older snapshot.
 The Windows session shows a click-through target border, control banner, and
-pointer-action markers. The user stops control with `Ctrl+Alt+Esc`; ordinary
-`Esc` remains available to the target application.
+pointer-action markers. The user stops control by pressing `Esc`.
 After `user_interrupted`, stop and do not retry, change `session_id`, or
 automatically restart; the stop is latched across DCC adapter processes in the
 same Windows logon session.
