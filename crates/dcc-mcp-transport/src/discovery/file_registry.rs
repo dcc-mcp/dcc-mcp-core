@@ -12,26 +12,14 @@ use std::time::{Duration, Instant, SystemTime};
 
 use dashmap::DashMap;
 use fs4::{FileExt, TryLockError};
-use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing;
 use uuid::Uuid;
 
+use super::liveness::{is_pid_alive, legacy_sidecar_host_pid};
 use super::types::{
     GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
 };
 use crate::error::{TransportError, TransportResult};
-
-/// Return `true` when `pid` refers to a currently running OS process.
-///
-/// Used by [`FileRegistry::prune_dead_pids`] to detect ghost entries left behind
-/// when a DCC plugin crashes after registering but before the heartbeat loop
-/// starts. See issue #227.
-fn is_pid_alive(pid: u32) -> bool {
-    let sp = Pid::from_u32(pid);
-    let mut sys = System::new();
-    sys.refresh_processes(ProcessesToUpdate::Some(&[sp]), true);
-    sys.process(sp).is_some()
-}
 
 /// File name for the registry JSON.
 const REGISTRY_FILE: &str = "services.json";
@@ -42,32 +30,8 @@ const REGISTRY_LOCK_BACKOFF_ENV: &str = "DCC_MCP_REGISTRY_LOCK_BACKOFF_MS";
 const DEFAULT_REGISTRY_LOCK_TIMEOUT_MS: u64 = 2_000;
 const DEFAULT_REGISTRY_LOCK_BACKOFF_MS: u64 = 10;
 const REGISTRY_LOCK_SLOW_WARN_MS: u64 = 250;
-const ROLE_METADATA_KEY: &str = "dcc_mcp_role";
-const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
-const SIDECAR_PID_METADATA_KEY: &str = "sidecar_pid";
 
 type EntryMap = HashMap<ServiceKey, ServiceEntry>;
-
-/// Recover the bound DCC PID from pre-`host_pid` sidecar rows.
-///
-/// Those rows stored the watched DCC in `pid`, while the actual registry owner
-/// appeared in `metadata.sidecar_pid` and held the sentinel lock. Restrict the
-/// inference to the explicit sidecar role and unequal, valid PIDs so ordinary
-/// legacy services keep their sentinel-first owner semantics.
-fn legacy_sidecar_host_pid(entry: &ServiceEntry) -> Option<u32> {
-    if entry.host_pid.is_some()
-        || entry.metadata.get(ROLE_METADATA_KEY).map(String::as_str) != Some(ROLE_PER_DCC_SIDECAR)
-    {
-        return None;
-    }
-    let watched_pid = entry.pid?;
-    let sidecar_pid = entry
-        .metadata
-        .get(SIDECAR_PID_METADATA_KEY)?
-        .parse::<u32>()
-        .ok()?;
-    (watched_pid != sidecar_pid).then_some(watched_pid)
-}
 
 fn env_duration_ms(name: &str, default_ms: u64) -> Duration {
     let ms = std::env::var(name)
