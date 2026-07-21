@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,8 +33,22 @@ def _required_args(tmp_path: Path) -> list[str]:
     ]
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="_validate_target requires Windows")
+def test_validate_target_rejects_non_windows_before_loading_user32(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ui_control_server.sys, "platform", "linux")
+    monkeypatch.setattr(
+        ui_control_server.ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: pytest.fail("WinDLL must not load on non-Windows"),
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="requires Windows"):
+        ui_control_server._validate_target(42, 84)
+
+
 def test_validate_target_requires_live_window_owned_by_exact_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ui_control_server.sys, "platform", "win32")
+
     class User32:
         @staticmethod
         def IsWindow(_hwnd):
