@@ -785,10 +785,20 @@ class TestInProcessExecutor:
                     queued = json.loads(response.read().decode("utf-8"))
                 job_id = queued["output"]["job_id"]
 
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline and not started_path.exists():
-                time.sleep(0.01)
-            assert started_path.read_text(encoding="utf-8") == job_id
+            def wait_for_job_marker(path: Path) -> None:
+                deadline = time.monotonic() + 5.0
+                observed = None
+                while time.monotonic() < deadline:
+                    try:
+                        observed = path.read_text(encoding="utf-8")
+                    except OSError:
+                        observed = None
+                    if observed == job_id:
+                        return
+                    time.sleep(0.01)
+                pytest.fail(f"job marker {path} did not contain {job_id!r}; observed {observed!r}")
+
+            wait_for_job_marker(started_path)
 
             cancel_url = f"{url.rsplit('/mcp', 1)[0]}/v1/jobs/{job_id}"
             request = urllib.request.Request(cancel_url, method="DELETE")
@@ -810,13 +820,13 @@ class TestInProcessExecutor:
                     }
                 )
                 final = poll["result"]["structuredContent"]
-                if final["status"] == "cancelled" and stopped_path.exists():
+                if final["status"] == "cancelled":
                     break
                 time.sleep(0.01)
 
             assert final is not None
             assert final["status"] == "cancelled"
-            assert stopped_path.read_text(encoding="utf-8") == job_id
+            wait_for_job_marker(stopped_path)
         finally:
             handle.shutdown()
             bridge.shutdown_script_execution()
