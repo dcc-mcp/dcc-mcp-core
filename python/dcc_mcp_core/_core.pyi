@@ -2232,10 +2232,14 @@ class ServiceEntry:
     @property
     def pid(self) -> typing.Optional[builtins.int]:
         r"""
-        OS process ID of the DCC process.
+        OS process ID of the registered service owner.
 
-        Useful for disambiguating two instances of the same DCC type
-        that have the same scene open.
+        For sidecars this differs from `host_pid`, which identifies the DCC.
+        """
+    @property
+    def host_pid(self) -> typing.Optional[builtins.int]:
+        r"""
+        Optional PID of an external DCC host that bounds this service lifetime.
         """
     @property
     def display_name(self) -> typing.Optional[builtins.str]:
