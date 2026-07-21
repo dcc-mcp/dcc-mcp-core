@@ -357,7 +357,7 @@ struct SessionState {
     target_available: Arc<AtomicBool>,
     cleanup_pending: Arc<AtomicBool>,
     overlay_thread: Option<JoinHandle<()>>,
-    last_action_point: Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
+    last_action_point: platform::LastActionPoint,
 }
 
 impl Default for SessionState {
@@ -639,9 +639,11 @@ impl ComputerUseSession {
             target.handle,
             &observation,
             request,
-            &self.stop_requested,
-            &state.desktop_state,
-            &state.desktop_barrier,
+            &platform::ActionSessionState {
+                stop_requested: self.stop_requested.clone(),
+                desktop_state: state.desktop_state.clone(),
+                desktop_barrier: state.desktop_barrier.clone(),
+            },
             pre_input_fence,
             &state.last_action_point,
         );

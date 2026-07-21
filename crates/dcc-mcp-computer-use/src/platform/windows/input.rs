@@ -1,4 +1,5 @@
 use super::*;
+use crate::platform::{ActionSessionState, LastActionPoint};
 
 mod send_input;
 
@@ -57,11 +58,9 @@ pub(crate) fn perform_action(
     window_handle: u64,
     observation: &ComputerUseObservation,
     request: &ComputerUseAction,
-    stop_requested: &Arc<AtomicBool>,
-    desktop_state: &Arc<AtomicU64>,
-    desktop_barrier: &Arc<DesktopEventBarrier>,
+    session: &ActionSessionState,
     mut pre_input_fence: Option<&mut PreInputFence<'_>>,
-    last_action_point: &Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
+    last_action_point: &LastActionPoint,
 ) -> ComputerUseResult<()> {
     if matches!(
         request.action.as_str(),
@@ -78,9 +77,9 @@ pub(crate) fn perform_action(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     flush_pending_input_releases_locked()?;
     let guard = ActionGuard::new(
-        stop_requested,
-        desktop_state,
-        desktop_barrier,
+        &session.stop_requested,
+        &session.desktop_state,
+        &session.desktop_barrier,
         observation.desktop_generation,
     );
     guard.synchronize()?;
