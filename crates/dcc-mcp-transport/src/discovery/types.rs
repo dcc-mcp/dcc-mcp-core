@@ -249,12 +249,21 @@ pub struct ServiceEntry {
     /// The active document is also reflected in `scene`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub documents: Vec<String>,
-    /// OS process ID of the DCC process.
+    /// OS process ID of the registered service owner.
     ///
-    /// Used to disambiguate two instances of the same DCC type that have the
-    /// same scene open (e.g. two Maya sessions reviewing the same asset).
+    /// For embedded adapters this is also the DCC process. For sidecars it is
+    /// the sidecar process; use `host_pid` for the separately watched DCC host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    /// Optional OS process ID of an external DCC host this service is bound to.
+    ///
+    /// `pid` and the sentinel identify the registered service owner. A sidecar
+    /// or out-of-process adapter sets `host_pid` when its row must disappear as
+    /// soon as the DCC host exits, even if the service process is still alive.
+    /// Standalone services leave this unset and are governed only by their own
+    /// sentinel/PID and heartbeat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
     /// OS-held sentinel lock file for crash-resilient liveness checks.
     ///
     /// The owning process holds an exclusive lock while registered. Readers can
@@ -318,8 +327,8 @@ impl ServiceEntry {
     /// `pid` is auto-populated with [`std::process::id()`] so the registry can
     /// reap ghost entries when the owning process crashes (see
     /// [`FileRegistry::prune_dead_pids`](super::file_registry::FileRegistry::prune_dead_pids)).
-    /// Override via [`ServiceEntry::with_pid`] when registering on behalf of
-    /// another process (bridge scenarios).
+    /// Override via [`ServiceEntry::with_pid`] only when the registry owner PID
+    /// cannot be inferred from the current process.
     pub fn new(dcc_type: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
         let now = SystemTime::now();
         Self {
@@ -334,6 +343,7 @@ impl ServiceEntry {
             scene: None,
             documents: Vec::new(),
             pid: Some(std::process::id()),
+            host_pid: None,
             sentinel_path: None,
             display_name: None,
             metadata: HashMap::new(),
@@ -371,6 +381,7 @@ impl ServiceEntry {
             scene: None,
             documents: Vec::new(),
             pid: Some(std::process::id()),
+            host_pid: None,
             sentinel_path: None,
             display_name: None,
             metadata: HashMap::new(),
@@ -385,9 +396,18 @@ impl ServiceEntry {
         }
     }
 
-    /// Override the owning process PID (useful when registering on behalf of a bridge).
+    /// Override the registered service owner's PID.
     pub fn with_pid(mut self, pid: u32) -> Self {
         self.pid = Some(pid);
+        self
+    }
+
+    /// Bind this service row to an external DCC host process.
+    ///
+    /// The registry requires both the service owner and this host process to
+    /// remain alive. Do not set this for standalone/headless services.
+    pub fn with_host_pid(mut self, host_pid: u32) -> Self {
+        self.host_pid = Some(host_pid);
         self
     }
 
@@ -597,6 +617,13 @@ mod tests {
     fn test_service_entry_with_pid_override() {
         let entry = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(42);
         assert_eq!(entry.pid, Some(42));
+    }
+
+    #[test]
+    fn test_service_entry_with_external_host_pid() {
+        let entry = ServiceEntry::new("unreal", "127.0.0.1", 18812).with_host_pid(42);
+        assert_eq!(entry.pid, Some(std::process::id()));
+        assert_eq!(entry.host_pid, Some(42));
     }
 
     // Issue maya#137: adapter_version and adapter_dcc must round-trip

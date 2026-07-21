@@ -1,14 +1,14 @@
-//! Pure gateway capability search: wire types, ranking, and pagination.
+//! Pure reusable DCC-MCP search: wire types, ranking, and pagination.
 //!
 //! This crate has **no** dependency on `dcc-mcp-gateway` or HTTP stacks — only
 //! `serde`, `uuid`, and `nucleo-matcher`.  Implement [`SearchRecord`] on your
-//! compact index row type (for example in `dcc-mcp-gateway-core`) and call
-//! [`search_page`].
+//! compact capability or catalog row type and call [`search_page`] or
+//! [`rank_all`].
 //!
 //! Dependency direction:
 //!
 //! ```text
-//! dcc-mcp-gateway / dcc-mcp-gateway-core  →  dcc-mcp-gateway-search
+//! dcc-mcp-gateway-core / dcc-mcp-catalog  →  dcc-mcp-gateway-search
 //! ```
 
 #![forbid(unsafe_code)]
@@ -18,7 +18,7 @@ mod query;
 mod ranking;
 mod record;
 
-pub use engine::{search, search_page};
+pub use engine::{rank_all, search, search_page};
 pub use query::{
     DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,
 };

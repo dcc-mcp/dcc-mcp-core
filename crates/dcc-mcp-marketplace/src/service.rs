@@ -1,7 +1,7 @@
 //! Shared [`MarketplaceService`] — catalog fetch, install/uninstall, source
 //! management, installed state persistence, and integrity verification.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -160,28 +160,36 @@ impl MarketplaceService {
     ) -> Result<MarketplaceSearchResult, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
         let mut hits = Vec::new();
+        let mut seen = HashSet::new();
         for source in sources {
             let entries = self
                 .load_source_entries_validated(&source, !skip_validation)
                 .await?;
-            let matched = dcc_mcp_catalog::search(&entries, query.as_deref().unwrap_or(""));
-            for entry in matched {
+            for entry in entries {
                 if let Some(dcc) = dcc.as_deref()
                     && !entry_targets_dcc(&entry, dcc)
                 {
                     continue;
                 }
-                hits.push(MarketplaceHit {
-                    source: source.clone(),
-                    entry,
-                });
-                if limit.is_some_and(|limit| hits.len() >= limit) {
-                    break;
+                if seen.insert(entry.name.clone()) {
+                    hits.push(MarketplaceHit {
+                        source: source.clone(),
+                        entry,
+                    });
                 }
             }
-            if limit.is_some_and(|limit| hits.len() >= limit) {
-                break;
-            }
+        }
+
+        if let Some(query) = query.as_deref().filter(|query| !query.trim().is_empty()) {
+            let entries = hits.iter().map(|hit| hit.entry.clone()).collect::<Vec<_>>();
+            let ranked = dcc_mcp_catalog::search_hits(&entries, query);
+            hits = ranked
+                .into_iter()
+                .map(|ranked_hit| hits[ranked_hit.index].clone())
+                .collect();
+        }
+        if let Some(limit) = limit {
+            hits.truncate(limit);
         }
         Ok(MarketplaceSearchResult {
             query,

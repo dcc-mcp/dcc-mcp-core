@@ -17,6 +17,67 @@ fn dcc_types_contract_accepts_a_custom_catalog() {
 }
 
 #[test]
+fn search_contract_accepts_unquoted_positional_query_words() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "search",
+        "create",
+        "sphere",
+        "--dcc-type",
+        "maya",
+    ])
+    .expect("parse positional search query");
+
+    let Command::Search {
+        query,
+        query_terms,
+        dcc_type,
+        ..
+    } = args.command
+    else {
+        panic!("expected search command");
+    };
+    assert!(query.is_none());
+    assert_eq!(
+        resolve_query(query, query_terms).as_deref(),
+        Some("create sphere")
+    );
+    assert_eq!(dcc_type.as_deref(), Some("maya"));
+}
+
+#[test]
+fn marketplace_search_contract_accepts_positional_query_and_dcc_type_alias() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "marketplace",
+        "search",
+        "maya",
+        "rigging",
+        "--dcc-type",
+        "maya",
+    ])
+    .expect("parse positional marketplace query");
+
+    let Command::Marketplace {
+        action:
+            MarketplaceAction::Search {
+                query,
+                query_terms,
+                dcc,
+                ..
+            },
+    } = args.command
+    else {
+        panic!("expected marketplace search command");
+    };
+    assert_eq!(
+        resolve_query(query, query_terms).as_deref(),
+        Some("maya rigging")
+    );
+    assert_eq!(dcc.as_deref(), Some("maya"));
+}
+
+#[test]
 fn stats_contract_parses_composable_runtime_filters() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
@@ -496,6 +557,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
             DEFAULT_BASE_URL,
             &Command::Search {
                 query: Some("sphere".to_string()),
+                query_terms: Vec::new(),
                 dcc_type: None,
                 instance_id: None,
                 limit: None,
@@ -590,6 +652,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
             DEFAULT_BASE_URL,
             &Command::Search {
                 query: Some("sphere".to_string()),
+                query_terms: Vec::new(),
                 dcc_type: None,
                 instance_id: None,
                 limit: None,

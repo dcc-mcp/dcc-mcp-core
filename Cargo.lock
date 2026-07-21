@@ -1122,12 +1122,14 @@ dependencies = [
 name = "dcc-mcp-catalog"
 version = "0.19.63"
 dependencies = [
+ "dcc-mcp-gateway-search",
  "jsonschema",
  "serde",
  "serde_json",
  "serde_yaml_ng",
  "tempfile",
  "thiserror",
+ "uuid",
  "workspace-hack",
 ]
 

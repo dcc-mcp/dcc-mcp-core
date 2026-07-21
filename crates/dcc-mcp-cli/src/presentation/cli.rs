@@ -131,8 +131,12 @@ enum Command {
     },
     /// Search callable tools through local MCP or the selected gateway profile.
     Search {
-        #[arg(long)]
+        /// Query text. Positional words are also accepted, for example `search create sphere`.
+        #[arg(short, long, conflicts_with = "query_terms")]
         query: Option<String>,
+        /// Unquoted positional query words joined with spaces.
+        #[arg(value_name = "QUERY", num_args = 1.., conflicts_with = "query")]
+        query_terms: Vec<String>,
         #[arg(long)]
         dcc_type: Option<String>,
         /// Filter to a full instance UUID or unique >=4-character prefix.
@@ -338,9 +342,13 @@ enum MarketplaceAction {
     List,
     /// Search marketplace entries across configured sources.
     Search {
-        #[arg(long)]
+        /// Query text. Positional words are also accepted, for example `search maya rigging`.
+        #[arg(short, long, conflicts_with = "query_terms")]
         query: Option<String>,
-        #[arg(long)]
+        /// Unquoted positional query words joined with spaces.
+        #[arg(value_name = "QUERY", num_args = 1.., conflicts_with = "query")]
+        query_terms: Vec<String>,
+        #[arg(long, visible_alias = "dcc-type")]
         dcc: Option<String>,
         /// Use this source for the query instead of configured sources.
         #[arg(long = "source")]
@@ -673,12 +681,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
         Command::Search {
             query,
+            query_terms,
             dcc_type,
             instance_id,
             limit,
         } => {
             let request = SearchRequest {
-                query,
+                query: resolve_query(query, query_terms),
                 dcc_type,
                 instance_id,
                 limit,
@@ -859,13 +868,20 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 MarketplaceAction::List => to_json(service.list_sources()?)?,
                 MarketplaceAction::Search {
                     query,
+                    query_terms,
                     dcc,
                     sources,
                     limit,
                     skip_validation,
                 } => to_json(
                     service
-                        .search(query, dcc, sources, limit, skip_validation)
+                        .search(
+                            resolve_query(query, query_terms),
+                            dcc,
+                            sources,
+                            limit,
+                            skip_validation,
+                        )
                         .await?,
                 )?,
                 MarketplaceAction::Inspect {
@@ -1132,6 +1148,13 @@ impl From<GatewayStatusArgs> for gateway_ctrl::GatewayDaemonStatusRequest {
             registry_dir: args.registry_dir,
         }
     }
+}
+
+fn resolve_query(query: Option<String>, query_terms: Vec<String>) -> Option<String> {
+    query.or_else(|| {
+        let joined = query_terms.join(" ");
+        (!joined.is_empty()).then_some(joined)
+    })
 }
 
 fn parse_json_object(raw: &str, flag_name: &str) -> anyhow::Result<Value> {

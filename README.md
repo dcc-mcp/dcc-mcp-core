@@ -71,6 +71,37 @@ curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/i
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ~~~
 
+### Install the agent Skill suite
+
+Install the three public Skills directly from ClawHub; cloning this repository
+is not required:
+
+~~~bash
+openclaw skills install @loonghao/dcc-mcp
+openclaw skills install @loonghao/dcc-mcp-skills-creator
+openclaw skills install @loonghao/dcc-mcp-creator
+~~~
+
+Add `--global` to each command when every local OpenClaw agent should see the
+suite. Other ClawHub-compatible workspaces can use the registry CLI directly:
+
+~~~bash
+npx --yes clawhub@0.17.0 install dcc-mcp
+npx --yes clawhub@0.17.0 install dcc-mcp-skills-creator
+npx --yes clawhub@0.17.0 install dcc-mcp-creator
+~~~
+
+| Skill | Agent role |
+|---|---|
+| [`dcc-mcp`](skills/dcc-mcp/) | Default live DCC control and marketplace discovery; Skill-store requests begin with `dcc-mcp-cli marketplace search` |
+| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | Create, validate, package, and review DCC-MCP Skill packages |
+| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | Create or modernize a complete DCC adapter and its runtime wiring |
+
+All three packages carry Codex `agents/openai.yaml` metadata while preserving
+their DCC-MCP and ClawHub contracts. They are versioned with the core release,
+listed in [`.github/clawhub-skills.json`](.github/clawhub-skills.json), and
+published to ClawHub by the release workflow.
+
 Keep an official build current through the release manifest:
 
 ~~~bash
@@ -86,11 +117,14 @@ Then discover a live capability before calling it:
 ~~~bash
 dcc-mcp-cli dcc-types
 dcc-mcp-cli list
-dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
+dcc-mcp-cli search create sphere --dcc-type maya --limit 20
 dcc-mcp-cli describe <tool-slug>
 dcc-mcp-cli call <tool-slug> --json '{"radius": 2.0}' \
   --meta-json '{"agent_context":{"session_id":"task-42"}}'
 ~~~
+
+Search accepts unquoted positional words; `--query "create sphere"` remains
+available for existing scripts.
 
 `dcc-types` is an offline, catalog-backed capability query. It reports
 canonical adapter identifiers and install-plan availability; `list` remains

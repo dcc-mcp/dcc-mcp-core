@@ -3,6 +3,7 @@ r"""Publish listed skills to ClawHub (https://clawhub.ai/)."""
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,12 +12,18 @@ import subprocess
 import sys
 import time
 from typing import Any
+from urllib.error import HTTPError
+from urllib.parse import quote
+from urllib.parse import urlencode
+from urllib.request import Request
+from urllib.request import urlopen
 
 import dcc_mcp_core
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".github" / "clawhub-skills.json"
 DEFAULT_CLI = os.environ.get("CLAWHUB_CLI_PACKAGE", "clawhub@0.17.0")
+CLAWHUB_API_BASE = "https://clawhub.ai/api/v1"
 CLAWHUB_LICENSE = "MIT-0"
 MAX_RETRIES = 3
 VERSION_EXISTS_RE = re.compile(r"\bVersion(?:\s+\S+)?\s+already exists\b")
@@ -24,6 +31,8 @@ RETRYABLE_RE = re.compile(
     r"\b(?:Embedding failed|Please try again|reset in \d+s)\b",
     re.IGNORECASE,
 )
+RESET_IN_RE = re.compile(r"\breset in (\d+)s\b", re.IGNORECASE)
+REQUIRED_PUBLIC_FILES = ("SKILL.md", "agents/openai.yaml")
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,7 +42,7 @@ def parse_args() -> argparse.Namespace:
         "--manifest",
         type=Path,
         default=MANIFEST,
-        help="JSON manifest: [{path, slug}]",
+        help="JSON manifest: [{path, slug, owner}]",
     )
     parser.add_argument(
         "--dry-run",
@@ -49,7 +58,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_manifest(path: Path) -> list[dict[str, Any]]:
-    """Load [{path, slug}, ...] entries from the JSON manifest."""
+    """Load [{path, slug, owner}, ...] entries from the JSON manifest."""
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, list):
         raise ValueError(f"manifest must be a JSON array: {path}")
@@ -108,6 +117,128 @@ def is_retryable(proc: subprocess.CompletedProcess[str]) -> bool:
     return RETRYABLE_RE.search(output) is not None
 
 
+def retry_delay(proc: subprocess.CompletedProcess[str], attempt: int) -> int:
+    """Return a bounded retry delay, honoring a server-provided reset window."""
+    output = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+    match = RESET_IN_RE.search(output)
+    if match is not None:
+        return min(int(match.group(1)) + 1, 120)
+    return 2**attempt
+
+
+def http_retry_delay(error: HTTPError, attempt: int) -> int:
+    """Honor numeric HTTP Retry-After while keeping waits bounded."""
+    raw = error.headers.get("Retry-After") if error.headers is not None else None
+    try:
+        return min(max(int(raw), 1), 120)
+    except (TypeError, ValueError):
+        return 2**attempt
+
+
+def file_sha256(path: Path) -> str:
+    """Hash one local publish artifact without loading it fully into memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def published_skill_release(slug: str, owner: str, version: str) -> dict[str, Any]:
+    """Read one owner-qualified public version record from ClawHub."""
+    query = urlencode({"owner": owner})
+    url = f"{CLAWHUB_API_BASE}/skills/{quote(slug, safe='')}/versions/{quote(version, safe='')}?{query}"
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "dcc-mcp-core-clawhub-sync",
+        },
+    )
+    with urlopen(request, timeout=20) as response:
+        payload = json.load(response)
+    published = payload.get("version") if isinstance(payload, dict) else None
+    if not isinstance(published, dict):
+        raise ValueError(f"ClawHub response has no version record: {url}")
+    return published
+
+
+def published_skill_version(slug: str, owner: str, version: str) -> str:
+    """Read one owner-qualified public version number from ClawHub."""
+    published = published_skill_release(slug, owner, version)
+    published_version = published.get("version") if isinstance(published, dict) else None
+    if not isinstance(published_version, str) or not published_version.strip():
+        raise ValueError(f"ClawHub response has no version.version for @{owner}/{slug}@{version}")
+    return published_version.strip()
+
+
+def public_file_mismatches(published: dict[str, Any], skill_dir: Path) -> list[str]:
+    """Return missing or hash-mismatched required public Skill artifacts."""
+    raw_files = published.get("files")
+    files = raw_files if isinstance(raw_files, list) else []
+    remote_hashes = {
+        item["path"]: item["sha256"].lower()
+        for item in files
+        if isinstance(item, dict) and isinstance(item.get("path"), str) and isinstance(item.get("sha256"), str)
+    }
+    mismatches: list[str] = []
+    for relative in REQUIRED_PUBLIC_FILES:
+        local_path = skill_dir / relative
+        if not local_path.is_file():
+            mismatches.append(f"local file missing: {relative}")
+            continue
+        remote_hash = remote_hashes.get(relative)
+        if remote_hash is None:
+            mismatches.append(f"public file missing: {relative}")
+        elif remote_hash != file_sha256(local_path):
+            mismatches.append(f"public file hash mismatch: {relative}")
+    return mismatches
+
+
+def verify_published_version(
+    slug: str,
+    owner: str,
+    expected_version: str,
+    skill_dir: Path | None = None,
+) -> bool:
+    """Require the expected version and key artifacts on the public API."""
+    last_error = "public version was not checked"
+    for attempt in range(1, MAX_RETRIES + 1):
+        retry_wait: int | None = None
+        try:
+            published = published_skill_release(slug, owner, expected_version)
+            raw_version = published.get("version")
+            actual_version = raw_version.strip() if isinstance(raw_version, str) else ""
+            if actual_version == expected_version:
+                mismatches = public_file_mismatches(published, skill_dir) if skill_dir is not None else []
+                if not mismatches:
+                    print(f"Verified @{owner}/{slug}@{expected_version} on the public ClawHub API.")
+                    return True
+                last_error = "; ".join(mismatches)
+            else:
+                last_error = f"public endpoint returned {actual_version or '<missing>'}, expected {expected_version}"
+        except HTTPError as exc:
+            last_error = str(exc)
+            retry_wait = http_retry_delay(exc, attempt)
+        except (OSError, ValueError) as exc:
+            last_error = str(exc)
+
+        if attempt < MAX_RETRIES:
+            wait = retry_wait if retry_wait is not None else 2**attempt
+            print(
+                f"ClawHub public verification pending for @{owner}/{slug}@{expected_version}; "
+                f"retrying in {wait}s (attempt {attempt}/{MAX_RETRIES}) ...",
+                flush=True,
+            )
+            time.sleep(wait)
+
+    print(
+        f"ClawHub public verification failed for @{owner}/{slug}@{expected_version}: {last_error}",
+        file=sys.stderr,
+    )
+    return False
+
+
 def publish_one(
     entry: dict[str, Any],
     *,
@@ -117,8 +248,9 @@ def publish_one(
     """Validate and publish one manifest entry; return process exit code."""
     rel = entry.get("path")
     slug = entry.get("slug")
-    if not rel or not slug:
-        print(f"invalid manifest entry (need path + slug): {entry}", file=sys.stderr)
+    owner = entry.get("owner")
+    if not rel or not slug or not owner:
+        print(f"invalid manifest entry (need path + slug + owner): {entry}", file=sys.stderr)
         return 1
 
     skill_dir = (REPO_ROOT / str(rel)).resolve()
@@ -152,6 +284,8 @@ def publish_one(
         str(slug),
         "--version",
         version,
+        "--owner",
+        str(owner),
         "--no-input",
     )
     if dry_run:
@@ -163,12 +297,12 @@ def publish_one(
         proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
         print_completed_process_output(proc)
         if proc.returncode == 0:
-            return 0
+            return 0 if verify_published_version(str(slug), str(owner), version, skill_dir) else 1
         if version_already_exists(proc):
             print(f"{slug}@{version} already exists on ClawHub; skipping.")
-            return 0
+            return 0 if verify_published_version(str(slug), str(owner), version, skill_dir) else 1
         if attempt < MAX_RETRIES and is_retryable(proc):
-            wait = 2**attempt
+            wait = retry_delay(proc, attempt)
             print(
                 f"Transient ClawHub error for {slug}@{version}; "
                 f"retrying in {wait}s (attempt {attempt}/{MAX_RETRIES}) ...",

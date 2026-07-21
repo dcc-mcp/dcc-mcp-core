@@ -219,7 +219,11 @@ pub(crate) fn build_service_entry(args: &SidecarArgs, registry_dir: &Path) -> Se
     // the HostRpc connection fails, the row still gets a diagnostic MCP URL but
     // stays Booting/unavailable so operators can diagnose it in Admin without
     // making it routable.
-    let mut entry = ServiceEntry::new(&args.dcc, "127.0.0.1", 0).with_pid(args.watch_pid);
+    let mut entry = ServiceEntry::new(&args.dcc, "127.0.0.1", 0)
+        // The sentinel/PID belong to this sidecar service. The watched DCC is a
+        // separate required lifetime so a surviving sidecar cannot become a
+        // ghost instance after its host exits.
+        .with_host_pid(args.watch_pid);
     entry.status = ServiceStatus::Booting;
 
     if let Some(uuid) = args.instance_id {

@@ -213,8 +213,10 @@ pub async fn build_payload(query: &Query) -> Result<Value, String> {
             offset,
         } => {
             let mut hits = dcc_mcp_catalog::search_hits(&entries, query);
-            // Sort alphabetically by name (stable behaviour).
-            hits.sort_by(|a, b| entries[a.index].name.cmp(&entries[b.index].name));
+            if query.trim().is_empty() {
+                // Browse mode remains alphabetical; searches preserve relevance order.
+                hits.sort_by(|a, b| entries[a.index].name.cmp(&entries[b.index].name));
+            }
             let total = hits.len();
             let start = (*offset).min(total);
             let end = limit.map_or(total, |lim| total.min(start + lim));

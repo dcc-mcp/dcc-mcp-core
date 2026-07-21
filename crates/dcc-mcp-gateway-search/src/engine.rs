@@ -13,8 +13,39 @@ pub fn search<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> Ve
 /// Paginated variant of [`search`].
 #[must_use]
 pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> SearchPage<R> {
+    let hits = rank_all(records, query);
+    let total = hits.len() as u32;
+    let effective_limit = effective_limit(query.limit);
+    let offset = query.offset.unwrap_or(0).min(total);
+    let end = offset.saturating_add(effective_limit).min(total);
+    let page = if offset < total {
+        hits[offset as usize..end as usize].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    SearchPage {
+        hits: page,
+        total,
+        offset,
+        limit: effective_limit,
+    }
+}
+
+/// Rank every matching record without applying pagination limits or offsets.
+///
+/// Filtering, scoring, and ordering are identical to [`search_page`]. This is
+/// useful for callers that own their own pagination contract, such as package
+/// catalogs that must not inherit the gateway's [`MAX_LIMIT`] page cap.
+#[must_use]
+pub fn rank_all<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> Vec<SearchHit<R>> {
     let qnorm = query.query.trim().to_ascii_lowercase();
-    let dcc_filter = query.dcc_type.as_deref();
+    let dcc_filter = query
+        .dcc_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
     let dcc_types: Vec<String> = query
         .dcc_types
         .iter()
@@ -59,8 +90,12 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
         .iter()
         .filter(|r| {
             dcc_filter.is_none() && dcc_types.is_empty()
-                || dcc_filter.is_some_and(|f| r.dcc_type() == f)
-                || dcc_types.iter().any(|d| r.dcc_type() == d)
+                || dcc_filter
+                    .as_deref()
+                    .is_some_and(|f| r.dcc_type().eq_ignore_ascii_case(f))
+                || dcc_types
+                    .iter()
+                    .any(|d| r.dcc_type().eq_ignore_ascii_case(d))
         })
         .filter(|r| instance_filter.is_none_or(|iid| r.instance_id() == iid))
         .filter(|r| loaded_filter != Some(true) || r.loaded())
@@ -121,25 +156,11 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
             .then_with(|| a.record.tool_slug().cmp(b.record.tool_slug()))
     });
 
-    let total = hits.len() as u32;
-    let effective_limit = effective_limit(query.limit);
-    let offset = query.offset.unwrap_or(0).min(total);
-    let end = offset.saturating_add(effective_limit).min(total);
-    let mut page = if offset < total {
-        hits[offset as usize..end as usize].to_vec()
-    } else {
-        Vec::new()
-    };
-    for (idx, hit) in page.iter_mut().enumerate() {
-        hit.rank = offset + idx as u32 + 1;
+    for (idx, hit) in hits.iter_mut().enumerate() {
+        hit.rank = idx as u32 + 1;
     }
 
-    SearchPage {
-        hits: page,
-        total,
-        offset,
-        limit: effective_limit,
-    }
+    hits
 }
 
 fn apply_skill_hint_boost<R: SearchRecord>(hit: &mut SearchHit<R>, hint: Option<&str>) {
@@ -513,6 +534,35 @@ mod tests {
     }
 
     #[test]
+    fn rank_all_is_not_capped_by_page_limit() {
+        let records: Vec<Row> = (0..125)
+            .map(|index| {
+                mk(
+                    &format!("m.1.tool-{index:03}"),
+                    &format!("maya_tools__tool_{index:03}"),
+                    "A matching catalog tool.",
+                    &[],
+                    true,
+                )
+            })
+            .collect();
+        let query = SearchQuery {
+            query: "tool".into(),
+            limit: Some(125),
+            ..Default::default()
+        };
+
+        let ranked = rank_all(&records, &query);
+        let page = search_page(&records, &query);
+
+        assert_eq!(ranked.len(), 125);
+        assert_eq!(ranked.last().map(|hit| hit.rank), Some(125));
+        assert_eq!(page.total, 125);
+        assert_eq!(page.limit, MAX_LIMIT);
+        assert_eq!(page.hits.len(), MAX_LIMIT as usize);
+    }
+
+    #[test]
     fn hybrid_mode_acts_like_fuzzy() {
         let records = vec![
             mk(
@@ -630,6 +680,29 @@ mod tests {
         assert!(tools.contains(&"maya_primitives__create_sphere"));
         assert!(tools.contains(&"blender_mesh__create_cube"));
         assert!(!tools.contains(&"houdini_sop__grid"));
+    }
+
+    #[test]
+    fn single_dcc_type_filter_is_trimmed_and_case_insensitive() {
+        let records = vec![mk(
+            "m.1.sphere",
+            "create_sphere",
+            "Create a sphere.",
+            &[],
+            true,
+        )];
+
+        let hits = search(
+            &records,
+            &SearchQuery {
+                query: "sphere".into(),
+                dcc_type: Some("  MAYA  ".into()),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.backend_tool(), "create_sphere");
     }
 
     #[test]

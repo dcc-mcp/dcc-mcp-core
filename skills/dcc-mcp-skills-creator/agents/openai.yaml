@@ -1,0 +1,4 @@
+interface:
+  display_name: "DCC-MCP Skills Creator"
+  short_description: "Create and validate DCC-MCP Skill packages"
+  default_prompt: "Use $dcc-mcp-skills-creator to create, validate, or improve a DCC-MCP Skill package."

@@ -135,6 +135,7 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         "dcc_type":             e.dcc_type,
         "display_name":         e.display_name,
         "pid":                  e.pid,
+        "host_pid":             e.host_pid,
         "mcp_url":              entry_mcp_url(e),
         "host":                 e.host,
         "port":                 e.port,

@@ -1,0 +1,4 @@
+interface:
+  display_name: "DCC-MCP"
+  short_description: "DCC control and marketplace Skill discovery"
+  default_prompt: "Use $dcc-mcp to discover the right live DCC capability or marketplace Skill through the CLI, inspect it, and act safely."
