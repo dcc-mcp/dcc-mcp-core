@@ -213,8 +213,8 @@ or drive the interface state directly. Agents use `ui_control__snapshot`,
   credential manager windows.
 - **Visible capsule overlay** — while a native DCC UI Control session is active,
   click-through corner brackets mark the target window and a bottom-center
-  capsule reads `DCC UI Control · <app> | Ctrl+Alt+Esc to stop`.
-  The user stops control at any time with `Ctrl+Alt+Esc`.
+  capsule reads `DCC UI Control · <app> | Esc to stop`.
+  The user stops control at any time with `Esc`.
 - **Audit trail** — every snapshot, action, wait, stop, and rejected operation
   appends a redacted `ui_control_operation` event to the shared log directory,
   visible in the Admin Logs panel without exposing entered text or screenshot

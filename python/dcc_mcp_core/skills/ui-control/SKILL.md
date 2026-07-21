@@ -92,7 +92,7 @@ paths while omitting the repeated MCP envelope and full UIA tree. Add
 All ui-control tools require the adapter's persistent in-process executor so one
 thin named-pipe client survives across snapshot/action calls. The independent
 per-Windows-session host owns screenshots, UIA, observation ids, the
-Ctrl+Alt+Esc stop latch, visible overlay, global input owner, confirmation, and
+Esc stop latch, visible overlay, global input owner, confirmation, and
 native input; adapters do not retain an alternate native path.
 Every snapshot, find, action, wait, stop, and rejected operation also appends a
 redacted `ui_control_operation` event to the shared DCC-MCP log directory, so
@@ -182,9 +182,9 @@ For native DCC UI Control actions, keep one `session_id` and use this loop:
    released. If it returns `cleanup_pending=true`, retry cleanup and do not
    start another session; the cross-process input owner remains fenced until
    every pending key/button release is confirmed. Stopping does not clear an
-   Ctrl+Alt+Esc interruption latch created during a UI Control session.
+   Esc interruption latch created during a UI Control session.
 
-`ui_control__wait_for` remains interruptible while polling: Ctrl+Alt+Esc, an
+`ui_control__wait_for` remains interruptible while polling: Esc, an
 explicit `ui_control__stop_computer_use`, desktop loss, or backend cleanup cancels
 the wait without waiting for its condition timeout.
 
@@ -204,10 +204,9 @@ The native session requires a visible, unlocked interactive desktop, a live
 target window, and the adapter and DCC process at the same Windows integrity
 level. While input control is active, click-through corner brackets mark the
 target window and a bottom-center capsule reads `DCC UI Control · <app> |
-Ctrl+Alt+Esc to stop`. Pointer actions display a transient
+Esc to stop`. Pointer actions display a transient
 cursor marker (and a following marker during drag) so the user can see where
-the agent is acting. The user stops control with `Ctrl+Alt+Esc`; ordinary
-`Esc` remains available to the target application. On
+the agent is acting. The user stops control by pressing `Esc`. On
 `user_interrupted`, stop immediately, do
 not retry, do not switch to another input path, do not change `session_id`, and
 do not automatically start a new DCC UI Control session. The stop is latched across
