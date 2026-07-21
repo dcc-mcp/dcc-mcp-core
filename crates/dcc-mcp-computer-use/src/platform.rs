@@ -226,6 +226,7 @@ pub(crate) fn start_control_banner(
 }
 
 #[cfg(not(windows))]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn perform_action(
     _window_handle: u64,
     _observation: &ComputerUseObservation,
