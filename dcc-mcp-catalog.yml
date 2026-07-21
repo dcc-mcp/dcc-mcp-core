@@ -238,7 +238,7 @@ entries:
     dcc: ["unity"]
     url: "https://github.com/dcc-mcp/dcc-mcp-unity"
     tags: ["adapter", "unity", "official", "pip", "game-engine", "upm"]
-    version: "0.2.0"
+    version: "0.3.0"
     min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
