@@ -164,7 +164,7 @@ Generated `tools.yaml` entries follow the modern contract:
 - Stateful UI tools must declare `requires_in_process: true` independently of
   `affinity`; keep UI Control at `affinity: any` so it does not block the DCC
   UI thread while preserving one named-pipe client. On Windows, the isolated
-  per-logon-session host owns observations, Ctrl+Alt+Esc interruption, confirmation, and the
+  per-logon-session host owns observations, Esc interruption, confirmation, and the
   cross-adapter input owner; skill scripts must not instantiate an in-process
   `ComputerUseSession` fallback.
 - Prefer a `control_id` and semantic UI Automation action. Use raw coordinates
@@ -178,7 +178,7 @@ Generated `tools.yaml` entries follow the modern contract:
   adapter/operator to bind its DCC with `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or
   `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; a skill request may only narrow that
   trusted scope. Propagate `user_interrupted` immediately;
-  do not retry the action or fall back to another input path after Ctrl+Alt+Esc interrupts a session.
+  do not retry the action or fall back to another input path after Esc interrupts a session.
 - Never enter or retry another UI/input path after a policy, authorization,
   authentication, security, confirmation, `desktop_unavailable`, or
   `user_interrupted` result. Computer Use is a capability fallback, not a way

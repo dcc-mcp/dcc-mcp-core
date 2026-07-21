@@ -2102,7 +2102,7 @@ for info in finder.enumerate():
 
 `ComputerUseSession` owns one exact target window, a visible click-through
 border/banner, transient pointer effects, bounded `SendInput`, screenshot
-generation ids, and a Windows-logon-session-wide Ctrl+Alt+Esc interruption
+generation ids, and a Windows-logon-session-wide Esc interruption
 latch shared across DCC adapter processes. Ordinary Esc remains available to
 the target application. Prefer the bundled
 `ui-control` skill instead of calling this low-level API directly.
@@ -2120,7 +2120,7 @@ metadata_json, png_bytes = session.screenshot()
 session.act('{"action":"click","observation_id":"...","x":320,"y":240}')
 session.stop()  # remove effects; retry if cleanup_pending keeps input ownership fenced
 
-ComputerUseSession.process_user_interrupted()  # shared Windows logon-session Ctrl+Alt+Esc latch
+ComputerUseSession.process_user_interrupted()  # shared Windows logon-session Esc latch
 # Only after an explicit user instruction:
 session.resume_after_user_approval()
 
