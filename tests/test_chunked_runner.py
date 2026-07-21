@@ -14,16 +14,16 @@ import time
 # Import third-party modules
 import pytest
 
+from dcc_mcp_core import CancelledError
+
 # Import local modules
 from dcc_mcp_core import CancelToken
-from dcc_mcp_core import CancelledError
 from dcc_mcp_core import ChunkedOutcome
 from dcc_mcp_core import ChunkedProgress
 from dcc_mcp_core import ChunkedRunner
 from dcc_mcp_core import ChunkedStep
 from dcc_mcp_core import reset_cancel_token
 from dcc_mcp_core import set_cancel_token
-
 
 # ---------------------------------------------------------------------------
 # Top-level exports

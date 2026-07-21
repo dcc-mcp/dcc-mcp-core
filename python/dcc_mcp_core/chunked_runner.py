@@ -27,8 +27,8 @@ from typing import Sequence
 if TYPE_CHECKING:
     pass
 
-from dcc_mcp_core.cancellation import CancelToken
 from dcc_mcp_core.cancellation import CancelledError
+from dcc_mcp_core.cancellation import CancelToken
 
 __all__ = [
     "ChunkedOutcome",
@@ -46,9 +46,10 @@ class ChunkedStep:
         fn: A zero-argument callable that performs one bounded unit of
             work (e.g. process a single mesh, bake one frame). Must
             return quickly — a typical budget is 8-16 ms per step.
+
     """
 
-    __slots__ = ("step", "fn")
+    __slots__ = ("fn", "step")
 
     def __init__(self, step: int, fn: Callable[[], Any]) -> None:
         self.step = step
@@ -64,9 +65,10 @@ class ChunkedProgress:
             sequences).
         last_step_at: ``time.monotonic`` timestamp of the most recent
             completed step.
+
     """
 
-    __slots__ = ("completed", "total", "last_step_at")
+    __slots__ = ("completed", "last_step_at", "total")
 
     def __init__(
         self,
@@ -93,9 +95,10 @@ class ChunkedOutcome:
         progress: The final progress snapshot.
         error: Human-readable error message when ``status`` is
             ``"failed"``, ``None`` otherwise.
+
     """
 
-    __slots__ = ("status", "progress", "error")
+    __slots__ = ("error", "progress", "status")
 
     def __init__(
         self,
