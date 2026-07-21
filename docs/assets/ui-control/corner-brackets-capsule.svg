@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" font-family="Consolas, monospace">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#e74c3c"/>
+    </marker>
+  </defs>
+  <!-- Background -->
+  <rect width="800" height="500" fill="#1e1e2e" rx="8"/>
+  <!-- Desktop background -->
+  <rect x="20" y="20" width="760" height="440" fill="#2b2b3d" rx="6"/>
+
+  <!-- Target DCC window -->
+  <rect x="100" y="60" width="580" height="350" fill="#3a3a50" rx="4" stroke="#4a4a6a" stroke-width="1"/>
+  <!-- Window title bar -->
+  <rect x="100" y="60" width="580" height="32" fill="#2d2d42" rx="4"/>
+  <rect x="100" y="84" width="580" height="8" fill="#2d2d42"/>
+  <circle cx="120" cy="76" r="5" fill="#e74c3c"/>
+  <circle cx="138" cy="76" r="5" fill="#f1c40f"/>
+  <circle cx="156" cy="76" r="5" fill="#2ecc71"/>
+  <text x="370" y="80" fill="#a0a0c0" font-size="13" text-anchor="middle">Autodesk Maya 2025</text>
+
+  <!-- Corner brackets -->
+  <!-- Top-left -->
+  <polyline points="108,68 108,60 680,60" fill="none" stroke="#00d4aa" stroke-width="3"/>
+  <polyline points="108,60 108,68" fill="none" stroke="#00d4aa" stroke-width="3"/>
+  <!-- Top-right -->
+  <polyline points="672,68 672,60 108,60" fill="none" stroke="#00d4aa" stroke-width="3"/>
+  <polyline points="672,60 672,68" fill="none" stroke="#00d4aa" stroke-width="3"/>
+  <!-- Bottom-left -->
+  <polyline points="108,402 108,410 680,410" fill="none" stroke="#00d4aa" stroke-width="3"/>
+  <polyline points="108,410 108,402" fill="none" stroke="#00d4aa" stroke-width="3"/>
+  <!-- Bottom-right -->
+  <polyline points="672,402 672,410 108,410" fill="none" stroke="#00d4aa" stroke-width="3"/>
+  <polyline points="672,410 672,402" fill="none" stroke="#00d4aa" stroke-width="3"/>
+
+  <!-- Maya UI elements inside window -->
+  <rect x="120" y="100" width="540" height="24" fill="#3f3f5a" rx="3"/>
+  <rect x="120" y="130" width="100" height="20" fill="#4a4a6a" rx="3"/>
+  <rect x="230" y="130" width="80" height="20" fill="#4a4a6a" rx="3"/>
+  <rect x="320" y="130" width="90" height="20" fill="#4a4a6a" rx="3"/>
+  <rect x="120" y="165" width="540" height="180" fill="#252538" rx="3"/>
+  <!-- Viewport content mock -->
+  <rect x="200" y="210" width="100" height="80" fill="#3a3a55" rx="2"/>
+  <text x="250" y="255" fill="#606080" font-size="11" text-anchor="middle">Mesh</text>
+  <line x1="120" y1="360" x2="660" y2="360" stroke="#3f3f5a" stroke-width="1"/>
+
+  <!-- Capsule -->
+  <rect x="240" y="420" width="320" height="32" fill="#1a1a2e" rx="16" stroke="#00d4aa" stroke-width="2"/>
+  <circle cx="262" cy="436" r="6" fill="#00d4aa"/>
+  <text x="278" y="440" fill="#00d4aa" font-size="12" font-weight="bold">DCC UI Control · Maya</text>
+  <text x="458" y="440" fill="#666688" font-size="12">|</text>
+  <text x="470" y="440" fill="#e74c3c" font-size="12">Ctrl+Alt+Esc to stop</text>
+
+  <!-- Arrow pointing to capsule -->
+  <line x1="700" y1="436" x2="568" y2="436" stroke="#e74c3c" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="705" y="430" fill="#e74c3c" font-size="11">胶囊覆盖层</text>
+
+  <!-- Arrow pointing to corner bracket -->
+  <line x1="700" y1="80" x2="680" y2="68" stroke="#e74c3c" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="705" y="74" fill="#e74c3c" font-size="11">角标</text>
+
+  <!-- Caption -->
+  <text x="400" y="490" fill="#8080a0" font-size="12" text-anchor="middle">DCC UI Control 活动会话：角标 + 底部胶囊</text>
+</svg>
