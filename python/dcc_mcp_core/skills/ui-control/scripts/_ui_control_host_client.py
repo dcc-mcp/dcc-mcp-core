@@ -393,7 +393,7 @@ class UiControlHostClient:
         if not self._latest_observation_id or not self._latest_accessibility_state_id:
             raise UiControlHostError("stale_observation", "Take a fresh ui_control snapshot before acting.")
         try:
-            return self._call(
+            response = self._call(
                 {
                     "method": "execute_action",
                     "params": {
@@ -406,6 +406,11 @@ class UiControlHostClient:
                 expected_type="action_completed",
                 allow_unsuccessful=True,
             )
+            if bool(response.get("target_closed")):
+                self._window_capability = None
+                with suppress(OSError):
+                    self._stream.close()
+            return response
         finally:
             self._invalidate_observation()
 

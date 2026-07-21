@@ -445,14 +445,29 @@ try {
       exit 0
     }
     $actionResult = Invoke-Action $target
-    $afterFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
+    if (-not [bool]$actionResult.ok) {
+      @{
+        ok = $false
+        error = $actionResult.error
+        message = $actionResult.message
+        before_focus_runtime_id = $beforeFocus
+      } | ConvertTo-Json -Depth 64 -Compress
+      exit 0
+    }
+    $afterFocus = $null
+    try {
+      $afterFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
+    } catch {}
+    $control = $null
+    try {
+      $control = Element-Raw $target 0 "target"
+    } catch {}
     @{
-      ok = [bool]$actionResult.ok
-      error = $actionResult.error
+      ok = $true
       message = $actionResult.message
       before_focus_runtime_id = $beforeFocus
       after_focus_runtime_id = $afterFocus
-      control = Element-Raw $target 0 "target"
+      control = $control
     } | ConvertTo-Json -Depth 64 -Compress
     exit 0
   }

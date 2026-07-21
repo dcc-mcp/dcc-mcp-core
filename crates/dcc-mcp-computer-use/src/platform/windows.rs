@@ -420,6 +420,17 @@ fn acquire_input_owner() -> ComputerUseResult<NamedMutexOwner> {
     acquire_input_owner_impl(false)
 }
 
+#[cfg(test)]
+pub(crate) fn input_owner_is_busy_for_test() -> bool {
+    matches!(
+        acquire_input_owner(),
+        Err(ComputerUseError {
+            code: ComputerUseErrorCode::PermissionDenied,
+            ..
+        })
+    )
+}
+
 fn acquire_input_owner_after_user_approval() -> ComputerUseResult<NamedMutexOwner> {
     acquire_input_owner_impl(true)
 }
@@ -615,6 +626,15 @@ pub(crate) fn prepare_target_window(window_handle: u64) -> ComputerUseResult<()>
     }
     let _ = available_target_rect(hwnd)?;
     Ok(())
+}
+
+pub(crate) fn prepare_control_session_target(
+    window_handle: u64,
+    expected_process_id: u32,
+) -> ComputerUseResult<()> {
+    ensure_interactive_desktop()?;
+    let hwnd = HWND(window_handle as *mut core::ffi::c_void);
+    validate_target_identity(hwnd, expected_process_id)
 }
 
 pub(crate) fn scoped_window_state(
@@ -1224,8 +1244,29 @@ fn run_banner(
     ensure_interactive_desktop()?;
     let target = HWND(window_handle as *mut core::ffi::c_void);
     let caption = format!("DCC UI Control  ·  {app_name}  ·  {STOP_HOTKEY_LABEL} to stop");
-    let mut rect = available_target_rect_for_process(target, process_id)?;
-    let overlay = ControlOverlay::new(target, &rect, &caption)?;
+    let (mut rect, initially_visible) = match available_target_rect_for_process(target, process_id)
+    {
+        Ok(rect) => (rect, true),
+        Err(error) if error.code == ComputerUseErrorCode::MissingWindow => {
+            // A capability can intentionally bind a minimized or hidden
+            // exact HWND so it can be restored. Revalidate existence and
+            // ownership, then create the control window hidden at benign
+            // placeholder geometry. The input owner, Esc hotkey, desktop
+            // watcher, and generation fences remain fully active.
+            validate_target_identity(target, process_id)?;
+            (
+                RECT {
+                    left: 0,
+                    top: 0,
+                    right: 320,
+                    bottom: 200,
+                },
+                false,
+            )
+        }
+        Err(error) => return Err(error),
+    };
+    let overlay = ControlOverlay::new(target, &rect, &caption, initially_visible)?;
     let overlay_window = overlay.window_handle();
 
     let hotkey_result = unsafe {
@@ -1251,7 +1292,7 @@ fn run_banner(
     let mut display_stamp = display_environment_stamp()?;
 
     record_desktop_transition(&signals.desktop_state, true);
-    signals.visible.store(true, Ordering::Release);
+    signals.visible.store(initially_visible, Ordering::Release);
     let _ = ready.send(Ok(()));
 
     let mut message = MSG::default();
@@ -1345,13 +1386,14 @@ fn run_banner(
             Ok(rect) => rect,
             Err(error) if error.code == ComputerUseErrorCode::MissingWindow => {
                 validate_target_identity(target, process_id)?;
-                if let Err(e) = overlay.set_visible(false) {
+                if signals.visible.swap(false, Ordering::AcqRel)
+                    && let Err(e) = overlay.set_visible(false)
+                {
                     tracing::warn!(
                         "run_banner: overlay.set_visible(false) failed on MissingWindow; \
                          session continues: {e}"
                     );
                 }
-                signals.visible.store(false, Ordering::Release);
                 thread::sleep(Duration::from_millis(50));
                 continue;
             }

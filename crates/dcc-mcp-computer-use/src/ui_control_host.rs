@@ -1,9 +1,6 @@
 //! Isolated UI Control host state machine and executable entry point.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::PathBuf;
 
 use dcc_mcp_ui_control::host_protocol::{
     UI_CONTROL_HOST_CAPABILITIES, UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlAction,
@@ -12,11 +9,12 @@ use dcc_mcp_ui_control::host_protocol::{
     UiControlSystemOperation, UiControlTarget, UiControlTaskGrant, UiControlWindowOperation,
     UiControlWindowState,
 };
-use serde_json::{Value, json};
-use time::OffsetDateTime;
-use time::format_description::well_known::Rfc3339;
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use uuid::Uuid;
 
+mod audit;
 mod policy;
 #[cfg(windows)]
 mod runtime_windows;
@@ -24,6 +22,7 @@ mod system_operations;
 #[cfg(windows)]
 mod windows;
 
+use audit::{audit_event, audit_system_event};
 #[cfg(any(windows, test))]
 use policy::{ActionControlFence, verify_expected_action_fence};
 use policy::{classify_action, stale_accessibility_state, verify_action_fence};
@@ -70,6 +69,7 @@ struct RuntimeAccessibilityState {
 
 struct RuntimeActionResult {
     message: String,
+    target_closed: bool,
     before_focus_runtime_id: Option<String>,
     after_focus_runtime_id: Option<String>,
 }
@@ -216,6 +216,10 @@ impl UiControlHostConnection {
             }
             _ => None,
         };
+        let completed_window_session = match &request {
+            UiControlHostRequest::ExecuteAction { session_id, .. } => Some(session_id.clone()),
+            _ => None,
+        };
         let response = host.handle(request);
         if let Some(session_id) = consumed_system_session {
             self.owned_system_sessions.remove(&session_id);
@@ -234,6 +238,16 @@ impl UiControlHostConnection {
                 self.owned_system_sessions.remove(session_id);
             }
             _ => {}
+        }
+        if matches!(
+            response,
+            UiControlHostResponse::ActionCompleted {
+                target_closed: true,
+                ..
+            }
+        ) && let Some(session_id) = completed_window_session
+        {
+            self.owned_sessions.remove(&session_id);
         }
         response
     }
@@ -779,14 +793,23 @@ impl UiControlHost {
         {
             Ok(result) => {
                 audit_event(&session.grant, &action.action, true, policy_tier, None);
-                action_response(
+                let target_closed = result.target_closed;
+                if target_closed {
+                    let _ = session.runtime.stop();
+                }
+                let response = completed_action_response(
                     true,
+                    target_closed,
                     policy_tier,
                     result.message,
                     None,
                     result.before_focus_runtime_id,
                     result.after_focus_runtime_id,
-                )
+                );
+                if target_closed {
+                    self.sessions.remove(session_id);
+                }
+                response
             }
             Err(failure) => {
                 audit_event(
@@ -1290,80 +1313,36 @@ fn action_response(
     before_focus_runtime_id: Option<String>,
     after_focus_runtime_id: Option<String>,
 ) -> UiControlHostResponse {
+    completed_action_response(
+        success,
+        false,
+        policy_tier,
+        message,
+        error,
+        before_focus_runtime_id,
+        after_focus_runtime_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn completed_action_response(
+    success: bool,
+    target_closed: bool,
+    policy_tier: UiControlPolicyTier,
+    message: impl Into<String>,
+    error: Option<UiControlHostErrorCode>,
+    before_focus_runtime_id: Option<String>,
+    after_focus_runtime_id: Option<String>,
+) -> UiControlHostResponse {
     UiControlHostResponse::ActionCompleted {
         success,
+        target_closed,
         policy_tier,
         message: message.into(),
         error,
         before_focus_runtime_id,
         after_focus_runtime_id,
     }
-}
-
-fn audit_event(
-    grant: &UiControlTaskGrant,
-    action: &str,
-    success: bool,
-    policy_tier: UiControlPolicyTier,
-    error_code: Option<UiControlHostErrorCode>,
-) {
-    audit_event_for_dcc(&grant.dcc_type, action, success, policy_tier, error_code);
-}
-
-fn audit_system_event(
-    grant: &UiControlSystemGrant,
-    action: &str,
-    success: bool,
-    policy_tier: UiControlPolicyTier,
-    error_code: Option<UiControlHostErrorCode>,
-) {
-    audit_event_for_dcc(&grant.dcc_type, action, success, policy_tier, error_code);
-}
-
-fn audit_event_for_dcc(
-    dcc_type: &str,
-    action: &str,
-    success: bool,
-    policy_tier: UiControlPolicyTier,
-    error_code: Option<UiControlHostErrorCode>,
-) {
-    let payload = json!({
-        "event": "ui_control_operation",
-        "tool": "dcc-mcp-ui-control-host",
-        "dcc_type": dcc_type,
-        "action": action,
-        "success": success,
-        "error": error_code,
-        "message": if success { "DCC UI Control host operation succeeded" } else { "DCC UI Control host operation rejected" },
-        "detail": format!("action={action} tier={policy_tier:?}"),
-    });
-    let timestamp = OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned());
-    let level = if success { "INFO" } else { "WARN" };
-    let line = format!(
-        "{timestamp} {level} dcc_mcp_ui_control_host.audit: {}\n",
-        payload
-    );
-    eprint!("{line}");
-    let path = audit_log_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = file.write_all(line.as_bytes());
-    }
-}
-
-fn audit_log_path() -> PathBuf {
-    let directory = std::env::var_os("DCC_MCP_LOG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| dcc_mcp_paths::get_log_dir().ok().map(PathBuf::from))
-        .unwrap_or_else(std::env::temp_dir);
-    directory.join(format!(
-        "dcc-mcp-ui-control-host.{}.log",
-        std::process::id()
-    ))
 }
 
 #[cfg(windows)]

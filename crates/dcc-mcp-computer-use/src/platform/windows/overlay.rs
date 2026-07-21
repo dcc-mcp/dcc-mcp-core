@@ -39,7 +39,12 @@ pub(super) struct ControlOverlay {
 }
 
 impl ControlOverlay {
-    pub(super) fn new(target: HWND, target_rect: &RECT, caption: &str) -> ComputerUseResult<Self> {
+    pub(super) fn new(
+        target: HWND,
+        target_rect: &RECT,
+        caption: &str,
+        initially_visible: bool,
+    ) -> ComputerUseResult<Self> {
         let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
         let mut capsule_glows = Vec::with_capacity(CONTROL_CAPSULE_GLOW_ALPHAS.len());
         for (geometry, alpha) in capsule_glow_geometries(capsule_geometry) {
@@ -136,7 +141,9 @@ impl ControlOverlay {
             cursor_visible: Cell::new(cursor_visible),
             pulse_started: Instant::now(),
         };
-        overlay.set_visible(true)?;
+        if initially_visible {
+            overlay.set_visible(true)?;
+        }
         Ok(overlay)
     }
 

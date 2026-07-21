@@ -120,6 +120,17 @@ fn action_control_fences(
             .as_deref()
             .ok_or_else(stale_accessibility_state)?;
         vec![find_control(root, control_id).ok_or_else(stale_accessibility_state)?]
+    } else if matches!(action.action.as_str(), "keypress" | "keyboard_shortcut")
+        && crate::keyboard_policy::is_modified_shortcut(&action.keys)
+    {
+        // Application shortcuts are scoped by the immutable window capability,
+        // the screen observation, and the native desktop/input fences. They do
+        // not target a child UIA control, so a custom-drawn DCC viewport may
+        // recreate or move focus between ordinary controls without invalidating
+        // them. Keep the stable window root fenced, while the live focus
+        // ancestry is classified on every host and pre-input pass; any root or
+        // policy-tier change fails closed below.
+        vec![root]
     } else if matches!(action.action.as_str(), "keypress" | "keyboard_shortcut") {
         let focus_runtime_id = focus_runtime_id.ok_or_else(stale_accessibility_state)?;
         vec![find_control(root, focus_runtime_id).ok_or_else(stale_accessibility_state)?]

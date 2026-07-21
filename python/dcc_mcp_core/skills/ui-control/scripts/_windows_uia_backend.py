@@ -177,6 +177,7 @@ def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy
 
 
 def _host_error(exc: Exception) -> Dict[str, Any]:
+    message = str(exc)
     code = str(getattr(exc, "code", None) or UiErrorCode.BACKEND_UNAVAILABLE)
     mapping = {
         "approval_required": "approval_required",
@@ -189,7 +190,23 @@ def _host_error(exc: Exception) -> Dict[str, Any]:
     }
     mapped_code = mapping.get(code, code)
     recovery: Dict[str, Any] = {}
-    if mapped_code == UiErrorCode.INVALID_TARGET:
+    if mapped_code == UiErrorCode.INVALID_TARGET and "protected system ui" in message.lower():
+        recovery = {
+            "prompt": (
+                "Protected Windows UI is covering the requested point. Call ui_control__stop for this "
+                "session, then ask the operator to close or move that protected system surface manually. "
+                "Do not hide, override, click through, or ignore protected system UI. After the obstruction "
+                "is clear, take a fresh ui_control__snapshot for the same exact authorized PID/HWND before "
+                "retrying the action."
+            ),
+            "possible_solutions": [
+                "Stop this UI Control session so its native overlays are cleaned up.",
+                "Have the operator close or move the protected Windows surface, then take a fresh snapshot.",
+            ],
+            "recovery_actions": ["stop", "snapshot"],
+            "recovery_scope": "same_exact_pid_hwnd",
+        }
+    elif mapped_code == UiErrorCode.INVALID_TARGET:
         recovery = {
             "prompt": (
                 "If this exact PID/HWND is still valid but minimized or hidden, call ui_control__act with "
@@ -204,7 +221,7 @@ def _host_error(exc: Exception) -> Dict[str, Any]:
             "recovery_scope": "same_exact_pid_hwnd",
         }
     return skill_error(
-        str(exc),
+        message,
         mapped_code,
         error_code=mapped_code,
         backend="windows-ui-control-host",
@@ -483,6 +500,12 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return _host_error(exc)
     entry["snapshot_id"] = None
     success = bool(raw.get("success"))
+    target_closed = bool(raw.get("target_closed"))
+    if target_closed:
+        with _CLIENTS_LOCK:
+            current = _CLIENTS.get(session_id)
+            if current is not None and current.get("client") is client:
+                _CLIENTS.pop(session_id, None)
     error_code = str(raw.get("error")) if raw.get("error") else None
     message = str(raw.get("message") or "DCC UI Control action completed.")
     result = UiActionResult(
@@ -490,15 +513,28 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         control_id=str(params.get("control_id") or ""),
         error_code=error_code,
         message=message,
-        metadata={"requires_new_screenshot": True, "policy_tier": raw.get("policy_tier")},
+        metadata={
+            "requires_new_screenshot": not target_closed,
+            "policy_tier": raw.get("policy_tier"),
+            "target_closed": target_closed,
+        },
     ).to_dict()
     audit = _audit_record(action, success, control, session_id, policy, error_code, message)
+    if target_closed:
+        audit["metadata"]["target_closed"] = True
     if not success:
         return skill_error(message, error_code or UiErrorCode.BACKEND_ERROR, result=result, audit=audit)
     return skill_success(
         f"Completed isolated Windows UI Control action {action!r}.",
-        prompt="Take a new ui_control__snapshot before the next action.",
+        prompt=(
+            "The exact target window closed after the completed action. Explicitly bind the intended new PID/HWND "
+            "before starting another UI Control session; no replacement window was followed."
+            if target_closed
+            else "Take a new ui_control__snapshot before the next action."
+        ),
         session_id=session_id,
+        session_active=not target_closed,
+        target_closed=target_closed,
         result=result,
         audit=audit,
     )

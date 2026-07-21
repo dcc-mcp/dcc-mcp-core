@@ -380,6 +380,72 @@ fn public_perform_restores_a_minimized_observed_window_before_rect_validation() 
     platform::clear_user_interrupt().unwrap();
 }
 
+#[cfg(windows)]
+#[test]
+fn minimized_target_start_owns_input_and_esc_watcher_before_restore() {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, IsIconic, SW_MINIMIZE, ShowWindow, WINDOW_EX_STYLE,
+        WINDOW_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    };
+    use windows::core::PCWSTR;
+
+    struct TestWindow(windows::Win32::Foundation::HWND);
+    impl Drop for TestWindow {
+        fn drop(&mut self) {
+            let _ = unsafe { DestroyWindow(self.0) };
+        }
+    }
+
+    let _interrupt_guard = user_interrupt_test_guard();
+    let _dpi_awareness = platform::ThreadDpiAwareness::enter().unwrap();
+    platform::clear_user_interrupt().unwrap();
+    let class = "STATIC\0".encode_utf16().collect::<Vec<_>>();
+    let title = "DCC MCP minimized pre-snapshot owner target\0"
+        .encode_utf16()
+        .collect::<Vec<_>>();
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            PCWSTR(class.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 | WS_VISIBLE.0),
+            200,
+            200,
+            640,
+            480,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+    .unwrap();
+    let _target_window = TestWindow(hwnd);
+    let handle = hwnd.0 as usize as u64;
+    let process_id = unsafe { GetCurrentProcessId() };
+    let _ = unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+    assert!(unsafe { IsIconic(hwnd) }.as_bool());
+
+    let session = ComputerUseSession::new(
+        ComputerUseTargetScope::new(Some(process_id), Some(handle)).unwrap(),
+        Some(process_id),
+        Some(handle),
+        None,
+        Some("test DCC".to_string()),
+    )
+    .unwrap();
+    let started = session.start().unwrap();
+
+    assert_eq!(started["active"], true);
+    assert_eq!(started["overlay_visible"], false);
+    assert_ne!(session.lock_state().desktop_barrier.window_handle(), 0);
+    assert!(platform::input_owner_is_busy_for_test());
+
+    let _ = session.stop();
+    platform::clear_user_interrupt().unwrap();
+}
+
 #[test]
 fn target_constraints_are_an_intersection() {
     let spec = TargetSpec {

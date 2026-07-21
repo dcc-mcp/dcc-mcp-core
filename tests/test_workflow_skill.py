@@ -291,10 +291,11 @@ class TestRunChainBundledDiscovery:
 
     def test_get_bundled_skill_paths_returns_list(self):
         from dcc_mcp_core import get_bundled_skill_paths
+        from dcc_mcp_core import get_bundled_skills_dir
 
         paths = get_bundled_skill_paths()
         assert isinstance(paths, list)
-        assert len(paths) == 1
+        assert paths == [str(Path(get_bundled_skills_dir()))]
 
     def test_get_bundled_skill_paths_opt_out(self):
         from dcc_mcp_core import get_bundled_skill_paths

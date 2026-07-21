@@ -11,12 +11,17 @@ use std::sync::Mutex;
 struct FakeRuntime {
     snapshot: RuntimeAccessibilityState,
     live_states: Mutex<VecDeque<RuntimeAccessibilityState>>,
+    minimized: bool,
+    target_closed_after_action: bool,
 }
 
 struct FakeSession {
     target: UiControlTarget,
     snapshot: RuntimeAccessibilityState,
     live_states: VecDeque<RuntimeAccessibilityState>,
+    minimized: bool,
+    target_closed_after_action: bool,
+    notice_started: bool,
 }
 
 impl Default for FakeRuntime {
@@ -24,6 +29,8 @@ impl Default for FakeRuntime {
         Self {
             snapshot: fake_accessibility_state(),
             live_states: Mutex::new(VecDeque::new()),
+            minimized: false,
+            target_closed_after_action: false,
         }
     }
 }
@@ -43,6 +50,9 @@ impl HostRuntime for FakeRuntime {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner()),
             ),
+            minimized: self.minimized,
+            target_closed_after_action: self.target_closed_after_action,
+            notice_started: false,
         }))
     }
 }
@@ -53,6 +63,7 @@ impl HostRuntimeSession for FakeSession {
     }
 
     fn start_visible_notice(&mut self) -> Result<(), HostFailure> {
+        self.notice_started = true;
         Ok(())
     }
 
@@ -62,15 +73,24 @@ impl HostRuntimeSession for FakeSession {
             window_handle: self.target.window_handle,
             exists: true,
             visible: true,
-            minimized: false,
+            minimized: self.minimized,
             foreground: true,
         })
     }
 
     fn change_window_state(
         &mut self,
-        _operation: UiControlWindowOperation,
+        operation: UiControlWindowOperation,
     ) -> Result<UiControlWindowState, HostFailure> {
+        if !self.notice_started {
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::BackendUnavailable,
+                "the UI Control owner and Esc watcher were not started",
+            ));
+        }
+        if operation == UiControlWindowOperation::Restore {
+            self.minimized = false;
+        }
         self.window_state()
     }
 
@@ -79,6 +99,13 @@ impl HostRuntimeSession for FakeSession {
         _max_depth: u32,
         _max_nodes: u32,
     ) -> Result<RuntimeSnapshot, HostFailure> {
+        self.start_visible_notice()?;
+        if self.minimized {
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::InvalidTarget,
+                "the scoped DCC window is minimized, closed, or unavailable",
+            ));
+        }
         Ok(RuntimeSnapshot {
             observation_id: "obs-1".to_owned(),
             target: self.target.clone(),
@@ -109,11 +136,17 @@ impl HostRuntimeSession for FakeSession {
     fn execute(
         &mut self,
         _observation_id: &str,
-        _action: &UiControlAction,
-        _fence: &ActionFenceExpectation,
+        action: &UiControlAction,
+        fence: &ActionFenceExpectation,
     ) -> Result<RuntimeActionResult, HostFailure> {
+        let live = self
+            .live_states
+            .pop_front()
+            .unwrap_or_else(|| self.snapshot.clone());
+        verify_expected_action_fence(action, fence, &live)?;
         Ok(RuntimeActionResult {
             message: "completed".to_owned(),
+            target_closed: self.target_closed_after_action,
             before_focus_runtime_id: None,
             after_focus_runtime_id: None,
         })
@@ -188,6 +221,8 @@ fn host_with_accessibility_states(
         runtime: Box::new(FakeRuntime {
             snapshot,
             live_states: Mutex::new(live_states.into()),
+            minimized: false,
+            target_closed_after_action: false,
         }),
         confirmation: Box::new(AllowConfirmation),
     }
@@ -302,7 +337,7 @@ fn handshake_is_required_and_exact() {
 }
 
 #[test]
-fn routine_session_is_notice_only() {
+fn opening_a_routine_session_does_not_request_confirmation() {
     let (mut host, mut connection) = negotiated();
     host.confirmation = Box::new(DenyConfirmation);
     assert!(matches!(
@@ -428,6 +463,278 @@ fn window_recovery_does_not_require_an_observation_and_disconnect_revokes_it() {
     ));
     connection.disconnect(&mut host);
     assert!(host.sessions.is_empty());
+}
+
+fn unity_game_view_accessibility_state(
+    game_view_runtime_id: &str,
+    focus_runtime_id: &str,
+) -> RuntimeAccessibilityState {
+    RuntimeAccessibilityState {
+        root: json!({
+            "runtime_id": "42.root",
+            "name": "Unity",
+            "class_name": "UnityContainerWndClass",
+            "children": [
+                {
+                    "runtime_id": "42.toolbar",
+                    "name": "Toolbar",
+                    "children": [
+                        {
+                            "runtime_id": "42.play",
+                            "name": "Play",
+                            "focused": focus_runtime_id == "42.play",
+                            "children": []
+                        },
+                        {
+                            "runtime_id": "42.pause",
+                            "name": "Pause",
+                            "focused": focus_runtime_id == "42.pause",
+                            "children": []
+                        }
+                    ]
+                },
+                {
+                    "runtime_id": "42.dock",
+                    "name": "GameView",
+                    "children": [
+                        {
+                            "runtime_id": game_view_runtime_id,
+                            "name": "Game",
+                            "class_name": "UnityGUIView",
+                            "focused": focus_runtime_id == game_view_runtime_id,
+                            "children": []
+                        },
+                        {
+                            "runtime_id": "42.status",
+                            "name": "Status Bar",
+                            "focused": focus_runtime_id == "42.status",
+                            "children": []
+                        }
+                    ]
+                }
+            ]
+        }),
+        focus_runtime_id: Some(focus_runtime_id.to_owned()),
+        node_count: 7,
+    }
+}
+
+#[test]
+fn minimized_exact_window_can_be_inspected_and_restored_before_interactive_control() {
+    let mut host = host();
+    host.runtime = Box::new(FakeRuntime {
+        minimized: true,
+        ..FakeRuntime::default()
+    });
+    let mut connection = UiControlHostConnection::default();
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::Hello(UiControlHostHello {
+                protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
+                client_name: "test".to_owned(),
+            })
+        ),
+        UiControlHostResponse::Hello { .. }
+    ));
+
+    let opened = connection.handle(
+        &mut host,
+        UiControlHostRequest::OpenSession {
+            session_id: "minimized-recovery".to_owned(),
+            grant: grant(false),
+        },
+    );
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = opened
+    else {
+        panic!("minimized exact target could not open a recovery session: {opened:?}");
+    };
+
+    let state = connection.handle(
+        &mut host,
+        UiControlHostRequest::GetWindowState {
+            session_id: "minimized-recovery".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+        },
+    );
+    assert!(matches!(
+        state,
+        UiControlHostResponse::WindowState {
+            state: UiControlWindowState {
+                exists: true,
+                minimized: true,
+                ..
+            },
+            ..
+        }
+    ));
+
+    let snapshot = connection.handle(
+        &mut host,
+        UiControlHostRequest::Snapshot {
+            session_id: "minimized-recovery".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            max_depth: 5,
+            max_nodes: 250,
+        },
+    );
+    assert!(matches!(
+        snapshot,
+        UiControlHostResponse::Error {
+            code: UiControlHostErrorCode::InvalidTarget,
+            ..
+        }
+    ));
+
+    let action = connection.handle(
+        &mut host,
+        UiControlHostRequest::ExecuteAction {
+            session_id: "minimized-recovery".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            observation_id: "not-observed".to_owned(),
+            accessibility_state_id: "not-observed".to_owned(),
+            action: Box::new(action(Some("uia:42.1"), UiControlInputKind::Semantic)),
+        },
+    );
+    assert!(matches!(
+        action,
+        UiControlHostResponse::ActionCompleted {
+            success: false,
+            error: Some(UiControlHostErrorCode::StaleObservation),
+            ..
+        }
+    ));
+
+    let restored = connection.handle(
+        &mut host,
+        UiControlHostRequest::ChangeWindowState {
+            session_id: "minimized-recovery".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            operation: UiControlWindowOperation::Restore,
+        },
+    );
+    assert!(matches!(
+        restored,
+        UiControlHostResponse::WindowStateChanged {
+            state: UiControlWindowState {
+                minimized: false,
+                ..
+            },
+            ..
+        }
+    ));
+
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::Snapshot {
+                session_id: "minimized-recovery".to_owned(),
+                task_grant_id: "grant-1".to_owned(),
+                window_capability,
+                max_depth: 5,
+                max_nodes: 250,
+            },
+        ),
+        UiControlHostResponse::Snapshot { .. }
+    ));
+}
+
+#[test]
+fn completed_action_that_closes_exact_target_succeeds_and_revokes_session() {
+    let mut host = host();
+    host.runtime = Box::new(FakeRuntime {
+        snapshot: unity_game_view_accessibility_state("42.game-view", "42.game-view"),
+        target_closed_after_action: true,
+        ..FakeRuntime::default()
+    });
+    let mut connection = UiControlHostConnection::default();
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::Hello(UiControlHostHello {
+                protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
+                client_name: "test".to_owned(),
+            })
+        ),
+        UiControlHostResponse::Hello { .. }
+    ));
+    let opened = connection.handle(
+        &mut host,
+        UiControlHostRequest::OpenSession {
+            session_id: "target-transition".to_owned(),
+            grant: grant(false),
+        },
+    );
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = opened
+    else {
+        panic!("session not opened: {opened:?}");
+    };
+    let snapshot = connection.handle(
+        &mut host,
+        UiControlHostRequest::Snapshot {
+            session_id: "target-transition".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            max_depth: 5,
+            max_nodes: 250,
+        },
+    );
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        ..
+    } = snapshot
+    else {
+        panic!("snapshot failed: {snapshot:?}");
+    };
+
+    let response = connection.handle(
+        &mut host,
+        UiControlHostRequest::ExecuteAction {
+            session_id: "target-transition".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            observation_id,
+            accessibility_state_id,
+            action: Box::new(action(
+                Some("uia:42.game-view"),
+                UiControlInputKind::Semantic,
+            )),
+        },
+    );
+    assert!(matches!(
+        response,
+        UiControlHostResponse::ActionCompleted {
+            success: true,
+            target_closed: true,
+            ..
+        }
+    ));
+    assert!(!host.sessions.contains_key("target-transition"));
+    assert!(!connection.owned_sessions.contains("target-transition"));
+
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::GetWindowState {
+                session_id: "target-transition".to_owned(),
+                task_grant_id: "grant-1".to_owned(),
+                window_capability,
+            },
+        ),
+        UiControlHostResponse::Error {
+            code: UiControlHostErrorCode::SessionNotFound,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -841,7 +1148,182 @@ fn execution_fence_rejects_same_identity_with_a_changed_security_signature() {
 }
 
 #[test]
-fn confirmation_round_trip_rechecks_keyboard_focus_before_input() {
+fn unity_shortcut_allows_ordinary_dynamic_focus_drift_before_input() {
+    let snapshot =
+        unity_game_view_accessibility_state("42.game-view.snapshot", "42.game-view.snapshot");
+    let host_refresh =
+        unity_game_view_accessibility_state("42.game-view.live", "42.game-view.live");
+    let pre_input = unity_game_view_accessibility_state("42.game-view.live", "42.play");
+    let mut host = host_with_accessibility_states(snapshot, vec![host_refresh, pre_input]);
+    let mut connection = UiControlHostConnection::default();
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::Hello(UiControlHostHello {
+                protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
+                client_name: "test".to_owned(),
+            })
+        ),
+        UiControlHostResponse::Hello { .. }
+    ));
+    let opened = connection.handle(
+        &mut host,
+        UiControlHostRequest::OpenSession {
+            session_id: "unity-game-view".to_owned(),
+            grant: grant(true),
+        },
+    );
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = opened
+    else {
+        panic!("session not opened: {opened:?}");
+    };
+    let snapshot = connection.handle(
+        &mut host,
+        UiControlHostRequest::Snapshot {
+            session_id: "unity-game-view".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            max_depth: 5,
+            max_nodes: 250,
+        },
+    );
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        ..
+    } = snapshot
+    else {
+        panic!("snapshot failed: {snapshot:?}");
+    };
+
+    let response = connection.handle(
+        &mut host,
+        UiControlHostRequest::ExecuteAction {
+            session_id: "unity-game-view".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability,
+            observation_id,
+            accessibility_state_id,
+            action: Box::new(UiControlAction {
+                action: "keyboard_shortcut".to_owned(),
+                input_kind: UiControlInputKind::RawInput,
+                keys: vec!["CTRL+P".to_owned()],
+                ..action(None, UiControlInputKind::RawInput)
+            }),
+        },
+    );
+
+    assert!(matches!(
+        response,
+        UiControlHostResponse::ActionCompleted {
+            success: true,
+            policy_tier: UiControlPolicyTier::TaskGrant,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn focus_dependent_keypress_still_rejects_unity_focus_identity_drift() {
+    let snapshot =
+        unity_game_view_accessibility_state("42.game-view.snapshot", "42.game-view.snapshot");
+    let live = unity_game_view_accessibility_state("42.game-view.live", "42.play");
+    for action_name in ["keypress", "keyboard_shortcut"] {
+        let keypress = UiControlAction {
+            action: action_name.to_owned(),
+            input_kind: UiControlInputKind::RawInput,
+            keys: vec!["ENTER".to_owned()],
+            ..action(None, UiControlInputKind::RawInput)
+        };
+
+        let error = verify_action_fence(
+            &keypress,
+            &snapshot.root,
+            snapshot.focus_runtime_id.as_deref(),
+            None,
+            &live,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.code,
+            UiControlHostErrorCode::StaleObservation,
+            "{action_name}"
+        );
+    }
+}
+
+#[test]
+fn both_modified_shortcut_labels_use_the_stable_unity_root_fence() {
+    let snapshot =
+        unity_game_view_accessibility_state("42.game-view.snapshot", "42.game-view.snapshot");
+    let host_refresh =
+        unity_game_view_accessibility_state("42.game-view.live", "42.game-view.live");
+    let pre_input = unity_game_view_accessibility_state("42.game-view.live", "42.play");
+
+    for action_name in ["keypress", "keyboard_shortcut"] {
+        let shortcut = UiControlAction {
+            action: action_name.to_owned(),
+            input_kind: UiControlInputKind::RawInput,
+            keys: vec!["CTRL+P".to_owned()],
+            ..action(None, UiControlInputKind::RawInput)
+        };
+        let (policy_tier, controls) = verify_action_fence(
+            &shortcut,
+            &snapshot.root,
+            snapshot.focus_runtime_id.as_deref(),
+            None,
+            &host_refresh,
+        )
+        .unwrap();
+        assert_eq!(controls.len(), 1, "{action_name}");
+        assert_eq!(controls[0].identity, "42.root", "{action_name}");
+        let expected = ActionFenceExpectation {
+            controls,
+            observation: None,
+            #[cfg(windows)]
+            max_depth: 12,
+            #[cfg(windows)]
+            max_nodes: 2_000,
+            policy_tier,
+        };
+
+        assert_eq!(
+            verify_expected_action_fence(&shortcut, &expected, &pre_input).unwrap(),
+            UiControlPolicyTier::TaskGrant,
+            "{action_name}"
+        );
+    }
+}
+
+#[test]
+fn modified_shortcut_still_rejects_scoped_uia_root_replacement() {
+    let snapshot = unity_game_view_accessibility_state("42.game-view", "42.game-view");
+    let mut live = unity_game_view_accessibility_state("42.game-view", "42.play");
+    live.root["runtime_id"] = json!("42.replacement-root");
+    let shortcut = UiControlAction {
+        action: "keyboard_shortcut".to_owned(),
+        input_kind: UiControlInputKind::RawInput,
+        keys: vec!["CTRL+P".to_owned()],
+        ..action(None, UiControlInputKind::RawInput)
+    };
+
+    let error = verify_action_fence(
+        &shortcut,
+        &snapshot.root,
+        snapshot.focus_runtime_id.as_deref(),
+        None,
+        &live,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, UiControlHostErrorCode::StaleObservation);
+}
+
+#[test]
+fn confirmation_round_trip_hard_denies_password_focus_before_input() {
     let snapshot = keyboard_accessibility_state("42.ordinary");
     let before_confirmation = keyboard_accessibility_state("42.ordinary");
     let after_confirmation = keyboard_accessibility_state("42.password");
@@ -910,15 +1392,104 @@ fn confirmation_round_trip_rechecks_keyboard_focus_before_input() {
         response,
         UiControlHostResponse::ActionCompleted {
             success: false,
-            error: Some(UiControlHostErrorCode::StaleObservation),
+            error: Some(UiControlHostErrorCode::HardDenied),
             ..
         }
     ));
+    // The denial happens before a mutation is attempted. Other actions must
+    // still pass their own live fence against this retained observation.
     assert!(
         host.sessions
             .get("keyboard-focus")
-            .is_some_and(|session| session.observation_id.is_none())
+            .is_some_and(|session| session.observation_id.is_some())
     );
+}
+
+#[test]
+fn confirmation_denial_leaves_the_host_available_for_following_requests() {
+    let snapshot = keyboard_accessibility_state("42.ordinary");
+    let live = keyboard_accessibility_state("42.ordinary");
+    let mut host = host_with_accessibility_states(snapshot, vec![live]);
+    host.confirmation = Box::new(DenyConfirmation);
+    let mut connection = UiControlHostConnection::default();
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::Hello(UiControlHostHello {
+                protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
+                client_name: "test".to_owned(),
+            })
+        ),
+        UiControlHostResponse::Hello { .. }
+    ));
+    let opened = connection.handle(
+        &mut host,
+        UiControlHostRequest::OpenSession {
+            session_id: "confirmation-timeout".to_owned(),
+            grant: grant(true),
+        },
+    );
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = opened
+    else {
+        panic!("session not opened: {opened:?}");
+    };
+    let snapshot = connection.handle(
+        &mut host,
+        UiControlHostRequest::Snapshot {
+            session_id: "confirmation-timeout".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            max_depth: 5,
+            max_nodes: 250,
+        },
+    );
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        ..
+    } = snapshot
+    else {
+        panic!("snapshot failed: {snapshot:?}");
+    };
+
+    let denied = connection.handle(
+        &mut host,
+        UiControlHostRequest::ExecuteAction {
+            session_id: "confirmation-timeout".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            observation_id,
+            accessibility_state_id,
+            action: Box::new(UiControlAction {
+                action: "keyboard_shortcut".to_owned(),
+                input_kind: UiControlInputKind::RawInput,
+                keys: vec!["ALT+F4".to_owned()],
+                ..action(None, UiControlInputKind::RawInput)
+            }),
+        },
+    );
+    assert!(matches!(
+        denied,
+        UiControlHostResponse::ActionCompleted {
+            success: false,
+            error: Some(UiControlHostErrorCode::ApprovalRequired),
+            ..
+        }
+    ));
+
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::GetWindowState {
+                session_id: "confirmation-timeout".to_owned(),
+                task_grant_id: "grant-1".to_owned(),
+                window_capability,
+            },
+        ),
+        UiControlHostResponse::WindowState { .. }
+    ));
 }
 
 #[test]
@@ -1150,59 +1721,66 @@ fn semantic_set_text_rejects_authentication_markers_on_ancestors() {
 
 #[test]
 fn execution_fence_rejects_keyboard_authentication_tier_escalation() {
-    let ordinary = RuntimeAccessibilityState {
-        root: json!({
-            "runtime_id": "42.root",
-            "name": "Tools",
-            "children": [{
-                "runtime_id": "42.input",
-                "name": "Code",
-                "focused": true,
-                "children": []
-            }]
-        }),
-        focus_runtime_id: Some("42.input".to_owned()),
-        node_count: 2,
-    };
-    let keypress = UiControlAction {
-        action: "keypress".to_owned(),
-        keys: vec!["ENTER".to_owned()],
-        ..action(None, UiControlInputKind::RawInput)
-    };
-    let (policy_tier, controls) = verify_action_fence(
-        &keypress,
-        &ordinary.root,
-        ordinary.focus_runtime_id.as_deref(),
-        None,
-        &ordinary,
-    )
-    .unwrap();
-    let expected = ActionFenceExpectation {
-        controls,
-        observation: None,
-        #[cfg(windows)]
-        max_depth: 12,
-        #[cfg(windows)]
-        max_nodes: 2_000,
-        policy_tier,
-    };
-    let authentication = RuntimeAccessibilityState {
-        root: json!({
-            "runtime_id": "42.root",
-            "name": "One-Time Code",
-            "children": [{
-                "runtime_id": "42.input",
-                "name": "Code",
-                "focused": true,
-                "children": []
-            }]
-        }),
-        focus_runtime_id: Some("42.input".to_owned()),
-        node_count: 2,
-    };
+    for action_name in ["keypress", "keyboard_shortcut"] {
+        let ordinary = RuntimeAccessibilityState {
+            root: json!({
+                "runtime_id": "42.root",
+                "name": "Tools",
+                "children": [{
+                    "runtime_id": "42.input",
+                    "name": "Code",
+                    "focused": true,
+                    "children": []
+                }]
+            }),
+            focus_runtime_id: Some("42.input".to_owned()),
+            node_count: 2,
+        };
+        let keyboard_action = UiControlAction {
+            action: action_name.to_owned(),
+            keys: vec!["CTRL+P".to_owned()],
+            ..action(None, UiControlInputKind::RawInput)
+        };
+        let (policy_tier, controls) = verify_action_fence(
+            &keyboard_action,
+            &ordinary.root,
+            ordinary.focus_runtime_id.as_deref(),
+            None,
+            &ordinary,
+        )
+        .unwrap();
+        let expected = ActionFenceExpectation {
+            controls,
+            observation: None,
+            #[cfg(windows)]
+            max_depth: 12,
+            #[cfg(windows)]
+            max_nodes: 2_000,
+            policy_tier,
+        };
+        let authentication = RuntimeAccessibilityState {
+            root: json!({
+                "runtime_id": "42.root",
+                "name": "One-Time Code",
+                "children": [{
+                    "runtime_id": "42.input",
+                    "name": "Code",
+                    "focused": true,
+                    "children": []
+                }]
+            }),
+            focus_runtime_id: Some("42.input".to_owned()),
+            node_count: 2,
+        };
 
-    let error = verify_expected_action_fence(&keypress, &expected, &authentication).unwrap_err();
-    assert_eq!(error.code, UiControlHostErrorCode::StaleObservation);
+        let error =
+            verify_expected_action_fence(&keyboard_action, &expected, &authentication).unwrap_err();
+        assert_eq!(
+            error.code,
+            UiControlHostErrorCode::StaleObservation,
+            "{action_name}"
+        );
+    }
 }
 
 #[test]

@@ -62,6 +62,35 @@ def _release_tuple(version: str) -> tuple[int, int, int] | None:
     return tuple(int(part) for part in match.groups())
 
 
+def _core_ui_control_contract_errors(archive: zipfile.ZipFile, names: list[str]) -> list[str]:
+    """Validate the post-0.19.63 Python/skill UI Control naming cutover."""
+    errors: list[str] = []
+    contracts_member = "dcc_mcp_core/adapter_contracts.py"
+    skill_member = "dcc_mcp_core/skills/ui-control/SKILL.md"
+    tools_member = "dcc_mcp_core/skills/ui-control/tools.yaml"
+    for member in (contracts_member, skill_member, tools_member):
+        if member not in names:
+            errors.append(f"wheel is missing required UI Control member {member!r}")
+    legacy_members = sorted(name for name in names if name.startswith("dcc_mcp_core/skills/app-ui/"))
+    if legacy_members:
+        errors.append("wheel contains removed app-ui skill members")
+    if errors:
+        return errors
+
+    contracts = archive.read(contracts_member).decode("utf-8")
+    skill = archive.read(skill_member).decode("utf-8")
+    tools = archive.read(tools_member).decode("utf-8")
+    if "class UiControlPolicy:" not in contracts or "class UiControlAuditRecord:" not in contracts:
+        errors.append("adapter_contracts.py is missing canonical UI Control contracts")
+    if "class AppUiPolicy:" in contracts or "class AppUiAuditRecord:" in contracts:
+        errors.append("adapter_contracts.py contains removed App UI contracts")
+    if "name: ui-control" not in skill or "ui_control__snapshot" not in skill:
+        errors.append("bundled UI Control skill does not expose the canonical ui_control contract")
+    if "app_ui__" in skill or "app_ui__" in tools:
+        errors.append("bundled UI Control skill contains removed app_ui tool names")
+    return errors
+
+
 def validate_wheel(
     path: Path,
     profile: str,
@@ -84,6 +113,14 @@ def validate_wheel(
             has_extension = _contains_extension(names, profile_contract.get("extension_module"))
             metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/METADATA"))
             wheel_metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/WHEEL"))
+            actual_version = str(metadata.get("Version", ""))
+            actual_release = _release_tuple(actual_version)
+            if (
+                profile_contract["distribution"] == "dcc-mcp-core"
+                and actual_release is not None
+                and actual_release >= (0, 19, 63)
+            ):
+                errors.extend(_core_ui_control_contract_errors(archive, names))
     except (OSError, ValueError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
         return [f"cannot inspect wheel: {exc}"]
 
@@ -114,8 +151,6 @@ def validate_wheel(
     for member in required_members:
         if member not in names:
             errors.append(f"wheel is missing required member {member!r}")
-    actual_version = str(metadata.get("Version", ""))
-    actual_release = _release_tuple(actual_version)
     for member, required_from in platform_policy.get("versioned_required_members", {}).items():
         required_release = _release_tuple(str(required_from))
         if actual_release is None:
