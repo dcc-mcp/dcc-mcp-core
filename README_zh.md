@@ -613,6 +613,44 @@ DCC 适配器（如 `dcc-mcp-maya`）默认包含内置 skills。关闭：`start
 
 ---
 
+## DCC UI Control —— 应用程序界面自动化
+
+当 DCC 原生 API 无法直接观测或操作界面状态时，`ui-control` 提供作用域限定的桌面应用界面自动化能力。
+Agent 通过 `ui_control__snapshot`（截图）、`ui_control__find`（查找控件）、`ui_control__act`（执行操作）、
+`ui_control__wait_for`（等待条件）和 `ui_control__stop_computer_use`（停止控制）等工具来观测和操作目标窗口。
+
+![带角标和底部胶囊的受控窗口](docs/assets/ui-control/corner-brackets-capsule.png)
+
+### 核心能力
+
+- **作用域限定的窗口定位** —— 截图和操作均绑定到单一进程或窗口句柄，绝不作用于整个桌面。
+- **语义 UIA + 原始输入回退** —— 优先通过 `ui_control__find` 解析稳定的语义控件（按钮、文本框、复选框），
+  仅当自定义绘制控件无语义节点时回退到截图坐标。
+- **带边界的安全模型** —— 每个操作都被适配器/操作者绑定的 PID/HWND 限定范围。原始输入需要显式启用
+  （`DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`）。硬性禁止：密码、认证控件、LockApp、Windows 安全界面、
+  终端和凭据管理器窗口。
+- **可见的胶囊覆盖层** —— DCC UI Control 处于活动状态时，目标窗口四周显示可穿透的角标，
+  底部居中显示胶囊提示 `DCC UI Control · <应用名> | Ctrl+Alt+Esc 停止`。
+  用户可随时按 `Ctrl+Alt+Esc` 停止控制。
+- **审计日志** —— 每次截图、操作、等待、停止和被拒绝的操作都会向共享日志目录追加一条脱敏的
+  `ui_control_operation` 事件，可在 Admin Logs 面板中查看，不会暴露输入的文本或截图坐标。
+
+### 工具参考
+
+| 工具 | 说明 |
+|------|------|
+| `ui_control__snapshot` | 从作用域窗口捕获带边界 PNG 和 UIA 树 |
+| `ui_control__find` | 通过查询、角色、标签或对象名定位语义控件 |
+| `ui_control__act` | 执行一个限定作用域的语义或基于坐标的操作 |
+| `ui_control__wait_for` | 轮询直到 UI 条件成立或超时 |
+| `ui_control__stop_computer_use` | 释放胶囊、热键和全局输入所有者 |
+| `ui_control__system_operation` | 确保指定的 Windows 配置项（需要操作者授权） |
+
+详细的 Skill 参考和 Agent 工作流请参见
+[ui-control 技能文档](python/dcc_mcp_core/skills/ui-control/SKILL.md)。
+
+![Admin Logs 面板中的脱敏 ui_control_operation 审计事件](docs/assets/ui-control/admin-logs-audit.png)
+
 ## 解决 MCP 上下文爆炸
 
 **问题**：标准 MCP 在 `tools/list` 里返回*所有*工具，连跟当前任务/实例无关的也一起。3 个 DCC 实例 × 50 个 skills × 5 个脚本 = **750 个工具**，上下文窗口瞬间爆满。
