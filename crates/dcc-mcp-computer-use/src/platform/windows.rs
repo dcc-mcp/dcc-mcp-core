@@ -5,14 +5,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
-    COLORREF, CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WAIT_ABANDONED,
-    WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
+    COLORREF, CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WAIT_ABANDONED, WAIT_OBJECT_0,
+    WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    CreateEllipticRgn,
-    EnumDisplayMonitors, GetMonitorInfoW, HDC,
-    HMONITOR, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint, MonitorFromRect,
-    SetWindowRgn,
+    CreateEllipticRgn, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONULL,
+    MONITORINFO, MonitorFromPoint, MonitorFromRect, SetWindowRgn,
 };
 use windows::Win32::System::RemoteDesktop::{
     NOTIFY_FOR_THIS_SESSION, WTS_CONNECTSTATE_CLASS, WTS_CURRENT_SESSION, WTSActive,
@@ -40,17 +38,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEINPUT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, DestroyWindow, DispatchMessageW, GA_ROOT,
-    GW_HWNDPREV, GWL_EXSTYLE, GetAncestor, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow,
+    BringWindowToTop, DestroyWindow, DispatchMessageW, GA_ROOT, GW_HWNDPREV, GWL_EXSTYLE,
+    GetAncestor, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow,
     GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostMessageW,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-    SetForegroundWindow,
-    SetWindowPos, ShowWindow, TranslateMessage, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY,
-    WM_WTSSESSION_CHANGE,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-    WindowFromPoint,
+    GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible,
+    MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostMessageW, SM_CXVIRTUALSCREEN,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_RESTORE, SW_SHOWNOACTIVATE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowPos,
+    ShowWindow, TranslateMessage, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY,
+    WM_WTSSESSION_CHANGE, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WindowFromPoint,
 };
 use windows::core::{BOOL, PCWSTR, PWSTR, w};
 
@@ -1209,5 +1205,5 @@ mod overlay;
 mod overlay_render;
 
 use geometry::*;
-pub(super) use overlay_render::*;
 pub(crate) use input::{flush_pending_input_releases, perform_action, window_dpi};
+pub(super) use overlay_render::*;

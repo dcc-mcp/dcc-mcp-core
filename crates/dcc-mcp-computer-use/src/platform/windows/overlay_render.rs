@@ -1,35 +1,33 @@
-use windows::Win32::Foundation::{
-    COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM,
-};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CombineRgn, CreateEllipticRgn, CreateFontW,
     CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
     DT_END_ELLIPSIS, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FW_SEMIBOLD,
-    GetStockObject, HBRUSH, HGDIOBJ, NULL_BRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, RGN_DIFF, RGN_ERROR,
-    SelectObject, SetBkMode, SetTextColor, SetWindowRgn, TRANSPARENT,
+    GetStockObject, HBRUSH, HGDIOBJ, NULL_BRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, RGN_DIFF,
+    RGN_ERROR, SelectObject, SetBkMode, SetTextColor, SetWindowRgn, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClassInfoW, GetClassNameW,
-    GetClientRect, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GWL_USERDATA, HWND_TOPMOST, IsWindowVisible, LWA_ALPHA, MSG, PM_REMOVE,
-    PeekMessageW, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWL_USERDATA, GetClassInfoW,
+    GetClassNameW, GetClientRect, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
+    GetWindowTextW, HWND_TOPMOST, IsWindowVisible, LWA_ALPHA, MSG, PM_REMOVE, PeekMessageW,
+    RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
     SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos,
     ShowWindow, TranslateMessage, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_PAINT,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT,
+    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+    WS_POPUP, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT,
     WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
 };
 use windows::core::{PCWSTR, w};
 
-use crate::{ComputerUseError, ComputerUseErrorCode, ComputerUseResult};
 use super::geometry::scaled_pixels;
 use super::{
-    CONTROL_ACCENT_COLOR, CONTROL_CAPSULE_FONT_SIZE, CONTROL_CURSOR_COLOR, CONTROL_GLOW_COLOR,
-    CONTROL_OVERLAY_CLASS, CONTROL_GLOW_CLASS, CONTROL_CURSOR_CLASS, LAST_ACTION_DOT_CLASS,
+    CONTROL_ACCENT_COLOR, CONTROL_CAPSULE_FONT_SIZE, CONTROL_CURSOR_CLASS, CONTROL_CURSOR_COLOR,
+    CONTROL_GLOW_CLASS, CONTROL_GLOW_COLOR, CONTROL_OVERLAY_CLASS, LAST_ACTION_DOT_CLASS,
     OverlayGeometry,
 };
+use crate::{ComputerUseError, ComputerUseErrorCode, ComputerUseResult};
 
 #[derive(Clone, Copy)]
 pub(super) enum OverlayTone {
@@ -96,8 +94,7 @@ unsafe extern "system" fn overlay_window_proc(
                 COLORREF(stored_color)
             } else {
                 let mut class_name = [0_u16; 64];
-                let class_length =
-                    unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
+                let class_length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
                 match String::from_utf16_lossy(&class_name[..class_length]).as_ref() {
                     "DccMcpComputerUseGlowOverlay" => CONTROL_GLOW_COLOR,
                     "DccMcpComputerUseCursorOverlay" => CONTROL_CURSOR_COLOR,
@@ -229,7 +226,14 @@ pub(super) fn create_cursor_ring_overlay(
     alpha: u8,
     session_color: Option<COLORREF>,
 ) -> ComputerUseResult<HWND> {
-    let hwnd = create_color_overlay("", geometry, alpha, false, OverlayTone::Cursor, session_color)?;
+    let hwnd = create_color_overlay(
+        "",
+        geometry,
+        alpha,
+        false,
+        OverlayTone::Cursor,
+        session_color,
+    )?;
     if let Err(error) = set_pointer_ring_region(hwnd, geometry.2, geometry.3) {
         let _ = unsafe { DestroyWindow(hwnd) };
         return Err(error);
@@ -237,7 +241,11 @@ pub(super) fn create_cursor_ring_overlay(
     Ok(hwnd)
 }
 
-pub(super) fn set_pointer_ring_region(hwnd: HWND, width: i32, height: i32) -> ComputerUseResult<()> {
+pub(super) fn set_pointer_ring_region(
+    hwnd: HWND,
+    width: i32,
+    height: i32,
+) -> ComputerUseResult<()> {
     let thickness = (width.min(height) / 12).max(3);
     let outer = unsafe { CreateEllipticRgn(0, 0, width, height) };
     let inner =
