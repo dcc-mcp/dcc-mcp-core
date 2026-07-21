@@ -43,6 +43,7 @@ from dcc_mcp_core._server._inprocess_contracts import exception_to_error_envelop
 from dcc_mcp_core._server._inprocess_contracts import is_host_queue_dispatcher as _is_host_queue_dispatcher
 from dcc_mcp_core._server._inprocess_contracts import resolve_sandbox_action_name as _resolve_sandbox_action_name
 from dcc_mcp_core._server._inprocess_contracts import sandbox_denied_envelope
+from dcc_mcp_core._server._inprocess_contracts import timeout_hint_secs_to_ms
 from dcc_mcp_core.cancellation import _reset_current_job_id
 from dcc_mcp_core.cancellation import _set_current_job_id
 from dcc_mcp_core.cancellation import check_cancelled
@@ -52,8 +53,6 @@ from dcc_mcp_core.script_execution import FileBackedScriptExecutionParams
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 
 logger = logging.getLogger(__name__)
-
-_MAX_TIMEOUT_MS = 3_600_000
 
 _SCRIPT_PACKAGE_LOCK = threading.RLock()
 _SCRIPT_PACKAGE_CONDITION = threading.Condition(_SCRIPT_PACKAGE_LOCK)
@@ -66,42 +65,6 @@ _SCRIPT_PATH_REFS: dict[str, tuple[int, bool]] = {}
 # ponytail: one shared deadline keeps server shutdown bounded across all owned
 # packages; add a per-host setting only if real DCCs need different ceilings.
 _SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS = 1.0
-
-
-def timeout_hint_secs_to_ms(
-    timeout_hint_secs: int | None,
-    *,
-    action_name: str = "",
-    skill_name: str | None = None,
-    thread_affinity: str = "main",
-    execution: str = "sync",
-    warn_if_missing: bool = True,
-) -> int | None:
-    """Convert a tools.yaml ``timeout_hint_secs`` value to dispatcher ``timeout_ms``.
-
-    Returns ``None`` when the hint is absent so the host dispatcher keeps its
-    own default. Logs a structured warning for async main-affinity actions
-    that omit the hint (issue #999).
-    """
-    if timeout_hint_secs is None:
-        if (
-            warn_if_missing
-            and (thread_affinity or "any").lower() == "main"
-            and (execution or "sync").lower() == "async"
-        ):
-            logger.warning(
-                "timeout_hint_secs missing for async main-affinity action; dispatcher will use its default ceiling",
-                extra={
-                    "action_name": action_name,
-                    "skill_name": skill_name,
-                    "thread_affinity": thread_affinity,
-                    "execution": execution,
-                },
-            )
-        return None
-    if timeout_hint_secs <= 0:
-        return None
-    return min(int(timeout_hint_secs) * 1000, _MAX_TIMEOUT_MS)
 
 
 __all__ = [

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 import traceback
 from typing import Any
@@ -10,6 +11,10 @@ from typing import Callable
 
 from dcc_mcp_core._typing_compat import Protocol
 from dcc_mcp_core._typing_compat import runtime_checkable
+
+logger = logging.getLogger(__name__)
+
+_MAX_TIMEOUT_MS = 3_600_000
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,42 @@ def context_from_kwargs(
         job_id=job_id or None,
         cancel_token=cancel_token,
     )
+
+
+def timeout_hint_secs_to_ms(
+    timeout_hint_secs: int | None,
+    *,
+    action_name: str = "",
+    skill_name: str | None = None,
+    thread_affinity: str = "main",
+    execution: str = "sync",
+    warn_if_missing: bool = True,
+) -> int | None:
+    """Convert a tools.yaml ``timeout_hint_secs`` value to dispatcher ``timeout_ms``.
+
+    Returns ``None`` when the hint is absent so the host dispatcher keeps its
+    own default. Logs a structured warning for async main-affinity actions
+    that omit the hint (issue #999).
+    """
+    if timeout_hint_secs is None:
+        if (
+            warn_if_missing
+            and (thread_affinity or "any").lower() == "main"
+            and (execution or "sync").lower() == "async"
+        ):
+            logger.warning(
+                "timeout_hint_secs missing for async main-affinity action; dispatcher will use its default ceiling",
+                extra={
+                    "action_name": action_name,
+                    "skill_name": skill_name,
+                    "thread_affinity": thread_affinity,
+                    "execution": execution,
+                },
+            )
+        return None
+    if timeout_hint_secs <= 0:
+        return None
+    return min(int(timeout_hint_secs) * 1000, _MAX_TIMEOUT_MS)
 
 
 def sandbox_denied_envelope(exc: BaseException, *, action_name: str = "") -> dict[str, Any]:
