@@ -1525,8 +1525,8 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    assert_eq!(types.len(), 18);
-    for expected in ["godot", "openusd", "renderdoc", "shotgrid"] {
+    assert_eq!(types.len(), 19);
+    for expected in ["godot", "openusd", "renderdoc", "shotgrid", "unity"] {
         assert!(types.iter().any(|entry| entry["dcc_type"] == expected));
     }
 }

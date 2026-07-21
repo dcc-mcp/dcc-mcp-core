@@ -746,7 +746,7 @@ mod tests {
                 .count(),
             1
         );
-        for expected in ["godot", "renderdoc"] {
+        for expected in ["godot", "renderdoc", "unity"] {
             let entry = catalog
                 .dcc_types
                 .iter()
