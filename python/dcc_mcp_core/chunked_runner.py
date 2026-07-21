@@ -22,10 +22,7 @@ import time
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
-from typing import List
-from typing import Optional
 from typing import Sequence
-from typing import Union
 
 if TYPE_CHECKING:
     pass
@@ -74,7 +71,7 @@ class ChunkedProgress:
     def __init__(
         self,
         completed: int = 0,
-        total: Optional[int] = None,
+        total: int | None = None,
         last_step_at: float = 0.0,
     ) -> None:
         self.completed = completed
@@ -104,7 +101,7 @@ class ChunkedOutcome:
         self,
         status: str,
         progress: ChunkedProgress,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         self.status = status
         self.progress = progress
@@ -137,12 +134,12 @@ class ChunkedRunner:
 
     def __init__(
         self,
-        steps: Union[Sequence[ChunkedStep], Sequence[Callable[[], Any]]],
+        steps: Sequence[ChunkedStep] | Sequence[Callable[[], Any]],
         *,
-        cancel_token: Optional[CancelToken] = None,
+        cancel_token: CancelToken | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._steps: List[ChunkedStep] = []
+        self._steps: list[ChunkedStep] = []
         for i, item in enumerate(steps):
             if isinstance(item, ChunkedStep):
                 step = item
@@ -157,7 +154,7 @@ class ChunkedRunner:
         self._cancel_token = cancel_token
         self._clock = clock
         self._index: int = 0
-        self._outcome: Optional[ChunkedOutcome] = None
+        self._outcome: ChunkedOutcome | None = None
         self._progress = ChunkedProgress(
             completed=0,
             total=len(self._steps) if self._steps else None,
@@ -173,7 +170,7 @@ class ChunkedRunner:
         return self._progress
 
     @property
-    def outcome(self) -> Optional[ChunkedOutcome]:
+    def outcome(self) -> ChunkedOutcome | None:
         """Terminal outcome, or ``None`` while the runner is still active."""
         return self._outcome
 
@@ -204,6 +201,7 @@ class ChunkedRunner:
             ``True`` when at least one more step is available;
             ``False`` when the runner is terminal (sequence exhausted,
             failed, or cancelled).
+
         """
         # Idempotent no-op after terminal state.
         if self._outcome is not None:
@@ -254,7 +252,7 @@ class ChunkedRunner:
 
     # -- Internal helpers ----------------------------------------------------
 
-    def _publish_terminal(self, status: str, error: Optional[str] = None) -> None:
+    def _publish_terminal(self, status: str, error: str | None = None) -> None:
         """Publish the terminal outcome exactly once."""
         if self._terminal_published:
             return

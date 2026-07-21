@@ -21,8 +21,8 @@ from dcc_mcp_core import ChunkedOutcome
 from dcc_mcp_core import ChunkedProgress
 from dcc_mcp_core import ChunkedRunner
 from dcc_mcp_core import ChunkedStep
-from dcc_mcp_core import set_cancel_token
 from dcc_mcp_core import reset_cancel_token
+from dcc_mcp_core import set_cancel_token
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,11 @@ def test_exports_available() -> None:
 
 def test_chunked_step_slots() -> None:
     """ChunkedStep is a slotted, lightweight value object."""
-    fn = lambda: None
+
+    def _noop() -> None:
+        pass
+
+    fn = _noop
     s = ChunkedStep(3, fn)
     assert s.step == 3
     assert s.fn is fn
