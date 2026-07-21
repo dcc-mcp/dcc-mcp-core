@@ -630,8 +630,8 @@ Agent 通过 `ui_control__snapshot`（截图）、`ui_control__find`（查找控
   （`DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`）。硬性禁止：密码、认证控件、LockApp、Windows 安全界面、
   终端和凭据管理器窗口。
 - **可见的胶囊覆盖层** —— DCC UI Control 处于活动状态时，目标窗口四周显示可穿透的角标，
-  底部居中显示胶囊提示 `DCC UI Control · <应用名> | Ctrl+Alt+Esc 停止`。
-  用户可随时按 `Ctrl+Alt+Esc` 停止控制。
+  底部居中显示胶囊提示 `DCC UI Control · <应用名> | Esc 停止`。
+  用户可随时按 `Esc` 停止控制。
 - **审计日志** —— 每次截图、操作、等待、停止和被拒绝的操作都会向共享日志目录追加一条脱敏的
   `ui_control_operation` 事件，可在 Admin Logs 面板中查看，不会暴露输入的文本或截图坐标。
 
