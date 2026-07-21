@@ -91,6 +91,7 @@ fn make_service_entry(port: u16) -> ServiceEntry {
         scene: None,
         documents: vec![],
         pid: None,
+        host_pid: None,
         sentinel_path: None,
         display_name: Some("maya-test".into()),
         status: ServiceStatus::Available,

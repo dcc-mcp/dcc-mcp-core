@@ -59,6 +59,20 @@ class TestDccMcpSkill:
             assert keyword in desc
         assert "use this skill first" in desc
 
+    def test_marketplace_intent_is_cli_search_first(self) -> None:
+        meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
+        assert meta is not None
+        desc = (meta.description or "").lower()
+        assert "marketplace" in desc
+        assert "query the marketplace" in desc
+
+        body = " ".join((Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8").lower().split())
+        assert "marketplace intent" in body
+        assert "dcc-mcp-cli marketplace search" in body
+        assert "does not require a live dcc instance" in body
+        assert "never invent a package name" in body
+        assert "dcc-mcp-cli marketplace inspect" in body
+
     def test_body_prioritizes_structured_dcc_mcp_tools_for_user_intent(self) -> None:
         body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8").lower()
         assert "dcc intent routing" in body
@@ -83,6 +97,7 @@ class TestDccMcpSkill:
         root = Path(DCC_MCP_SKILL_DIR)
         assert (root / "references" / "CLI_CHEATSHEET.md").is_file()
         assert (root / "references" / "ZERO_INSTANCES_CLI.md").is_file()
+        assert len((root / "SKILL.md").read_text(encoding="utf-8").splitlines()) <= 500
 
     def test_probe_cli_missing(self) -> None:
         with patch.object(check_cli_mod.shutil, "which", return_value=None):

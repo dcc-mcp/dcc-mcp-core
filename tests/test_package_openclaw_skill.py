@@ -25,9 +25,12 @@ def test_package_excludes_python_cache_and_bytecode(tmp_path: Path) -> None:
     packager = load_packager()
     skill_dir = tmp_path / "skills" / "dcc-mcp"
     script_dir = skill_dir / "scripts"
+    agents_dir = skill_dir / "agents"
     cache_dir = script_dir / "__pycache__"
     cache_dir.mkdir(parents=True)
+    agents_dir.mkdir()
     (skill_dir / "SKILL.md").write_text("---\nname: dcc-mcp\n---\n", encoding="utf-8")
+    (agents_dir / "openai.yaml").write_text('interface:\n  display_name: "DCC-MCP"\n', encoding="utf-8")
     (script_dir / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
     (cache_dir / "helper.cpython-312.pyc").write_bytes(b"bytecode")
     (script_dir / "orphan.pyc").write_bytes(b"bytecode")
@@ -38,4 +41,8 @@ def test_package_excludes_python_cache_and_bytecode(tmp_path: Path) -> None:
 
     with ZipFile(archive_path) as archive:
         names = set(archive.namelist())
-    assert names == {"dcc-mcp/SKILL.md", "dcc-mcp/scripts/helper.py"}
+    assert names == {
+        "dcc-mcp/SKILL.md",
+        "dcc-mcp/agents/openai.yaml",
+        "dcc-mcp/scripts/helper.py",
+    }

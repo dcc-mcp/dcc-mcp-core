@@ -52,6 +52,8 @@ does not replace a running server binary.
 - Gateway daemon: the one machine-wide `dcc-mcp-server gateway` process that owns routing, dynamic capability search/describe/call, and Gateway Admin.
 - Guardian: a lightweight loop inside daemon-backed services that probes gateway `/health` and re-ensures the daemon through `gateway-launch.lock`; it is not a separate process.
 - Service heartbeat: registry freshness for the service row only. Do not describe heartbeat as the gateway restart trigger.
+- Service owner: the process that owns the registry sentinel and MCP endpoint; its `pid`/sentinel prove the service itself is alive.
+- Bound DCC host: optional external process identified by `host_pid`; both owner and host must stay alive. Standalone/headless services intentionally have no bound host.
 
 ## Fast Workflow
 
@@ -75,6 +77,11 @@ does not replace a running server binary.
     - [docs/guide/new-adapter-onboarding.md](../../docs/guide/new-adapter-onboarding.md) for new adapter scaffolding.
     - [docs/guide/adapter-compatibility-matrix.md](../../docs/guide/adapter-compatibility-matrix.md) for the per-DCC compatibility table.
 4. Start from `DccServerBase` + `DccServerOptions.from_env(...)`.
+   Classify the runtime lifetime explicitly:
+   - Embedded adapter: the service owner is the DCC process; no separate host PID is needed.
+   - Standard sidecar: pass `watch_pid=current_dcc_pid`; core publishes the sidecar owner and bound host as separate liveness signals.
+   - Other out-of-process adapter: pass `dcc_pid=current_dcc_pid` so `McpHttpConfig.host_pid` binds discovery to the DCC lifetime.
+   - Standalone/headless service: pass `instance_type="standalone"`, leave `dcc_pid` unset, and do not bind it to an optional GUI process. Runtime identity is independent from `standalone_main_thread`, which controls tool execution only.
 5. Route host API calls through `HostExecutionBridge`; do not hand-roll a second script executor.
 6. Keep DCC identity data-driven: `dcc_name`, `server_name`, env-var prefix, skill names, and gateway metadata.
    Leave the instance port unset so core resolves `DCC_MCP_<DCC>_PORT` or asks the OS for a free port.
@@ -128,6 +135,10 @@ does not replace a running server binary.
      idempotent, confirmation-gated, and free of credentials. Do not treat
      `elevation_required` as permission to automate UAC or another shell path.
 8. Use CLI profiles (`dcc-mcp-cli gateway ...`, `list/search/describe/call`) as the user UX; treat `dcc-mcp-server` modes as runtime plumbing. Read `docs/guide/gateway.md` before changing daemon, guardian, sentinel, registry, or idle-timeout behavior.
+   `gateway://instances` is agent-safe by default and returns only live,
+   routable rows. Use `?include_stale=true`, `?include_dead=true`, or
+   `?view=all` only for explicit diagnosis; never route a call from those
+   expanded operator views without re-validating live readiness.
 9. Use `dcc_mcp_core.install_lifecycle.build_sidecar_command(...)` / `launch_sidecar(...)` for sidecar startup and readiness. Read `docs/guide/adapter-install-lifecycle.md` before changing host RPC, dispatch readiness, launch stdio, `watch_pid`, or `instance_id` handling.
    - The sidecar MCP listener is dispatch-only. A py37-lite factory can expose local skill metadata, but it cannot advertise or activate declarative skills through the gateway. Require a native py37 wheel for that path, or provide a separate discovery MCP URL; never report lite `load_skill` success without an executable catalog.
 10. Pass `instance_id` to sidecar launch helpers only when it is a real UUID for the DCC service. During early startup, omit it or pass `None`; `build_sidecar_command()` rejects cosmetic values such as `"unknown"` with `success=false` and `reason="invalid_instance_id"` so adapters do not spawn a child that can only fail with a CLI argument error.

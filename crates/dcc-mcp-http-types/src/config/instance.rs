@@ -13,6 +13,15 @@ use serde::{Deserialize, Serialize};
 /// nothing carries runtime state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstanceConfig {
+    /// Optional PID of an external DCC host whose lifetime bounds this server.
+    ///
+    /// Embedded and standalone servers leave this unset because the registry
+    /// owner sentinel already represents their lifetime. Sidecars and other
+    /// out-of-process adapters set it so a surviving service cannot keep a
+    /// closed DCC instance discoverable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
+
     /// DCC application type (e.g. `"maya"`, `"blender"`). Reported in
     /// the shared `FileRegistry` so the gateway can route by DCC
     /// type.

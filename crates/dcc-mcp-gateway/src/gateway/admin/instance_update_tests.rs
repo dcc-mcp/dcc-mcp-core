@@ -281,6 +281,7 @@ fn make_service_entry(
         scene: None,
         documents: vec![],
         pid,
+        host_pid: None,
         sentinel_path: None,
         display_name: Some(format!("{dcc_type}-test")),
         status: ServiceStatus::Available,

@@ -4,6 +4,8 @@ Creates a directory with the standard dcc-mcp skill layout:
   <name>/
   ├── SKILL.md       # MIT-0 licensed frontmatter + body
   ├── tools.yaml     # Tool declarations with schemas and annotations
+  ├── agents/
+  │   └── openai.yaml # Codex interface metadata
   └── scripts/
       └── <action_name>.py
 
@@ -77,6 +79,7 @@ def create_extension(
         raise FileExistsError(f"Extension directory already exists: {skill_dir}")
 
     skill_dir.mkdir(parents=True)
+    (skill_dir / "agents").mkdir()
     (skill_dir / "scripts").mkdir()
 
     primary_dcc = dcc_targets[0] if dcc_targets else "python"
@@ -85,6 +88,10 @@ def create_extension(
     # --- SKILL.md ---
     skill_md = skill_dir / "SKILL.md"
     skill_md.write_text(_make_skill_md(name, description, primary_dcc, version, action_name, author), encoding="utf-8")
+
+    # --- agents/openai.yaml ---
+    openai_yaml = skill_dir / "agents" / "openai.yaml"
+    openai_yaml.write_text(_make_openai_yaml(name), encoding="utf-8")
 
     # --- tools.yaml ---
     tools_yaml = skill_dir / "tools.yaml"
@@ -98,6 +105,16 @@ def create_extension(
 
 
 # ── Templates ───────────────────────────────────────────────────────────────────
+
+
+def _make_openai_yaml(name: str) -> str:
+    """Generate Codex interface metadata for the extension."""
+    title = name.replace("-", " ").title()
+    return f'''interface:
+  display_name: "{title}"
+  short_description: "Run a DCC-MCP marketplace extension"
+  default_prompt: "Use ${name} to complete this DCC-MCP marketplace workflow."
+'''
 
 
 def _make_skill_md(

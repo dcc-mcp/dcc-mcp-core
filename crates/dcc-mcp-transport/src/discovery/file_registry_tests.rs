@@ -236,7 +236,7 @@ fn test_file_registry_prune_dead_pids() {
 }
 
 #[test]
-fn test_file_registry_sentinel_survives_dead_pid_while_lock_held() {
+fn test_file_registry_legacy_pid_does_not_override_live_owner_sentinel() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
 
@@ -246,6 +246,61 @@ fn test_file_registry_sentinel_survives_dead_pid_while_lock_held() {
 
     assert_eq!(registry.prune_dead_entries().unwrap(), 0);
     assert!(registry.get(&key).is_some());
+}
+
+#[test]
+fn test_file_registry_prunes_legacy_sidecar_dead_watched_host() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let mut entry = ServiceEntry::new("unreal", "127.0.0.1", 18812).with_pid(u32::MAX);
+    entry
+        .metadata
+        .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
+    entry
+        .metadata
+        .insert("sidecar_pid".into(), std::process::id().to_string());
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    assert_eq!(
+        registry.prune_dead_entries().unwrap(),
+        1,
+        "a live legacy sidecar sentinel must not hide its dead watched DCC"
+    );
+    assert!(registry.get(&key).is_none());
+}
+
+#[test]
+fn test_file_registry_prunes_dead_bound_hosts_while_owner_sentinels_are_locked() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let mut unreal = ServiceEntry::new("unreal", "127.0.0.1", 18812);
+    unreal.host_pid = Some(u32::MAX);
+    let unreal_key = unreal.key();
+    registry.register(unreal).unwrap();
+
+    let mut photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+    photoshop.host_pid = Some(u32::MAX - 1);
+    let photoshop_key = photoshop.key();
+    registry.register(photoshop).unwrap();
+
+    let standalone = ServiceEntry::new("renderdoc", "127.0.0.1", 18814);
+    let standalone_key = standalone.key();
+    registry.register(standalone).unwrap();
+
+    assert_eq!(
+        registry.prune_dead_entries().unwrap(),
+        2,
+        "host-bound rows must be evicted even while their service owner is alive"
+    );
+    assert!(registry.get(&unreal_key).is_none());
+    assert!(registry.get(&photoshop_key).is_none());
+    assert!(
+        registry.get(&standalone_key).is_some(),
+        "a standalone service has no external host lifetime to validate"
+    );
 }
 
 #[test]

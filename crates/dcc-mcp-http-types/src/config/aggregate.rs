@@ -366,6 +366,12 @@ impl McpHttpConfig {
     pub fn set_dcc_type(&mut self, v: Option<String>) {
         self.instance.dcc_type = v;
     }
+    pub fn host_pid(&self) -> Option<u32> {
+        self.instance.host_pid
+    }
+    pub fn set_host_pid(&mut self, v: Option<u32>) {
+        self.instance.host_pid = v;
+    }
     pub fn dcc_version(&self) -> Option<String> {
         self.instance.dcc_version.clone()
     }
@@ -470,6 +476,12 @@ impl McpHttpConfig {
             .into_iter()
             .map(|(key, value)| (key.into(), value.into()))
             .collect();
+        self
+    }
+
+    /// Builder: bind this service to an external DCC host process.
+    pub fn with_host_pid(mut self, host_pid: u32) -> Self {
+        self.instance.host_pid = Some(host_pid);
         self
     }
 
@@ -717,6 +729,15 @@ mod tests {
         let cfg = McpHttpConfig::default().with_job_recovery(JobRecoveryPolicy::Requeue);
         assert_eq!(cfg.job.job_recovery, JobRecoveryPolicy::Requeue);
         assert_eq!(cfg.job.job_recovery.as_str(), "requeue");
+    }
+
+    #[test]
+    fn mcp_http_config_external_host_pid_round_trips() {
+        let cfg = McpHttpConfig::default().with_host_pid(4242);
+        let serialized = serde_json::to_string(&cfg).unwrap();
+        let back: McpHttpConfig = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(back.host_pid(), Some(4242));
     }
 
     #[test]

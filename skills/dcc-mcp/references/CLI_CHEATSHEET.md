@@ -44,7 +44,7 @@ vx python scripts/dcc_gateway.py --ensure-cli list
 | `dcc-mcp-cli dcc-types --catalog path/to/catalog.yml` | Inspect a studio or test catalog through the same typed contract |
 | `dcc-mcp-cli list` | Ensure the local loopback gateway, then list local DCC instances from the FileRegistry |
 | `dcc-mcp-cli doctor` | Report profile, registry, local inventory, direct-control readiness counts, gateway daemon status, and server binary diagnostics without launching services |
-| `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Search local instances directly through MCP in the `local` profile |
+| `dcc-mcp-cli search create sphere --dcc-type maya --limit 20` | Search local instances directly through MCP in the `local` profile; `--query "create sphere"` remains supported |
 | `dcc-mcp-cli list --gateway pcA` | List DCC instances through a named remote gateway profile |
 | `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness; CLI auto-starts loopback gateway targets |
 | `dcc-mcp-cli gateway register https://host:19293 --name pcA` | Persist a named remote gateway profile |
@@ -60,7 +60,7 @@ vx python scripts/dcc_gateway.py --ensure-cli list
 
 | Command | Purpose |
 |---------|---------|
-| `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Find tools |
+| `dcc-mcp-cli search create sphere --dcc-type maya --limit 20` | Find tools with positional natural-language words |
 | `dcc-mcp-cli describe <slug>` | Inspect schema |
 | `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"agent_context":{"session_id":"task-42"}}'` | Invoke one tool with a stable task-scoped stats identifier |
 | `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42","agent_context":{"session_id":"task-42"}}'` | Invoke a tool on an instance leased by this workflow |
@@ -90,7 +90,7 @@ paths, or full tool payloads.
 |---------|---------|
 | `dcc-mcp-cli install --dcc-type maya --version 2026` | Build an auditable adapter install plan with machine-readable `next_steps`, without changing local state |
 | `dcc-mcp-cli install --dcc-type maya --version 2026 --python "<mayapy>" --execute` | Execute package install after consent; rolls back on failure and verifies pip/path outputs |
-| `dcc-mcp-cli marketplace search --query rigging --dcc maya --limit 20` | Find installable skill packages |
+| `dcc-mcp-cli marketplace search maya rigging --limit 20` | Find installable Skill packages; `--query "maya rigging"` remains supported |
 | `dcc-mcp-cli marketplace inspect <package_name>` | Inspect the selected skill package metadata before installing |
 | `dcc-mcp-cli marketplace install <package_name> --dcc maya` | Install a skill package into the local marketplace root |
 | `dcc-mcp-cli reload-skills --dcc-type maya` | Ask running Maya adapters to re-scan installed skill paths |
@@ -108,7 +108,11 @@ per-DCC sidecar row is routable once `direct_control.ready=true`; if a row is
 booting or `dispatch_status=unavailable`, inspect
 `direct_control.diagnostics.failure_stage`, `failure_reason`, `host_rpc_*`, and
 any log paths, then run `wait-ready` or `doctor` before calling tools.
-After marketplace skill search, inspect the selected package before installing.
+Marketplace search and inspect do not require a live DCC instance. Always query
+the CLI before recommending a marketplace Skill. If the first query is empty,
+retry once with fewer capability words or without the DCC filter; never invent
+a package name. Inspect the selected package before a consent-gated install or
+update.
 After installing or updating marketplace skills, run `reload-skills`, then use
 `load-skill` if the adapter has not auto-loaded the new skill.
 
@@ -128,7 +132,7 @@ python scripts/dcc_gateway.py list
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli search --query sphere --dcc-type maya --limit 10
+dcc-mcp-cli search create sphere --dcc-type maya --limit 10
 
 # Python fallback
 python scripts/dcc_gateway.py search --query sphere --dcc-type maya --limit 10

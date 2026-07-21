@@ -225,6 +225,65 @@ class TestResolvedServerConfig:
         assert config.instance_metadata["dcc_mcp_server_version"] == "9.9.9"
         assert config.instance_metadata["dcc_mcp_instance_type"] == "standalone"
 
+    @pytest.mark.parametrize(
+        ("instance_type", "standalone_main_thread"),
+        [("standalone", False), ("gui", True)],
+    )
+    def test_build_mcp_http_config_keeps_lifetime_independent_from_execution(
+        self,
+        tmp_path,
+        instance_type,
+        standalone_main_thread,
+    ):
+        opts = DccServerOptions.from_env(
+            "renderdoc",
+            tmp_path,
+            port=0,
+            instance_type=instance_type,
+            standalone_main_thread=standalone_main_thread,
+        )
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="9.9.9",
+            version_provider=lambda: "unused",
+        )
+
+        assert config.standalone_main_thread_execution is standalone_main_thread
+        assert config.instance_metadata["dcc_mcp_instance_type"] == instance_type
+
+    def test_build_mcp_http_config_propagates_explicit_host_pid(self, tmp_path):
+        opts = DccServerOptions.from_env(
+            "unreal",
+            tmp_path,
+            port=0,
+            dcc_pid=4242,
+        )
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="9.9.9",
+            version_provider=lambda: "unused",
+        )
+
+        assert config.host_pid == 4242
+
+    def test_build_mcp_http_config_leaves_standalone_host_pid_unbound(self, tmp_path):
+        opts = DccServerOptions.from_env(
+            "renderdoc",
+            tmp_path,
+            port=0,
+            standalone_main_thread=True,
+        )
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="9.9.9",
+            version_provider=lambda: "unused",
+        )
+
+        assert config.host_pid is None
+
 
 # ── DiagnosticsOptions ────────────────────────────────────────────────────────
 
@@ -281,6 +340,14 @@ class TestDccServerOptions:
         assert opts.port == 0
         assert opts.gateway.enable_failover is True
 
+    def test_historical_positional_construction_keeps_gateway_slot(self, tmp_path):
+        gateway = GatewayOptions(port=19765)
+
+        opts = DccServerOptions("maya", tmp_path, 18812, "maya-mcp", "1.2.3", gateway)
+
+        assert opts.gateway is gateway
+        assert opts.instance_type is None
+
     def test_frozen(self, tmp_path):
         opts = DccServerOptions(dcc_name="test", builtin_skills_dir=tmp_path)
         with pytest.raises((AttributeError, TypeError)):
@@ -328,6 +395,24 @@ class TestDccServerOptions:
     def test_from_env_standalone_main_thread(self, tmp_path):
         opts = DccServerOptions.from_env("maya", tmp_path, standalone_main_thread=True)
         assert opts.execution.mode is StandaloneMainThreadExecution
+
+    def test_from_env_reads_dcc_instance_type(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DCC_MCP_RENDERDOC_INSTANCE_TYPE", " STANDALONE ")
+
+        opts = DccServerOptions.from_env("renderdoc", tmp_path)
+
+        assert opts.instance_type == "standalone"
+
+    def test_from_env_explicit_instance_type_wins(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DCC_MCP_RENDERDOC_INSTANCE_TYPE", "standalone")
+
+        opts = DccServerOptions.from_env("renderdoc", tmp_path, instance_type="GUI")
+
+        assert opts.instance_type == "gui"
+
+    def test_rejects_invalid_instance_type(self, tmp_path):
+        with pytest.raises(ValueError, match="instance_type"):
+            DccServerOptions.from_env("renderdoc", tmp_path, instance_type="background")
 
     def test_from_env_mutex_raises(self, tmp_path):
         """Passing both dispatcher and execution_bridge must raise ValueError at build time."""

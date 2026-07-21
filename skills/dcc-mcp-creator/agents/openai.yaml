@@ -1,0 +1,4 @@
+interface:
+  display_name: "DCC-MCP Creator"
+  short_description: "Create and modernize DCC-MCP adapters"
+  default_prompt: "Use $dcc-mcp-creator to create or modernize a DCC-MCP adapter with the shared core contracts."

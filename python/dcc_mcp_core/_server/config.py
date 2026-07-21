@@ -55,6 +55,7 @@ except ImportError:
         dcc_version: str | None = None
         scene: str | None = None
         dcc_type: str = ""
+        host_pid: int | None = None
         instance_metadata: dict[str, str] = field(default_factory=dict)
         standalone_main_thread_execution: bool = False
         sandbox_policy: Any = None
@@ -216,10 +217,17 @@ def build_mcp_http_config(
         config.scene = gateway.scene
 
     config.dcc_type = options.dcc_name
+    # Only an explicitly supplied DCC PID creates a second lifetime. When the
+    # adapter is embedded, the owner sentinel already follows the DCC process;
+    # standalone/headless services intentionally remain unbound.
+    config.host_pid = options.diagnostics.dcc_pid
     execution = resolve_execution_binding(options.execution.mode)
     instance_metadata = collect_context_metadata_from_env(options.dcc_name)
     instance_metadata["dcc_mcp_server_version"] = str(config.server_version)
-    instance_metadata["dcc_mcp_instance_type"] = "standalone" if execution.standalone_main_thread else "gui"
+    # Runtime lifetime and execution/threading are separate contracts. Keep the
+    # legacy inference only when an adapter has not declared its runtime shape.
+    legacy_instance_type = "standalone" if execution.standalone_main_thread else "gui"
+    instance_metadata["dcc_mcp_instance_type"] = options.instance_type or legacy_instance_type
     config.instance_metadata = instance_metadata
     config.standalone_main_thread_execution = execution.standalone_main_thread
     apply_tools_list_stub_policy(config, options.dcc_name)

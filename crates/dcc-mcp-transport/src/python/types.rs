@@ -407,12 +407,14 @@ pub struct PyServiceEntry {
     /// For multi-document apps each element is a file path.
     #[pyo3(get)]
     pub documents: Vec<String>,
-    /// OS process ID of the DCC process.
+    /// OS process ID of the registered service owner.
     ///
-    /// Useful for disambiguating two instances of the same DCC type
-    /// that have the same scene open.
+    /// For sidecars this differs from `host_pid`, which identifies the DCC.
     #[pyo3(get)]
     pub pid: Option<u32>,
+    /// Optional PID of an external DCC host that bounds this service lifetime.
+    #[pyo3(get)]
+    pub host_pid: Option<u32>,
     /// Human-readable label for this instance (e.g. `"Maya-Rigging"`).
     ///
     /// Set by the bridge plugin at registration time.  Displayed by the
@@ -486,6 +488,7 @@ impl PyServiceEntry {
         dict.set_item("scene", &self.scene)?;
         dict.set_item("documents", &self.documents)?;
         dict.set_item("pid", self.pid)?;
+        dict.set_item("host_pid", self.host_pid)?;
         dict.set_item("display_name", &self.display_name)?;
         dict.set_item("metadata", &self.metadata)?;
         dict.set_item("status", self.status.__str__())?;
@@ -529,6 +532,7 @@ impl From<&ServiceEntry> for PyServiceEntry {
             scene: entry.scene.clone(),
             documents: entry.documents.clone(),
             pid: entry.pid,
+            host_pid: entry.host_pid,
             display_name: entry.display_name.clone(),
             metadata: entry.metadata.clone(),
             status: entry.status.into(),

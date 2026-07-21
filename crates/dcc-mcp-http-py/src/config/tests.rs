@@ -88,6 +88,7 @@ fn all_mcp_http_config_fields_have_py_getters() {
     let _ = cfg.queue_send_timeout_ms();
 
     // ── InstanceConfig ──────────────────────────────────────────
+    let _ = cfg.host_pid();
     let _ = cfg.dcc_type();
     let _ = cfg.dcc_version();
     let _ = cfg.scene();
