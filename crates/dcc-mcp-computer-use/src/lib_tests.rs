@@ -11,6 +11,7 @@ fn test_session(process_id: u32) -> ComputerUseSession {
         None,
         None,
         None,
+        None,
     )
     .unwrap()
 }
@@ -100,6 +101,7 @@ fn observations_expire_across_desktop_transitions() {
         capture_backend: "window".to_string(),
         timestamp_ms: 1,
         desktop_generation: 7,
+        session_id: None,
     };
 
     assert!(validate_observation_desktop(&observation, 7).is_ok());
@@ -124,6 +126,7 @@ fn beginning_a_new_capture_invalidates_the_previous_observation() {
             capture_backend: "window".to_string(),
             timestamp_ms: 1,
             desktop_generation: 7,
+            session_id: None,
         }),
         ..SessionState::default()
     };
@@ -149,6 +152,7 @@ fn beginning_an_action_consumes_the_observation_before_native_preflight() {
             capture_backend: "window".to_string(),
             timestamp_ms: 1,
             desktop_generation: 8,
+            session_id: None,
         }),
         ..SessionState::default()
     };
@@ -214,6 +218,7 @@ fn session_requires_an_adapter_runtime_bound_native_scope() {
         None,
         None,
         Some("Godot".to_string()),
+        None,
     )
     .unwrap();
     assert_eq!(session.spec.process_id, Some(7));
@@ -224,6 +229,7 @@ fn session_requires_an_adapter_runtime_bound_native_scope() {
         None,
         None,
         Some("Godot".to_string()),
+        None,
     )
     .unwrap_err();
     assert_eq!(error.code, ComputerUseErrorCode::PermissionDenied);
@@ -326,6 +332,7 @@ fn public_perform_restores_a_minimized_observed_window_before_rect_validation() 
         Some(handle),
         None,
         Some("test DCC".to_string()),
+        None,
     )
     .unwrap();
     session.start().unwrap();
@@ -346,6 +353,7 @@ fn public_perform_restores_a_minimized_observed_window_before_rect_validation() 
         capture_backend: "test".to_string(),
         timestamp_ms: 1,
         desktop_generation,
+        session_id: None,
     };
     session.lock_state().observation = Some(observation);
 
