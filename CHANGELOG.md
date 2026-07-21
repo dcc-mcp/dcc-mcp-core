@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.63](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.62...v0.19.63) (2026-07-21)
+
+
+### Features
+
+* add ChunkedRunner for main-affinity bounded-step execution ([#1997](https://github.com/dcc-mcp/dcc-mcp-core/issues/1997)) ([e85606f](https://github.com/dcc-mcp/dcc-mcp-core/commit/e85606f122d87947e72482d193f5429e9e459c16))
+* add Unity adapter to public catalog ([#2004](https://github.com/dcc-mcp/dcc-mcp-core/issues/2004)) ([b743c62](https://github.com/dcc-mcp/dcc-mcp-core/commit/b743c623b0ab629b12b606aa1080f3d98cc04ff2))
+* **docs:** add DCC UI Control section to README, enhance SKILL.md triggers ([2a2954f](https://github.com/dcc-mcp/dcc-mcp-core/commit/2a2954f31a09dc7e0e6b74d5c3881c705119f148))
+* **docs:** replace UI Control screenshots with real PNG images ([2503639](https://github.com/dcc-mcp/dcc-mcp-core/commit/250363944fe644b1cce6ea99bddb6180a2019b93))
+* expand and unify UI Control ([#1995](https://github.com/dcc-mcp/dcc-mcp-core/issues/1995)) ([29e1b91](https://github.com/dcc-mcp/dcc-mcp-core/commit/29e1b91a37eb77dc0fe4ad4c1e37b20dc0b18b85))
+* improve UI control cancellation and output ([e7947dd](https://github.com/dcc-mcp/dcc-mcp-core/commit/e7947dd0265d94cf62332a21b6f6cfc13ae34cca))
+* make UI control startup notice-only ([6427cc9](https://github.com/dcc-mcp/dcc-mcp-core/commit/6427cc9c3813bcc1a0a642ea205f4e01f0533e5f))
+
+
+### Bug Fixes
+
+* **cli:** extract lint module to pass file size gate (1534→1424 lines) ([#1993](https://github.com/dcc-mcp/dcc-mcp-core/issues/1993)) ([49ff096](https://github.com/dcc-mcp/dcc-mcp-core/commit/49ff096470c5cd95bc191212942d76b7e603fa41))
+* unify async job cancellation across DCC handlers ([#2005](https://github.com/dcc-mcp/dcc-mcp-core/issues/2005)) ([8fa4705](https://github.com/dcc-mcp/dcc-mcp-core/commit/8fa4705381afde7ce2796d7469165008a3c43389))
+
+
+### Code Refactoring
+
+* satisfy UI control CI gates ([7167eaa](https://github.com/dcc-mcp/dcc-mcp-core/commit/7167eaa0deb68cf302b20a623ae35790eb8cddd7))
+
+
+### Documentation
+
+* regenerate UI Control screenshots ([8b2c35f](https://github.com/dcc-mcp/dcc-mcp-core/commit/8b2c35f6b0425c27798ddf7dd03baa2e243ad848))
+* update all references from Ctrl+Alt+Esc to plain Esc ([43baae0](https://github.com/dcc-mcp/dcc-mcp-core/commit/43baae0e0b98b049d7f0fff0e21997be4c3c18ac))
+* update UI Control docs to use plain Esc as stop key ([55b0ba2](https://github.com/dcc-mcp/dcc-mcp-core/commit/55b0ba2fdc44823e238b03b8557e295422db90c0))
+
 ## [0.19.62](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.61...v0.19.62) (2026-07-20)
 
 
