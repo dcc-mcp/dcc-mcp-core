@@ -189,6 +189,53 @@ Run the same production validator used by CI with
 dcc-mcp-cli lint path/to/skills. See [Skills](docs/guide/skills.md) for schemas,
 groups, dependencies, testing, and migration rules.
 
+## DCC UI Control
+
+Desktop application automation for cases where native DCC APIs cannot observe
+or drive the interface state directly. Agents use `ui_control__snapshot`,
+`ui_control__find`, `ui_control__act`, `ui_control__wait_for`, and
+`ui_control__stop_computer_use` to observe, find, and act on target windows.
+
+![Controlled window with corner brackets and capsule overlay](docs/assets/ui-control/corner-brackets-capsule.png)
+
+### Capabilities
+
+- **Scoped window targeting** — snapshots and actions are bound to a single
+  process or window handle, never the whole desktop.
+- **Semantic UIA + raw input fallback** — prefer stable semantic controls
+  (button, text field, checkbox) resolved by `ui_control__find`, then fall
+  back to screenshot-relative coordinates when custom-drawn controls have no
+  semantic node.
+- **Bounded security model** — every action is scoped by the
+  adapter/operator-bound PID/HWND. Raw input requires an explicit opt-in
+  (`DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`). Hard-denied: passwords,
+  authentication controls, LockApp, Windows Security, terminals, and
+  credential manager windows.
+- **Visible capsule overlay** — while a native DCC UI Control session is active,
+  click-through corner brackets mark the target window and a bottom-center
+  capsule reads `DCC UI Control · <app> | Ctrl+Alt+Esc to stop`.
+  The user stops control at any time with `Ctrl+Alt+Esc`.
+- **Audit trail** — every snapshot, action, wait, stop, and rejected operation
+  appends a redacted `ui_control_operation` event to the shared log directory,
+  visible in the Admin Logs panel without exposing entered text or screenshot
+  coordinates.
+
+### Tool reference
+
+| Tool | Description |
+|------|-------------|
+| `ui_control__snapshot` | Capture a bounded PNG plus UIA tree from the scoped window |
+| `ui_control__find` | Locate semantic controls by query, role, label, or object name |
+| `ui_control__act` | Perform one scoped semantic or coordinate-based action |
+| `ui_control__wait_for` | Poll until a UI condition becomes true or times out |
+| `ui_control__stop_computer_use` | Release the capsule, hotkey, and global input owner |
+| `ui_control__system_operation` | Ensure a named Windows configuration item (operator-granted) |
+
+For detailed skill reference and agent workflows, see the
+[ui-control skill](python/dcc_mcp_core/skills/ui-control/SKILL.md).
+
+![Admin Logs panel with redacted ui_control_operation events](docs/assets/ui-control/admin-logs-audit.png)
+
 ## Architecture
 
 ![dcc-mcp-core architecture](docs/assets/architecture/current-stack.svg)
