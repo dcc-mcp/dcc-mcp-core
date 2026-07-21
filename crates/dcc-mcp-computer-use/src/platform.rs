@@ -1,9 +1,9 @@
 use std::sync::Arc;
-#[cfg(windows)]
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::AtomicBool;
 #[cfg(windows)]
 use std::sync::atomic::AtomicU64;
+#[cfg(windows)]
+use std::sync::atomic::AtomicUsize;
 #[cfg(any(windows, test))]
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::JoinHandle;
