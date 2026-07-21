@@ -53,6 +53,7 @@ impl Drop for PointerEffect {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn perform_action(
     window_handle: u64,
     observation: &ComputerUseObservation,
@@ -61,7 +62,7 @@ pub(crate) fn perform_action(
     desktop_state: &Arc<AtomicU64>,
     desktop_barrier: &Arc<DesktopEventBarrier>,
     mut pre_input_fence: Option<&mut PreInputFence<'_>>,
-    last_action_point: &Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
+    last_action_point: &Arc<crate::platform::LastActionPoint>,
 ) -> ComputerUseResult<()> {
     if matches!(
         request.action.as_str(),

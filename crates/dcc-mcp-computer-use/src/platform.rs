@@ -32,7 +32,7 @@ pub(crate) struct ControlBannerSignals {
     pub(crate) target_available: Arc<AtomicBool>,
     pub(crate) cleanup_pending: Arc<AtomicBool>,
     pub(crate) session_id: Option<String>,
-    pub(crate) last_action_point: Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
+    pub(crate) last_action_point: Arc<LastActionPoint>,
 }
 
 /// Non-Windows stub: `ControlBannerSignals` is a ZST that satisfies the type
@@ -107,6 +107,10 @@ impl From<ComputerUseError> for ControlBannerStartError {
 }
 
 pub(crate) type ControlBannerStartResult = Result<JoinHandle<()>, ControlBannerStartError>;
+
+/// Shared last-action point for the banner thread to poll and render as a
+/// fading dot on the overlay.
+pub(crate) type LastActionPoint = std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg(windows)]
@@ -226,7 +230,7 @@ pub(crate) fn start_control_banner(
 }
 
 #[cfg(not(windows))]
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn perform_action(
     _window_handle: u64,
     _observation: &ComputerUseObservation,
@@ -235,7 +239,7 @@ pub(crate) fn perform_action(
     _desktop_state: &Arc<AtomicU64>,
     _desktop_barrier: &Arc<DesktopEventBarrier>,
     _pre_input_fence: Option<&mut PreInputFence<'_>>,
-    _last_action_point: &Arc<std::sync::Mutex<Option<(i32, i32, std::time::Instant)>>>,
+    _last_action_point: &Arc<LastActionPoint>,
 ) -> ComputerUseResult<()> {
     Err(ComputerUseError::new(
         ComputerUseErrorCode::BackendUnavailable,
