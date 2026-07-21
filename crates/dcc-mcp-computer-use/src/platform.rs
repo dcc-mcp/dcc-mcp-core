@@ -114,6 +114,10 @@ pub(crate) type ControlBannerStartResult = Result<JoinHandle<()>, ControlBannerS
 
 /// Session-level signals that `perform_action` reads during execution.
 /// Grouped to stay under clippy's `too_many_arguments` limit.
+///
+/// Fields are read by the Windows `perform_action` path; on non-Windows
+/// only a stub exists that returns `BackendUnavailable`.
+#[allow(dead_code)]
 pub(crate) struct ActionSessionState {
     pub(crate) stop_requested: Arc<AtomicBool>,
     pub(crate) desktop_state: Arc<AtomicU64>,
