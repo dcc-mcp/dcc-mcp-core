@@ -19,8 +19,8 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
-    version: "0.19.64"
+    compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; its consent-gated bootstrap accepts only the official release manifest and verifies SHA-256 before replacement. Local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
+    version: "0.19.65"
     search-hint: "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats marketplace skill catalog recommend install update 商城 技能 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
     tags: "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, marketplace, skill-catalog, clawhub, openclaw"
   openclaw:
@@ -147,8 +147,11 @@ or when the user explicitly chooses that integration.
 ### CLI installation
 
 If `dcc-mcp-cli` is missing, obtain the user's consent before installing the
-latest official release. Exact Linux/macOS and Windows commands, update
-semantics, and development fallbacks live in
+latest official release. The bundled installer is fixed to the official
+repository, validates the release-manifest URL and version, and verifies the
+binary SHA-256 before atomically replacing any existing CLI. A missing or
+invalid manifest, unexpected URL, or digest mismatch fails closed. Exact
+commands, update semantics, and development fallbacks live in
 [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md).
 
 ### DCC UI Control fallback
@@ -233,8 +236,8 @@ when setup, lifecycle, or transport troubleshooting is needed.
 
 1. Use `dcc-mcp-cli list` for local inventory, or `dcc-mcp-cli list --gateway <name>` for a remote profile.
 2. Use `dcc-mcp-cli` for all subsequent commands when it is on `PATH`.
-3. If missing, ask user permission, then download `dcc-mcp-cli` from GitHub Releases.
-4. If the download fails, use the bundled Python stdlib REST fallback.
+3. If missing, ask user permission, then use the bundled verified installer for the official GitHub release.
+4. If manifest or SHA-256 verification fails, preserve any existing CLI and use the bundled Python stdlib REST fallback where supported.
 
 Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
 [`dcc-mcp-core/skills/dcc-mcp/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-mcp).
@@ -253,7 +256,7 @@ remove the old package to avoid duplicate intent routing.
 | **Starting any local DCC task** | Run `dcc-mcp-cli list`; it ensures the local gateway, then reads the local FileRegistry |
 | **Startup state is ambiguous** | Run `dcc-mcp-cli doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
 | **Starting any remote DCC task** | Select or override a profile with `dcc-mcp-cli gateway set <name>` or `dcc-mcp-cli list --gateway <name>` |
-| `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; fallback Python REST is allowed if download fails |
+| `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; it must verify the official manifest and SHA-256, and Python REST fallback is allowed if verification or download fails |
 | CLI auto-ensure fails | Stop; explain the result; do not run agent-control or gateway endpoint commands until the gateway is reachable |
 | Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
 | Remote gateway unreachable | Stop; explain; ask user permission before troubleshooting |
@@ -469,5 +472,5 @@ the returned policy prompt and hand off to the named deployment owner.
 
 The CLI is the **default agent-facing control plane**. The Python fallback uses
 the same gateway REST endpoints only when the CLI is unavailable after a
-download attempt fails. The gateway still serves MCP for IDE clients in parallel;
-choosing this skill does not replace or disable the IDE MCP path.
+verified install attempt fails. The gateway still serves MCP for IDE clients in
+parallel; choosing this skill does not replace or disable the IDE MCP path.
