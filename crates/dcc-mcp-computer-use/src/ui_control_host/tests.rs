@@ -42,9 +42,17 @@ impl Default for FakeRuntime {
 }
 
 impl HostRuntime for FakeRuntime {
-    fn open(&self, grant: &UiControlTaskGrant, _session_id: &str) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
+    fn open(
+        &self,
+        grant: &UiControlTaskGrant,
+        _session_id: &str,
+    ) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
         if let Ok(mut captured) = self.captured_session_id.lock() {
-            *captured = if _session_id.is_empty() { None } else { Some(_session_id.to_string()) };
+            *captured = if _session_id.is_empty() {
+                None
+            } else {
+                Some(_session_id.to_string())
+            };
         }
         Ok(Box::new(FakeSession {
             target: UiControlTarget {

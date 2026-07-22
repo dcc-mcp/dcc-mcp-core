@@ -130,7 +130,11 @@ trait HostRuntimeSession: Send {
 }
 
 trait HostRuntime: Send + Sync {
-    fn open(&self, grant: &UiControlTaskGrant, session_id: &str) -> Result<Box<dyn HostRuntimeSession>, HostFailure>;
+    fn open(
+        &self,
+        grant: &UiControlTaskGrant,
+        session_id: &str,
+    ) -> Result<Box<dyn HostRuntimeSession>, HostFailure>;
 }
 
 #[derive(Debug, Clone, Copy)]
