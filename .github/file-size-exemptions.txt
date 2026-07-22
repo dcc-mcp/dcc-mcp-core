@@ -19,3 +19,5 @@ crates/dcc-mcp-skill-rest/src/service.rs
 crates/dcc-mcp-gateway/src/gateway/capability_service.rs
 # PIP-2809 — windows.rs 1575L, exceeds 1500 limit; split into windows/* sub-modules
 crates/dcc-mcp-computer-use/src/platform/windows.rs
+# PIP-2814 — tests.rs 2009L, exceeds 2000 limit (Rust test); added session_id threading test
+crates/dcc-mcp-computer-use/src/ui_control_host/tests.rs
