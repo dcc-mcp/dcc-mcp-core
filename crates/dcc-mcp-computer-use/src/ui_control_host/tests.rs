@@ -7,7 +7,7 @@ use dcc_mcp_ui_control::host_protocol::{
     UiControlSystemGrantOperation,
 };
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 mod connection_tests;
 mod navigation;
@@ -17,6 +17,7 @@ struct FakeRuntime {
     live_states: Mutex<VecDeque<RuntimeAccessibilityState>>,
     minimized: bool,
     target_closed_after_action: bool,
+    captured_session_id: Arc<Mutex<Option<String>>>,
 }
 
 struct FakeSession {
@@ -35,12 +36,24 @@ impl Default for FakeRuntime {
             live_states: Mutex::new(VecDeque::new()),
             minimized: false,
             target_closed_after_action: false,
+            captured_session_id: Arc::new(Mutex::new(None)),
         }
     }
 }
 
 impl HostRuntime for FakeRuntime {
-    fn open(&self, grant: &UiControlTaskGrant) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
+    fn open(
+        &self,
+        grant: &UiControlTaskGrant,
+        _session_id: &str,
+    ) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
+        if let Ok(mut captured) = self.captured_session_id.lock() {
+            *captured = if _session_id.is_empty() {
+                None
+            } else {
+                Some(_session_id.to_string())
+            };
+        }
         Ok(Box::new(FakeSession {
             target: UiControlTarget {
                 process_id: grant.process_id.unwrap_or(42),
@@ -255,6 +268,7 @@ fn host_with_accessibility_states(
             live_states: Mutex::new(live_states.into()),
             minimized: false,
             target_closed_after_action: false,
+            captured_session_id: Arc::new(Mutex::new(None)),
         }),
         confirmation: Box::new(AllowConfirmation),
     }
@@ -382,6 +396,33 @@ fn opening_a_routine_session_does_not_request_confirmation() {
         ),
         UiControlHostResponse::SessionOpened { .. }
     ));
+}
+
+#[test]
+fn open_session_threads_session_id_to_host_runtime() {
+    let captured = Arc::new(Mutex::new(None::<String>));
+    let captured_clone = Arc::clone(&captured);
+    let runtime = FakeRuntime {
+        captured_session_id: captured,
+        ..FakeRuntime::default()
+    };
+    let mut host = UiControlHost {
+        sessions: HashMap::new(),
+        system_sessions: HashMap::new(),
+        system_grants: HashMap::new(),
+        runtime: Box::new(runtime),
+        confirmation: Box::new(AllowConfirmation),
+    };
+
+    let resp = host.open_session("session-color-42".to_owned(), grant(false));
+    assert!(matches!(resp, UiControlHostResponse::SessionOpened { .. }));
+
+    let captured_id = captured_clone.lock().unwrap();
+    assert_eq!(
+        captured_id.as_deref(),
+        Some("session-color-42"),
+        "session_id must flow from host open_session through HostRuntime::open"
+    );
 }
 
 fn open_recording_session(

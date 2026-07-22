@@ -353,7 +353,11 @@ fn map_symlink_error(error: std::io::Error, context: &str) -> HostFailure {
 }
 
 impl HostRuntime for WindowsHostRuntime {
-    fn open(&self, grant: &UiControlTaskGrant) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
+    fn open(
+        &self,
+        grant: &UiControlTaskGrant,
+        session_id: &str,
+    ) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
         let target = resolve_exact_target(grant)?;
         let trusted_scope =
             ComputerUseTargetScope::new(Some(target.process_id), Some(target.window_handle))
@@ -364,6 +368,11 @@ impl HostRuntime for WindowsHostRuntime {
             Some(target.window_handle),
             None,
             Some(grant.dcc_type.clone()),
+            if session_id.is_empty() {
+                None
+            } else {
+                Some(session_id.to_string())
+            },
         )
         .map_err(map_computer_use_error)?;
         let window_generation = WindowGenerationGuard::bind(&target)?;

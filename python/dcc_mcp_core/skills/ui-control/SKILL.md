@@ -158,6 +158,26 @@ Use semantic UI Automation first: resolve a stable `control_id` with
 or `focus`. Use screenshot coordinates and native input only when the required
 control is not exposed semantically.
 
+### Visual Overlay Enhancements
+
+The DCC UI Control visual overlay includes these features:
+
+- **Session color coding**: When a `session_id` is provided to
+  `ui_control__snapshot`, each session gets a distinct capsule, corner bracket,
+  and cursor ring color from a 16-color palette. The same `session_id` always
+  produces the same color. This makes multi-session scenarios (e.g., parallel
+  Maya and Blender control) visually distinguishable at a glance.
+
+- **Last-action marker**: A small fading dot (about 16px) appears at the last
+  click, double-click, drag, or move point and fades to transparent over
+  approximately 2 seconds. This gives the user immediate visual feedback on
+  where the agent last acted.
+
+- **Scope animation**: When a target window is first scoped with
+  `ui_control__snapshot`, the corner brackets pulse briefly for about 1.5
+  seconds before settling into the normal breathing rhythm. This provides
+  clear visual confirmation that the DCC window has been captured.
+
 The adapter/operator must bind a trusted DCC target with
 `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE` before
 any Windows snapshot or mutation. The host resolves an exact PID/HWND,
@@ -267,9 +287,13 @@ The native session requires a visible, unlocked interactive desktop, a live
 target window, and the adapter and DCC process at the same Windows integrity
 level. While input control is active, click-through corner brackets mark the
 target window and a bottom-center capsule reads `DCC UI Control · <app> |
-Esc to stop`. Pointer actions display a transient
-cursor marker (and a following marker during drag) so the user can see where
-the agent is acting. The user stops control by pressing `Esc`. On
+Esc to stop`. The capsule, brackets, and cursor ring use a
+session-specific color when a `session_id` is provided to
+`ui_control__snapshot`, so multiple parallel sessions are visually distinct.
+Pointer actions display a transient cursor marker (and a following marker
+during drag) and a small fading dot at the action point so the user can see
+where the agent is acting. The corner brackets briefly pulse when the target
+is first scoped. The user stops control by pressing `Esc`. On
 `user_interrupted`, stop immediately, do
 not retry, do not switch to another input path, do not change `session_id`, and
 do not automatically start a new DCC UI Control session. The stop is latched across

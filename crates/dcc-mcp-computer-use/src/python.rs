@@ -65,6 +65,7 @@ impl PyComputerUseSession {
             window_handle,
             window_title,
             app_name,
+            None, // session_id not yet exposed through Python bindings
         )
         .map_err(|error| PyValueError::new_err(error.message))?;
         Ok(Self { inner })

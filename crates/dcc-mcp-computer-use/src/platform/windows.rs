@@ -12,10 +12,10 @@ use windows::Win32::Graphics::Gdi::{
     BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CombineRgn, CreateEllipticRgn, CreateFontW,
     CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
     DT_END_ELLIPSIS, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint,
-    EnumDisplayMonitors, FW_SEMIBOLD, GetMonitorInfoW, HDC, HGDIOBJ, HMONITOR,
-    MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint, MonitorFromRect, OUT_DEFAULT_PRECIS,
-    PAINTSTRUCT, RGN_DIFF, RGN_ERROR, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
-    TRANSPARENT,
+    EnumDisplayMonitors, FW_SEMIBOLD, GetMonitorInfoW, GetStockObject, HBRUSH, HDC, HGDIOBJ,
+    HMONITOR, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint, MonitorFromRect, NULL_BRUSH,
+    OUT_DEFAULT_PRECIS, PAINTSTRUCT, RGN_DIFF, RGN_ERROR, SelectObject, SetBkMode, SetTextColor,
+    SetWindowRgn, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::RemoteDesktop::{
@@ -37,23 +37,24 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
-    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
-    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
-    MOUSEINPUT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, RegisterHotKey,
+    SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
-    GW_HWNDPREV, GWL_EXSTYLE, GetAncestor, GetClassInfoW, GetClassNameW, GetClientRect,
-    GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowLongPtrW,
-    GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, HWND_NOTOPMOST,
-    HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible, LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE,
-    PeekMessageW, PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow, SetLayeredWindowAttributes,
-    SetWindowDisplayAffinity, SetWindowPos, ShowWindow, TranslateMessage, WDA_EXCLUDEFROMCAPTURE,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY, WM_PAINT,
+    GW_HWNDPREV, GWL_EXSTYLE, GWL_USERDATA, GetAncestor, GetClassInfoW, GetClassNameW,
+    GetClientRect, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow,
+    GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible,
+    LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassW,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
+    SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    SetForegroundWindow, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowLongPtrW,
+    SetWindowPos, ShowWindow, TranslateMessage, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY, WM_PAINT,
     WM_WTSSESSION_CHANGE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT,
     WTS_REMOTE_CONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
@@ -91,9 +92,8 @@ const USER_INTERRUPT_EVENT_NAME: &str = "Local\\DccMcpComputerUseUserInterrupted
 #[cfg(test)]
 const TEST_ISOLATION_MUTEX_NAME: &str = "Local\\DccMcpComputerUseTestIsolation-v1";
 const HOTKEY_ID: i32 = 0x4443;
-const STOP_HOTKEY_LABEL: &str = "Ctrl+Alt+Esc";
-const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS =
-    HOT_KEY_MODIFIERS(MOD_CONTROL.0 | MOD_ALT.0 | MOD_NOREPEAT.0);
+const STOP_HOTKEY_LABEL: &str = "Esc";
+const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS = HOT_KEY_MODIFIERS(0);
 const CORNER_GLOW_THICKNESS: i32 = 42;
 const CORNER_MID_THICKNESS: i32 = 28;
 const CORNER_ACCENT_THICKNESS: i32 = 12;
@@ -118,6 +118,10 @@ const CONTROL_CURSOR_COLOR: COLORREF = COLORREF(0x0043_9FFF);
 const CONTROL_OVERLAY_CLASS: PCWSTR = w!("DccMcpComputerUseOverlay");
 const CONTROL_GLOW_CLASS: PCWSTR = w!("DccMcpComputerUseGlowOverlay");
 const CONTROL_CURSOR_CLASS: PCWSTR = w!("DccMcpComputerUseCursorOverlay");
+const LAST_ACTION_DOT_CLASS: PCWSTR = w!("DccMcpComputerUseLastActionDot");
+const LAST_ACTION_DOT_SIZE: i32 = 16;
+const LAST_ACTION_DOT_FADE_MS: u64 = 2_000;
+const CONTROL_SCOPE_ANIMATION_MS: u64 = 1_500;
 const DEFAULT_POINTER_EFFECT_DWELL_MS: u64 = 350;
 const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
 const DESKTOP_BARRIER_MESSAGE: u32 = WM_APP + 0x443;
@@ -128,6 +132,52 @@ const DESKTOP_BARRIER_TIMEOUT: Duration = Duration::from_secs(2);
 const CONTROL_START_TIMEOUT: Duration = Duration::from_secs(5);
 const PROCESS_PATH_CAPACITY: usize = 32_768;
 
+/// 16-color palette for session color coding.
+/// Index is selected deterministically from the session_id hash.
+const SESSION_PALETTE: [COLORREF; 16] = [
+    COLORREF(0x00FF_840A), // orange (original accent)
+    COLORREF(0x0043_9FFF), // blue
+    COLORREF(0x0016_A34A), // green
+    COLORREF(0x00D9_3F3F), // red
+    COLORREF(0x00C0_5BF3), // purple
+    COLORREF(0x0000_BCD4), // teal
+    COLORREF(0x00FF_9800), // amber
+    COLORREF(0x00C6_28A8), // pink
+    COLORREF(0x008B_C34A), // light green
+    COLORREF(0x00FF_5722), // deep orange
+    COLORREF(0x0079_55B0), // deep purple
+    COLORREF(0x0000_8B8B), // dark cyan
+    COLORREF(0x00B8_860B), // dark goldenrod
+    COLORREF(0x00E9_1E63), // magenta-pink
+    COLORREF(0x000D_47A1), // indigo
+    COLORREF(0x00F4_43A5), // rose
+];
+
+/// Deterministic color from a session_id string.
+fn session_color(session_id: &str) -> COLORREF {
+    let hash = session_id
+        .bytes()
+        .fold(0_u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+    SESSION_PALETTE[(hash % SESSION_PALETTE.len() as u64) as usize]
+}
+
+/// Derive a lighter glow color from an accent color by blending with white.
+fn glow_from_accent(accent: COLORREF) -> COLORREF {
+    let r = ((accent.0 & 0xFF) as u32 + 102).min(255);
+    let g = (((accent.0 >> 8) & 0xFF) as u32 + 102).min(255);
+    let b = (((accent.0 >> 16) & 0xFF) as u32 + 102).min(255);
+    COLORREF((b << 16) | (g << 8) | r)
+}
+
+/// Derive a cursor ring color from an accent color by rotating channels.
+fn cursor_from_accent(accent: COLORREF) -> COLORREF {
+    let r = accent.0 & 0xFF;
+    let g = (accent.0 >> 8) & 0xFF;
+    let b = (accent.0 >> 16) & 0xFF;
+    // Rotate RGB -> BRG
+    COLORREF((g << 16) | (r << 8) | b)
+}
+
 fn is_control_overlay_window(hwnd: HWND) -> bool {
     let mut class_name = [0_u16; 64];
     let length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
@@ -136,6 +186,7 @@ fn is_control_overlay_window(hwnd: HWND) -> bool {
         "DccMcpComputerUseOverlay"
             | "DccMcpComputerUseGlowOverlay"
             | "DccMcpComputerUseCursorOverlay"
+            | "DccMcpComputerUseLastActionDot"
     )
 }
 
@@ -922,6 +973,8 @@ pub(crate) fn start_control_banner(
         desktop_barrier,
         target_available,
         cleanup_pending,
+        session_id,
+        last_action_point,
     } = signals;
     cleanup_pending.store(true, Ordering::Release);
     let _ = require_user_interrupt_event_raw().inspect_err(|_| {
@@ -945,6 +998,7 @@ pub(crate) fn start_control_banner(
     };
     let startup_stop = Arc::clone(&runtime.stop);
     let thread_cleanup_pending = Arc::clone(&cleanup_pending);
+    let thread_last_action_point = Arc::clone(&last_action_point);
     let thread = thread::Builder::new()
         .name("dcc-mcp-computer-use-banner".to_string())
         .spawn(move || {
@@ -954,7 +1008,15 @@ pub(crate) fn start_control_banner(
                     return Err(user_interrupted_error());
                 }
                 let _dpi_awareness = ThreadDpiAwareness::enter()?;
-                run_banner(window_handle, process_id, &app_name, &runtime, &ready_tx)
+                run_banner(
+                    window_handle,
+                    process_id,
+                    &app_name,
+                    &runtime,
+                    &ready_tx,
+                    session_id.as_deref(),
+                    &thread_last_action_point,
+                )
             })();
             if let Err(error) = result {
                 if matches!(
@@ -1067,10 +1129,12 @@ fn register_color_overlay_classes() -> ComputerUseResult<()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let instance = unsafe { GetModuleHandleW(None) }
         .map_err(|error| overlay_backend_error("resolve the module handle for", error))?;
-    for (class_name, color) in [
-        (CONTROL_OVERLAY_CLASS, CONTROL_ACCENT_COLOR),
-        (CONTROL_GLOW_CLASS, CONTROL_GLOW_COLOR),
-        (CONTROL_CURSOR_CLASS, CONTROL_CURSOR_COLOR),
+    let null_brush = HBRUSH(unsafe { GetStockObject(NULL_BRUSH) }.0);
+    for class_name in [
+        CONTROL_OVERLAY_CLASS,
+        CONTROL_GLOW_CLASS,
+        CONTROL_CURSOR_CLASS,
+        LAST_ACTION_DOT_CLASS,
     ] {
         let mut existing = WNDCLASSW::default();
         if unsafe { GetClassInfoW(Some(instance.into()), class_name, &raw mut existing) }.is_ok() {
@@ -1079,7 +1143,7 @@ fn register_color_overlay_classes() -> ComputerUseResult<()> {
         let class = WNDCLASSW {
             lpfnWndProc: Some(overlay_window_proc),
             hInstance: instance.into(),
-            hbrBackground: unsafe { CreateSolidBrush(color) },
+            hbrBackground: null_brush,
             lpszClassName: class_name,
             ..Default::default()
         };
@@ -1109,12 +1173,19 @@ unsafe extern "system" fn overlay_window_proc(
         if !device.0.is_null() {
             let mut bounds = RECT::default();
             let _ = unsafe { GetClientRect(hwnd, &raw mut bounds) };
-            let mut class_name = [0_u16; 64];
-            let class_length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
-            let color = match String::from_utf16_lossy(&class_name[..class_length]).as_ref() {
-                "DccMcpComputerUseGlowOverlay" => CONTROL_GLOW_COLOR,
-                "DccMcpComputerUseCursorOverlay" => CONTROL_CURSOR_COLOR,
-                _ => CONTROL_ACCENT_COLOR,
+            // Read per-window color from GWL_USERDATA; fall back to class-name
+            // dispatch for windows created before this change (no userdata).
+            let stored_color = unsafe { GetWindowLongPtrW(hwnd, GWL_USERDATA) } as u32;
+            let color = if stored_color != 0 {
+                COLORREF(stored_color)
+            } else {
+                let mut class_name = [0_u16; 64];
+                let class_length = unsafe { GetClassNameW(hwnd, &mut class_name) }.max(0) as usize;
+                match String::from_utf16_lossy(&class_name[..class_length]).as_ref() {
+                    "DccMcpComputerUseGlowOverlay" => CONTROL_GLOW_COLOR,
+                    "DccMcpComputerUseCursorOverlay" => CONTROL_CURSOR_COLOR,
+                    _ => CONTROL_ACCENT_COLOR,
+                }
             };
             let brush = unsafe { CreateSolidBrush(color) };
             let _ = unsafe { windows::Win32::Graphics::Gdi::FillRect(device, &bounds, brush) };
@@ -1169,6 +1240,7 @@ fn create_color_overlay(
     alpha: u8,
     show: bool,
     tone: OverlayTone,
+    session_color: Option<COLORREF>,
 ) -> ComputerUseResult<HWND> {
     register_color_overlay_classes()?;
     let instance = unsafe { GetModuleHandleW(None) }
@@ -1182,14 +1254,15 @@ fn create_color_overlay(
             | WS_EX_TRANSPARENT.0
             | WS_EX_LAYERED.0,
     );
+    let class_name = match tone {
+        OverlayTone::Accent => CONTROL_OVERLAY_CLASS,
+        OverlayTone::Glow => CONTROL_GLOW_CLASS,
+        OverlayTone::Cursor => CONTROL_CURSOR_CLASS,
+    };
     let hwnd = unsafe {
         CreateWindowExW(
             ex_style,
-            match tone {
-                OverlayTone::Accent => CONTROL_OVERLAY_CLASS,
-                OverlayTone::Glow => CONTROL_GLOW_CLASS,
-                OverlayTone::Cursor => CONTROL_CURSOR_CLASS,
-            },
+            class_name,
             PCWSTR(caption.as_ptr()),
             style,
             x,
@@ -1203,6 +1276,12 @@ fn create_color_overlay(
         )
     }
     .map_err(|error| overlay_backend_error("create", error.to_string()))?;
+    // Store the per-window color so the WM_PAINT handler can read it.
+    // When session_color is None, GWL_USERDATA stays 0 and the handler
+    // falls back to the class-name-based default color.
+    if let Some(color) = session_color {
+        unsafe { SetWindowLongPtrW(hwnd, GWL_USERDATA, color.0 as isize) };
+    }
     if let Err(error) = exclude_overlay_from_capture(hwnd) {
         let _ = unsafe { DestroyWindow(hwnd) };
         return Err(error);
@@ -1228,8 +1307,19 @@ fn create_color_overlay(
     Ok(hwnd)
 }
 
-fn create_cursor_ring_overlay(geometry: OverlayGeometry, alpha: u8) -> ComputerUseResult<HWND> {
-    let hwnd = create_color_overlay("", geometry, alpha, false, OverlayTone::Cursor)?;
+fn create_cursor_ring_overlay(
+    geometry: OverlayGeometry,
+    alpha: u8,
+    session_color: Option<COLORREF>,
+) -> ComputerUseResult<HWND> {
+    let hwnd = create_color_overlay(
+        "",
+        geometry,
+        alpha,
+        false,
+        OverlayTone::Cursor,
+        session_color,
+    )?;
     if let Err(error) = set_pointer_ring_region(hwnd, geometry.2, geometry.3) {
         let _ = unsafe { DestroyWindow(hwnd) };
         return Err(error);
@@ -1360,6 +1450,8 @@ fn run_banner(
     app_name: &str,
     signals: &BannerRuntimeSignals,
     ready: &std::sync::mpsc::SyncSender<ComputerUseResult<()>>,
+    session_id: Option<&str>,
+    last_action_point: &Arc<crate::platform::LastActionPoint>,
 ) -> ComputerUseResult<()> {
     ensure_interactive_desktop()?;
     let target = HWND(window_handle as *mut core::ffi::c_void);
@@ -1386,7 +1478,7 @@ fn run_banner(
         }
         Err(error) => return Err(error),
     };
-    let overlay = ControlOverlay::new(target, &rect, &caption, initially_visible)?;
+    let mut overlay = ControlOverlay::new(target, &rect, &caption, session_id, initially_visible)?;
     let overlay_window = overlay.window_handle();
 
     let _session_notifications = RegisteredSessionNotifications::new(overlay_window)?;
@@ -1501,6 +1593,12 @@ fn run_banner(
             }
             Err(error) => return Err(error),
         };
+        // Poll for new last-action points from the input thread
+        if let Ok(mut point) = last_action_point.lock() {
+            if let Some((screen_x, screen_y, _timestamp)) = point.take() {
+                overlay.record_last_action(screen_x, screen_y);
+            }
+        }
         overlay.reposition(target, &rect)?;
         if !signals.visible.load(Ordering::Acquire) {
             overlay.set_visible(true)?;

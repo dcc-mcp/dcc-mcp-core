@@ -130,7 +130,11 @@ trait HostRuntimeSession: Send {
 }
 
 trait HostRuntime: Send + Sync {
-    fn open(&self, grant: &UiControlTaskGrant) -> Result<Box<dyn HostRuntimeSession>, HostFailure>;
+    fn open(
+        &self,
+        grant: &UiControlTaskGrant,
+        session_id: &str,
+    ) -> Result<Box<dyn HostRuntimeSession>, HostFailure>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -330,7 +334,7 @@ impl UiControlHost {
             );
         }
 
-        let mut runtime = match self.runtime.open(&grant) {
+        let mut runtime = match self.runtime.open(&grant, &session_id) {
             Ok(runtime) => runtime,
             Err(failure) => return failure.into_response(),
         };
@@ -1354,6 +1358,7 @@ impl HostRuntime for UnsupportedRuntime {
     fn open(
         &self,
         _grant: &UiControlTaskGrant,
+        _session_id: &str,
     ) -> Result<Box<dyn HostRuntimeSession>, HostFailure> {
         Err(HostFailure::new(
             UiControlHostErrorCode::BackendUnavailable,
