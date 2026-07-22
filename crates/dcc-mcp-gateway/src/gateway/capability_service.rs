@@ -38,7 +38,8 @@ use super::backend_client::{
 };
 use super::capability::{
     CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchMode,
-    SearchQuery, parse_slug, refresh_instance, remove_instance, search,
+    SearchQuery, backend_job_status_tool, is_backend_job_tool, parse_slug, refresh_instance,
+    remove_instance, search,
 };
 use super::request_meta::meta_with_agent_context;
 use super::state::GatewayState;
@@ -464,6 +465,10 @@ pub async fn describe_tool_full(
         )
         .with_instance_provenance("deregistered", Some(record.instance_id)));
     };
+    if is_backend_job_tool(&record.backend_tool) {
+        drop(reg);
+        return Ok((record, backend_job_status_tool()));
+    }
     let url = entry_discovery_mcp_url(entry);
     if url.is_empty() {
         return Err(ServiceError::new(
@@ -598,7 +603,9 @@ pub async fn call_service(
     let entry = entry.clone();
     drop(reg);
 
-    let call_result = if entry_uses_sidecar_dispatch(&entry) && !use_discovery_dispatch {
+    let call_result = if is_backend_job_tool(&record.backend_tool)
+        || (entry_uses_sidecar_dispatch(&entry) && !use_discovery_dispatch)
+    {
         // _meta is intentionally NOT forwarded into sidecar params.
         // The sidecar tools/call contract expects only {name, arguments};
         // injecting _meta at the params level leaks gateway-internal

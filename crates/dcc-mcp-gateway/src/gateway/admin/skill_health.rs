@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use crate::gateway::admin::activity::{collect_audits, collect_traces};
 use crate::gateway::admin::state::{AdminAuditRecord, AdminState};
 use crate::gateway::admin::trace::DispatchTrace;
-use crate::gateway::capability::CapabilityRecord;
+use crate::gateway::capability::{CapabilityRecord, is_backend_job_tool};
 use crate::gateway::search_telemetry::{SearchFollowupTelemetry, SearchTelemetrySnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,10 +87,18 @@ pub(super) async fn build_skill_inventory_payload(
     let search_snapshot = state.gateway.search_telemetry.snapshot(1_000);
     let audits = collect_audits(state, 1_000).await;
     let traces = collect_traces(state, 1_000).await;
-    let adoption = build_adoption_metrics(&records, &search_snapshot, &audits, &traces);
+    // Adapter-owned job polling is an instance lifecycle transport, not a
+    // domain or marketplace Skill. Keep it in capability search and call
+    // telemetry, but do not let it inflate Skill inventory or adoption health.
+    let skill_records: Vec<_> = records
+        .iter()
+        .filter(|record| !is_backend_job_tool(&record.backend_tool))
+        .cloned()
+        .collect();
+    let adoption = build_adoption_metrics(&skill_records, &search_snapshot, &audits, &traces);
 
     let mut grouped: BTreeMap<(String, String, bool), Vec<CapabilityRecord>> = BTreeMap::new();
-    for record in records.iter().cloned() {
+    for record in skill_records {
         let skill_name = record
             .skill_name
             .clone()

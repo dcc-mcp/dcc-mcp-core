@@ -17,7 +17,7 @@
 //! `&[dcc_mcp_jsonrpc::McpTool]` — the type contract belongs in the
 //! crate that already depends on `dcc-mcp-jsonrpc`.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use dcc_mcp_gateway_core::capability::compute_fingerprint;
@@ -32,6 +32,32 @@ use super::record::{
 };
 
 pub use dcc_mcp_gateway_core::capability::builder::BuildOutcome;
+
+const BACKEND_JOB_STATUS_TOOL: &str = "jobs_get_status";
+
+pub(crate) fn is_backend_job_tool(name: &str) -> bool {
+    name == BACKEND_JOB_STATUS_TOOL
+}
+
+pub(crate) fn backend_job_status_tool() -> McpTool {
+    McpTool {
+        name: BACKEND_JOB_STATUS_TOOL.to_string(),
+        description: "Poll an async job owned by this DCC instance.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Job UUID returned by an async call"},
+                "include_logs": {"type": "boolean", "default": false},
+                "include_result": {"type": "boolean", "default": true}
+            },
+            "required": ["job_id"],
+            "additionalProperties": false
+        }),
+        output_schema: None,
+        annotations: None,
+        meta: None,
+    }
+}
 
 /// Everything the builder needs from a single live backend to emit
 /// one instance-worth of capability records.
@@ -60,7 +86,8 @@ pub struct BuildInput<'a> {
 /// 2. **Gateway meta-tools** and **skill-management tools** are
 ///    skipped — those are always served directly by the gateway, so
 ///    forwarding them through the capability index would double up
-///    the surface.
+///    the surface. Adapter-owned `jobs_get_status` remains indexed because
+///    each backend owns its own job state.
 /// 3. Tools whose names are empty strings are skipped defensively
 ///    (the backend should never produce these, but the index keeps
 ///    the guarantee that every record has a non-empty slug).
@@ -153,8 +180,10 @@ fn should_skip(name: &str) -> bool {
     if name.starts_with("__skill__") || name.contains("__skill__") {
         return true;
     }
-    // Gateway-local and skill-management tools are served directly.
-    if is_local_tool(name) || is_core_tool(name) {
+    // Gateway-local and skill-management tools are served directly. The
+    // adapter owns its JobManager, so its registered status tool must stay
+    // instance-routable through the gateway.
+    if is_local_tool(name) || (is_core_tool(name) && !is_backend_job_tool(name)) {
         return true;
     }
     false
@@ -522,6 +551,31 @@ mod unit_tests {
         assert_eq!(out.records.len(), 1);
         assert_eq!(out.skipped, 3);
         assert_eq!(out.records[0].backend_tool, "create_sphere");
+    }
+
+    #[test]
+    fn indexes_backend_job_status_only() {
+        let iid = Uuid::from_u128(2);
+        let tools = vec![
+            tool("jobs_get_status", "poll a job", json!({"type": "object"})),
+            tool("jobs_cleanup", "clean jobs", json!({"type": "object"})),
+            tool("list_skills", "gateway-owned", json!({"type": "object"})),
+            tool("workflows_run", "gateway-owned", json!({"type": "object"})),
+        ];
+
+        let out = build_records_from_backend(BuildInput {
+            instance_id: iid,
+            dcc_type: "unity",
+            backend_tools: &tools,
+        });
+        let names: Vec<_> = out
+            .records
+            .iter()
+            .map(|record| record.backend_tool.as_str())
+            .collect();
+
+        assert_eq!(names, ["jobs_get_status"]);
+        assert_eq!(out.skipped, 3);
     }
 
     #[test]
