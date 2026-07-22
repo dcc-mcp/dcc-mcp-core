@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.67](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.66...v0.19.67) (2026-07-22)
+
+
+### Bug Fixes
+
+* ignore superseded release guard runs ([#2024](https://github.com/dcc-mcp/dcc-mcp-core/issues/2024)) ([5746f6d](https://github.com/dcc-mcp/dcc-mcp-core/commit/5746f6d132bc419bc3c9848280a7fb2d6593d74d))
+
 ## [0.19.66](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.65...v0.19.66) (2026-07-22)
 
 
