@@ -133,6 +133,8 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
     host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows UI Control host")
     assert host_build["if"] == "matrix.os == 'windows-latest'"
     assert "vx just stage-ui-control-host" in host_build["run"]
+    assert "dcc-mcp-ui-control-host.exe --version" in host_build["run"]
+    assert "${{ needs.release-please.outputs.version }}" in host_build["run"]
 
     host_inject = next(
         step for step in build["steps"] if step.get("name") == "Inject Windows UI Control host into server wheel"

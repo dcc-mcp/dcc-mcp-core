@@ -1370,6 +1370,10 @@ impl ConfirmationSurface for RejectingConfirmationSurface {
 #[doc(hidden)]
 #[must_use]
 pub fn run_from_env() -> i32 {
+    if std::env::args_os().skip(1).any(|arg| arg == "--version") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return 0;
+    }
     if std::env::args_os().skip(1).any(|arg| arg == "--self-check") {
         return self_check();
     }

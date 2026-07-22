@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,12 +15,10 @@ import time
 from typing import Any
 from typing import BinaryIO
 from typing import Dict
-from typing import List
 from typing import Optional
 
 _PROTOCOL_VERSION = 2
 _MAX_FRAME_BYTES = 4 * 1024 * 1024
-_HOST_NAME = "dcc-mcp-ui-control-host.exe"
 _SYSTEM_OPERATIONS_CAPABILITY = "typed_system_operations"
 _RECORDING_CAPABILITY = "exact_window_recording"
 
@@ -30,6 +29,22 @@ class UiControlHostError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def _load_host_resolver() -> Any:
+    path = Path(__file__).with_name("_ui_control_host_resolver.py")
+    spec = importlib.util.spec_from_file_location(f"{__name__}_resolver", path)
+    if spec is None or spec.loader is None:
+        raise UiControlHostError("backend_unavailable", "Cannot load the UI Control host resolver.")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        raise UiControlHostError("backend_unavailable", "Cannot load the UI Control host resolver.") from None
+    return module
+
+
+_RESOLVER = _load_host_resolver()
 
 
 def _windows_session_id() -> int:
@@ -47,26 +62,11 @@ def _pipe_path() -> str:
     return rf"\\.\pipe\dcc-mcp-ui-control-host-v2-session-{_windows_session_id()}"
 
 
-def _candidate_binaries() -> List[Path]:
-    configured = os.environ.get("DCC_MCP_UI_CONTROL_HOST")
-    candidates = []
-    if configured:
-        candidates.append(Path(configured))
-    package_root = Path(__file__).resolve().parents[3]
-    candidates.append(package_root / "bin" / _HOST_NAME)
-    repository_root = Path(__file__).resolve().parents[5]
-    candidates.append(repository_root / "target" / "release" / _HOST_NAME)
-    return candidates
-
-
 def _host_binary() -> Path:
-    for candidate in _candidate_binaries():
-        if candidate.is_file():
-            return candidate
-    raise UiControlHostError(
-        "backend_unavailable",
-        "The isolated UI Control host is not installed. Repair or reinstall the Windows dcc-mcp-core package.",
-    )
+    try:
+        return _RESOLVER.resolve_ui_control_host()
+    except _RESOLVER.HostResolutionError as exc:
+        raise UiControlHostError("backend_unavailable", str(exc)) from exc
 
 
 def _launch_host() -> None:

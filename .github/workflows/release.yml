@@ -269,6 +269,11 @@ jobs:
         shell: bash
         run: |
           vx just stage-ui-control-host
+          host_version="$(target/release/dcc-mcp-ui-control-host.exe --version | tr -d '\r')"
+          if [ "$host_version" != "${{ needs.release-please.outputs.version }}" ]; then
+            echo "::error::UI Control host version ${host_version} does not match release ${{ needs.release-please.outputs.version }}"
+            exit 1
+          fi
           host_asset="dcc-mcp-ui-control-host-windows-x86_64.exe"
           cp target/release/dcc-mcp-ui-control-host.exe "$host_asset"
           echo "host_asset=$host_asset" >> "$GITHUB_OUTPUT"
