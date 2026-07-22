@@ -332,7 +332,7 @@ impl TrafficCapture {
     #[must_use]
     pub fn unsubscribe_redacted_frames(&self, subscriber_id: u64) -> bool {
         self.event_bus
-            .unsubscribe(TRAFFIC_FRAME_EVENT, subscriber_id)
+            .unsubscribe_event(TRAFFIC_FRAME_EVENT, subscriber_id)
     }
 
     fn next_frame_id(&self) -> String {

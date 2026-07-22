@@ -95,9 +95,10 @@ impl EventBus {
         Ok(event)
     }
 
-    /// Publish a structured event envelope to Python subscribers.
+    /// Publish a structured event envelope to Python and Rust-native subscribers.
     pub fn publish_event(&self, event: &EventEnvelope) {
-        let Some(()) = Python::try_attach(|py| {
+        // Deliver to Python subscribers.
+        match Python::try_attach(|py| {
             let callbacks = self.matching_callbacks(py, &event.name);
             if callbacks.is_empty() {
                 return;
@@ -120,13 +121,19 @@ impl EventBus {
                     tracing::error!("Error in event subscriber for {}: {}", event.name, err);
                 }
             }
-        }) else {
-            tracing::warn!(
-                "EventBus could not deliver '{}' because Python is not attached",
-                event.name
-            );
-            return;
-        };
+        }) {
+            Some(()) => {}
+            None => {
+                tracing::warn!(
+                    "EventBus could not deliver '{}' because Python is not attached",
+                    event.name
+                );
+                // Still deliver to native subscribers even if Python is absent.
+            }
+        }
+
+        // Deliver to Rust-native subscribers.
+        self.publish_to_native_subscribers(event);
     }
 }
 
