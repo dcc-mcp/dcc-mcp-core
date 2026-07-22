@@ -10,14 +10,17 @@ use std::sync::Arc;
 
 use dcc_mcp_actions::{DispatchExecutionContext, ToolDispatcher, with_execution_context};
 use dcc_mcp_skill_rest::{
-    CallOutcome, ServiceError, ServiceErrorKind, ToolInvoker, ToolSlug,
+    CallOutcome, InvocationCancellation, ServiceError, ServiceErrorKind, ToolInvoker, ToolSlug,
     dispatch_error_to_service_error,
 };
 use serde_json::Value;
 use tokio::runtime::Handle;
 
 use crate::executor::DccExecutorHandle;
-use crate::rmcp_tool_call_dispatch::{ThreadRoutingDispatch, dispatch_action_with_thread_routing};
+use crate::rmcp_tool_call_dispatch::{
+    ThreadRoutingDispatch, dispatch_action_with_thread_routing,
+    dispatch_action_with_thread_routing_cancellable,
+};
 
 /// Invoke backend actions with main-thread routing when a host executor is wired.
 pub struct ThreadRoutedInvoker {
@@ -44,14 +47,13 @@ impl ThreadRoutedInvoker {
             bridge_runtime,
         }
     }
-}
 
-impl ToolInvoker for ThreadRoutedInvoker {
-    fn invoke(
+    fn invoke_inner(
         &self,
         action_name: &str,
         params: Value,
         meta: Option<Value>,
+        cancellation: Option<InvocationCancellation>,
     ) -> Result<CallOutcome, ServiceError> {
         let action_meta = self
             .dispatcher
@@ -83,18 +85,26 @@ impl ToolInvoker for ThreadRoutedInvoker {
                         host_dispatcher_attached: Some(host_dispatcher_attached),
                     },
                     || {
-                        bridge_runtime.block_on(dispatch_action_with_thread_routing(
-                            ThreadRoutingDispatch {
-                                dispatcher: dispatcher.as_ref().clone(),
-                                executor: Some(&executor),
-                                resolved_name: &action,
-                                call_params: params,
-                                meta,
-                                thread_affinity: affinity,
-                                enforce_thread_affinity: enforce,
-                                standalone_main_thread_execution: false,
-                            },
-                        ))
+                        let request = ThreadRoutingDispatch {
+                            dispatcher: dispatcher.as_ref().clone(),
+                            executor: Some(&executor),
+                            resolved_name: &action,
+                            call_params: params,
+                            meta,
+                            thread_affinity: affinity,
+                            enforce_thread_affinity: enforce,
+                            standalone_main_thread_execution: false,
+                        };
+                        match cancellation {
+                            Some(cancellation) => bridge_runtime.block_on(
+                                dispatch_action_with_thread_routing_cancellable(
+                                    request,
+                                    cancellation,
+                                ),
+                            ),
+                            None => bridge_runtime
+                                .block_on(dispatch_action_with_thread_routing(request)),
+                        }
                     },
                 )
                 .map_err(dispatch_error_to_service_error)
@@ -115,21 +125,46 @@ impl ToolInvoker for ThreadRoutedInvoker {
     }
 }
 
+impl ToolInvoker for ThreadRoutedInvoker {
+    fn invoke(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+    ) -> Result<CallOutcome, ServiceError> {
+        self.invoke_inner(action_name, params, meta, None)
+    }
+
+    fn invoke_with_cancellation(
+        &self,
+        action_name: &str,
+        params: Value,
+        meta: Option<Value>,
+        cancellation: InvocationCancellation,
+    ) -> Result<CallOutcome, ServiceError> {
+        self.invoke_inner(action_name, params, meta, Some(cancellation))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     use dcc_mcp_actions::ToolDispatcher;
     use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
     use dcc_mcp_host::{DccDispatcher, QueueDispatcher};
+    use dcc_mcp_job::job::{JobManager, JobStatus};
     use dcc_mcp_models::ThreadAffinity;
-    use dcc_mcp_skill_rest::ToolInvoker;
+    use dcc_mcp_skill_rest::{ToolInvoker, ToolSlug};
     use serde_json::json;
     use tokio::runtime::Handle;
 
     use super::*;
+    use crate::executor::DeferredExecutor;
     use crate::host_bridge::dispatcher_to_executor_handle;
+    use crate::job_aware_invoker::JobAwareInvoker;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn rest_invoke_routes_main_affinity_through_dispatcher_tick() {
@@ -174,5 +209,67 @@ mod tests {
         .expect("invoke thread");
         assert_eq!(outcome.output["ok"], true);
         ticker.join().unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rest_async_cancel_before_pump_skips_main_thread_handler() {
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register_action(ToolMeta {
+            name: "cancel_probe".into(),
+            dcc: "houdini".into(),
+            description: "cancel before host pump".into(),
+            thread_affinity: ThreadAffinity::Main,
+            enforce_thread_affinity: true,
+            enabled: true,
+            ..Default::default()
+        });
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let ran = Arc::new(AtomicBool::new(false));
+        dispatcher.register_handler("cancel_probe", {
+            let ran = Arc::clone(&ran);
+            move |_| {
+                ran.store(true, Ordering::Release);
+                Ok(json!({"ok": true}))
+            }
+        });
+
+        let mut deferred = DeferredExecutor::new(8);
+        let jobs = Arc::new(JobManager::new());
+        let routed = ThreadRoutedInvoker::new(dispatcher, deferred.handle(), Handle::current());
+        let invoker = JobAwareInvoker::new(Arc::new(routed), Arc::clone(&jobs));
+        let pending = invoker
+            .invoke_async(
+                &ToolSlug("houdini.test.cancel_probe".into()),
+                "cancel_probe",
+                json!({}),
+                None,
+            )
+            .expect("queue REST job")
+            .expect("job-aware invoker");
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let status = jobs.get(&pending.job_id).expect("job").read().status;
+                if status == JobStatus::Running && deferred.handle().pending() > 0 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("job reaches the host queue");
+
+        jobs.cancel(&pending.job_id).expect("cancel running job");
+        tokio::task::yield_now().await;
+        let _ = deferred.poll_pending();
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while jobs.get(&pending.job_id).expect("job").read().status != JobStatus::Cancelled {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("job remains cancelled");
+        assert!(!ran.load(Ordering::Acquire));
     }
 }

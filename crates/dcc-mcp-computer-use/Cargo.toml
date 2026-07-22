@@ -12,6 +12,7 @@ description = "Scoped native computer-use sessions for DCC application windows"
 workspace = true
 
 [dependencies]
+dcc-mcp-artefact.workspace = true
 dcc-mcp-ui-control.workspace = true
 dcc-mcp-capture.workspace = true
 dcc-mcp-paths.workspace = true
@@ -21,11 +22,16 @@ pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
+semver.workspace = true
+sha2 = "0.11"
 thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

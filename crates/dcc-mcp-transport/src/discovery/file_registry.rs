@@ -12,26 +12,14 @@ use std::time::{Duration, Instant, SystemTime};
 
 use dashmap::DashMap;
 use fs4::{FileExt, TryLockError};
-use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing;
 use uuid::Uuid;
 
+use super::liveness::{is_pid_alive, legacy_sidecar_host_pid};
 use super::types::{
     GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
 };
 use crate::error::{TransportError, TransportResult};
-
-/// Return `true` when `pid` refers to a currently running OS process.
-///
-/// Used by [`FileRegistry::prune_dead_pids`] to detect ghost entries left behind
-/// when a DCC plugin crashes after registering but before the heartbeat loop
-/// starts. See issue #227.
-fn is_pid_alive(pid: u32) -> bool {
-    let sp = Pid::from_u32(pid);
-    let mut sys = System::new();
-    sys.refresh_processes(ProcessesToUpdate::Some(&[sp]), true);
-    sys.process(sp).is_some()
-}
 
 /// File name for the registry JSON.
 const REGISTRY_FILE: &str = "services.json";
@@ -908,11 +896,12 @@ impl FileRegistry {
         )
     }
 
-    /// Set the OS process ID for a registered service.
+    /// Set the registered service owner's OS process ID.
     ///
     /// Normally called once at registration time; exposed separately so that
-    /// bridge plugins can set it after the initial [`register`] call if the PID
-    /// was not known at startup.
+    /// service launchers can set it after the initial [`register`] call if the
+    /// owner PID was not known at startup. External DCC hosts use `host_pid`
+    /// on the entry instead.
     pub fn set_pid(&self, key: &ServiceKey, pid: u32) -> TransportResult<bool> {
         self.with_write_transaction(|| {
             let found = if let Some(mut entry) = self.services.get_mut(key) {
@@ -958,12 +947,17 @@ impl FileRegistry {
         })
     }
 
-    /// Remove entries whose owning OS process is no longer running.
+    /// Remove entries whose service owner or explicitly-bound DCC host is no
+    /// longer running.
     ///
-    /// Sentinel locks are checked before PID liveness: if another process can
-    /// acquire the sentinel lock, the owner is gone even if the PID has already
-    /// been reused. Rows from older versions without a sentinel fall back to the
-    /// PID probe. Includes the gateway sentinel.
+    /// Sentinel locks are checked before owner-PID liveness: if another process
+    /// can acquire the sentinel lock, the service owner is gone even if the PID
+    /// has already been reused. Rows from older versions without a sentinel fall
+    /// back to the PID probe. When `host_pid` is present it is an independent
+    /// required lifetime: an alive sidecar must not keep a dead DCC host visible.
+    /// Pre-`host_pid` sidecar rows are recognised from their role and
+    /// `sidecar_pid` metadata so rolling upgrades reap the same ghosts.
+    /// Standalone services omit `host_pid`. Includes the gateway sentinel.
     ///
     /// Issue #719 follow-up: reload the on-disk registry before pruning
     /// so rows written by a separate (now-crashed) process become
@@ -978,11 +972,14 @@ impl FileRegistry {
                 .iter()
                 .filter(|r| {
                     let entry = r.value();
-                    if let Some(path) = entry.sentinel_path.as_deref() {
+                    let owner_dead = if let Some(path) = entry.sentinel_path.as_deref() {
                         self.sentinel_is_dead(r.key(), path)
                     } else {
                         entry.pid.is_some_and(|p| !is_pid_alive(p))
-                    }
+                    };
+                    let bound_host_pid = entry.host_pid.or_else(|| legacy_sidecar_host_pid(entry));
+                    let host_dead = bound_host_pid.is_some_and(|p| !is_pid_alive(p));
+                    owner_dead || host_dead
                 })
                 .map(|r| r.key().clone())
                 .collect();
@@ -999,7 +996,7 @@ impl FileRegistry {
                 tracing::info!(
                     dcc_type = %key.dcc_type,
                     instance_id = %key.instance_id,
-                    "removed ghost entry (owner sentinel/PID is dead)"
+                    "removed ghost entry (service owner or bound DCC host is dead)"
                 );
             }
 
@@ -1012,7 +1009,7 @@ impl FileRegistry {
         self.prune_dead_entries()
     }
 
-    /// Read all live entries, evicting any whose owning OS process is dead.
+    /// Read all live entries, evicting any whose owner or bound host is dead.
     ///
     /// Combines the reload-if-stale + [`Self::prune_dead_pids`] + [`Self::list_all`]
     /// dance into a single call so external readers (gateway aggregator,

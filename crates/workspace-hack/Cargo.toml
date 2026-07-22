@@ -92,7 +92,6 @@ tracing-core = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 typenum = { version = "1.20.1", default-features = false, features = ["const-generics"] }
 url = { version = "2.5.8", features = ["serde"] }
-uuid = { version = "1.23.2", features = ["serde", "v4", "v5"] }
 winnow = { version = "1.0.3" }
 zerocopy = { version = "0.8.50", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1.8.2", features = ["derive"] }
@@ -179,7 +178,6 @@ tracing-core = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 typenum = { version = "1.20.1", default-features = false, features = ["const-generics"] }
 url = { version = "2.5.8", features = ["serde"] }
-uuid = { version = "1.23.2", features = ["serde", "v4", "v5"] }
 winnow = { version = "1.0.3" }
 zerocopy = { version = "0.8.50", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1.8.2", features = ["derive"] }

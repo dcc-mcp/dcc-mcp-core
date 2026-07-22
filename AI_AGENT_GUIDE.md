@@ -50,16 +50,22 @@ CLI-first does **not** deprecate MCP. The gateway always exposes both MCP and RE
 
 ### Install and keep the CLI current
 
-If `dcc-mcp-cli` is missing, obtain the user's consent before installing the
-latest official release:
+If `dcc-mcp-cli` is missing, obtain the user's consent, install the public
+`dcc-mcp` Skill, and run its bundled verified helper from the Skill directory:
 
 ```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
+
+The helper is fixed to the official `dcc-mcp/dcc-mcp-core` release. It checks
+the platform update manifest and CLI SHA-256 before replacing anything, and
+fails closed on an invalid URL, manifest, digest, or download. SHA-256 verifies
+that the binary matches the release manifest; it is not a digital signature. If
+the Skill is unavailable,
+[download the official installer to a local file, inspect it, and then execute
+that file](docs/guide/getting-started.md#cli-from-the-dcc-mcp-skill). Never pipe
+a remote installer directly into a shell or bypass the machine's script
+execution policy.
 
 Keep an official build current through the release manifest:
 
@@ -101,8 +107,7 @@ replacement, alternate-hive, or elevation form. Treat `elevation_required`,
 
 Never automate the whole desktop or reuse coordinates from an older snapshot.
 The Windows session shows a click-through target border, control banner, and
-pointer-action markers. The user stops control with `Ctrl+Alt+Esc`; ordinary
-`Esc` remains available to the target application.
+pointer-action markers. The user stops control by pressing `Esc`.
 After `user_interrupted`, stop and do not retry, change `session_id`, or
 automatically restart; the stop is latched across DCC adapter processes in the
 same Windows logon session.

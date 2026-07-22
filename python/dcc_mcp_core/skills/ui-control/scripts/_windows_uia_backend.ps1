@@ -39,15 +39,35 @@ function Bounds-Object($rect) {
   }
 }
 
-function Pattern-Value([System.Windows.Automation.AutomationElement]$element) {
+function Value-Pattern-Metadata([System.Windows.Automation.AutomationElement]$element) {
+  $result = [ordered]@{
+    available = $null
+    value = $null
+  }
   try {
-    if ([bool]$element.Current.IsPassword) { return $null }
     $pattern = $null
     if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
-      return $pattern.Current.Value
+      $result.available = $true
+      if (-not [bool]$element.Current.IsPassword) {
+        try { $result.value = $pattern.Current.Value } catch {}
+      }
+    } else {
+      $result.available = $false
     }
   } catch {}
-  return $null
+  return $result
+}
+
+function Pattern-Available(
+  [System.Windows.Automation.AutomationElement]$element,
+  [System.Windows.Automation.AutomationPattern]$patternId
+) {
+  try {
+    $pattern = $null
+    return [bool]$element.TryGetCurrentPattern($patternId, [ref]$pattern)
+  } catch {
+    return $null
+  }
 }
 
 function Pattern-Checked([System.Windows.Automation.AutomationElement]$element) {
@@ -63,6 +83,8 @@ function Pattern-Checked([System.Windows.Automation.AutomationElement]$element) 
 function Element-Raw([System.Windows.Automation.AutomationElement]$element, [int]$depth, [string]$path) {
   $script:nodeCount = $script:nodeCount + 1
   $current = $element.Current
+  $valuePattern = Value-Pattern-Metadata $element
+  $textPatternAvailable = Pattern-Available $element ([System.Windows.Automation.TextPattern]::Pattern)
   $runtimeId = Runtime-Id $element
   $children = @()
   if ($depth -lt $payload.max_depth -and $script:nodeCount -lt $payload.max_nodes) {
@@ -88,7 +110,9 @@ function Element-Raw([System.Windows.Automation.AutomationElement]$element, [int
     offscreen = [bool]$current.IsOffscreen
     focused = [bool]$current.HasKeyboardFocus
     bounds = Bounds-Object $current.BoundingRectangle
-    value = Pattern-Value $element
+    value = $valuePattern.value
+    value_pattern_available = $valuePattern.available
+    text_pattern_available = $textPatternAvailable
     checked = Pattern-Checked $element
     children = $children
   }
@@ -230,7 +254,11 @@ function Find-Scoped-Root() {
       if ($null -ne $windowRoot -and (Match-Scope $windowRoot $processIds)) { $handleMatches += $windowRoot }
     } catch {}
   }
-  if ($handleMatches.Count -eq 1) { return $handleMatches[0] }
+  if ($handleMatches.Count -eq 1) {
+    $ownedMenuPopup = Find-Owned-Standard-Menu-Popup $handleMatches[0]
+    if ($null -ne $ownedMenuPopup) { return $ownedMenuPopup }
+    return $handleMatches[0]
+  }
   if ($handleMatches.Count -gt 1) {
     $script:scopeError = "Multiple scoped HWND values matched; provide one unique target."
     return $null
@@ -445,14 +473,29 @@ try {
       exit 0
     }
     $actionResult = Invoke-Action $target
-    $afterFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
+    if (-not [bool]$actionResult.ok) {
+      @{
+        ok = $false
+        error = $actionResult.error
+        message = $actionResult.message
+        before_focus_runtime_id = $beforeFocus
+      } | ConvertTo-Json -Depth 64 -Compress
+      exit 0
+    }
+    $afterFocus = $null
+    try {
+      $afterFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
+    } catch {}
+    $control = $null
+    try {
+      $control = Element-Raw $target 0 "target"
+    } catch {}
     @{
-      ok = [bool]$actionResult.ok
-      error = $actionResult.error
+      ok = $true
       message = $actionResult.message
       before_focus_runtime_id = $beforeFocus
       after_focus_runtime_id = $afterFocus
-      control = Element-Raw $target 0 "target"
+      control = $control
     } | ConvertTo-Json -Depth 64 -Compress
     exit 0
   }

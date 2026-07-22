@@ -34,6 +34,10 @@ pub enum CaptureError {
     #[error("capture timed out after {0}ms")]
     Timeout(u64),
 
+    /// The user or owning session cancelled a bounded capture operation.
+    #[error("capture cancelled by the owning session")]
+    Cancelled,
+
     /// An unexpected internal error.
     #[error("internal error: {0}")]
     Internal(String),

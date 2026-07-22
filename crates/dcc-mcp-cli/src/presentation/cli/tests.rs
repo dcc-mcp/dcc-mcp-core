@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn require_gateway_is_a_global_fail_closed_control_flag() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "maya.abc12345.inspect",
+        "--require-gateway",
+        "--agent-session-id",
+        "task-42",
+    ])
+    .expect("parse --require-gateway after the subcommand");
+
+    assert!(args.require_gateway);
+    assert_eq!(args.agent_session_id.as_deref(), Some("task-42"));
+}
+
+#[test]
 fn dcc_types_contract_accepts_a_custom_catalog() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
@@ -14,6 +30,67 @@ fn dcc_types_contract_accepts_a_custom_catalog() {
         panic!("expected dcc-types command");
     };
     assert_eq!(catalog, Some(PathBuf::from("studio-catalog.yml")));
+}
+
+#[test]
+fn search_contract_accepts_unquoted_positional_query_words() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "search",
+        "create",
+        "sphere",
+        "--dcc-type",
+        "maya",
+    ])
+    .expect("parse positional search query");
+
+    let Command::Search {
+        query,
+        query_terms,
+        dcc_type,
+        ..
+    } = args.command
+    else {
+        panic!("expected search command");
+    };
+    assert!(query.is_none());
+    assert_eq!(
+        resolve_query(query, query_terms).as_deref(),
+        Some("create sphere")
+    );
+    assert_eq!(dcc_type.as_deref(), Some("maya"));
+}
+
+#[test]
+fn marketplace_search_contract_accepts_positional_query_and_dcc_type_alias() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "marketplace",
+        "search",
+        "maya",
+        "rigging",
+        "--dcc-type",
+        "maya",
+    ])
+    .expect("parse positional marketplace query");
+
+    let Command::Marketplace {
+        action:
+            MarketplaceAction::Search {
+                query,
+                query_terms,
+                dcc,
+                ..
+            },
+    } = args.command
+    else {
+        panic!("expected marketplace search command");
+    };
+    assert_eq!(
+        resolve_query(query, query_terms).as_deref(),
+        Some("maya rigging")
+    );
+    assert_eq!(dcc.as_deref(), Some("maya"));
 }
 
 #[test]
@@ -163,6 +240,43 @@ fn ui_control_contract_parses_a_stable_system_operation_command() {
 }
 
 #[test]
+fn ui_control_contract_parses_an_exact_window_recording_command() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "ui-control",
+        "record-clip",
+        "--dcc-type",
+        "unity",
+        "--instance-id",
+        "abc12345",
+        "--json",
+        r#"{"session_id":"pv","duration_ms":5000,"frames_per_second":30,"jpeg_quality":92}"#,
+        "--timeout-secs",
+        "12",
+    ])
+    .expect("parse ui-control record-clip");
+
+    let Command::UiControl {
+        action: UiControlAction::RecordClip(recording),
+    } = args.command
+    else {
+        panic!("expected ui-control record-clip command");
+    };
+    assert_eq!(recording.dcc_type.as_deref(), Some("unity"));
+    assert_eq!(recording.instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(recording.timeout_secs, 12);
+    assert_eq!(
+        read_call_arguments(&recording.arguments_json, recording.json_file.as_deref()).unwrap(),
+        serde_json::json!({
+            "session_id": "pv",
+            "duration_ms": 5000,
+            "frames_per_second": 30,
+            "jpeg_quality": 92
+        })
+    );
+}
+
+#[test]
 fn ui_control_operations_map_to_canonical_ui_control_tools() {
     let args = UiControlArgs {
         dcc_type: None,
@@ -183,6 +297,10 @@ fn ui_control_operations_map_to_canonical_ui_control_tools() {
         (
             UiControlAction::SystemOperation(args.clone()),
             "ui_control__system_operation",
+        ),
+        (
+            UiControlAction::RecordClip(args.clone()),
+            "ui_control__record_clip",
         ),
         (UiControlAction::Wait(args.clone()), "ui_control__wait_for"),
         (
@@ -496,6 +614,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
             DEFAULT_BASE_URL,
             &Command::Search {
                 query: Some("sphere".to_string()),
+                query_terms: Vec::new(),
                 dcc_type: None,
                 instance_id: None,
                 limit: None,
@@ -590,6 +709,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
             DEFAULT_BASE_URL,
             &Command::Search {
                 query: Some("sphere".to_string()),
+                query_terms: Vec::new(),
                 dcc_type: None,
                 instance_id: None,
                 limit: None,

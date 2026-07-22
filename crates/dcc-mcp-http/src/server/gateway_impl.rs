@@ -85,6 +85,7 @@ pub(crate) async fn start_gateway_runner(
         port,
     );
     entry.version = config.instance.dcc_version.clone();
+    entry.host_pid = config.instance.host_pid;
     entry.scene = config.instance.scene.clone();
     entry.adapter_version = config.gateway.adapter_version.clone();
     entry.adapter_dcc = config

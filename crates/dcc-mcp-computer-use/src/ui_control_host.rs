@@ -1,32 +1,40 @@
 //! Isolated UI Control host state machine and executable entry point.
 
-use std::collections::{HashMap, HashSet};
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::PathBuf;
+use std::collections::HashMap;
 
 use dcc_mcp_ui_control::host_protocol::{
-    UI_CONTROL_HOST_CAPABILITIES, UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlAction,
+    UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlAction, UiControlClipArtifact, UiControlClipFormat,
     UiControlHostErrorCode, UiControlHostHello, UiControlHostRequest, UiControlHostResponse,
     UiControlInputKind, UiControlPolicyTier, UiControlSharedImage, UiControlSystemGrant,
     UiControlSystemOperation, UiControlTarget, UiControlTaskGrant, UiControlWindowOperation,
     UiControlWindowState,
 };
-use serde_json::{Value, json};
-use time::OffsetDateTime;
-use time::format_description::well_known::Rfc3339;
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use uuid::Uuid;
 
+mod audit;
+mod connection;
 mod policy;
+#[cfg(any(windows, test))]
+mod recording_artifact;
+#[cfg(test)]
+mod recording_artifact_tests;
 #[cfg(windows)]
 mod runtime_windows;
 mod system_operations;
 #[cfg(windows)]
 mod windows;
 
+use audit::{audit_event, audit_system_event};
+pub use connection::UiControlHostConnection;
 #[cfg(any(windows, test))]
 use policy::{ActionControlFence, verify_expected_action_fence};
-use policy::{classify_action, stale_accessibility_state, verify_action_fence};
+use policy::{
+    allows_owned_standard_menu_popup, classify_action, stale_accessibility_state,
+    verify_action_fence,
+};
 #[cfg(test)]
 use policy::{classify_control, classify_control_text};
 #[cfg(windows)]
@@ -34,6 +42,14 @@ use system_operations::load_system_grants;
 use system_operations::{
     invalid_system_operation, run_system_operation, validate_system_operation,
 };
+
+const MIN_CLIP_DURATION_MS: u64 = 1_000;
+const MAX_CLIP_DURATION_MS: u64 = 180_000;
+const MIN_CLIP_FRAMES_PER_SECOND: u32 = 1;
+const MAX_CLIP_FRAMES_PER_SECOND: u32 = 60;
+const MIN_CLIP_JPEG_QUALITY: u8 = 70;
+const MAX_CLIP_JPEG_QUALITY: u8 = 100;
+const MAX_HOST_SESSION_ID_BYTES: usize = 192;
 
 #[derive(Debug)]
 struct HostFailure {
@@ -70,8 +86,18 @@ struct RuntimeAccessibilityState {
 
 struct RuntimeActionResult {
     message: String,
+    target_closed: bool,
     before_focus_runtime_id: Option<String>,
     after_focus_runtime_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RuntimeClipRequest {
+    duration_ms: u64,
+    frames_per_second: u32,
+    #[cfg_attr(not(any(windows, test)), allow(dead_code))]
+    format: UiControlClipFormat,
+    jpeg_quality: u8,
 }
 
 trait HostRuntimeSession: Send {
@@ -83,10 +109,15 @@ trait HostRuntimeSession: Send {
         operation: UiControlWindowOperation,
     ) -> Result<UiControlWindowState, HostFailure>;
     fn snapshot(&mut self, max_depth: u32, max_nodes: u32) -> Result<RuntimeSnapshot, HostFailure>;
+    fn record_clip(
+        &mut self,
+        request: RuntimeClipRequest,
+    ) -> Result<UiControlClipArtifact, HostFailure>;
     fn accessibility_state(
         &mut self,
         max_depth: u32,
         max_nodes: u32,
+        allow_owned_standard_menu_popup: bool,
     ) -> Result<RuntimeAccessibilityState, HostFailure>;
     fn execute(
         &mut self,
@@ -170,133 +201,6 @@ impl Default for UiControlHost {
     }
 }
 
-/// Per-connection handshake state.
-#[derive(Debug, Default)]
-pub struct UiControlHostConnection {
-    negotiated: bool,
-    owned_sessions: HashSet<String>,
-    owned_system_sessions: HashSet<String>,
-}
-
-impl UiControlHostConnection {
-    /// Handle one decoded request and apply it to the process-owned host state.
-    #[must_use]
-    pub fn handle(
-        &mut self,
-        host: &mut UiControlHost,
-        request: UiControlHostRequest,
-    ) -> UiControlHostResponse {
-        if let UiControlHostRequest::Hello(hello) = request {
-            return self.hello(hello);
-        }
-        if !self.negotiated {
-            return error(
-                UiControlHostErrorCode::HandshakeRequired,
-                "hello must negotiate the exact protocol version first",
-            );
-        }
-        if let Some((session_id, system, opening)) = request_session(&request)
-            && !opening
-        {
-            let owned = if system {
-                &self.owned_system_sessions
-            } else {
-                &self.owned_sessions
-            };
-            if !owned.contains(session_id) {
-                return error(
-                    UiControlHostErrorCode::SessionNotFound,
-                    "UI Control session is not owned by this named-pipe connection",
-                );
-            }
-        }
-        let consumed_system_session = match &request {
-            UiControlHostRequest::ExecuteSystemOperation { session_id, .. } => {
-                Some(session_id.clone())
-            }
-            _ => None,
-        };
-        let response = host.handle(request);
-        if let Some(session_id) = consumed_system_session {
-            self.owned_system_sessions.remove(&session_id);
-        }
-        match &response {
-            UiControlHostResponse::SessionOpened { session_id, .. } => {
-                self.owned_sessions.insert(session_id.clone());
-            }
-            UiControlHostResponse::SessionStopped { session_id, .. } => {
-                self.owned_sessions.remove(session_id);
-            }
-            UiControlHostResponse::SystemSessionOpened { session_id, .. } => {
-                self.owned_system_sessions.insert(session_id.clone());
-            }
-            UiControlHostResponse::SystemSessionStopped { session_id } => {
-                self.owned_system_sessions.remove(session_id);
-            }
-            _ => {}
-        }
-        response
-    }
-
-    /// Stop every session minted for this pipe when the client disconnects.
-    #[cfg(any(windows, test))]
-    fn disconnect(&mut self, host: &mut UiControlHost) {
-        for session_id in self.owned_sessions.drain() {
-            let _ = host.stop_session(session_id);
-        }
-        for session_id in self.owned_system_sessions.drain() {
-            let _ = host.stop_system_session(session_id);
-        }
-        self.negotiated = false;
-    }
-
-    fn hello(&mut self, hello: UiControlHostHello) -> UiControlHostResponse {
-        if hello.protocol_version != UI_CONTROL_HOST_PROTOCOL_VERSION {
-            self.negotiated = false;
-            return error(
-                UiControlHostErrorCode::ProtocolMismatch,
-                format!(
-                    "UI Control host protocol mismatch: client={}, host={}",
-                    hello.protocol_version, UI_CONTROL_HOST_PROTOCOL_VERSION
-                ),
-            );
-        }
-        if !valid_wire_label(&hello.client_name, 128) {
-            self.negotiated = false;
-            return error(
-                UiControlHostErrorCode::InvalidRequest,
-                "client_name must not be empty",
-            );
-        }
-        self.negotiated = true;
-        UiControlHostResponse::Hello {
-            protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
-            capabilities: UI_CONTROL_HOST_CAPABILITIES
-                .iter()
-                .map(|item| (*item).to_owned())
-                .collect(),
-        }
-    }
-}
-
-fn request_session(request: &UiControlHostRequest) -> Option<(&str, bool, bool)> {
-    match request {
-        UiControlHostRequest::Hello(_) => None,
-        UiControlHostRequest::OpenSession { session_id, .. } => Some((session_id, false, true)),
-        UiControlHostRequest::OpenSystemSession { session_id, .. } => {
-            Some((session_id, true, true))
-        }
-        UiControlHostRequest::GetWindowState { session_id, .. }
-        | UiControlHostRequest::ChangeWindowState { session_id, .. }
-        | UiControlHostRequest::Snapshot { session_id, .. }
-        | UiControlHostRequest::ExecuteAction { session_id, .. }
-        | UiControlHostRequest::ResumeSession { session_id, .. }
-        | UiControlHostRequest::StopSession { session_id } => Some((session_id, false, false)),
-        UiControlHostRequest::ExecuteSystemOperation { session_id, .. }
-        | UiControlHostRequest::StopSystemSession { session_id } => Some((session_id, true, false)),
-    }
-}
-
 impl UiControlHost {
     #[cfg(windows)]
     fn from_operator_config() -> Result<Self, String> {
@@ -344,6 +248,25 @@ impl UiControlHost {
                 max_depth,
                 max_nodes,
             ),
+            UiControlHostRequest::RecordClip {
+                session_id,
+                task_grant_id,
+                window_capability,
+                duration_ms,
+                frames_per_second,
+                format,
+                jpeg_quality,
+            } => self.record_clip(
+                &session_id,
+                &task_grant_id,
+                &window_capability,
+                RuntimeClipRequest {
+                    duration_ms,
+                    frames_per_second,
+                    format,
+                    jpeg_quality,
+                },
+            ),
             UiControlHostRequest::ExecuteAction {
                 session_id,
                 task_grant_id,
@@ -387,7 +310,7 @@ impl UiControlHost {
         session_id: String,
         grant: UiControlTaskGrant,
     ) -> UiControlHostResponse {
-        if !valid_wire_label(&session_id, 128)
+        if !valid_wire_label(&session_id, MAX_HOST_SESSION_ID_BYTES)
             || !valid_wire_label(&grant.task_grant_id, 256)
             || !valid_wire_label(&grant.dcc_type, 64)
             || (grant.process_id.is_none() && grant.window_handle.is_none())
@@ -452,7 +375,9 @@ impl UiControlHost {
         session_id: String,
         system_grant_id: &str,
     ) -> UiControlHostResponse {
-        if !valid_wire_label(&session_id, 128) || !valid_wire_label(system_grant_id, 256) {
+        if !valid_wire_label(&session_id, MAX_HOST_SESSION_ID_BYTES)
+            || !valid_wire_label(system_grant_id, 256)
+        {
             return error(
                 UiControlHostErrorCode::InvalidRequest,
                 "system session and operator grant ids must be explicit",
@@ -638,6 +563,60 @@ impl UiControlHost {
         }
     }
 
+    fn record_clip(
+        &mut self,
+        session_id: &str,
+        task_grant_id: &str,
+        window_capability: &str,
+        request: RuntimeClipRequest,
+    ) -> UiControlHostResponse {
+        if !(MIN_CLIP_DURATION_MS..=MAX_CLIP_DURATION_MS).contains(&request.duration_ms)
+            || !(MIN_CLIP_FRAMES_PER_SECOND..=MAX_CLIP_FRAMES_PER_SECOND)
+                .contains(&request.frames_per_second)
+            || !(MIN_CLIP_JPEG_QUALITY..=MAX_CLIP_JPEG_QUALITY).contains(&request.jpeg_quality)
+        {
+            return error(
+                UiControlHostErrorCode::InvalidRequest,
+                "duration_ms must be 1000..=180000, frames_per_second must be 1..=60, and jpeg_quality must be 70..=100",
+            );
+        }
+        let session = match Self::authorized_session_mut(
+            &mut self.sessions,
+            session_id,
+            task_grant_id,
+            window_capability,
+        ) {
+            Ok(session) => session,
+            Err(failure) => return failure.into_response(),
+        };
+        consume_observation(session);
+        match session.runtime.record_clip(request) {
+            Ok(artifact) => {
+                audit_event(
+                    &session.grant,
+                    "record_clip",
+                    true,
+                    UiControlPolicyTier::TaskGrant,
+                    None,
+                );
+                UiControlHostResponse::ClipRecorded {
+                    target: session.runtime.target().clone(),
+                    artifact,
+                }
+            }
+            Err(failure) => {
+                audit_event(
+                    &session.grant,
+                    "record_clip",
+                    false,
+                    UiControlPolicyTier::TaskGrant,
+                    Some(failure.code),
+                );
+                failure.into_response()
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn execute_action(
         &mut self,
@@ -779,14 +758,23 @@ impl UiControlHost {
         {
             Ok(result) => {
                 audit_event(&session.grant, &action.action, true, policy_tier, None);
-                action_response(
+                let target_closed = result.target_closed;
+                if target_closed {
+                    let _ = session.runtime.stop();
+                }
+                let response = completed_action_response(
                     true,
+                    target_closed,
                     policy_tier,
                     result.message,
                     None,
                     result.before_focus_runtime_id,
                     result.after_focus_runtime_id,
-                )
+                );
+                if target_closed {
+                    self.sessions.remove(session_id);
+                }
+                response
             }
             Err(failure) => {
                 audit_event(
@@ -1040,7 +1028,11 @@ fn refresh_action_policy(
     let max_nodes = session
         .accessibility_max_nodes
         .ok_or_else(stale_accessibility_state)?;
-    let live = session.runtime.accessibility_state(max_depth, max_nodes)?;
+    let live = session.runtime.accessibility_state(
+        max_depth,
+        max_nodes,
+        allows_owned_standard_menu_popup(action),
+    )?;
     let (policy_tier, _action_controls) = verify_action_fence(
         action,
         session
@@ -1142,6 +1134,7 @@ fn validate_action_descriptor(action: &UiControlAction) -> Result<(), HostFailur
         "raw_coordinate_click",
         "type",
         "keypress",
+        "game_navigation",
         "keyboard_shortcut",
     ];
     let allowed = match action.input_kind {
@@ -1259,6 +1252,17 @@ fn action_fields_are_valid(action: &UiControlAction) -> bool {
                 "keypress" | "keyboard_shortcut" => {
                     no_pointer && action.text.is_none() && action.checked.is_none() && has_keys
                 }
+                "game_navigation" => {
+                    no_point
+                        && action.button.is_none()
+                        && no_scroll
+                        && action.path.is_empty()
+                        && no_value
+                        && crate::game_navigation_virtual_key(&action.keys).is_some()
+                        && action
+                            .duration_ms
+                            .is_none_or(|duration| duration <= crate::MAX_GAME_NAVIGATION_HOLD_MS)
+                }
                 _ => false,
             }
         }
@@ -1290,80 +1294,36 @@ fn action_response(
     before_focus_runtime_id: Option<String>,
     after_focus_runtime_id: Option<String>,
 ) -> UiControlHostResponse {
+    completed_action_response(
+        success,
+        false,
+        policy_tier,
+        message,
+        error,
+        before_focus_runtime_id,
+        after_focus_runtime_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn completed_action_response(
+    success: bool,
+    target_closed: bool,
+    policy_tier: UiControlPolicyTier,
+    message: impl Into<String>,
+    error: Option<UiControlHostErrorCode>,
+    before_focus_runtime_id: Option<String>,
+    after_focus_runtime_id: Option<String>,
+) -> UiControlHostResponse {
     UiControlHostResponse::ActionCompleted {
         success,
+        target_closed,
         policy_tier,
         message: message.into(),
         error,
         before_focus_runtime_id,
         after_focus_runtime_id,
     }
-}
-
-fn audit_event(
-    grant: &UiControlTaskGrant,
-    action: &str,
-    success: bool,
-    policy_tier: UiControlPolicyTier,
-    error_code: Option<UiControlHostErrorCode>,
-) {
-    audit_event_for_dcc(&grant.dcc_type, action, success, policy_tier, error_code);
-}
-
-fn audit_system_event(
-    grant: &UiControlSystemGrant,
-    action: &str,
-    success: bool,
-    policy_tier: UiControlPolicyTier,
-    error_code: Option<UiControlHostErrorCode>,
-) {
-    audit_event_for_dcc(&grant.dcc_type, action, success, policy_tier, error_code);
-}
-
-fn audit_event_for_dcc(
-    dcc_type: &str,
-    action: &str,
-    success: bool,
-    policy_tier: UiControlPolicyTier,
-    error_code: Option<UiControlHostErrorCode>,
-) {
-    let payload = json!({
-        "event": "ui_control_operation",
-        "tool": "dcc-mcp-ui-control-host",
-        "dcc_type": dcc_type,
-        "action": action,
-        "success": success,
-        "error": error_code,
-        "message": if success { "DCC UI Control host operation succeeded" } else { "DCC UI Control host operation rejected" },
-        "detail": format!("action={action} tier={policy_tier:?}"),
-    });
-    let timestamp = OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned());
-    let level = if success { "INFO" } else { "WARN" };
-    let line = format!(
-        "{timestamp} {level} dcc_mcp_ui_control_host.audit: {}\n",
-        payload
-    );
-    eprint!("{line}");
-    let path = audit_log_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = file.write_all(line.as_bytes());
-    }
-}
-
-fn audit_log_path() -> PathBuf {
-    let directory = std::env::var_os("DCC_MCP_LOG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| dcc_mcp_paths::get_log_dir().ok().map(PathBuf::from))
-        .unwrap_or_else(std::env::temp_dir);
-    directory.join(format!(
-        "dcc-mcp-ui-control-host.{}.log",
-        std::process::id()
-    ))
 }
 
 #[cfg(windows)]
@@ -1430,6 +1390,10 @@ impl ConfirmationSurface for RejectingConfirmationSurface {
 #[doc(hidden)]
 #[must_use]
 pub fn run_from_env() -> i32 {
+    if std::env::args_os().skip(1).any(|arg| arg == "--version") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return 0;
+    }
     if std::env::args_os().skip(1).any(|arg| arg == "--self-check") {
         return self_check();
     }

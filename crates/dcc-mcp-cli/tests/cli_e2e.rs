@@ -463,6 +463,8 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
 
     let call = run_json_with_env(&["call", slug, "--json", r#"{"detail":true}"#], &envs);
     assert_eq!(call["source"], "local_mcp");
+    assert_eq!(call["control_route"], "local_mcp_direct");
+    assert_eq!(call["gateway_stats_recorded"], false);
     assert_eq!(call["success"], true);
     assert_eq!(call["tool_slug"], slug);
     assert_eq!(call["result"]["isError"], false);
@@ -1128,6 +1130,8 @@ fn doctor_reports_local_defaults_without_starting_gateway() {
     assert_eq!(doctor["profile"]["stored_current"], "local");
     assert_eq!(doctor["profile"]["selected"]["name"], "local");
     assert_eq!(doctor["profile"]["selected"]["mode"], "local");
+    assert_eq!(doctor["control"]["route"], "local_mcp_direct");
+    assert_eq!(doctor["control"]["gateway_stats_recorded"], false);
     assert_eq!(doctor["local"]["registry_dir"], registry_s);
     assert_eq!(doctor["local"]["inventory"]["ok"], true);
     assert_eq!(doctor["local"]["inventory"]["total"], 0);
@@ -1525,8 +1529,8 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    assert_eq!(types.len(), 18);
-    for expected in ["godot", "openusd", "renderdoc", "shotgrid"] {
+    assert_eq!(types.len(), 19);
+    for expected in ["godot", "openusd", "renderdoc", "shotgrid", "unity"] {
         assert!(types.iter().any(|entry| entry["dcc_type"] == expected));
     }
 }

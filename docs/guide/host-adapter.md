@@ -112,6 +112,7 @@ from dcc_mcp_core import DccServerBase, DccServerOptions
 opts = DccServerOptions.from_env(
     "maya",
     skills_dir,
+    instance_type="standalone",  # this process owns the full runtime lifetime
     standalone_main_thread=True,  # mayapy/batch only, never GUI sessions
 )
 server = DccServerBase(opts)
@@ -123,6 +124,8 @@ GUI dispatcher and that its in-process execution lane is safe for tools that
 declare `thread_affinity: main`. Core then installs the inline in-process skill
 executor before discovery and lets MCP `tools/call` plus REST `/v1/call` satisfy
 enforced main-affinity tools without adapter-local metadata mutation.
+`instance_type="standalone"` separately tells discovery that no external GUI
+host bounds this service lifetime. Do not infer one contract from the other.
 
 Keep using a real `QueueDispatcher` / `BlockingDispatcher` for GUI hosts. Use
 `set_skill_load_transform(...)` only for runtime policy that does not lie about

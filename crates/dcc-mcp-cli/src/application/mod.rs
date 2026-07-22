@@ -1,3 +1,4 @@
+pub mod call_attribution;
 pub mod client;
 pub mod control_plane;
 pub mod doctor;

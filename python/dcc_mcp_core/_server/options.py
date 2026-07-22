@@ -7,7 +7,7 @@ dataclasses so every cross-cutting concern lives in one place:
 - :class:`ObservabilityOptions` — file logging, job persistence, telemetry
 - :class:`DiagnosticsOptions`  — window PID/title/handle, snapshot provider
 - :class:`ExecutionOptions`    — dispatcher vs execution bridge (tagged union)
-- :class:`DccServerOptions`    — root object passed to ``DccServerBase.__init__``
+- :class:`DccServerOptions`    — runtime identity plus the root server options
 
 Usage::
 
@@ -286,6 +286,10 @@ class DccServerOptions:
         server_name: Name reported in the MCP ``initialize`` response.
         server_version: Version reported in the MCP ``initialize`` response.
             ``None`` defaults to the installed ``dcc_mcp_core`` version.
+        instance_type: Runtime lifetime shape reported to discovery. Use
+            ``"gui"`` for a DCC-bound adapter and ``"standalone"`` for a
+            headless service whose own process is the complete lifetime. This
+            is independent from the tool execution/threading mode.
         gateway: :class:`GatewayOptions` instance.
         observability: :class:`ObservabilityOptions` instance.
         diagnostics: :class:`DiagnosticsOptions` instance.
@@ -303,6 +307,16 @@ class DccServerOptions:
     diagnostics: DiagnosticsOptions = field(default_factory=DiagnosticsOptions)
     execution: ExecutionOptions = field(default_factory=ExecutionOptions)
     sidecar: SidecarOptions = field(default_factory=SidecarOptions)
+    # Appended to preserve the public dataclass's historical positional order.
+    instance_type: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.instance_type is None:
+            return
+        normalized = self.instance_type.strip().lower()
+        if normalized not in {"gui", "standalone"}:
+            raise ValueError("instance_type must be 'gui' or 'standalone'")
+        object.__setattr__(self, "instance_type", normalized)
 
     @classmethod
     def from_env(
@@ -313,6 +327,7 @@ class DccServerOptions:
         port: int | None = None,
         server_name: str | None = None,
         server_version: str | None = None,
+        instance_type: str | None = None,
         # gateway kwargs
         gateway_port: int | None = None,
         registry_dir: str | None = None,
@@ -346,7 +361,8 @@ class DccServerOptions:
         directory happens here once, producing a fully-resolved frozen object.
 
         Raises:
-            ValueError: If more than one execution mode is provided.
+            ValueError: If more than one execution mode is provided or the
+                runtime instance type is invalid.
 
         """
         if dispatcher is not None and execution_bridge is not None:
@@ -364,6 +380,13 @@ class DccServerOptions:
             raise ValueError(f"{port_env} must be an integer between 0 and 65535") from exc
         if not 0 <= resolved_port <= 65535:
             raise ValueError(f"{port_env} must be an integer between 0 and 65535")
+
+        instance_type_env = "DCC_MCP_{}_INSTANCE_TYPE".format(
+            "".join(character if character.isalnum() else "_" for character in dcc_name.upper())
+        )
+        resolved_instance_type = instance_type
+        if resolved_instance_type is None:
+            resolved_instance_type = os.environ.get(instance_type_env, os.environ.get("DCC_MCP_INSTANCE_TYPE"))
 
         gateway = GatewayOptions.from_env(
             port=gateway_port,
@@ -408,6 +431,7 @@ class DccServerOptions:
             port=resolved_port,
             server_name=server_name,
             server_version=server_version,
+            instance_type=resolved_instance_type,
             gateway=gateway,
             observability=observability,
             diagnostics=diagnostics,

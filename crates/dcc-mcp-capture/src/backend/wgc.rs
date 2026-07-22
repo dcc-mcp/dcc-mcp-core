@@ -7,7 +7,31 @@
 use crate::capture::DccCapture;
 #[allow(unused_imports)]
 use crate::error::{CaptureError, CaptureResult};
+use crate::recording::{WindowRecordingConfig, WindowRecordingFrame, WindowRecordingSummary};
 use crate::types::{CaptureBackendKind, CaptureConfig, CaptureFrame};
+
+/// Record one bounded JPEG sequence from an exact HWND using one continuous WGC session.
+pub fn record_window_jpeg_sequence<OnFrame, IsCancelled>(
+    config: &WindowRecordingConfig,
+    on_frame: OnFrame,
+    is_cancelled: IsCancelled,
+) -> CaptureResult<WindowRecordingSummary>
+where
+    OnFrame: FnMut(WindowRecordingFrame) -> CaptureResult<()>,
+    IsCancelled: FnMut() -> bool,
+{
+    #[cfg(target_os = "windows")]
+    {
+        imp::record(config, on_frame, is_cancelled)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (config, on_frame, is_cancelled);
+        Err(CaptureError::BackendNotSupported(
+            "exact-window recording requires Windows.Graphics.Capture".to_owned(),
+        ))
+    }
+}
 
 #[cfg(any(target_os = "windows", test))]
 fn capture_with_fallback<T, Primary, Fallback, Elapsed>(
@@ -235,7 +259,8 @@ mod imp {
     use image::codecs::jpeg::JpegEncoder;
     use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
     use windows::Graphics::Capture::{
-        Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession,
+        Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem,
+        GraphicsCaptureSession,
     };
     use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
     use windows::Graphics::DirectX::DirectXPixelFormat;
@@ -263,6 +288,9 @@ mod imp {
     use windows::core::{Interface, factory};
 
     use crate::error::{CaptureError, CaptureResult};
+    use crate::recording::{
+        WindowRecordingConfig, WindowRecordingFrame, WindowRecordingPacer, WindowRecordingSummary,
+    };
     use crate::types::{CaptureConfig, CaptureFormat, CaptureFrame, CaptureTarget};
     use crate::window::WindowFinder;
 
@@ -271,6 +299,7 @@ mod imp {
     // use per-target worker state only if concurrent multi-window capture is needed.
     static CAPTURE_WORKER_ACTIVE: AtomicBool = AtomicBool::new(false);
     static WGC_SUPPORTED: OnceLock<bool> = OnceLock::new();
+    static WGC_RUNTIME_ANCHOR: OnceLock<Result<(), String>> = OnceLock::new();
 
     struct WinRtGuard;
 
@@ -288,6 +317,52 @@ mod imp {
         }
     }
 
+    fn ensure_runtime_anchor() -> CaptureResult<()> {
+        WGC_RUNTIME_ANCHOR
+            .get_or_init(|| {
+                let (ready_sender, ready_receiver) = sync_channel(1);
+                std::thread::Builder::new()
+                    .name("dcc-mcp-wgc-runtime-anchor".to_owned())
+                    .spawn(move || {
+                        let runtime = match WinRtGuard::init() {
+                            Ok(runtime) => runtime,
+                            Err(error) => {
+                                let _ = ready_sender.send(Err(error.to_string()));
+                                return;
+                            }
+                        };
+                        let item_factory =
+                            match factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>() {
+                                Ok(factory) => factory,
+                                Err(error) => {
+                                    let _ = ready_sender
+                                        .send(Err(format!("WGC item factory anchor: {error}")));
+                                    return;
+                                }
+                            };
+                        if ready_sender.send(Ok(())).is_err() {
+                            return;
+                        }
+
+                        // CreateFreeThreaded owns an internal callback thread. Windows can keep
+                        // one last callback queued briefly after Close; keeping one MTA and the
+                        // capture activation factory alive for the Host process prevents that
+                        // callback from returning through an unloaded GraphicsCapture.dll.
+                        let _runtime = runtime;
+                        let _item_factory = item_factory;
+                        loop {
+                            std::thread::park();
+                        }
+                    })
+                    .map_err(|error| format!("start WGC runtime anchor: {error}"))?;
+                ready_receiver
+                    .recv()
+                    .map_err(|_| "WGC runtime anchor exited before initialization".to_owned())?
+            })
+            .clone()
+            .map_err(CaptureError::Platform)
+    }
+
     use crate::backend::win_dpi::ThreadDpiAwareness;
 
     pub(super) fn is_supported() -> bool {
@@ -302,6 +377,7 @@ mod imp {
     }
 
     pub(super) fn capture(config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
+        ensure_runtime_anchor()?;
         if CAPTURE_WORKER_ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
@@ -340,6 +416,183 @@ mod imp {
                 "WGC capture worker exited without a result".to_string(),
             )),
         }
+    }
+
+    pub(super) fn record<OnFrame, IsCancelled>(
+        config: &WindowRecordingConfig,
+        on_frame: OnFrame,
+        is_cancelled: IsCancelled,
+    ) -> CaptureResult<WindowRecordingSummary>
+    where
+        OnFrame: FnMut(WindowRecordingFrame) -> CaptureResult<()>,
+        IsCancelled: FnMut() -> bool,
+    {
+        ensure_runtime_anchor()?;
+        if CAPTURE_WORKER_ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(CaptureError::Platform(
+                "a previous WGC capture is still running".to_owned(),
+            ));
+        }
+        struct ActiveGuard;
+        impl Drop for ActiveGuard {
+            fn drop(&mut self) {
+                CAPTURE_WORKER_ACTIVE.store(false, Ordering::Release);
+            }
+        }
+        let _active = ActiveGuard;
+        record_inner(config, on_frame, is_cancelled)
+    }
+
+    fn record_inner<OnFrame, IsCancelled>(
+        config: &WindowRecordingConfig,
+        mut on_frame: OnFrame,
+        mut is_cancelled: IsCancelled,
+    ) -> CaptureResult<WindowRecordingSummary>
+    where
+        OnFrame: FnMut(WindowRecordingFrame) -> CaptureResult<()>,
+        IsCancelled: FnMut() -> bool,
+    {
+        let _dpi_awareness = ThreadDpiAwareness::enter("WGC recording worker")?;
+        let _winrt = WinRtGuard::init()?;
+        let info =
+            WindowFinder::new().find(&CaptureTarget::WindowHandle(config.window_handle()))?;
+        let hwnd = HWND(info.handle as *mut core::ffi::c_void);
+        let item_factory: IGraphicsCaptureItemInterop =
+            factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                .map_err(|error| CaptureError::Platform(format!("WGC item factory: {error}")))?;
+        let item: GraphicsCaptureItem = unsafe { item_factory.CreateForWindow(hwnd) }
+            .map_err(|error| CaptureError::Platform(format!("CreateForWindow: {error}")))?;
+        let size = item.Size().map_err(|error| {
+            CaptureError::Platform(format!("GraphicsCaptureItem.Size: {error}"))
+        })?;
+        checked_buffer_len(size.Width, size.Height)?;
+
+        let (device, context, winrt_device) = create_device()?;
+        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+            &winrt_device,
+            DirectXPixelFormat::B8G8R8A8UIntNormalized,
+            2,
+            size,
+        )
+        .map_err(|error| CaptureError::Platform(format!("CreateFreeThreaded: {error}")))?;
+        let session = pool
+            .CreateCaptureSession(&item)
+            .map_err(|error| CaptureError::Platform(format!("CreateCaptureSession: {error}")))?;
+        let _ = session.SetIsCursorCaptureEnabled(false);
+        session
+            .StartCapture()
+            .map_err(|error| CaptureError::Platform(format!("StartCapture: {error}")))?;
+        let _capture_guard = CaptureSessionGuard {
+            session: &session,
+            pool: &pool,
+        };
+
+        let first_frame_timeout = Duration::from_secs(5);
+        let first_frame_started = Instant::now();
+        let first_frame = loop {
+            if is_cancelled() {
+                return Err(CaptureError::Cancelled);
+            }
+            if let Ok(frame) = pool.TryGetNextFrame() {
+                break frame;
+            }
+            if first_frame_started.elapsed() >= first_frame_timeout {
+                return Err(CaptureError::Timeout(first_frame_timeout.as_millis() as u64));
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        };
+
+        let mut latest = copy_frame_bgra(&first_frame, &device, &context)?;
+        let _ = first_frame.Close();
+        let (width, height) = (latest.width, latest.height);
+        let encode_config = CaptureConfig::builder()
+            .target(CaptureTarget::WindowHandle(config.window_handle()))
+            .format(CaptureFormat::Jpeg)
+            .jpeg_quality(config.jpeg_quality())
+            .build();
+        let clip_started = Instant::now();
+        let started_at_ms = epoch_millis();
+        let duration = Duration::from_millis(config.duration_ms());
+        let mut pacer = WindowRecordingPacer::new(config.schedule());
+
+        loop {
+            if is_cancelled() {
+                return Err(CaptureError::Cancelled);
+            }
+            while let Ok(frame) = pool.TryGetNextFrame() {
+                let next = copy_frame_bgra(&frame, &device, &context)?;
+                let _ = frame.Close();
+                if (next.width, next.height) != (width, height) {
+                    return Err(CaptureError::InvalidConfig(format!(
+                        "exact-window dimensions changed from {width}x{height} to {}x{} while recording",
+                        next.width, next.height
+                    )));
+                }
+                latest = next;
+            }
+
+            let elapsed = clip_started.elapsed();
+            for index in pacer.take_due(elapsed) {
+                let (data, out_width, out_height) = encode_pixels(
+                    &encode_config,
+                    latest.data.clone(),
+                    latest.width,
+                    latest.height,
+                )?;
+                let timestamp_ms = started_at_ms
+                    + config
+                        .schedule()
+                        .deadline(index)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                on_frame(WindowRecordingFrame {
+                    index,
+                    timestamp_ms,
+                    data,
+                    width: out_width,
+                    height: out_height,
+                })?;
+                if is_cancelled() {
+                    return Err(CaptureError::Cancelled);
+                }
+            }
+
+            if pacer.is_complete() && elapsed >= duration {
+                break;
+            }
+            let wake_at = pacer.next_deadline().unwrap_or(duration).min(duration);
+            let remaining = wake_at.saturating_sub(clip_started.elapsed());
+            std::thread::sleep(remaining.min(Duration::from_millis(2)));
+        }
+
+        Ok(WindowRecordingSummary {
+            frame_count: config.schedule().frame_count(),
+            started_at_ms,
+            ended_at_ms: epoch_millis(),
+            width,
+            height,
+        })
+    }
+
+    struct CaptureSessionGuard<'a> {
+        session: &'a GraphicsCaptureSession,
+        pool: &'a Direct3D11CaptureFramePool,
+    }
+
+    impl Drop for CaptureSessionGuard<'_> {
+        fn drop(&mut self) {
+            let _ = self.session.Close();
+            let _ = self.pool.Close();
+        }
+    }
+
+    struct BgraFrame {
+        data: Vec<u8>,
+        width: u32,
+        height: u32,
     }
 
     fn capture_inner(config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
@@ -388,21 +641,6 @@ mod imp {
             .StartCapture()
             .map_err(|error| CaptureError::Platform(format!("StartCapture: {error}")))?;
 
-        // RAII guard: ensures session and pool are closed on every exit path
-        // (early error returns, timeout, and the normal success path) after
-        // StartCapture() succeeds. COM Drop/Release() alone does not guarantee
-        // the Windows.Graphics.Capture pipeline is torn down; Close() is the
-        // documented shutdown path that releases GPU resources.
-        struct CaptureSessionGuard<'a> {
-            session: &'a GraphicsCaptureSession,
-            pool: &'a Direct3D11CaptureFramePool,
-        }
-        impl Drop for CaptureSessionGuard<'_> {
-            fn drop(&mut self) {
-                let _ = self.session.Close();
-                let _ = self.pool.Close();
-            }
-        }
         let _capture_guard = CaptureSessionGuard {
             session: &session,
             pool: &pool,
@@ -419,6 +657,30 @@ mod imp {
             std::thread::sleep(Duration::from_millis(2));
         };
 
+        let captured = copy_frame_bgra(&frame, &device, &context)?;
+        let _ = frame.Close();
+        // _capture_guard drops here (or on any earlier error path), calling
+        // session.Close() and pool.Close() to release GPU capture resources.
+
+        let mut rect = RECT::default();
+        unsafe { GetWindowRect(hwnd, &mut rect) }
+            .map_err(|error| CaptureError::Platform(format!("GetWindowRect: {error}")))?;
+        encode_frame(
+            config,
+            captured.data,
+            captured.width,
+            captured.height,
+            hwnd,
+            rect,
+            info.title,
+        )
+    }
+
+    fn copy_frame_bgra(
+        frame: &Direct3D11CaptureFrame,
+        device: &ID3D11Device,
+        context: &ID3D11DeviceContext,
+    ) -> CaptureResult<BgraFrame> {
         let content_size = frame
             .ContentSize()
             .map_err(|error| CaptureError::Platform(format!("ContentSize: {error}")))?;
@@ -457,7 +719,7 @@ mod imp {
                 })?;
         }
         let staging = staging.ok_or_else(|| {
-            CaptureError::Platform("CreateTexture2D returned null staging texture".to_string())
+            CaptureError::Platform("CreateTexture2D returned null staging texture".to_owned())
         })?;
         unsafe { context.CopyResource(&staging, &source) };
 
@@ -468,7 +730,7 @@ mod imp {
                 .map_err(|error| CaptureError::Platform(format!("Map staging texture: {error}")))?;
         }
         let row_bytes = width as usize * 4;
-        let mut bgra = Vec::with_capacity(buffer_len);
+        let mut data = Vec::with_capacity(buffer_len);
         for row in 0..height as usize {
             let source = unsafe {
                 std::slice::from_raw_parts(
@@ -476,25 +738,14 @@ mod imp {
                     row_bytes,
                 )
             };
-            bgra.extend_from_slice(source);
+            data.extend_from_slice(source);
         }
         unsafe { context.Unmap(&staging, 0) };
-        let _ = frame.Close();
-        // _capture_guard drops here (or on any earlier error path), calling
-        // session.Close() and pool.Close() to release GPU capture resources.
-
-        let mut rect = RECT::default();
-        unsafe { GetWindowRect(hwnd, &mut rect) }
-            .map_err(|error| CaptureError::Platform(format!("GetWindowRect: {error}")))?;
-        encode_frame(
-            config,
-            bgra,
-            width as u32,
-            height as u32,
-            hwnd,
-            rect,
-            info.title,
-        )
+        Ok(BgraFrame {
+            data,
+            width: width as u32,
+            height: height as u32,
+        })
     }
 
     fn create_device() -> CaptureResult<(ID3D11Device, ID3D11DeviceContext, IDirect3DDevice)> {
@@ -563,63 +814,14 @@ mod imp {
 
     fn encode_frame(
         config: &CaptureConfig,
-        mut bgra: Vec<u8>,
+        bgra: Vec<u8>,
         width: u32,
         height: u32,
         hwnd: HWND,
         rect: RECT,
         title: String,
     ) -> CaptureResult<CaptureFrame> {
-        let (data, out_width, out_height) =
-            if config.format == CaptureFormat::RawBgra && (config.scale - 1.0).abs() <= 1e-4 {
-                (bgra, width, height)
-            } else {
-                for pixel in bgra.chunks_exact_mut(4) {
-                    pixel.swap(0, 2);
-                    pixel[3] = u8::MAX;
-                }
-                let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
-                    ImageBuffer::from_raw(width, height, bgra).ok_or_else(|| {
-                        CaptureError::Internal("failed to construct WGC image buffer".to_string())
-                    })?;
-                let out_width = ((width as f32) * config.scale).round().max(1.0) as u32;
-                let out_height = ((height as f32) * config.scale).round().max(1.0) as u32;
-                let image = if (out_width, out_height) == (width, height) {
-                    image
-                } else {
-                    image::imageops::resize(
-                        &image,
-                        out_width,
-                        out_height,
-                        image::imageops::FilterType::Triangle,
-                    )
-                };
-                let mut encoded = Cursor::new(Vec::new());
-                match config.format {
-                    CaptureFormat::Png => image.write_to(&mut encoded, ImageFormat::Png)?,
-                    CaptureFormat::Jpeg => {
-                        let rgb = DynamicImage::ImageRgba8(image).into_rgb8();
-                        JpegEncoder::new_with_quality(&mut encoded, config.jpeg_quality)
-                            .encode_image(&rgb)?;
-                    }
-                    CaptureFormat::RawBgra => {
-                        let mut raw = image.into_raw();
-                        for pixel in raw.chunks_exact_mut(4) {
-                            pixel.swap(0, 2);
-                        }
-                        return finish_frame(
-                            raw,
-                            out_width,
-                            out_height,
-                            config.format,
-                            hwnd,
-                            rect,
-                            title,
-                        );
-                    }
-                }
-                (encoded.into_inner(), out_width, out_height)
-            };
+        let (data, out_width, out_height) = encode_pixels(config, bgra, width, height)?;
         finish_frame(
             data,
             out_width,
@@ -629,6 +831,54 @@ mod imp {
             rect,
             title,
         )
+    }
+
+    fn encode_pixels(
+        config: &CaptureConfig,
+        mut bgra: Vec<u8>,
+        width: u32,
+        height: u32,
+    ) -> CaptureResult<(Vec<u8>, u32, u32)> {
+        if config.format == CaptureFormat::RawBgra && (config.scale - 1.0).abs() <= 1e-4 {
+            return Ok((bgra, width, height));
+        }
+        for pixel in bgra.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+            pixel[3] = u8::MAX;
+        }
+        let image: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_raw(width, height, bgra)
+            .ok_or_else(|| {
+                CaptureError::Internal("failed to construct WGC image buffer".to_owned())
+            })?;
+        let out_width = ((width as f32) * config.scale).round().max(1.0) as u32;
+        let out_height = ((height as f32) * config.scale).round().max(1.0) as u32;
+        let image = if (out_width, out_height) == (width, height) {
+            image
+        } else {
+            image::imageops::resize(
+                &image,
+                out_width,
+                out_height,
+                image::imageops::FilterType::Triangle,
+            )
+        };
+        let mut encoded = Cursor::new(Vec::new());
+        match config.format {
+            CaptureFormat::Png => image.write_to(&mut encoded, ImageFormat::Png)?,
+            CaptureFormat::Jpeg => {
+                let rgb = DynamicImage::ImageRgba8(image).into_rgb8();
+                JpegEncoder::new_with_quality(&mut encoded, config.jpeg_quality)
+                    .encode_image(&rgb)?;
+            }
+            CaptureFormat::RawBgra => {
+                let mut raw = image.into_raw();
+                for pixel in raw.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                return Ok((raw, out_width, out_height));
+            }
+        }
+        Ok((encoded.into_inner(), out_width, out_height))
     }
 
     fn finish_frame(
@@ -676,6 +926,13 @@ mod imp {
         pixels.checked_mul(4).ok_or_else(|| {
             CaptureError::InvalidConfig("WGC BGRA buffer size overflowed usize".to_string())
         })
+    }
+
+    fn epoch_millis() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0)
     }
 
     #[cfg(test)]

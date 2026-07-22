@@ -98,6 +98,7 @@ def create_skill(
         raise FileExistsError(f"Skill directory already exists: {skill_dir}")
 
     skill_dir.mkdir(parents=True)
+    (skill_dir / "agents").mkdir()
     (skill_dir / "scripts").mkdir()
     (skill_dir / "references").mkdir()
 
@@ -139,6 +140,16 @@ Runtime scripts should import dependency-light helpers from
 file/path helpers, validation, cancellation checks, and result helpers without
 adding small Python dependencies to DCC hosts.
 """,
+        encoding="utf-8",
+    )
+
+    openai_yaml = skill_dir / "agents" / "openai.yaml"
+    openai_yaml.write_text(
+        f'''interface:
+  display_name: "{title}"
+  short_description: "Run a structured DCC-MCP workflow"
+  default_prompt: "Use ${name} to complete this DCC-MCP workflow."
+''',
         encoding="utf-8",
     )
 

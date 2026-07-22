@@ -551,12 +551,16 @@ The gateway exposes the live DCC registry as a gateway-native MCP resource
  "params":{"uri":"gateway://instances"}}
 ```
 
-The payload includes live, stale, and unhealthy rows so clients can decide
-whether to route, reconnect, or ask the user to restart a DCC instance.
-Each entry already carries `mcp_url`, so clients that have read this
-resource can connect directly. Optional URI query parameters
-(`?include_stale=false`, `?include_dead=true`) match the legacy tool
-flags. `resources/list` advertises only root pointers for gateway-native
+The default payload includes only live, routable rows, matching the gateway's
+`live_instances` REST/routing contract. It excludes stale, booting,
+shutting-down, and unreachable rows so an agent cannot mistake an operator
+diagnostic record for a usable DCC instance. Each entry already carries
+`mcp_url`, so clients that have read this resource can connect directly.
+Use `?include_stale=true` for owner-alive diagnostic rows,
+`?include_dead=true` for owner/host-dead rows, or `?view=all` for the full
+stale-and-dead operator registry;
+these expanded views are for diagnosis, not routing. `resources/list`
+advertises only root pointers for gateway-native
 families; it does not enumerate every instance-specific URI. Backend
 capability indexes refresh on demand before gateway `search` / `describe`,
 so instances registered after gateway startup are picked up without a restart.
@@ -617,12 +621,21 @@ ready yet — wait and re-probe, don't route calls to it.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `pid` | `int \| null` | OS process ID of the DCC or sidecar |
-| `dcc_pid` | `int \| null` | OS process ID of the DCC host (when different from sidecar) |
+| `pid` / `service_pid` | `int \| null` | OS process ID of the registered service owner; for a sidecar this is the sidecar process |
+| `host_pid` / `dcc_pid` | `int \| null` | Explicitly bound DCC host PID; `null` for standalone services and embedded adapters whose owner sentinel already follows the DCC |
+| `host_bound` | `bool` | Whether the row has a separate required DCC host lifetime |
+| `instance_type` | `string \| null` | Adapter-declared `gui` or `standalone` runtime shape |
 | `session` | `string \| null` | DCC session identifier (e.g. `"untitled"`) |
 | `sidecar_pid` | `int \| null` | OS process ID of the sidecar process |
 | `supports_safe_stop` | `bool` | Whether the instance advertises a safe-stop endpoint |
 | `restartable` | `bool` | Whether the instance can be restarted (has sidecar_pid or restart/launch command) |
+
+File-registry liveness has two independent gates. The sentinel (with legacy
+`pid` fallback) proves that the registered service owner is alive. When
+`host_pid` is set, the DCC host must also be alive; a surviving sidecar cannot
+keep an exited Unreal, Maya, Photoshop, or custom host discoverable. A true
+standalone/headless service leaves `host_pid` unset and remains valid while its
+own service endpoint and heartbeat remain healthy.
 
 ### Remote HTTP Instance Registration (#1361)
 

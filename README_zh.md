@@ -88,18 +88,47 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 ## 快速开始
 
+### 安装 Agent Skill 套件
+
+可以直接从 ClawHub 安装三个公开 Skill，无需克隆本仓库：
+
+```bash
+openclaw skills install @loonghao/dcc-mcp
+openclaw skills install @loonghao/dcc-mcp-skills-creator
+openclaw skills install @loonghao/dcc-mcp-creator
+```
+
+需要让本机所有 OpenClaw Agent 共享时，给每条命令加 `--global`。其他兼容
+ClawHub 的 workspace 可以直接使用 registry CLI：
+
+```bash
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
+```
+
+| Skill | Agent 职责 |
+|---|---|
+| [`dcc-mcp`](skills/dcc-mcp/) | 默认实时 DCC 控制和 marketplace 发现；Skill 商城请求先运行 `dcc-mcp-cli marketplace search` |
+| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | 创建、验证、打包和评审 DCC-MCP Skill |
+| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | 创建或现代化完整 DCC adapter 及运行时接线 |
+
 ### 安装独立 CLI
 
 `dcc-mcp-cli` 是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未安装，
-先征得用户同意，再安装最新的官方 release 二进制：
+先征得用户同意，再从已安装的 `dcc-mcp` Skill 目录运行 bundled verified
+helper：
 
 ```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
+
+helper 固定使用 `dcc-mcp/dcc-mcp-core` 官方 release，先验证当前平台的 update
+manifest 和 CLI SHA-256，再替换二进制。URL、manifest、摘要或下载异常时会
+fail closed，不会覆盖已有 CLI。SHA-256 用于确认二进制与 release manifest
+一致，不等同于数字签名。没有 Skill 时，请按下方“安装详情”下载并检查本地
+installer；不要把远程 installer 通过管道交给 shell，也不要绕过机器的脚本执行
+策略。
 
 官方构建通过 release manifest 保持最新：
 
@@ -280,15 +309,27 @@ Admin 重点能力：
 ### 安装独立 CLI
 
 对于具备 shell 能力的 Agent，独立 CLI 是首选控制路径。尚未安装时，先征得
-用户同意，再安装官方 release 二进制：
+用户同意，把官方 installer 下载为本地文件，先检查，再执行：
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# 检查完成后：
+sh ./install-cli.sh
 ```
+
+```powershell
+# Windows PowerShell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# 检查完成后，遵循当前执行策略：
+& .\install-cli.ps1
+```
+
+installer 固定使用 `dcc-mcp/dcc-mcp-core` 官方 release，并在替换现有 CLI 前
+验证 release manifest 中的 URL 和 SHA-256。任何异常都会 fail closed；这项
+完整性校验不等同于数字签名。
 
 默认会下载最新 GitHub Release 里的对应资产：
 
@@ -301,15 +342,11 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 也可以固定版本或自定义安装目录：
 
 ```bash
-export DCC_MCP_VERSION=v0.x.y
-export DCC_MCP_INSTALL_DIR="$HOME/bin"
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+sh ./install-cli.sh --version v0.x.y --install-dir "$HOME/bin"
 ```
 
 ```powershell
-$env:DCC_MCP_VERSION = "v0.x.y"
-$env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
-irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
+& .\install-cli.ps1 -Version "v0.x.y" -InstallDir "$env:USERPROFILE\bin"
 ```
 
 安装后：
@@ -612,6 +649,44 @@ DCC 适配器（如 `dcc-mcp-maya`）默认包含内置 skills。关闭：`start
 `media` skill 内部使用 `vx ffmpeg` / `vx ffprobe`，新机器无需手动安装 FFmpeg。如果 `vx` 缺失，非只读 media 工具会自动用官方安装脚本引导 `vx` 后重试；只读 `probe` 工具则返回 `vx_not_found` 而不安装任何内容。
 
 ---
+
+## DCC UI Control —— 应用程序界面自动化
+
+当 DCC 原生 API 无法直接观测或操作界面状态时，`ui-control` 提供作用域限定的桌面应用界面自动化能力。
+Agent 通过 `ui_control__snapshot`（截图）、`ui_control__find`（查找控件）、`ui_control__act`（执行操作）、
+`ui_control__wait_for`（等待条件）和 `ui_control__stop_computer_use`（停止控制）等工具来观测和操作目标窗口。
+
+![带角标和底部胶囊的受控窗口](docs/assets/ui-control/corner-brackets-capsule.png)
+
+### 核心能力
+
+- **作用域限定的窗口定位** —— 截图和操作均绑定到单一进程或窗口句柄，绝不作用于整个桌面。
+- **语义 UIA + 原始输入回退** —— 优先通过 `ui_control__find` 解析稳定的语义控件（按钮、文本框、复选框），
+  仅当自定义绘制控件无语义节点时回退到截图坐标。
+- **带边界的安全模型** —— 每个操作都被适配器/操作者绑定的 PID/HWND 限定范围。原始输入需要显式启用
+  （`DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`）。硬性禁止：密码、认证控件、LockApp、Windows 安全界面、
+  终端和凭据管理器窗口。
+- **可见的胶囊覆盖层** —— DCC UI Control 处于活动状态时，目标窗口四周显示可穿透的角标，
+  底部居中显示胶囊提示 `DCC UI Control · <应用名> | Esc 停止`。
+  用户可随时按 `Esc` 停止控制。
+- **审计日志** —— 每次截图、操作、等待、停止和被拒绝的操作都会向共享日志目录追加一条脱敏的
+  `ui_control_operation` 事件，可在 Admin Logs 面板中查看，不会暴露输入的文本或截图坐标。
+
+### 工具参考
+
+| 工具 | 说明 |
+|------|------|
+| `ui_control__snapshot` | 从作用域窗口捕获带边界 PNG 和 UIA 树 |
+| `ui_control__find` | 通过查询、角色、标签或对象名定位语义控件 |
+| `ui_control__act` | 执行一个限定作用域的语义或基于坐标的操作 |
+| `ui_control__wait_for` | 轮询直到 UI 条件成立或超时 |
+| `ui_control__stop_computer_use` | 释放胶囊、热键和全局输入所有者 |
+| `ui_control__system_operation` | 确保指定的 Windows 配置项（需要操作者授权） |
+
+详细的 Skill 参考和 Agent 工作流请参见
+[ui-control 技能文档](python/dcc_mcp_core/skills/ui-control/SKILL.md)。
+
+![Admin Logs 面板中的脱敏 ui_control_operation 审计事件](docs/assets/ui-control/admin-logs-audit.png)
 
 ## 解决 MCP 上下文爆炸
 

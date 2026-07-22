@@ -101,10 +101,12 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-1037-gateway-yield-unsupported-envelope.jsonl` | No | `POST /gateway/yield` unsupported/invalid optional-capability path MUST return a structured envelope that tells runners to poll instead of treating it as a crash. |
 | `traces/core-1092-stable-debug-api.jsonl` | No | Stable `/v1/debug/*` routes expose agent diagnostics without scraping Admin HTML, including compact agent trace packets, compact TOON debug-bundle summaries, and public-safe issue reports. |
 | `traces/core-1093-trace-context-debug-bundle.jsonl` | No | `X-Request-Id` and W3C `traceparent` stay distinct, and `/v1/debug/bundles/{trace_id}` can retrieve the retained trace. |
+| `traces/core-2013-gateway-stats-attribution.jsonl` | Yes (Unity) | A gateway-routed read-only call with `agent_context.session_id` appears in persisted task-scoped stats (core#2013). |
 | `traces/core-1108-deregistered-history.jsonl` | Optional booting row | Stable debug route exposes recently auto-deregistered history and, when present, keeps port=0 booting diagnostics visible across debug health reads. |
 | `traces/core-1124-3dsmax-main-affinity-host-bridge.jsonl` | Yes (3ds Max) | A main-affinity 3ds Max tool called through `/v1/call` must route through the attached host dispatcher instead of `THREAD_AFFINITY_UNAVAILABLE`. |
 | `traces/core-host-ui-dispatcher-http-affinity.jsonl` | Yes (Substance 3D Designer) | A `HostUiDispatcherBase` adapter must pump main-affinity `/v1/call` work instead of returning `THREAD_AFFINITY_UNAVAILABLE`. |
 | `traces/core-rest-async-call-accepted.jsonl` | Yes (Nuke layered-compositing skill) | A declared async `/v1/call` returns `202` with a pending `job_id` instead of blocking the DCC HTTP worker. |
+| `traces/core-rest-async-job-identity.jsonl` | Yes (Nuke layered-compositing skill) | An async `/v1/call` accepts request metadata and still returns a pending `job_id` for cancellation and polling. |
 | `traces/core-1125-3dsmax-diagnostics-screenshot-dict.jsonl` | Yes (3ds Max) | After `load_skill`, bundled `dcc_diagnostics__screenshot` must return a normal dict envelope through gateway REST. |
 | `traces/core-1133-ui-control-gateway-rest.jsonl` | Yes (any ui_control-capable instance) | `ui_control__snapshot` must be discoverable through gateway REST, describe must expose UI metadata, and call must preserve the structured envelope. |
 | `traces/core-1134-ui-control-mock-workflow.jsonl` | Yes (any ui_control-capable instance) | `ui_control` mock workflow must support snapshot -> find -> act -> wait and structured stale/policy/timeout/missing-window errors through REST. |
@@ -131,6 +133,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 - core [#1037](https://github.com/dcc-mcp/dcc-mcp-core/issues/1037) — cooperative gateway yield fallback should be structured and non-alarming
 - core [#1092](https://github.com/dcc-mcp/dcc-mcp-core/issues/1092) — stable `/v1/debug/*` API for agent diagnostics
 - core [#1093](https://github.com/dcc-mcp/dcc-mcp-core/issues/1093) — first-class Trace Context for full-chain debug bundles
+- core [#2013](https://github.com/dcc-mcp/dcc-mcp-core/issues/2013) — local CLI calls must expose and opt into gateway stats attribution
 - core [#1124](https://github.com/dcc-mcp/dcc-mcp-core/issues/1124) — HostExecutionBridge registration must satisfy main-affinity tools/call routing
 - core [#1125](https://github.com/dcc-mcp/dcc-mcp-core/issues/1125) — bundled diagnostics screenshot must return a dict through REST dispatch
 - core [#1133](https://github.com/dcc-mcp/dcc-mcp-core/issues/1133) — ui_control gateway discovery and REST dispatch

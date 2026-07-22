@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "dcc-mcp-core"
-version = "0.19.62" # x-release-please-version
+version = "0.19.65" # x-release-please-version
 description = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
 authors = [
     {name = "Hal Long", email = "hal.long@outlook.com"}
@@ -39,6 +39,9 @@ dependencies = [
     # their platform provides a compatible binary wheel.
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]
+
+[project.scripts]
+dcc-mcp-ui-control-server = "dcc_mcp_core.ui_control_server:cli"
 
 [project.optional-dependencies]
 test = [
@@ -163,6 +166,7 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/adapter_contracts.py" = ["UP006", "UP037", "UP045"]
 "python/dcc_mcp_core/asset_import.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/install_lifecycle.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/ui_control_server.py" = ["UP045"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
 "__init__.py" = ["F401"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]

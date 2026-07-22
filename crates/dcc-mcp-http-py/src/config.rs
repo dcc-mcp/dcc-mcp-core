@@ -667,6 +667,18 @@ impl PyMcpHttpConfig {
 
     // ── InstanceConfig getters/setters ───────────────────────────────
 
+    /// Optional external DCC host PID that bounds this service lifetime.
+    #[getter]
+    fn host_pid(&self) -> Option<u32> {
+        self.inner.instance.host_pid
+    }
+
+    /// Optional external DCC host PID that bounds this service lifetime.
+    #[setter]
+    fn set_host_pid(&mut self, v: Option<u32>) {
+        self.inner.instance.host_pid = v;
+    }
+
     /// DCC application type (e.g. ``"maya"``).
     #[getter]
     fn dcc_type(&self) -> Option<String> {

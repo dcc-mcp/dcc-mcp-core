@@ -55,6 +55,7 @@ impl ControlOverlay {
         target_rect: &RECT,
         caption: &str,
         session_id: Option<&str>,
+        initially_visible: bool,
     ) -> ComputerUseResult<Self> {
         // Compute session colors: accent for capsule/corners, glow for glow layers,
         // cursor for cursor ring. When session_id is None, use the original hardcoded
@@ -67,7 +68,6 @@ impl ControlOverlay {
         } else {
             (None, None, None)
         };
-
         let (capsule_geometry, corner_geometries) = overlay_geometries(target, target_rect)?;
         let mut capsule_glows = Vec::with_capacity(CONTROL_CAPSULE_GLOW_ALPHAS.len());
         for (geometry, alpha) in capsule_glow_geometries(capsule_geometry) {
@@ -176,7 +176,9 @@ impl ControlOverlay {
             last_action_dot: None,
             last_action_started: None,
         };
-        overlay.set_visible(true)?;
+        if initially_visible {
+            overlay.set_visible(true)?;
+        }
         Ok(overlay)
     }
 

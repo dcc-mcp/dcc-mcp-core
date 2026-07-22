@@ -460,7 +460,9 @@ async fn test_live_instances_prefers_sidecar_for_same_dcc_pid() {
         in_process.version = Some("2026".into());
         r.register(in_process).unwrap();
 
-        let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+        let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 28812)
+            .with_pid(31337)
+            .with_host_pid(4242);
         sidecar.adapter_version = Some("0.3.3".into());
         sidecar
             .metadata
@@ -481,7 +483,9 @@ async fn test_live_instances_prefers_sidecar_for_same_dcc_pid() {
 
 #[test]
 fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
-    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 28812).with_pid(4242);
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 28812)
+        .with_pid(31337)
+        .with_host_pid(4242);
     entry
         .metadata
         .insert("dcc_mcp_role".into(), "per-dcc-sidecar".into());
@@ -498,6 +502,9 @@ fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
         .metadata
         .insert("owner".into(), "release-smoke-test".into());
     entry.metadata.insert("session".into(), "test".into());
+    entry
+        .metadata
+        .insert("dcc_mcp_instance_type".into(), "gui".into());
     entry.metadata.insert(
         "safe_stop_url".into(),
         "http://127.0.0.1:19000/safe-stop".into(),
@@ -508,6 +515,11 @@ fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
     assert_eq!(row["lifecycle"]["role"], "per-dcc-sidecar");
     assert_eq!(row["lifecycle"]["owner"], "release-smoke-test");
     assert_eq!(row["lifecycle"]["session"], "test");
+    assert_eq!(row["lifecycle"]["service_pid"], 31337);
+    assert_eq!(row["lifecycle"]["host_pid"], 4242);
+    assert_eq!(row["lifecycle"]["dcc_pid"], 4242);
+    assert_eq!(row["lifecycle"]["host_bound"], true);
+    assert_eq!(row["lifecycle"]["instance_type"], "gui");
     assert_eq!(row["lifecycle"]["sidecar_pid"], 31337);
     assert_eq!(row["lifecycle"]["supports_safe_stop"], true);
     assert_eq!(
@@ -1242,6 +1254,56 @@ async fn gateway_instances_resource_lists_many_dcc_rows_without_gateway_sentinel
         rows.iter()
             .all(|row| row["dcc_type"] != serde_json::json!(GATEWAY_SENTINEL_DCC_TYPE)),
         "gateway://instances must expose only addressable DCC services"
+    );
+}
+
+#[tokio::test]
+async fn gateway_instances_resource_defaults_to_live_routable_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        r.register(ServiceEntry::new("maya", "127.0.0.1", 18812))
+            .unwrap();
+
+        let mut unreal = ServiceEntry::new("unreal", "127.0.0.1", 18813);
+        unreal.status = ServiceStatus::Unreachable;
+        r.register(unreal).unwrap();
+
+        let mut blender = ServiceEntry::new("blender", "127.0.0.1", 18814);
+        blender.status = ServiceStatus::Booting;
+        r.register(blender).unwrap();
+
+        let mut houdini = ServiceEntry::new("houdini", "127.0.0.1", 18815);
+        houdini.status = ServiceStatus::ShuttingDown;
+        r.register(houdini).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let default_query = crate::gateway::native_resources::instances::parse(
+        crate::gateway::native_resources::instances::ROOT_URI,
+    )
+    .expect("default gateway://instances query");
+    let payload = crate::gateway::native_resources::instances::build_payload(&gs, &default_query)
+        .await
+        .expect("default gateway://instances payload");
+
+    assert_eq!(payload["total"], 1);
+    assert_eq!(payload["instances"][0]["dcc_type"], "maya");
+
+    let diagnostics_query = crate::gateway::native_resources::instances::parse(
+        "gateway://instances?include_stale=true",
+    )
+    .expect("diagnostic gateway://instances query");
+    let diagnostics =
+        crate::gateway::native_resources::instances::build_payload(&gs, &diagnostics_query)
+            .await
+            .expect("diagnostic gateway://instances payload");
+
+    assert_eq!(
+        diagnostics["total"], 4,
+        "non-routable owner-alive rows remain available only through an explicit diagnostic view"
     );
 }
 

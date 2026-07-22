@@ -200,12 +200,23 @@ thread.
 If your tool declares `long_running: true` or `timeout_hint_secs > 1`,
 the handler **must** be cooperative — it runs on the single DCC main
 thread, so a 30 s hot loop freezes the UI even if it is "correct".
-Inside a `DccTaskFn` running via `submit_deferred`, use:
+Async handlers receive the core-assigned identifier at
+`params["_meta"]["dcc"]["jobId"]`; treat it as read-only and use it to
+associate host-side queue entries, progress, and artefacts with the job. The
+server overwrites any client-supplied value, so adapters must never mint or
+trust one themselves. Metadata-driven Python `main()` functions intentionally
+do not receive reserved `_meta` arguments; call `current_job_id()` instead.
+`HostExecutionBridge` also installs a read-only probe backed by the same Rust
+cancellation token for MCP and REST jobs.
 
-- **`check_cancelled()`** — a fast predicate the handler calls between
-  chunks; returns `True` if the async job was cancelled while queued or
-  while running. Short-circuit and return a `skill_error("Cancelled")`
-  immediately.
+- **Python `check_dcc_cancelled()`** — call between chunks. It raises
+  `CancelledError` after the client cancels the owning job. The bridge converts
+  an uncaught exception to the normal structured error envelope, while the job
+  remains `cancelled`.
+- **Rust `current_dispatch_job_context()`** — read the server-owned job context
+  inside a custom Rust handler and call `is_cancelled()` between chunks.
+  `submit_deferred` also skips a task that is cancelled before the host pump
+  starts it.
 - **`DccExecutorHandle::yield_frame()`** (Rust) — an `async fn` that
   parks a no-op task on the DCC main thread and awaits it, allowing the
   pump to tick the UI once. Use between chunks from a Tokio driver. The
@@ -213,16 +224,35 @@ Inside a `DccTaskFn` running via `submit_deferred`, use:
   (i.e. do not call `poll_pending_bounded` recursively; split work
   across ticks via the DCC's own timer primitive).
 
+```python
+from dcc_mcp_core import check_dcc_cancelled, current_job_id
+
+def main(items):
+    job_id = current_job_id()
+    for item in items:
+        check_dcc_cancelled()
+        process_one_short_chunk(item, job_id=job_id)
+    return {"success": True}
+```
+
 ```rust
-// inside a Tokio driver that is orchestrating a long chunked job
+use dcc_mcp_actions::current_dispatch_job_context;
+
+// Inside a handler. Keep each unit bounded; an adapter-owned pump/timer must
+// schedule separate ticks when the UI also needs to redraw between batches.
 for batch in batches {
-    if job.is_cancelled() { return; }
-    executor.submit_deferred(tool_name, token.clone(), Box::new(move || {
-        process_batch(batch) // runs on DCC main thread, must be < one tick
-    })).await?;
-    executor.yield_frame().await?; // let UI redraw between batches
+    if current_dispatch_job_context().is_some_and(|job| job.is_cancelled()) {
+        return;
+    }
+    process_one_bounded_unit(batch);
 }
 ```
+
+This contract covers in-process Rust/Python handlers reached through MCP or
+REST. Subprocess, native IPC, and remote bridge adapters must explicitly
+forward the server-owned job id and cancellation signal. Cancellation cannot
+safely pre-empt an already-running DCC-native call or an uncooperative hot
+loop; keep each main-thread chunk short and return to the host pump.
 
 Forbidden patterns inside a deferred closure (enforced by soft-fence
 warnings; will be upgraded to hard errors when `@chunked_job` lands):

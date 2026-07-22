@@ -5,6 +5,7 @@ mod helpers;
 mod thread_route;
 mod wire;
 
+pub(crate) use thread_route::dispatch_action_with_thread_routing_cancellable;
 pub use thread_route::{ThreadRoutingDispatch, dispatch_action_with_thread_routing};
 pub(crate) use wire::{decode_dispatch_output, encode_dispatch_wire, use_main_thread_route};
 
@@ -222,6 +223,7 @@ async fn dispatch_registry_tool(
             session_id,
             resolved_name,
             call_params,
+            call_meta.and_then(|meta| serde_json::to_value(meta).ok()),
             cfg,
         )
         .await);
@@ -684,6 +686,7 @@ mod tests {
     async fn async_main_thread_job_decodes_deferred_dispatch_wire() {
         let registry = ToolRegistry::new();
         let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
+        let seen_meta = Arc::new(parking_lot::Mutex::new(None::<Value>));
 
         registry.register_action(ToolMeta {
             name: "main_thread_job".to_string(),
@@ -695,8 +698,12 @@ mod tests {
             thread_affinity: ThreadAffinity::Main,
             ..Default::default()
         });
-        dispatcher.register_handler("main_thread_job", |_| {
-            Ok(json!({"ok": true, "lane": "main"}))
+        dispatcher.register_handler("main_thread_job", {
+            let seen_meta = Arc::clone(&seen_meta);
+            move |params| {
+                *seen_meta.lock() = params.get("_meta").cloned();
+                Ok(json!({"ok": true, "lane": "main"}))
+            }
         });
 
         let (executor, executor_task) = InProcessExecutor.into_handle();
@@ -747,5 +754,13 @@ mod tests {
             job.error
         );
         assert_eq!(job.result, Some(json!({"ok": true, "lane": "main"})));
+        let handler_meta = seen_meta
+            .lock()
+            .clone()
+            .expect("handler receives async job metadata");
+        assert_eq!(
+            handler_meta.pointer("/dcc/jobId").and_then(Value::as_str),
+            Some(job_id.as_str())
+        );
     }
 }

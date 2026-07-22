@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::os::windows::fs::{symlink_dir, symlink_file};
@@ -6,12 +7,14 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use dcc_mcp_capture::{CaptureTarget, WindowFinder};
+use dcc_mcp_capture::{
+    CaptureError, CaptureTarget, WindowFinder, WindowRecordingConfig, record_window_jpeg_sequence,
+};
 use dcc_mcp_shm::SharedBuffer;
 use dcc_mcp_ui_control::host_protocol::{
-    UiControlAction, UiControlEnsureOutcome, UiControlHostErrorCode, UiControlInputKind,
-    UiControlPolicyTier, UiControlSharedImage, UiControlSystemOperation, UiControlTarget,
-    UiControlTaskGrant, UiControlWindowOperation, UiControlWindowState,
+    UiControlAction, UiControlClipArtifact, UiControlClipFormat, UiControlEnsureOutcome,
+    UiControlHostErrorCode, UiControlInputKind, UiControlSharedImage, UiControlSystemOperation,
+    UiControlTarget, UiControlTaskGrant, UiControlWindowOperation, UiControlWindowState,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -25,21 +28,26 @@ use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegQueryValueExW, RegSetValueExW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetPropW, GetWindowThreadProcessId, IDYES, IsWindow, MB_DEFBUTTON2, MB_ICONWARNING,
-    MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW, RemovePropW, SetPropW,
+    GetPropW, GetWindowThreadProcessId, IsWindow, RemovePropW, SetPropW,
 };
 use windows::core::PCWSTR;
 
 use crate::{
     ComputerUseAction, ComputerUseError, ComputerUseErrorCode, ComputerUsePoint,
-    ComputerUseSession, ComputerUseTargetScope,
+    ComputerUseRecordingFence, ComputerUseSession, ComputerUseTargetScope,
 };
 
 use super::{
-    ActionControlFence, ActionFenceExpectation, ConfirmationKind, ConfirmationSurface, HostFailure,
-    HostRuntime, HostRuntimeSession, RuntimeAccessibilityState, RuntimeActionResult,
-    RuntimeSnapshot, stale_accessibility_state, verify_expected_action_fence,
+    ActionControlFence, ActionFenceExpectation, HostFailure, HostRuntime, HostRuntimeSession,
+    RuntimeAccessibilityState, RuntimeActionResult, RuntimeClipRequest, RuntimeSnapshot,
+    allows_owned_standard_menu_popup,
+    recording_artifact::{RecordingArtifactError, RecordingArtifactWriter},
+    stale_accessibility_state, verify_expected_action_fence,
 };
+
+mod confirmation;
+
+pub(super) use confirmation::WindowsConfirmationSurface;
 
 const UIA_TIMEOUT: Duration = Duration::from_secs(30);
 const UIA_SCRIPT: &str = include_str!(
@@ -438,7 +446,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
             window_handle: screenshot.observation.window_handle,
             window_title: screenshot.observation.window_title.clone(),
         };
-        let accessibility = query_accessibility_state(&self.target, max_depth, max_nodes)?;
+        let accessibility = query_accessibility_state(&self.target, max_depth, max_nodes, true)?;
 
         let buffer_id = Uuid::new_v4().simple().to_string()[..16].to_owned();
         let buffer =
@@ -473,13 +481,106 @@ impl HostRuntimeSession for WindowsRuntimeSession {
         })
     }
 
+    fn record_clip(
+        &mut self,
+        request: RuntimeClipRequest,
+    ) -> Result<UiControlClipArtifact, HostFailure> {
+        self.start_visible_notice()?;
+        self.window_generation.verify()?;
+        match request.format {
+            UiControlClipFormat::JpegSequence => {}
+        }
+        let recording_fence = self
+            .session
+            .recording_fence()
+            .map_err(map_computer_use_error)?;
+        let config = WindowRecordingConfig::new(
+            self.target.window_handle,
+            request.duration_ms,
+            request.frames_per_second,
+            request.jpeg_quality,
+        )
+        .map_err(map_recording_capture_error)?;
+        let recording_id = format!("clip-{}", Uuid::new_v4().simple());
+        let recording_root =
+            PathBuf::from(dcc_mcp_paths::get_platform_dir("cache").map_err(|error| {
+                HostFailure::new(
+                    UiControlHostErrorCode::CaptureFailed,
+                    format!("resolve the host-owned recording directory: {error}"),
+                )
+            })?)
+            .join("ui-control")
+            .join("recordings");
+        let mut writer = RecordingArtifactWriter::create_in(
+            &recording_root,
+            &recording_id,
+            self.target.clone(),
+            request.frames_per_second,
+            request.jpeg_quality,
+        )
+        .map_err(map_recording_artifact_error)?;
+
+        let generation = &self.window_generation;
+        let fence_failure = RefCell::new(None);
+        let summary = record_window_jpeg_sequence(
+            &config,
+            |frame| {
+                if let Some(failure) = recording_fence_failure(&recording_fence, generation) {
+                    *fence_failure.borrow_mut() = Some(failure);
+                    return Err(CaptureError::Cancelled);
+                }
+                writer
+                    .write_frame(
+                        frame.index,
+                        frame.timestamp_ms,
+                        frame.width,
+                        frame.height,
+                        &frame.data,
+                    )
+                    .map_err(|error| CaptureError::Internal(error.to_string()))
+            },
+            || {
+                if let Some(failure) = recording_fence_failure(&recording_fence, generation) {
+                    *fence_failure.borrow_mut() = Some(failure);
+                    true
+                } else {
+                    false
+                }
+            },
+        );
+        if let Some(failure) = fence_failure.into_inner() {
+            return Err(failure);
+        }
+        let summary = summary.map_err(map_recording_capture_error)?;
+        self.window_generation.verify()?;
+        if summary.frame_count != config.schedule().frame_count() {
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::CaptureFailed,
+                format!(
+                    "recording produced {} frames; expected {}",
+                    summary.frame_count,
+                    config.schedule().frame_count()
+                ),
+            ));
+        }
+        writer
+            .finish(summary.ended_at_ms)
+            .map_err(map_recording_artifact_error)
+    }
+
     fn accessibility_state(
         &mut self,
         max_depth: u32,
         max_nodes: u32,
+        allow_owned_standard_menu_popup: bool,
     ) -> Result<RuntimeAccessibilityState, HostFailure> {
         self.window_generation.verify()?;
-        query_accessibility_state(&self.target, max_depth, max_nodes)
+        query_accessibility_state(
+            &self.target,
+            max_depth,
+            max_nodes,
+            allow_owned_standard_menu_popup,
+        )
     }
 
     fn execute(
@@ -494,9 +595,13 @@ impl HostRuntimeSession for WindowsRuntimeSession {
             UiControlInputKind::RawInput => {
                 let request = native_action(action, observation_id);
                 let mut pre_input_fence = || {
-                    let live =
-                        query_accessibility_state(&self.target, fence.max_depth, fence.max_nodes)
-                            .map_err(map_host_failure_to_computer_use_error)?;
+                    let live = query_accessibility_state(
+                        &self.target,
+                        fence.max_depth,
+                        fence.max_nodes,
+                        allows_owned_standard_menu_popup(action),
+                    )
+                    .map_err(map_host_failure_to_computer_use_error)?;
                     verify_expected_action_fence(action, fence, &live)
                         .map_err(map_host_failure_to_computer_use_error)?;
                     Ok(())
@@ -506,6 +611,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
                     .map_err(map_computer_use_error)?;
                 Ok(RuntimeActionResult {
                     message: format!("completed scoped native action {:?}", action.action),
+                    target_closed: false,
                     before_focus_runtime_id: None,
                     after_focus_runtime_id: None,
                 })
@@ -537,13 +643,23 @@ impl HostRuntimeSession for WindowsRuntimeSession {
                         .and_then(Value::as_str)
                         .unwrap_or("completed scoped Windows UI Automation action")
                         .to_owned(),
+                    target_closed: false,
                     before_focus_runtime_id: optional_string(&raw, "before_focus_runtime_id"),
                     after_focus_runtime_id: optional_string(&raw, "after_focus_runtime_id"),
                 })
             }
         };
-        self.window_generation.verify()?;
-        result
+        let mut result = result?;
+        if self
+            .window_generation
+            .target_closed_after_completed_action()?
+        {
+            result.target_closed = true;
+            result.message.push_str(
+                "; the exact target window closed, so this UI Control session was revoked",
+            );
+        }
+        Ok(result)
     }
 
     fn resume_after_approval(&mut self) -> Result<(), HostFailure> {
@@ -646,6 +762,26 @@ impl WindowGenerationGuard {
         }
         Ok(())
     }
+
+    fn target_closed_after_completed_action(&self) -> Result<bool, HostFailure> {
+        let hwnd = HWND(self.window_handle as usize as *mut core::ffi::c_void);
+        if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+            return Ok(true);
+        }
+        let mut process_id = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
+        let marker = unsafe { GetPropW(hwnd, PCWSTR(self.property_name.as_ptr())) };
+        if process_id != self.process_id || marker.0 as usize != self.marker {
+            if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+                return Ok(true);
+            }
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::InvalidTarget,
+                "the exact target HWND generation changed",
+            ));
+        }
+        Ok(false)
+    }
 }
 
 impl Drop for WindowGenerationGuard {
@@ -704,94 +840,6 @@ fn protocol_window_state(state: crate::platform::ScopedWindowState) -> UiControl
     }
 }
 
-pub(super) struct WindowsConfirmationSurface;
-
-impl ConfirmationSurface for WindowsConfirmationSurface {
-    fn confirm(
-        &self,
-        kind: ConfirmationKind<'_>,
-        target: Option<&UiControlTarget>,
-        action: Option<&UiControlAction>,
-    ) -> Result<bool, HostFailure> {
-        let (heading, detail) = match kind {
-            ConfirmationKind::ConsequentialAction(UiControlPolicyTier::PreApproval) => (
-                "Approve this DCC UI Control action?",
-                "The action may sign in, upload, move, rename, or transmit identified data.",
-            ),
-            ConfirmationKind::ConsequentialAction(_) => (
-                "Confirm this consequential DCC action?",
-                "The action may delete, overwrite, install, purchase, change access, or submit content.",
-            ),
-            ConfirmationKind::SystemOperation(_) => (
-                "Confirm this Windows configuration change?",
-                "The operation will ensure one exact operator-approved HKCU value or symbolic link.",
-            ),
-            ConfirmationKind::ResumeAfterStop => (
-                "Resume DCC UI Control?",
-                "The global Ctrl+Alt+Esc stop latch will be cleared for this Windows session.",
-            ),
-        };
-        let action_name = match kind {
-            ConfirmationKind::SystemOperation(operation) => operation.audit_name(),
-            _ => action
-                .map(|value| value.action.as_str())
-                .unwrap_or("open_session"),
-        };
-        let (scope, privacy) = match kind {
-            ConfirmationKind::SystemOperation(operation) => (
-                system_operation_confirmation_scope(operation),
-                "Registry value data is hidden. The shown key or paths are not written to audit logs.",
-            ),
-            _ => (
-                target.map_or_else(
-                    || "Scope: current Windows user (no DCC window required)".to_owned(),
-                    |target| {
-                        format!(
-                            "Application window: {}\nProcess: {}",
-                            target.window_title, target.process_id
-                        )
-                    },
-                ),
-                "Sensitive text and coordinates are not shown or logged.",
-            ),
-        };
-        let message = format!("{detail}\n\n{scope}\nAction: {action_name}\n\n{privacy}");
-        let message = wide(&message);
-        let heading = wide(heading);
-        let result = unsafe {
-            MessageBoxW(
-                None,
-                PCWSTR(message.as_ptr()),
-                PCWSTR(heading.as_ptr()),
-                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND | MB_TOPMOST,
-            )
-        };
-        Ok(result == IDYES)
-    }
-}
-
-fn system_operation_confirmation_scope(operation: &UiControlSystemOperation) -> String {
-    match operation {
-        UiControlSystemOperation::EnsureRegistryString {
-            key, value_name, ..
-        }
-        | UiControlSystemOperation::EnsureRegistryDword {
-            key, value_name, ..
-        } => format!(
-            "Scope: current Windows user\nRegistry key: HKEY_CURRENT_USER\\{key}\nValue name: {}",
-            if value_name.is_empty() {
-                "(Default)"
-            } else {
-                value_name
-            }
-        ),
-        UiControlSystemOperation::EnsureFileSymlink { link, target }
-        | UiControlSystemOperation::EnsureDirectorySymlink { link, target } => {
-            format!("Scope: current Windows user\nLink path: {link}\nTarget path: {target}")
-        }
-    }
-}
-
 fn exact_scope(target: &UiControlTarget) -> Value {
     json!({
         "window_titles": [],
@@ -802,14 +850,21 @@ fn exact_scope(target: &UiControlTarget) -> Value {
     })
 }
 
+fn accessibility_scope(target: &UiControlTarget, allow_owned_standard_menu_popup: bool) -> Value {
+    let mut scope = exact_scope(target);
+    scope["allow_owned_standard_menu_popup"] = Value::Bool(allow_owned_standard_menu_popup);
+    scope
+}
+
 fn query_accessibility_state(
     target: &UiControlTarget,
     max_depth: u32,
     max_nodes: u32,
+    allow_owned_standard_menu_popup: bool,
 ) -> Result<RuntimeAccessibilityState, HostFailure> {
     let raw = run_uia(json!({
         "mode": "snapshot",
-        "scope": exact_scope(target),
+        "scope": accessibility_scope(target, allow_owned_standard_menu_popup),
         "max_depth": max_depth,
         "max_nodes": max_nodes,
     }))?;
@@ -1042,6 +1097,30 @@ fn map_computer_use_error(error: ComputerUseError) -> HostFailure {
     HostFailure::new(code, error.message)
 }
 
+fn map_recording_capture_error(error: CaptureError) -> HostFailure {
+    let code = match error {
+        CaptureError::Cancelled => UiControlHostErrorCode::UserInterrupted,
+        CaptureError::TargetNotFound(_) => UiControlHostErrorCode::InvalidTarget,
+        CaptureError::BackendNotSupported(_) => UiControlHostErrorCode::BackendUnavailable,
+        _ => UiControlHostErrorCode::CaptureFailed,
+    };
+    HostFailure::new(code, error.to_string())
+}
+
+fn map_recording_artifact_error(error: RecordingArtifactError) -> HostFailure {
+    HostFailure::new(UiControlHostErrorCode::CaptureFailed, error.to_string())
+}
+
+fn recording_fence_failure(
+    fence: &ComputerUseRecordingFence,
+    generation: &WindowGenerationGuard,
+) -> Option<HostFailure> {
+    if let Err(error) = fence.check() {
+        return Some(map_computer_use_error(error));
+    }
+    generation.verify().err()
+}
+
 fn map_host_failure_to_computer_use_error(failure: HostFailure) -> ComputerUseError {
     let code = match failure.code {
         UiControlHostErrorCode::StaleObservation => ComputerUseErrorCode::StaleObservation,
@@ -1079,203 +1158,4 @@ fn wide(value: &str) -> Vec<u16> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use windows::Win32::System::Registry::RegDeleteTreeW;
-    use windows::Win32::System::Threading::GetCurrentProcessId;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WS_OVERLAPPEDWINDOW,
-    };
-
-    struct TestWindow(HWND);
-
-    impl Drop for TestWindow {
-        fn drop(&mut self) {
-            let _ = unsafe { DestroyWindow(self.0) };
-        }
-    }
-
-    struct TestRegistryKey(String);
-
-    impl Drop for TestRegistryKey {
-        fn drop(&mut self) {
-            let key = wide(&self.0);
-            let _ = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, PCWSTR(key.as_ptr())) };
-        }
-    }
-
-    struct TestSymlinkTree(PathBuf);
-
-    impl Drop for TestSymlinkTree {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(self.0.join("file-link"));
-            let _ = std::fs::remove_dir(self.0.join("dir-link"));
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[test]
-    fn window_generation_marker_detects_capability_replacement() {
-        let class = wide("STATIC");
-        let title = wide("DCC MCP UI Control generation test");
-        let hwnd = unsafe {
-            CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
-                PCWSTR(class.as_ptr()),
-                PCWSTR(title.as_ptr()),
-                WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0),
-                0,
-                0,
-                320,
-                200,
-                None,
-                None,
-                None,
-                None,
-            )
-        }
-        .unwrap();
-        let _window = TestWindow(hwnd);
-        let target = UiControlTarget {
-            process_id: unsafe { GetCurrentProcessId() },
-            window_handle: hwnd.0 as usize as u64,
-            window_title: "DCC generation test".to_owned(),
-        };
-        let guard = WindowGenerationGuard::bind(&target).unwrap();
-        guard.verify().unwrap();
-
-        let _ = unsafe { RemovePropW(hwnd, PCWSTR(guard.property_name.as_ptr())) };
-        let failure = guard.verify().unwrap_err();
-        assert_eq!(failure.code, UiControlHostErrorCode::InvalidTarget);
-    }
-
-    #[test]
-    fn semantic_uia_script_rechecks_the_confirmed_fence_immediately_before_mutation() {
-        let fence_check = UIA_SCRIPT
-            .find("Matches-Expected-Fence $target $payload.expected_fence")
-            .unwrap();
-        let ancestry_check = UIA_SCRIPT[fence_check..]
-            .find("Denied-Action-Target-Reason $root $target")
-            .map(|offset| fence_check + offset)
-            .unwrap();
-        let invoke = UIA_SCRIPT
-            .find("$actionResult = Invoke-Action $target")
-            .unwrap();
-
-        assert!(fence_check < invoke);
-        assert!(fence_check < ancestry_check);
-        assert!(ancestry_check < invoke);
-        assert!(UIA_SCRIPT[fence_check..invoke].contains("stale_observation"));
-        assert!(UIA_SCRIPT.contains("Has-Authentication-Secret-Marker $current"));
-    }
-
-    #[test]
-    fn typed_system_helpers_preserve_registry_and_symlink_contracts() {
-        assert_eq!(registry_string_bytes("ok"), b"o\0k\0\0\0");
-        assert!(path_is_within(
-            Path::new(r"\\?\C:\Program Files\Vendor\plugin"),
-            Path::new(r"C:\Program Files")
-        ));
-
-        let root = std::env::temp_dir().join(format!(
-            "dcc-mcp-system-operation-test-{}",
-            Uuid::new_v4().simple()
-        ));
-        std::fs::create_dir(&root).unwrap();
-        let target = root.join("target.txt");
-        let link = root.join("existing.txt");
-        std::fs::write(&target, b"target").unwrap();
-        std::fs::write(&link, b"keep").unwrap();
-        let failure =
-            ensure_symlink(&link.to_string_lossy(), &target.to_string_lossy(), false).unwrap_err();
-        assert_eq!(failure.code, UiControlHostErrorCode::Conflict);
-        assert_eq!(std::fs::read(&link).unwrap(), b"keep");
-        std::fs::remove_file(link).unwrap();
-        std::fs::remove_file(target).unwrap();
-        std::fs::remove_dir(root).unwrap();
-    }
-
-    #[test]
-    fn registry_ensure_reports_created_updated_and_unchanged() {
-        let key = format!(r"Software\DccMcp\Tests\{}", Uuid::new_v4().simple());
-        let _cleanup = TestRegistryKey(key.clone());
-
-        assert_eq!(
-            ensure_registry_value(&key, "Enabled", REG_SZ, registry_string_bytes("one")).unwrap(),
-            UiControlEnsureOutcome::Created
-        );
-        assert_eq!(
-            ensure_registry_value(&key, "Enabled", REG_SZ, registry_string_bytes("one")).unwrap(),
-            UiControlEnsureOutcome::Unchanged
-        );
-        assert_eq!(
-            ensure_registry_value(&key, "Enabled", REG_SZ, registry_string_bytes("two")).unwrap(),
-            UiControlEnsureOutcome::Updated
-        );
-        assert_eq!(
-            ensure_registry_value(&key, "Enabled", REG_SZ, registry_string_bytes("two")).unwrap(),
-            UiControlEnsureOutcome::Unchanged
-        );
-    }
-
-    #[test]
-    fn file_and_directory_symlinks_report_created_and_unchanged_when_permitted() {
-        let root = std::env::temp_dir().join(format!(
-            "dcc-mcp-symlink-operation-test-{}",
-            Uuid::new_v4().simple()
-        ));
-        std::fs::create_dir(&root).unwrap();
-        let _cleanup = TestSymlinkTree(root.clone());
-        let file_target = root.join("target.txt");
-        let directory_target = root.join("target-dir");
-        std::fs::write(&file_target, b"target").unwrap();
-        std::fs::create_dir(&directory_target).unwrap();
-
-        let file_link = root.join("file-link");
-        let created = ensure_symlink(
-            &file_link.to_string_lossy(),
-            &file_target.to_string_lossy(),
-            false,
-        );
-        if matches!(
-            created,
-            Err(HostFailure {
-                code: UiControlHostErrorCode::ElevationRequired,
-                ..
-            })
-        ) {
-            eprintln!("symlink integration skipped: Windows symlink privilege is unavailable");
-            return;
-        }
-        assert_eq!(created.unwrap(), UiControlEnsureOutcome::Created);
-        assert_eq!(
-            ensure_symlink(
-                &file_link.to_string_lossy(),
-                &file_target.to_string_lossy(),
-                false,
-            )
-            .unwrap(),
-            UiControlEnsureOutcome::Unchanged
-        );
-
-        let directory_link = root.join("dir-link");
-        assert_eq!(
-            ensure_symlink(
-                &directory_link.to_string_lossy(),
-                &directory_target.to_string_lossy(),
-                true,
-            )
-            .unwrap(),
-            UiControlEnsureOutcome::Created
-        );
-        assert_eq!(
-            ensure_symlink(
-                &directory_link.to_string_lossy(),
-                &directory_target.to_string_lossy(),
-                true,
-            )
-            .unwrap(),
-            UiControlEnsureOutcome::Unchanged
-        );
-    }
-}
+mod tests;

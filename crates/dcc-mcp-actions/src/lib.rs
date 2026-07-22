@@ -2,6 +2,7 @@
 
 pub mod chain;
 pub mod dispatch_context;
+pub mod dispatch_job_context;
 pub mod dispatcher;
 pub mod events;
 pub mod pipeline;
@@ -15,6 +16,9 @@ pub mod versioned;
 pub use chain::{ActionChain, ChainResult, ChainStepResult, ErrorAction};
 pub use dispatch_context::{
     DispatchExecutionContext, current_execution_context, with_execution_context,
+};
+pub use dispatch_job_context::{
+    DispatchJobContext, current_dispatch_job_context, with_dispatch_job_context,
 };
 pub use dispatcher::{
     DispatchError, DispatchResult, HandlerFn, ToolDispatcher, current_thread_affinity,

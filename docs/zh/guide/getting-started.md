@@ -2,20 +2,44 @@
 
 ## 安装
 
-### 从 GitHub Release 安装 CLI
+### 从 `dcc-mcp` Skill 安装 CLI
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+# 在已安装的 dcc-mcp Skill 目录中运行。
+python scripts/check_cli.py --ensure-cli --pretty
 ```
 
-这会从最新 GitHub Release 安装独立的 `dcc-mcp-cli` 控制面二进制。
-需要固定版本时设置 `DCC_MCP_VERSION=v0.17.17`。
+Agent 在安装或下载新二进制前必须先征得用户同意。这个 bundled helper 只接受
+官方 `dcc-mcp/dcc-mcp-core` release；它会先验证当前平台的 update manifest 和
+CLI SHA-256，再替换二进制。URL、manifest、摘要或下载异常时会 fail closed，
+不会覆盖已有 CLI。SHA-256 用于确认二进制与 release manifest 一致，不等同于
+数字签名。
 
-Agent 在安装或下载新二进制前必须先征得用户同意。官方安装可以通过以下命令
-保持最新：
+如果没有安装 Skill，请把官方 installer 下载为本地文件，先检查内容，再执行该
+本地文件：
+
+```bash
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# 检查完成后：
+sh ./install-cli.sh
+```
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# 检查完成后，遵循当前执行策略：
+& .\install-cli.ps1
+```
+
+installer 与 bundled helper 使用相同的固定官方来源、manifest 和 SHA-256
+校验。不要把远程 installer 直接通过管道交给 shell，也不要绕过机器的脚本执行
+策略。
+
+固定版本可运行 `sh ./install-cli.sh --version v0.19.63`，或
+`& .\install-cli.ps1 -Version v0.19.63`。
+
+官方安装可以通过以下命令保持最新：
 
 ```bash
 dcc-mcp-cli update check

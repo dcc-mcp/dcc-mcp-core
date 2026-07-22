@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 from conftest import REPO_ROOT
 import dcc_mcp_core
+from dcc_mcp_core import skill as skill_module
+from dcc_mcp_core._server import skill_discovery
 from dcc_mcp_core.skill_reference_docs import _handle_list
 
 SKILL_ROOTS = [
@@ -22,6 +27,30 @@ def test_removed_app_ui_skill_is_not_bundled() -> None:
 
     assert (bundled / "ui-control").is_dir()
     assert not (bundled / "app-ui").exists()
+
+
+def test_bundled_api_keeps_root_contract_while_internal_discovery_ignores_upgrade_leftovers(
+    tmp_path, monkeypatch
+) -> None:
+    bundled = tmp_path / "skills"
+    for name in ("ui-control", "app-ui"):
+        skill_dir = bundled / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(f"---\nname: {name}\ndescription: test\n---\n", encoding="utf-8")
+    monkeypatch.setattr(skill_module, "_BUNDLED_SKILLS_DIR", bundled)
+    monkeypatch.setattr(skill_discovery, "_default_skill_paths_disabled", lambda: True)
+    monkeypatch.setattr(skill_discovery, "get_app_skill_paths_from_env", lambda _dcc_name: [])
+    monkeypatch.setattr(skill_discovery, "get_skill_paths_from_env", lambda: [])
+
+    public_paths = skill_module.get_bundled_skill_paths()
+    owner = SimpleNamespace(_builtin_skills_dir=tmp_path / "missing", _dcc_name="unity")
+    discovery_paths = skill_discovery.SkillDiscoveryController(owner).collect_skill_search_paths(
+        filter_existing=True,
+        include_admin_custom=False,
+    )
+
+    assert public_paths == [str(bundled)]
+    assert [Path(path).name for path in discovery_paths] == ["ui-control"]
 
 
 def test_official_and_bundled_skills_validate_clean() -> None:

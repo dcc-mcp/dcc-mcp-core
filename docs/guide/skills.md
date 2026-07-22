@@ -7,10 +7,12 @@ For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, 
 ## Evidence-Informed Skill Improvement
 
 Review reusable friction only after the task and its validation are complete.
-Give tool calls one stable task identifier, query the narrowest useful gateway
-window, then invoke the first-class `review_skill_improvement` prompt:
+Route tool calls through the gateway with one stable task identifier, query the
+narrowest useful gateway window, then invoke the first-class
+`review_skill_improvement` prompt:
 
 ```bash
+dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{}'
 dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
 ```
 
@@ -18,7 +20,9 @@ The prompt is defined in
 `skills/dcc-mcp-skills-creator/prompts.yaml`. Supply only bounded task, stats,
 validation, and existing-skill summaries; never send hidden reasoning, raw
 prompts, secrets, private paths, or full tool payloads. Stats are supporting
-evidence, not root-cause proof. Zero calls means missing evidence. Prefer
+evidence, not root-cause proof. Inspect `stats_coverage`: direct local MCP is
+excluded, and `configured_route_recorded=false` means the configured route was
+not measurable. Zero calls means missing evidence, not that no calls occurred. Prefer
 `no_change`, then `update_existing`; create a new skill only for a repeated,
 stable workflow with one clear owner, and validate it before adoption.
 

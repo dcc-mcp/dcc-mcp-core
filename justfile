@@ -329,7 +329,7 @@ ci: check-python-support preflight install test lint-py
 
 # Package skills from .github/clawhub-skills.json (zip under dist/skills/).
 package-clawhub-skills:
-    python scripts/package_openclaw_skill.py skills/dcc-mcp dist/skills
+    python scripts/package_openclaw_skill.py .github/clawhub-skills.json dist/skills --manifest
 
 # Validate publish commands without uploading (PR / local).
 clawhub-sync-dry-run:

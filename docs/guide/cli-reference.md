@@ -9,17 +9,38 @@ same configuration surface.
 `dcc-mcp-cli` and `dcc-mcp-server` are published as raw GitHub Release
 assets on every release. It is the preferred control path for shell-capable
 agents. If it is missing, obtain the user's consent before installing it from
-the official URL:
+the official release. From the installed `dcc-mcp` Skill directory, run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
 
-Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
-`--version v0.17.17` to the install script.
+The bundled helper is fixed to `dcc-mcp/dcc-mcp-core`, validates the platform
+update manifest and CLI SHA-256, and leaves the existing binary untouched if
+the URL, manifest, digest, or download is invalid. SHA-256 is an integrity
+check, not a digital signature. Without the Skill, download the official
+installer as a local file, inspect it, and only then execute it:
+
+```bash
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# After reviewing the file:
+sh ./install-cli.sh
+```
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# After reviewing the file and subject to the current execution policy:
+& .\install-cli.ps1
+```
+
+The local installer uses the same fixed source and verification contract.
+Never pipe it directly into a shell or bypass the machine's script execution
+policy.
+
+Pin a release with `sh ./install-cli.sh --version v0.19.63` or
+`& .\install-cli.ps1 -Version v0.19.63`.
 
 A standalone CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is
 also published as a GitHub Release asset alongside the server bundle.
@@ -62,6 +83,13 @@ dcc-mcp-cli gateway set local
 `--gateway <name>` overrides the current profile for one command. `--base-url`
 and `DCC_MCP_BASE_URL` remain supported as direct endpoint overrides for legacy
 scripts and smoke checks.
+
+Add `--require-gateway` (or set `DCC_MCP_CLI_REQUIRE_GATEWAY=true`) when local
+calls must be retained by Gateway audit/stats. This route is fail-closed and
+does not fall back to direct MCP. Add `--agent-session-id <task-id>` (or
+`DCC_MCP_AGENT_SESSION_ID`) to write the same
+`_meta.agent_context.session_id` into single and batched calls. It is distinct
+from an application-level or UI Control `session_id` argument.
 
 In the default `local` profile, agent-control commands first ensure the
 machine-wide loopback gateway is healthy, then local `list` reads the
@@ -119,10 +147,10 @@ dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
 dcc-mcp-cli gateway list
 dcc-mcp-cli gateway set pcA
 dcc-mcp-cli gateway set local
-dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
-dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
+dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-id task-42 --json '{"radius":2}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
@@ -130,7 +158,7 @@ dcc-mcp-cli install --dcc-type maya --version 2026
 dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
 dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
-dcc-mcp-cli marketplace search --query hunyuan --dcc maya
+dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
 dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
 dcc-mcp-cli reload-skills --dcc-type maya
@@ -157,10 +185,10 @@ dcc-mcp-cli lint path/to/skills
 |---|---|---|
 | `dcc-types [--catalog <path>]` | bundled or supplied adapter catalog | List canonical adapter-backed DCC identifiers without starting a gateway. Each row includes matching adapters, version/source metadata when present, and whether the catalog can produce an install plan. |
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
-| `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted tool-call counts, success/failure, latency, tokens, and top dimensions after applying all supplied filters. JSON is the default output for agent use. |
-| `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, local registry path/inventory, direct-control readiness counts and not-ready diagnostics, gateway daemon status, and server binary diagnostics without auto-starting or downloading services. |
+| `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted gateway tool-call counts and return `stats_coverage`, including direct routes excluded from the aggregate. JSON is the default output for agent use. |
+| `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, and server binary diagnostics without auto-starting services. |
 | `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
-| `search [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities, optionally scoped to a full UUID or unique prefix. |
+| `search [-q\|--query <q>] [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities with the release-compatible query flag; current builds also accept positional natural-language words as an alternative. Optionally scope to a full UUID or unique prefix. |
 | `describe <tool-slug>` | local MCP `tools/list` or remote `POST /v1/describe` | Inspect a capability before calling it. |
 | `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call load_skill` or remote `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |
 | `call <tool-slug> --json <object>` | local MCP `tools/call` or remote `POST /v1/call` | Invoke one capability. |
@@ -171,7 +199,7 @@ dcc-mcp-cli lint path/to/skills
 | `install --dcc-type <dcc> [--version <v>] [--python <path>] [--execute]` | catalog-backed local plan / executor | Resolve the matching adapter and emit an auditable install plan; with `--execute`, run package-install steps with consent, rollback, and package/path verification. Live DCC checks stay in the emitted `next_steps`. |
 | `marketplace add <source>` | local source registry | Register a marketplace source (`dcc-mcp/marketplace`, a GitHub `owner/repo`, raw JSON URL, or local catalog file). |
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
-| `marketplace search [--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Search skill package entries across configured or explicit sources. |
+| `marketplace search [-q\|--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Fuzzy-rank Skill packages across configured or explicit sources using the shared search engine; the query flag works with released builds, while current builds also accept positional words as an alternative. Deduplicate by package name before applying `--limit`; `--dcc-type` is an alias for `--dcc`. |
 | `marketplace inspect <name> [--source <source>]` | marketplace catalog JSON/YAML | Print exact entry metadata including version and install fields. |
 | `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force]` | marketplace catalog + local filesystem/git | Install a skill package to `~/.dcc-mcp/marketplace/<dcc>/<name>/`. |
 | `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. |
@@ -198,11 +226,14 @@ so `custom_types_supported` remains true even when a custom identifier has no
 catalog install plan. Alias normalization follows `DccName::parse`, including
 `3ds Max`, `3ds-max`, and `3dsmax` mapping to `3dsmax`.
 
-For post-task review, attach a stable task identifier through
-`--meta-json '{"agent_context":{"session_id":"task-42"}}'`, then query
-`stats --range 24h --session-id task-42` after acceptance. Stats are aggregate
-gateway evidence rather than root-cause proof, and direct local calls may not
-appear; `total_calls == 0` means no telemetry evidence. The
+For post-task review, route every task call with
+`--require-gateway --agent-session-id task-42`, then query
+`stats --range 24h --session-id task-42` after acceptance. Inspect
+`stats_coverage` before the count: Gateway SQLite excludes
+`local_mcp_direct`, and `configured_route_recorded=false` means the configured
+single-call route cannot support the review. Stats are aggregate evidence rather than
+root-cause proof; `total_calls == 0` means no telemetry evidence, not that no
+calls occurred. The
 `review_skill_improvement` prompt in `skills/dcc-mcp-skills-creator/prompts.yaml`
 accepts this JSON plus bounded task and validation summaries.
 

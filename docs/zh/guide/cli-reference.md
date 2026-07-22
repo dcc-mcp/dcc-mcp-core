@@ -6,17 +6,37 @@
 
 `dcc-mcp-cli` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
 Release 资产发布。它是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
-安装，先征得用户同意，再通过官方 URL 安装：
+安装，先征得用户同意，再从已安装的 `dcc-mcp` Skill 目录运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
 
-需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.17`，或给安装脚本传
-`--version v0.17.17`。
+这个 bundled helper 固定使用 `dcc-mcp/dcc-mcp-core` 官方 release，先验证
+当前平台的 update manifest 和 CLI SHA-256，再替换二进制。URL、manifest、
+摘要或下载异常时会 fail closed，不会覆盖已有 CLI。SHA-256 是完整性检查，
+不等同于数字签名。如果没有安装 Skill，请把官方 installer 下载为本地文件，
+先检查，再执行：
+
+```bash
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# 检查完成后：
+sh ./install-cli.sh
+```
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# 检查完成后，遵循当前执行策略：
+& .\install-cli.ps1
+```
+
+本地 installer 使用相同的固定来源和验证契约。不要把它通过管道直接交给 shell，
+也不要绕过机器的脚本执行策略。
+
+固定版本可运行 `sh ./install-cli.sh --version v0.19.63`，或
+`& .\install-cli.ps1 -Version v0.19.63`。
 
 | 二进制 | 角色 | 源码位置 |
 |---|---|---|
@@ -53,6 +73,13 @@ dcc-mcp-cli gateway set local
 
 `--gateway <name>` 可为单次命令覆盖当前 profile。`--base-url` 与
 `DCC_MCP_BASE_URL` 继续作为旧脚本和 smoke check 的直接 endpoint override。
+
+如果本地调用必须进入 Gateway audit/stats，请加 `--require-gateway`（或设置
+`DCC_MCP_CLI_REQUIRE_GATEWAY=true`）。该路径 fail-closed，不会静默回退到
+direct MCP。再加 `--agent-session-id <task-id>`（或
+`DCC_MCP_AGENT_SESSION_ID`），CLI 会为单次和批量调用写入一致的
+`_meta.agent_context.session_id`。它与 UI Control 参数中的业务
+`session_id` 不是同一个字段。
 
 默认 `local` profile 下，agent-control 命令会先确保 machine-wide loopback
 gateway 健康，然后本地 `list` 读取 FileRegistry；本地 `search`、
@@ -105,7 +132,7 @@ dcc-mcp-cli gateway set local
 dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
-dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
+dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-id task-42 --json '{"radius":2}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
@@ -139,8 +166,8 @@ dcc-mcp-cli lint path/to/skills
 | 命令 | REST/API 契约 | 说明 |
 |---|---|---|
 | `health` | `GET /v1/healthz` | 检查配置的端点。 |
-| `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | 对持久化工具调用按所有给定条件组合过滤，并输出调用量、成功/失败、延迟、token 和高频维度；默认 JSON 便于 agent 使用。 |
-| `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | 不启动或下载服务，输出 profile 配置/当前选择、本地 registry path/inventory、direct-control readiness 汇总和 not-ready 诊断、gateway daemon 状态和 server binary 诊断。 |
+| `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | 查询 Gateway 持久化调用统计，并通过 `stats_coverage` 明确列出未计入聚合的 direct route。 |
+| `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | 不启动或下载服务，输出 profile、有效 control route、该路径是否进入 Gateway stats、本地 readiness、daemon 状态和 server binary 诊断。 |
 | `list [--gateway <profile>]` | local FileRegistry 或 `GET /v1/instances` | 列出在线 DCC 实例。默认先确保 loopback gateway，再读取本机 FileRegistry；远程 profile 走选中的 gateway。 |
 | `search [--instance-id <id>]` | 本地 MCP `search_tools` 或远程 `POST /v1/search` | 搜索可调用能力，可限定完整 UUID 或唯一前缀。 |
 | `describe <tool-slug>` | 本地 MCP `tools/list` 或远程 `POST /v1/describe` | 调用前检查能力 schema。 |

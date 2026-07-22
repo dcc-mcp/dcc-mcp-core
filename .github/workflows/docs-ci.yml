@@ -4,12 +4,18 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - ".github/actions/npm-ci-with-retry/**"
+      - ".github/workflows/deploy-docs.yml"
+      - ".github/workflows/docs-ci.yml"
       - "docs/**"
       - "README.md"
       - "README_zh.md"
   push:
     branches: [main]
     paths:
+      - ".github/actions/npm-ci-with-retry/**"
+      - ".github/workflows/deploy-docs.yml"
+      - ".github/workflows/docs-ci.yml"
       - "docs/**"
       - "README.md"
       - "README_zh.md"
@@ -38,8 +44,9 @@ jobs:
           cache-dependency-path: docs/package-lock.json
 
       - name: Install dependencies
-        working-directory: docs
-        run: npm ci
+        uses: ./.github/actions/npm-ci-with-retry
+        with:
+          working-directory: docs
 
       - name: Build with VitePress
         working-directory: docs

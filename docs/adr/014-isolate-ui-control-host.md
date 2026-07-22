@@ -64,13 +64,18 @@ v1 and at least one of these conditions is true:
 ### Runtime boundary
 
 Add a release-built `dcc-mcp-ui-control-host.exe`, with one instance per
-interactive Windows logon session. It ships in Windows core/server wheels and
+protocol/version/binary identity in each interactive Windows logon session. It ships in Windows core/server wheels and
 the server release bundle, whose package manifests cover its bytes; release
 publishers may additionally apply Authenticode without changing the protocol.
 It runs as the current user at the same integrity level as the target DCC and
 exposes a current-user-only named pipe. The adapter verifies the pipe server's
-PID and installed executable path, while the server verifies the caller's
+PID and full executable SHA-256, PE shape, and exact version, while the server verifies the caller's
 Windows session, user SID, and integrity level. It has no TCP or HTTP listener.
+The discovery pipe and singleton include strict SemVer plus the full binary
+SHA-256, allowing old and replacement Hosts to coexist during upgrades without
+endpoint capture. Byte-identical copies may share an endpoint. The input-owner
+mutex and Esc interruption latch deliberately remain version-neutral, so only
+one Host can own native input while another Host or its overlay is cleaning up.
 
 Adapters keep the public `app_ui__snapshot`, `find`, `act`, `wait_for`, and
 `stop_computer_use` tools, but become thin clients of the host. The host owns:

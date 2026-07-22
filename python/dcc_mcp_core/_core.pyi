@@ -9,7 +9,7 @@ import typing
 
 # ── Module metadata ──
 
-__version__: builtins.str = "0.19.62"  # x-release-please-version
+__version__: builtins.str = "0.19.65"  # x-release-please-version
 __author__: builtins.str = "Hal Long <hal.long@outlook.com>"
 
 # ── Constants (registered via m.add() in src/lib.rs::register_constants) ──
@@ -523,7 +523,7 @@ class ComputerUseSession:
     @staticmethod
     def process_user_interrupted() -> builtins.bool:
         r"""
-        Return whether Ctrl+Alt+Esc stopped Computer Use in this Windows logon session.
+        Return whether Esc stopped Computer Use in this Windows logon session.
         """
     @staticmethod
     def desktop_interactive() -> builtins.bool:
@@ -532,7 +532,7 @@ class ComputerUseSession:
         """
     def start(self) -> builtins.str:
         r"""
-        Start the visible banner and reserve Ctrl+Alt+Esc for the stop action.
+        Start the visible banner and reserve Esc for the stop action.
         """
     def screenshot(self) -> tuple[builtins.str, typing.Optional[bytes]]:
         r"""
@@ -2232,10 +2232,14 @@ class ServiceEntry:
     @property
     def pid(self) -> typing.Optional[builtins.int]:
         r"""
-        OS process ID of the DCC process.
+        OS process ID of the registered service owner.
 
-        Useful for disambiguating two instances of the same DCC type
-        that have the same scene open.
+        For sidecars this differs from `host_pid`, which identifies the DCC.
+        """
+    @property
+    def host_pid(self) -> typing.Optional[builtins.int]:
+        r"""
+        Optional PID of an external DCC host that bounds this service lifetime.
         """
     @property
     def display_name(self) -> typing.Optional[builtins.str]:

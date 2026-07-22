@@ -28,6 +28,29 @@ fn status_uses_public_dcc_ui_control_name() {
 }
 
 #[test]
+fn public_perform_cannot_bypass_the_game_navigation_host_fence() {
+    let session = test_session(std::process::id());
+    let error = session
+        .perform(&ComputerUseAction {
+            action: "game_navigation".to_owned(),
+            observation_id: Some("untrusted-observation".to_owned()),
+            x: None,
+            y: None,
+            button: None,
+            scroll_x: None,
+            scroll_y: None,
+            path: Vec::new(),
+            text: None,
+            keys: vec!["W".to_owned()],
+            duration_ms: Some(120),
+        })
+        .expect_err("public perform must not execute Host-governed game navigation");
+
+    assert_eq!(error.code, ComputerUseErrorCode::InvalidAction);
+    assert!(error.message.contains("scoped UI Control Host"));
+}
+
+#[test]
 fn desktop_transitions_advance_generation_once_per_change() {
     let state = AtomicU64::new(desktop_state_value(1, true));
 
@@ -388,6 +411,156 @@ fn public_perform_restores_a_minimized_observed_window_before_rect_validation() 
     platform::clear_user_interrupt().unwrap();
 }
 
+#[cfg(windows)]
+#[test]
+fn minimized_target_start_owns_input_and_esc_watcher_before_restore() {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, IsIconic, SW_MINIMIZE, ShowWindow, WINDOW_EX_STYLE,
+        WINDOW_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    };
+    use windows::core::PCWSTR;
+
+    struct TestWindow(windows::Win32::Foundation::HWND);
+    impl Drop for TestWindow {
+        fn drop(&mut self) {
+            let _ = unsafe { DestroyWindow(self.0) };
+        }
+    }
+
+    let _interrupt_guard = user_interrupt_test_guard();
+    let _dpi_awareness = platform::ThreadDpiAwareness::enter().unwrap();
+    platform::clear_user_interrupt().unwrap();
+    let class = "STATIC\0".encode_utf16().collect::<Vec<_>>();
+    let title = "DCC MCP minimized pre-snapshot owner target\0"
+        .encode_utf16()
+        .collect::<Vec<_>>();
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            PCWSTR(class.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 | WS_VISIBLE.0),
+            200,
+            200,
+            640,
+            480,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+    .unwrap();
+    let _target_window = TestWindow(hwnd);
+    let handle = hwnd.0 as usize as u64;
+    let process_id = unsafe { GetCurrentProcessId() };
+    let _ = unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+    assert!(unsafe { IsIconic(hwnd) }.as_bool());
+
+    let session = ComputerUseSession::new(
+        ComputerUseTargetScope::new(Some(process_id), Some(handle)).unwrap(),
+        Some(process_id),
+        Some(handle),
+        None,
+        Some("test DCC".to_string()),
+        None,
+    )
+    .unwrap();
+    let started = session.start().unwrap();
+
+    assert_eq!(started["active"], true);
+    assert_eq!(started["overlay_visible"], false);
+    assert_ne!(session.lock_state().desktop_barrier.window_handle(), 0);
+    assert!(platform::input_owner_is_busy_for_test());
+
+    let _ = session.stop();
+    platform::clear_user_interrupt().unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn two_exact_window_sessions_share_the_process_input_owner() {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
+    };
+    use windows::core::PCWSTR;
+
+    struct TestWindow(windows::Win32::Foundation::HWND);
+    impl Drop for TestWindow {
+        fn drop(&mut self) {
+            let _ = unsafe { DestroyWindow(self.0) };
+        }
+    }
+
+    fn create_test_window(title: &str, x: i32) -> TestWindow {
+        let class = "STATIC\0".encode_utf16().collect::<Vec<_>>();
+        let title = format!("{title}\0").encode_utf16().collect::<Vec<_>>();
+        TestWindow(
+            unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE::default(),
+                    PCWSTR(class.as_ptr()),
+                    PCWSTR(title.as_ptr()),
+                    WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 | WS_VISIBLE.0),
+                    x,
+                    220,
+                    480,
+                    320,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .unwrap(),
+        )
+    }
+
+    let _interrupt_guard = user_interrupt_test_guard();
+    let _dpi_awareness = platform::ThreadDpiAwareness::enter().unwrap();
+    platform::clear_user_interrupt().unwrap();
+    let first_window = create_test_window("DCC MCP first session", 120);
+    let second_window = create_test_window("DCC MCP second session", 640);
+    let process_id = unsafe { GetCurrentProcessId() };
+    let first_handle = first_window.0.0 as usize as u64;
+    let second_handle = second_window.0.0 as usize as u64;
+    let first = ComputerUseSession::new(
+        ComputerUseTargetScope::new(Some(process_id), Some(first_handle)).unwrap(),
+        Some(process_id),
+        Some(first_handle),
+        None,
+        Some("first DCC".to_owned()),
+        None,
+    )
+    .unwrap();
+    let second = ComputerUseSession::new(
+        ComputerUseTargetScope::new(Some(process_id), Some(second_handle)).unwrap(),
+        Some(process_id),
+        Some(second_handle),
+        None,
+        Some("second DCC".to_owned()),
+        None,
+    )
+    .unwrap();
+
+    first.start().unwrap();
+    let second_start = second.start();
+    assert!(
+        second_start.is_ok(),
+        "a second exact-window session should share the process input owner: {second_start:?}"
+    );
+    assert!(platform::input_owner_is_busy_for_test());
+
+    let _ = first.stop();
+    assert_eq!(second.status()["active"], true);
+    assert!(platform::input_owner_is_busy_for_test());
+    let _ = second.stop();
+    platform::clear_user_interrupt().unwrap();
+}
+
 #[test]
 fn target_constraints_are_an_intersection() {
     let spec = TargetSpec {
@@ -489,6 +662,41 @@ fn stop_cancels_a_long_wait_before_taking_the_state_lock() {
     assert_eq!(error.code, ComputerUseErrorCode::BackendUnavailable);
     assert_eq!(stopped["active"], false);
     platform::clear_user_interrupt().unwrap();
+}
+
+#[test]
+fn recording_fence_rejects_desktop_or_target_generation_changes() {
+    let stop_requested = Arc::new(AtomicBool::new(false));
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let desktop_state = Arc::new(AtomicU64::new(desktop_state_value(7, true)));
+    let target_available = Arc::new(AtomicBool::new(true));
+    let fence = ComputerUseRecordingFence {
+        stop_requested,
+        interrupted,
+        desktop_state: Arc::clone(&desktop_state),
+        target_available: Arc::clone(&target_available),
+        desktop_generation: 7,
+    };
+
+    fence.check().expect("initial fence");
+    record_desktop_environment_change(&desktop_state);
+    assert_eq!(
+        fence.check().unwrap_err().code,
+        ComputerUseErrorCode::StaleObservation
+    );
+
+    let target_fence = ComputerUseRecordingFence {
+        stop_requested: Arc::new(AtomicBool::new(false)),
+        interrupted: Arc::new(AtomicBool::new(false)),
+        desktop_state: Arc::new(AtomicU64::new(desktop_state_value(9, true))),
+        target_available: Arc::clone(&target_available),
+        desktop_generation: 9,
+    };
+    target_available.store(false, Ordering::Release);
+    assert_eq!(
+        target_fence.check().unwrap_err().code,
+        ComputerUseErrorCode::MissingWindow
+    );
 }
 
 #[test]

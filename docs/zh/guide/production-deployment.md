@@ -66,7 +66,7 @@ Windows 还会发布带 SHA-256 的
 从 `0.19.62` 硬切升级时需要重启两次：旧 updater 第一次只会替换 raw server，
 且当次进程仍执行旧映像；第二次启动才会运行新 server，按同版本 manifest SHA
 自动补齐或替换 host。之后的成对 updater 恢复为一次重启。UI Control wire/pipe
-升级为 v2，但全局输入互斥与 Ctrl+Alt+Esc stop latch 在迁移期间继续共享。
+升级为 v2，但全局输入互斥与 Esc stop latch 在迁移期间继续共享。
 
 ### 安装路径
 

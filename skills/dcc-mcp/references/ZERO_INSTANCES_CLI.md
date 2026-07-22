@@ -88,8 +88,12 @@ python scripts/dcc_gateway.py install --dcc-type maya
 python scripts/dcc_gateway.py install --dcc-type blender
 ```
 
-The Python fallback auto-downloads the CLI if needed (with user consent, pass
-`--ensure-cli`), then delegates to `dcc-mcp-cli install`.
+The Python fallback can install the CLI if needed only after user consent (pass
+`--ensure-cli`). It accepts the fixed official release manifest, validates the
+version and asset URL, verifies SHA-256, and only then delegates to
+`dcc-mcp-cli install`. Verification failure preserves any existing CLI and
+falls back to the supported Python REST operations; adapter installation itself
+still requires the CLI.
 
 ---
 
@@ -126,12 +130,6 @@ carries sidecar `failure_stage`, `failure_reason`, host RPC metadata, gateway
 recovery fields, and any supervisor-recorded stdout/stderr log paths. If
 marketplace skills are installed, finish with `reload-skills`.
 
-If Python is not available as `python` / `py`, install vx first:
-
-```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/loonghao/vx/main/install.sh | bash
-
-# Windows PowerShell
-powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps1 | iex"
-```
+If neither Python nor `py` is available, stop and ask the operator to provision
+Python or `vx` through a trusted OS or studio package manager. Do not fetch and
+execute a remote installer through a shell pipeline.

@@ -4,7 +4,17 @@ Cooperative cancellation support for DCC-MCP skill scripts (issue #318, #332, #5
 
 Skill scripts executed inside a `tools/call` request run as regular Python code and cannot be interrupted by the dispatcher. The MCP spec's `notifications/cancelled` message only helps if the running code checks for cancellation at appropriate points.
 
-**Exported symbols:** `CancelToken`, `CancelledError`, `JobHandle`, `check_cancelled`, `check_dcc_cancelled`, `current_cancel_token`, `current_job`, `reset_cancel_token`, `reset_current_job`, `set_cancel_token`, `set_current_job`
+**Exported symbols:** `CancellationProbe`, `CancelToken`, `CancelledError`, `JobHandle`, `check_cancelled`, `check_dcc_cancelled`, `current_cancel_token`, `current_job_id`, `current_job`, `reset_cancel_token`, `reset_current_job`, `set_cancel_token`, `set_current_job`
+
+## CancellationProbe
+
+Read-only `Protocol` exposed to running skill code. Both the pure-Python
+`CancelToken` and the Rust-backed asynchronous MCP/REST probe implement it.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `cancelled` (property) | `bool` | Whether the owning dispatcher cancelled the operation. |
+| `job_id` (property) | `str \| None` | Server-owned asynchronous job id, when available. |
 
 ## CancelToken
 
@@ -13,8 +23,9 @@ Thread-safe cancellation flag settable by the request dispatcher.
 ```python
 from dcc_mcp_core import CancelToken
 
-token = CancelToken()
+token = CancelToken("job-42")
 token.cancelled  # False
+token.job_id  # "job-42"
 token.cancel()
 token.cancelled  # True
 ```
@@ -23,7 +34,7 @@ token.cancelled  # True
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| (none) | | Creates a new un-cancelled token |
+| `job_id` | `str \| None` | Optional server-owned job id associated with the token |
 
 ### Methods
 
@@ -31,6 +42,7 @@ token.cancelled  # True
 |--------|---------|-------------|
 | `cancel()` | `None` | Mark the token as cancelled. Idempotent. |
 | `cancelled` (property) | `bool` | Whether `cancel()` has been invoked |
+| `job_id` (property) | `str \| None` | Associated server-owned job id, when available |
 
 ## CancelledError
 
@@ -67,14 +79,14 @@ def run(iterations: int = 100) -> dict:
 ## set_cancel_token
 
 ```python
-set_cancel_token(token: CancelToken | None) -> contextvars.Token
+set_cancel_token(token: CancellationProbe | None) -> contextvars.Token
 ```
 
 Install a `CancelToken` as the active cancel token for the current context. For **dispatcher** use only — skill authors should call `check_cancelled()` instead.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `token` | `CancelToken \| None` | The token to install, or `None` to clear |
+| `token` | `CancellationProbe \| None` | The probe to install, or `None` to clear |
 
 **Returns:** A `contextvars.Token` that must be passed to `reset_cancel_token`.
 
@@ -93,14 +105,27 @@ Restore the cancel-token contextvar to its previous value.
 ## current_cancel_token
 
 ```python
-current_cancel_token() -> CancelToken | None
+current_cancel_token() -> CancellationProbe | None
 ```
 
-Return the `CancelToken` installed in the current context, or `None` when no dispatcher has installed one.
+Return the read-only cancellation probe installed in the current context, or
+`None` when no dispatcher has installed one. Skill code must not assume the
+probe exposes `cancel()`; the Rust-backed MCP/REST implementation is read-only.
 
 ::: tip
 Use `current_cancel_token()` to poll the cancellation flag without raising, e.g. to flush partial progress before returning.
 :::
+
+## current_job_id
+
+```python
+current_job_id() -> str | None
+```
+
+Return the authoritative server-owned id for the asynchronous job currently
+executing the skill. The in-process bridge installs it separately from tool
+arguments, so client-supplied `_meta.dcc.jobId` values are never trusted.
+Synchronous calls and calls outside a dispatcher context return `None`.
 
 ## Per-job cancellation (issue #522)
 

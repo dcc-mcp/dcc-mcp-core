@@ -18,7 +18,9 @@
 
 use std::path::Path;
 
+use dcc_mcp_gateway_search::{SearchQuery, SearchRecord, rank_all};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 mod error;
 pub use error::{CatalogError, CatalogValidationError};
@@ -201,78 +203,126 @@ pub struct SearchHit {
     /// Index into the source `&[CatalogEntry]` slice.
     pub index: usize,
     /// Match quality score (higher = better match).
-    ///
-    /// Currently a simple 1-point per matched field; callers that need richer
-    /// ranking can sort by this score before paginating.
     pub score: u32,
+}
+
+#[derive(Clone, Copy)]
+struct CatalogSearchRecord<'a> {
+    index: usize,
+    entry: &'a CatalogEntry,
+    search_tokens: &'a [String],
+}
+
+impl SearchRecord for CatalogSearchRecord<'_> {
+    fn tool_slug(&self) -> &str {
+        &self.entry.name
+    }
+
+    fn backend_tool(&self) -> &str {
+        &self.entry.name
+    }
+
+    fn summary(&self) -> &str {
+        &self.entry.description
+    }
+
+    fn skill_name(&self) -> Option<&str> {
+        None
+    }
+
+    fn tags(&self) -> &[String] {
+        &self.entry.tags
+    }
+
+    fn search_tokens(&self) -> &[String] {
+        self.search_tokens
+    }
+
+    fn dcc_type(&self) -> &str {
+        self.entry.dcc.first().map_or("", String::as_str)
+    }
+
+    fn instance_id(&self) -> Uuid {
+        Uuid::nil()
+    }
+
+    fn loaded(&self) -> bool {
+        true
+    }
+}
+
+fn catalog_search_tokens(entry: &CatalogEntry) -> Vec<String> {
+    let mut tokens = entry.dcc.clone();
+    tokens.extend(entry.url.iter().cloned());
+    tokens.extend(entry.version.iter().cloned());
+    tokens.extend(entry.min_core_version.iter().cloned());
+    tokens.extend(entry.maintainer.iter().cloned());
+    tokens.extend(entry.category.iter().cloned());
+    if let Some(policy) = &entry.policy {
+        tokens.push(policy.installation.clone());
+    }
+    if let Some(requires) = &entry.requires {
+        tokens.extend(requires.env.iter().cloned());
+        tokens.extend(requires.bins.iter().cloned());
+        tokens.extend(requires.python.iter().cloned());
+        tokens.extend(requires.skills.iter().cloned());
+    }
+
+    if let Some(install) = &entry.install {
+        tokens.push(install.install_type.clone());
+        tokens.extend(install.url.iter().cloned());
+        tokens.extend(install.instructions_url.iter().cloned());
+        tokens.extend(install.pip_package.iter().cloned());
+        if let Some(extras) = &install.pip_extras {
+            tokens.extend(extras.iter().cloned());
+        }
+    }
+
+    tokens
 }
 
 /// Score every matching entry and return lightweight index references.
 ///
-/// `query` is matched case-insensitively against `name`, `description`,
-/// `dcc`, `tags`, version/maintainer metadata, and install URL.  An empty query
-/// returns all entries with a score of 1.
+/// `query` is matched case-insensitively with fuzzy, token-aware ranking across
+/// `name`, `description`, `dcc`, `tags`, version/maintainer/category metadata,
+/// runtime requirements, and package URLs. An empty or whitespace-only query
+/// returns all entries in source order with a score of 1.
 ///
-/// Callers should sort the returned hits by their chosen criteria (e.g.
-/// alphabetically by name, or by score), then materialise only the needed page
-/// via [`materialise_page`].
+/// Non-empty results are already ordered by descending relevance. Callers can
+/// paginate the lightweight hits before cloning entries via [`materialise_page`].
 pub fn search_hits(entries: &[CatalogEntry], query: &str) -> Vec<SearchHit> {
-    if query.is_empty() {
+    if query.trim().is_empty() {
         return entries
             .iter()
             .enumerate()
             .map(|(i, _)| SearchHit { index: i, score: 1 })
             .collect();
     }
-    let q = query.to_lowercase();
-    entries
+
+    let search_tokens: Vec<Vec<String>> = entries.iter().map(catalog_search_tokens).collect();
+    let records: Vec<CatalogSearchRecord<'_>> = entries
         .iter()
         .enumerate()
-        .filter_map(|(i, e)| {
-            let mut score: u32 = 0;
-            if e.name.to_lowercase().contains(&q) {
-                score += 1;
-            }
-            if e.description.to_lowercase().contains(&q) {
-                score += 1;
-            }
-            if e.dcc.iter().any(|d| d.to_lowercase().contains(&q)) {
-                score += 1;
-            }
-            if e.tags.iter().any(|t| t.to_lowercase().contains(&q)) {
-                score += 1;
-            }
-            if e.version
-                .as_deref()
-                .is_some_and(|version| version.to_lowercase().contains(&q))
-            {
-                score += 1;
-            }
-            if e.maintainer
-                .as_deref()
-                .is_some_and(|maintainer| maintainer.to_lowercase().contains(&q))
-            {
-                score += 1;
-            }
-            if e.install
-                .as_ref()
-                .and_then(|install| install.url.as_deref())
-                .is_some_and(|url| url.to_lowercase().contains(&q))
-            {
-                score += 1;
-            }
-            if e.install
-                .as_ref()
-                .and_then(|install| install.instructions_url.as_deref())
-                .is_some_and(|url| url.to_lowercase().contains(&q))
-            {
-                score += 1;
-            }
-            if score > 0 {
-                Some(SearchHit { index: i, score })
-            } else {
-                None
-            }
+        .zip(&search_tokens)
+        .map(|((index, entry), tokens)| CatalogSearchRecord {
+            index,
+            entry,
+            search_tokens: tokens,
+        })
+        .collect();
+    let ranked = rank_all(
+        &records,
+        &SearchQuery {
+            query: query.to_owned(),
+            ..Default::default()
+        },
+    );
+
+    ranked
+        .into_iter()
+        .map(|hit| SearchHit {
+            index: hit.record.index,
+            score: hit.score,
         })
         .collect()
 }
@@ -512,9 +562,7 @@ entries:
         let hits = search_hits(&entries, "maya");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].index, 0);
-        // "maya" matches: name (dcc-mcp-**maya**-skills), description (**Maya**),
-        // dcc (["maya"]), tags (["maya"]) = score 4
-        assert_eq!(hits[0].score, 4);
+        assert!(hits[0].score > 0);
     }
 
     #[test]
@@ -523,6 +571,14 @@ entries:
         let hits = search_hits(&entries, "");
         assert_eq!(hits.len(), 3);
         assert!(hits.iter().all(|h| h.score == 1));
+        assert_eq!(
+            hits.iter().map(|hit| hit.index).collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+
+        let whitespace_hits = search_hits(&entries, "   ");
+        assert_eq!(whitespace_hits.len(), 3);
+        assert!(whitespace_hits.iter().all(|hit| hit.score == 1));
     }
 
     #[test]
@@ -580,8 +636,33 @@ entries:
         }];
         let hits = search_hits(&entries, "maya");
         assert_eq!(hits.len(), 1);
-        // name + description + dcc + tags = 4
-        assert_eq!(hits[0].score, 4);
+        assert!(hits[0].score > 0);
+    }
+
+    #[test]
+    fn test_search_hits_matches_natural_multiword_query_across_fields() {
+        let mut entry = make_entry(
+            "skin-weight-painter",
+            "Paint smooth character deformation weights",
+        );
+        entry.dcc = vec!["maya".into()];
+        entry.tags = vec!["rigging".into()];
+
+        let hits = search_hits(&[entry], "maya rigging");
+
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].score > 0);
+    }
+
+    #[test]
+    fn test_search_hits_tolerates_spelling_error() {
+        let mut entry = make_entry("character-rigging", "Build production character rigs");
+        entry.tags = vec!["rigging".into()];
+
+        let hits = search_hits(&[entry], "riggng");
+
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].score > 0);
     }
 
     #[test]

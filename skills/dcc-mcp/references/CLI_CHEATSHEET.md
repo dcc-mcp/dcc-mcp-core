@@ -2,6 +2,9 @@
 
 Default profile: `local`. Remote gateways are selected with
 `dcc-mcp-cli gateway set <name>` or one-off `--gateway <name>`.
+Local calls use direct MCP for compatibility unless `--require-gateway` (or
+`DCC_MCP_CLI_REQUIRE_GATEWAY=true`) is set. Add a stable
+`--agent-session-id <task-id>` whenever Gateway stats are required evidence.
 
 Primary tool: `dcc-mcp-cli` — the CLI is the **default path for every
 shell-capable AI agent**. Native MCP is the fallback for MCP-only clients or an
@@ -10,15 +13,18 @@ explicit user choice.
 ## CLI setup
 
 If `dcc-mcp-cli` is missing, obtain user consent before installing the latest
-official release:
+official release. From the installed `dcc-mcp` Skill directory, run the bundled
+verified helper:
 
 ```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
+
+The helper accepts only the official `dcc-mcp/dcc-mcp-core` release manifest,
+validates its version and asset URL, and verifies the downloaded binary's
+SHA-256 before an atomic replacement. It fails closed and preserves an existing
+CLI when the manifest, URL, download, or digest is invalid. SHA-256 provides
+release-manifest integrity checking; it is not a publisher signature.
 
 Keep an official build current through the release manifest:
 
@@ -30,7 +36,8 @@ dcc-mcp-cli update apply
 `update apply` downloads and stages the latest CLI for the next launch. It does
 not update a running `dcc-mcp-server`; update that server in its own environment.
 
-For repository development only, the consent-gated bootstrap/fallback is:
+For repository development only, the same consent-gated verified
+bootstrap/fallback is:
 
 ```bash
 vx python scripts/dcc_gateway.py --ensure-cli list
@@ -44,7 +51,8 @@ vx python scripts/dcc_gateway.py --ensure-cli list
 | `dcc-mcp-cli dcc-types --catalog path/to/catalog.yml` | Inspect a studio or test catalog through the same typed contract |
 | `dcc-mcp-cli list` | Ensure the local loopback gateway, then list local DCC instances from the FileRegistry |
 | `dcc-mcp-cli doctor` | Report profile, registry, local inventory, direct-control readiness counts, gateway daemon status, and server binary diagnostics without launching services |
-| `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Search local instances directly through MCP in the `local` profile |
+| `dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20` | Search local instances directly through MCP in the `local` profile; this form remains compatible with released CLI builds |
+| `dcc-mcp-cli search --require-gateway --query "create sphere" --dcc-type maya --limit 20` | Fail closed unless the local gateway serves the control request; use this route for measured workflows |
 | `dcc-mcp-cli list --gateway pcA` | List DCC instances through a named remote gateway profile |
 | `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) | Check gateway liveness; CLI auto-starts loopback gateway targets |
 | `dcc-mcp-cli gateway register https://host:19293 --name pcA` | Persist a named remote gateway profile |
@@ -60,10 +68,10 @@ vx python scripts/dcc_gateway.py --ensure-cli list
 
 | Command | Purpose |
 |---------|---------|
-| `dcc-mcp-cli search --query sphere --dcc-type maya --limit 20` | Find tools |
+| `dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20` | Find tools with a natural-language phrase |
 | `dcc-mcp-cli describe <slug>` | Inspect schema |
-| `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"agent_context":{"session_id":"task-42"}}'` | Invoke one tool with a stable task-scoped stats identifier |
-| `dcc-mcp-cli call <slug> --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42","agent_context":{"session_id":"task-42"}}'` | Invoke a tool on an instance leased by this workflow |
+| `dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{"radius":2}'` | Invoke one tool through the measured gateway route with a stable task-scoped stats identifier |
+| `dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42"}'` | Invoke a measured tool call on an instance leased by this workflow |
 
 `dcc-types` reports the release catalog, not running instances. Entries include
 their canonical `dcc_type`, adapters, version/source data when available, and
@@ -78,8 +86,10 @@ After acceptance, query only the task scope:
 dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
 ```
 
-Gateway stats are aggregate evidence and may not include direct local calls. A
-`total_calls` value of `0` means there is no telemetry evidence. Feed the JSON
+Read `stats_coverage` before the aggregate. Gateway stats exclude
+`local_mcp_direct`; `configured_route_recorded=false` means the configured
+single-call route was not measurable. A `total_calls` value of `0` means there is no
+telemetry evidence, not that no calls occurred. Feed the JSON
 plus bounded task and validation summaries to the `review_skill_improvement`
 prompt in `dcc-mcp-skills-creator`; do not include raw prompts, secrets, private
 paths, or full tool payloads.
@@ -90,7 +100,7 @@ paths, or full tool payloads.
 |---------|---------|
 | `dcc-mcp-cli install --dcc-type maya --version 2026` | Build an auditable adapter install plan with machine-readable `next_steps`, without changing local state |
 | `dcc-mcp-cli install --dcc-type maya --version 2026 --python "<mayapy>" --execute` | Execute package install after consent; rolls back on failure and verifies pip/path outputs |
-| `dcc-mcp-cli marketplace search --query rigging --dcc maya --limit 20` | Find installable skill packages |
+| `dcc-mcp-cli marketplace search --query "maya rigging" --limit 20` | Find installable Skill packages with released and current CLI builds |
 | `dcc-mcp-cli marketplace inspect <package_name>` | Inspect the selected skill package metadata before installing |
 | `dcc-mcp-cli marketplace install <package_name> --dcc maya` | Install a skill package into the local marketplace root |
 | `dcc-mcp-cli reload-skills --dcc-type maya` | Ask running Maya adapters to re-scan installed skill paths |
@@ -108,7 +118,11 @@ per-DCC sidecar row is routable once `direct_control.ready=true`; if a row is
 booting or `dispatch_status=unavailable`, inspect
 `direct_control.diagnostics.failure_stage`, `failure_reason`, `host_rpc_*`, and
 any log paths, then run `wait-ready` or `doctor` before calling tools.
-After marketplace skill search, inspect the selected package before installing.
+Marketplace search and inspect do not require a live DCC instance. Always query
+the CLI before recommending a marketplace Skill. If the first query is empty,
+retry once with fewer capability words or without the DCC filter; never invent
+a package name. Inspect the selected package before a consent-gated install or
+update.
 After installing or updating marketplace skills, run `reload-skills`, then use
 `load-skill` if the adapter has not auto-loaded the new skill.
 
@@ -128,7 +142,7 @@ python scripts/dcc_gateway.py list
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli search --query sphere --dcc-type maya --limit 10
+dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 10
 
 # Python fallback
 python scripts/dcc_gateway.py search --query sphere --dcc-type maya --limit 10
@@ -149,6 +163,8 @@ python scripts/dcc_gateway.py describe maya.a1b2c3d4.maya_primitives__create_sph
 ```bash
 # CLI (primary)
 dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
+  --require-gateway \
+  --agent-session-id task-42 \
   --json '{"radius":2.0}'
 
 # Python fallback
@@ -167,8 +183,10 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
 
 | Symptom | Action |
 |---------|--------|
-| CLI not found | Ask user permission, then run `vx python scripts/dcc_gateway.py --ensure-cli list` to download `dcc-mcp-cli`; Python fallback runs if download fails |
+| CLI not found | Ask user permission, then run `vx python scripts/dcc_gateway.py --ensure-cli list`; it verifies the official manifest and SHA-256 before install, and Python fallback runs if verification or download fails |
 | Gateway health fails | Run `dcc-mcp-cli doctor` and inspect the CLI JSON/stderr. Agent-control and endpoint/admin/update commands auto-ensure only loopback gateway targets. For remote profiles or `--base-url`, auto-start is not possible. Ask before installing adapters or launching GUI DCC apps |
+| `gateway_stats_recorded=false` | The call used compatibility direct MCP. If stats are required, repeat the workflow with `--require-gateway --agent-session-id <task-id>`; do not infer from the partial stats count |
+| `--agent-session-id` conflicts with `--meta-json` | Keep one exact task ID. `--agent-session-id` owns `_meta.agent_context.session_id`; UI Control's argument-level `session_id` is a different scoped UI session |
 | `total == 0` | Start a DCC adapter, then re-run `dcc-mcp-cli list` |
 | Listed row is booting or `dispatch_status=unavailable` | Read `direct_control.recommended_next_action` and `direct_control.diagnostics`, then run `dcc-mcp-cli wait-ready --dcc-type <dcc> --instance-id <id>` or `dcc-mcp-cli doctor`; do not call tools until `direct_control.ready=true` |
 | `unknown-slug` | Re-run `search`; the instance may have restarted |
