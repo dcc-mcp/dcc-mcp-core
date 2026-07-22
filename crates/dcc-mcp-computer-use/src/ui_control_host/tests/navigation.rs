@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn owned_standard_menu_popup_is_limited_to_one_navigation_keypress() {
-    for keys in ["DOWN", "ARROW_LEFT", "ENTER", "ESCAPE", "SHIFT+TAB", "PGDN"] {
+    for keys in ["DOWN", "ARROW_LEFT", "ENTER", "ESCAPE", "TAB", "PGDN"] {
         let navigation = UiControlAction {
             action: "keypress".to_owned(),
             keys: vec![keys.to_owned()],
@@ -12,7 +12,18 @@ fn owned_standard_menu_popup_is_limited_to_one_navigation_keypress() {
         assert!(allows_owned_standard_menu_popup(&navigation), "{keys}");
     }
 
-    for keys in ["F5", "CTRL+P", "DOWN+ENTER", "A"] {
+    for keys in [
+        "F5",
+        "CTRL+P",
+        "CTRL+DOWN",
+        "ALT+DOWN",
+        "SHIFT+TAB",
+        "SHIFT+SHIFT+ENTER",
+        "WIN+DOWN",
+        "META+DOWN",
+        "DOWN+ENTER",
+        "A",
+    ] {
         let not_navigation = UiControlAction {
             action: "keypress".to_owned(),
             keys: vec![keys.to_owned()],
@@ -21,6 +32,14 @@ fn owned_standard_menu_popup_is_limited_to_one_navigation_keypress() {
         };
         assert!(!allows_owned_standard_menu_popup(&not_navigation), "{keys}");
     }
+
+    let multiple_navigation_keys = UiControlAction {
+        action: "keypress".to_owned(),
+        keys: vec!["DOWN".to_owned(), "ENTER".to_owned()],
+        input_kind: UiControlInputKind::RawInput,
+        ..action(None, UiControlInputKind::RawInput)
+    };
+    assert!(!allows_owned_standard_menu_popup(&multiple_navigation_keys));
 
     let shortcut = UiControlAction {
         action: "keyboard_shortcut".to_owned(),

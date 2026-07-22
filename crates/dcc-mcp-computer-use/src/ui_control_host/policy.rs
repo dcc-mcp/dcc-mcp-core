@@ -7,8 +7,6 @@ pub(super) fn allows_owned_standard_menu_popup(action: &UiControlAction) -> bool
     let mut navigation_keys = 0;
     for key in action.keys.iter().flat_map(|value| value.split('+')) {
         match key.trim().to_ascii_uppercase().as_str() {
-            "SHIFT" | "LSHIFT" | "LEFTSHIFT" | "LEFT_SHIFT" | "SHIFT_L" | "RSHIFT"
-            | "RIGHTSHIFT" | "RIGHT_SHIFT" | "SHIFT_R" => {}
             "ENTER" | "RETURN" | "ESC" | "ESCAPE" | "TAB" | "LEFT" | "ARROWLEFT" | "ARROW_LEFT"
             | "UP" | "ARROWUP" | "ARROW_UP" | "RIGHT" | "ARROWRIGHT" | "ARROW_RIGHT" | "DOWN"
             | "ARROWDOWN" | "ARROW_DOWN" | "HOME" | "END" | "PAGEUP" | "PAGE_UP" | "PGUP"
