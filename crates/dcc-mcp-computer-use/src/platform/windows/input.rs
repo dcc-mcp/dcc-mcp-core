@@ -185,13 +185,18 @@ pub(crate) fn perform_action(
             let effect = PointerEffect::new(screen_x, screen_y, "↕")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
-        "drag" => drag(
-            window_handle,
-            observation,
-            request,
-            &guard,
-            &mut pre_input_fence,
-        )?,
+        "drag" => {
+            let (screen_x, screen_y) = drag(
+                window_handle,
+                observation,
+                request,
+                &guard,
+                &mut pre_input_fence,
+            )?;
+            if let Ok(mut pt) = last_action_point.lock() {
+                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
+            }
+        }
         "type" => type_text(
             window_handle,
             observation.process_id,
@@ -894,7 +899,7 @@ fn drag(
     request: &ComputerUseAction,
     guard: &ActionGuard<'_>,
     pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
-) -> ComputerUseResult<()> {
+) -> ComputerUseResult<(i32, i32)> {
     let duration_ms = request.duration_ms.unwrap_or(0);
     // Complete mapping is a no-input preflight: a late invalid point cannot
     // turn a partial drag into a click or edit.
@@ -968,7 +973,8 @@ fn drag(
     effect.dwell(
         guard,
         Duration::from_millis(DEFAULT_POINTER_EFFECT_DWELL_MS),
-    )
+    )?;
+    Ok(previous_screen)
 }
 
 fn scroll(

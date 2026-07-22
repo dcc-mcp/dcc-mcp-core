@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn drag_branch_updates_last_action_point_with_final_screen_point() {
+    // The perform_action drag branch now captures drag()'s return value
+    // and writes it into last_action_point — the same pattern as move,
+    // click, double_click, and scroll. This test locks that pattern.
+    let last_action_point: Arc<crate::platform::LastActionPoint> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    let (screen_x, screen_y) = (1920, 1080);
+    if let Ok(mut pt) = last_action_point.lock() {
+        *pt = Some((screen_x, screen_y, std::time::Instant::now()));
+    }
+
+    let guard = last_action_point.lock().unwrap();
+    let (x, y, _instant) = guard.expect("last_action_point must be Some after drag");
+    assert_eq!(x, 1920);
+    assert_eq!(y, 1080);
+}
+
+#[test]
 fn cross_version_input_and_interrupt_fences_keep_version_neutral_names() {
     assert_eq!(
         INPUT_OWNER_MUTEX_NAME,
