@@ -28,14 +28,33 @@ def line_count(path: Path) -> int:
         return sum(1 for _ in handle)
 
 
+def load_exemptions(exempt_file: Path) -> set[str]:
+    """Read exempt file paths from a text file (one path per line, # comments)."""
+    if not exempt_file.is_file():
+        return set()
+    exempt: set[str] = set()
+    for raw in exempt_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        exempt.add(line)
+    return exempt
+
+
 def main() -> int:
     """Run the Rust test file length check."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".", help="Repository root")
     parser.add_argument("--max-lines", type=int, default=MAX_TEST_LINES)
+    parser.add_argument(
+        "--exempt-file",
+        default=None,
+        help="Path to a file listing exempt paths (same format as .github/file-size-exemptions.txt)",
+    )
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
+    exemptions = load_exemptions(Path(args.exempt_file)) if args.exempt_file else set()
     failures: list[str] = []
 
     for path in sorted((root / "crates").rglob("*.rs")):
@@ -43,6 +62,9 @@ def main() -> int:
             continue
 
         rel = rel_posix(path, root)
+        if rel in exemptions:
+            continue
+
         lines = line_count(path)
         if lines > args.max_lines:
             failures.append(f"{rel} has {lines} lines; max is {args.max_lines}.")

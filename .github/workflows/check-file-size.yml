@@ -80,7 +80,7 @@ jobs:
           echo "✅ All Rust files are within their line limits."
 
       - name: Check Rust test file sizes
-        run: python scripts/ci/check_rust_test_file_lines.py
+        run: python scripts/ci/check_rust_test_file_lines.py --exempt-file .github/file-size-exemptions.txt
 
       - name: Check Python file sizes
         run: |
