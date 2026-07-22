@@ -335,6 +335,7 @@ fn instance_config_round_trips() {
     metadata.insert("task".to_owned(), "lighting".to_owned());
 
     let cfg = InstanceConfig {
+        host_pid: Some(4242),
         dcc_type: Some("maya".into()),
         dcc_version: Some("2025.1".into()),
         scene: Some("/tmp/scene.ma".into()),
@@ -343,6 +344,7 @@ fn instance_config_round_trips() {
     };
     let s = serde_json::to_string(&cfg).unwrap();
     let back: InstanceConfig = serde_json::from_str(&s).unwrap();
+    assert_eq!(back.host_pid, cfg.host_pid);
     assert_eq!(back.dcc_type, cfg.dcc_type);
     assert_eq!(back.dcc_version, cfg.dcc_version);
     assert_eq!(back.scene, cfg.scene);

@@ -178,6 +178,7 @@ pub(crate) fn instance_summary(entry: &ServiceEntry) -> Value {
         "display_id": entry.display_id(),
         "display_name": entry.display_name,
         "pid": entry.pid,
+        "host_pid": entry.host_pid,
         "mcp_url": mcp_url(entry),
         "status": entry.status.to_string(),
     })

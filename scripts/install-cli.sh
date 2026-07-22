@@ -1,47 +1,41 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="${DCC_MCP_REPO:-dcc-mcp/dcc-mcp-core}"
+OFFICIAL_RELEASES="https://github.com/dcc-mcp/dcc-mcp-core/releases"
 VERSION="${DCC_MCP_VERSION:-latest}"
 INSTALL_DIR="${DCC_MCP_INSTALL_DIR:-$HOME/.local/bin}"
-RELEASE_FALLBACK="${DCC_MCP_RELEASE_FALLBACK:-1}"
 
 usage() {
     cat <<'EOF'
-Install dcc-mcp-cli from GitHub Releases.
+Install dcc-mcp-cli from its official GitHub release manifest.
 
 Usage:
-  install-cli.sh [--version v0.17.4] [--install-dir ~/.local/bin]
+  install-cli.sh [--version v0.19.63] [--install-dir ~/.local/bin]
 
-One-line install:
-  curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | bash
+Download this script first, inspect it, then run the local file.
+The installer verifies the release-manifest URL and SHA-256 before replacing
+an existing dcc-mcp-cli binary.
 
 Environment:
-  DCC_MCP_REPO         GitHub repo, default dcc-mcp/dcc-mcp-core
-  DCC_MCP_VERSION      Release tag, default latest
+  DCC_MCP_VERSION      Release version, default latest
   DCC_MCP_INSTALL_DIR  Install directory, default ~/.local/bin
-  DCC_MCP_RELEASE_FALLBACK
-                       When latest asset is missing, download the newest
-                       release that includes the asset. Set to 0/false/no to
-                       disable. Default enabled.
 EOF
+}
+
+fail() {
+    echo "Error: $*" >&2
+    exit 1
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --version)
-            if [ "$#" -lt 2 ]; then
-                echo "--version requires a value" >&2
-                exit 2
-            fi
+            [ "$#" -ge 2 ] || fail "--version requires a value"
             VERSION="$2"
             shift 2
             ;;
         --install-dir)
-            if [ "$#" -lt 2 ]; then
-                echo "--install-dir requires a value" >&2
-                exit 2
-            fi
+            [ "$#" -ge 2 ] || fail "--install-dir requires a value"
             INSTALL_DIR="$2"
             shift 2
             ;;
@@ -59,114 +53,119 @@ done
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
-
 case "$OS" in
     Linux)
         if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "amd64" ]; then
-            echo "Unsupported Linux architecture: $ARCH" >&2
-            exit 1
+            fail "unsupported Linux architecture: $ARCH"
         fi
+        PLATFORM="linux-x86_64"
         ASSET="dcc-mcp-cli-linux-x86_64"
         ;;
     Darwin)
+        PLATFORM="macos-universal2"
         ASSET="dcc-mcp-cli-macos-universal2"
         ;;
     *)
-        echo "Unsupported OS: $OS" >&2
-        exit 1
+        fail "unsupported OS: $OS"
         ;;
 esac
 
+REQUESTED_VERSION="${VERSION#v}"
 if [ "$VERSION" = "latest" ]; then
-    URL="https://github.com/$REPO/releases/latest/download/$ASSET"
+    MANIFEST_URL="$OFFICIAL_RELEASES/latest/download/dcc-mcp-update-manifest-$PLATFORM.json"
 else
-    URL="https://github.com/$REPO/releases/download/$VERSION/$ASSET"
+    printf '%s' "$REQUESTED_VERSION" \
+        | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$' \
+        || fail "invalid release version: $VERSION"
+    MANIFEST_URL="$OFFICIAL_RELEASES/download/v$REQUESTED_VERSION/dcc-mcp-update-manifest-$PLATFORM.json"
 fi
-
-TMP_DIR="$(mktemp -d)"
-cleanup() {
-    rm -rf "$TMP_DIR"
-}
-trap cleanup EXIT INT TERM
-
-download_url() {
-    url="$1"
-    echo "Downloading $url"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fL "$url" -o "$TMP_DIR/dcc-mcp-cli"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -O "$TMP_DIR/dcc-mcp-cli" "$url"
-    else
-        echo "curl or wget is required to download release assets" >&2
-        return 1
-    fi
-}
-
-release_fallback_enabled() {
-    case "$RELEASE_FALLBACK" in
-        0|false|FALSE|no|NO)
-            return 1
-            ;;
-        *)
-            return 0
-            ;;
-    esac
-}
-
-latest_release_asset_url() {
-    releases_json="$TMP_DIR/releases.json"
-    api_url="https://api.github.com/repos/$REPO/releases?per_page=30"
-    echo "Looking for the newest release containing $ASSET" >&2
-    if command -v curl >/dev/null 2>&1; then
-        if [ -n "${GITHUB_TOKEN:-}" ]; then
-            curl -fsSL \
-                -H "Authorization: Bearer $GITHUB_TOKEN" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "$api_url" -o "$releases_json"
-        else
-            curl -fsSL "$api_url" -o "$releases_json"
-        fi
-    elif command -v wget >/dev/null 2>&1; then
-        if [ -n "${GITHUB_TOKEN:-}" ]; then
-            wget -q \
-                --header="Authorization: Bearer $GITHUB_TOKEN" \
-                --header="X-GitHub-Api-Version: 2022-11-28" \
-                -O "$releases_json" "$api_url"
-        else
-            wget -q -O "$releases_json" "$api_url"
-        fi
-    else
-        return 1
-    fi
-    tr ',' '\n' < "$releases_json" \
-        | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\/'"$ASSET"'\)".*/\1/p' \
-        | head -n 1
-}
 
 mkdir -p "$INSTALL_DIR"
-if ! download_url "$URL"; then
-    if [ "$VERSION" = "latest" ] && release_fallback_enabled; then
-        fallback_url="$(latest_release_asset_url || true)"
-        if [ -n "$fallback_url" ]; then
-            echo "Latest release did not provide $ASSET; falling back to $fallback_url"
-            download_url "$fallback_url"
-        else
-            echo "No release asset named $ASSET was found in recent releases." >&2
-            exit 1
-        fi
+MANIFEST_TMP="$(mktemp "$INSTALL_DIR/.dcc-mcp-manifest.XXXXXX")"
+BINARY_TMP="$(mktemp "$INSTALL_DIR/.dcc-mcp-cli.XXXXXX")"
+cleanup() {
+    rm -f "$MANIFEST_TMP" "$BINARY_TMP"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+download_to() {
+    url="$1"
+    output="$2"
+    echo "Downloading $url"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" -o "$output"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$output" "$url"
     else
-        echo "Release asset download failed." >&2
-        exit 1
+        fail "curl or wget is required to download release assets"
     fi
+}
+
+manifest_field() {
+    field="$1"
+    awk -v field="$field" '
+        /^[[:space:]]*"dcc-mcp-cli"[[:space:]]*:[[:space:]]*\{[[:space:]]*$/ {
+            in_cli = 1
+            next
+        }
+        in_cli && /^[[:space:]]*\}[,]?[[:space:]]*$/ { exit }
+        in_cli && $0 ~ "^[[:space:]]*\"" field "\"[[:space:]]*:" {
+            value = $0
+            sub("^[^:]*:[[:space:]]*\"", "", value)
+            sub("\"[[:space:]]*,?[[:space:]]*$", "", value)
+            print value
+        }
+    ' "$MANIFEST_TMP"
+}
+
+calculate_sha256() {
+    path="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$path" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$path" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$path" | awk '{print $NF}'
+    else
+        fail "sha256sum, shasum, or openssl is required to verify dcc-mcp-cli"
+    fi
+}
+
+download_to "$MANIFEST_URL" "$MANIFEST_TMP" \
+    || fail "official release manifest download failed"
+
+ENTRY_COUNT="$(grep -Ec '^[[:space:]]*"dcc-mcp-cli"[[:space:]]*:[[:space:]]*\{' "$MANIFEST_TMP" || true)"
+[ "$ENTRY_COUNT" = "1" ] || fail "official release manifest must contain one dcc-mcp-cli entry"
+
+MANIFEST_VERSION="$(manifest_field version)"
+ASSET_URL="$(manifest_field url)"
+EXPECTED_SHA256="$(manifest_field sha256)"
+printf '%s' "$MANIFEST_VERSION" \
+    | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$' \
+    || fail "official release manifest contains an invalid dcc-mcp-cli version"
+if [ "$VERSION" != "latest" ] && [ "$MANIFEST_VERSION" != "$REQUESTED_VERSION" ]; then
+    fail "official release manifest version does not match requested version $REQUESTED_VERSION"
 fi
 
-chmod 0755 "$TMP_DIR/dcc-mcp-cli"
-mv "$TMP_DIR/dcc-mcp-cli" "$INSTALL_DIR/dcc-mcp-cli"
+EXPECTED_URL="$OFFICIAL_RELEASES/download/v$MANIFEST_VERSION/$ASSET"
+[ "$ASSET_URL" = "$EXPECTED_URL" ] \
+    || fail "official release manifest contains a non-official dcc-mcp-cli URL"
+[ "${#EXPECTED_SHA256}" -eq 64 ] \
+    && ! printf '%s' "$EXPECTED_SHA256" | grep -Eq '[^0-9A-Fa-f]' \
+    || fail "official release manifest contains an invalid SHA-256"
 
-echo "Installed dcc-mcp-cli to $INSTALL_DIR/dcc-mcp-cli"
+download_to "$ASSET_URL" "$BINARY_TMP" || fail "dcc-mcp-cli download failed"
+ACTUAL_SHA256="$(calculate_sha256 "$BINARY_TMP")"
+[ "$(printf '%s' "$ACTUAL_SHA256" | tr 'A-F' 'a-f')" = "$(printf '%s' "$EXPECTED_SHA256" | tr 'A-F' 'a-f')" ] \
+    || fail "dcc-mcp-cli SHA-256 does not match the official release manifest"
+
+chmod 0755 "$BINARY_TMP"
+TARGET="$INSTALL_DIR/dcc-mcp-cli"
+mv -f "$BINARY_TMP" "$TARGET"
+
+echo "Installed verified dcc-mcp-cli $MANIFEST_VERSION to $TARGET"
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
-    *)
-        echo "Add $INSTALL_DIR to PATH to run dcc-mcp-cli from any shell."
-        ;;
+    *) echo "Add $INSTALL_DIR to PATH to run dcc-mcp-cli from any shell." ;;
 esac

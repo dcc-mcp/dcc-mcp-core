@@ -1,6 +1,7 @@
 use super::fixtures::{make_catalog_with_dispatcher, make_test_catalog, make_test_skill};
 use super::*;
 use dcc_mcp_actions::dispatcher::{DispatchError, with_thread_affinity};
+use dcc_mcp_actions::{DispatchJobContext, with_dispatch_job_context};
 use dcc_mcp_models::{
     SkillGroup, SkillRuntimeDescriptor, SkillRuntimeKind, ThreadAffinity, ToolDeclaration,
 };
@@ -399,6 +400,37 @@ fn test_load_skill_propagates_thread_affinity_enforcement() {
     })
     .expect("main-thread dispatch should pass enforcement");
     assert_eq!(ok.output, serde_json::json!({"ok": true}));
+}
+
+#[test]
+fn test_in_process_executor_receives_dispatch_job_context() {
+    let (catalog, dispatcher) = make_catalog_with_dispatcher();
+    let seen = std::sync::Arc::new(parking_lot::Mutex::new(None));
+    catalog.set_in_process_executor({
+        let seen = std::sync::Arc::clone(&seen);
+        move |_, _, _| {
+            *seen.lock() = dcc_mcp_actions::current_dispatch_job_context();
+            Ok(serde_json::json!({"ok": true}))
+        }
+    });
+    let mut skill = make_test_skill("job-context", "houdini", &[]);
+    skill.tools = vec![ToolDeclaration {
+        name: "build_vessel".to_string(),
+        source_file: "scripts/build_vessel.py".to_string(),
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+    catalog.load_skill("job-context").unwrap();
+
+    with_dispatch_job_context(DispatchJobContext::new("job-123", || false), || {
+        dispatcher
+            .dispatch("job_context__build_vessel", serde_json::json!({}), None)
+            .expect("dispatch in-process skill")
+    });
+
+    let job = seen.lock().clone().expect("job context propagated");
+    assert_eq!(job.job_id(), "job-123");
+    assert!(!job.is_cancelled());
 }
 
 #[test]

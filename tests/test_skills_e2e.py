@@ -25,6 +25,9 @@ import time
 from typing import Any
 import urllib.request
 
+# Import third-party modules
+import pytest
+
 from conftest import REPO_ROOT
 
 # Import local modules
@@ -637,10 +640,10 @@ class TestInProcessExecutor:
                 assert result["result"]["isError"] is False
                 return result
 
-            def _wait_job(result: dict[str, Any]) -> None:
+            def _wait_job(result: dict[str, Any]) -> str | None:
                 structured = result["result"].get("structuredContent")
                 if not structured or "job_id" not in structured:
-                    return
+                    return None
                 job_id = structured["job_id"]
                 deadline = time.monotonic() + 5.0
                 final: dict[str, Any] | None = None
@@ -664,8 +667,9 @@ class TestInProcessExecutor:
                     time.sleep(0.05)
                 assert final is not None, f"job {job_id} did not complete"
                 assert final["status"] == "completed", final
+                return job_id
 
-            _wait_job(_call("affinity_skill__host_scene"))
+            host_job_id = _wait_job(_call("affinity_skill__host_scene"))
             _call("affinity_skill__pure_file")
             wait_for_seen("affinity_skill__host_scene")
             wait_for_seen("affinity_skill__pure_file")
@@ -677,6 +681,152 @@ class TestInProcessExecutor:
         assert by_tool["affinity_skill__host_scene"]["execution"] == "async"
         assert by_tool["affinity_skill__host_scene"]["timeout_hint_secs"] == 45
         assert by_tool["affinity_skill__host_scene"]["skill_name"] == "affinity-skill"
+        assert host_job_id is not None
+        assert "job_id" in by_tool["affinity_skill__host_scene"], by_tool["affinity_skill__host_scene"]
+        assert by_tool["affinity_skill__host_scene"]["job_id"] == host_job_id
+        assert by_tool["affinity_skill__host_scene"]["cancel_token"].job_id == host_job_id
+        assert by_tool["affinity_skill__host_scene"]["cancel_token"].cancelled is False
         assert by_tool["affinity_skill__pure_file"]["thread_affinity"] == "any"
         assert by_tool["affinity_skill__pure_file"]["execution"] == "sync"
         assert by_tool["affinity_skill__pure_file"]["timeout_hint_secs"] is None
+        assert by_tool["affinity_skill__pure_file"]["job_id"] is None
+        assert by_tool["affinity_skill__pure_file"]["cancel_token"] is None
+
+    @pytest.mark.parametrize("start_transport", ["mcp", "rest"])
+    def test_async_skill_observes_rest_job_cancellation(
+        self,
+        tmp_path: Path,
+        start_transport: str,
+    ) -> None:
+        """MCP and REST async dispatch share one Python cancellation probe."""
+        skill_dir = tmp_path / "cancel-skill"
+        (skill_dir / "scripts").mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: cancel-skill\n"
+            "description: Cooperative cancellation probe\n"
+            "metadata:\n"
+            "  dcc-mcp:\n"
+            "    dcc: python\n"
+            "    tools: tools.yaml\n"
+            "---\n",
+            encoding="utf-8",
+        )
+        (skill_dir / "tools.yaml").write_text(
+            "tools:\n"
+            "  - name: wait_for_cancel\n"
+            "    description: Wait for cooperative cancellation\n"
+            "    source_file: scripts/wait_for_cancel.py\n"
+            "    thread_affinity: any\n"
+            "    execution: async\n"
+            "    timeout_hint_secs: 10\n",
+            encoding="utf-8",
+        )
+        (skill_dir / "scripts" / "wait_for_cancel.py").write_text(
+            "import time\n"
+            "from pathlib import Path\n"
+            "from dcc_mcp_core import check_dcc_cancelled, current_job_id\n"
+            "def main(started_path, stopped_path):\n"
+            "    Path(started_path).write_text(current_job_id() or '', encoding='utf-8')\n"
+            "    try:\n"
+            "        while True:\n"
+            "            check_dcc_cancelled()\n"
+            "            time.sleep(0.005)\n"
+            "    finally:\n"
+            "        Path(stopped_path).write_text(current_job_id() or '', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        started_path = tmp_path / "started.txt"
+        stopped_path = tmp_path / "stopped.txt"
+
+        server = dcc_mcp_core.create_skill_server("python", dcc_mcp_core.McpHttpConfig(port=0))
+        bridge = dcc_mcp_core.HostExecutionBridge()
+        server.set_in_process_executor(bridge.as_inprocess_executor())
+        server.discover(extra_paths=[str(tmp_path)])
+        server.load_skill("cancel-skill")
+
+        handle = server.start()
+        time.sleep(0.25)
+        try:
+            url = handle.mcp_url()
+            client = McpClient(url)
+            arguments = {
+                "started_path": str(started_path),
+                "stopped_path": str(stopped_path),
+            }
+            if start_transport == "mcp":
+                _, queued = client.post(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "wait_for_cancel",
+                        "method": "tools/call",
+                        "params": {
+                            "name": "cancel_skill__wait_for_cancel",
+                            "arguments": arguments,
+                        },
+                    }
+                )
+                job_id = queued["result"]["structuredContent"]["job_id"]
+            else:
+                rest_url = f"{url.rsplit('/mcp', 1)[0]}/v1/call"
+                request = urllib.request.Request(
+                    rest_url,
+                    data=json.dumps(
+                        {
+                            "tool_slug": "python.cancel-skill.cancel_skill__wait_for_cancel",
+                            "arguments": arguments,
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    assert response.status == 202
+                    queued = json.loads(response.read().decode("utf-8"))
+                job_id = queued["output"]["job_id"]
+
+            def wait_for_job_marker(path: Path) -> None:
+                deadline = time.monotonic() + 5.0
+                observed = None
+                while time.monotonic() < deadline:
+                    try:
+                        observed = path.read_text(encoding="utf-8")
+                    except OSError:
+                        observed = None
+                    if observed == job_id:
+                        return
+                    time.sleep(0.01)
+                pytest.fail(f"job marker {path} did not contain {job_id!r}; observed {observed!r}")
+
+            wait_for_job_marker(started_path)
+
+            cancel_url = f"{url.rsplit('/mcp', 1)[0]}/v1/jobs/{job_id}"
+            request = urllib.request.Request(cancel_url, method="DELETE")
+            with urllib.request.urlopen(request, timeout=5) as response:
+                assert response.status in {200, 202, 204}
+
+            deadline = time.monotonic() + 5.0
+            final: dict[str, Any] | None = None
+            while time.monotonic() < deadline:
+                _, poll = client.post(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": f"jobs_get_status:{job_id}",
+                        "method": "tools/call",
+                        "params": {
+                            "name": "jobs_get_status",
+                            "arguments": {"job_id": job_id, "include_result": True},
+                        },
+                    }
+                )
+                final = poll["result"]["structuredContent"]
+                if final["status"] == "cancelled":
+                    break
+                time.sleep(0.01)
+
+            assert final is not None
+            assert final["status"] == "cancelled"
+            wait_for_job_marker(stopped_path)
+        finally:
+            handle.shutdown()
+            bridge.shutdown_script_execution()

@@ -489,26 +489,27 @@ impl GatewayState {
         }
     }
 
-    /// Return operator-facing registry rows with dead-PID entries pruned.
+    /// Return operator-facing registry rows with dead owner/host entries pruned.
     ///
     /// Issue #719: before this method existed, `list_dcc_instances` could
-    /// return rows whose owning DCC process had already exited — for up to
+    /// return rows whose owning service or bound DCC host had already exited — for up to
     /// `stale_timeout_secs` (default 30 s) after the process died, or
     /// indefinitely if no gateway process was running the periodic sweep.
     /// Agents then routed `call_tool` / `acquire_dcc_instance` to a dead
     /// backend and hit connection-refused.
     ///
     /// This is a self-healing read path: every call consults
-    /// [`FileRegistry::read_alive`] which probes each row's `pid` field via
-    /// `sysinfo` and evicts dead-PID rows from both the in-memory view and
-    /// the on-disk `services.json` before returning. The same
+    /// [`FileRegistry::read_alive`] which checks the service sentinel (or
+    /// legacy `pid` fallback) plus any explicit `host_pid`, and evicts dead
+    /// rows from both the in-memory view and on-disk `services.json` before
+    /// returning. The same
     /// sentinel / self-row filters that [`Self::all_instances`] uses are
     /// applied after the prune so the caller sees the identical view
     /// minus the zombies.
     ///
-    /// Fail-open contract (#227): rows with no `pid` are considered alive
-    /// and survive the prune. `FileRegistry::read_alive` enforces this
-    /// internally; we do not re-check it here.
+    /// Fail-open contract (#227): legacy rows with neither a sentinel nor PID
+    /// are considered alive and survive the prune. `FileRegistry::read_alive`
+    /// enforces this internally; we do not re-check it here.
     ///
     /// Returns `(alive_entries, evicted_count)`. `evicted_count` is the
     /// total number of dead-PID rows the registry dropped — callers can
@@ -628,11 +629,18 @@ fn lifecycle_json(e: &ServiceEntry) -> Value {
             "root_path",
         ],
     );
+    let instance_type = first_metadata_value(&e.metadata, &["dcc_mcp_instance_type"]);
 
     json!({
         "role": role,
         "owner": owner,
         "session": session,
+        "pid": e.pid,
+        "service_pid": e.pid,
+        "host_pid": e.host_pid,
+        "dcc_pid": e.host_pid,
+        "host_bound": e.host_pid.is_some(),
+        "instance_type": instance_type,
         "sidecar_pid": sidecar_pid,
         "supports_safe_stop": sidecar_pid.is_some() || safe_stop_url.is_some(),
         "safe_stop_url": safe_stop_url,
@@ -804,6 +812,7 @@ pub fn entry_to_json(
         // Both fields are null when not set; agents should skip null values
         // when building the disambiguation prompt for users.
         "pid":             e.pid,
+        "host_pid":        e.host_pid,
         "display_name":    e.display_name,
         // ── misc ───────────────────────────────────────────────────────────
         "version":         e.version,

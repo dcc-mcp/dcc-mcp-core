@@ -1,7 +1,11 @@
 use super::*;
 
+mod game_navigation;
 mod send_input;
 
+use game_navigation::game_navigation;
+#[cfg(test)]
+use game_navigation::{HeldGameNavigationKey, game_navigation_key_inputs};
 pub(crate) use send_input::flush_pending_input_releases;
 pub(super) use send_input::flush_pending_input_releases_locked;
 #[cfg(test)]
@@ -199,6 +203,14 @@ pub(crate) fn perform_action(
             window_handle,
             observation.process_id,
             &request.keys,
+            &guard,
+            &mut pre_input_fence,
+        )?,
+        "game_navigation" => game_navigation(
+            window_handle,
+            observation.process_id,
+            &request.keys,
+            request.duration_ms,
             &guard,
             &mut pre_input_fence,
         )?,
@@ -1046,6 +1058,7 @@ fn keypress(
     let _focus_elevation = focus_target(window_handle, process_id)?;
     guard.check()?;
     run_pre_input_fence(pre_input_fence)?;
+    ensure_target_foreground(window_handle, process_id)?;
     send_inputs(&inputs)?;
     guard.check()
 }

@@ -153,6 +153,25 @@ pub(crate) fn is_unmodified_text_entry(keys: &[String]) -> bool {
     false
 }
 
+/// Return true for a genuine application shortcut with Ctrl or Alt plus an
+/// action key. Shift-only and focus-dependent navigation/function keys remain
+/// ordinary keypresses.
+pub(crate) fn is_modified_shortcut(keys: &[String]) -> bool {
+    let mut shortcut_modifier = false;
+    let mut action_key = false;
+    for token in keys.iter().flat_map(|item| item.split('+')).map(str::trim) {
+        if token.is_empty() {
+            continue;
+        }
+        match common_key(token) {
+            Some(CommonKey::Control(_) | CommonKey::Alt(_)) => shortcut_modifier = true,
+            Some(CommonKey::Shift(_)) => {}
+            Some(_) | None => action_key = true,
+        }
+    }
+    shortcut_modifier && action_key
+}
+
 /// Classify chords that can escape the bound DCC or invoke system UI.
 pub(crate) fn shortcut_risk(keys: &[String]) -> ShortcutRisk {
     let mut control = false;
@@ -262,6 +281,17 @@ mod tests {
         }
         for chord in ["LEFT", "ENTER", "F5", "CTRL+A", "ALT+A"] {
             assert!(!is_unmodified_text_entry(&[chord.to_owned()]), "{chord}");
+        }
+    }
+
+    #[test]
+    fn modified_shortcuts_require_ctrl_or_alt_and_an_action_key() {
+        for chord in ["CTRL+P", "CONTROL_L+SHIFT+P", "ALT+F4", "RIGHTALT+ENTER"] {
+            assert!(is_modified_shortcut(&[chord.to_owned()]), "{chord}");
+        }
+        assert!(is_modified_shortcut(&["CTRL".to_owned(), "P".to_owned()]));
+        for keys in ["ENTER", "F5", "SHIFT+P", "CTRL", "ALT+SHIFT"] {
+            assert!(!is_modified_shortcut(&[keys.to_owned()]), "{keys}");
         }
     }
 

@@ -396,6 +396,15 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
+def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    del params
+    return skill_error(
+        "Exact-window recording is available only through the Windows UI Control host.",
+        UiErrorCode.UNSUPPORTED_ACTION,
+        backend="mock",
+    )
+
+
 def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Idempotent no-op for backends without native input ownership."""
     params = dict(params) if params is not None else _read_params()

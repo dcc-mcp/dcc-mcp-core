@@ -40,6 +40,7 @@ class McpHttpConfig:
     dcc_version: str = ""
     scene: str = ""
     dcc_type: str = ""
+    host_pid: int | None = None
     instance_metadata: dict[str, str] = field(default_factory=dict)
     standalone_main_thread_execution: bool = False
     exclude_skill_stubs_from_tools_list: bool = False
@@ -69,6 +70,8 @@ class McpHttpConfig:
         self.dcc_version = str(kwargs.pop("dcc_version", ""))
         self.scene = str(kwargs.pop("scene", ""))
         self.dcc_type = str(kwargs.pop("dcc_type", ""))
+        raw_host_pid = kwargs.pop("host_pid", None)
+        self.host_pid = int(raw_host_pid) if raw_host_pid is not None else None
         metadata = kwargs.pop("instance_metadata", None)
         self.instance_metadata = dict(metadata) if isinstance(metadata, dict) else {}
         self.standalone_main_thread_execution = bool(kwargs.pop("standalone_main_thread_execution", False))

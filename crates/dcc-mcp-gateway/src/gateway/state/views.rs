@@ -341,7 +341,8 @@ fn is_per_dcc_sidecar(entry: &ServiceEntry) -> bool {
 
 fn sidecar_owner_key(entry: &ServiceEntry) -> Option<(String, u32)> {
     entry
-        .pid
+        .host_pid
+        .or(entry.pid)
         .map(|pid| (entry.dcc_type.to_ascii_lowercase(), pid))
 }
 

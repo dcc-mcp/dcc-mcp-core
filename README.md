@@ -60,16 +60,72 @@ exposes them. New gateway integrations should use the canonical names above.
 ## Quick start: operate a DCC
 
 `dcc-mcp-cli` is the preferred control path for every shell-capable agent.
-If it is missing, obtain the user's consent before installing the latest
-official release:
+If it is missing, obtain the user's consent, install the public `dcc-mcp`
+Skill below, and run its bundled verified helper from the Skill directory:
+
+~~~bash
+python scripts/check_cli.py --ensure-cli --pretty
+~~~
+
+Without the Skill, download the official installer to a local file, inspect it,
+and only then execute that file:
 
 ~~~bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# After reviewing the file:
+sh ./install-cli.sh
 ~~~
+
+~~~powershell
+# Windows PowerShell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# After reviewing the file and subject to the current execution policy:
+& .\install-cli.ps1
+~~~
+
+Both paths accept only the official `dcc-mcp/dcc-mcp-core` release, validate
+the platform update manifest and CLI SHA-256, and leave any existing binary
+untouched if validation or download fails. This is an integrity check, not a
+digital signature. Never pipe a remote installer directly into a shell or
+bypass the machine's script execution policy.
+
+### Install the agent Skill suite
+
+Install the three public Skills directly from ClawHub; cloning this repository
+is not required:
+
+~~~bash
+openclaw skills install @loonghao/dcc-mcp
+openclaw skills install @loonghao/dcc-mcp-skills-creator
+openclaw skills install @loonghao/dcc-mcp-creator
+~~~
+
+Add `--global` to each command when every local OpenClaw agent should see the
+suite. Other ClawHub-compatible workspaces can use the registry CLI directly:
+
+~~~bash
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
+~~~
+
+| Skill | Agent role |
+|---|---|
+| [`dcc-mcp`](skills/dcc-mcp/) | Default live DCC control and marketplace discovery; Skill-store requests begin with `dcc-mcp-cli marketplace search` |
+| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | Create, validate, package, and review DCC-MCP Skill packages |
+| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | Create or modernize a complete DCC adapter and its runtime wiring |
+
+All three packages carry Codex `agents/openai.yaml` metadata while preserving
+their DCC-MCP and ClawHub contracts. Their immutable ClawHub releases are
+versioned independently in
+[`.github/clawhub-skills.json`](.github/clawhub-skills.json), so Skill updates
+do not collide with an already-published core version. The sync workflow
+publishes the manifest versions and verifies their packaged files. Bump both
+the manifest entry and the matching `SKILL.md` metadata version for every new
+immutable Skill release.
 
 Keep an official build current through the release manifest:
 
@@ -91,6 +147,9 @@ dcc-mcp-cli describe <tool-slug>
 dcc-mcp-cli call <tool-slug> --json '{"radius": 2.0}' \
   --meta-json '{"agent_context":{"session_id":"task-42"}}'
 ~~~
+
+`--query "create sphere"` is compatible with released CLI builds. Builds that
+contain the unified search parser also accept unquoted positional words.
 
 `dcc-types` is an offline, catalog-backed capability query. It reports
 canonical adapter identifiers and install-plan availability; `list` remains
@@ -188,6 +247,66 @@ tools:
 Run the same production validator used by CI with
 dcc-mcp-cli lint path/to/skills. See [Skills](docs/guide/skills.md) for schemas,
 groups, dependencies, testing, and migration rules.
+
+## DCC UI Control
+
+Desktop application automation for cases where native DCC APIs cannot observe
+or drive the interface state directly. Agents use `ui_control__snapshot`,
+`ui_control__find`, `ui_control__act`, `ui_control__wait_for`,
+`ui_control__record_clip`, and `ui_control__stop_computer_use` to observe,
+find, act on, and record exact target windows.
+
+![Controlled window with corner brackets and capsule overlay](docs/assets/ui-control/corner-brackets-capsule.png)
+
+### Capabilities
+
+- **Scoped window targeting** — snapshots and actions are bound to a single
+  process or window handle, never the whole desktop.
+- **Multi-instance sessions** — the gateway selects the DCC `instance_id`,
+  while the native host namespaces each adapter connection. Separate DCC
+  instances may therefore reuse a logical `session_id` such as `default`
+  without sharing capabilities or cleanup state.
+- **Semantic UIA + raw input fallback** — prefer stable semantic controls
+  (button, text field, checkbox) resolved by `ui_control__find`, then fall
+  back to screenshot-relative coordinates when custom-drawn controls have no
+  semantic node.
+- **Bounded security model** — every action is scoped by the
+  adapter/operator-bound PID/HWND. Raw input requires an explicit opt-in
+  (`DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`). Hard-denied: passwords,
+  authentication controls, LockApp, Windows Security, terminals, and
+  credential manager windows.
+- **Visible capsule overlay** — while a native DCC UI Control session is active,
+  click-through corner brackets mark the target window and a bottom-center
+  capsule reads `DCC UI Control · <app> | Esc to stop`.
+  The user stops control at any time with `Esc`.
+- **One shared input safety owner** — multiple exact-window sessions may remain
+  active in one Windows logon session. Native input is still serialized through
+  one process coordinator and one cross-process owner; `Esc` latches every
+  session, while an ordinary stop only releases the selected session.
+- **Exact-window recording** — records a bounded, constant-frame-rate JPEG
+  sequence from the operator-bound PID/HWND. The host owns the directory,
+  hashes every frame, commits the manifest last, and deletes partial captures.
+- **Audit trail** — every snapshot, recording, action, wait, stop, and rejected operation
+  appends a redacted `ui_control_operation` event to the shared log directory,
+  visible in the Admin Logs panel without exposing entered text or screenshot
+  coordinates.
+
+### Tool reference
+
+| Tool | Description |
+|------|-------------|
+| `ui_control__snapshot` | Capture a bounded PNG plus UIA tree from the scoped window |
+| `ui_control__find` | Locate semantic controls by query, role, label, or object name |
+| `ui_control__act` | Perform one scoped semantic or coordinate-based action |
+| `ui_control__record_clip` | Record a host-owned, hash-verified JPEG sequence from the exact window |
+| `ui_control__wait_for` | Poll until a UI condition becomes true or times out |
+| `ui_control__stop_computer_use` | Release the capsule, hotkey, and global input owner |
+| `ui_control__system_operation` | Ensure a named Windows configuration item (operator-granted) |
+
+For detailed skill reference and agent workflows, see the
+[ui-control skill](python/dcc_mcp_core/skills/ui-control/SKILL.md).
+
+![Admin Logs panel with redacted ui_control_operation events](docs/assets/ui-control/admin-logs-audit.png)
 
 ## Architecture
 

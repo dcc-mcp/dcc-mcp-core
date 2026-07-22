@@ -19,11 +19,13 @@ pub struct DoctorRequest {
     pub registry_dir: Option<PathBuf>,
     pub server_bin: Option<PathBuf>,
     pub auto_gateway_enabled: bool,
+    pub require_gateway: bool,
     pub gateway_host: String,
     pub gateway_port: u16,
 }
 
 pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
+    let direct_local = request.gateway_target.is_local() && !request.require_gateway;
     let registry_dir = request
         .registry_dir
         .unwrap_or_else(gateway_ensure::default_registry_dir);
@@ -65,6 +67,15 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
             &request.profile_path,
             Some(&request.gateway_target),
         ),
+        "control": {
+            "route": if direct_local { "local_mcp_direct" } else { "gateway" },
+            "gateway_stats_recorded": !direct_local,
+            "stats_hint": if direct_local {
+                "Use --require-gateway and _meta.agent_context.session_id when gateway stats are required evidence."
+            } else {
+                "Gateway-routed calls can be attributed with _meta.agent_context.session_id."
+            },
+        },
         "local": {
             "registry_dir": registry_dir,
             "inventory": local_inventory,

@@ -1,6 +1,7 @@
 //! Service discovery — unified registry supporting file-based and future mDNS strategies.
 
 pub mod file_registry;
+mod liveness;
 #[cfg(feature = "mdns")]
 pub mod mdns;
 pub mod types;
@@ -53,7 +54,7 @@ pub trait ServiceDiscovery: Send + Sync {
     /// Remove stale services.
     fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize>;
 
-    /// Remove entries whose owning OS process is no longer running.
+    /// Remove entries whose service owner or explicitly-bound host is no longer running.
     ///
     /// Default implementation is a no-op so strategies without PID awareness
     /// (e.g. future mDNS) compile unchanged.
@@ -211,7 +212,7 @@ impl ServiceRegistry {
         self.strategy.cleanup_stale(timeout)
     }
 
-    /// Remove entries whose owning OS process is no longer running (ghost-entry reaping).
+    /// Remove entries whose service owner or explicitly-bound host is no longer running.
     ///
     /// See [`file_registry::FileRegistry::prune_dead_pids`] for the full contract.
     pub fn prune_dead_pids(&self) -> TransportResult<usize> {

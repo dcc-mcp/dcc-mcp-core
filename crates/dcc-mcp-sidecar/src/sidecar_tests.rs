@@ -100,6 +100,12 @@ fn sidecar_service_entry_preserves_discovery_endpoint_metadata() {
     let entry = build_service_entry(&args, &registry_dir);
 
     assert_eq!(
+        entry.host_pid,
+        Some(args.watch_pid),
+        "the sidecar owner sentinel and watched DCC host must have separate liveness signals"
+    );
+
+    assert_eq!(
         entry
             .metadata
             .get(DISCOVERY_MCP_URL_METADATA_KEY)

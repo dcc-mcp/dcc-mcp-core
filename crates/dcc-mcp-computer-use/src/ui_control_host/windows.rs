@@ -2,12 +2,15 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::mem::size_of;
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use dcc_mcp_ui_control::host_protocol::{
-    UI_CONTROL_HOST_MAX_FRAME_BYTES, UiControlHostErrorCode, UiControlHostRequest,
-    UiControlHostResponse,
+    UI_CONTROL_HOST_MAX_FRAME_BYTES, UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlHostErrorCode,
+    UiControlHostRequest, UiControlHostResponse,
 };
+use semver::Version;
+use sha2::{Digest, Sha256};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, HLOCAL,
     LocalFree,
@@ -36,14 +39,95 @@ use windows::core::{PCWSTR, PWSTR};
 use super::{UiControlHost, UiControlHostConnection};
 
 const PIPE_BUFFER_BYTES: u32 = 64 * 1024;
+const MAX_HOST_VERSION_CHARS: usize = 64;
+const MAX_NAMED_PIPE_CHARS: usize = 256;
+
+struct DiscoveryEndpoints {
+    pipe: String,
+    singleton: String,
+}
+
+fn canonical_endpoint_version(version: &str) -> Result<String, String> {
+    if version.len() > MAX_HOST_VERSION_CHARS {
+        return Err("UI Control host version is too long for discovery".to_owned());
+    }
+    let canonical = Version::parse(version)
+        .map_err(|_| "UI Control host version is not strict SemVer".to_owned())?
+        .to_string();
+    if canonical != version
+        || !canonical
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+    {
+        return Err("UI Control host version is not canonical safe SemVer".to_owned());
+    }
+    Ok(canonical)
+}
+
+fn validate_binary_identity(sha256: &str) -> Result<(), String> {
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err("UI Control host discovery requires a full lowercase SHA-256".to_owned());
+    }
+    Ok(())
+}
+
+fn binary_sha256(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path)
+        .map_err(|error| format!("open the current UI Control host image: {error}"))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("read the current UI Control host image: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = digest.finalize();
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        encoded.push(HEX[usize::from(byte >> 4)] as char);
+        encoded.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
+    Ok(encoded)
+}
+
+fn discovery_endpoints(
+    session_id: u32,
+    version: &str,
+    sha256: &str,
+) -> Result<DiscoveryEndpoints, String> {
+    let version = canonical_endpoint_version(version)?;
+    validate_binary_identity(sha256)?;
+    let suffix = format!(
+        "v{UI_CONTROL_HOST_PROTOCOL_VERSION}-version-{version}-sha256-{sha256}-session-{session_id}"
+    );
+    let pipe = format!(r"\\.\pipe\dcc-mcp-ui-control-host-{suffix}");
+    if pipe.encode_utf16().count() >= MAX_NAMED_PIPE_CHARS {
+        return Err("UI Control host discovery pipe name is too long".to_owned());
+    }
+    Ok(DiscoveryEndpoints {
+        pipe,
+        singleton: format!(r"Local\dcc-mcp-ui-control-host-{suffix}"),
+    })
+}
 
 pub(super) fn run() -> Result<(), String> {
     let session_id = current_session_id()?;
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("resolve the current UI Control host image: {error}"))?;
+    let sha256 = binary_sha256(&executable)?;
+    let endpoints = discovery_endpoints(session_id, env!("CARGO_PKG_VERSION"), &sha256)?;
     let security = OwnerOnlySecurity::new()?;
-    let _singleton = acquire_singleton(session_id, security.attributes())?;
-    let pipe_name = wide(&format!(
-        r"\\.\pipe\dcc-mcp-ui-control-host-v2-session-{session_id}"
-    ));
+    let _singleton = acquire_singleton(&endpoints.singleton, security.attributes())?;
+    let pipe_name = wide(&endpoints.pipe);
     let host = Arc::new(Mutex::new(UiControlHost::from_operator_config()?));
 
     loop {
@@ -69,12 +153,10 @@ fn current_session_id() -> Result<u32, String> {
 }
 
 fn acquire_singleton(
-    session_id: u32,
+    name: &str,
     security: &SECURITY_ATTRIBUTES,
 ) -> Result<OwnedKernelHandle, String> {
-    let name = wide(&format!(
-        r"Local\dcc-mcp-ui-control-host-v2-session-{session_id}"
-    ));
+    let name = wide(name);
     let handle = unsafe { CreateMutexW(Some(security), false, PCWSTR(name.as_ptr())) }
         .map_err(|error| format!("create the per-session host mutex: {error}"))?;
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
@@ -337,5 +419,85 @@ struct OwnedKernelHandle(HANDLE);
 impl Drop for OwnedKernelHandle {
     fn drop(&mut self) {
         let _ = unsafe { CloseHandle(self.0) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    #[test]
+    fn binary_identity_uses_full_standard_sha256() {
+        let path = std::env::temp_dir().join(format!(
+            "dcc-mcp-ui-control-host-sha256-test-{}.bin",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"abc").unwrap();
+
+        let digest = binary_sha256(&path).unwrap();
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn discovery_identity_contains_exact_version_and_full_binary_sha256() {
+        let endpoints = discovery_endpoints(42, "0.19.65", DIGEST_A).unwrap();
+
+        assert_eq!(
+            endpoints.pipe,
+            format!(
+                r"\\.\pipe\dcc-mcp-ui-control-host-v2-version-0.19.65-sha256-{DIGEST_A}-session-42"
+            )
+        );
+        assert_eq!(
+            endpoints.singleton,
+            format!(
+                r"Local\dcc-mcp-ui-control-host-v2-version-0.19.65-sha256-{DIGEST_A}-session-42"
+            )
+        );
+        assert!(endpoints.pipe.encode_utf16().count() < MAX_NAMED_PIPE_CHARS);
+        assert!(!endpoints.pipe.ends_with("v2-session-42"));
+    }
+
+    #[test]
+    fn discovery_identity_rejects_unsafe_or_noncanonical_values() {
+        for version in [
+            "01.19.65",
+            "0.19.65-01",
+            "0.19.65\\other",
+            "0.19.65/other",
+            "v0.19.65",
+        ] {
+            assert!(discovery_endpoints(42, version, DIGEST_A).is_err());
+        }
+        assert!(discovery_endpoints(42, "0.19.65", &"a".repeat(63)).is_err());
+        assert!(discovery_endpoints(42, "0.19.65", &"A".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn singleton_is_exclusive_per_version_and_digest_identity() {
+        let session_id = 0x8000_0000 | std::process::id();
+        let security = OwnerOnlySecurity::new().unwrap();
+        let first_name = discovery_endpoints(session_id, "0.19.65", DIGEST_A)
+            .unwrap()
+            .singleton;
+        let other_digest_name = discovery_endpoints(session_id, "0.19.65", DIGEST_B)
+            .unwrap()
+            .singleton;
+        let _first = acquire_singleton(&first_name, security.attributes()).unwrap();
+
+        let duplicate_error = match acquire_singleton(&first_name, security.attributes()) {
+            Ok(_) => panic!("the same Host identity must remain a singleton"),
+            Err(error) => error,
+        };
+        assert!(duplicate_error.contains("already running"));
+        let _other_digest = acquire_singleton(&other_digest_name, security.attributes()).unwrap();
     }
 }

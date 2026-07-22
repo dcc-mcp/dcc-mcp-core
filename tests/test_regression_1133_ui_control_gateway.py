@@ -99,7 +99,11 @@ def _load_ui_control(gateway_mcp_url: str) -> None:
     assert body["loaded"] is True, body
 
 
-def _find_ui_control_slug(gateway_rest_url: str, query: str = "ui_control snapshot") -> str:
+def _find_ui_control_slug(
+    gateway_rest_url: str,
+    query: str = "ui_control snapshot",
+    backend_tool: str = "ui_control__snapshot",
+) -> str:
     deadline = time.time() + 8.0
     last = None
     while time.time() < deadline:
@@ -109,10 +113,10 @@ def _find_ui_control_slug(gateway_rest_url: str, query: str = "ui_control snapsh
         )
         last = body
         for hit in body.get("hits", []):
-            if hit.get("backend_tool") == "ui_control__snapshot":
+            if hit.get("backend_tool") == backend_tool:
                 return str(hit["tool_slug"])
         time.sleep(0.25)
-    raise AssertionError(f"ui_control__snapshot not found in gateway search: {last!r}")
+    raise AssertionError(f"{backend_tool} not found in gateway search: {last!r}")
 
 
 def test_ui_control_gateway_rest_and_mcp_discovery_describe_call(ui_control_gateway: dict) -> None:
@@ -142,6 +146,31 @@ def test_ui_control_gateway_rest_and_mcp_discovery_describe_call(ui_control_gate
     )
     assert rest_call["output"]["success"] is True
     assert rest_call["output"]["context"]["snapshot"]["root"]["role"] == "window"
+
+    # Stateful ui-control calls must remain in one Python process. The
+    # snapshot id is private in-process state and cannot survive a per-call
+    # subprocess executor.
+    snapshot_id = rest_call["output"]["context"]["snapshot_id"]
+    act_slug = _find_ui_control_slug(
+        gateway_rest_url,
+        query="ui_control action focus",
+        backend_tool="ui_control__act",
+    )
+    rest_act = _post_json(
+        f"{gateway_rest_url}/v1/call",
+        {
+            "tool_slug": act_slug,
+            "arguments": {
+                "session_id": "core-1133-rest",
+                "control_id": "project-name",
+                "action": "focus",
+                "snapshot_id": snapshot_id,
+            },
+            "response_format": "json",
+        },
+    )
+    assert rest_act["output"]["success"] is True
+    assert rest_act["output"]["context"]["audit"]["action_kind"] == "focus"
 
     mcp_call = _post_mcp(
         gateway_mcp_url,

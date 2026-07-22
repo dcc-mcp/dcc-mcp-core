@@ -38,7 +38,7 @@ pub fn pointer() -> Value {
     json!({
         "uri":         ROOT_URI,
         "name":        "DCC instance registry",
-        "description": "List of DCC instances registered with the gateway. Supports filtering: ?dcc_type=maya, ?query=<substring>, ?status=available, ?limit=N, ?offset=N, ?verbose=true. Default response is compact (~500B/hit); verbose returns full instance objects. Honesty fields (list_ok, index_health) separate listing success from dispatch readiness (PIP-2725).",
+        "description": "List live, routable DCC instances registered with the gateway. Supports filtering: ?dcc_type=maya, ?query=<substring>, ?status=available, ?limit=N, ?offset=N, ?verbose=true. Historical/non-routable rows require an explicit diagnostic view via ?include_stale=true, ?include_dead=true, or ?view=all (stale + dead). Default response is compact (~500B/hit); verbose returns full instance objects. Honesty fields (list_ok, index_health) separate listing success from dispatch readiness (PIP-2725).",
         "mimeType":    "application/json"
     })
 }
@@ -48,9 +48,9 @@ pub fn pointer() -> Value {
 pub enum Query {
     /// Full list with optional filters from the URI query string.
     List {
-        /// Include stale (no-heartbeat) entries (default: true).
+        /// Include stale and other owner-alive non-routable entries (default: false).
         include_stale: bool,
-        /// Include dead-PID entries via `read_alive_instances` (default: false).
+        /// Include owner/host-dead rows from the operator all-instances view (default: false).
         include_dead: bool,
         /// Exact DCC type filter (e.g. "blender", "maya").
         dcc_type: Option<String>,
@@ -70,10 +70,10 @@ pub enum Query {
 }
 
 impl Query {
-    /// Default list query with backward-compatible defaults.
+    /// Default agent-facing list query: live and routable instances only.
     fn default_list() -> Self {
         Query::List {
-            include_stale: true,
+            include_stale: false,
             include_dead: false,
             dcc_type: None,
             query: None,
@@ -132,6 +132,13 @@ pub fn parse(uri: &str) -> Option<Query> {
             {
                 *include_dead = b;
             }
+            if params
+                .get("view")
+                .is_some_and(|value| value.eq_ignore_ascii_case("all"))
+            {
+                *include_stale = true;
+                *include_dead = true;
+            }
             if let Some(v) = params.get("dcc_type") {
                 *dcc_type = Some(v.to_string());
             }
@@ -186,8 +193,13 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
             // ── Fetch raw entries ──────────────────────────────────────
             let (raw, evicted_dead) = if *include_dead {
                 (gs.all_instances(&reg), 0usize)
-            } else {
+            } else if *include_stale {
                 gs.read_alive_instances(&reg).map_err(|e| e.to_string())?
+            } else {
+                // Prune owner/host-dead file rows before projecting the same
+                // live+routable view used by REST routing and dispatch.
+                let (_, evicted) = gs.read_alive_instances(&reg).map_err(|e| e.to_string())?;
+                (gs.live_instances(&reg), evicted)
             };
 
             // ── Compute index health before filtering ──────────────────
@@ -341,6 +353,7 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
         "version":        e.version,
         "host":           e.host,
         "port":           e.port,
+        "host_pid":       e.host_pid,
         "mcp_url":        super::super::http_registration::entry_mcp_url(e),
         "source":         super::super::http_registration::entry_registry_source(e),
         "status":         status_str,
@@ -398,7 +411,7 @@ pub fn compute_index_health(
 mod tests {
     use super::*;
 
-    // ── Parse tests (backward-compatible) ────────────────────────────────
+    // ── Parse tests ──────────────────────────────────────────────────────
 
     #[test]
     fn parse_root_defaults() {
@@ -436,6 +449,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_explicit_diagnostic_views() {
+        assert!(matches!(
+            parse("gateway://instances?include_stale=true"),
+            Some(Query::List {
+                include_stale: true,
+                include_dead: false,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse("gateway://instances?view=all"),
+            Some(Query::List {
+                include_stale: true,
+                include_dead: true,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn parse_unknown_query_keys_are_ignored() {
         assert_eq!(
             parse("gateway://instances?future=1&include_stale=false"),
@@ -459,7 +492,7 @@ mod tests {
         assert_eq!(
             parse("gateway://instances?dcc_type=blender"),
             Some(Query::List {
-                include_stale: true,
+                include_stale: false,
                 include_dead: false,
                 dcc_type: Some("blender".to_string()),
                 query: None,
@@ -476,7 +509,7 @@ mod tests {
         assert_eq!(
             parse("gateway://instances?query=4.2"),
             Some(Query::List {
-                include_stale: true,
+                include_stale: false,
                 include_dead: false,
                 dcc_type: None,
                 query: Some("4.2".to_string()),
@@ -493,7 +526,7 @@ mod tests {
         assert_eq!(
             parse("gateway://instances?status=available"),
             Some(Query::List {
-                include_stale: true,
+                include_stale: false,
                 include_dead: false,
                 dcc_type: None,
                 query: None,
@@ -510,7 +543,7 @@ mod tests {
         assert_eq!(
             parse("gateway://instances?limit=10&offset=5"),
             Some(Query::List {
-                include_stale: true,
+                include_stale: false,
                 include_dead: false,
                 dcc_type: None,
                 query: None,
@@ -547,7 +580,7 @@ mod tests {
         assert_eq!(
             parse("gateway://instances?verbose=true"),
             Some(Query::List {
-                include_stale: true,
+                include_stale: false,
                 include_dead: false,
                 dcc_type: None,
                 query: None,
@@ -567,7 +600,7 @@ mod tests {
         assert_eq!(
             q,
             Some(Query::List {
-                include_stale: true,
+                include_stale: false,
                 include_dead: false,
                 dcc_type: Some("maya".to_string()),
                 query: Some("2024".to_string()),

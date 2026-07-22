@@ -203,6 +203,19 @@ ready = result.get("readiness", {})
 Leaving `wait_ready_timeout_secs` unset preserves the non-blocking startup
 contract. External supervisors that are not running inside the DCC process must
 pass `watch_pid=current_dcc_pid`; in-process hooks should keep the default.
+The sidecar records its own service PID/sentinel separately from this watched
+host PID. Registry reads require both lifetimes, so the row is evicted even if
+the sidecar briefly survives after Unreal, 3ds Max, Maya, or another host exits.
+During rolling upgrades, readers also recognise older `per-dcc-sidecar` rows
+whose watched DCC PID predates the explicit `host_pid` field.
+Out-of-process `DccServerBase` adapters that do not use the standard sidecar
+must pass `dcc_pid=current_dcc_pid` to `DccServerOptions.from_env(...)` for the
+same host-bound contract. Standalone/headless services must leave `dcc_pid`
+unset and pass `instance_type="standalone"`; their own sentinel, endpoint, and
+heartbeat are the complete lifetime. `instance_type` describes the process
+lifetime and is independent from `standalone_main_thread`, which only selects
+the execution/threading contract. It can also be supplied with
+`DCC_MCP_<DCC>_INSTANCE_TYPE` (or the process-wide `DCC_MCP_INSTANCE_TYPE`).
 The Python API keeps `liveness_check_secs=0.0` by default for DCC UI startup
 hooks, but the module CLI defaults `launch-sidecar` to a 1-second process check
 because it is normally used from installers and supervisors.

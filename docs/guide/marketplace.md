@@ -72,7 +72,7 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 |-------------------------------------------|------------------------------------------------|
 | `marketplace add <source>`                | Register a marketplace source                  |
 | `marketplace list`                        | List configured sources                        |
-| `marketplace search --query <q>`          | Search entries across all sources              |
+| `marketplace search --query <q>`           | Fuzzy-rank entries across all sources; current builds also accept positional query words |
 | `marketplace inspect <name>`              | Show full entry metadata                       |
 | `marketplace install <name> --dcc <dcc>`  | Install a skill package                        |
 | `marketplace list-installed --dcc <dcc>`  | List installed packages                        |

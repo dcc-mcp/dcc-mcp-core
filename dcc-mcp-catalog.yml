@@ -233,6 +233,19 @@ entries:
       pip_package: "dcc-mcp-godot"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/main/README.md"
 
+  - name: "dcc-mcp-unity"
+    description: "Unity Editor adapter and typed game-authoring skills for DCC-MCP"
+    dcc: ["unity"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-unity"
+    tags: ["adapter", "unity", "official", "pip", "game-engine", "upm"]
+    version: "0.3.0"
+    min_core_version: "0.19.45"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-unity"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unity/main/install.md"
+
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
     dcc: ["shotgrid"]

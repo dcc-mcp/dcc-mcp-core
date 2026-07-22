@@ -6,7 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Pure gateway capability search: query wire types, fuzzy/substring ranking, pagination — no gateway runtime deps."
+description = "Pure reusable DCC-MCP search: query types, fuzzy ranking, and pagination with no gateway runtime dependencies"
 keywords = ["mcp", "gateway", "search", "fuzzy"]
 categories = ["text-processing"]
 
