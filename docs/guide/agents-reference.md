@@ -1611,8 +1611,9 @@ cfg = McpHttpConfig(port=8765)
 cfg.enable_job_notifications = False  # opt the $/dcc.* channels out
 ```
 
-Polling fallback: **`jobs_get_status`** (#319, always registered) returns
-the full job-state envelope for a given `job_id`. Use **`jobs_cleanup`**
+Polling fallback: **`jobs_get_status`** (#319, registered by each adapter and
+indexed by the gateway under that exact instance) returns the full job-state
+envelope for a given `job_id`. Use **`jobs_cleanup`**
 (#328) with `older_than_hours` to prune terminal jobs; combine with
 `McpHttpConfig.job_storage_path` + Cargo feature `job-persist-sqlite`
 for restart-safe job history (pending/running rows become `Interrupted`

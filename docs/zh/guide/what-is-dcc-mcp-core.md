@@ -189,7 +189,7 @@ from dcc_mcp_core import (
 
 ## 版本 / 语言支持
 
-- **当前版本**：0.19.65 <!-- x-release-please-version -->
+- **当前版本**：0.19.67 <!-- x-release-please-version -->
 - **Python**：3.7–3.14。Python 3.7 提供原生 `cp37-cp37m` wheel 和 lite 回退；Python 3.8+ 使用 `abi3-py38` wheel。
 - **Rust**：Edition 2024；MSRV 见仓库根 `rust-toolchain.toml`
 - **构建**：maturin + PyO3

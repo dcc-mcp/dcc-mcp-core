@@ -48,6 +48,48 @@ def remote_tag_exists(repo: str, tag_name: str) -> bool:
     fail(f"could not check remote tag {tag_name}: {result.stdout.strip()}")
 
 
+def current_release_pr_head(repo: str, head_ref: str) -> str | None:
+    """Return the current head SHA for the matching open release PR."""
+    owner, separator, _name = repo.partition("/")
+    if not separator or not owner:
+        fail(f"invalid GITHUB_REPOSITORY value: {repo!r}")
+
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            f"repos/{repo}/pulls",
+            "--method",
+            "GET",
+            "-f",
+            "state=open",
+            "-f",
+            f"head={owner}:{head_ref}",
+            "-f",
+            "base=main",
+            "-f",
+            "per_page=100",
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if result.returncode != 0:
+        fail(f"could not resolve current release PR head: {result.stdout.strip()}")
+
+    pulls = json.loads(result.stdout or "[]")
+    matches = [pull for pull in pulls if pull.get("head", {}).get("ref") == head_ref]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        fail(f"multiple open release PRs found for branch {head_ref!r}")
+    sha = matches[0].get("head", {}).get("sha")
+    if not isinstance(sha, str) or not sha:
+        fail(f"release PR for branch {head_ref!r} has no head SHA")
+    return sha
+
+
 def check_ci_status(repo: str, sha: str) -> None:
     """Block if any completed CI check runs failed for the commit."""
     if os.environ.get("DCC_RELEASE_GUARD_SKIP_CI_CHECK") == "1":
@@ -126,6 +168,13 @@ def main() -> None:
     if event_name == "workflow_run":
         if not repo or not sha:
             fail("GITHUB_REPOSITORY and PR_HEAD_SHA are required")
+        current_sha = current_release_pr_head(repo, head_ref)
+        if current_sha is None:
+            print(f"::notice::No open release PR remains for {head_ref}; stale workflow result is ignored.")
+            return
+        if current_sha != sha:
+            print(f"::notice::Release PR head advanced from {sha} to {current_sha}; stale workflow result is ignored.")
+            return
         check_ci_status(repo, sha)
         return
 
