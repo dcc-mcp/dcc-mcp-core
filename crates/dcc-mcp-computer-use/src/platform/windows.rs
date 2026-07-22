@@ -36,8 +36,7 @@ use windows::Win32::UI::HiDpi::{
     GetDpiForWindow, MDT_EFFECTIVE_DPI, SetThreadDpiAwarenessContext,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+    HOT_KEY_MODIFIERS, INPUT,
     MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
     MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
@@ -1478,7 +1477,7 @@ fn run_banner(
         }
         Err(error) => return Err(error),
     };
-    let mut overlay = ControlOverlay::new(target, &rect, &caption, initially_visible, session_id)?;
+    let mut overlay = ControlOverlay::new(target, &rect, &caption, session_id, initially_visible)?;
     let overlay_window = overlay.window_handle();
 
     let _session_notifications = RegisteredSessionNotifications::new(overlay_window)?;
