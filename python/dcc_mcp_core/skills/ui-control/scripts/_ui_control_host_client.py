@@ -97,6 +97,7 @@ def _connect_pipe(*, launch: bool = True) -> BinaryIO:
             if launch and not launched:
                 _launch_host()
                 launched = True
+                deadline = time.monotonic() + 5.0
             time.sleep(0.05)
     raise UiControlHostError(
         "backend_unavailable",

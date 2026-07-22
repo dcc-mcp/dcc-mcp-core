@@ -72,6 +72,79 @@ def test_client_maps_resolver_failure_to_backend_unavailable(monkeypatch: pytest
     assert str(failure.value) == "Safe resolver failure."
 
 
+def test_slow_cold_resolver_gets_a_fresh_pipe_startup_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _load_client()
+    clock = {"now": 0.0, "host_ready": False}
+    stream = object()
+    attempts: list[float] = []
+
+    def open_pipe(*_args, **_kwargs):
+        attempts.append(clock["now"])
+        if not clock["host_ready"]:
+            raise FileNotFoundError("pipe is not ready")
+        return stream
+
+    def slow_launch() -> None:
+        clock["now"] += 60.0
+        clock["host_ready"] = True
+
+    monkeypatch.setattr(client, "open", open_pipe, raising=False)
+    monkeypatch.setattr(client, "_pipe_path", lambda: r"\\.\pipe\slow-cold-host")
+    monkeypatch.setattr(client, "_launch_host", slow_launch)
+    monkeypatch.setattr(client, "_validate_server_binary", lambda _stream: None)
+    monkeypatch.setattr(client.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(client.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + seconds))
+
+    assert client._connect_pipe() is stream
+    assert attempts == [0.0, 60.05]
+
+
+def test_cached_host_pipe_failure_keeps_the_original_five_second_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _load_client()
+    clock = {"now": 0.0}
+    launch_count = 0
+
+    def missing_pipe(*_args, **_kwargs):
+        raise FileNotFoundError("pipe is not ready")
+
+    def launch_cached_host() -> None:
+        nonlocal launch_count
+        launch_count += 1
+
+    monkeypatch.setattr(client, "open", missing_pipe, raising=False)
+    monkeypatch.setattr(client, "_pipe_path", lambda: r"\\.\pipe\cached-host")
+    monkeypatch.setattr(client, "_launch_host", launch_cached_host)
+    monkeypatch.setattr(client.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(client.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + seconds))
+
+    with pytest.raises(client.UiControlHostError, match="named pipe is unavailable"):
+        client._connect_pipe()
+    assert launch_count == 1
+    assert 5.0 <= clock["now"] < 5.1
+
+
+def test_failed_cold_resolver_does_not_start_a_pipe_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _load_client()
+    clock = {"now": 0.0}
+
+    def missing_pipe(*_args, **_kwargs):
+        raise FileNotFoundError("pipe is not ready")
+
+    def failed_launch() -> None:
+        clock["now"] += 30.0
+        raise client.UiControlHostError("backend_unavailable", "cold resolver failed")
+
+    monkeypatch.setattr(client, "open", missing_pipe, raising=False)
+    monkeypatch.setattr(client, "_pipe_path", lambda: r"\\.\pipe\failed-cold-host")
+    monkeypatch.setattr(client, "_launch_host", failed_launch)
+    monkeypatch.setattr(client.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(client.time, "sleep", lambda _seconds: pytest.fail("failed resolver must not wait for a pipe"))
+
+    with pytest.raises(client.UiControlHostError, match="cold resolver failed"):
+        client._connect_pipe()
+    assert clock["now"] == 30.0
+
+
 def test_environment_host_requires_the_exact_client_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     resolver = _load_resolver()
     host = tmp_path / "dcc-mcp-ui-control-host.exe"
