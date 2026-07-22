@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.64](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.63...v0.19.64) (2026-07-21)
+
+
+### Features
+
+* unify skill discovery and instance lifecycle ([640ed10](https://github.com/dcc-mcp/dcc-mcp-core/commit/640ed10295cd7ae0100c92a32841c2cf408902da))
+
+
+### Bug Fixes
+
+* decouple ClawHub Skill releases ([498f623](https://github.com/dcc-mcp/dcc-mcp-core/commit/498f623c1b4291b16124247894781e718fe18dc3))
+* keep skill search compatible with released CLI ([62a2768](https://github.com/dcc-mcp/dcc-mcp-core/commit/62a27685be95fd2bf1674efbc66ba838d8588de5))
+* preserve shell hook line endings ([1dc533b](https://github.com/dcc-mcp/dcc-mcp-core/commit/1dc533bfb6aa15164031b8f334a36927d5da358e))
+* refresh generated Python stubs ([94c9fc2](https://github.com/dcc-mcp/dcc-mcp-core/commit/94c9fc24636fd3096e924652559bcbc38b3bbe59))
+* **ui-control:** preserve stateful Windows sessions and bound target lifecycle ([#2011](https://github.com/dcc-mcp/dcc-mcp-core/issues/2011)) ([309451f](https://github.com/dcc-mcp/dcc-mcp-core/commit/309451f19e26121bf8d8771088319aaf1df1a296))
+* verify pending ClawHub releases ([a1a8957](https://github.com/dcc-mcp/dcc-mcp-core/commit/a1a89576fa61380b9d370909950cb3541b7c6c50))
+
+
+### Code Refactoring
+
+* isolate registry liveness checks ([789904f](https://github.com/dcc-mcp/dcc-mcp-core/commit/789904fc3d49be530ae8137e943c7f95ecccb42d))
+
 ## [0.19.63](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.62...v0.19.63) (2026-07-21)
 
 
