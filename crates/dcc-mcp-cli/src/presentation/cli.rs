@@ -9,6 +9,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::application::call_attribution::{
+    attach_agent_session_id, attach_batch_agent_session_id,
+};
 use crate::application::client::DccMcpClient;
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorRequest, run_doctor};
@@ -48,6 +51,17 @@ pub struct Args {
     /// Disable the default local gateway auto-start before agent control commands.
     #[arg(long, env = "DCC_MCP_CLI_NO_AUTO_GATEWAY", default_value = "false")]
     no_auto_gateway: bool,
+    /// Require local agent-control calls to pass through the gateway for audit and stats.
+    #[arg(
+        long,
+        global = true,
+        env = "DCC_MCP_CLI_REQUIRE_GATEWAY",
+        default_value = "false"
+    )]
+    require_gateway: bool,
+    /// Task-scoped stats identifier written to _meta.agent_context.session_id on calls.
+    #[arg(long, global = true, env = "DCC_MCP_AGENT_SESSION_ID")]
+    agent_session_id: Option<String>,
     /// Explicit gateway binary for auto-start. Defaults to discovery/cache/current CLI fallback.
     #[arg(long, env = "DCC_MCP_GATEWAY_BIN")]
     auto_gateway_bin: Option<PathBuf>,
@@ -583,6 +597,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         base_url,
         gateway,
         no_auto_gateway,
+        require_gateway,
+        agent_session_id,
         auto_gateway_bin,
         auto_gateway_timeout_secs,
         output,
@@ -598,6 +614,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         gateway_target.clone(),
         endpoint.clone(),
         gateway_ensure::default_registry_dir(),
+        require_gateway,
     );
 
     if !no_auto_gateway {
@@ -669,6 +686,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 registry_dir,
                 server_bin: auto_gateway_bin.clone(),
                 auto_gateway_enabled: !no_auto_gateway,
+                require_gateway,
                 gateway_host,
                 gateway_port,
             })
@@ -725,8 +743,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             timeout_secs,
         } => {
             let mut result = if batch {
-                let request =
+                let mut request =
                     read_batch_request(&arguments_json, steps.as_deref(), json_file.as_deref())?;
+                attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
                 control
                     .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
                     .await?
@@ -739,6 +758,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     .as_deref()
                     .map(|raw| parse_json_object(raw, "--meta-json"))
                     .transpose()?;
+                let meta = attach_agent_session_id(meta, agent_session_id.as_deref())?;
                 control
                     .call(
                         tool_slug,
@@ -759,7 +779,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             json_file,
             timeout_secs,
         } => {
-            let request = read_call_arguments(&request_json, json_file.as_deref())?;
+            let mut request = read_call_arguments(&request_json, json_file.as_deref())?;
+            attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
             let mut result = control
                 .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
                 .await?;
@@ -776,6 +797,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .as_deref()
                 .map(|raw| parse_json_object(raw, "--meta-json"))
                 .transpose()?;
+            let meta = attach_agent_session_id(meta, agent_session_id.as_deref())?;
             let mut result = control
                 .call(
                     tool_name.to_string(),

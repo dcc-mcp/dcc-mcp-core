@@ -28,20 +28,31 @@ pub struct DccControlPlane {
     target: GatewayTarget,
     endpoint: Endpoint,
     registry_dir: PathBuf,
+    require_gateway: bool,
 }
 
 impl DccControlPlane {
     #[must_use]
-    pub fn new(target: GatewayTarget, endpoint: Endpoint, registry_dir: PathBuf) -> Self {
+    pub fn new(
+        target: GatewayTarget,
+        endpoint: Endpoint,
+        registry_dir: PathBuf,
+        require_gateway: bool,
+    ) -> Self {
         Self {
             target,
             endpoint,
             registry_dir,
+            require_gateway,
         }
     }
 
+    fn uses_direct_local(&self) -> bool {
+        self.target.is_local() && !self.require_gateway
+    }
+
     pub async fn list_instances(&self) -> anyhow::Result<Value> {
-        if self.target.is_local() {
+        if self.uses_direct_local() {
             local_registry::list_local_instances(self.registry_dir.clone())
         } else {
             self.gateway_client()
@@ -52,14 +63,15 @@ impl DccControlPlane {
     }
 
     pub async fn stats(&self, request: StatsRequest) -> anyhow::Result<Value> {
-        DccMcpClient::new(self.endpoint.clone())
+        let value = DccMcpClient::new(self.endpoint.clone())
             .stats(request)
             .await
-            .map_err(Into::into)
+            .map_err(anyhow::Error::from)?;
+        Ok(attach_stats_coverage(value, self.uses_direct_local()))
     }
 
     pub async fn search(&self, request: SearchRequest) -> anyhow::Result<Value> {
-        if self.target.is_local() {
+        if self.uses_direct_local() {
             local_control::search_local(self.registry_dir.clone(), request).await
         } else {
             self.gateway_client()
@@ -70,7 +82,7 @@ impl DccControlPlane {
     }
 
     pub async fn describe(&self, tool_slug: String) -> anyhow::Result<Value> {
-        if self.target.is_local() {
+        if self.uses_direct_local() {
             local_control::describe_local(self.registry_dir.clone(), tool_slug).await
         } else {
             self.gateway_client()
@@ -81,7 +93,7 @@ impl DccControlPlane {
     }
 
     pub async fn load_skill(&self, request: LoadSkillRequest) -> anyhow::Result<Value> {
-        if self.target.is_local() {
+        if self.uses_direct_local() {
             local_control::load_skill_local(self.registry_dir.clone(), request.body).await
         } else {
             self.gateway_client()
@@ -100,8 +112,9 @@ impl DccControlPlane {
         meta: Option<Value>,
         timeout: Duration,
     ) -> anyhow::Result<Value> {
-        if self.target.is_local() {
-            return local_control::call_local(
+        let direct_local = self.uses_direct_local();
+        let value = if direct_local {
+            local_control::call_local(
                 self.registry_dir.clone(),
                 tool_slug,
                 dcc_type,
@@ -110,47 +123,52 @@ impl DccControlPlane {
                 meta,
                 timeout,
             )
-            .await;
-        }
-
-        let client =
-            DccMcpClient::with_gateway(self.endpoint.clone(), HttpGateway::with_timeout(timeout));
-        match (dcc_type, instance_id) {
-            (Some(dcc_type), Some(instance_id)) => client
-                .direct_call(DirectCallRequest {
-                    dcc_type,
-                    instance_id,
-                    backend_tool: tool_slug,
-                    arguments,
-                    meta,
-                })
-                .await
-                .map_err(Into::into),
-            (None, None) => client
-                .call(CallRequest {
-                    tool_slug,
-                    arguments,
-                    meta,
-                })
-                .await
-                .map_err(Into::into),
-            _ => anyhow::bail!(
-                "call requires both --dcc-type and --instance-id for direct backend-tool calls"
-            ),
-        }
+            .await?
+        } else {
+            let client = DccMcpClient::with_gateway(
+                self.endpoint.clone(),
+                HttpGateway::with_timeout(timeout),
+            );
+            match (dcc_type, instance_id) {
+                (Some(dcc_type), Some(instance_id)) => client
+                    .direct_call(DirectCallRequest {
+                        dcc_type,
+                        instance_id,
+                        backend_tool: tool_slug,
+                        arguments,
+                        meta,
+                    })
+                    .await
+                    .map_err(anyhow::Error::from)?,
+                (None, None) => client
+                    .call(CallRequest {
+                        tool_slug,
+                        arguments,
+                        meta,
+                    })
+                    .await
+                    .map_err(anyhow::Error::from)?,
+                _ => anyhow::bail!(
+                    "call requires both --dcc-type and --instance-id for direct backend-tool calls"
+                ),
+            }
+        };
+        Ok(attach_call_route(value, direct_local))
     }
 
     pub async fn call_batch(&self, body: Value, timeout: Duration) -> anyhow::Result<Value> {
         // Local mode owns and auto-starts the machine gateway, so batches use
         // its REST endpoint even though single calls can take the direct MCP path.
-        DccMcpClient::with_gateway(self.endpoint.clone(), HttpGateway::with_timeout(timeout))
-            .call_batch(body)
-            .await
-            .map_err(Into::into)
+        let value =
+            DccMcpClient::with_gateway(self.endpoint.clone(), HttpGateway::with_timeout(timeout))
+                .call_batch(body)
+                .await
+                .map_err(anyhow::Error::from)?;
+        Ok(attach_call_route(value, false))
     }
 
     pub async fn wait_ready(&self, request: WaitReadyRequest) -> anyhow::Result<Value> {
-        if self.target.is_local() {
+        if self.uses_direct_local() {
             local_control::wait_ready_local(self.registry_dir.clone(), request).await
         } else {
             self.gateway_client()
@@ -161,7 +179,7 @@ impl DccControlPlane {
     }
 
     pub async fn reload_skills(&self, request: ReloadSkillsRequest) -> anyhow::Result<Value> {
-        if self.target.is_local() {
+        if self.uses_direct_local() {
             local_control::reload_skills_local(self.registry_dir.clone(), request).await
         } else {
             self.reload_skills_remote(request).await
@@ -169,7 +187,7 @@ impl DccControlPlane {
     }
 
     pub async fn stop_instance(&self, request: StopInstanceRequest) -> anyhow::Result<Value> {
-        if self.target.is_local() {
+        if self.uses_direct_local() {
             local_control::stop_instance_local(self.registry_dir.clone(), request).await
         } else {
             self.gateway_client()
@@ -232,6 +250,46 @@ impl DccControlPlane {
     }
 }
 
+fn attach_call_route(mut value: Value, direct_local: bool) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "control_route".to_string(),
+            json!(if direct_local {
+                "local_mcp_direct"
+            } else {
+                "gateway"
+            }),
+        );
+        object.insert("gateway_stats_recorded".to_string(), json!(!direct_local));
+        if direct_local {
+            object.insert(
+                "gateway_stats_hint".to_string(),
+                json!(
+                    "Use --require-gateway and _meta.agent_context.session_id for attributable gateway stats."
+                ),
+            );
+        }
+    }
+    value
+}
+
+fn attach_stats_coverage(mut value: Value, direct_local: bool) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "stats_coverage".to_string(),
+            json!({
+                "source": "gateway_admin_sqlite",
+                "configured_call_route": if direct_local { "local_mcp_direct" } else { "gateway" },
+                "configured_route_recorded": !direct_local,
+                "excluded_control_routes": ["local_mcp_direct"],
+                "session_id_meta_path": "_meta.agent_context.session_id",
+                "hint": "Use --require-gateway for every task call when gateway stats are required evidence.",
+            }),
+        );
+    }
+    value
+}
+
 fn select_remote_instances(
     inventory: &Value,
     dcc_type: Option<&str>,
@@ -252,4 +310,98 @@ fn select_remote_instances(
         .into());
     }
     Ok(matches)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use axum::extract::Query;
+    use axum::routing::{get, post};
+    use axum::{Json, Router};
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn required_gateway_routes_a_local_call_and_reports_stats_coverage() {
+        async fn call(Json(body): Json<Value>) -> Json<Value> {
+            Json(json!({"success": true, "request": body}))
+        }
+
+        async fn stats(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            Json(json!({"total_calls": 1, "query": query}))
+        }
+
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .route("/v1/debug/stats", get(stats));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            true,
+        );
+
+        let result = control
+            .call(
+                "maya.abc12345.inspect".to_string(),
+                None,
+                None,
+                json!({"detail": true}),
+                Some(json!({"agent_context": {"session_id": "task-42"}})),
+                Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result["control_route"], "gateway");
+        assert_eq!(result["gateway_stats_recorded"], true);
+        assert_eq!(
+            result["request"]["meta"]["agent_context"]["session_id"],
+            "task-42"
+        );
+
+        let stats = control
+            .stats(StatsRequest {
+                range: "24h".to_string(),
+                session_id: Some("task-42".to_string()),
+                ..StatsRequest::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(stats["stats_coverage"]["configured_call_route"], "gateway");
+        assert_eq!(stats["stats_coverage"]["configured_route_recorded"], true);
+        assert_eq!(stats["query"]["session_id"], "task-42");
+
+        server.abort();
+    }
+
+    #[test]
+    fn direct_local_results_disclose_that_gateway_stats_exclude_them() {
+        let call = attach_call_route(json!({"success": true}), true);
+        assert_eq!(call["control_route"], "local_mcp_direct");
+        assert_eq!(call["gateway_stats_recorded"], false);
+        assert!(
+            call["gateway_stats_hint"]
+                .as_str()
+                .unwrap()
+                .contains("--require-gateway")
+        );
+
+        let stats = attach_stats_coverage(json!({"total_calls": 0}), true);
+        assert_eq!(
+            stats["stats_coverage"]["configured_call_route"],
+            "local_mcp_direct"
+        );
+        assert_eq!(stats["stats_coverage"]["configured_route_recorded"], false);
+        assert_eq!(
+            stats["stats_coverage"]["excluded_control_routes"][0],
+            "local_mcp_direct"
+        );
+    }
 }

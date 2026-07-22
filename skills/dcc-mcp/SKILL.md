@@ -19,7 +19,7 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; its consent-gated bootstrap accepts only the official release manifest and verifies SHA-256 before replacement. Local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
+    compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; its consent-gated bootstrap accepts only the official release manifest and verifies SHA-256 before replacement. Local profile needs no gateway env. Use --require-gateway plus --agent-session-id when gateway stats are required evidence. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
     version: "0.19.65"
     search-hint: "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats marketplace skill catalog recommend install update 商城 技能 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
     tags: "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, marketplace, skill-catalog, clawhub, openclaw"
@@ -40,6 +40,10 @@ describe, load, and call tools. In an **agent or headless CLI host** without an
 MCP connector, control DCC-MCP through **`dcc-mcp-cli`**. The CLI uses local
 FileRegistry + direct per-DCC MCP in the built-in `local` profile, and gateway
 REST (`/v1/search`, `/v1/describe`, `/v1/call`) for named remote profiles.
+
+Local direct calls are excluded from Gateway stats. For evidence or Skill
+reflection, add `--require-gateway --agent-session-id <task-id>` from the first
+call; this route fails closed without direct fallback.
 
 The CLI returns JSON by default. The bundled Python fallback is gateway-REST
 only and sends `Accept: application/json` because the gateway REST API itself
@@ -168,6 +172,10 @@ capability is unsupported or cannot reach the required semantic UI:
 4. `ui_control__stop_computer_use` when the fallback completes, fails, or is
    abandoned.
 
+The UI Control tool argument named `session_id` identifies its scoped UI
+session. It does **not** provide stats attribution. Use the CLI's separate
+`--agent-session-id <task-id>` flag for `_meta.agent_context.session_id`.
+
 Do not transition or retry through another UI/input path after a policy,
 authorization, authentication, security, confirmation, `desktop_unavailable`,
 or `user_interrupted` result. Those outcomes require the user or environment to
@@ -209,6 +217,14 @@ dcc-mcp-cli list --gateway pcA
 Use `--gateway <name>` to override the current profile for one command.
 `--base-url` / `DCC_MCP_BASE_URL` remain direct endpoint overrides for legacy
 scripts and smoke checks.
+
+Use `--require-gateway` for any local workflow whose calls must appear in
+Gateway audit/stats. Pair it with `--agent-session-id <task-id>` so every
+single or batched call gets the same `_meta.agent_context.session_id` without
+hand-editing `--meta-json`. A conflicting session value in `--meta-json` is an
+error. Direct local call output reports `control_route=local_mcp_direct` and
+`gateway_stats_recorded=false`; gateway-routed output reports
+`control_route=gateway` and `gateway_stats_recorded=true`.
 
 Agent-control commands (`list`, `search`, `describe`, `load-skill`, `call`,
 `wait-ready`, `reload-skills`, and `stop-instance`) and endpoint-level commands
@@ -256,6 +272,7 @@ remove the old package to avoid duplicate intent routing.
 | **Starting any local DCC task** | Run `dcc-mcp-cli list`; it ensures the local gateway, then reads the local FileRegistry |
 | **Startup state is ambiguous** | Run `dcc-mcp-cli doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
 | **Starting any remote DCC task** | Select or override a profile with `dcc-mcp-cli gateway set <name>` or `dcc-mcp-cli list --gateway <name>` |
+| **Task needs gateway stats or Skill reflection** | Add `--require-gateway --agent-session-id <task-id>` before the first tool call and keep the same task ID for all calls; do not mix direct and measured routes |
 | `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; it must verify the official manifest and SHA-256, and Python REST fallback is allowed if verification or download fails |
 | CLI auto-ensure fails | Stop; explain the result; do not run agent-control or gateway endpoint commands until the gateway is reachable |
 | Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
@@ -268,10 +285,9 @@ remove the old package to avoid duplicate intent routing.
 
 ## Configuration
 
-Use the local profile unless the user selected a remote gateway. Profile,
-fallback, and installation commands live in the
-[CLI cheatsheet](references/CLI_CHEATSHEET.md). Do not download, install, or
-write configuration without user consent.
+Use the local profile unless the user selected a remote gateway. For measured tasks,
+add `--require-gateway` and a stable `--agent-session-id`. See the [CLI
+cheatsheet](references/CLI_CHEATSHEET.md); never install or write configuration without consent.
 
 ---
 
@@ -355,13 +371,16 @@ Read `tool.inputSchema` and safety annotations before calling.
 ```bash
 # CLI (primary)
 dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
-  --json '{"radius":2.0}' \
-  --meta-json '{"agent_context":{"session_id":"task-42"}}'
+  --require-gateway \
+  --agent-session-id task-42 \
+  --json '{"radius":2.0}'
 
 # When the workflow reserved this instance, repeat the exact lease owner.
 dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
+  --require-gateway \
+  --agent-session-id task-42 \
   --json '{"radius":2.0}' \
-  --meta-json '{"lease_owner":"workflow-42","agent_context":{"session_id":"task-42"}}'
+  --meta-json '{"lease_owner":"workflow-42"}'
 
 # Python fallback
 python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere \
@@ -412,6 +431,11 @@ Only after task acceptance, query narrowly scoped gateway evidence:
 ```bash
 dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
 ```
+
+Check `stats_coverage` before the count. Gateway SQLite excludes
+`local_mcp_direct`; `configured_route_recorded=false` means that route cannot
+support reflection. Re-run through `--require-gateway`; never manufacture
+telemetry or treat `total_calls == 0` as proof that no calls occurred.
 
 Then load `dcc-mcp-skills-creator` and request its
 `review_skill_improvement` prompt. Pass only bounded task, stats, validation,
