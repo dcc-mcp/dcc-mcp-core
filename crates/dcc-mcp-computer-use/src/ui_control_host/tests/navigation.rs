@@ -135,6 +135,54 @@ fn game_navigation_accessibility_state(
     }
 }
 
+fn nested_game_navigation_accessibility_state(
+    parent_runtime_id: &str,
+    parent_control_type: &str,
+    focus_runtime_id: &str,
+) -> RuntimeAccessibilityState {
+    RuntimeAccessibilityState {
+        root: json!({
+            "runtime_id": "42.game-root",
+            "name": "Eclipse Swarm",
+            "class_name": "UnityWndClass",
+            "control_type": "ControlType.Window",
+            "process_id": 42,
+            "is_password": false,
+            "focused": false,
+            "value": null,
+            "value_pattern_available": false,
+            "text_pattern_available": false,
+            "children": [{
+                "runtime_id": parent_runtime_id,
+                "name": "Runtime Canvas",
+                "class_name": "UnityGUIView",
+                "control_type": parent_control_type,
+                "process_id": 42,
+                "is_password": false,
+                "focused": false,
+                "value": null,
+                "value_pattern_available": false,
+                "text_pattern_available": false,
+                "children": [{
+                    "runtime_id": focus_runtime_id,
+                    "name": "Game Canvas",
+                    "class_name": "UnityGUIView",
+                    "control_type": "ControlType.Custom",
+                    "process_id": 42,
+                    "is_password": false,
+                    "focused": true,
+                    "value": null,
+                    "value_pattern_available": false,
+                    "text_pattern_available": false,
+                    "children": []
+                }]
+            }]
+        }),
+        focus_runtime_id: Some(focus_runtime_id.to_owned()),
+        node_count: 3,
+    }
+}
+
 #[test]
 fn game_navigation_has_a_separate_bounded_descriptor() {
     for key in ["W", "a", "S", "d"] {
@@ -190,6 +238,78 @@ fn game_navigation_has_a_separate_bounded_descriptor() {
         classify_action(&printable_keypress, Some(&safe_game.root), None),
         UiControlPolicyTier::HardDeny
     );
+}
+
+#[test]
+fn game_navigation_rejects_editable_or_unknown_intermediate_ancestors() {
+    let game_navigation = UiControlAction {
+        action: "game_navigation".to_owned(),
+        input_kind: UiControlInputKind::RawInput,
+        intent: UiControlIntent::Navigate,
+        keys: vec!["W".to_owned()],
+        duration_ms: Some(120),
+        ..action(None, UiControlInputKind::RawInput)
+    };
+    let snapshot = nested_game_navigation_accessibility_state(
+        "42.runtime.snapshot",
+        "ControlType.Pane",
+        "42.canvas.snapshot",
+    );
+    let live = nested_game_navigation_accessibility_state(
+        "42.runtime.live",
+        "ControlType.Pane",
+        "42.canvas.live",
+    );
+    let (policy_tier, controls) = verify_action_fence(
+        &game_navigation,
+        &snapshot.root,
+        snapshot.focus_runtime_id.as_deref(),
+        None,
+        &live,
+    )
+    .expect("a non-editable Pane to Custom runtime canvas chain must remain valid");
+    assert_eq!(policy_tier, UiControlPolicyTier::TaskGrant);
+    assert_eq!(controls.len(), 1);
+    assert_eq!(controls[0].identity, "42.game-root");
+
+    for parent_control_type in ["ControlType.Edit", "ControlType.Document"] {
+        let editable = nested_game_navigation_accessibility_state(
+            "42.runtime.editable",
+            parent_control_type,
+            "42.canvas.editable-parent",
+        );
+        assert_eq!(
+            classify_action(&game_navigation, Some(&editable.root), None),
+            UiControlPolicyTier::HardDeny,
+            "{parent_control_type} must hard-deny game navigation"
+        );
+    }
+
+    for field in ["value_pattern_available", "text_pattern_available"] {
+        for malformed in [
+            None,
+            Some(Value::Null),
+            Some(json!(true)),
+            Some(json!("false")),
+        ] {
+            let mut unknown = nested_game_navigation_accessibility_state(
+                "42.runtime.unknown-pattern",
+                "ControlType.Pane",
+                "42.canvas.unknown-pattern-parent",
+            );
+            let parent = unknown.root["children"][0].as_object_mut().unwrap();
+            if let Some(value) = malformed {
+                parent.insert(field.to_owned(), value);
+            } else {
+                parent.remove(field);
+            }
+            assert_eq!(
+                classify_action(&game_navigation, Some(&unknown.root), None),
+                UiControlPolicyTier::HardDeny,
+                "intermediate {field} metadata must be explicit boolean false"
+            );
+        }
+    }
 }
 
 #[test]

@@ -224,6 +224,10 @@ fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
             control.get("process_id").and_then(Value::as_u64) != Some(root_process_id)
                 || control.get("is_password").and_then(Value::as_bool) != Some(false)
         })
+        || !ancestry
+            .iter()
+            .skip(1)
+            .all(|control| game_navigation_node_is_non_editable(control))
         || ancestry_has_authentication_secret_marker(ancestry)
     {
         return false;
@@ -231,12 +235,20 @@ fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
     matches!(
         focused.get("control_type").and_then(Value::as_str),
         Some("ControlType.Pane" | "ControlType.Custom" | "ControlType.Window")
-    ) && focused.get("value").is_some_and(Value::is_null)
-        && focused
+    ) && game_navigation_node_is_non_editable(focused)
+}
+
+fn game_navigation_node_is_non_editable(control: &Value) -> bool {
+    let Some(control_type) = control.get("control_type").and_then(Value::as_str) else {
+        return false;
+    };
+    !matches!(control_type, "ControlType.Edit" | "ControlType.Document")
+        && control.get("value").is_some_and(Value::is_null)
+        && control
             .get("value_pattern_available")
             .and_then(Value::as_bool)
             == Some(false)
-        && focused
+        && control
             .get("text_pattern_available")
             .and_then(Value::as_bool)
             == Some(false)
