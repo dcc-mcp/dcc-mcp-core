@@ -252,6 +252,19 @@ impl UiControlHost {
                 max_depth,
                 max_nodes,
             ),
+            UiControlHostRequest::AccessibilitySnapshot {
+                session_id,
+                task_grant_id,
+                window_capability,
+                max_depth,
+                max_nodes,
+            } => self.accessibility_snapshot(
+                &session_id,
+                &task_grant_id,
+                &window_capability,
+                max_depth,
+                max_nodes,
+            ),
             UiControlHostRequest::RecordClip {
                 session_id,
                 task_grant_id,
@@ -564,6 +577,51 @@ impl UiControlHost {
             focus_runtime_id: snapshot.focus_runtime_id,
             node_count: snapshot.node_count,
             image: Box::new(snapshot.image),
+        }
+    }
+
+    fn accessibility_snapshot(
+        &mut self,
+        session_id: &str,
+        task_grant_id: &str,
+        window_capability: &str,
+        max_depth: u32,
+        max_nodes: u32,
+    ) -> UiControlHostResponse {
+        if !(1..=12).contains(&max_depth) || !(1..=2_000).contains(&max_nodes) {
+            return error(
+                UiControlHostErrorCode::InvalidRequest,
+                "max_depth must be 1..=12 and max_nodes must be 1..=2000",
+            );
+        }
+        let session = match Self::authorized_session_mut(
+            &mut self.sessions,
+            session_id,
+            task_grant_id,
+            window_capability,
+        ) {
+            Ok(session) => session,
+            Err(failure) => return failure.into_response(),
+        };
+        let state = match session
+            .runtime
+            .accessibility_state(max_depth, max_nodes, true)
+        {
+            Ok(state) => state,
+            Err(failure) => return failure.into_response(),
+        };
+        let accessibility_state_id = new_capability("accessibility");
+        session.accessibility_state_id = Some(accessibility_state_id.clone());
+        session.accessibility_root = Some(state.root.clone());
+        session.focus_runtime_id = state.focus_runtime_id.clone();
+        session.accessibility_max_depth = Some(max_depth);
+        session.accessibility_max_nodes = Some(max_nodes);
+        UiControlHostResponse::AccessibilitySnapshot {
+            accessibility_state_id,
+            target: session.runtime.target().clone(),
+            root: state.root,
+            focus_runtime_id: state.focus_runtime_id,
+            node_count: state.node_count,
         }
     }
 
@@ -957,7 +1015,7 @@ impl UiControlHost {
     }
 
     fn stop_session(&mut self, session_id: String) -> UiControlHostResponse {
-        let Some(mut session) = self.sessions.remove(&session_id) else {
+        let Some(session) = self.sessions.get_mut(&session_id) else {
             return error(
                 UiControlHostErrorCode::SessionNotFound,
                 "UI Control session does not exist",
@@ -971,6 +1029,9 @@ impl UiControlHost {
             UiControlPolicyTier::TaskGrant,
             None,
         );
+        if !cleanup_pending {
+            self.sessions.remove(&session_id);
+        }
         UiControlHostResponse::SessionStopped {
             session_id,
             cleanup_pending,

@@ -268,6 +268,13 @@ impl AdminSqliteLane {
         }
     }
 
+    /// Persist a bounded recording projection in the existing session timeline.
+    pub fn try_persist_session_event(&self, event: &serde_json::Value) {
+        if let Ok(json) = serde_json::to_string(event) {
+            self.inner.try_persist_session_event_json(&json);
+        }
+    }
+
     pub fn try_delete_agent_memory(
         &self,
         id: Option<i64>,
@@ -458,6 +465,8 @@ impl AdminSqliteLane {
     ) {
     }
 
+    pub fn try_persist_session_event(&self, _: &serde_json::Value) {}
+
     pub fn try_add_skill_path(&self, _: String) -> bool {
         false
     }
@@ -524,5 +533,24 @@ mod tests {
         let r = AdminSqliteReader::new(db);
         let list = r.list_traces_since(None, 10);
         assert!(list.iter().any(|x| x.request_id == "r1"));
+    }
+
+    #[test]
+    fn roundtrip_recording_projection_uses_existing_session_events() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("recording.sqlite");
+        let lane = AdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        lane.try_persist_session_event(&serde_json::json!({
+            "session_id": "task-recording",
+            "event_type": "recording.stopped",
+            "created_at_ms": 42,
+            "recording_id": "rec-1",
+        }));
+        drop(lane);
+
+        let events = AdminSqliteReader::new(db).list_session_events("task-recording", 10);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["event_type"], "recording.stopped");
+        assert_eq!(events[0]["recording_id"], "rec-1");
     }
 }

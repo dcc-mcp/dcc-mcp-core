@@ -152,6 +152,13 @@ does not replace a running server binary.
 18. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states; skill panels should distinguish discovered, loaded, searched, selected, called, failed, and low-adoption skills; and admin-facing frames/paths should stay metadata-only or aliased unless an operator explicitly configures a private raw sink. Keep `ServiceEntry.version` as the DCC application version; use core-published `dcc_mcp_server_version` and `dcc_mcp_instance_type=gui|standalone` metadata for server regression and runtime-shape diagnostics instead of overloading DCC or adapter versions.
 19. Preserve workflow observability: adapter calls should carry request, parent, trace, session, DCC, transport, and artifact/validation metadata so the Admin workflow graph can show Intent → Discovery → Skill Load → Tool Calls → Fallbacks → Artifacts → Validation → Report without raw log reading.
 20. Preserve bounded `agent_context` task/session/turn metadata and artifact/validation-friendly tool names so Admin task outcomes can group workflows, calls, deliverables, and checks without reading raw payloads or local paths.
+21. Preserve record-replay ownership boundaries: forward server-derived
+    `agent_context.session_id`, keep UI Control logical ids connection/caller
+    scoped, and write only redacted recording projections to existing
+    `session_events`. Do not add adapter-local recorder state, a second
+    database, or a replay authority flag. Generated workflows re-resolve
+    current tools and schemas; semantic UI replay resolves fresh control ids;
+    raw/visual fallback requires exact-window calibration and drift guards.
 
 ## Example: New Nuke Adapter
 

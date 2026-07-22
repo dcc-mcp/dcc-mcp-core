@@ -633,6 +633,8 @@ class _FakeHostClient:
         self.executed: list[dict[str, Any]] = []
         self.window_operations: list[str] = []
         self.recordings: list[dict[str, int]] = []
+        self.snapshot_calls = 0
+        self.accessibility_snapshot_calls = 0
         self.resumed = False
         self.stopped = False
         self.__class__.instances.append(self)
@@ -643,6 +645,7 @@ class _FakeHostClient:
 
     def snapshot(self, *, max_depth: int, max_nodes: int) -> dict[str, Any]:
         del max_depth, max_nodes
+        self.snapshot_calls += 1
         return {
             "type": "snapshot",
             "observation_id": "obs-1",
@@ -690,6 +693,20 @@ class _FakeHostClient:
             "node_count": 2,
             "image": {"mime_type": "image/png"},
             "image_bytes": b"png",
+        }
+
+    def accessibility_snapshot(self, *, max_depth: int, max_nodes: int) -> dict[str, Any]:
+        previous_snapshot_calls = self.snapshot_calls
+        snapshot = self.snapshot(max_depth=max_depth, max_nodes=max_nodes)
+        self.snapshot_calls = previous_snapshot_calls
+        self.accessibility_snapshot_calls += 1
+        return {
+            "type": "accessibility_snapshot",
+            "accessibility_state_id": snapshot["accessibility_state_id"],
+            "target": snapshot["target"],
+            "root": snapshot["root"],
+            "focus_runtime_id": snapshot["focus_runtime_id"],
+            "node_count": snapshot["node_count"],
         }
 
     def execute(self, action: dict[str, Any]) -> dict[str, Any]:
@@ -1067,6 +1084,7 @@ def test_ui_control_windows_host_find_wait_stop_and_cleanup(monkeypatch: Any) ->
         }
     )
     assert waited["success"] is True
+    assert _FakeHostClient.instances[0].accessibility_snapshot_calls == 1
 
     stopped = backend.stop_computer_use_tool({"session_id": "workflow"})
     assert stopped["success"] is True
@@ -1075,6 +1093,64 @@ def test_ui_control_windows_host_find_wait_stop_and_cleanup(monkeypatch: Any) ->
 
     backend.cleanup()
     assert backend._STOP_EVENT.is_set()
+
+
+def test_ui_control_windows_find_reuses_latest_unconsumed_snapshot(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+
+    snapshot = backend.snapshot_tool({"session_id": "cached"})
+    found = backend.find_tool({"session_id": "cached", "role": "button"})
+
+    assert snapshot["success"] is True
+    assert found["success"] is True
+    assert found["context"]["snapshot_id"] == snapshot["context"]["snapshot_id"]
+    assert _FakeHostClient.instances[0].snapshot_calls == 1
+
+
+def test_ui_control_windows_expires_idle_session_without_touching_active_call(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+    clock = iter([0.0, 0.0, 10.0, 10.0])
+    monkeypatch.setattr(backend, "_IDLE_LEASE_SECONDS", 5.0)
+    monkeypatch.setattr(backend.time, "monotonic", lambda: next(clock))
+
+    assert backend.snapshot_tool({"session_id": "idle"})["success"] is True
+    idle_client = _FakeHostClient.instances[0]
+    assert backend.snapshot_tool({"session_id": "active"})["success"] is True
+
+    assert idle_client.stopped is True
+    assert "idle" not in backend._CLIENTS
+    assert "active" in backend._CLIENTS
+
+
+def test_ui_control_windows_host_retries_pending_cleanup(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+
+    class PendingCleanupHost(_FakeHostClient):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.stop_calls = 0
+
+        def stop(self) -> dict[str, Any]:
+            self.stop_calls += 1
+            return {
+                "type": "session_stopped",
+                "cleanup_pending": self.stop_calls == 1,
+            }
+
+    _configure_fake_host(backend, monkeypatch)
+    monkeypatch.setattr(backend, "_HostClient", PendingCleanupHost)
+    assert backend.snapshot_tool({"session_id": "cleanup"})["success"] is True
+
+    pending = backend.stop_computer_use_tool({"session_id": "cleanup"})
+    assert pending["success"] is False
+    assert pending["context"]["cleanup_pending"] is True
+    assert "cleanup" in backend._CLIENTS
+
+    completed = backend.stop_computer_use_tool({"session_id": "cleanup"})
+    assert completed["success"] is True
+    assert backend._CLIENTS == {}
 
 
 def test_ui_control_windows_host_resume_always_round_trips_to_trusted_surface(monkeypatch: Any) -> None:
@@ -1135,7 +1211,7 @@ def test_ui_control_host_client_wire_has_no_approval_boolean() -> None:
     class ScriptedPipe:
         def __init__(self) -> None:
             self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 2, "capabilities": []})
+                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
                 + frame(
                     {
                         "type": "session_opened",
@@ -1184,9 +1260,9 @@ def test_ui_control_host_client_uses_versioned_binary_identity_pipe(monkeypatch:
     monkeypatch.setattr(client_module, "_host_binary", lambda: Path("host.exe"))
     monkeypatch.setattr(client_module, "_host_identity", lambda _binary: digest)
 
-    assert client_module._PROTOCOL_VERSION == 2
+    assert client_module._PROTOCOL_VERSION == 3
     assert client_module._pipe_path() == (
-        rf"\\.\pipe\dcc-mcp-ui-control-host-v2-version-0.19.65-sha256-{digest}-session-42"
+        rf"\\.\pipe\dcc-mcp-ui-control-host-v3-version-0.19.65-sha256-{digest}-session-42"
     )
 
 
@@ -1207,7 +1283,7 @@ def test_ui_control_host_client_recording_wire_has_no_output_path_and_consumes_o
                 frame(
                     {
                         "type": "hello",
-                        "protocol_version": 2,
+                        "protocol_version": 3,
                         "capabilities": ["exact_window_recording"],
                     }
                 )
@@ -1305,7 +1381,7 @@ def test_ui_control_host_client_rejects_recording_on_an_older_host() -> None:
     class ScriptedPipe:
         def __init__(self) -> None:
             self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 2, "capabilities": []})
+                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
                 + frame(
                     {
                         "type": "session_opened",
@@ -1341,6 +1417,63 @@ def test_ui_control_host_client_rejects_recording_on_an_older_host() -> None:
     assert failure.value.code == "unsupported"
 
 
+def test_ui_control_host_client_retains_capability_until_cleanup_completes() -> None:
+    import io
+    import struct
+
+    backend = _load_windows_uia_module()
+    client_module = backend._HOST
+
+    def frame(value: dict[str, Any]) -> bytes:
+        body = json.dumps(value).encode("utf-8")
+        return struct.pack(">I", len(body)) + body
+
+    class ScriptedPipe:
+        def __init__(self) -> None:
+            self.responses = io.BytesIO(
+                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
+                + frame(
+                    {
+                        "type": "session_opened",
+                        "session_id": "cleanup",
+                        "window_capability": "window:opaque",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
+                    }
+                )
+                + frame({"type": "session_stopped", "session_id": "cleanup", "cleanup_pending": True})
+                + frame({"type": "session_stopped", "session_id": "cleanup", "cleanup_pending": False})
+            )
+            self.closed = False
+
+        def read(self, length: int) -> bytes:
+            return self.responses.read(length)
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def close(self) -> None:
+            self.closed = True
+
+    stream = ScriptedPipe()
+    client = client_module.UiControlHostClient(
+        session_id="cleanup",
+        task_grant_id="grant",
+        dcc_type="maya",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        stream=stream,
+    )
+
+    assert client.stop()["cleanup_pending"] is True
+    assert client._window_capability == "window:opaque"
+    assert stream.closed is False
+
+    assert client.stop()["cleanup_pending"] is False
+    assert client._window_capability is None
+    assert stream.closed is True
+
+
 def test_ui_control_host_client_revokes_local_capability_when_exact_target_closes() -> None:
     import io
     import struct
@@ -1355,7 +1488,7 @@ def test_ui_control_host_client_revokes_local_capability_when_exact_target_close
     class ScriptedPipe:
         def __init__(self) -> None:
             self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 2, "capabilities": []})
+                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
                 + frame(
                     {
                         "type": "session_opened",
@@ -1506,7 +1639,7 @@ def test_ui_control_host_client_negotiates_typed_system_operations() -> None:
                 frame(
                     {
                         "type": "hello",
-                        "protocol_version": 2,
+                        "protocol_version": 3,
                         "capabilities": ["typed_system_operations"],
                     }
                 )
@@ -1562,7 +1695,7 @@ def test_ui_control_host_client_negotiates_typed_system_operations() -> None:
         "execute_system_operation",
         "stop_system_session",
     ]
-    assert requests[0]["params"]["protocol_version"] == 2
+    assert requests[0]["params"]["protocol_version"] == 3
     assert set(requests[1]["params"]) == {"session_id", "system_grant_id"}
     assert set(requests[2]["params"]) == {
         "session_id",
@@ -1578,7 +1711,7 @@ def test_ui_control_host_client_negotiates_typed_system_operations() -> None:
     assert stream.closed is True
 
     unsupported = ScriptedPipe()
-    unsupported.responses = io.BytesIO(frame({"type": "hello", "protocol_version": 2, "capabilities": []}))
+    unsupported.responses = io.BytesIO(frame({"type": "hello", "protocol_version": 3, "capabilities": []}))
     with pytest.raises(client_module.UiControlHostError) as exc_info:
         client_module.execute_system_operation(
             session_id="system:old-host",

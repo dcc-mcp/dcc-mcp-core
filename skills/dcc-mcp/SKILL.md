@@ -176,6 +176,16 @@ The UI Control tool argument named `session_id` identifies its scoped UI
 session. It does **not** provide stats attribution. Use the CLI's separate
 `--agent-session-id <task-id>` flag for `_meta.agent_context.session_id`.
 
+For a reusable demonstrated workflow, use `dcc-mcp-cli record-replay start`
+with the same `--agent-session-id` used by gateway calls, demonstrate with
+structured tools first, then `stop` and `review`. Run `compile --reviewed`
+only after inspecting the redacted timeline; it creates a local Skill and
+`WorkflowSpec`. `replay` requires a separate `--approve-replay` grant and must
+use the current workflow tool/schema. A recorded approval, instance id,
+control id, screenshot coordinate, credential, or secret is never reusable
+authority. Do not use record-replay as a blind macro or a reason to skip
+`search` / `describe` / post-step verification.
+
 Do not transition or retry through another UI/input path after a policy,
 authorization, authentication, security, confirmation, `desktop_unavailable`,
 or `user_interrupted` result. Those outcomes require the user or environment to

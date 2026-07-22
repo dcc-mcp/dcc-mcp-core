@@ -59,6 +59,11 @@ _session_lock = _SUPPORT._session_lock
 _CLIENTS: Dict[str, Dict[str, Any]] = {}
 _STOP_EVENT = threading.Event()
 _CLIENTS_LOCK = threading.RLock()
+_ACTIVE_CALLS: set[str] = set()
+_IDLE_LEASE_SECONDS = max(
+    1.0,
+    float(os.environ.get("DCC_MCP_UI_CONTROL_IDLE_LEASE_SECONDS", "300")),
+)
 _MAX_WAIT_MS = 30_000
 _INTENTS = {
     "observe",
@@ -92,16 +97,47 @@ def _serialize_session_call(func: Callable[..., Dict[str, Any]]) -> Callable[...
     def wrapped(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         raw = dict(params or {})
         session_id = _safe_session_id(raw.get("session_id"))
+        _prune_idle_clients(time.monotonic())
         with _session_lock(session_id):
-            if _STOP_EVENT.is_set():
-                return skill_error(
-                    "ui_control Windows host proxy is stopping.",
-                    UiErrorCode.BACKEND_UNAVAILABLE,
-                    backend="windows-ui-control-host",
-                )
-            return func(raw)
+            with _CLIENTS_LOCK:
+                _ACTIVE_CALLS.add(session_id)
+            try:
+                if _STOP_EVENT.is_set():
+                    return skill_error(
+                        "ui_control Windows host proxy is stopping.",
+                        UiErrorCode.BACKEND_UNAVAILABLE,
+                        backend="windows-ui-control-host",
+                    )
+                return func(raw)
+            finally:
+                with _CLIENTS_LOCK:
+                    _ACTIVE_CALLS.discard(session_id)
+                    entry = _CLIENTS.get(session_id)
+                    if entry is not None:
+                        entry["last_activity"] = time.monotonic()
 
     return wrapped
+
+
+def _prune_idle_clients(now: float) -> None:
+    with _CLIENTS_LOCK:
+        expired = [
+            (session_id, entry)
+            for session_id, entry in _CLIENTS.items()
+            if session_id not in _ACTIVE_CALLS and now - float(entry.get("last_activity", now)) >= _IDLE_LEASE_SECONDS
+        ]
+    for session_id, entry in expired:
+        try:
+            stopped = entry["client"].stop()
+        except (UiControlHostError, OSError, ValueError):
+            continue
+        with _CLIENTS_LOCK:
+            if _CLIENTS.get(session_id) is not entry:
+                continue
+            if bool(stopped.get("cleanup_pending")):
+                entry["last_activity"] = now
+            else:
+                _CLIENTS.pop(session_id, None)
 
 
 def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -171,7 +207,14 @@ def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy
                 window_handle=spec["window_handle"],
                 allow_raw_input=spec["allow_raw_input"],
             )
-            entry = {"client": client, "identity": identity, "snapshot_id": None, "scope": spec["scope"]}
+            entry = {
+                "client": client,
+                "identity": identity,
+                "snapshot_id": None,
+                "snapshot": None,
+                "scope": spec["scope"],
+                "last_activity": 0.0,
+            }
             _CLIENTS[session_id] = entry
         return entry["client"], entry
 
@@ -315,6 +358,7 @@ def _capture_snapshot(
         },
     ).to_dict()
     entry["snapshot_id"] = snapshot_id
+    entry["snapshot"] = snapshot
     return {
         "success": True,
         "snapshot_id": snapshot_id,
@@ -324,6 +368,44 @@ def _capture_snapshot(
         "observation": raw.get("observation") or {},
         "target": raw.get("target") or client.target,
     }
+
+
+def _capture_accessibility_snapshot(
+    session_id: str,
+    policy: UiControlPolicy,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    try:
+        client, entry = _client_for(session_id, params, policy)
+        max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_UI_CONTROL_UIA_MAX_DEPTH", "5"))))
+        max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_UI_CONTROL_UIA_MAX_NODES", "250"))))
+        raw = client.accessibility_snapshot(max_depth=max_depth, max_nodes=max_nodes)
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+    snapshot_id = str(raw["accessibility_state_id"])
+    root = _node_from_uia_dict(raw["root"], snapshot_id)
+    focus_runtime_id = str(raw.get("focus_runtime_id") or "")
+    snapshot = UiSnapshot(
+        root=root,
+        session_id=session_id,
+        focus_id=f"uia:{focus_runtime_id}" if focus_runtime_id else None,
+        truncated=int(raw.get("node_count") or 0) >= max_nodes,
+        node_count=int(raw.get("node_count") or 1),
+        metadata={
+            "snapshot_id": snapshot_id,
+            "ui_control": {
+                "backend": "windows-ui-control-host",
+                "scope": entry["scope"],
+                "target": raw.get("target") or client.target,
+                "max_depth": max_depth,
+                "max_nodes": max_nodes,
+                "pixels_captured": False,
+            },
+        },
+    ).to_dict()
+    entry["snapshot_id"] = snapshot_id
+    entry["snapshot"] = snapshot
+    return {"success": True, "snapshot_id": snapshot_id, "snapshot": snapshot}
 
 
 @_serialize_session_call
@@ -445,7 +527,17 @@ def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     policy = _policy_from_params(params)
     if not policy.allow_find:
         return skill_error("ui_control find disabled by policy", UiErrorCode.POLICY_DISABLED)
-    capture = _capture_snapshot(session_id, policy, params)
+    try:
+        _client, entry = _client_for(session_id, params, policy)
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+    cached_snapshot = entry.get("snapshot")
+    cached_snapshot_id = entry.get("snapshot_id")
+    capture = (
+        {"success": True, "snapshot": cached_snapshot, "snapshot_id": cached_snapshot_id}
+        if isinstance(cached_snapshot, dict) and cached_snapshot_id
+        else _capture_snapshot(session_id, policy, params)
+    )
     if not capture.get("success"):
         return capture
     matches = _find_controls(capture["snapshot"], params)
@@ -630,7 +722,7 @@ def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str,
     params = dict(params or {})
     session_id = _safe_session_id(params.get("session_id"))
     with _CLIENTS_LOCK:
-        entry = _CLIENTS.pop(session_id, None)
+        entry = _CLIENTS.get(session_id)
     if entry is None:
         return skill_success(
             "No isolated UI Control session was active.",
@@ -649,6 +741,9 @@ def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str,
             UiErrorCode.BACKEND_UNAVAILABLE,
             cleanup_pending=True,
         )
+    with _CLIENTS_LOCK:
+        if _CLIENTS.get(session_id) is entry:
+            _CLIENTS.pop(session_id, None)
     return skill_success(
         "Stopped the isolated UI Control session.",
         session_id=session_id,
@@ -675,7 +770,7 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             return skill_error(
                 "ui_control wait cancelled because the backend is stopping.", UiErrorCode.BACKEND_UNAVAILABLE
             )
-        capture = _capture_snapshot(session_id, policy, params)
+        capture = _capture_accessibility_snapshot(session_id, policy, params)
         if not capture.get("success"):
             return capture
         last_snapshot_id = capture["snapshot_id"]

@@ -188,6 +188,14 @@ Generated `tools.yaml` entries follow the modern contract:
   UIA/input classification. Never add a model-controlled `confirmed` or
   `approved` argument or treat an environment variable as per-action user
   approval.
+- Generated record-replay Skills must stay local until reviewed. Compile
+  structured calls to `WorkflowSpec` tool steps, compile semantic UI actions
+  as fresh `snapshot` -> `find` -> one `act` -> verified wait/snapshot loops,
+  and reject raw captured control ids or coordinates. Keep the demonstrated
+  instance id as review provenance only. Never serialize approvals, grants,
+  credentials, prompts, or secret-shaped fields. Visual fallback assets must
+  be content-addressed, exact-window bounded, confidence gated, stable across
+  multiple frames, and fail closed on geometry/DPI/topology drift.
 
 ## Authoring Workflow
 

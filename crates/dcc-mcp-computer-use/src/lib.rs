@@ -8,6 +8,7 @@ mod drag_path;
 mod keyboard_policy;
 mod platform;
 pub mod ui_control_host;
+pub mod visual_recognition;
 
 #[cfg(feature = "python-bindings")]
 pub mod python;

@@ -47,6 +47,21 @@ impl HttpGateway {
         Self::json_response(response).await
     }
 
+    pub async fn get_json_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<Value, HttpError> {
+        let mut request = self
+            .client
+            .get(url)
+            .header(header::ACCEPT, "application/json");
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        Self::json_response(request.send().await?).await
+    }
+
     pub async fn post_json(&self, url: &str, body: &Value) -> Result<Value, HttpError> {
         let response = self
             .client

@@ -665,6 +665,10 @@ pub struct AdminState {
     /// Process-local integration configuration that has been submitted through the admin UI
     /// but cannot take effect until the gateway/server process restarts.
     pub pending_integrations: Arc<Mutex<HashMap<String, Value>>>,
+    /// Explicit caller-scoped demonstration recordings.
+    pub recordings: crate::gateway::record_replay::RecordReplayStore,
+    /// Traffic subscription active only while at least one recording is running.
+    pub recording_subscription: Arc<Mutex<Option<u64>>>,
 }
 
 impl AdminState {
@@ -682,7 +686,37 @@ impl AdminState {
             admin_sqlite_lane: None,
             skill_paths_reload: None,
             pending_integrations: Arc::new(Mutex::new(HashMap::new())),
+            recordings: crate::gateway::record_replay::RecordReplayStore::default(),
+            recording_subscription: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Activate redacted traffic projection while demonstrations are running.
+    pub fn ensure_recording_subscription(&self) {
+        let mut subscription = self.recording_subscription.lock();
+        if subscription.is_some() {
+            return;
+        }
+        let store = self.recordings.clone();
+        *subscription = Some(
+            self.gateway
+                .traffic_capture
+                .subscribe_redacted_frames(move |frame| store.capture_frame(frame)),
+        );
+    }
+
+    /// Release traffic projection when the last demonstration stops.
+    pub fn release_recording_subscription_if_idle(&self) {
+        if self.recordings.active_count() != 0 {
+            return;
+        }
+        let Some(subscription_id) = self.recording_subscription.lock().take() else {
+            return;
+        };
+        let _ = self
+            .gateway
+            .traffic_capture
+            .unsubscribe_redacted_frames(subscription_id);
     }
 
     /// Attach the [`AuditLog`] that `GET /admin/api/calls` reads from.

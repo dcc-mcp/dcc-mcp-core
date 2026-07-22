@@ -39,6 +39,7 @@ pub mod notifier;
 pub mod policy;
 #[cfg(feature = "python-bindings")]
 pub mod python;
+pub mod record_replay;
 pub mod spec;
 #[cfg(feature = "job-persist-sqlite")]
 pub mod sqlite;
@@ -71,6 +72,10 @@ pub use notifier::{
 };
 pub use policy::{
     BackoffKind, IdempotencyScope, RawRetryPolicy, RawStepPolicy, RetryPolicy, StepPolicy,
+};
+pub use record_replay::{
+    CompileOptions, CompiledRecording, RecordedEvent, RecordingCompileError, RecordingManifest,
+    RecordingTarget, ReplayToolGuard, compile_recording, schema_fingerprint,
 };
 pub use spec::{Step, StepId, StepKind, WorkflowId, WorkflowSpec, WorkflowStatus};
 pub use tools::register_builtin_workflow_tools;

@@ -149,6 +149,28 @@ apply its confirmation policy. A model-supplied `confirmed` argument or
 environment bypass is not a trusted approval. If host policy requires user
 confirmation and none is available, stop; do not use another automation path.
 
+### Record and replay demonstrations
+
+Record-replay turns an operator demonstration into a reviewable local Skill,
+not a mouse/keyboard macro. Use one trusted `--agent-session-id` throughout:
+
+```bash
+dcc-mcp-cli --agent-session-id task-42 record-replay start --dcc-type maya
+# demonstrate through gateway search -> describe -> call; use scoped UI Control only as fallback
+dcc-mcp-cli --agent-session-id task-42 record-replay stop <recording-id>
+dcc-mcp-cli --agent-session-id task-42 record-replay review <recording-id>
+dcc-mcp-cli --agent-session-id task-42 record-replay compile <recording-id> \
+  --name reviewed-scene-build --reviewed
+```
+
+Compilation resolves the current backend tool and schema, removes failed
+exploration and demonstration-time approvals, parameterizes reviewed inputs,
+and emits `SKILL.md`, `workflows/replay.workflow.yaml`, and
+`references/REPLAY_CONTRACT.md`. Replay remains a separate grant and requires
+`--approve-replay`; it must stop on schema/target/approval/desktop/observation
+drift. Never record raw prompts, credentials, reusable grants, global
+coordinates, or stale control ids.
+
 ## 🚀 Quick Start Workflow
 
 ### Default Agent Path: CLI+REST

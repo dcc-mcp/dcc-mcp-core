@@ -177,6 +177,30 @@ Use `GET /v1/debug/traffic` when the admin Traffic panel shows no rows: its
 `capture_disabled`, `capture_unavailable`, or filtered capture, and retained
 frames are metadata-only by default.
 
+### Demonstration record and replay
+
+Use record-replay only when the user wants a repeated workflow learned from a
+demonstration. It is a semantic compiler, not raw timing playback:
+
+1. Start with `POST /v1/recordings/start` (or
+   `dcc-mcp-cli record-replay start`) and a bounded
+   `x-dcc-mcp-agent-session-id` / `--agent-session-id`.
+2. Demonstrate through normal `search` -> `describe` -> `call`; use scoped UI
+   Control only when structured tools cannot reach the semantic UI.
+3. Stop and review the caller-scoped, redacted timeline. Another session
+   cannot read or stop it.
+4. Compile only with explicit `reviewed=true`. The compiler resolves current
+   tools and schemas, removes failed exploration and recorded approvals, and
+   emits a local Skill plus `WorkflowSpec`.
+5. Replay requires separate current approval. Stop on schema ambiguity,
+   approval, desktop, target, observation, confidence, DPI, geometry, or
+   topology drift.
+
+Never record or reuse raw prompts, credentials, grants, approvals, instance
+ids as authority, stale accessibility ids, or global coordinates. Prefer a
+fresh semantic `snapshot` -> `find` -> one `act` -> verification loop; visual
+anchors are an exact-window-bounded last resort.
+
 ### Host / connector wrappers (common mistakes)
 
 If your IDE or orchestration layer exposes **non-standard** tool names (for example `defer_execute_tool`, `get_sessions`, `tool_search`), they **must** map onto the gateway verbs above — those names are **not** part of `dcc-mcp-gateway`’s native `tools/list`.

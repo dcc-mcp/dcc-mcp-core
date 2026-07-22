@@ -11,7 +11,7 @@ mod frame;
 mod redaction;
 mod sink;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -41,6 +41,8 @@ const DECISION_LOG_CAPACITY: usize = 200;
 const DEFAULT_LIVE_RING_CAPACITY: usize = 5_000;
 const MAX_LIVE_RING_CAPACITY: usize = 10_000;
 
+type RedactedFrameCallback = Arc<dyn Fn(&EventEnvelope) + Send + Sync>;
+
 /// Gateway traffic capture bus plus optional sinks.
 pub struct TrafficCapture {
     event_bus: EventBus,
@@ -50,6 +52,8 @@ pub struct TrafficCapture {
     filter: TrafficFilter,
     redactor: TrafficRedactor,
     next_capture_id: AtomicU64,
+    next_subscriber_id: AtomicU64,
+    redacted_subscribers: Mutex<HashMap<u64, RedactedFrameCallback>>,
     decisions: Mutex<VecDeque<TrafficCaptureDecision>>,
 }
 
@@ -62,6 +66,10 @@ impl std::fmt::Debug for TrafficCapture {
             .field("live_sink", &self.live_sink.is_some())
             .field("filter", &self.filter)
             .field("redactor", &self.redactor)
+            .field(
+                "recording_subscribers",
+                &self.redacted_subscribers.lock().len(),
+            )
             .finish()
     }
 }
@@ -83,6 +91,8 @@ impl TrafficCapture {
             filter: TrafficFilter::default(),
             redactor: TrafficRedactor::default(),
             next_capture_id: AtomicU64::new(0),
+            next_subscriber_id: AtomicU64::new(0),
+            redacted_subscribers: Mutex::new(HashMap::new()),
             decisions: Mutex::new(VecDeque::with_capacity(DECISION_LOG_CAPACITY)),
         }
     }
@@ -140,6 +150,8 @@ impl TrafficCapture {
             filter: TrafficFilter::default(),
             redactor: TrafficRedactor::default(),
             next_capture_id: AtomicU64::new(0),
+            next_subscriber_id: AtomicU64::new(0),
+            redacted_subscribers: Mutex::new(HashMap::new()),
             decisions: Mutex::new(VecDeque::with_capacity(DECISION_LOG_CAPACITY)),
         })
     }
@@ -172,13 +184,17 @@ impl TrafficCapture {
             filter,
             redactor,
             next_capture_id: AtomicU64::new(0),
+            next_subscriber_id: AtomicU64::new(0),
+            redacted_subscribers: Mutex::new(HashMap::new()),
             decisions: Mutex::new(VecDeque::with_capacity(DECISION_LOG_CAPACITY)),
         })
     }
 
     #[must_use]
     pub fn is_enabled(&self) -> bool {
-        !self.sinks.is_empty() || self.event_bus.has_subscribers(TRAFFIC_FRAME_EVENT)
+        !self.sinks.is_empty()
+            || self.event_bus.has_subscribers(TRAFFIC_FRAME_EVENT)
+            || !self.redacted_subscribers.lock().is_empty()
     }
 
     pub fn emit_json_frame(&self, frame: TrafficFrame) -> Option<EventEnvelope> {
@@ -239,6 +255,15 @@ impl TrafficCapture {
         for sink in &self.sinks {
             sink.record(&event);
         }
+        let subscribers = self
+            .redacted_subscribers
+            .lock()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for subscriber in subscribers {
+            subscriber(&event);
+        }
         self.record_decision(TrafficCaptureDecision::from_frame(
             &frame,
             "captured",
@@ -262,7 +287,8 @@ impl TrafficCapture {
             },
             sinks: self.sink_descriptors.clone(),
             sink_count: self.sinks.len(),
-            subscriber_enabled: self.event_bus.has_subscribers(TRAFFIC_FRAME_EVENT),
+            subscriber_enabled: self.event_bus.has_subscribers(TRAFFIC_FRAME_EVENT)
+                || !self.redacted_subscribers.lock().is_empty(),
             filter: self.filter.snapshot(),
             redaction: self.redactor.snapshot(),
             production_profile: prod_profile,
@@ -285,6 +311,33 @@ impl TrafficCapture {
             .as_ref()
             .map(|sink| sink.recent(limit))
             .unwrap_or_default()
+    }
+
+    /// Subscribe to redacted traffic frames for an explicitly granted local workflow recording.
+    ///
+    /// The callback receives the same post-redaction envelope sent to configured sinks. A
+    /// subscriber also activates capture in the absence of a debug sink, while normal filtering
+    /// and production capture guardrails remain in force.
+    #[must_use]
+    pub fn subscribe_redacted_frames<F>(&self, callback: F) -> u64
+    where
+        F: Fn(&EventEnvelope) + Send + Sync + 'static,
+    {
+        let subscriber_id = self.next_subscriber_id.fetch_add(1, Ordering::Relaxed) + 1;
+        self.redacted_subscribers
+            .lock()
+            .insert(subscriber_id, Arc::new(callback));
+        subscriber_id
+    }
+
+    /// Remove a redacted-frame subscriber previously returned by
+    /// [`Self::subscribe_redacted_frames`].
+    #[must_use]
+    pub fn unsubscribe_redacted_frames(&self, subscriber_id: u64) -> bool {
+        self.redacted_subscribers
+            .lock()
+            .remove(&subscriber_id)
+            .is_some()
     }
 
     fn next_frame_id(&self) -> String {
