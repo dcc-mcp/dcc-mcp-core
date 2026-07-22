@@ -252,8 +252,9 @@ groups, dependencies, testing, and migration rules.
 
 Desktop application automation for cases where native DCC APIs cannot observe
 or drive the interface state directly. Agents use `ui_control__snapshot`,
-`ui_control__find`, `ui_control__act`, `ui_control__wait_for`, and
-`ui_control__stop_computer_use` to observe, find, and act on target windows.
+`ui_control__find`, `ui_control__act`, `ui_control__wait_for`,
+`ui_control__record_clip`, and `ui_control__stop_computer_use` to observe,
+find, act on, and record exact target windows.
 
 ![Controlled window with corner brackets and capsule overlay](docs/assets/ui-control/corner-brackets-capsule.png)
 
@@ -261,6 +262,10 @@ or drive the interface state directly. Agents use `ui_control__snapshot`,
 
 - **Scoped window targeting** — snapshots and actions are bound to a single
   process or window handle, never the whole desktop.
+- **Multi-instance sessions** — the gateway selects the DCC `instance_id`,
+  while the native host namespaces each adapter connection. Separate DCC
+  instances may therefore reuse a logical `session_id` such as `default`
+  without sharing capabilities or cleanup state.
 - **Semantic UIA + raw input fallback** — prefer stable semantic controls
   (button, text field, checkbox) resolved by `ui_control__find`, then fall
   back to screenshot-relative coordinates when custom-drawn controls have no
@@ -274,7 +279,14 @@ or drive the interface state directly. Agents use `ui_control__snapshot`,
   click-through corner brackets mark the target window and a bottom-center
   capsule reads `DCC UI Control · <app> | Esc to stop`.
   The user stops control at any time with `Esc`.
-- **Audit trail** — every snapshot, action, wait, stop, and rejected operation
+- **One shared input safety owner** — multiple exact-window sessions may remain
+  active in one Windows logon session. Native input is still serialized through
+  one process coordinator and one cross-process owner; `Esc` latches every
+  session, while an ordinary stop only releases the selected session.
+- **Exact-window recording** — records a bounded, constant-frame-rate JPEG
+  sequence from the operator-bound PID/HWND. The host owns the directory,
+  hashes every frame, commits the manifest last, and deletes partial captures.
+- **Audit trail** — every snapshot, recording, action, wait, stop, and rejected operation
   appends a redacted `ui_control_operation` event to the shared log directory,
   visible in the Admin Logs panel without exposing entered text or screenshot
   coordinates.
@@ -286,6 +298,7 @@ or drive the interface state directly. Agents use `ui_control__snapshot`,
 | `ui_control__snapshot` | Capture a bounded PNG plus UIA tree from the scoped window |
 | `ui_control__find` | Locate semantic controls by query, role, label, or object name |
 | `ui_control__act` | Perform one scoped semantic or coordinate-based action |
+| `ui_control__record_clip` | Record a host-owned, hash-verified JPEG sequence from the exact window |
 | `ui_control__wait_for` | Poll until a UI condition becomes true or times out |
 | `ui_control__stop_computer_use` | Release the capsule, hotkey, and global input owner |
 | `ui_control__system_operation` | Ensure a named Windows configuration item (operator-granted) |

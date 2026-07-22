@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::os::windows::fs::{symlink_dir, symlink_file};
@@ -6,12 +7,14 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use dcc_mcp_capture::{CaptureTarget, WindowFinder};
+use dcc_mcp_capture::{
+    CaptureError, CaptureTarget, WindowFinder, WindowRecordingConfig, record_window_jpeg_sequence,
+};
 use dcc_mcp_shm::SharedBuffer;
 use dcc_mcp_ui_control::host_protocol::{
-    UiControlAction, UiControlEnsureOutcome, UiControlHostErrorCode, UiControlInputKind,
-    UiControlSharedImage, UiControlSystemOperation, UiControlTarget, UiControlTaskGrant,
-    UiControlWindowOperation, UiControlWindowState,
+    UiControlAction, UiControlClipArtifact, UiControlClipFormat, UiControlEnsureOutcome,
+    UiControlHostErrorCode, UiControlInputKind, UiControlSharedImage, UiControlSystemOperation,
+    UiControlTarget, UiControlTaskGrant, UiControlWindowOperation, UiControlWindowState,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -31,13 +34,14 @@ use windows::core::PCWSTR;
 
 use crate::{
     ComputerUseAction, ComputerUseError, ComputerUseErrorCode, ComputerUsePoint,
-    ComputerUseSession, ComputerUseTargetScope,
+    ComputerUseRecordingFence, ComputerUseSession, ComputerUseTargetScope,
 };
 
 use super::{
     ActionControlFence, ActionFenceExpectation, HostFailure, HostRuntime, HostRuntimeSession,
-    RuntimeAccessibilityState, RuntimeActionResult, RuntimeSnapshot, stale_accessibility_state,
-    verify_expected_action_fence,
+    RuntimeAccessibilityState, RuntimeActionResult, RuntimeClipRequest, RuntimeSnapshot,
+    recording_artifact::{RecordingArtifactError, RecordingArtifactWriter},
+    stale_accessibility_state, verify_expected_action_fence,
 };
 
 mod confirmation;
@@ -473,6 +477,93 @@ impl HostRuntimeSession for WindowsRuntimeSession {
             node_count: accessibility.node_count,
             image,
         })
+    }
+
+    fn record_clip(
+        &mut self,
+        request: RuntimeClipRequest,
+    ) -> Result<UiControlClipArtifact, HostFailure> {
+        self.start_visible_notice()?;
+        self.window_generation.verify()?;
+        match request.format {
+            UiControlClipFormat::JpegSequence => {}
+        }
+        let recording_fence = self
+            .session
+            .recording_fence()
+            .map_err(map_computer_use_error)?;
+        let config = WindowRecordingConfig::new(
+            self.target.window_handle,
+            request.duration_ms,
+            request.frames_per_second,
+            request.jpeg_quality,
+        )
+        .map_err(map_recording_capture_error)?;
+        let recording_id = format!("clip-{}", Uuid::new_v4().simple());
+        let recording_root =
+            PathBuf::from(dcc_mcp_paths::get_platform_dir("cache").map_err(|error| {
+                HostFailure::new(
+                    UiControlHostErrorCode::CaptureFailed,
+                    format!("resolve the host-owned recording directory: {error}"),
+                )
+            })?)
+            .join("ui-control")
+            .join("recordings");
+        let mut writer = RecordingArtifactWriter::create_in(
+            &recording_root,
+            &recording_id,
+            self.target.clone(),
+            request.frames_per_second,
+            request.jpeg_quality,
+        )
+        .map_err(map_recording_artifact_error)?;
+
+        let generation = &self.window_generation;
+        let fence_failure = RefCell::new(None);
+        let summary = record_window_jpeg_sequence(
+            &config,
+            |frame| {
+                if let Some(failure) = recording_fence_failure(&recording_fence, generation) {
+                    *fence_failure.borrow_mut() = Some(failure);
+                    return Err(CaptureError::Cancelled);
+                }
+                writer
+                    .write_frame(
+                        frame.index,
+                        frame.timestamp_ms,
+                        frame.width,
+                        frame.height,
+                        &frame.data,
+                    )
+                    .map_err(|error| CaptureError::Internal(error.to_string()))
+            },
+            || {
+                if let Some(failure) = recording_fence_failure(&recording_fence, generation) {
+                    *fence_failure.borrow_mut() = Some(failure);
+                    true
+                } else {
+                    false
+                }
+            },
+        );
+        if let Some(failure) = fence_failure.into_inner() {
+            return Err(failure);
+        }
+        let summary = summary.map_err(map_recording_capture_error)?;
+        self.window_generation.verify()?;
+        if summary.frame_count != config.schedule().frame_count() {
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::CaptureFailed,
+                format!(
+                    "recording produced {} frames; expected {}",
+                    summary.frame_count,
+                    config.schedule().frame_count()
+                ),
+            ));
+        }
+        writer
+            .finish(summary.ended_at_ms)
+            .map_err(map_recording_artifact_error)
     }
 
     fn accessibility_state(
@@ -985,6 +1076,30 @@ fn map_computer_use_error(error: ComputerUseError) -> HostFailure {
         ComputerUseErrorCode::CaptureFailed => UiControlHostErrorCode::CaptureFailed,
     };
     HostFailure::new(code, error.message)
+}
+
+fn map_recording_capture_error(error: CaptureError) -> HostFailure {
+    let code = match error {
+        CaptureError::Cancelled => UiControlHostErrorCode::UserInterrupted,
+        CaptureError::TargetNotFound(_) => UiControlHostErrorCode::InvalidTarget,
+        CaptureError::BackendNotSupported(_) => UiControlHostErrorCode::BackendUnavailable,
+        _ => UiControlHostErrorCode::CaptureFailed,
+    };
+    HostFailure::new(code, error.to_string())
+}
+
+fn map_recording_artifact_error(error: RecordingArtifactError) -> HostFailure {
+    HostFailure::new(UiControlHostErrorCode::CaptureFailed, error.to_string())
+}
+
+fn recording_fence_failure(
+    fence: &ComputerUseRecordingFence,
+    generation: &WindowGenerationGuard,
+) -> Option<HostFailure> {
+    if let Err(error) = fence.check() {
+        return Some(map_computer_use_error(error));
+    }
+    generation.verify().err()
 }
 
 fn map_host_failure_to_computer_use_error(failure: HostFailure) -> ComputerUseError {

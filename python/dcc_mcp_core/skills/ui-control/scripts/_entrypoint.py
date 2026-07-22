@@ -175,6 +175,11 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return _call("act_tool", params)
 
 
+def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch ui_control__record_clip to the selected backend."""
+    return _call("record_clip_tool", params)
+
+
 def system_operation_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Dispatch ui_control__system_operation to the selected backend."""
     return _call("system_operation_tool", params)

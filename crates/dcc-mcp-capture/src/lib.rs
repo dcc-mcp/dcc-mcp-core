@@ -46,6 +46,7 @@ pub mod capture;
 pub mod capture_worker;
 pub mod capturer;
 pub mod error;
+pub mod recording;
 pub mod types;
 pub mod window;
 
@@ -53,9 +54,14 @@ pub mod window;
 pub mod python;
 
 // Re-export most-used types at crate root.
+pub use backend::wgc::record_window_jpeg_sequence;
 pub use capture::DccCapture;
 pub use capturer::{CaptureStats, Capturer};
 pub use error::{CaptureError, CaptureResult};
+pub use recording::{
+    WindowRecordingConfig, WindowRecordingFrame, WindowRecordingPacer, WindowRecordingSchedule,
+    WindowRecordingSummary,
+};
 pub use types::{CaptureBackendKind, CaptureConfig, CaptureFormat, CaptureFrame, CaptureTarget};
 pub use window::{WindowFinder, WindowInfo};
 

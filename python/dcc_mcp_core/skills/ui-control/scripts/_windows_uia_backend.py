@@ -353,6 +353,91 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
+def _recording_integer(
+    params: Dict[str, Any],
+    name: str,
+    *,
+    minimum: int,
+    maximum: int,
+    default: Optional[int] = None,
+) -> int:
+    value = params.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise UiControlHostError(
+            "invalid_request",
+            f"{name} must be an integer in {minimum}..={maximum}.",
+        )
+    return value
+
+
+@_serialize_session_call
+def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Record a bounded host-owned frame sequence from the exact Windows target."""
+    params = dict(params or {})
+    allowed = {
+        "session_id",
+        "process_id",
+        "window_handle",
+        "window_title",
+        "process_name",
+        "duration_ms",
+        "frames_per_second",
+        "jpeg_quality",
+        "policy",
+    }
+    if set(params) - allowed:
+        return skill_error(
+            "The exact-window recording request contains unsupported fields.",
+            "invalid_request",
+            backend="windows-ui-control-host",
+        )
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    if not policy.allow_snapshot:
+        return skill_error("ui_control recording disabled by policy", UiErrorCode.POLICY_DISABLED)
+    try:
+        duration_ms = _recording_integer(params, "duration_ms", minimum=1_000, maximum=180_000)
+        frames_per_second = _recording_integer(
+            params,
+            "frames_per_second",
+            minimum=1,
+            maximum=60,
+            default=30,
+        )
+        jpeg_quality = _recording_integer(
+            params,
+            "jpeg_quality",
+            minimum=70,
+            maximum=100,
+            default=92,
+        )
+        client, entry = _client_for(session_id, params, policy)
+        raw = client.record_clip(
+            duration_ms=duration_ms,
+            frames_per_second=frames_per_second,
+            jpeg_quality=jpeg_quality,
+        )
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+    finally:
+        entry = _CLIENTS.get(session_id)
+        if entry is not None:
+            entry["snapshot_id"] = None
+    return skill_success(
+        "Recorded an exact-window JPEG sequence through the isolated UI Control host.",
+        prompt=(
+            "Copy and verify the host-owned artifact through a recording workflow, then call "
+            "ui_control__stop_computer_use when this exact-window capture session is complete."
+        ),
+        session_id=session_id,
+        target=raw.get("target") or client.target,
+        artifact=raw.get("artifact") or {},
+        audio_captured=False,
+        capture_scope="exact_window",
+        policy=policy.to_dict(),
+    )
+
+
 @_serialize_session_call
 def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     params = dict(params or {})

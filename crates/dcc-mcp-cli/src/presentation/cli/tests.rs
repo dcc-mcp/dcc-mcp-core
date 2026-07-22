@@ -240,6 +240,43 @@ fn ui_control_contract_parses_a_stable_system_operation_command() {
 }
 
 #[test]
+fn ui_control_contract_parses_an_exact_window_recording_command() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "ui-control",
+        "record-clip",
+        "--dcc-type",
+        "unity",
+        "--instance-id",
+        "abc12345",
+        "--json",
+        r#"{"session_id":"pv","duration_ms":5000,"frames_per_second":30,"jpeg_quality":92}"#,
+        "--timeout-secs",
+        "12",
+    ])
+    .expect("parse ui-control record-clip");
+
+    let Command::UiControl {
+        action: UiControlAction::RecordClip(recording),
+    } = args.command
+    else {
+        panic!("expected ui-control record-clip command");
+    };
+    assert_eq!(recording.dcc_type.as_deref(), Some("unity"));
+    assert_eq!(recording.instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(recording.timeout_secs, 12);
+    assert_eq!(
+        read_call_arguments(&recording.arguments_json, recording.json_file.as_deref()).unwrap(),
+        serde_json::json!({
+            "session_id": "pv",
+            "duration_ms": 5000,
+            "frames_per_second": 30,
+            "jpeg_quality": 92
+        })
+    );
+}
+
+#[test]
 fn ui_control_operations_map_to_canonical_ui_control_tools() {
     let args = UiControlArgs {
         dcc_type: None,
@@ -260,6 +297,10 @@ fn ui_control_operations_map_to_canonical_ui_control_tools() {
         (
             UiControlAction::SystemOperation(args.clone()),
             "ui_control__system_operation",
+        ),
+        (
+            UiControlAction::RecordClip(args.clone()),
+            "ui_control__record_clip",
         ),
         (UiControlAction::Wait(args.clone()), "ui_control__wait_for"),
         (

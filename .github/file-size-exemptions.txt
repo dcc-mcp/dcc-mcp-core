@@ -17,3 +17,5 @@ crates/dcc-mcp-gateway/src/gateway/admin/trace.rs
 crates/dcc-mcp-skill-rest/src/service.rs
 # PIP-1799 — capability_service.rs 1507L, exceeds 1500 limit by 7 lines
 crates/dcc-mcp-gateway/src/gateway/capability_service.rs
+# PIP-2809 — windows.rs 1575L, exceeds 1500 limit; split into windows/* sub-modules
+crates/dcc-mcp-computer-use/src/platform/windows.rs

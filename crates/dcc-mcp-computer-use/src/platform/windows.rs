@@ -76,7 +76,6 @@ use super::{
 };
 use overlay::ControlOverlay;
 
-static ACTIVE_SESSION: AtomicBool = AtomicBool::new(false);
 static USER_INTERRUPTED: AtomicBool = AtomicBool::new(false);
 // Mutex-wrapped so that clear_user_interrupt() can re-initialize the event
 // after a transient CreateEventW failure (OnceLock would permanently store
@@ -85,6 +84,7 @@ static USER_INTERRUPT_EVENT: Mutex<Option<OwnedKernelHandle>> = Mutex::new(None)
 static USER_INTERRUPT_EVENT_FAILED: AtomicBool = AtomicBool::new(false);
 static INPUT_LOCK: Mutex<()> = Mutex::new(());
 static PENDING_INPUT_RELEASES: Mutex<Vec<INPUT>> = Mutex::new(Vec::new());
+static PROCESS_INPUT_COORDINATOR: Mutex<Option<ProcessInputCoordinator>> = Mutex::new(None);
 
 const INPUT_OWNER_MUTEX_NAME: &str = "Local\\DccMcpComputerUseInputOwner-v1";
 const USER_INTERRUPT_EVENT_NAME: &str = "Local\\DccMcpComputerUseUserInterrupted-v1";
@@ -121,7 +121,11 @@ const CONTROL_CURSOR_CLASS: PCWSTR = w!("DccMcpComputerUseCursorOverlay");
 const DEFAULT_POINTER_EFFECT_DWELL_MS: u64 = 350;
 const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
 const DESKTOP_BARRIER_MESSAGE: u32 = WM_APP + 0x443;
-const DESKTOP_BARRIER_TIMEOUT: Duration = Duration::from_millis(500);
+// Multiple exact-window overlays have independent Windows message queues. Give
+// each queue a bounded scheduling window under capture load before failing
+// closed; no input is sent while this barrier is pending.
+const DESKTOP_BARRIER_TIMEOUT: Duration = Duration::from_secs(2);
+const CONTROL_START_TIMEOUT: Duration = Duration::from_secs(5);
 const PROCESS_PATH_CAPACITY: usize = 32_768;
 
 fn is_control_overlay_window(hwnd: HWND) -> bool {
@@ -345,6 +349,139 @@ impl Drop for InputOwnerLease {
             thread::sleep(Duration::from_millis(sleep_ms));
             sleep_ms = (sleep_ms * 2).min(MAX_SLEEP.as_millis() as u64);
         }
+    }
+}
+
+struct ProcessInputCoordinator {
+    leases: usize,
+    stop: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+struct ProcessInputCoordinatorLease;
+
+impl Drop for ProcessInputCoordinatorLease {
+    fn drop(&mut self) {
+        let mut coordinator = PROCESS_INPUT_COORDINATOR
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(active) = coordinator.as_mut() else {
+            return;
+        };
+        if active.leases > 1 {
+            active.leases -= 1;
+            return;
+        }
+        active.stop.store(true, Ordering::Release);
+        if let Some(thread) = active.thread.take() {
+            let _ = thread.join();
+        }
+        *coordinator = None;
+    }
+}
+
+fn acquire_process_input_coordinator() -> ComputerUseResult<ProcessInputCoordinatorLease> {
+    let mut coordinator = PROCESS_INPUT_COORDINATOR
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(active) = coordinator.as_mut() {
+        if active
+            .thread
+            .as_ref()
+            .is_none_or(thread::JoinHandle::is_finished)
+        {
+            set_user_interrupt();
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::UserInterrupted,
+                "the shared DCC UI Control input coordinator exited unexpectedly; explicit user approval is required before native input can resume",
+            ));
+        }
+        active.leases = active.leases.checked_add(1).ok_or_else(|| {
+            ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                "the DCC UI Control session count exceeded the process safety limit",
+            )
+        })?;
+        return Ok(ProcessInputCoordinatorLease);
+    }
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let thread = thread::Builder::new()
+        .name("dcc-mcp-computer-use-input-coordinator".to_owned())
+        .spawn(move || run_process_input_coordinator(thread_stop, ready_tx))
+        .map_err(|error| {
+            ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                format!("failed to start the DCC UI Control input coordinator: {error}"),
+            )
+        })?;
+    match ready_rx.recv_timeout(CONTROL_START_TIMEOUT) {
+        Ok(Ok(())) => {
+            *coordinator = Some(ProcessInputCoordinator {
+                leases: 1,
+                stop,
+                thread: Some(thread),
+            });
+            Ok(ProcessInputCoordinatorLease)
+        }
+        Ok(Err(error)) => {
+            stop.store(true, Ordering::Release);
+            let _ = thread.join();
+            Err(error)
+        }
+        Err(_) => {
+            stop.store(true, Ordering::Release);
+            let _ = thread.join();
+            Err(ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                "timed out while starting the DCC UI Control input coordinator",
+            ))
+        }
+    }
+}
+
+fn run_process_input_coordinator(
+    stop: Arc<AtomicBool>,
+    ready: std::sync::mpsc::SyncSender<ComputerUseResult<()>>,
+) {
+    let result = (|| {
+        let input_owner = acquire_input_owner()?;
+        let _input_owner = InputOwnerLease::new(input_owner, Arc::clone(&stop));
+        if user_interrupted() {
+            return Err(user_interrupted_error());
+        }
+        flush_pending_input_releases()?;
+        let _dpi_awareness = ThreadDpiAwareness::enter()?;
+        let mut message = MSG::default();
+        let _ = unsafe { PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE) };
+        unsafe { RegisterHotKey(None, HOTKEY_ID, STOP_HOTKEY_MODIFIERS, VK_ESCAPE.0 as u32) }
+            .map_err(|error| {
+                ComputerUseError::new(
+                    ComputerUseErrorCode::BackendUnavailable,
+                    format!("failed to reserve {STOP_HOTKEY_LABEL} for DCC UI Control: {error}"),
+                )
+            })?;
+        let _hotkey = RegisteredHotKey;
+        let _ = ready.send(Ok(()));
+        while !stop.load(Ordering::Acquire) {
+            while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+                if message.message == WM_HOTKEY && message.wParam.0 == HOTKEY_ID as usize {
+                    set_user_interrupt();
+                }
+                unsafe {
+                    let _ = TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            thread::sleep(Duration::from_millis(8));
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        set_user_interrupt();
+        let _ = ready.try_send(Err(error));
     }
 }
 
@@ -794,17 +931,9 @@ pub(crate) fn start_control_banner(
         cleanup_pending.store(false, Ordering::Release);
         return Err(user_interrupted_error().into());
     }
-    if ACTIVE_SESSION
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
+    let input_coordinator = acquire_process_input_coordinator().inspect_err(|_| {
         cleanup_pending.store(false, Ordering::Release);
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::PermissionDenied,
-            "another DCC UI Control session already owns system input",
-        )
-        .into());
-    }
+    })?;
 
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
     let runtime = BannerRuntimeSignals {
@@ -815,20 +944,15 @@ pub(crate) fn start_control_banner(
         desktop_barrier,
     };
     let startup_stop = Arc::clone(&runtime.stop);
-    let thread_stop = Arc::clone(&runtime.stop);
     let thread_cleanup_pending = Arc::clone(&cleanup_pending);
     let thread = thread::Builder::new()
         .name("dcc-mcp-computer-use-banner".to_string())
         .spawn(move || {
+            let _input_coordinator = input_coordinator;
             let result = (|| {
-                // Windows mutex ownership is thread-affine. Keep the guard on
-                // the banner thread until local SendInput work has drained.
-                let input_owner = acquire_input_owner()?;
-                let _input_owner = InputOwnerLease::new(input_owner, Arc::clone(&thread_stop));
                 if user_interrupted() {
                     return Err(user_interrupted_error());
                 }
-                flush_pending_input_releases()?;
                 let _dpi_awareness = ThreadDpiAwareness::enter()?;
                 run_banner(window_handle, process_id, &app_name, &runtime, &ready_tx)
             })();
@@ -843,11 +967,9 @@ pub(crate) fn start_control_banner(
                 let _ = ready_tx.try_send(Err(error));
             }
             runtime.visible.store(false, Ordering::Release);
-            ACTIVE_SESSION.store(false, Ordering::Release);
             thread_cleanup_pending.store(false, Ordering::Release);
         })
         .map_err(|error| {
-            ACTIVE_SESSION.store(false, Ordering::Release);
             cleanup_pending.store(false, Ordering::Release);
             ComputerUseError::new(
                 ComputerUseErrorCode::BackendUnavailable,
@@ -855,7 +977,7 @@ pub(crate) fn start_control_banner(
             )
         })?;
 
-    match ready_rx.recv_timeout(Duration::from_secs(2)) {
+    match ready_rx.recv_timeout(CONTROL_START_TIMEOUT) {
         Ok(Ok(())) => Ok(thread),
         Ok(Err(error)) => {
             startup_stop.store(true, Ordering::Release);
@@ -877,13 +999,11 @@ pub(crate) fn start_control_banner(
     }
 }
 
-struct RegisteredHotKey {
-    hwnd: HWND,
-}
+struct RegisteredHotKey;
 
 impl Drop for RegisteredHotKey {
     fn drop(&mut self) {
-        let _ = unsafe { UnregisterHotKey(Some(self.hwnd), HOTKEY_ID) };
+        let _ = unsafe { UnregisterHotKey(None, HOTKEY_ID) };
     }
 }
 
@@ -1269,23 +1389,6 @@ fn run_banner(
     let overlay = ControlOverlay::new(target, &rect, &caption, initially_visible)?;
     let overlay_window = overlay.window_handle();
 
-    let hotkey_result = unsafe {
-        RegisterHotKey(
-            Some(overlay_window),
-            HOTKEY_ID,
-            STOP_HOTKEY_MODIFIERS,
-            VK_ESCAPE.0 as u32,
-        )
-    };
-    if let Err(error) = hotkey_result {
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::BackendUnavailable,
-            format!("failed to reserve {STOP_HOTKEY_LABEL} for DCC UI Control: {error}"),
-        ));
-    }
-    let _hotkey = RegisteredHotKey {
-        hwnd: overlay_window,
-    };
     let _session_notifications = RegisteredSessionNotifications::new(overlay_window)?;
     let _desktop_barrier =
         RegisteredDesktopBarrier::new(Arc::clone(&signals.desktop_barrier), overlay_window);
@@ -1304,12 +1407,6 @@ fn run_banner(
             if message.message == DESKTOP_BARRIER_MESSAGE {
                 barrier_sequence = Some(message.wParam.0 as u32);
                 continue;
-            }
-            if message.message == WM_HOTKEY && message.wParam.0 == HOTKEY_ID as usize {
-                set_user_interrupt();
-                signals.interrupted.store(true, Ordering::Release);
-                signals.stop.store(true, Ordering::Release);
-                break;
             }
             if message.message == WM_WTSSESSION_CHANGE
                 && let Some(blocked) = session_event_blocked(message.wParam.0 as u32)
@@ -1335,6 +1432,11 @@ fn run_banner(
             }
         }
         if signals.stop.load(Ordering::Acquire) {
+            break;
+        }
+        if user_interrupted() {
+            signals.interrupted.store(true, Ordering::Release);
+            signals.stop.store(true, Ordering::Release);
             break;
         }
         let interactive = !session_blocked && desktop_interactive();

@@ -1168,6 +1168,7 @@ dependencies = [
 name = "dcc-mcp-computer-use"
 version = "0.19.64"
 dependencies = [
+ "dcc-mcp-artefact",
  "dcc-mcp-capture",
  "dcc-mcp-paths",
  "dcc-mcp-shm",
@@ -1177,6 +1178,7 @@ dependencies = [
  "pyo3-stub-gen-derive",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "time",
  "tracing",

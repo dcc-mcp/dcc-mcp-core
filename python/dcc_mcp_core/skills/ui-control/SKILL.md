@@ -4,7 +4,8 @@ description: >-
   Infrastructure skill - application UI observation and scoped action tools for
   DCC-adjacent workflows. Use ui_control__snapshot, ui_control__find, ui_control__act,
   ui_control__wait_for, and ui_control__stop_computer_use for DCC UI Control when a
-  host UI state is not exposed through native DCC APIs. Use the separate,
+  host UI state is not exposed through native DCC APIs. Use
+  ui_control__record_clip for exact-window, hash-verified gameplay capture. Use the separate,
   operator-granted ui_control__system_operation only for bounded Windows plug-in
   setup. Prefer DCC-native skills first, then use ui_control as a policy-controlled
   fallback.
@@ -12,10 +13,10 @@ license: MIT
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.3.0"
+    version: "0.4.0"
     layer: infrastructure
-    search-hint: "dcc ui control, ui-control, ui control, ui automation, operate control menu dialog window button click keyboard, windows uia, chrome cdp, edge cdp, agent-browser, modal, settings panel, screenshot, snapshot, find control, custom control, face shaping, sculpt slider, modifier drag, registry, symlink, plugin setup, remote control, scroll, type, keypress, wait for ui, stale control, dcc debugging, operate maya menu, click button in dialog, fill form in 3ds max, 操作, 控制, 界面, 菜单, 弹窗, 窗口, 按钮, 点击, 键盘, 捏脸, 操控界面, 点击菜单, 自动化窗口, 界面自动化, 窗口操作, 控件识别"
-    tags: "ui-control, dcc-ui-control, ui-automation, windows-uia, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock, maya-ui, blender-ui, 3dsmax-ui, houdini-ui, photoshop-ui, unreal-ui, unity-ui, zbrush-ui"
+    search-hint: "dcc ui control, ui-control, ui control, ui automation, exact window recording, gameplay capture, game pv capture, jpeg sequence, frame hash, operate control menu dialog window button click keyboard, windows uia, chrome cdp, edge cdp, agent-browser, modal, settings panel, screenshot, snapshot, find control, custom control, face shaping, sculpt slider, modifier drag, registry, symlink, plugin setup, remote control, scroll, type, keypress, wait for ui, stale control, dcc debugging, operate maya menu, click button in dialog, fill form in 3ds max, 操作, 控制, 界面, 菜单, 弹窗, 窗口, 按钮, 点击, 键盘, 录制游戏, 游戏PV, 捏脸, 操控界面, 点击菜单, 自动化窗口, 界面自动化, 窗口操作, 控件识别"
+    tags: "ui-control, dcc-ui-control, ui-automation, exact-window-recording, gameplay-capture, game-pv, windows-uia, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock, maya-ui, blender-ui, 3dsmax-ui, houdini-ui, photoshop-ui, unreal-ui, unity-ui, zbrush-ui"
     tools: tools.yaml
 ---
 
@@ -55,6 +56,7 @@ The Windows backend exposes DCC UI Control through the existing `ui_control` too
 | semantic `click`, `set_text`, `toggle`, `set_checked`, `select_option`, `focus` | `ui_control__act` with an exact `control_id` |
 | raw `click`, `move`, `double_click`, `scroll`, `drag`, `keypress` | `ui_control__act` with the latest `snapshot_id` |
 | typed HKCU value or symbolic-link ensure | `ui_control__system_operation` |
+| exact-window JPEG frame sequence | `ui_control__record_clip` |
 | `wait` | `ui_control__wait_for` (condition-based polling) |
 | `stop` | `ui_control__stop_computer_use` |
 
@@ -66,9 +68,25 @@ dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","p
 dcc-mcp-cli ui-control find --instance-id <id> --json '{"session_id":"ui","label":"Settings"}'
 dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"settings","action":"click","snapshot_id":"<snapshot_id>"}'
 dcc-mcp-cli ui-control system-operation --instance-id <id> --json '{"operation_id":"enable-remote-control"}'
+dcc-mcp-cli ui-control record-clip --instance-id <id> --json '{"session_id":"pv","process_id":1234,"duration_ms":5000,"frames_per_second":30,"jpeg_quality":92}'
 dcc-mcp-cli ui-control wait --instance-id <id> --json '{"session_id":"ui","condition":{"kind":"control_exists","label":"Preferences"}}'
 dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
+
+Treat `instance_id` and `session_id` as separate routing layers. Select the
+exact DCC `instance_id` first; the logical `session_id` belongs only to that
+adapter connection. Different DCC instances may reuse `default` because the
+native host assigns a private connection namespace. Capabilities,
+observations, recordings, stop, and disconnect cleanup never cross that
+namespace. When multiple matching instances are ready, omitting
+`--instance-id` is an error in the workflow even if a client could guess one.
+
+Multiple exact-window sessions may stay active in one Windows logon session.
+They share one native input coordinator and global Esc latch, and all input
+mutations remain serialized. A normal stop releases only the selected logical
+session; Esc interrupts every active session until explicit user-approved
+resume. Never use multiple sessions as a way to run simultaneous keyboard or
+pointer injection.
 
 `system-operation` is a separate, windowless setup path. Before the shared
 Windows-session host starts, the operator supplies an exact JSON catalog with
@@ -89,12 +107,29 @@ observation ids, snapshot metadata, semantic matches, and materialized image
 paths while omitting the repeated MCP envelope and full UIA tree. Add
 `--full-output` only for targeted raw protocol or tree diagnostics.
 
+`ui_control__record_clip` is the canonical evidence-capture primitive, not an
+alternate UI-input path. It records only the exact PID/HWND already bound by the
+operator, for 1 to 180 seconds at 1 to 60 FPS, through one continuous
+Windows.Graphics.Capture session. The native host chooses the output directory,
+writes numbered JPEG frames and per-frame SHA-256 values, then commits the
+manifest last. Requests cannot choose a path or widen the target. Esc, stop,
+desktop loss, target replacement, dimension change, or an incomplete write
+fails closed and removes the partial recording. Recording consumes any prior
+observation, so take a fresh snapshot before later UI actions.
+
+The primitive intentionally captures no audio and does not edit or encode a
+finished trailer. Use `game-pv-capture` to copy and hash approved shot ranges and
+produce capture provenance; use HyperFrames afterward for editorial timing,
+titles, transitions, original or licensed audio, and final delivery encoding.
+Neither workflow may replace this primitive with title matching, whole-desktop
+capture, an external recorder, or GPT/OpenAI Computer Use.
+
 All ui-control tools require the adapter's persistent in-process executor so one
 thin named-pipe client survives across snapshot/action calls. The independent
 per-Windows-session host owns screenshots, UIA, observation ids, the
 Esc stop latch, visible overlay, global input owner, confirmation, and
 native input; adapters do not retain an alternate native path.
-Every snapshot, find, action, wait, stop, and rejected operation also appends a
+Every snapshot, recording, find, action, wait, stop, and rejected operation also appends a
 redacted `ui_control_operation` event to the shared DCC-MCP log directory, so
 the existing Admin Logs panel can display it without exposing entered text or
 screenshot coordinates.
@@ -178,11 +213,12 @@ For native DCC UI Control actions, keep one `session_id` and use this loop:
    old coordinates stale.
 5. Use `ui_control__wait_for` for a UI condition, then snapshot again to verify.
 6. Call `ui_control__stop_computer_use` in the success, failure, and abandoned-task
-   cleanup path so the capsule, corner brackets, hotkey, and global input owner are
-   released. If it returns `cleanup_pending=true`, retry cleanup and do not
-   start another session; the cross-process input owner remains fenced until
-   every pending key/button release is confirmed. Stopping does not clear an
-   Esc interruption latch created during a UI Control session.
+   cleanup path so that logical session's capsule and corner brackets are
+   released. The shared hotkey and global input owner remain active while any
+   other exact-window session is active. If stop returns `cleanup_pending=true`,
+   retry cleanup and do not start another session; the cross-process input owner
+   remains fenced until every pending key/button release is confirmed. Stopping
+   does not clear an Esc interruption latch created during a UI Control session.
 
 `ui_control__wait_for` remains interruptible while polling: Esc, an
 explicit `ui_control__stop_computer_use`, desktop loss, or backend cleanup cancels
@@ -293,6 +329,12 @@ Use this loop:
 5. `ui_control__snapshot` immediately to verify the result before another action.
 6. Use `ui_control__wait_for` only for a known UI condition, then snapshot again.
 7. Call `ui_control__stop_computer_use` when the fallback is complete or abandoned.
+
+For gameplay capture, start from a fresh exact-window snapshot, call
+`ui_control__record_clip` once for a bounded shot, validate its manifest and
+hashes through `game-pv-capture`, then stop the same session. Do not send UI
+actions while recording and do not treat a completed frame sequence as a
+finished PV.
 
 If an action returns `stale_control`, restart at `ui_control__snapshot`. If an
 action returns `policy_disabled`, prefer a native DCC skill or ask for an
