@@ -46,6 +46,25 @@ Set `DCC_MCP_UI_CONTROL_BACKEND=windows-uia` on Windows to use the isolated
 request parameters may narrow that scope but cannot create or widen it.
 Whole-desktop and title/process-name-only native sessions are disabled.
 
+Starting with dcc-mcp-core 0.19.65, Host resolution is version-exact and
+fail-closed. If `DCC_MCP_UI_CONTROL_HOST` is present, it must be an absolute
+path to a Windows PE whose `--version` output exactly matches the running
+dcc-mcp-core version. If the variable is absent, the client downloads only
+`dcc-mcp-update-manifest-windows-x86_64.json` and
+`dcc-mcp-ui-control-host-windows-x86_64.exe` from the matching
+`dcc-mcp/dcc-mcp-core` GitHub Release tag, requires the manifest version and
+asset URL to match that tag, verifies SHA-256, and stores the Host in a
+per-user, per-version cache. Concurrent adapter processes share a download
+lock. Offline use is allowed only when that exact cached Host and manifest
+still pass the same checks; network, proxy, checksum, or version failures
+return `backend_unavailable` and never fall back to another Host or input path.
+The discovery pipe and per-session singleton are bound to protocol v2, the
+strict package version, and the full Host binary SHA-256. An older detached
+Host or a different same-version binary therefore cannot capture a new
+client; byte-identical copies at different paths may share one Host. Discovery
+coexistence does not widen native input authority: the input-owner mutex and
+Esc interruption latch remain version-neutral and shared across all Hosts.
+
 ## Windows Reference Backend
 
 The Windows backend exposes DCC UI Control through the existing `ui_control` tools:
@@ -54,7 +73,7 @@ The Windows backend exposes DCC UI Control through the existing `ui_control` too
 |------------------------|--------------|
 | `screenshot` | `ui_control__snapshot` |
 | semantic `click`, `set_text`, `toggle`, `set_checked`, `select_option`, `focus` | `ui_control__act` with an exact `control_id` |
-| raw `click`, `move`, `double_click`, `scroll`, `drag`, `keypress` | `ui_control__act` with the latest `snapshot_id` |
+| raw `click`, `move`, `double_click`, `scroll`, `drag`, `keypress`, `game_navigation` | `ui_control__act` with the latest `snapshot_id` |
 | typed HKCU value or symbolic-link ensure | `ui_control__system_operation` |
 | exact-window JPEG frame sequence | `ui_control__record_clip` |
 | `wait` | `ui_control__wait_for` (condition-based polling) |
@@ -174,6 +193,14 @@ Windows `keypress` also rejects ordinary printable characters, including
 Shift-modified and AltGr text. Use it only for navigation/control/function
 keys or a genuine Ctrl/Alt shortcut; it is not a one-character text-entry
 bypass.
+
+Windows `game_navigation` is a separate raw-input contract for non-editable
+game surfaces. It accepts exactly one unmodified `W`, `A`, `S`, or `D` key and
+an optional `duration_ms` from 0 through 500 (omitted means a tap). The native
+host rechecks the exact PID/HWND, foreground window, focused non-editable UIA
+ancestry, explicit absence of both UIA ValuePattern and TextPattern, and
+observation immediately before key-down. Unknown pattern metadata fails closed.
+This action does not relax the ordinary printable-key denial on `keypress`.
 
 `ui_control__act` advertises a destructive annotation and accepts an optional
 `intent` consequence hint. The native host independently classifies the UIA

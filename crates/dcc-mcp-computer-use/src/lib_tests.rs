@@ -27,6 +27,29 @@ fn status_uses_public_dcc_ui_control_name() {
 }
 
 #[test]
+fn public_perform_cannot_bypass_the_game_navigation_host_fence() {
+    let session = test_session(std::process::id());
+    let error = session
+        .perform(&ComputerUseAction {
+            action: "game_navigation".to_owned(),
+            observation_id: Some("untrusted-observation".to_owned()),
+            x: None,
+            y: None,
+            button: None,
+            scroll_x: None,
+            scroll_y: None,
+            path: Vec::new(),
+            text: None,
+            keys: vec!["W".to_owned()],
+            duration_ms: Some(120),
+        })
+        .expect_err("public perform must not execute Host-governed game navigation");
+
+    assert_eq!(error.code, ComputerUseErrorCode::InvalidAction);
+    assert!(error.message.contains("scoped UI Control Host"));
+}
+
+#[test]
 fn desktop_transitions_advance_generation_once_per_change() {
     let state = AtomicU64::new(desktop_state_value(1, true));
 

@@ -205,7 +205,9 @@ tools:
       to mock/CDP and is not a portable Windows action.
       Windows keypress rejects ordinary printable, Shift-text, and AltGr-text
       input; use only navigation/control/function keys or genuine Ctrl/Alt
-      shortcuts.
+      shortcuts. Windows game_navigation is the separately governed game-canvas
+      path: it accepts exactly one W/A/S/D key and an optional 0..500 ms hold,
+      while preserving the existing raw-text denial.
       For a custom-drawn DCC canvas or face control that has no semantic node,
       use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in
       keys are held as pointer modifiers. Snapshot again immediately afterward.
@@ -250,6 +252,7 @@ tools:
             - raw_coordinate_click
             - type
             - keypress
+            - game_navigation
             - set_text
             - toggle
             - set_checked
@@ -264,7 +267,9 @@ tools:
             Action kind to perform. type is backend-specific to mock/CDP and
             is hard denied by the Windows backend; use semantic set_text with
             an exact control_id for non-sensitive Windows text entry. Windows
-            keypress cannot synthesize ordinary printable text.
+            keypress cannot synthesize ordinary printable text. game_navigation
+            accepts exactly one W/A/S/D key for a non-editable game surface;
+            it is not a text-entry action.
         intent:
           type: string
           enum:
@@ -341,6 +346,7 @@ tools:
           description: >-
             Windows keypress accepts navigation/control/function keys or genuine
             Ctrl/Alt shortcuts; Ctrl/Shift/Alt may also modify pointer actions.
+            game_navigation accepts exactly one unmodified W, A, S, or D.
           items:
             type: string
             maxLength: 32
@@ -350,7 +356,8 @@ tools:
           maximum: 60000
           description: >-
             Optional drag duration, or visual pointer-effect dwell for a
-            non-drag pointer action, in milliseconds.
+            non-drag pointer action, in milliseconds. For game_navigation it
+            is an optional key hold and must be between 0 and 500 ms.
         snapshot_id:
           type: string
           description: >-

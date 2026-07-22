@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
@@ -16,6 +20,16 @@ def _release_jobs() -> dict:
 
 def _pypi_steps(job: dict) -> list[dict]:
     return [step for step in job.get("steps", []) if step.get("uses") == PYPI_ACTION]
+
+
+def _ui_control_host_probe_contract() -> dict:
+    build = _release_jobs()["build-binaries"]
+    host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows UI Control host")
+    run = host_build["run"]
+    script = run.split("<<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
+    namespace = {"__name__": "release_workflow_contract"}
+    exec(compile(script, "release-ui-control-host-version-gate", "exec"), namespace)
+    return namespace
 
 
 def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
@@ -132,7 +146,19 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
 
     host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows UI Control host")
     assert host_build["if"] == "matrix.os == 'windows-latest'"
+    assert host_build["env"] == {"RELEASE_VERSION": "${{ needs.release-please.outputs.version }}"}
     assert "vx just stage-ui-control-host" in host_build["run"]
+    assert '[host_path, "--version"]' in host_build["run"]
+    assert "requires_host_version_probe" in host_build["run"]
+    assert 'python - "$RELEASE_VERSION"' in host_build["run"]
+    assert "${{ needs.release-please.outputs.version }}" not in host_build["run"]
+    assert host_build["run"].index("vx just stage-ui-control-host") < host_build["run"].index(
+        'python - "$RELEASE_VERSION"'
+    )
+    assert host_build["run"].index('python - "$RELEASE_VERSION"') < host_build["run"].index('[host_path, "--version"]')
+    assert host_build["run"].index('[host_path, "--version"]') < host_build["run"].index(
+        "cp target/release/dcc-mcp-ui-control-host.exe"
+    )
 
     host_inject = next(
         step for step in build["steps"] if step.get("name") == "Inject Windows UI Control host into server wheel"
@@ -153,3 +179,46 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
 
     notify = next(step for step in jobs["publish"]["steps"] if step["name"] == "Notify Multica release-ready autopilot")
     assert r"^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
+
+
+def test_release_workflow_skips_host_version_probe_for_01964_backfill() -> None:
+    contract = _ui_control_host_probe_contract()
+
+    def must_not_run(*_args, **_kwargs):
+        pytest.fail("legacy Host must not be launched with --version")
+
+    assert contract["verify_host_version"]("0.19.64", "legacy-host.exe", runner=must_not_run) is False
+
+
+def test_release_workflow_requires_exact_host_version_from_01965() -> None:
+    contract = _ui_control_host_probe_contract()
+    calls = []
+
+    def exact_runner(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout=b"0.19.65\r\n")
+
+    assert contract["verify_host_version"]("0.19.65", "new-host.exe", runner=exact_runner) is True
+    assert calls[0][0] == ["new-host.exe", "--version"]
+    assert calls[0][1]["timeout"] == 10.0
+
+    def mismatched_runner(_command, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=b"0.19.64\n")
+
+    with pytest.raises(contract["VerificationError"], match=r"does not match release 0.19.65"):
+        contract["verify_host_version"]("0.19.65", "new-host.exe", runner=mismatched_runner)
+
+
+def test_release_workflow_compares_semver_without_lexical_ordering() -> None:
+    contract = _ui_control_host_probe_contract()
+
+    assert contract["requires_host_version_probe"]("0.19.100") is True
+    assert contract["requires_host_version_probe"]("0.20.0") is True
+    for invalid in (
+        "0.19.65-alpha.1",
+        "0.19.65+build.1",
+        "0.19.65; echo injected",
+        "00.19.65",
+    ):
+        with pytest.raises(contract["VerificationError"], match=r"stable X.Y.Z"):
+            contract["requires_host_version_probe"](invalid)

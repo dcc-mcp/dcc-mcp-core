@@ -221,6 +221,7 @@ class UiActionKind:
     RAW_COORDINATE_CLICK = "raw_coordinate_click"
     TYPE = "type"
     KEYPRESS = "keypress"
+    GAME_NAVIGATION = "game_navigation"
     SET_TEXT = "set_text"
     TOGGLE = "toggle"
     SET_CHECKED = "set_checked"
@@ -307,6 +308,7 @@ class UiControlPolicy:
             in (
                 UiActionKind.TYPE,
                 UiActionKind.KEYPRESS,
+                UiActionKind.GAME_NAVIGATION,
                 UiActionKind.KEYBOARD_SHORTCUT,
             )
             and not self.allow_keyboard_shortcuts
@@ -323,6 +325,7 @@ class UiControlPolicy:
             UiActionKind.RAW_COORDINATE_CLICK,
             UiActionKind.TYPE,
             UiActionKind.KEYPRESS,
+            UiActionKind.GAME_NAVIGATION,
             UiActionKind.SET_TEXT,
             UiActionKind.TOGGLE,
             UiActionKind.SET_CHECKED,

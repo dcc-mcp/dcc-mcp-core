@@ -31,7 +31,10 @@ use audit::{audit_event, audit_system_event};
 pub use connection::UiControlHostConnection;
 #[cfg(any(windows, test))]
 use policy::{ActionControlFence, verify_expected_action_fence};
-use policy::{classify_action, stale_accessibility_state, verify_action_fence};
+use policy::{
+    allows_owned_standard_menu_popup, classify_action, stale_accessibility_state,
+    verify_action_fence,
+};
 #[cfg(test)]
 use policy::{classify_control, classify_control_text};
 #[cfg(windows)]
@@ -114,6 +117,7 @@ trait HostRuntimeSession: Send {
         &mut self,
         max_depth: u32,
         max_nodes: u32,
+        allow_owned_standard_menu_popup: bool,
     ) -> Result<RuntimeAccessibilityState, HostFailure>;
     fn execute(
         &mut self,
@@ -1024,7 +1028,11 @@ fn refresh_action_policy(
     let max_nodes = session
         .accessibility_max_nodes
         .ok_or_else(stale_accessibility_state)?;
-    let live = session.runtime.accessibility_state(max_depth, max_nodes)?;
+    let live = session.runtime.accessibility_state(
+        max_depth,
+        max_nodes,
+        allows_owned_standard_menu_popup(action),
+    )?;
     let (policy_tier, _action_controls) = verify_action_fence(
         action,
         session
@@ -1126,6 +1134,7 @@ fn validate_action_descriptor(action: &UiControlAction) -> Result<(), HostFailur
         "raw_coordinate_click",
         "type",
         "keypress",
+        "game_navigation",
         "keyboard_shortcut",
     ];
     let allowed = match action.input_kind {
@@ -1242,6 +1251,17 @@ fn action_fields_are_valid(action: &UiControlAction) -> bool {
                 }
                 "keypress" | "keyboard_shortcut" => {
                     no_pointer && action.text.is_none() && action.checked.is_none() && has_keys
+                }
+                "game_navigation" => {
+                    no_point
+                        && action.button.is_none()
+                        && no_scroll
+                        && action.path.is_empty()
+                        && no_value
+                        && crate::game_navigation_virtual_key(&action.keys).is_some()
+                        && action
+                            .duration_ms
+                            .is_none_or(|duration| duration <= crate::MAX_GAME_NAVIGATION_HOLD_MS)
                 }
                 _ => false,
             }
@@ -1370,6 +1390,10 @@ impl ConfirmationSurface for RejectingConfirmationSurface {
 #[doc(hidden)]
 #[must_use]
 pub fn run_from_env() -> i32 {
+    if std::env::args_os().skip(1).any(|arg| arg == "--version") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return 0;
+    }
     if std::env::args_os().skip(1).any(|arg| arg == "--self-check") {
         return self_check();
     }

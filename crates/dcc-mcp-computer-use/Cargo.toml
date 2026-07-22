@@ -22,6 +22,8 @@ pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
+semver.workspace = true
+sha2 = "0.11"
 thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true

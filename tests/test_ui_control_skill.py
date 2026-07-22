@@ -142,6 +142,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
         "raw_coordinate_click",
         "type",
         "keypress",
+        "game_navigation",
         "set_text",
         "toggle",
         "set_checked",
@@ -172,6 +173,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     keys_description = schema["properties"]["keys"]["description"]
     assert "pointer actions" in keys_description
     assert "navigation/control/function" in keys_description
+    assert "exactly one unmodified W, A, S, or D" in keys_description
     assert all(modifier in keys_description for modifier in ("Ctrl", "Shift", "Alt"))
     assert "latest screenshot" in schema["properties"]["path"]["description"]
     assert "semantic lookup fails" in schema["properties"]["path"]["description"]
@@ -182,6 +184,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     assert schema["properties"]["scroll_x"]["type"] == "integer"
     assert schema["properties"]["scroll_y"]["type"] == "integer"
     assert "pointer-effect dwell" in schema["properties"]["duration_ms"]["description"]
+    assert "0 and 500 ms" in schema["properties"]["duration_ms"]["description"]
     assert "stale_observation" in schema["properties"]["snapshot_id"]["description"]
     assert tools["snapshot"].timeout_hint_secs is None
     assert tools["act"].timeout_hint_secs is None
@@ -219,6 +222,28 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     assert "Values, paths, commands, grants" in operation_id_schema["description"]
     assert tools["system_operation"].idempotent is True
     assert tools["system_operation"].requires_in_process is True
+
+
+def test_ui_control_windows_game_navigation_contract_is_fail_closed() -> None:
+    backend = _load_windows_uia_module()
+
+    for key in ("W", "a", "S", "d"):
+        assert backend._validate_action_limits({"action": "game_navigation", "keys": [key], "duration_ms": 500}) is None
+        assert backend._is_native_action("game_navigation", {"keys": [key]}) is True
+
+    for payload in (
+        {"action": "game_navigation", "keys": []},
+        {"action": "game_navigation", "keys": ["W", "D"]},
+        {"action": "game_navigation", "keys": ["SHIFT+W"]},
+        {"action": "game_navigation", "keys": ["LEFT"]},
+        {"action": "game_navigation", "keys": ["W"], "duration_ms": -1},
+        {"action": "game_navigation", "keys": ["W"], "duration_ms": 501},
+        {"action": "game_navigation", "keys": ["W"], "duration_ms": True},
+    ):
+        result = backend._validate_action_limits(payload)
+        assert result is not None
+        assert result["success"] is False
+        assert result["error"] == "invalid_action"
 
 
 def test_ui_control_entrypoints_accept_inprocess_parameters(
@@ -1072,6 +1097,28 @@ def test_ui_control_windows_uia_script_retains_hard_target_boundaries() -> None:
     assert "is_password = [bool]$current.IsPassword" in script
     assert "Cross-process descendant controls are not allowed" in script
     assert "Windows Run dialog is not an allowed" in script
+    assert "value_pattern_available = $valuePattern.available" in script
+    assert "text_pattern_available = $textPatternAvailable" in script
+    assert "return $null" in script
+
+
+def test_ui_control_windows_uia_script_limits_owned_standard_menu_popups() -> None:
+    backend = _load_windows_uia_module()
+    script = backend._dedent_for_tests()
+    helpers = (_SCRIPTS / "_windows_uia_helpers.ps1").read_text(encoding="utf-8")
+
+    assert "Find-Owned-Standard-Menu-Popup $handleMatches[0]" in script
+    assert "$authorizedRoot.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)" in helpers
+    assert "$matches.Count -ne 1" in helpers
+    assert '([string]$popupInfo.ClassName) -cne "#32768"' in helpers
+    assert "[uint32]$popupInfo.ProcessId -ne $rootProcessId" in helpers
+    assert "IsActiveOwnedStandardMenuPopup" in helpers
+    assert "popupThreadId != rootThreadId" in helpers
+    assert "rootProcessId != expectedProcessId || popupProcessId != expectedProcessId" in helpers
+    assert "!IsWindowVisible(popup) || GetWindow(popup, GetWindowOwner) != authorizedRoot" in helpers
+    assert "(info.Flags & GuiInMenuMode) != 0" in helpers
+    assert "info.ActiveWindow == authorizedRoot" in helpers
+    assert "info.MenuOwnerWindow == authorizedRoot" in helpers
 
 
 def test_ui_control_host_client_wire_has_no_approval_boolean() -> None:
@@ -1128,13 +1175,19 @@ def test_ui_control_host_client_wire_has_no_approval_boolean() -> None:
     assert "window:opaque" not in wire
 
 
-def test_ui_control_host_client_uses_v2_only_pipe(monkeypatch: Any) -> None:
+def test_ui_control_host_client_uses_versioned_binary_identity_pipe(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
     client_module = backend._HOST
+    digest = "a" * 64
     monkeypatch.setattr(client_module, "_windows_session_id", lambda: 42)
+    monkeypatch.setattr(client_module, "_host_version", lambda: "0.19.65")
+    monkeypatch.setattr(client_module, "_host_binary", lambda: Path("host.exe"))
+    monkeypatch.setattr(client_module, "_host_identity", lambda _binary: digest)
 
     assert client_module._PROTOCOL_VERSION == 2
-    assert client_module._pipe_path() == r"\\.\pipe\dcc-mcp-ui-control-host-v2-session-42"
+    assert client_module._pipe_path() == (
+        rf"\\.\pipe\dcc-mcp-ui-control-host-v2-version-0.19.65-sha256-{digest}-session-42"
+    )
 
 
 def test_ui_control_host_client_recording_wire_has_no_output_path_and_consumes_observation() -> None:

@@ -40,6 +40,7 @@ use crate::{
 use super::{
     ActionControlFence, ActionFenceExpectation, HostFailure, HostRuntime, HostRuntimeSession,
     RuntimeAccessibilityState, RuntimeActionResult, RuntimeClipRequest, RuntimeSnapshot,
+    allows_owned_standard_menu_popup,
     recording_artifact::{RecordingArtifactError, RecordingArtifactWriter},
     stale_accessibility_state, verify_expected_action_fence,
 };
@@ -444,7 +445,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
             window_handle: screenshot.observation.window_handle,
             window_title: screenshot.observation.window_title.clone(),
         };
-        let accessibility = query_accessibility_state(&self.target, max_depth, max_nodes)?;
+        let accessibility = query_accessibility_state(&self.target, max_depth, max_nodes, true)?;
 
         let buffer_id = Uuid::new_v4().simple().to_string()[..16].to_owned();
         let buffer =
@@ -570,9 +571,15 @@ impl HostRuntimeSession for WindowsRuntimeSession {
         &mut self,
         max_depth: u32,
         max_nodes: u32,
+        allow_owned_standard_menu_popup: bool,
     ) -> Result<RuntimeAccessibilityState, HostFailure> {
         self.window_generation.verify()?;
-        query_accessibility_state(&self.target, max_depth, max_nodes)
+        query_accessibility_state(
+            &self.target,
+            max_depth,
+            max_nodes,
+            allow_owned_standard_menu_popup,
+        )
     }
 
     fn execute(
@@ -587,9 +594,13 @@ impl HostRuntimeSession for WindowsRuntimeSession {
             UiControlInputKind::RawInput => {
                 let request = native_action(action, observation_id);
                 let mut pre_input_fence = || {
-                    let live =
-                        query_accessibility_state(&self.target, fence.max_depth, fence.max_nodes)
-                            .map_err(map_host_failure_to_computer_use_error)?;
+                    let live = query_accessibility_state(
+                        &self.target,
+                        fence.max_depth,
+                        fence.max_nodes,
+                        allows_owned_standard_menu_popup(action),
+                    )
+                    .map_err(map_host_failure_to_computer_use_error)?;
                     verify_expected_action_fence(action, fence, &live)
                         .map_err(map_host_failure_to_computer_use_error)?;
                     Ok(())
@@ -838,14 +849,21 @@ fn exact_scope(target: &UiControlTarget) -> Value {
     })
 }
 
+fn accessibility_scope(target: &UiControlTarget, allow_owned_standard_menu_popup: bool) -> Value {
+    let mut scope = exact_scope(target);
+    scope["allow_owned_standard_menu_popup"] = Value::Bool(allow_owned_standard_menu_popup);
+    scope
+}
+
 fn query_accessibility_state(
     target: &UiControlTarget,
     max_depth: u32,
     max_nodes: u32,
+    allow_owned_standard_menu_popup: bool,
 ) -> Result<RuntimeAccessibilityState, HostFailure> {
     let raw = run_uia(json!({
         "mode": "snapshot",
-        "scope": exact_scope(target),
+        "scope": accessibility_scope(target, allow_owned_standard_menu_popup),
         "max_depth": max_depth,
         "max_nodes": max_nodes,
     }))?;
