@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn require_gateway_is_a_global_fail_closed_control_flag() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "maya.abc12345.inspect",
+        "--require-gateway",
+        "--agent-session-id",
+        "task-42",
+    ])
+    .expect("parse --require-gateway after the subcommand");
+
+    assert!(args.require_gateway);
+    assert_eq!(args.agent_session_id.as_deref(), Some("task-42"));
+}
+
+#[test]
 fn dcc_types_contract_accepts_a_custom_catalog() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
