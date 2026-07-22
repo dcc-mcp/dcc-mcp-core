@@ -411,6 +411,51 @@ pub struct ComputerUseSession {
     capturer: Capturer,
 }
 
+pub(crate) struct ComputerUseRecordingFence {
+    stop_requested: Arc<AtomicBool>,
+    interrupted: Arc<AtomicBool>,
+    desktop_state: Arc<AtomicU64>,
+    target_available: Arc<AtomicBool>,
+    desktop_generation: u64,
+}
+
+impl ComputerUseRecordingFence {
+    pub(crate) fn check(&self) -> ComputerUseResult<()> {
+        if self.interrupted.load(Ordering::Acquire) || platform::user_interrupted() {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::UserInterrupted,
+                "the user stopped exact-window recording",
+            ));
+        }
+        if self.stop_requested.load(Ordering::Acquire) {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                "the owning UI Control session stopped exact-window recording",
+            ));
+        }
+        if !self.target_available.load(Ordering::Acquire) {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::MissingWindow,
+                "the exact target window closed while recording",
+            ));
+        }
+        let (interactive, generation) = desktop_state_snapshot(&self.desktop_state);
+        if !interactive {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::DesktopUnavailable,
+                "the Windows desktop became unavailable while recording",
+            ));
+        }
+        if generation != self.desktop_generation {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::StaleObservation,
+                "the Windows desktop changed while recording",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl std::fmt::Debug for ComputerUseSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ComputerUseSession")
@@ -715,6 +760,20 @@ impl ComputerUseSession {
     /// Request a stop without waiting for an in-flight action or state lock.
     pub fn request_stop(&self) {
         self.stop_requested.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn recording_fence(&self) -> ComputerUseResult<ComputerUseRecordingFence> {
+        let mut state = self.lock_state();
+        self.ensure_running(&state)?;
+        platform::synchronize_desktop_events(&state.desktop_barrier, &self.stop_requested)?;
+        let desktop_generation = Self::refresh_desktop_state(&mut state)?;
+        Ok(ComputerUseRecordingFence {
+            stop_requested: Arc::clone(&self.stop_requested),
+            interrupted: Arc::clone(&state.interrupted),
+            desktop_state: Arc::clone(&state.desktop_state),
+            target_available: Arc::clone(&state.target_available),
+            desktop_generation,
+        })
     }
 
     /// Stop the session and remove the visible banner.

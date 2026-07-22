@@ -21,6 +21,7 @@ _PROTOCOL_VERSION = 2
 _MAX_FRAME_BYTES = 4 * 1024 * 1024
 _HOST_NAME = "dcc-mcp-ui-control-host.exe"
 _SYSTEM_OPERATIONS_CAPABILITY = "typed_system_operations"
+_RECORDING_CAPABILITY = "exact_window_recording"
 
 
 class UiControlHostError(RuntimeError):
@@ -297,7 +298,7 @@ class UiControlHostClient:
         self._target: Dict[str, Any] = {}
         self._latest_observation_id: Optional[str] = None
         self._latest_accessibility_state_id: Optional[str] = None
-        self._call(
+        hello = self._call(
             {
                 "method": "hello",
                 "params": {
@@ -306,6 +307,12 @@ class UiControlHostClient:
                 },
             },
             expected_type="hello",
+        )
+        capabilities = hello.get("capabilities")
+        self._capabilities = (
+            {str(capability) for capability in capabilities if isinstance(capability, str)}
+            if isinstance(capabilities, list)
+            else set()
         )
         opened = self._call(
             {
@@ -372,6 +379,67 @@ class UiControlHostClient:
             {"method": "get_window_state", "params": self._authority()},
             expected_type="window_state",
         )
+
+    def record_clip(
+        self,
+        *,
+        duration_ms: int,
+        frames_per_second: int,
+        jpeg_quality: int,
+    ) -> Dict[str, Any]:
+        """Record one bounded JPEG sequence from the exact capability-bound window."""
+        if _RECORDING_CAPABILITY not in self._capabilities:
+            raise UiControlHostError(
+                "unsupported",
+                "The installed UI Control host does not support exact-window recording.",
+            )
+        if not 1_000 <= duration_ms <= 180_000:
+            raise UiControlHostError("invalid_request", "duration_ms must be 1000..=180000.")
+        if not 1 <= frames_per_second <= 60:
+            raise UiControlHostError("invalid_request", "frames_per_second must be 1..=60.")
+        if not 70 <= jpeg_quality <= 100:
+            raise UiControlHostError("invalid_request", "jpeg_quality must be 70..=100.")
+        try:
+            response = self._call(
+                {
+                    "method": "record_clip",
+                    "params": {
+                        **self._authority(),
+                        "duration_ms": duration_ms,
+                        "frames_per_second": frames_per_second,
+                        "format": "jpeg_sequence",
+                        "jpeg_quality": jpeg_quality,
+                    },
+                },
+                expected_type="clip_recorded",
+            )
+            target = response.get("target")
+            if not isinstance(target, dict) or (
+                int(target.get("process_id") or 0) != int(self._target.get("process_id") or 0)
+                or int(target.get("window_handle") or 0) != int(self._target.get("window_handle") or 0)
+            ):
+                raise UiControlHostError(
+                    "invalid_target",
+                    "The completed recording does not reference the capability-bound target.",
+                )
+            artifact = response.get("artifact")
+            digest = artifact.get("manifest_sha256") if isinstance(artifact, dict) else None
+            if (
+                not isinstance(artifact, dict)
+                or int(artifact.get("frame_count") or 0) <= 0
+                or int(artifact.get("frames_per_second") or 0) != frames_per_second
+                or not isinstance(digest, str)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise UiControlHostError(
+                    "capture_failed",
+                    "The exact-window recording artifact descriptor is invalid.",
+                )
+            self._target = dict(target)
+            return response
+        finally:
+            self._invalidate_observation()
 
     def change_window_state(self, operation: str) -> Dict[str, Any]:
         """Apply one bounded non-input transition to the exact HWND."""

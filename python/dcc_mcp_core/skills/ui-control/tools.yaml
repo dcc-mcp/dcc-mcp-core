@@ -61,6 +61,74 @@ tools:
         - ui_control__act
         - ui_control__stop_computer_use
 
+  - name: record_clip
+    description: >-
+      Record a bounded JPEG frame sequence from the exact PID/HWND bound to
+      this Windows UI Control session. The native host owns the output
+      directory, uses one continuous Windows.Graphics.Capture session, writes
+      per-frame SHA-256 values, and commits the manifest last. The request
+      cannot choose a path or broaden the window scope. Recording invalidates
+      any prior snapshot. Esc, target replacement, desktop lock/disconnect,
+      resolution change, or incomplete capture fails closed and removes the
+      partial artifact. This primitive records window video frames only; use a
+      dedicated gameplay-PV workflow to copy/hash shots, encode them, and add
+      licensed or original audio.
+    input_schema:
+      type: object
+      required: [duration_ms]
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+          description: "ui_control session id. Defaults to 'default'."
+        process_id:
+          type: integer
+          description: "Process id that owns the operator-bound exact window."
+        window_handle:
+          type: integer
+          description: "Native handle of the operator-bound exact window."
+        window_title:
+          type: string
+          description: "Title constraint that may only narrow the operator-bound scope."
+        process_name:
+          type: string
+          description: "Process-name constraint that may only narrow the operator-bound scope."
+        duration_ms:
+          type: integer
+          minimum: 1000
+          maximum: 180000
+          description: "Clip duration in milliseconds (1 to 180 seconds)."
+        frames_per_second:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 30
+          description: "Constant output frame rate. Defaults to 30 FPS."
+        jpeg_quality:
+          type: integer
+          minimum: 70
+          maximum: 100
+          default: 92
+          description: "Per-frame JPEG quality. Defaults to 92."
+        policy:
+          type: object
+          description: "Optional ui_control policy override for this call."
+    read_only: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 185
+    source_file: scripts/record_clip.py
+    requires_in_process: true
+    next-tools:
+      on-success:
+        - ui_control__stop_computer_use
+
   - name: find
     description: >-
       Locate controls in the scoped ui_control snapshot by query, role, label, or

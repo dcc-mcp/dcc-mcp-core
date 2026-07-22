@@ -301,6 +301,8 @@ enum UiControlAction {
     Act(UiControlArgs),
     /// Perform one typed, policy-gated operating-system configuration operation.
     SystemOperation(UiControlArgs),
+    /// Record the exact scoped window into a host-owned, hash-verified JPEG sequence.
+    RecordClip(UiControlArgs),
     /// Wait for one semantic UI condition inside the scoped DCC window.
     Wait(UiControlArgs),
     /// Stop the scoped session and release its visible effects and input owner.
@@ -314,6 +316,7 @@ impl UiControlAction {
             Self::Find(args) => ("ui_control__find", args),
             Self::Act(args) => ("ui_control__act", args),
             Self::SystemOperation(args) => ("ui_control__system_operation", args),
+            Self::RecordClip(args) => ("ui_control__record_clip", args),
             Self::Wait(args) => ("ui_control__wait_for", args),
             Self::Stop(args) => ("ui_control__stop_computer_use", args),
         }

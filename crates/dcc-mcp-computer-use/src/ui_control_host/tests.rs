@@ -3,10 +3,13 @@ use super::system_operations::{
 };
 use super::*;
 use dcc_mcp_ui_control::host_protocol::{
-    UiControlInputKind, UiControlIntent, UiControlPoint, UiControlSystemGrantOperation,
+    UiControlClipFormat, UiControlInputKind, UiControlIntent, UiControlPoint,
+    UiControlSystemGrantOperation,
 };
 use std::collections::VecDeque;
 use std::sync::Mutex;
+
+mod connection_tests;
 
 struct FakeRuntime {
     snapshot: RuntimeAccessibilityState,
@@ -119,6 +122,33 @@ impl HostRuntimeSession for FakeSession {
                 length: 3,
                 mime_type: "image/png".to_owned(),
             },
+        })
+    }
+
+    fn record_clip(
+        &mut self,
+        request: RuntimeClipRequest,
+    ) -> Result<UiControlClipArtifact, HostFailure> {
+        self.start_visible_notice()?;
+        if self.minimized {
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::InvalidTarget,
+                "the scoped DCC window is minimized, closed, or unavailable",
+            ));
+        }
+        assert_eq!(request.format, UiControlClipFormat::JpegSequence);
+        Ok(UiControlClipArtifact {
+            recording_id: "clip-test".to_owned(),
+            directory: "host-owned/clip-test".to_owned(),
+            manifest_path: "host-owned/clip-test/manifest.json".to_owned(),
+            frame_pattern: "frame-%06d.jpg".to_owned(),
+            frame_count: request.frames_per_second,
+            width: 1280,
+            height: 720,
+            frames_per_second: request.frames_per_second,
+            started_at_ms: 1_000,
+            ended_at_ms: 1_000 + request.duration_ms,
+            manifest_sha256: "a".repeat(64),
         })
     }
 
@@ -349,6 +379,152 @@ fn opening_a_routine_session_does_not_request_confirmation() {
             },
         ),
         UiControlHostResponse::SessionOpened { .. }
+    ));
+}
+
+fn open_recording_session(
+    host: &mut UiControlHost,
+    connection: &mut UiControlHostConnection,
+    session_id: &str,
+) -> String {
+    let opened = connection.handle(
+        host,
+        UiControlHostRequest::OpenSession {
+            session_id: session_id.to_owned(),
+            grant: grant(false),
+        },
+    );
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = opened
+    else {
+        panic!("session not opened: {opened:?}");
+    };
+    window_capability
+}
+
+fn record_request(
+    session_id: &str,
+    window_capability: &str,
+    duration_ms: u64,
+    frames_per_second: u32,
+    jpeg_quality: u8,
+) -> UiControlHostRequest {
+    UiControlHostRequest::RecordClip {
+        session_id: session_id.to_owned(),
+        task_grant_id: "grant-1".to_owned(),
+        window_capability: window_capability.to_owned(),
+        duration_ms,
+        frames_per_second,
+        format: UiControlClipFormat::JpegSequence,
+        jpeg_quality,
+    }
+}
+
+#[test]
+fn exact_window_recording_accepts_inclusive_contract_boundaries() {
+    for (duration_ms, frames_per_second, jpeg_quality) in
+        [(1_000, 1, 70), (12_000, 30, 92), (180_000, 60, 100)]
+    {
+        let (mut host, mut connection) = negotiated();
+        let capability = open_recording_session(&mut host, &mut connection, "record-valid");
+        let response = connection.handle(
+            &mut host,
+            record_request(
+                "record-valid",
+                &capability,
+                duration_ms,
+                frames_per_second,
+                jpeg_quality,
+            ),
+        );
+        let UiControlHostResponse::ClipRecorded { target, artifact } = response else {
+            panic!("recording failed: {response:?}");
+        };
+        assert_eq!(target.process_id, 42);
+        assert_eq!(target.window_handle, 0x1234);
+        assert_eq!(artifact.frames_per_second, frames_per_second);
+        assert_eq!(artifact.manifest_sha256.len(), 64);
+    }
+}
+
+#[test]
+fn exact_window_recording_rejects_values_outside_contract_boundaries() {
+    for (duration_ms, frames_per_second, jpeg_quality) in [
+        (999, 30, 92),
+        (180_001, 30, 92),
+        (12_000, 0, 92),
+        (12_000, 61, 92),
+        (12_000, 30, 69),
+        (12_000, 30, 101),
+    ] {
+        let (mut host, mut connection) = negotiated();
+        let capability = open_recording_session(&mut host, &mut connection, "record-invalid");
+        assert!(matches!(
+            connection.handle(
+                &mut host,
+                record_request(
+                    "record-invalid",
+                    &capability,
+                    duration_ms,
+                    frames_per_second,
+                    jpeg_quality,
+                ),
+            ),
+            UiControlHostResponse::Error {
+                code: UiControlHostErrorCode::InvalidRequest,
+                ..
+            }
+        ));
+    }
+}
+
+#[test]
+fn recording_consumes_the_previous_action_observation() {
+    let (mut host, mut connection) = negotiated();
+    let capability = open_recording_session(&mut host, &mut connection, "record-fence");
+    let snapshot = connection.handle(
+        &mut host,
+        UiControlHostRequest::Snapshot {
+            session_id: "record-fence".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: capability.clone(),
+            max_depth: 5,
+            max_nodes: 250,
+        },
+    );
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        ..
+    } = snapshot
+    else {
+        panic!("snapshot failed: {snapshot:?}");
+    };
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            record_request("record-fence", &capability, 1_000, 1, 92),
+        ),
+        UiControlHostResponse::ClipRecorded { .. }
+    ));
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::ExecuteAction {
+                session_id: "record-fence".to_owned(),
+                task_grant_id: "grant-1".to_owned(),
+                window_capability: capability,
+                observation_id,
+                accessibility_state_id,
+                action: Box::new(action(Some("uia:42.1"), UiControlInputKind::Semantic)),
+            },
+        ),
+        UiControlHostResponse::ActionCompleted {
+            success: false,
+            error: Some(UiControlHostErrorCode::StaleObservation),
+            ..
+        }
     ));
 }
 
@@ -696,6 +872,7 @@ fn completed_action_that_closes_exact_target_succeeds_and_revokes_session() {
         panic!("snapshot failed: {snapshot:?}");
     };
 
+    let host_session_id = connection.host_session_id("target-transition");
     let response = connection.handle(
         &mut host,
         UiControlHostRequest::ExecuteAction {
@@ -718,7 +895,7 @@ fn completed_action_that_closes_exact_target_succeeds_and_revokes_session() {
             ..
         }
     ));
-    assert!(!host.sessions.contains_key("target-transition"));
+    assert!(!host.sessions.contains_key(&host_session_id));
     assert!(!connection.owned_sessions.contains("target-transition"));
 
     assert!(matches!(
@@ -730,40 +907,6 @@ fn completed_action_that_closes_exact_target_succeeds_and_revokes_session() {
                 window_capability,
             },
         ),
-        UiControlHostResponse::Error {
-            code: UiControlHostErrorCode::SessionNotFound,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn one_pipe_cannot_address_another_pipes_session() {
-    let (mut host, mut owner) = negotiated();
-    let opened = owner.handle(
-        &mut host,
-        UiControlHostRequest::OpenSession {
-            session_id: "owned".to_owned(),
-            grant: grant(false),
-        },
-    );
-    let UiControlHostResponse::SessionOpened {
-        window_capability, ..
-    } = opened
-    else {
-        panic!("session not opened: {opened:?}");
-    };
-    let (_, mut other) = negotiated();
-    let response = other.handle(
-        &mut host,
-        UiControlHostRequest::GetWindowState {
-            session_id: "owned".to_owned(),
-            task_grant_id: "grant-1".to_owned(),
-            window_capability,
-        },
-    );
-    assert!(matches!(
-        response,
         UiControlHostResponse::Error {
             code: UiControlHostErrorCode::SessionNotFound,
             ..
@@ -1398,9 +1541,10 @@ fn confirmation_round_trip_hard_denies_password_focus_before_input() {
     ));
     // The denial happens before a mutation is attempted. Other actions must
     // still pass their own live fence against this retained observation.
+    let host_session_id = connection.host_session_id("keyboard-focus");
     assert!(
         host.sessions
-            .get("keyboard-focus")
+            .get(&host_session_id)
             .is_some_and(|session| session.observation_id.is_some())
     );
 }

@@ -91,6 +91,7 @@ def test_ui_control_skill_metadata_and_tool_names() -> None:
         "snapshot",
         "find",
         "act",
+        "record_clip",
         "system_operation",
         "stop_computer_use",
         "wait_for",
@@ -104,6 +105,7 @@ def test_ui_control_skill_metadata_and_tool_names() -> None:
     catalog.load_skill("ui-control")
     action_names = {action["name"] for action in registry.list_actions()}
     assert "ui_control__snapshot" in action_names
+    assert "ui_control__record_clip" in action_names
     assert "ui_control__system_operation" in action_names
     assert "ui_control__wait_for" in action_names
     assert "ui_control__stop_computer_use" in action_names
@@ -185,6 +187,20 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     assert tools["act"].timeout_hint_secs is None
     assert tools["find"].timeout_hint_secs == 2
     assert tools["wait_for"].timeout_hint_secs == 65
+    record_schema = json.loads(tools["record_clip"].input_schema)
+    assert record_schema["required"] == ["duration_ms"]
+    assert record_schema["additionalProperties"] is False
+    assert record_schema["properties"]["duration_ms"]["minimum"] == 1_000
+    assert record_schema["properties"]["duration_ms"]["maximum"] == 180_000
+    assert record_schema["properties"]["frames_per_second"]["minimum"] == 1
+    assert record_schema["properties"]["frames_per_second"]["maximum"] == 60
+    assert record_schema["properties"]["jpeg_quality"]["minimum"] == 70
+    assert record_schema["properties"]["jpeg_quality"]["maximum"] == 100
+    assert not {"output", "output_path", "directory", "path"} & set(record_schema["properties"])
+    assert tools["record_clip"].timeout_hint_secs == 185
+    assert tools["record_clip"].read_only is False
+    assert tools["record_clip"].destructive is False
+    assert tools["record_clip"].requires_in_process is True
     assert not (tools["act"].next_tools or {}).get("on_failure")
     assert not (tools["wait_for"].next_tools or {}).get("on_failure")
     wait_schema = json.loads(tools["wait_for"].input_schema)
@@ -563,6 +579,27 @@ def test_ui_control_backend_router_reports_unknown_backend(tmp_path: Path) -> No
     ]
 
 
+@pytest.mark.parametrize(
+    ("backend", "reported_backend"),
+    [("mock", "mock"), ("chrome", "chrome-cdp")],
+)
+def test_ui_control_non_native_backends_reject_exact_window_recording(
+    tmp_path: Path,
+    backend: str,
+    reported_backend: str,
+) -> None:
+    result = _run_tool(
+        "record_clip",
+        {"session_id": "no-recording-fallback", "duration_ms": 1_000},
+        tmp_path,
+        extra_env={"DCC_MCP_UI_CONTROL_BACKEND": backend},
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "unsupported_action"
+    assert result["context"]["backend"] == reported_backend
+
+
 class _FakeHostClient:
     instances: ClassVar[list[_FakeHostClient]] = []
 
@@ -570,6 +607,7 @@ class _FakeHostClient:
         self.kwargs = kwargs
         self.executed: list[dict[str, Any]] = []
         self.window_operations: list[str] = []
+        self.recordings: list[dict[str, int]] = []
         self.resumed = False
         self.stopped = False
         self.__class__.instances.append(self)
@@ -638,6 +676,32 @@ class _FakeHostClient:
             "message": "completed",
         }
 
+    def record_clip(self, *, duration_ms: int, frames_per_second: int, jpeg_quality: int) -> dict[str, Any]:
+        self.recordings.append(
+            {
+                "duration_ms": duration_ms,
+                "frames_per_second": frames_per_second,
+                "jpeg_quality": jpeg_quality,
+            }
+        )
+        return {
+            "type": "clip_recorded",
+            "target": self.target,
+            "artifact": {
+                "recording_id": "clip-test",
+                "directory": "C:/host-owned/clip-test",
+                "manifest_path": "C:/host-owned/clip-test/manifest.json",
+                "frame_pattern": "frame-%06d.jpg",
+                "frame_count": 36,
+                "width": 1280,
+                "height": 720,
+                "frames_per_second": frames_per_second,
+                "started_at_ms": 1000,
+                "ended_at_ms": 2200,
+                "manifest_sha256": "a" * 64,
+            },
+        }
+
     def window_state(self) -> dict[str, Any]:
         return {
             "type": "window_state",
@@ -700,6 +764,27 @@ def test_ui_control_windows_host_maps_snapshot_and_shared_image(monkeypatch: Any
     assert context["snapshot"]["metadata"]["computer_use"]["observation_id"] == "obs-1"
     assert base64.b64decode(context["__rich__"]["data"]) == b"png"
     assert _FakeHostClient.instances[0].kwargs["allow_raw_input"] is False
+
+
+def test_ui_control_windows_host_records_exact_window_clip_without_output_path(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+
+    result = backend.record_clip_tool(
+        {
+            "session_id": "pv",
+            "duration_ms": 1_200,
+            "frames_per_second": 30,
+            "jpeg_quality": 92,
+        }
+    )
+
+    assert result["success"] is True
+    assert result["context"]["target"]["window_handle"] == 500
+    assert result["context"]["artifact"]["manifest_sha256"] == "a" * 64
+    assert _FakeHostClient.instances[0].recordings == [
+        {"duration_ms": 1_200, "frames_per_second": 30, "jpeg_quality": 92}
+    ]
 
 
 def test_ui_control_windows_host_requires_operator_bound_scope(monkeypatch: Any) -> None:
@@ -1050,6 +1135,157 @@ def test_ui_control_host_client_uses_v2_only_pipe(monkeypatch: Any) -> None:
 
     assert client_module._PROTOCOL_VERSION == 2
     assert client_module._pipe_path() == r"\\.\pipe\dcc-mcp-ui-control-host-v2-session-42"
+
+
+def test_ui_control_host_client_recording_wire_has_no_output_path_and_consumes_observation() -> None:
+    import io
+    import struct
+
+    backend = _load_windows_uia_module()
+    client_module = backend._HOST
+
+    def frame(value: dict[str, Any]) -> bytes:
+        body = json.dumps(value).encode("utf-8")
+        return struct.pack(">I", len(body)) + body
+
+    class ScriptedPipe:
+        def __init__(self) -> None:
+            self.responses = io.BytesIO(
+                frame(
+                    {
+                        "type": "hello",
+                        "protocol_version": 2,
+                        "capabilities": ["exact_window_recording"],
+                    }
+                )
+                + frame(
+                    {
+                        "type": "session_opened",
+                        "session_id": "pv",
+                        "window_capability": "window:opaque",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "Game"},
+                    }
+                )
+                + frame(
+                    {
+                        "type": "clip_recorded",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "Game"},
+                        "artifact": {
+                            "recording_id": "clip-1",
+                            "directory": "C:/host-owned/clip-1",
+                            "manifest_path": "C:/host-owned/clip-1/manifest.json",
+                            "frame_pattern": "frame-%06d.jpg",
+                            "frame_count": 30,
+                            "width": 1280,
+                            "height": 720,
+                            "frames_per_second": 30,
+                            "started_at_ms": 1000,
+                            "ended_at_ms": 2000,
+                            "manifest_sha256": "a" * 64,
+                        },
+                    }
+                )
+            )
+            self.requests = bytearray()
+
+        def read(self, length: int) -> bytes:
+            return self.responses.read(length)
+
+        def write(self, data: bytes) -> int:
+            self.requests.extend(data)
+            return len(data)
+
+        def close(self) -> None:
+            return None
+
+    stream = ScriptedPipe()
+    client = client_module.UiControlHostClient(
+        session_id="pv",
+        task_grant_id="grant",
+        dcc_type="unity",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        stream=stream,
+    )
+    client._latest_observation_id = "obs-before-recording"
+    client._latest_accessibility_state_id = "accessibility-before-recording"
+
+    response = client.record_clip(duration_ms=1_000, frames_per_second=30, jpeg_quality=92)
+
+    assert response["artifact"]["frame_count"] == 30
+    assert client._latest_observation_id is None
+    assert client._latest_accessibility_state_id is None
+    raw = bytes(stream.requests)
+    requests = []
+    offset = 0
+    while offset < len(raw):
+        length = struct.unpack(">I", raw[offset : offset + 4])[0]
+        offset += 4
+        requests.append(json.loads(raw[offset : offset + length]))
+        offset += length
+    recording = next(request for request in requests if request["method"] == "record_clip")
+    assert set(recording["params"]) == {
+        "session_id",
+        "task_grant_id",
+        "window_capability",
+        "duration_ms",
+        "frames_per_second",
+        "format",
+        "jpeg_quality",
+    }
+    assert recording["params"]["format"] == "jpeg_sequence"
+    assert not any("path" in key or "directory" in key for key in recording["params"])
+
+
+def test_ui_control_host_client_rejects_recording_on_an_older_host() -> None:
+    import io
+    import struct
+
+    backend = _load_windows_uia_module()
+    client_module = backend._HOST
+
+    def frame(value: dict[str, Any]) -> bytes:
+        body = json.dumps(value).encode("utf-8")
+        return struct.pack(">I", len(body)) + body
+
+    class ScriptedPipe:
+        def __init__(self) -> None:
+            self.responses = io.BytesIO(
+                frame({"type": "hello", "protocol_version": 2, "capabilities": []})
+                + frame(
+                    {
+                        "type": "session_opened",
+                        "session_id": "old",
+                        "window_capability": "window:old",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "Game"},
+                    }
+                )
+            )
+
+        def read(self, length: int) -> bytes:
+            return self.responses.read(length)
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def close(self) -> None:
+            return None
+
+    stream = ScriptedPipe()
+    client = client_module.UiControlHostClient(
+        session_id="old",
+        task_grant_id="grant",
+        dcc_type="unity",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        stream=stream,
+    )
+
+    with pytest.raises(client_module.UiControlHostError) as failure:
+        client.record_clip(duration_ms=1_000, frames_per_second=30, jpeg_quality=92)
+    assert failure.value.code == "unsupported"
 
 
 def test_ui_control_host_client_revokes_local_capability_when_exact_target_closes() -> None:

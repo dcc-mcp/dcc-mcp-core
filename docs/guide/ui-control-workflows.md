@@ -78,8 +78,24 @@ The CLI contract is platform-neutral:
 ```bash
 dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
 dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
+dcc-mcp-cli ui-control record-clip --instance-id <id> --json '{"session_id":"pv","process_id":1234,"duration_ms":5000,"frames_per_second":30,"jpeg_quality":92}'
 dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
+
+Route identity has two levels. Always select the intended DCC `instance_id`
+first; `session_id` is then logical only inside that adapter connection. Two
+Unity, Unreal, Maya, or other DCC instances may both use `session_id="default"`
+without colliding: the host creates an opaque connection namespace and keeps
+their capabilities, observations, recordings, and disconnect cleanup separate.
+When more than one matching DCC is ready, never omit `--instance-id`; verify the
+returned route and exact PID/HWND before acting.
+
+Multiple exact-window sessions can remain active in the same Windows logon
+session. They share one host-owned input coordinator, one cross-process input
+owner, and the same global Esc latch. Requests and native input mutations are
+serialized, so concurrent agents cannot inject into different windows at the
+same time. Stopping one logical session does not stop another; pressing Esc is
+the explicit global stop and invalidates all of them until user-approved resume.
 
 The wrapper prints compact machine-readable JSON by default: routing ids,
 message/error, observation ids, bounded snapshot metadata, semantic matches,
@@ -110,6 +126,17 @@ The native session treats the bound PID/HWND as a separate authorization
 scope. It refuses unbound construction and revalidates the resolved process and
 window before the capsule, every capture, and every action; title-only and
 process-name scopes never authorize native input.
+
+`ui_control__record_clip` is the exact-window evidence path for gameplay and
+other time-based UI proof. It uses one continuous Windows.Graphics.Capture
+session and returns a host-owned JPEG sequence plus a manifest containing
+per-frame SHA-256 values. Duration is limited to 1–180 seconds, output is
+1–60 FPS, and requests cannot select a directory. Esc, stop, desktop loss,
+target replacement, size change, or an incomplete write removes the partial
+artifact. Recording captures no audio and is not a finished trailer: use the
+`game-pv-capture` Skill for shot provenance, then HyperFrames for editing,
+titles, original or licensed audio, and delivery encoding. Do not substitute
+whole-desktop/title-matched recorders or GPT/OpenAI Computer Use.
 
 Use native coordinate input only when semantic UIA returns
 `unsupported_action`. Host, UIA, or capture unavailability never selects an
@@ -148,9 +175,9 @@ the host, and invalidate any older observation. Take a fresh snapshot after
 the window becomes visible, non-minimized, and foreground.
 
 The visible corner brackets, control capsule, and pointer effects belong to the adapter
-host's interactive Windows logon session. The user stops control by pressing `Esc`
+host's interactive Windows logon session. The user stops all active sessions by pressing `Esc`
 and the tool returns `user_interrupted`; stop immediately. Do not retry, change
-`session_id`, or start another session. Set `resume_computer_use=true` only
+`session_id`, or start another session after that interruption. Set `resume_computer_use=true` only
 after the user explicitly asks to resume. The flag cannot approve resumption:
 the isolated host always presents its own trusted confirmation before clearing
 the global stop latch.
