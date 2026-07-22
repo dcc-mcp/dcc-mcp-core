@@ -1787,6 +1787,23 @@ return `Result<T, DccMcpError>` rather than introducing yet another error type.
 
 ---
 
+## Record and Replay Safety Contract
+
+Use `dcc-mcp-cli record-replay` only for operator-reviewed demonstration-to-Skill
+workflows. Recording is caller-session scoped and captures post-redaction gateway
+traffic; it never records prompts, secrets, approvals, or reusable authority.
+Compilation emits a `WorkflowSpec`, `SKILL.md`, replay contract, and
+`replay.guard.json`. Replay requires a separate current approval and validates
+every current tool schema guard before execution. UI fallback must resolve fresh
+semantic control ids; raw input requires a bounded visual guard and exact-window
+calibration. See ADR-017 for lifecycle and failure rules.
+
+`ui_control__wait_for` uses protocol-v3 accessibility-only snapshots between
+intervals. Take a full `ui_control__snapshot` before each mutation because only
+that observation carries the exact pixel fence required by the Host.
+
+---
+
 ## Python 3.7 Support Policy
 
 **dcc-mcp treats Python 3.7 as a long-term-support profile.** There is no

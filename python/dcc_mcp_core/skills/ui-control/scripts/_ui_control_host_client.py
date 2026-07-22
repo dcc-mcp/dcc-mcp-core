@@ -18,7 +18,7 @@ from typing import Dict
 from typing import NamedTuple
 from typing import Optional
 
-_PROTOCOL_VERSION = 2
+_PROTOCOL_VERSION = 3
 _MAX_FRAME_BYTES = 4 * 1024 * 1024
 _SYSTEM_OPERATIONS_CAPABILITY = "typed_system_operations"
 _RECORDING_CAPABILITY = "exact_window_recording"
@@ -352,6 +352,11 @@ class UiControlHostClient:
             },
             expected_type="hello",
         )
+        if int(hello.get("protocol_version") or 0) != _PROTOCOL_VERSION:
+            raise UiControlHostError(
+                "protocol_mismatch",
+                "The UI Control host selected an incompatible protocol version.",
+            )
         capabilities = hello.get("capabilities")
         self._capabilities = (
             {str(capability) for capability in capabilities if isinstance(capability, str)}
@@ -415,6 +420,28 @@ class UiControlHostClient:
             self._invalidate_observation()
             raise UiControlHostError("capture_failed", "The host screenshot shared-memory length is invalid.")
         response["image_bytes"] = png
+        return response
+
+    def accessibility_snapshot(self, *, max_depth: int, max_nodes: int) -> Dict[str, Any]:
+        """Refresh exact-window UIA state without capturing screenshot pixels."""
+        if "accessibility_snapshot" not in self._capabilities:
+            raise UiControlHostError(
+                "unsupported",
+                "The installed UI Control host does not support accessibility-only snapshots.",
+            )
+        response = self._call(
+            {
+                "method": "accessibility_snapshot",
+                "params": {
+                    **self._authority(),
+                    "max_depth": max_depth,
+                    "max_nodes": max_nodes,
+                },
+            },
+            expected_type="accessibility_snapshot",
+        )
+        self._latest_accessibility_state_id = str(response["accessibility_state_id"])
+        self._target = dict(response.get("target") or self._target)
         return response
 
     def window_state(self) -> Dict[str, Any]:
@@ -535,19 +562,19 @@ class UiControlHostClient:
         self._invalidate_observation()
 
     def stop(self) -> Dict[str, Any]:
-        """Stop the host session and invalidate every local capability."""
-        try:
-            if self._window_capability is None:
-                return {"type": "session_stopped", "session_id": self.session_id, "cleanup_pending": False}
-            return self._call(
-                {"method": "stop_session", "params": {"session_id": self.session_id}},
-                expected_type="session_stopped",
-            )
-        finally:
+        """Stop the host session, retaining authority while cleanup is pending."""
+        if self._window_capability is None:
+            return {"type": "session_stopped", "session_id": self.session_id, "cleanup_pending": False}
+        response = self._call(
+            {"method": "stop_session", "params": {"session_id": self.session_id}},
+            expected_type="session_stopped",
+        )
+        self._invalidate_observation()
+        if not bool(response.get("cleanup_pending")):
             self._window_capability = None
-            self._invalidate_observation()
             with suppress(OSError):
                 self._stream.close()
+        return response
 
     def _authority(self) -> Dict[str, Any]:
         if self._window_capability is None:

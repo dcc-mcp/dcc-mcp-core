@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Only wire version supported by `dcc-mcp-ui-control-host`.
-pub const UI_CONTROL_HOST_PROTOCOL_VERSION: u32 = 2;
+pub const UI_CONTROL_HOST_PROTOCOL_VERSION: u32 = 3;
 
 /// Maximum accepted JSON frame size. Screenshot pixels travel through shared memory.
 pub const UI_CONTROL_HOST_MAX_FRAME_BYTES: u32 = 4 * 1024 * 1024;
 
-/// Host capabilities implemented by protocol version 2.
+/// Host capabilities implemented by protocol version 3.
 pub const UI_CONTROL_HOST_CAPABILITIES: &[&str] = &[
     "exact_window_capabilities",
     "exact_window_state",
@@ -17,6 +17,7 @@ pub const UI_CONTROL_HOST_CAPABILITIES: &[&str] = &[
     "shared_memory_snapshots",
     "exact_window_recording",
     "connection_scoped_sessions",
+    "accessibility_snapshot",
     "uia_snapshot_and_actions",
     "scoped_raw_input",
     "observation_fencing",
@@ -451,6 +452,19 @@ pub enum UiControlHostRequest {
         /// Maximum UIA nodes.
         max_nodes: u32,
     },
+    /// Refresh accessibility state without capturing or transferring pixels.
+    AccessibilitySnapshot {
+        /// Logical session id.
+        session_id: String,
+        /// Exact task grant id.
+        task_grant_id: String,
+        /// Opaque window capability.
+        window_capability: String,
+        /// Maximum UIA tree depth.
+        max_depth: u32,
+        /// Maximum UIA nodes.
+        max_nodes: u32,
+    },
     /// Record a bounded frame sequence from the exact capability-bound window.
     RecordClip {
         /// Logical session id.
@@ -626,6 +640,20 @@ pub enum UiControlHostResponse {
         /// Shared-memory PNG descriptor.
         image: Box<UiControlSharedImage>,
     },
+    /// Fresh accessibility state for lightweight polling inside the exact window.
+    AccessibilitySnapshot {
+        /// Host accessibility state id.
+        accessibility_state_id: String,
+        /// Exact target revalidated before querying UIA.
+        target: UiControlTarget,
+        /// Raw UIA root consumed by the adapter's portable contract mapper.
+        root: Value,
+        /// Runtime id of the focused control.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focus_runtime_id: Option<String>,
+        /// UIA nodes collected.
+        node_count: u32,
+    },
     /// Exact-window frame sequence completed in host-owned storage.
     ClipRecorded {
         /// Exact target revalidated after recording completed.
@@ -697,9 +725,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wire_protocol_is_v2_only() {
-        assert_eq!(UI_CONTROL_HOST_PROTOCOL_VERSION, 2);
+    fn wire_protocol_is_v3_only() {
+        assert_eq!(UI_CONTROL_HOST_PROTOCOL_VERSION, 3);
         assert!(UI_CONTROL_HOST_CAPABILITIES.contains(&"connection_scoped_sessions"));
+        assert!(UI_CONTROL_HOST_CAPABILITIES.contains(&"accessibility_snapshot"));
     }
 
     #[test]

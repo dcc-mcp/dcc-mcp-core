@@ -34,6 +34,133 @@ pub struct UiPoint {
     pub y: f64,
 }
 
+/// Declarative perception provider used by guarded replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiRecognizerType {
+    /// Accessibility tree query.
+    Accessibility,
+    /// Bounded image template match.
+    Template,
+    /// Optical character recognition inside the scoped region.
+    Ocr,
+    /// Difference against a reviewed reference image.
+    ImageDifference,
+}
+
+/// Region used by a visual recognizer; never a global desktop rectangle.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum UiRecognitionRegion {
+    /// Entire exact authorized target window.
+    ExactWindow,
+    /// Target-window-relative rectangle whose values must remain inside 0..=1.
+    NormalizedRect {
+        /// Left fraction.
+        x: f64,
+        /// Top fraction.
+        y: f64,
+        /// Width fraction.
+        width: f64,
+        /// Height fraction.
+        height: f64,
+    },
+    /// Rectangle resolved relative to a freshly recognized anchor.
+    AnchorRelative {
+        /// Hash-addressed or accessibility anchor identifier.
+        anchor: String,
+        /// Normalized offset from the anchor bounds.
+        offset: UiBounds,
+    },
+}
+
+/// DCC-agnostic guarded replay recognizer contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiRecognizer {
+    /// Recognition implementation family.
+    pub recognizer_type: UiRecognizerType,
+    /// Exact-window-bounded search region.
+    pub region: UiRecognitionRegion,
+    /// Hash-addressed template/reference artifact when required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<String>,
+    /// OCR or accessibility query when required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// Minimum accepted confidence, inclusive.
+    pub threshold: f64,
+    /// Bounded recognition timeout.
+    pub timeout_ms: u64,
+    /// Consecutive matching frames required before success.
+    pub stable_frames: u32,
+}
+
+/// Exact target calibration recorded for visual fallback drift checks.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct UiVisualCalibration {
+    /// Exact target client width in physical pixels.
+    pub width: u32,
+    /// Exact target client height in physical pixels.
+    pub height: u32,
+    /// Effective horizontal DPI.
+    pub dpi_x: u32,
+    /// Effective vertical DPI.
+    pub dpi_y: u32,
+    /// Monitor/topology generation captured by the provider.
+    pub topology_generation: u64,
+}
+
+impl UiRecognizer {
+    /// Validate fail-closed bounds before a provider sees the recognizer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !(0.0..=1.0).contains(&self.threshold) || self.threshold == 0.0 {
+            return Err("threshold must be within (0, 1]");
+        }
+        if self.timeout_ms == 0 || self.timeout_ms > 60_000 {
+            return Err("timeout_ms must be within 1..=60000");
+        }
+        if self.stable_frames == 0 || self.stable_frames > 120 {
+            return Err("stable_frames must be within 1..=120");
+        }
+        match (&self.recognizer_type, &self.asset, &self.query) {
+            (UiRecognizerType::Template | UiRecognizerType::ImageDifference, Some(asset), _)
+                if asset.starts_with("artefact://sha256/") => {}
+            (UiRecognizerType::Template | UiRecognizerType::ImageDifference, _, _) => {
+                return Err("visual reference must use an artefact://sha256/ URI");
+            }
+            (UiRecognizerType::Ocr | UiRecognizerType::Accessibility, _, Some(query))
+                if !query.trim().is_empty() => {}
+            (UiRecognizerType::Ocr | UiRecognizerType::Accessibility, _, _) => {
+                return Err("OCR and accessibility recognizers require a query");
+            }
+        }
+        if let UiRecognitionRegion::NormalizedRect {
+            x,
+            y,
+            width,
+            height,
+        } = self.region
+            && (x < 0.0
+                || y < 0.0
+                || width <= 0.0
+                || height <= 0.0
+                || x + width > 1.0
+                || y + height > 1.0)
+        {
+            return Err("normalized region must remain within the exact target window");
+        }
+        Ok(())
+    }
+}
+
+impl UiVisualCalibration {
+    /// Return whether replay geometry is identical to the reviewed calibration.
+    #[must_use]
+    pub fn matches(self, current: Self) -> bool {
+        self == current && self.width > 0 && self.height > 0 && self.dpi_x > 0 && self.dpi_y > 0
+    }
+}
+
 /// Normalized UI control node.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiControlNode {
@@ -582,6 +709,55 @@ mod tests {
         let encoded = serde_json::to_string(&snapshot).unwrap();
         let decoded: UiSnapshot = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, snapshot);
+    }
+
+    #[test]
+    fn visual_recognizer_requires_bounded_content_addressed_inputs() {
+        let recognizer = UiRecognizer {
+            recognizer_type: UiRecognizerType::Template,
+            region: UiRecognitionRegion::NormalizedRect {
+                x: 0.1,
+                y: 0.2,
+                width: 0.5,
+                height: 0.5,
+            },
+            asset: Some(format!("artefact://sha256/{}", "a".repeat(64))),
+            query: None,
+            threshold: 0.92,
+            timeout_ms: 5_000,
+            stable_frames: 2,
+        };
+
+        assert!(recognizer.validate().is_ok());
+        let mut unbounded = recognizer.clone();
+        unbounded.region = UiRecognitionRegion::NormalizedRect {
+            x: 0.8,
+            y: 0.0,
+            width: 0.3,
+            height: 1.0,
+        };
+        assert!(unbounded.validate().is_err());
+    }
+
+    #[test]
+    fn visual_calibration_rejects_dpi_geometry_and_topology_drift() {
+        let recorded = UiVisualCalibration {
+            width: 1920,
+            height: 1080,
+            dpi_x: 144,
+            dpi_y: 144,
+            topology_generation: 7,
+        };
+        assert!(recorded.matches(recorded));
+        assert!(!recorded.matches(UiVisualCalibration {
+            dpi_x: 96,
+            dpi_y: 96,
+            ..recorded
+        }));
+        assert!(!recorded.matches(UiVisualCalibration {
+            topology_generation: 8,
+            ..recorded
+        }));
     }
 
     #[test]

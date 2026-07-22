@@ -18,6 +18,7 @@ struct FakeRuntime {
     minimized: bool,
     target_closed_after_action: bool,
     captured_session_id: Arc<Mutex<Option<String>>>,
+    stop_results: Mutex<VecDeque<bool>>,
 }
 
 struct FakeSession {
@@ -27,6 +28,7 @@ struct FakeSession {
     minimized: bool,
     target_closed_after_action: bool,
     notice_started: bool,
+    stop_results: VecDeque<bool>,
 }
 
 impl Default for FakeRuntime {
@@ -37,6 +39,7 @@ impl Default for FakeRuntime {
             minimized: false,
             target_closed_after_action: false,
             captured_session_id: Arc::new(Mutex::new(None)),
+            stop_results: Mutex::new(VecDeque::new()),
         }
     }
 }
@@ -70,6 +73,12 @@ impl HostRuntime for FakeRuntime {
             minimized: self.minimized,
             target_closed_after_action: self.target_closed_after_action,
             notice_started: false,
+            stop_results: std::mem::take(
+                &mut *self
+                    .stop_results
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            ),
         }))
     }
 }
@@ -202,7 +211,7 @@ impl HostRuntimeSession for FakeSession {
     }
 
     fn stop(&mut self) -> bool {
-        false
+        self.stop_results.pop_front().unwrap_or(false)
     }
 }
 
@@ -269,6 +278,20 @@ fn host_with_accessibility_states(
             minimized: false,
             target_closed_after_action: false,
             captured_session_id: Arc::new(Mutex::new(None)),
+            stop_results: Mutex::new(VecDeque::new()),
+        }),
+        confirmation: Box::new(AllowConfirmation),
+    }
+}
+
+fn host_with_stop_results(results: impl IntoIterator<Item = bool>) -> UiControlHost {
+    UiControlHost {
+        sessions: HashMap::new(),
+        system_sessions: HashMap::new(),
+        system_grants: HashMap::new(),
+        runtime: Box::new(FakeRuntime {
+            stop_results: Mutex::new(results.into_iter().collect()),
+            ..FakeRuntime::default()
         }),
         confirmation: Box::new(AllowConfirmation),
     }
@@ -643,6 +666,31 @@ fn exact_target_capability_and_observation_are_required() {
         UiControlHostResponse::ActionCompleted {
             success: true,
             policy_tier: UiControlPolicyTier::ActionConfirmation,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn accessibility_snapshot_refreshes_uia_without_pixel_observation() {
+    let (mut host, mut connection) = negotiated();
+    let capability = open_recording_session(&mut host, &mut connection, "uia-poll");
+    let response = connection.handle(
+        &mut host,
+        UiControlHostRequest::AccessibilitySnapshot {
+            session_id: "uia-poll".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: capability,
+            max_depth: 5,
+            max_nodes: 250,
+        },
+    );
+
+    assert!(matches!(
+        response,
+        UiControlHostResponse::AccessibilitySnapshot {
+            node_count: 1,
+            target: UiControlTarget { process_id: 42, .. },
             ..
         }
     ));

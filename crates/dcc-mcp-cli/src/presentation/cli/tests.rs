@@ -17,6 +17,60 @@ fn require_gateway_is_a_global_fail_closed_control_flag() {
 }
 
 #[test]
+fn record_replay_compile_requires_explicit_review_flag_in_contract() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "--agent-session-id",
+        "task-42",
+        "record-replay",
+        "compile",
+        "rec-1",
+        "--name",
+        "scene-build",
+        "--reviewed",
+    ])
+    .expect("parse record-replay compile command");
+
+    let Command::RecordReplay {
+        action:
+            RecordReplayAction::Compile {
+                recording_id,
+                name,
+                reviewed,
+                ..
+            },
+    } = args.command
+    else {
+        panic!("expected record-replay compile command");
+    };
+    assert_eq!(recording_id, "rec-1");
+    assert_eq!(name, "scene-build");
+    assert!(reviewed);
+}
+
+#[test]
+fn record_replay_replay_keeps_current_approval_separate() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "record-replay",
+        "replay",
+        "--workflow-file",
+        "replay.workflow.yaml",
+        "--tool-slug",
+        "maya.abcd.workflows_run",
+    ])
+    .expect("parse record-replay replay command");
+
+    let Command::RecordReplay {
+        action: RecordReplayAction::Replay { approve_replay, .. },
+    } = args.command
+    else {
+        panic!("expected record-replay replay command");
+    };
+    assert!(!approve_replay);
+}
+
+#[test]
 fn dcc_types_contract_accepts_a_custom_catalog() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",

@@ -30,6 +30,10 @@ use super::marketplace::{
     handle_marketplace_uninstall, handle_marketplace_update,
 };
 use super::memory::{handle_admin_memory, handle_admin_memory_forget};
+use super::recordings::{
+    handle_recording_compile, handle_recording_replay_validate, handle_recording_review,
+    handle_recording_review_body, handle_recording_start, handle_recording_stop,
+};
 use super::sessions::{handle_admin_session_detail, handle_admin_sessions};
 use super::skill_paths::{
     handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
@@ -188,6 +192,27 @@ pub fn build_admin_router(state: AdminState) -> Router {
 /// Build stable `/v1/debug/*` routes backed by the admin trace store.
 pub fn build_v1_debug_router(state: AdminState) -> Router {
     Router::new()
+        .route(
+            "/v1/recordings/start",
+            routing::post(handle_recording_start),
+        )
+        .route("/v1/recordings/stop", routing::post(handle_recording_stop))
+        .route(
+            "/v1/recordings/review",
+            routing::post(handle_recording_review_body),
+        )
+        .route(
+            "/v1/recordings/compile",
+            routing::post(handle_recording_compile),
+        )
+        .route(
+            "/v1/recordings/replay/validate",
+            routing::post(handle_recording_replay_validate),
+        )
+        .route(
+            "/v1/recordings/{recording_id}",
+            routing::get(handle_recording_review),
+        )
         .route("/v1/debug/instances", routing::get(handle_admin_instances))
         .route("/v1/debug/activity", routing::get(handle_admin_activity))
         .route("/v1/debug/calls", routing::get(handle_admin_calls))

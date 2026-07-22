@@ -80,7 +80,7 @@ the file while the already-running process still executes the old image. The
 second restart runs the new server, verifies the sibling host against the
 same-version manifest SHA, and installs a missing or stale host before UI
 Control is used. Later paired updates return to one restart. UI Control host
-discovery binds its pipe/singleton to protocol v2, strict package SemVer, and
+discovery binds its pipe/singleton to protocol v3, strict package SemVer, and
 the full binary SHA-256. Old versions and different same-version binaries can
 therefore coexist during replacement, while byte-identical copies reuse one
 Host. The version-neutral global input owner and Esc stop latch remain shared

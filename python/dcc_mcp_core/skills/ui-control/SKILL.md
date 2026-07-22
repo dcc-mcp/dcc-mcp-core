@@ -58,7 +58,7 @@ per-user, per-version cache. Concurrent adapter processes share a download
 lock. Offline use is allowed only when that exact cached Host and manifest
 still pass the same checks; network, proxy, checksum, or version failures
 return `backend_unavailable` and never fall back to another Host or input path.
-The discovery pipe and per-session singleton are bound to protocol v2, the
+The discovery pipe and per-session singleton are bound to protocol v3, the
 strict package version, and the full Host binary SHA-256. An older detached
 Host or a different same-version binary therefore cannot capture a new
 client; byte-identical copies at different paths may share one Host. Discovery
@@ -76,7 +76,7 @@ The Windows backend exposes DCC UI Control through the existing `ui_control` too
 | raw `click`, `move`, `double_click`, `scroll`, `drag`, `keypress`, `game_navigation` | `ui_control__act` with the latest `snapshot_id` |
 | typed HKCU value or symbolic-link ensure | `ui_control__system_operation` |
 | exact-window JPEG frame sequence | `ui_control__record_clip` |
-| `wait` | `ui_control__wait_for` (condition-based polling) |
+| `wait` | `ui_control__wait_for` (accessibility-only condition polling; no repeated pixel capture) |
 | `stop` | `ui_control__stop_computer_use` |
 
 Shell agents use the product-level wrapper, which maps to those tools without
@@ -106,6 +106,12 @@ mutations remain serialized. A normal stop releases only the selected logical
 session; Esc interrupts every active session until explicit user-approved
 resume. Never use multiple sessions as a way to run simultaneous keyboard or
 pointer injection.
+
+For record/replay, capture semantic `find` queries and the following successful
+`act`, never cached control ids or demonstration-time approvals. Compile the
+pair to a fresh snapshot -> find -> act -> accessibility-only wait sequence.
+The generated workflow remains local and untrusted until reviewed, and every
+replay must use its current schema guard plus a new operator grant.
 
 `system-operation` is a separate, windowless setup path. Before the shared
 Windows-session host starts, the operator supplies an exact JSON catalog with

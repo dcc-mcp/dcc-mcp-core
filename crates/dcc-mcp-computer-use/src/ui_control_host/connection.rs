@@ -81,7 +81,10 @@ impl UiControlHostConnection {
             UiControlHostResponse::SessionOpened { .. } => {
                 self.owned_sessions.insert(logical_session_id.clone());
             }
-            UiControlHostResponse::SessionStopped { .. } => {
+            UiControlHostResponse::SessionStopped {
+                cleanup_pending: false,
+                ..
+            } => {
                 self.owned_sessions.remove(&logical_session_id);
             }
             UiControlHostResponse::SystemSessionOpened { .. } => {
@@ -194,6 +197,19 @@ fn request_with_session_id(
             max_nodes,
             ..
         } => UiControlHostRequest::Snapshot {
+            session_id: namespaced_session_id,
+            task_grant_id,
+            window_capability,
+            max_depth,
+            max_nodes,
+        },
+        UiControlHostRequest::AccessibilitySnapshot {
+            task_grant_id,
+            window_capability,
+            max_depth,
+            max_nodes,
+            ..
+        } => UiControlHostRequest::AccessibilitySnapshot {
             session_id: namespaced_session_id,
             task_grant_id,
             window_capability,
@@ -323,6 +339,7 @@ fn request_session(request: &UiControlHostRequest) -> Option<(&str, bool, bool)>
         UiControlHostRequest::GetWindowState { session_id, .. }
         | UiControlHostRequest::ChangeWindowState { session_id, .. }
         | UiControlHostRequest::Snapshot { session_id, .. }
+        | UiControlHostRequest::AccessibilitySnapshot { session_id, .. }
         | UiControlHostRequest::RecordClip { session_id, .. }
         | UiControlHostRequest::ExecuteAction { session_id, .. }
         | UiControlHostRequest::ResumeSession { session_id, .. }

@@ -103,6 +103,8 @@ pub mod marketplace;
 #[cfg(feature = "admin")]
 mod memory;
 #[cfg(feature = "admin")]
+mod recordings;
+#[cfg(feature = "admin")]
 pub mod sessions;
 #[cfg(feature = "admin")]
 mod skill_health;

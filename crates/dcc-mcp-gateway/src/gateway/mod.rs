@@ -51,6 +51,7 @@ pub mod middleware;
 pub mod native_resources;
 pub mod openapi;
 pub mod proxy;
+pub mod record_replay;
 pub mod relay_registration;
 pub(crate) mod request_meta;
 pub mod resilience;

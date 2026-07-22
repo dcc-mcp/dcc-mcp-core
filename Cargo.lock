@@ -1261,6 +1261,7 @@ dependencies = [
  "dcc-mcp-test-utils",
  "dcc-mcp-transport",
  "dcc-mcp-updater",
+ "dcc-mcp-workflow",
  "dunce",
  "futures",
  "futures-util",

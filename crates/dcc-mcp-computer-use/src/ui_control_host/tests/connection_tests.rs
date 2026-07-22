@@ -106,3 +106,59 @@ fn separate_pipes_can_reuse_a_logical_session_id_without_collision() {
     assert_eq!(state.process_id, 84);
     assert_eq!(state.window_handle, 0x5678);
 }
+
+#[test]
+fn cleanup_pending_session_remains_owned_until_retry_completes() {
+    let mut host = host_with_stop_results([true, false]);
+    let mut connection = UiControlHostConnection::default();
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::Hello(UiControlHostHello {
+                protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
+                client_name: "cleanup-test".to_owned(),
+            })
+        ),
+        UiControlHostResponse::Hello { .. }
+    ));
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::OpenSession {
+                session_id: "cleanup".to_owned(),
+                grant: grant(false),
+            }
+        ),
+        UiControlHostResponse::SessionOpened { .. }
+    ));
+
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::StopSession {
+                session_id: "cleanup".to_owned(),
+            }
+        ),
+        UiControlHostResponse::SessionStopped {
+            cleanup_pending: true,
+            ..
+        }
+    ));
+    assert_eq!(host.sessions.len(), 1);
+    assert!(connection.owned_sessions.contains("cleanup"));
+
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::StopSession {
+                session_id: "cleanup".to_owned(),
+            }
+        ),
+        UiControlHostResponse::SessionStopped {
+            cleanup_pending: false,
+            ..
+        }
+    ));
+    assert!(host.sessions.is_empty());
+    assert!(!connection.owned_sessions.contains("cleanup"));
+}

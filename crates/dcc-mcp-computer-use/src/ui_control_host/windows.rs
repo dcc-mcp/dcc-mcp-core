@@ -3,7 +3,6 @@ use std::io::{self, Read, Write};
 use std::mem::size_of;
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
 use dcc_mcp_ui_control::host_protocol::{
     UI_CONTROL_HOST_MAX_FRAME_BYTES, UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlHostErrorCode,
@@ -128,7 +127,11 @@ pub(super) fn run() -> Result<(), String> {
     let security = OwnerOnlySecurity::new()?;
     let _singleton = acquire_singleton(&endpoints.singleton, security.attributes())?;
     let pipe_name = wide(&endpoints.pipe);
-    let host = Arc::new(Mutex::new(UiControlHost::from_operator_config()?));
+    // Validate operator configuration before accepting clients. Each named-pipe connection then
+    // owns an independent host state machine, so a long capture in one DCC session cannot hold a
+    // process-wide Rust mutex and block observations in another session. Native input remains
+    // globally serialized by the per-Windows-session input-owner mutex.
+    let _ = UiControlHost::from_operator_config()?;
 
     loop {
         let handle = create_pipe(&pipe_name, security.attributes())?;
@@ -140,7 +143,13 @@ pub(super) fn run() -> Result<(), String> {
             continue;
         }
         let file = handle_into_file(handle);
-        let state = Arc::clone(&host);
+        let state = match UiControlHost::from_operator_config() {
+            Ok(state) => state,
+            Err(error) => {
+                eprintln!("UI Control host could not create connection state: {error}");
+                continue;
+            }
+        };
         std::thread::spawn(move || serve_client(file, state));
     }
 }
@@ -301,7 +310,7 @@ fn handle_into_file(handle: HANDLE) -> File {
     unsafe { File::from_raw_handle(handle.0) }
 }
 
-fn serve_client(mut file: File, host: Arc<Mutex<UiControlHost>>) {
+fn serve_client(mut file: File, mut host: UiControlHost) {
     let mut connection = UiControlHostConnection::default();
     loop {
         let request = match read_request(&mut file) {
@@ -318,10 +327,7 @@ fn serve_client(mut file: File, host: Arc<Mutex<UiControlHost>>) {
                 break;
             }
         };
-        let response = {
-            let mut state = host.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            connection.handle(&mut state, request)
-        };
+        let response = connection.handle(&mut host, request);
         if write_response(&mut file, &response).is_err() {
             break;
         }
@@ -329,8 +335,7 @@ fn serve_client(mut file: File, host: Arc<Mutex<UiControlHost>>) {
     let handle = HANDLE(file.as_raw_handle());
     let _ = unsafe { FlushFileBuffers(handle) };
     let _ = unsafe { DisconnectNamedPipe(handle) };
-    let mut state = host.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    connection.disconnect(&mut state);
+    connection.disconnect(&mut host);
 }
 
 fn read_request(file: &mut File) -> Result<Option<UiControlHostRequest>, String> {
@@ -453,17 +458,17 @@ mod tests {
         assert_eq!(
             endpoints.pipe,
             format!(
-                r"\\.\pipe\dcc-mcp-ui-control-host-v2-version-0.19.65-sha256-{DIGEST_A}-session-42"
+                r"\\.\pipe\dcc-mcp-ui-control-host-v3-version-0.19.65-sha256-{DIGEST_A}-session-42"
             )
         );
         assert_eq!(
             endpoints.singleton,
             format!(
-                r"Local\dcc-mcp-ui-control-host-v2-version-0.19.65-sha256-{DIGEST_A}-session-42"
+                r"Local\dcc-mcp-ui-control-host-v3-version-0.19.65-sha256-{DIGEST_A}-session-42"
             )
         );
         assert!(endpoints.pipe.encode_utf16().count() < MAX_NAMED_PIPE_CHARS);
-        assert!(!endpoints.pipe.ends_with("v2-session-42"));
+        assert!(!endpoints.pipe.ends_with("v3-session-42"));
     }
 
     #[test]

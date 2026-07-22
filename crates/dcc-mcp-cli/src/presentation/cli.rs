@@ -29,11 +29,13 @@ use crate::infra::http::HttpGateway;
 
 mod image_artifacts;
 mod lint;
+mod record_replay;
 mod ui_control_output;
 
 #[cfg(test)]
 use image_artifacts::{BASE64_STANDARD, MATERIALIZED_IMAGE_PLACEHOLDER, prune_image_artifacts};
 use image_artifacts::{default_image_artifact_root, materialize_call_images};
+use record_replay::{RecordReplayAction, run_record_replay};
 use ui_control_output::compact_ui_control_result;
 
 use super::marketplace_cmd;
@@ -222,6 +224,11 @@ enum Command {
     UiControl {
         #[command(subcommand)]
         action: UiControlAction,
+    },
+    /// Record, review, compile, and explicitly replay a demonstrated workflow.
+    RecordReplay {
+        #[command(subcommand)]
+        action: RecordReplayAction,
     },
     /// Wait until a local or gateway-managed instance reports readiness bits.
     WaitReady {
@@ -819,6 +826,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 compact_ui_control_result(tool_name, &result)
             }
         }
+        Command::RecordReplay { action } => {
+            let result =
+                run_record_replay(action, agent_session_id.as_deref(), &endpoint, &control).await?;
+            failed = result.failed;
+            result.value
+        }
         Command::WaitReady {
             dcc_type,
             instance_id,
@@ -1059,6 +1072,7 @@ fn gateway_endpoint_for_command(
         | Command::Call { .. }
         | Command::CallBatch { .. }
         | Command::UiControl { .. }
+        | Command::RecordReplay { .. }
         | Command::WaitReady { .. }
         | Command::ReloadSkills { .. }
         | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
