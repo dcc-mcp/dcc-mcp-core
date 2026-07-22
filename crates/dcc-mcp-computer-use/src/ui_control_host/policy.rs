@@ -226,7 +226,6 @@ fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
         })
         || !ancestry
             .iter()
-            .skip(1)
             .all(|control| game_navigation_node_is_non_editable(control))
         || ancestry_has_authentication_secret_marker(ancestry)
     {
@@ -235,7 +234,7 @@ fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
     matches!(
         focused.get("control_type").and_then(Value::as_str),
         Some("ControlType.Pane" | "ControlType.Custom" | "ControlType.Window")
-    ) && game_navigation_node_is_non_editable(focused)
+    )
 }
 
 fn game_navigation_node_is_non_editable(control: &Value) -> bool {

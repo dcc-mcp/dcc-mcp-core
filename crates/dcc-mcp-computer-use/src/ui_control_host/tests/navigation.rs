@@ -271,6 +271,37 @@ fn game_navigation_rejects_editable_or_unknown_intermediate_ancestors() {
     assert_eq!(policy_tier, UiControlPolicyTier::TaskGrant);
     assert_eq!(controls.len(), 1);
     assert_eq!(controls[0].identity, "42.game-root");
+    assert_eq!(
+        classify_action(&game_navigation, Some(&live.root), None),
+        UiControlPolicyTier::TaskGrant,
+        "an explicitly non-editable root and runtime canvas chain must remain valid"
+    );
+
+    for field in ["value_pattern_available", "text_pattern_available"] {
+        for malformed in [
+            None,
+            Some(Value::Null),
+            Some(json!(true)),
+            Some(json!("false")),
+        ] {
+            let mut unknown_root = nested_game_navigation_accessibility_state(
+                "42.runtime.safe",
+                "ControlType.Pane",
+                "42.canvas.unknown-root-pattern",
+            );
+            let root = unknown_root.root.as_object_mut().unwrap();
+            if let Some(value) = malformed {
+                root.insert(field.to_owned(), value);
+            } else {
+                root.remove(field);
+            }
+            assert_eq!(
+                classify_action(&game_navigation, Some(&unknown_root.root), None),
+                UiControlPolicyTier::HardDeny,
+                "root {field} metadata must be explicit boolean false"
+            );
+        }
+    }
 
     for parent_control_type in ["ControlType.Edit", "ControlType.Document"] {
         let editable = nested_game_navigation_accessibility_state(
