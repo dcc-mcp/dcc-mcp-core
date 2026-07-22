@@ -80,7 +80,6 @@ struct RuntimeSnapshot {
 struct RuntimeAccessibilityState {
     root: Value,
     focus_runtime_id: Option<String>,
-    #[cfg(any(windows, test))]
     node_count: u32,
 }
 
