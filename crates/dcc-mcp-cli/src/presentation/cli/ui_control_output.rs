@@ -6,8 +6,10 @@ pub(super) fn compact_ui_control_result(tool_name: &str, value: &Value) -> Value
         .flatten()
         .find_map(|candidate| {
             crate::application::local_control::call_result_payload(candidate).or_else(|| {
-                (candidate.get("context").is_some() || candidate.get("message").is_some())
-                    .then(|| candidate.clone())
+                (candidate.get("context").is_some()
+                    || candidate.get("message").is_some()
+                    || candidate.get("job_id").is_some())
+                .then(|| candidate.clone())
             })
         })
         .unwrap_or_else(|| value.clone());
@@ -31,6 +33,9 @@ pub(super) fn compact_ui_control_result(tool_name: &str, value: &Value) -> Value
         copy_object_field(&mut compact, value, key);
     }
     for key in ["message", "prompt", "error", "possible_solutions"] {
+        copy_non_null_field(&mut compact, &payload, key);
+    }
+    for key in ["job_id", "status", "parent_job_id", "progress_token"] {
         copy_non_null_field(&mut compact, &payload, key);
     }
     if let Some(context) = payload.get("context").and_then(Value::as_object) {

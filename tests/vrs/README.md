@@ -107,6 +107,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-host-ui-dispatcher-http-affinity.jsonl` | Yes (Substance 3D Designer) | A `HostUiDispatcherBase` adapter must pump main-affinity `/v1/call` work instead of returning `THREAD_AFFINITY_UNAVAILABLE`. |
 | `traces/core-rest-async-call-accepted.jsonl` | Yes (Nuke layered-compositing skill) | A declared async `/v1/call` returns `202` with a pending `job_id` instead of blocking the DCC HTTP worker. |
 | `traces/core-rest-async-job-identity.jsonl` | Yes (Nuke layered-compositing skill) | An async `/v1/call` accepts request metadata and still returns a pending `job_id` for cancellation and polling. |
+| `traces/core-async-job-polling.jsonl` | Yes (any live DCC) | Adapter-owned `jobs_get_status` remains searchable and routes through `/v1/call` to the instance that owns the job state. |
 | `traces/core-1125-3dsmax-diagnostics-screenshot-dict.jsonl` | Yes (3ds Max) | After `load_skill`, bundled `dcc_diagnostics__screenshot` must return a normal dict envelope through gateway REST. |
 | `traces/core-1133-ui-control-gateway-rest.jsonl` | Yes (any ui_control-capable instance) | `ui_control__snapshot` must be discoverable through gateway REST, describe must expose UI metadata, and call must preserve the structured envelope. |
 | `traces/core-1134-ui-control-mock-workflow.jsonl` | Yes (any ui_control-capable instance) | `ui_control` mock workflow must support snapshot -> find -> act -> wait and structured stale/policy/timeout/missing-window errors through REST. |

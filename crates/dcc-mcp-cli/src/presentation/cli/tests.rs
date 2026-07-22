@@ -402,6 +402,30 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
 }
 
 #[test]
+fn ui_control_compact_output_preserves_async_job_identity() {
+    let value = serde_json::json!({
+        "success": true,
+        "tool_slug": "unity.abc12345.ui_control__record_clip",
+        "output": {
+            "job_id": "job-42",
+            "status": "pending",
+            "parent_job_id": "parent-7",
+            "progress_token": "progress-9",
+            "bulk": "must not leak"
+        }
+    });
+
+    let compact = compact_ui_control_result("ui_control__record_clip", &value);
+
+    assert_eq!(compact["success"], true);
+    assert_eq!(compact["job_id"], "job-42");
+    assert_eq!(compact["status"], "pending");
+    assert_eq!(compact["parent_job_id"], "parent-7");
+    assert_eq!(compact["progress_token"], "progress-9");
+    assert!(compact.get("bulk").is_none());
+}
+
+#[test]
 fn call_materializes_rest_rich_image_without_printing_base64() {
     let root = tempfile::tempdir().expect("create artifact directory");
     let bytes = b"\x89PNG\r\n\x1a\ncomputer-use";

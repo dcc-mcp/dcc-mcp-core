@@ -66,6 +66,7 @@ pub mod search_cache;
 mod tests;
 
 pub use builder::{BuildInput, BuildOutcome, build_records_from_backend};
+pub(crate) use builder::{backend_job_status_tool, is_backend_job_tool};
 pub use index::{CapabilityIndex, IndexSnapshot, InstanceFingerprint};
 pub use record::{
     CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,

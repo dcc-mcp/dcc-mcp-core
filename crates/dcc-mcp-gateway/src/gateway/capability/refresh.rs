@@ -27,7 +27,9 @@ use dcc_mcp_gateway_core::capability::compute_fingerprint;
 use crate::gateway::backend_client::{UnloadedCapabilityHint, try_fetch_tools};
 use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 
-use super::builder::{BuildInput, build_records_from_backend};
+use super::builder::{
+    BuildInput, backend_job_status_tool, build_records_from_backend, is_backend_job_tool,
+};
 use super::index::CapabilityIndex;
 use super::record::{CapabilityRecord, tool_slug};
 
@@ -65,26 +67,29 @@ pub async fn refresh_instance(
     reason: RefreshReason,
     diag_store: Option<&InstanceDiagnosticsStore>,
 ) -> bool {
-    let (tools, unloaded_hints) = match try_fetch_tools(http_client, mcp_url, backend_timeout).await
-    {
-        Ok(result) => result,
-        Err(e) => {
-            tracing::warn!(
-                instance = %instance_id,
-                dcc = dcc_type,
-                error = %e,
-                "fetch_tools failed during refresh_instance; preserving existing index"
-            );
-            crate::gateway::metrics::record_gateway_backend_error_kind("fetch_tools");
-            if let Some(store) = diag_store {
-                store.record_call_error(instance_id, "fetch_tools", &e);
+    let (mut tools, unloaded_hints) =
+        match try_fetch_tools(http_client, mcp_url, backend_timeout).await {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::warn!(
+                    instance = %instance_id,
+                    dcc = dcc_type,
+                    error = %e,
+                    "fetch_tools failed during refresh_instance; preserving existing index"
+                );
+                crate::gateway::metrics::record_gateway_backend_error_kind("fetch_tools");
+                if let Some(store) = diag_store {
+                    store.record_call_error(instance_id, "fetch_tools", &e);
+                }
+                // Return early — do NOT upsert empty records. An empty upsert
+                // would delete this instance's entire slice from the index,
+                // losing all previously discovered tools (issue #1659).
+                return false;
             }
-            // Return early — do NOT upsert empty records. An empty upsert
-            // would delete this instance's entire slice from the index,
-            // losing all previously discovered tools (issue #1659).
-            return false;
-        }
-    };
+        };
+    if !tools.iter().any(|tool| is_backend_job_tool(&tool.name)) {
+        tools.push(backend_job_status_tool());
+    }
     let outcome = build_records_from_backend(BuildInput {
         instance_id,
         dcc_type,
