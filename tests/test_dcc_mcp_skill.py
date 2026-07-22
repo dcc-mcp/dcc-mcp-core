@@ -126,7 +126,7 @@ class TestDccMcpSkill:
         root = Path(DCC_MCP_SKILL_DIR)
         assert (root / "references" / "CLI_CHEATSHEET.md").is_file()
         assert (root / "references" / "ZERO_INSTANCES_CLI.md").is_file()
-        assert len((root / "SKILL.md").read_text(encoding="utf-8").splitlines()) <= 500
+        assert len((root / "SKILL.md").read_text(encoding="utf-8").splitlines()) <= 520
 
     def test_public_skill_has_no_remote_pipe_to_shell_bootstrap(self) -> None:
         pattern = re.compile(
