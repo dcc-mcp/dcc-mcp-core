@@ -272,6 +272,42 @@ fn semantic_uia_script_rechecks_the_confirmed_fence_immediately_before_mutation(
 }
 
 #[test]
+fn owned_standard_menu_popup_scope_stays_bound_to_the_exact_root() {
+    let target = UiControlTarget {
+        process_id: 100_508,
+        window_handle: 0xd3382,
+        window_title: "Unity".to_owned(),
+    };
+    let ordinary = accessibility_scope(&target, false);
+    let menu_navigation = accessibility_scope(&target, true);
+
+    assert_eq!(ordinary["window_handles"], json!([0xd3382_u64]));
+    assert_eq!(ordinary["allow_owned_standard_menu_popup"], false);
+    assert_eq!(menu_navigation["window_handles"], json!([0xd3382_u64]));
+    assert_eq!(menu_navigation["process_ids"], json!([100_508_u32]));
+    assert_eq!(menu_navigation["allow_owned_standard_menu_popup"], true);
+    assert!(UIA_SCRIPT.contains("Find-Owned-Standard-Menu-Popup $handleMatches[0]"));
+    for boundary in [
+        "$authorizedRoot.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)",
+        "$matches.Count -ne 1",
+        "([string]$popupInfo.ClassName) -cne \"#32768\"",
+        "[uint32]$popupInfo.ProcessId -ne $rootProcessId",
+        "IsActiveOwnedStandardMenuPopup",
+        "popupThreadId != rootThreadId",
+        "rootProcessId != expectedProcessId || popupProcessId != expectedProcessId",
+        "!IsWindowVisible(popup) || GetWindow(popup, GetWindowOwner) != authorizedRoot",
+        "(info.Flags & GuiInMenuMode) != 0",
+        "info.ActiveWindow == authorizedRoot",
+        "info.MenuOwnerWindow == authorizedRoot",
+    ] {
+        assert!(
+            UIA_HELPERS.contains(boundary),
+            "missing boundary: {boundary}"
+        );
+    }
+}
+
+#[test]
 fn semantic_invoke_that_destroys_the_target_reports_mutation_success() {
     let window = SemanticCloseWindow::spawn();
     let target = UiControlTarget {
@@ -279,7 +315,7 @@ fn semantic_invoke_that_destroys_the_target_reports_mutation_success() {
         window_handle: window.hwnd.0 as usize as u64,
         window_title: "DCC MCP semantic Invoke close test".to_owned(),
     };
-    let accessibility = query_accessibility_state(&target, 5, 100).unwrap();
+    let accessibility = query_accessibility_state(&target, 5, 100, false).unwrap();
     let button = find_control_by_name(&accessibility.root, "Close test window")
         .expect("standard button must be present in the scoped UIA tree");
     let runtime_id = button

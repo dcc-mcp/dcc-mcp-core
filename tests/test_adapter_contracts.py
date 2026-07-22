@@ -149,6 +149,7 @@ def test_ui_control_policy_blocks_high_risk_actions_by_default() -> None:
     assert policy.allows_action(UiActionKind.SET_TEXT) is True
     assert policy.allows_action(UiActionKind.RAW_COORDINATE_CLICK) is False
     assert policy.allows_action(UiActionKind.KEYBOARD_SHORTCUT) is False
+    assert policy.allows_action(UiActionKind.GAME_NAVIGATION) is False
     assert policy.allows_action(UiActionKind.GET_WINDOW_STATE) is True
     assert policy.allows_action(UiActionKind.RESTORE_WINDOW) is True
     assert policy.require_scoped_window is True
@@ -166,6 +167,7 @@ def test_ui_control_policy_requires_explicit_raw_input_for_computer_use_actions(
         UiActionKind.DRAG,
         UiActionKind.TYPE,
         UiActionKind.KEYPRESS,
+        UiActionKind.GAME_NAVIGATION,
     ):
         assert policy.allows_action(action) is False
 
@@ -180,6 +182,7 @@ def test_ui_control_policy_requires_explicit_raw_input_for_computer_use_actions(
         UiActionKind.DRAG,
         UiActionKind.TYPE,
         UiActionKind.KEYPRESS,
+        UiActionKind.GAME_NAVIGATION,
     ):
         assert enabled.allows_action(action) is True
 
@@ -188,6 +191,7 @@ def test_ui_control_policy_requires_explicit_raw_input_for_computer_use_actions(
         allow_keyboard_shortcuts=True,
     )
     assert keyboard_only.allows_action(UiActionKind.KEYPRESS) is True
+    assert keyboard_only.allows_action(UiActionKind.GAME_NAVIGATION) is True
     assert keyboard_only.allows_action(UiActionKind.TYPE) is False
 
 

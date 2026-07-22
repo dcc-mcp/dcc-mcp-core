@@ -28,6 +28,7 @@ const MAX_SCREENSHOT_PIXELS: f64 = 1_500_000.0;
 const MAX_DRAG_POINTS: usize = 256;
 const MAX_KEY_TOKENS: usize = 16;
 const MAX_TEXT_UTF16_UNITS: usize = 4_096;
+const MAX_GAME_NAVIGATION_HOLD_MS: u64 = 500;
 const CONTROL_THREAD_JOIN_TIMEOUT: Duration = Duration::from_millis(750);
 
 #[cfg(all(test, not(windows)))]
@@ -80,7 +81,8 @@ pub struct ComputerUsePoint {
 /// A single native computer-use action.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ComputerUseAction {
-    /// Action name: move, click, double_click, scroll, drag, type, keypress, or wait.
+    /// Action name: move, click, double_click, scroll, drag, type, keypress,
+    /// game_navigation, or wait.
     pub action: String,
     /// Observation id returned by the most recent screenshot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,10 +108,11 @@ pub struct ComputerUseAction {
     /// Literal Unicode text for the `type` action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Keys or key chords for `keypress`, or held modifiers for pointer actions.
+    /// Keys or key chords for `keypress`, one W/A/S/D key for
+    /// `game_navigation`, or held modifiers for pointer actions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keys: Vec<String>,
-    /// Action duration, or wait time, in milliseconds.
+    /// Action duration, bounded game-navigation hold, or wait time, in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
 }
@@ -668,6 +671,12 @@ impl ComputerUseSession {
         pre_input_fence: Option<&mut PreInputFence<'_>>,
     ) -> ComputerUseResult<Value> {
         validate_action_limits(request)?;
+        if request.action == "game_navigation" && pre_input_fence.is_none() {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::InvalidAction,
+                "game_navigation is available only through the scoped UI Control Host",
+            ));
+        }
         let _dpi_awareness = platform::ThreadDpiAwareness::enter()?;
         let mut state = self.lock_state();
         let observation =
@@ -1064,6 +1073,23 @@ fn validate_action_limits(request: &ComputerUseAction) -> ComputerUseResult<()> 
             format!("keypress exceeds the {MAX_KEY_TOKENS}-key safety limit"),
         ));
     }
+    if request.action == "game_navigation" {
+        if game_navigation_virtual_key(&request.keys).is_none() {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::InvalidAction,
+                "game_navigation requires exactly one unmodified W, A, S, or D key",
+            ));
+        }
+        if request
+            .duration_ms
+            .is_some_and(|duration| duration > MAX_GAME_NAVIGATION_HOLD_MS)
+        {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::InvalidAction,
+                "game_navigation duration_ms exceeds the 500 ms safety limit",
+            ));
+        }
+    }
     if request
         .text
         .as_deref()
@@ -1084,6 +1110,19 @@ fn validate_action_limits(request: &ComputerUseAction) -> ComputerUseResult<()> 
         ));
     }
     Ok(())
+}
+
+fn game_navigation_virtual_key(keys: &[String]) -> Option<u16> {
+    let [key] = keys else {
+        return None;
+    };
+    match key.as_bytes() {
+        [b'W' | b'w'] => Some(u16::from(b'W')),
+        [b'A' | b'a'] => Some(u16::from(b'A')),
+        [b'S' | b's'] => Some(u16::from(b'S')),
+        [b'D' | b'd'] => Some(u16::from(b'D')),
+        _ => None,
+    }
 }
 
 fn target_matches(spec: &TargetSpec, info: &WindowInfo) -> bool {

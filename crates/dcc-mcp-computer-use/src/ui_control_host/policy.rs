@@ -1,5 +1,39 @@
 use super::*;
 
+pub(super) fn allows_owned_standard_menu_popup(action: &UiControlAction) -> bool {
+    if action.input_kind != UiControlInputKind::RawInput || action.action != "keypress" {
+        return false;
+    }
+    let mut navigation_keys = 0;
+    for key in action.keys.iter().flat_map(|value| value.split('+')) {
+        match key.trim().to_ascii_uppercase().as_str() {
+            "SHIFT" | "LSHIFT" | "LEFTSHIFT" | "LEFT_SHIFT" | "SHIFT_L" | "RSHIFT"
+            | "RIGHTSHIFT" | "RIGHT_SHIFT" | "SHIFT_R" => {}
+            "ENTER" | "RETURN" | "ESC" | "ESCAPE" | "TAB" | "LEFT" | "ARROWLEFT" | "ARROW_LEFT"
+            | "UP" | "ARROWUP" | "ARROW_UP" | "RIGHT" | "ARROWRIGHT" | "ARROW_RIGHT" | "DOWN"
+            | "ARROWDOWN" | "ARROW_DOWN" | "HOME" | "END" | "PAGEUP" | "PAGE_UP" | "PGUP"
+            | "PAGEDOWN" | "PAGE_DOWN" | "PGDN" => {
+                navigation_keys += 1;
+            }
+            _ => return false,
+        }
+    }
+    navigation_keys == 1
+}
+
+fn uses_stable_root_for_navigation(action: &UiControlAction) -> bool {
+    allows_owned_standard_menu_popup(action)
+        && !action
+            .keys
+            .iter()
+            .flat_map(|value| value.split('+'))
+            .any(|key| matches!(key.trim().to_ascii_uppercase().as_str(), "ENTER" | "RETURN"))
+}
+
+fn is_game_navigation(action: &UiControlAction) -> bool {
+    action.input_kind == UiControlInputKind::RawInput && action.action == "game_navigation"
+}
+
 pub(super) fn classify_action(
     action: &UiControlAction,
     root: Option<&Value>,
@@ -15,6 +49,14 @@ pub(super) fn classify_action(
     {
         return UiControlPolicyTier::HardDeny;
     }
+    if is_game_navigation(action)
+        && !root
+            .and_then(find_focused_ancestry)
+            .as_deref()
+            .is_some_and(game_navigation_ancestry_is_safe)
+    {
+        return UiControlPolicyTier::HardDeny;
+    }
     match crate::keyboard_policy::shortcut_risk(&action.keys) {
         crate::keyboard_policy::ShortcutRisk::HardDeny => {
             return UiControlPolicyTier::HardDeny;
@@ -27,13 +69,15 @@ pub(super) fn classify_action(
 
     let focused_input_action = matches!(
         action.action.as_str(),
-        "type" | "keypress" | "keyboard_shortcut"
+        "type" | "keypress" | "keyboard_shortcut" | "game_navigation"
     );
     if focused_input_action && let Some(control) = root.and_then(find_focused_control) {
         tier = tier.max(classify_control(control));
     }
-    if matches!(action.action.as_str(), "keypress" | "keyboard_shortcut")
-        && let Some(ancestry) = root.and_then(find_focused_ancestry)
+    if matches!(
+        action.action.as_str(),
+        "keypress" | "keyboard_shortcut" | "game_navigation"
+    ) && let Some(ancestry) = root.and_then(find_focused_ancestry)
         && ancestry_has_authentication_secret_marker(&ancestry)
     {
         tier = UiControlPolicyTier::HardDeny;
@@ -120,16 +164,30 @@ fn action_control_fences(
             .as_deref()
             .ok_or_else(stale_accessibility_state)?;
         vec![find_control(root, control_id).ok_or_else(stale_accessibility_state)?]
+    } else if is_game_navigation(action) {
+        let focus_runtime_id = focus_runtime_id.ok_or_else(stale_accessibility_state)?;
+        let ancestry =
+            find_control_ancestry(root, focus_runtime_id).ok_or_else(stale_accessibility_state)?;
+        if !game_navigation_ancestry_is_safe(&ancestry) {
+            return Err(hard_denied_game_navigation_target());
+        }
+        // Game input may replace a short-lived focused canvas child while the
+        // capability-bound top-level game window remains stable. Reclassify
+        // the complete live focus ancestry above on every host and pre-input
+        // pass, then fence the immutable root instead of a transient child.
+        vec![root]
     } else if matches!(action.action.as_str(), "keypress" | "keyboard_shortcut")
-        && crate::keyboard_policy::is_modified_shortcut(&action.keys)
+        && (crate::keyboard_policy::is_modified_shortcut(&action.keys)
+            || uses_stable_root_for_navigation(action))
     {
         // Application shortcuts are scoped by the immutable window capability,
         // the screen observation, and the native desktop/input fences. They do
-        // not target a child UIA control, so a custom-drawn DCC viewport may
-        // recreate or move focus between ordinary controls without invalidating
-        // them. Keep the stable window root fenced, while the live focus
-        // ancestry is classified on every host and pre-input pass; any root or
-        // policy-tier change fails closed below.
+        // not target a child UIA control. Non-activating navigation keys likewise
+        // move or dismiss focus rather than invoke the focused control. Keep the
+        // stable, capability-bound root fenced for those actions while the live
+        // focus ancestry is classified on every host and pre-input pass; any root
+        // or policy-tier change fails closed below. Enter/Return remains bound to
+        // the exact focused control because it can invoke that control.
         vec![root]
     } else if matches!(action.action.as_str(), "keypress" | "keyboard_shortcut") {
         let focus_runtime_id = focus_runtime_id.ok_or_else(stale_accessibility_state)?;
@@ -153,6 +211,44 @@ fn action_control_fences(
     };
 
     controls.into_iter().map(control_fence).collect()
+}
+
+fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
+    let (Some(root), Some(focused)) = (ancestry.first(), ancestry.last()) else {
+        return false;
+    };
+    let Some(root_process_id) = root.get("process_id").and_then(Value::as_u64) else {
+        return false;
+    };
+    if root_process_id == 0
+        || root.get("control_type").and_then(Value::as_str) != Some("ControlType.Window")
+        || ancestry.iter().any(|control| {
+            control.get("process_id").and_then(Value::as_u64) != Some(root_process_id)
+                || control.get("is_password").and_then(Value::as_bool) != Some(false)
+        })
+        || ancestry_has_authentication_secret_marker(ancestry)
+    {
+        return false;
+    }
+    matches!(
+        focused.get("control_type").and_then(Value::as_str),
+        Some("ControlType.Pane" | "ControlType.Custom" | "ControlType.Window")
+    ) && focused.get("value").is_some_and(Value::is_null)
+        && focused
+            .get("value_pattern_available")
+            .and_then(Value::as_bool)
+            == Some(false)
+        && focused
+            .get("text_pattern_available")
+            .and_then(Value::as_bool)
+            == Some(false)
+}
+
+fn hard_denied_game_navigation_target() -> HostFailure {
+    HostFailure::new(
+        UiControlHostErrorCode::HardDenied,
+        "game_navigation requires an exact non-editable game surface in the scoped DCC window",
+    )
 }
 
 fn control_fence(control: &Value) -> Result<ActionControlFence, HostFailure> {

@@ -361,6 +361,7 @@ def _is_native_action(action: str, params: Dict[str, Any]) -> bool:
         UiActionKind.RAW_COORDINATE_CLICK,
         UiActionKind.TYPE,
         UiActionKind.KEYPRESS,
+        UiActionKind.GAME_NAVIGATION,
         UiActionKind.KEYBOARD_SHORTCUT,
     }
 
@@ -378,6 +379,23 @@ def _validate_action_limits(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     keys = params.get("keys") or []
     if not isinstance(keys, list):
         return skill_error("keys must be an array", UiErrorCode.INVALID_ACTION)
+    if params.get("action") == UiActionKind.GAME_NAVIGATION:
+        if (
+            len(keys) != 1
+            or not isinstance(keys[0], str)
+            or len(keys[0]) != 1
+            or keys[0].upper() not in {"W", "A", "S", "D"}
+        ):
+            return skill_error(
+                "game_navigation requires exactly one unmodified W, A, S, or D key",
+                UiErrorCode.INVALID_ACTION,
+            )
+        duration_ms = params.get("duration_ms")
+        if duration_ms is not None and (type(duration_ms) is not int or not 0 <= duration_ms <= 500):
+            return skill_error(
+                "game_navigation duration_ms must be an integer from 0 through 500",
+                UiErrorCode.INVALID_ACTION,
+            )
     key_count = sum(1 for item in keys for token in str(item).split("+") if token.strip())
     if key_count > _MAX_KEY_TOKENS:
         return skill_error(

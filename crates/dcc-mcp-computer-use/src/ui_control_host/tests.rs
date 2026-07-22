@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 mod connection_tests;
+mod navigation;
 
 struct FakeRuntime {
     snapshot: RuntimeAccessibilityState,
@@ -156,6 +157,7 @@ impl HostRuntimeSession for FakeSession {
         &mut self,
         _max_depth: u32,
         _max_nodes: u32,
+        _allow_owned_standard_menu_popup: bool,
     ) -> Result<RuntimeAccessibilityState, HostFailure> {
         Ok(self
             .live_states

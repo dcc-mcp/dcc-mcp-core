@@ -67,7 +67,7 @@ The Windows backend exposes DCC UI Control through the existing `ui_control` too
 |------------------------|--------------|
 | `screenshot` | `ui_control__snapshot` |
 | semantic `click`, `set_text`, `toggle`, `set_checked`, `select_option`, `focus` | `ui_control__act` with an exact `control_id` |
-| raw `click`, `move`, `double_click`, `scroll`, `drag`, `keypress` | `ui_control__act` with the latest `snapshot_id` |
+| raw `click`, `move`, `double_click`, `scroll`, `drag`, `keypress`, `game_navigation` | `ui_control__act` with the latest `snapshot_id` |
 | typed HKCU value or symbolic-link ensure | `ui_control__system_operation` |
 | exact-window JPEG frame sequence | `ui_control__record_clip` |
 | `wait` | `ui_control__wait_for` (condition-based polling) |
@@ -187,6 +187,14 @@ Windows `keypress` also rejects ordinary printable characters, including
 Shift-modified and AltGr text. Use it only for navigation/control/function
 keys or a genuine Ctrl/Alt shortcut; it is not a one-character text-entry
 bypass.
+
+Windows `game_navigation` is a separate raw-input contract for non-editable
+game surfaces. It accepts exactly one unmodified `W`, `A`, `S`, or `D` key and
+an optional `duration_ms` from 0 through 500 (omitted means a tap). The native
+host rechecks the exact PID/HWND, foreground window, focused non-editable UIA
+ancestry, explicit absence of both UIA ValuePattern and TextPattern, and
+observation immediately before key-down. Unknown pattern metadata fails closed.
+This action does not relax the ordinary printable-key denial on `keypress`.
 
 `ui_control__act` advertises a destructive annotation and accepts an optional
 `intent` consequence hint. The native host independently classifies the UIA

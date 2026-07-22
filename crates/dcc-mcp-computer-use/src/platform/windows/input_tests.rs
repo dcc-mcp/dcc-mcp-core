@@ -233,6 +233,102 @@ fn keypress_batch_releases_every_pressed_key_in_reverse_order() {
 }
 
 #[test]
+fn game_navigation_builds_one_bounded_key_down_and_release() {
+    for key in ["W", "a", "S", "d"] {
+        let (press, release) = game_navigation_key_inputs(&[key.to_owned()]).unwrap();
+        let press = unsafe { press.Anonymous.ki };
+        let release = unsafe { release.Anonymous.ki };
+
+        assert_eq!(press.wVk.0, key.to_ascii_uppercase().as_bytes()[0] as u16);
+        assert_eq!(press.dwFlags, KEYBD_EVENT_FLAGS(0));
+        assert_eq!(release.wVk, press.wVk);
+        assert!(release.dwFlags.contains(KEYEVENTF_KEYUP));
+    }
+
+    for keys in [
+        vec![],
+        vec!["W", "D"],
+        vec!["SHIFT+W"],
+        vec!["LEFT"],
+        vec![" W"],
+    ] {
+        let error = match game_navigation_key_inputs(
+            &keys.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+        ) {
+            Ok(_) => panic!("invalid game_navigation key must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, ComputerUseErrorCode::InvalidAction);
+    }
+}
+
+#[test]
+fn game_navigation_key_up_is_released_or_deferred_exactly_once() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let (press, release) = game_navigation_key_inputs(&["W".to_owned()]).unwrap();
+
+    let drop_sends = Rc::new(RefCell::new(Vec::new()));
+    let drop_deferred = Rc::new(RefCell::new(Vec::new()));
+    let held = HeldGameNavigationKey::press_with(
+        press,
+        release,
+        {
+            let sends = Rc::clone(&drop_sends);
+            move |batch: &[INPUT]| {
+                sends.borrow_mut().extend_from_slice(batch);
+                Ok(())
+            }
+        },
+        {
+            let deferred = Rc::clone(&drop_deferred);
+            move |batch: &[INPUT]| deferred.borrow_mut().extend_from_slice(batch)
+        },
+    )
+    .unwrap();
+    drop(held);
+    assert_eq!(drop_sends.borrow().len(), 2);
+    assert!(unsafe { drop_sends.borrow()[1].Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP));
+    assert!(drop_deferred.borrow().is_empty());
+
+    let failed_sends = Rc::new(RefCell::new(Vec::new()));
+    let failed_deferred = Rc::new(RefCell::new(Vec::new()));
+    let mut held = HeldGameNavigationKey::press_with(
+        press,
+        release,
+        {
+            let sends = Rc::clone(&failed_sends);
+            move |batch: &[INPUT]| {
+                sends.borrow_mut().extend_from_slice(batch);
+                if sends.borrow().len() == 1 {
+                    Ok(())
+                } else {
+                    Err(ComputerUseError::new(
+                        ComputerUseErrorCode::InputFailed,
+                        "injected key-up failure",
+                    ))
+                }
+            }
+        },
+        {
+            let deferred = Rc::clone(&failed_deferred);
+            move |batch: &[INPUT]| deferred.borrow_mut().extend_from_slice(batch)
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        held.release().unwrap_err().code,
+        ComputerUseErrorCode::InputFailed
+    );
+    drop(held);
+
+    assert_eq!(failed_sends.borrow().len(), 2);
+    assert_eq!(failed_deferred.borrow().len(), 1);
+    assert!(unsafe { failed_deferred.borrow()[0].Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP));
+}
+
+#[test]
 fn pointer_modifiers_release_every_held_key_in_reverse_order() {
     let (presses, releases) = pointer_modifier_inputs(&["CTRL+SHIFT+ALT".to_string()]).unwrap();
     let key = |input: &INPUT| unsafe { input.Anonymous.ki };
