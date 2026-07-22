@@ -58,6 +58,12 @@ per-user, per-version cache. Concurrent adapter processes share a download
 lock. Offline use is allowed only when that exact cached Host and manifest
 still pass the same checks; network, proxy, checksum, or version failures
 return `backend_unavailable` and never fall back to another Host or input path.
+The discovery pipe and per-session singleton are bound to protocol v2, the
+strict package version, and the full Host binary SHA-256. An older detached
+Host or a different same-version binary therefore cannot capture a new
+client; byte-identical copies at different paths may share one Host. Discovery
+coexistence does not widen native input authority: the input-owner mutex and
+Esc interruption latch remain version-neutral and shared across all Hosts.
 
 ## Windows Reference Backend
 

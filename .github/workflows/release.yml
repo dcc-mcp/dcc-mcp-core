@@ -267,13 +267,78 @@ jobs:
         id: windows-ui-control-host
         if: matrix.os == 'windows-latest'
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           vx just stage-ui-control-host
-          host_version="$(target/release/dcc-mcp-ui-control-host.exe --version | tr -d '\r')"
-          if [ "$host_version" != "${{ needs.release-please.outputs.version }}" ]; then
-            echo "::error::UI Control host version ${host_version} does not match release ${{ needs.release-please.outputs.version }}"
-            exit 1
-          fi
+          # Keep this stdlib-only gate inline: a manual backfill checks out an
+          # old tag that may not contain any helper added by the current workflow.
+          python - "$RELEASE_VERSION" "target/release/dcc-mcp-ui-control-host.exe" <<'PY'
+          import re
+          import subprocess
+          import sys
+
+          MAX_VERSION_CHARS = 64
+          MINIMUM_PROBE_VERSION = (0, 19, 65)
+          STABLE_VERSION = re.compile(
+              r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$",
+              re.ASCII,
+          )
+
+
+          class VerificationError(RuntimeError):
+              pass
+
+
+          def parse_stable_version(version):
+              if len(version) > MAX_VERSION_CHARS:
+                  raise VerificationError("release version is too long")
+              match = STABLE_VERSION.fullmatch(version)
+              if match is None:
+                  raise VerificationError("release version is not stable X.Y.Z")
+              return tuple(int(match.group(index)) for index in (1, 2, 3))
+
+
+          def requires_host_version_probe(version):
+              return parse_stable_version(version) >= MINIMUM_PROBE_VERSION
+
+
+          def verify_host_version(release_version, host_path, runner=subprocess.run):
+              if not requires_host_version_probe(release_version):
+                  return False
+              try:
+                  result = runner(
+                      [host_path, "--version"],
+                      stdin=subprocess.DEVNULL,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL,
+                      timeout=10.0,
+                      check=False,
+                  )
+              except (OSError, subprocess.TimeoutExpired) as error:
+                  raise VerificationError("UI Control host version probe failed") from error
+              try:
+                  host_version = result.stdout.decode("utf-8").strip()
+              except (AttributeError, UnicodeDecodeError) as error:
+                  raise VerificationError("UI Control host returned an invalid version") from error
+              if result.returncode != 0 or host_version != release_version:
+                  raise VerificationError(
+                      f"UI Control host version {host_version!r} does not match release {release_version}"
+                  )
+              return True
+
+
+          if __name__ == "__main__":
+              try:
+                  probed = verify_host_version(sys.argv[1], sys.argv[2])
+              except VerificationError as error:
+                  print(f"::error::{error}")
+                  raise SystemExit(1) from None
+              if probed:
+                  print(f"Verified exact UI Control host version {sys.argv[1]}")
+              else:
+                  print(f"Skipping UI Control host --version probe for legacy backfill {sys.argv[1]}")
+          PY
           host_asset="dcc-mcp-ui-control-host-windows-x86_64.exe"
           cp target/release/dcc-mcp-ui-control-host.exe "$host_asset"
           echo "host_asset=$host_asset" >> "$GITHUB_OUTPUT"

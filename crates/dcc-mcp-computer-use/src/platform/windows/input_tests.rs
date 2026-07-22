@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn cross_version_input_and_interrupt_fences_keep_version_neutral_names() {
+    assert_eq!(
+        INPUT_OWNER_MUTEX_NAME,
+        "Local\\DccMcpComputerUseInputOwner-v1"
+    );
+    assert_eq!(
+        USER_INTERRUPT_EVENT_NAME,
+        "Local\\DccMcpComputerUseUserInterrupted-v1"
+    );
+    assert!(!INPUT_OWNER_MUTEX_NAME.contains(env!("CARGO_PKG_VERSION")));
+    assert!(!USER_INTERRUPT_EVENT_NAME.contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
 fn active_ui_control_reserves_ctrl_alt_escape_as_the_stop_key() {
     assert_eq!(STOP_HOTKEY_LABEL, "Ctrl+Alt+Esc");
     assert_eq!(

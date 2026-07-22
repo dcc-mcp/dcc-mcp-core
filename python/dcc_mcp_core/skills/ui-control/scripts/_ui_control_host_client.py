@@ -15,6 +15,7 @@ import time
 from typing import Any
 from typing import BinaryIO
 from typing import Dict
+from typing import NamedTuple
 from typing import Optional
 
 _PROTOCOL_VERSION = 2
@@ -29,6 +30,13 @@ class UiControlHostError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class _HostEndpoint(NamedTuple):
+    binary: Path
+    version: str
+    sha256: str
+    pipe_path: str
 
 
 def _load_host_resolver() -> Any:
@@ -58,10 +66,6 @@ def _windows_session_id() -> int:
     return int(session_id.value)
 
 
-def _pipe_path() -> str:
-    return rf"\\.\pipe\dcc-mcp-ui-control-host-v2-session-{_windows_session_id()}"
-
-
 def _host_binary() -> Path:
     try:
         return _RESOLVER.resolve_ui_control_host()
@@ -69,8 +73,40 @@ def _host_binary() -> Path:
         raise UiControlHostError("backend_unavailable", str(exc)) from exc
 
 
-def _launch_host() -> None:
+def _host_version() -> str:
+    try:
+        return _RESOLVER.ui_control_host_version()
+    except _RESOLVER.HostResolutionError as exc:
+        raise UiControlHostError("backend_unavailable", str(exc)) from exc
+
+
+def _host_identity(binary: Path) -> str:
+    try:
+        return _RESOLVER.ui_control_host_identity(binary)
+    except _RESOLVER.HostResolutionError as exc:
+        raise UiControlHostError("backend_unavailable", str(exc)) from exc
+
+
+def _host_endpoint() -> _HostEndpoint:
+    session_id = _windows_session_id()
+    version = _host_version()
     binary = _host_binary()
+    sha256 = _host_identity(binary)
+    pipe_path = (
+        rf"\\.\pipe\dcc-mcp-ui-control-host-v{_PROTOCOL_VERSION}-version-{version}"
+        rf"-sha256-{sha256}-session-{session_id}"
+    )
+    if len(pipe_path) >= 256:
+        raise UiControlHostError("backend_unavailable", "The UI Control host discovery endpoint is too long.")
+    return _HostEndpoint(binary=binary, version=version, sha256=sha256, pipe_path=pipe_path)
+
+
+def _pipe_path() -> str:
+    return _host_endpoint().pipe_path
+
+
+def _launch_host(binary: Optional[Path] = None) -> None:
+    binary = binary or _host_binary()
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
     subprocess.Popen(
         [str(binary)],
@@ -83,19 +119,20 @@ def _launch_host() -> None:
 
 
 def _connect_pipe(*, launch: bool = True) -> BinaryIO:
-    path = _pipe_path()
+    endpoint = _host_endpoint()
+    path = endpoint.pipe_path
     deadline = time.monotonic() + 5.0
     launched = False
     last_error: Optional[OSError] = None
     while time.monotonic() < deadline:
         try:
             stream = open(path, "r+b", buffering=0)  # noqa: PTH123, SIM115
-            _validate_server_binary(stream)
+            _validate_server_binary(stream, endpoint)
             return stream
         except OSError as exc:
             last_error = exc
             if launch and not launched:
-                _launch_host()
+                _launch_host(endpoint.binary)
                 launched = True
                 deadline = time.monotonic() + 5.0
             time.sleep(0.05)
@@ -105,11 +142,23 @@ def _connect_pipe(*, launch: bool = True) -> BinaryIO:
     )
 
 
-def _validate_server_binary(stream: BinaryIO) -> None:
+def _validate_server_image(path: Path, endpoint: _HostEndpoint) -> None:
+    try:
+        _RESOLVER.validate_ui_control_host_image(path, endpoint.version, endpoint.sha256)
+    except _RESOLVER.HostResolutionError as exc:
+        raise UiControlHostError(
+            "backend_unavailable",
+            "The named pipe server image does not match the resolved UI Control host identity.",
+        ) from exc
+
+
+def _validate_server_binary(stream: BinaryIO, endpoint: Optional[_HostEndpoint] = None) -> None:
     """Fail closed when the pipe server is not an installed host executable."""
     import ctypes
     from ctypes import wintypes
     import msvcrt
+
+    endpoint = endpoint or _host_endpoint()
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.GetNamedPipeServerProcessId.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.ULONG)]
@@ -139,13 +188,7 @@ def _validate_server_binary(stream: BinaryIO) -> None:
         buffer = ctypes.create_unicode_buffer(capacity.value)
         if not kernel32.QueryFullProcessImageNameW(process, 0, buffer, ctypes.byref(capacity)):
             raise UiControlHostError("backend_unavailable", "Cannot resolve the UI Control host executable.")
-        actual = os.path.normcase(str(Path(buffer.value).resolve()))
-        expected = os.path.normcase(str(_host_binary().resolve()))
-        if actual != expected:
-            raise UiControlHostError(
-                "backend_unavailable",
-                "The named pipe server is not an installed dcc-mcp-ui-control-host executable.",
-            )
+        _validate_server_image(Path(buffer.value), endpoint)
     except Exception:
         stream.close()
         raise

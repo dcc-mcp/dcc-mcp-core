@@ -32,23 +32,47 @@ MAX_MANIFEST_BYTES = 64 * 1024
 MAX_HOST_BYTES = 128 * 1024 * 1024
 DOWNLOAD_TIMEOUT_SECONDS = 30.0
 LOCK_TIMEOUT_SECONDS = 90.0
-_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
+MAX_VERSION_CHARS = 64
+_VERSION_PATTERN = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$",
+    re.ASCII,
+)
 
 
 class HostResolutionError(RuntimeError):
     """Fail-closed Host resolution error safe for an agent-facing response."""
 
 
+def _strict_release_version(version: str) -> str:
+    if len(version) > MAX_VERSION_CHARS:
+        raise HostResolutionError("The running dcc-mcp-core package version is too long.")
+    match = _VERSION_PATTERN.fullmatch(version)
+    if match is None:
+        raise HostResolutionError("The running dcc-mcp-core package does not expose a released version.")
+    prerelease = match.group(4)
+    if prerelease is not None and any(
+        len(identifier) > 1 and identifier.startswith("0") and identifier.isdigit()
+        for identifier in prerelease.split(".")
+    ):
+        raise HostResolutionError("The running dcc-mcp-core package does not expose a released version.")
+    return version
+
+
 def _package_version() -> str:
     try:
         from dcc_mcp_core import __version__
 
-        version = str(__version__).strip()
+        version = str(__version__)
     except Exception:
         raise HostResolutionError("Cannot resolve the running dcc-mcp-core version.") from None
-    if not _VERSION_PATTERN.fullmatch(version):
-        raise HostResolutionError("The running dcc-mcp-core package does not expose a released version.")
-    return version
+    return _strict_release_version(version)
+
+
+def ui_control_host_version() -> str:
+    """Return the strict release version used in the Host discovery endpoint."""
+    return _package_version()
 
 
 def _release_url(version: str, asset: str) -> str:
@@ -137,6 +161,20 @@ def _validate_host_file(path: Path, expected_version: str, expected_sha256: Opti
         return path.resolve()
     except (OSError, RuntimeError, ValueError):
         raise HostResolutionError("Cannot resolve the configured UI Control host path.") from None
+
+
+def ui_control_host_identity(path: Path) -> str:
+    """Return the full SHA-256 identity used in the Host discovery endpoint."""
+    return _sha256_file(path).lower()
+
+
+def validate_ui_control_host_image(path: Path, expected_version: str, expected_sha256: str) -> Path:
+    """Validate a connected server image against one frozen discovery identity."""
+    version = _strict_release_version(expected_version)
+    sha256 = expected_sha256.lower()
+    if len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256):
+        raise HostResolutionError("The UI Control host binary identity is invalid.")
+    return _validate_host_file(path, version, sha256)
 
 
 def _read_release_asset(version: str, asset: str, max_bytes: int) -> bytes:

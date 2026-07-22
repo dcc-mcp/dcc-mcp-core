@@ -23,6 +23,7 @@ from conftest import REPO_ROOT
 SCRIPTS = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control" / "scripts"
 RESOLVER_PATH = SCRIPTS / "_ui_control_host_resolver.py"
 CLIENT_PATH = SCRIPTS / "_ui_control_host_client.py"
+RUST_HOST_PATH = REPO_ROOT / "crates" / "dcc-mcp-computer-use" / "src" / "ui_control_host" / "windows.rs"
 VERSION = "0.19.65"
 
 
@@ -77,6 +78,7 @@ def test_slow_cold_resolver_gets_a_fresh_pipe_startup_window(monkeypatch: pytest
     clock = {"now": 0.0, "host_ready": False}
     stream = object()
     attempts: list[float] = []
+    endpoint = client._HostEndpoint(Path("host.exe"), VERSION, "a" * 64, r"\\.\pipe\slow-cold-host")
 
     def open_pipe(*_args, **_kwargs):
         attempts.append(clock["now"])
@@ -84,14 +86,14 @@ def test_slow_cold_resolver_gets_a_fresh_pipe_startup_window(monkeypatch: pytest
             raise FileNotFoundError("pipe is not ready")
         return stream
 
-    def slow_launch() -> None:
+    def slow_launch(_binary: Path) -> None:
         clock["now"] += 60.0
         clock["host_ready"] = True
 
     monkeypatch.setattr(client, "open", open_pipe, raising=False)
-    monkeypatch.setattr(client, "_pipe_path", lambda: r"\\.\pipe\slow-cold-host")
+    monkeypatch.setattr(client, "_host_endpoint", lambda: endpoint)
     monkeypatch.setattr(client, "_launch_host", slow_launch)
-    monkeypatch.setattr(client, "_validate_server_binary", lambda _stream: None)
+    monkeypatch.setattr(client, "_validate_server_binary", lambda _stream, _endpoint: None)
     monkeypatch.setattr(client.time, "monotonic", lambda: clock["now"])
     monkeypatch.setattr(client.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + seconds))
 
@@ -103,16 +105,17 @@ def test_cached_host_pipe_failure_keeps_the_original_five_second_timeout(monkeyp
     client = _load_client()
     clock = {"now": 0.0}
     launch_count = 0
+    endpoint = client._HostEndpoint(Path("host.exe"), VERSION, "a" * 64, r"\\.\pipe\cached-host")
 
     def missing_pipe(*_args, **_kwargs):
         raise FileNotFoundError("pipe is not ready")
 
-    def launch_cached_host() -> None:
+    def launch_cached_host(_binary: Path) -> None:
         nonlocal launch_count
         launch_count += 1
 
     monkeypatch.setattr(client, "open", missing_pipe, raising=False)
-    monkeypatch.setattr(client, "_pipe_path", lambda: r"\\.\pipe\cached-host")
+    monkeypatch.setattr(client, "_host_endpoint", lambda: endpoint)
     monkeypatch.setattr(client, "_launch_host", launch_cached_host)
     monkeypatch.setattr(client.time, "monotonic", lambda: clock["now"])
     monkeypatch.setattr(client.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + seconds))
@@ -126,16 +129,17 @@ def test_cached_host_pipe_failure_keeps_the_original_five_second_timeout(monkeyp
 def test_failed_cold_resolver_does_not_start_a_pipe_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _load_client()
     clock = {"now": 0.0}
+    endpoint = client._HostEndpoint(Path("host.exe"), VERSION, "a" * 64, r"\\.\pipe\failed-cold-host")
 
     def missing_pipe(*_args, **_kwargs):
         raise FileNotFoundError("pipe is not ready")
 
-    def failed_launch() -> None:
+    def failed_launch(_binary: Path) -> None:
         clock["now"] += 30.0
         raise client.UiControlHostError("backend_unavailable", "cold resolver failed")
 
     monkeypatch.setattr(client, "open", missing_pipe, raising=False)
-    monkeypatch.setattr(client, "_pipe_path", lambda: r"\\.\pipe\failed-cold-host")
+    monkeypatch.setattr(client, "_host_endpoint", lambda: endpoint)
     monkeypatch.setattr(client, "_launch_host", failed_launch)
     monkeypatch.setattr(client.time, "monotonic", lambda: clock["now"])
     monkeypatch.setattr(client.time, "sleep", lambda _seconds: pytest.fail("failed resolver must not wait for a pipe"))
@@ -143,6 +147,157 @@ def test_failed_cold_resolver_does_not_start_a_pipe_wait(monkeypatch: pytest.Mon
     with pytest.raises(client.UiControlHostError, match="cold resolver failed"):
         client._connect_pipe()
     assert clock["now"] == 30.0
+
+
+def test_01965_ignores_legacy_pipe_and_launches_identity_endpoint_on_first_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _load_client()
+    binary = tmp_path / "dcc-mcp-ui-control-host.exe"
+    binary.write_bytes(b"MZ0.19.65-host")
+    sha256 = hashlib.sha256(binary.read_bytes()).hexdigest()
+    monkeypatch.setattr(client, "_windows_session_id", lambda: 42)
+    monkeypatch.setattr(client, "_host_version", lambda: VERSION)
+    monkeypatch.setattr(client, "_host_binary", lambda: binary)
+    monkeypatch.setattr(client, "_host_identity", lambda _binary: sha256)
+    endpoint = client._host_endpoint()
+    legacy_pipe = r"\\.\pipe\dcc-mcp-ui-control-host-v2-session-42"
+    legacy_stream = object()
+    new_stream = object()
+    available = {legacy_pipe: legacy_stream}
+    opened: list[str] = []
+
+    def open_pipe(path: str, *_args, **_kwargs):
+        opened.append(path)
+        if path not in available:
+            raise FileNotFoundError("new Host is not ready")
+        return available[path]
+
+    def launch_new_host(selected: Path) -> None:
+        assert selected == binary
+        available[endpoint.pipe_path] = new_stream
+
+    monkeypatch.setattr(client, "_host_endpoint", lambda: endpoint)
+    monkeypatch.setattr(client, "open", open_pipe, raising=False)
+    monkeypatch.setattr(client, "_launch_host", launch_new_host)
+    monkeypatch.setattr(
+        client,
+        "_validate_server_binary",
+        lambda stream, selected: (
+            (stream is new_stream and selected == endpoint) or pytest.fail("legacy pipe must never be authenticated")
+        ),
+    )
+    monkeypatch.setattr(client.time, "sleep", lambda _seconds: None)
+
+    assert client._connect_pipe() is new_stream
+    assert endpoint.pipe_path != legacy_pipe
+    assert opened == [endpoint.pipe_path, endpoint.pipe_path]
+    assert available[legacy_pipe] is legacy_stream
+
+
+def test_same_version_binary_digest_separates_env_and_fallback_endpoints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _load_client()
+    fallback = tmp_path / "fallback.exe"
+    configured = tmp_path / "configured.exe"
+    copied = tmp_path / "copied.exe"
+    fallback.write_bytes(b"MZfallback-0.19.65")
+    configured.write_bytes(b"MZconfigured-0.19.65")
+    copied.write_bytes(fallback.read_bytes())
+    selected = {"path": fallback}
+    monkeypatch.setattr(client, "_windows_session_id", lambda: 42)
+    monkeypatch.setattr(client, "_host_version", lambda: VERSION)
+    monkeypatch.setattr(client, "_host_binary", lambda: selected["path"])
+    monkeypatch.setattr(client, "_host_identity", client._RESOLVER.ui_control_host_identity)
+
+    fallback_endpoint = client._host_endpoint()
+    selected["path"] = configured
+    configured_endpoint = client._host_endpoint()
+    selected["path"] = copied
+    copied_endpoint = client._host_endpoint()
+
+    assert fallback_endpoint.pipe_path != configured_endpoint.pipe_path
+    assert fallback_endpoint.sha256 != configured_endpoint.sha256
+    assert fallback_endpoint.pipe_path == copied_endpoint.pipe_path
+    assert fallback_endpoint.sha256 == copied_endpoint.sha256
+    assert len(fallback_endpoint.sha256) == 64
+    assert len(fallback_endpoint.pipe_path) < 256
+
+
+def test_python_and_rust_discovery_endpoint_contracts_are_isomorphic() -> None:
+    source = RUST_HOST_PATH.read_text(encoding="utf-8")
+
+    assert "v{UI_CONTROL_HOST_PROTOCOL_VERSION}-version-{version}-sha256-{sha256}-session-{session_id}" in source
+    assert r'format!(r"\\.\pipe\dcc-mcp-ui-control-host-{suffix}")' in source
+    assert r'format!(r"Local\dcc-mcp-ui-control-host-{suffix}")' in source
+    assert "_PROTOCOL_VERSION}-version-{version}" in CLIENT_PATH.read_text(encoding="utf-8")
+
+
+def test_connected_server_image_accepts_same_digest_copy_and_rejects_squatting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _load_client()
+    expected = tmp_path / "expected.exe"
+    copied = tmp_path / "copied.exe"
+    squatter = tmp_path / "squatter.exe"
+    expected.write_bytes(b"MZsame-version-image")
+    copied.write_bytes(expected.read_bytes())
+    squatter.write_bytes(b"MZdifferent-image")
+    sha256 = client._RESOLVER.ui_control_host_identity(expected)
+    endpoint = client._HostEndpoint(expected, VERSION, sha256, r"\\.\pipe\identity")
+    probes: list[tuple[Path, str]] = []
+    monkeypatch.setattr(
+        client._RESOLVER,
+        "_validate_host_version",
+        lambda path, version: probes.append((path, version)),
+    )
+
+    client._validate_server_image(copied, endpoint)
+    assert probes == [(copied, VERSION)]
+
+    with pytest.raises(client.UiControlHostError, match="does not match the resolved"):
+        client._validate_server_image(squatter, endpoint)
+
+    def wrong_version(_path: Path, _version: str) -> None:
+        raise client._RESOLVER.HostResolutionError("version mismatch")
+
+    monkeypatch.setattr(client._RESOLVER, "_validate_host_version", wrong_version)
+    with pytest.raises(client.UiControlHostError, match="does not match the resolved"):
+        client._validate_server_image(copied, endpoint)
+
+
+@pytest.mark.parametrize(
+    "version",
+    ["0.19.65", "1.2.3-alpha.1+build.5", "10.20.30-0", "1.0.0+001"],
+)
+def test_discovery_version_accepts_strict_semver(version: str) -> None:
+    resolver = _load_resolver()
+    assert resolver._strict_release_version(version) == version
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        "01.19.65",
+        "0.019.65",
+        "0.19.065",
+        "0.19.65-01",
+        "0.19.65/other",
+        "0.19.65\\other",
+        "v0.19.65",
+        "0.19.65 ",
+        "0.19.65+",
+        "0.19.65-alpha..1",
+    ],
+)
+def test_discovery_version_rejects_noncanonical_or_unsafe_semver(version: str) -> None:
+    resolver = _load_resolver()
+    with pytest.raises(resolver.HostResolutionError):
+        resolver._strict_release_version(version)
 
 
 def test_environment_host_requires_the_exact_client_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1175,13 +1175,19 @@ def test_ui_control_host_client_wire_has_no_approval_boolean() -> None:
     assert "window:opaque" not in wire
 
 
-def test_ui_control_host_client_uses_v2_only_pipe(monkeypatch: Any) -> None:
+def test_ui_control_host_client_uses_versioned_binary_identity_pipe(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
     client_module = backend._HOST
+    digest = "a" * 64
     monkeypatch.setattr(client_module, "_windows_session_id", lambda: 42)
+    monkeypatch.setattr(client_module, "_host_version", lambda: "0.19.65")
+    monkeypatch.setattr(client_module, "_host_binary", lambda: Path("host.exe"))
+    monkeypatch.setattr(client_module, "_host_identity", lambda _binary: digest)
 
     assert client_module._PROTOCOL_VERSION == 2
-    assert client_module._pipe_path() == r"\\.\pipe\dcc-mcp-ui-control-host-v2-session-42"
+    assert client_module._pipe_path() == (
+        rf"\\.\pipe\dcc-mcp-ui-control-host-v2-version-0.19.65-sha256-{digest}-session-42"
+    )
 
 
 def test_ui_control_host_client_recording_wire_has_no_output_path_and_consumes_observation() -> None:
