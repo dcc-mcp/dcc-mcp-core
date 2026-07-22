@@ -17,6 +17,7 @@ use uuid::Uuid;
 mod audit;
 mod connection;
 mod policy;
+#[cfg(any(windows, test))]
 mod recording_artifact;
 #[cfg(test)]
 mod recording_artifact_tests;
@@ -91,6 +92,7 @@ struct RuntimeActionResult {
 struct RuntimeClipRequest {
     duration_ms: u64,
     frames_per_second: u32,
+    #[cfg_attr(not(any(windows, test)), allow(dead_code))]
     format: UiControlClipFormat,
     jpeg_quality: u8,
 }

@@ -411,6 +411,7 @@ pub struct ComputerUseSession {
     capturer: Capturer,
 }
 
+#[cfg(any(windows, test))]
 pub(crate) struct ComputerUseRecordingFence {
     stop_requested: Arc<AtomicBool>,
     interrupted: Arc<AtomicBool>,
@@ -419,6 +420,7 @@ pub(crate) struct ComputerUseRecordingFence {
     desktop_generation: u64,
 }
 
+#[cfg(any(windows, test))]
 impl ComputerUseRecordingFence {
     pub(crate) fn check(&self) -> ComputerUseResult<()> {
         if self.interrupted.load(Ordering::Acquire) || platform::user_interrupted() {
@@ -762,6 +764,7 @@ impl ComputerUseSession {
         self.stop_requested.store(true, Ordering::Release);
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn recording_fence(&self) -> ComputerUseResult<ComputerUseRecordingFence> {
         let mut state = self.lock_state();
         self.ensure_running(&state)?;
