@@ -160,39 +160,29 @@ commands, update semantics, and development fallbacks live in
 
 ### DCC UI Control fallback
 
-**DCC UI Control** is the public capability name. Its dedicated runtime Skill
-is loaded with `dcc-mcp-cli load-skill ui-control`; it is not one of the three
-installable agent Skills in this suite. Use it only after the structured DCC
-capability is unsupported or cannot reach the required semantic UI:
+Load the **DCC UI Control** runtime with `dcc-mcp-cli load-skill ui-control` only
+when structured DCC capabilities cannot reach the required semantic UI:
 
-1. `ui_control__snapshot` with an exact `process_id`, `window_handle`, or
-   `window_title`.
+1. `ui_control__snapshot` with an exact `process_id`, `window_handle`, or `window_title`.
 2. `ui_control__find` and one semantic `ui_control__act` when possible.
 3. `ui_control__snapshot` after every action before choosing the next action.
-4. `ui_control__stop_computer_use` when the fallback completes, fails, or is
-   abandoned.
+4. `ui_control__stop_computer_use` when the fallback completes, fails, or is abandoned.
 
-The UI Control tool argument named `session_id` identifies its scoped UI
-session. It does **not** provide stats attribution. Use the CLI's separate
-`--agent-session-id <task-id>` flag for `_meta.agent_context.session_id`.
+The UI Control `session_id` identifies its scoped UI session, not stats
+attribution. Use `--agent-session-id <task-id>` for `_meta.agent_context.session_id`.
 
-For a reusable demonstrated workflow, use `dcc-mcp-cli record-replay start`
-with the same `--agent-session-id` used by gateway calls, demonstrate with
-structured tools first, then `stop` and `review`. Run `compile --reviewed`
-only after inspecting the redacted timeline; it creates a local Skill and
-`WorkflowSpec`. `replay` requires a separate `--approve-replay` grant and must
-use the current workflow tool/schema. A recorded approval, instance id,
-control id, screenshot coordinate, credential, or secret is never reusable
-authority. Do not use record-replay as a blind macro or a reason to skip
-`search` / `describe` / post-step verification.
+For reusable demonstrations, start with the gateway call's `--agent-session-id`,
+use structured tools first, then `stop` and `review`. After inspecting the
+redacted timeline, `compile --reviewed` creates a local Skill and `WorkflowSpec`.
+`replay` requires a new `--approve-replay` grant and current tool/schema. Recorded
+approvals, instance/control ids, coordinates, credentials, and secrets grant no
+authority. Never skip `search`, `describe`, or post-step verification.
 
-Do not transition or retry through another UI/input path after a policy,
-authorization, authentication, security, confirmation, `desktop_unavailable`,
-or `user_interrupted` result. Those outcomes require the user or environment to
-resolve first. Never widen scope to the desktop, reuse coordinates across
-snapshots, or resume a user-interrupted session without an explicit request.
-Load that runtime Skill for the full target-binding, system-operation,
-native-capture, and image-artifact contract.
+Do not switch UI/input paths after policy, authorization, authentication,
+security, confirmation, `desktop_unavailable`, or `user_interrupted` results;
+the user or environment must resolve them first. Never widen scope, reuse stale
+coordinates, or resume without an explicit request. Load the runtime Skill for
+the complete target-binding, system-operation, capture, and artifact contract.
 
 Internal studios can fork this skill once and reuse the same CLI+REST workflow across
 agents without maintaining per-host MCP server lists.
