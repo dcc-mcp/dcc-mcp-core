@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.66](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.65...v0.19.66) (2026-07-22)
+
+
+### Bug Fixes
+
+* route async job polling through gateway ([#2022](https://github.com/dcc-mcp/dcc-mcp-core/issues/2022)) ([c422a40](https://github.com/dcc-mcp/dcc-mcp-core/commit/c422a40914daf46fd8c8a87df163927bbbe6c30e))
+
 ## [0.19.65](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.64...v0.19.65) (2026-07-22)
 
 
