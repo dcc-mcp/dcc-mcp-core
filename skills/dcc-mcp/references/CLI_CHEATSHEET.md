@@ -10,15 +10,18 @@ explicit user choice.
 ## CLI setup
 
 If `dcc-mcp-cli` is missing, obtain user consent before installing the latest
-official release:
+official release. From the installed `dcc-mcp` Skill directory, run the bundled
+verified helper:
 
 ```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
+
+The helper accepts only the official `dcc-mcp/dcc-mcp-core` release manifest,
+validates its version and asset URL, and verifies the downloaded binary's
+SHA-256 before an atomic replacement. It fails closed and preserves an existing
+CLI when the manifest, URL, download, or digest is invalid. SHA-256 provides
+release-manifest integrity checking; it is not a publisher signature.
 
 Keep an official build current through the release manifest:
 
@@ -30,7 +33,8 @@ dcc-mcp-cli update apply
 `update apply` downloads and stages the latest CLI for the next launch. It does
 not update a running `dcc-mcp-server`; update that server in its own environment.
 
-For repository development only, the consent-gated bootstrap/fallback is:
+For repository development only, the same consent-gated verified
+bootstrap/fallback is:
 
 ```bash
 vx python scripts/dcc_gateway.py --ensure-cli list
@@ -171,7 +175,7 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
 
 | Symptom | Action |
 |---------|--------|
-| CLI not found | Ask user permission, then run `vx python scripts/dcc_gateway.py --ensure-cli list` to download `dcc-mcp-cli`; Python fallback runs if download fails |
+| CLI not found | Ask user permission, then run `vx python scripts/dcc_gateway.py --ensure-cli list`; it verifies the official manifest and SHA-256 before install, and Python fallback runs if verification or download fails |
 | Gateway health fails | Run `dcc-mcp-cli doctor` and inspect the CLI JSON/stderr. Agent-control and endpoint/admin/update commands auto-ensure only loopback gateway targets. For remote profiles or `--base-url`, auto-start is not possible. Ask before installing adapters or launching GUI DCC apps |
 | `total == 0` | Start a DCC adapter, then re-run `dcc-mcp-cli list` |
 | Listed row is booting or `dispatch_status=unavailable` | Read `direct_control.recommended_next_action` and `direct_control.diagnostics`, then run `dcc-mcp-cli wait-ready --dcc-type <dcc> --instance-id <id>` or `dcc-mcp-cli doctor`; do not call tools until `direct_control.ready=true` |

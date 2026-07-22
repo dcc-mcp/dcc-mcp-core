@@ -88,18 +88,47 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 ## 快速开始
 
+### 安装 Agent Skill 套件
+
+可以直接从 ClawHub 安装三个公开 Skill，无需克隆本仓库：
+
+```bash
+openclaw skills install @loonghao/dcc-mcp
+openclaw skills install @loonghao/dcc-mcp-skills-creator
+openclaw skills install @loonghao/dcc-mcp-creator
+```
+
+需要让本机所有 OpenClaw Agent 共享时，给每条命令加 `--global`。其他兼容
+ClawHub 的 workspace 可以直接使用 registry CLI：
+
+```bash
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
+```
+
+| Skill | Agent 职责 |
+|---|---|
+| [`dcc-mcp`](skills/dcc-mcp/) | 默认实时 DCC 控制和 marketplace 发现；Skill 商城请求先运行 `dcc-mcp-cli marketplace search` |
+| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | 创建、验证、打包和评审 DCC-MCP Skill |
+| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | 创建或现代化完整 DCC adapter 及运行时接线 |
+
 ### 安装独立 CLI
 
 `dcc-mcp-cli` 是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未安装，
-先征得用户同意，再安装最新的官方 release 二进制：
+先征得用户同意，再从已安装的 `dcc-mcp` Skill 目录运行 bundled verified
+helper：
 
 ```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
+
+helper 固定使用 `dcc-mcp/dcc-mcp-core` 官方 release，先验证当前平台的 update
+manifest 和 CLI SHA-256，再替换二进制。URL、manifest、摘要或下载异常时会
+fail closed，不会覆盖已有 CLI。SHA-256 用于确认二进制与 release manifest
+一致，不等同于数字签名。没有 Skill 时，请按下方“安装详情”下载并检查本地
+installer；不要把远程 installer 通过管道交给 shell，也不要绕过机器的脚本执行
+策略。
 
 官方构建通过 release manifest 保持最新：
 
@@ -280,15 +309,27 @@ Admin 重点能力：
 ### 安装独立 CLI
 
 对于具备 shell 能力的 Agent，独立 CLI 是首选控制路径。尚未安装时，先征得
-用户同意，再安装官方 release 二进制：
+用户同意，把官方 installer 下载为本地文件，先检查，再执行：
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# 检查完成后：
+sh ./install-cli.sh
 ```
+
+```powershell
+# Windows PowerShell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# 检查完成后，遵循当前执行策略：
+& .\install-cli.ps1
+```
+
+installer 固定使用 `dcc-mcp/dcc-mcp-core` 官方 release，并在替换现有 CLI 前
+验证 release manifest 中的 URL 和 SHA-256。任何异常都会 fail closed；这项
+完整性校验不等同于数字签名。
 
 默认会下载最新 GitHub Release 里的对应资产：
 
@@ -301,15 +342,11 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 也可以固定版本或自定义安装目录：
 
 ```bash
-export DCC_MCP_VERSION=v0.x.y
-export DCC_MCP_INSTALL_DIR="$HOME/bin"
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+sh ./install-cli.sh --version v0.x.y --install-dir "$HOME/bin"
 ```
 
 ```powershell
-$env:DCC_MCP_VERSION = "v0.x.y"
-$env:DCC_MCP_INSTALL_DIR = "$env:USERPROFILE\bin"
-irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex
+& .\install-cli.ps1 -Version "v0.x.y" -InstallDir "$env:USERPROFILE\bin"
 ```
 
 安装后：

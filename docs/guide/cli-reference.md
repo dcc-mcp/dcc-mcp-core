@@ -9,17 +9,38 @@ same configuration surface.
 `dcc-mcp-cli` and `dcc-mcp-server` are published as raw GitHub Release
 assets on every release. It is the preferred control path for shell-capable
 agents. If it is missing, obtain the user's consent before installing it from
-the official URL:
+the official release. From the installed `dcc-mcp` Skill directory, run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
 
-Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
-`--version v0.17.17` to the install script.
+The bundled helper is fixed to `dcc-mcp/dcc-mcp-core`, validates the platform
+update manifest and CLI SHA-256, and leaves the existing binary untouched if
+the URL, manifest, digest, or download is invalid. SHA-256 is an integrity
+check, not a digital signature. Without the Skill, download the official
+installer as a local file, inspect it, and only then execute it:
+
+```bash
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# After reviewing the file:
+sh ./install-cli.sh
+```
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# After reviewing the file and subject to the current execution policy:
+& .\install-cli.ps1
+```
+
+The local installer uses the same fixed source and verification contract.
+Never pipe it directly into a shell or bypass the machine's script execution
+policy.
+
+Pin a release with `sh ./install-cli.sh --version v0.19.63` or
+`& .\install-cli.ps1 -Version v0.19.63`.
 
 A standalone CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is
 also published as a GitHub Release asset alongside the server bundle.

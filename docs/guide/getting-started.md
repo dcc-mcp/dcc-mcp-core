@@ -2,19 +2,44 @@
 
 ## Installation
 
-### CLI from GitHub Releases
+### CLI from the `dcc-mcp` Skill
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+# Run from the installed dcc-mcp Skill directory.
+python scripts/check_cli.py --ensure-cli --pretty
 ```
 
-This installs the standalone `dcc-mcp-cli` control-plane binary from the
-latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.17`.
-
 For agents, obtain user consent before installing or downloading a new binary.
+The bundled helper is fixed to the official `dcc-mcp/dcc-mcp-core` release. It
+validates the platform update manifest and CLI SHA-256 before replacing the
+binary, and fails closed on an invalid URL, manifest, digest, or download.
+SHA-256 verifies that the binary matches the release manifest; it is not a
+digital signature.
+
+Without the Skill, download the official installer to a local file, inspect it,
+and only then execute that file:
+
+```bash
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# After reviewing the file:
+sh ./install-cli.sh
+```
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# After reviewing the file and subject to the current execution policy:
+& .\install-cli.ps1
+```
+
+The installer uses the same fixed official source, manifest, and SHA-256
+checks as the bundled helper. Never pipe it directly into a shell or bypass the
+machine's script execution policy.
+
+Pin a release with `sh ./install-cli.sh --version v0.19.63` or
+`& .\install-cli.ps1 -Version v0.19.63`.
+
 Keep an official installation current with:
 
 ```bash

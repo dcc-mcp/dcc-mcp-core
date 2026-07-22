@@ -60,16 +60,37 @@ exposes them. New gateway integrations should use the canonical names above.
 ## Quick start: operate a DCC
 
 `dcc-mcp-cli` is the preferred control path for every shell-capable agent.
-If it is missing, obtain the user's consent before installing the latest
-official release:
+If it is missing, obtain the user's consent, install the public `dcc-mcp`
+Skill below, and run its bundled verified helper from the Skill directory:
+
+~~~bash
+python scripts/check_cli.py --ensure-cli --pretty
+~~~
+
+Without the Skill, download the official installer to a local file, inspect it,
+and only then execute that file:
 
 ~~~bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# After reviewing the file:
+sh ./install-cli.sh
 ~~~
+
+~~~powershell
+# Windows PowerShell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# After reviewing the file and subject to the current execution policy:
+& .\install-cli.ps1
+~~~
+
+Both paths accept only the official `dcc-mcp/dcc-mcp-core` release, validate
+the platform update manifest and CLI SHA-256, and leave any existing binary
+untouched if validation or download fails. This is an integrity check, not a
+digital signature. Never pipe a remote installer directly into a shell or
+bypass the machine's script execution policy.
 
 ### Install the agent Skill suite
 

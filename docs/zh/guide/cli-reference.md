@@ -6,17 +6,37 @@
 
 `dcc-mcp-cli` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
 Release 资产发布。它是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
-安装，先征得用户同意，再通过官方 URL 安装：
+安装，先征得用户同意，再从已安装的 `dcc-mcp` Skill 目录运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+python scripts/check_cli.py --ensure-cli --pretty
 ```
 
-需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.17`，或给安装脚本传
-`--version v0.17.17`。
+这个 bundled helper 固定使用 `dcc-mcp/dcc-mcp-core` 官方 release，先验证
+当前平台的 update manifest 和 CLI SHA-256，再替换二进制。URL、manifest、
+摘要或下载异常时会 fail closed，不会覆盖已有 CLI。SHA-256 是完整性检查，
+不等同于数字签名。如果没有安装 Skill，请把官方 installer 下载为本地文件，
+先检查，再执行：
+
+```bash
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+# 检查完成后：
+sh ./install-cli.sh
+```
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# 检查完成后，遵循当前执行策略：
+& .\install-cli.ps1
+```
+
+本地 installer 使用相同的固定来源和验证契约。不要把它通过管道直接交给 shell，
+也不要绕过机器的脚本执行策略。
+
+固定版本可运行 `sh ./install-cli.sh --version v0.19.63`，或
+`& .\install-cli.ps1 -Version v0.19.63`。
 
 | 二进制 | 角色 | 源码位置 |
 |---|---|---|

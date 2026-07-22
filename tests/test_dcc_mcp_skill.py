@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import io
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 from unittest.mock import patch
@@ -20,6 +24,14 @@ import check_cli as check_cli_mod  # noqa: E402
 import dcc_gateway as dcc_gateway_mod  # noqa: E402
 
 sys.path.pop(0)
+
+
+class _BytesResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
 
 
 class TestDccMcpSkill:
@@ -116,10 +128,205 @@ class TestDccMcpSkill:
         assert (root / "references" / "ZERO_INSTANCES_CLI.md").is_file()
         assert len((root / "SKILL.md").read_text(encoding="utf-8").splitlines()) <= 500
 
+    def test_public_skill_has_no_remote_pipe_to_shell_bootstrap(self) -> None:
+        pattern = re.compile(
+            r"(?:curl|irm|invoke-restmethod)[^\r\n|]*\|[^\r\n]*(?:sh|bash|iex|invoke-expression)",
+            re.IGNORECASE,
+        )
+        root = Path(DCC_MCP_SKILL_DIR)
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and path.suffix.lower() in {".md", ".py", ".yaml", ".yml", ".json"}:
+                assert pattern.search(path.read_text(encoding="utf-8")) is None, path
+
+    def test_cli_bootstrap_uses_fixed_official_source(self) -> None:
+        source = (Path(DCC_MCP_SKILL_DIR) / "scripts" / "dcc_gateway.py").read_text(encoding="utf-8")
+        assert "DCC_MCP_REPO" not in source
+        assert "--repo" not in source
+        assert "sha256" in source.lower()
+        assert "update-manifest" in source
+        assert "verified" in (check_cli_mod.__doc__ or "").lower()
+
+    def test_packaged_helpers_keep_python_37_syntax_compatibility(self) -> None:
+        parse_kwargs = {"feature_version": 7} if sys.version_info >= (3, 8) else {}
+        scripts = Path(DCC_MCP_SKILL_DIR) / "scripts"
+        for path in (scripts / "dcc_gateway.py", scripts / "check_cli.py"):
+            source = path.read_text(encoding="utf-8")
+            assert "from __future__ import annotations" in source
+            ast.parse(source, filename=str(path), **parse_kwargs)
+
+    def test_verified_cli_bootstrap_accepts_matching_manifest(self, tmp_path) -> None:
+        binary = b"verified dcc-mcp-cli"
+        digest = hashlib.sha256(binary).hexdigest()
+        asset_url = "https://github.com/dcc-mcp/dcc-mcp-core/releases/download/v0.19.63/dcc-mcp-cli-linux-x86_64"
+        manifest = json.dumps(
+            {
+                "dcc-mcp-cli": {
+                    "version": "0.19.63",
+                    "url": asset_url,
+                    "sha256": digest,
+                }
+            }
+        ).encode()
+
+        with patch.object(dcc_gateway_mod.platform, "system", return_value="Linux"):
+            with patch.object(dcc_gateway_mod.platform, "machine", return_value="x86_64"):
+                with patch.object(
+                    dcc_gateway_mod.urllib.request,
+                    "urlopen",
+                    side_effect=[_BytesResponse(manifest), _BytesResponse(binary)],
+                ):
+                    with patch.object(
+                        dcc_gateway_mod.urllib.request,
+                        "urlretrieve",
+                        side_effect=AssertionError("unverified downloader must not be used"),
+                    ):
+                        ok, installed, resolved_url = dcc_gateway_mod.install_cli(
+                            install_dir=tmp_path,
+                            version="v0.19.63",
+                        )
+
+        assert ok is True
+        assert Path(installed).read_bytes() == binary
+        assert resolved_url == asset_url
+
+    def test_verified_cli_bootstrap_rejects_checksum_mismatch_without_replacing_binary(self, tmp_path) -> None:
+        target = tmp_path / "dcc-mcp-cli"
+        target.write_bytes(b"known-good-existing-cli")
+        binary = b"tampered download"
+        asset_url = "https://github.com/dcc-mcp/dcc-mcp-core/releases/download/v0.19.63/dcc-mcp-cli-linux-x86_64"
+        manifest = json.dumps(
+            {
+                "dcc-mcp-cli": {
+                    "version": "0.19.63",
+                    "url": asset_url,
+                    "sha256": "0" * 64,
+                }
+            }
+        ).encode()
+
+        with patch.object(dcc_gateway_mod.platform, "system", return_value="Linux"):
+            with patch.object(dcc_gateway_mod.platform, "machine", return_value="x86_64"):
+                with patch.object(
+                    dcc_gateway_mod.urllib.request,
+                    "urlopen",
+                    side_effect=[_BytesResponse(manifest), _BytesResponse(binary)],
+                ):
+                    with patch.object(
+                        dcc_gateway_mod.urllib.request,
+                        "urlretrieve",
+                        side_effect=AssertionError("unverified downloader must not be used"),
+                    ):
+                        ok, message, resolved_url = dcc_gateway_mod.install_cli(
+                            install_dir=tmp_path,
+                            version="v0.19.63",
+                        )
+
+        assert ok is False
+        assert "sha-256" in message.lower()
+        assert resolved_url == asset_url
+        assert target.read_bytes() == b"known-good-existing-cli"
+
+    def test_verified_cli_bootstrap_rejects_non_official_asset_url(self, tmp_path) -> None:
+        manifest = json.dumps(
+            {
+                "dcc-mcp-cli": {
+                    "version": "0.19.63",
+                    "url": "https://example.invalid/dcc-mcp-cli-linux-x86_64",
+                    "sha256": "a" * 64,
+                }
+            }
+        ).encode()
+
+        with patch.object(dcc_gateway_mod.platform, "system", return_value="Linux"):
+            with patch.object(dcc_gateway_mod.platform, "machine", return_value="x86_64"):
+                with patch.object(
+                    dcc_gateway_mod.urllib.request,
+                    "urlopen",
+                    return_value=_BytesResponse(manifest),
+                ) as opener:
+                    ok, message, resolved_url = dcc_gateway_mod.install_cli(
+                        install_dir=tmp_path,
+                        version="v0.19.63",
+                    )
+
+        assert ok is False
+        assert "official release" in message.lower()
+        assert resolved_url is None
+        assert opener.call_count == 1
+        assert not (tmp_path / "dcc-mcp-cli").exists()
+
+    def test_verified_cli_bootstrap_latest_uses_manifest_pinned_asset(self, tmp_path) -> None:
+        binary = b"release-pinned-cli"
+        digest = hashlib.sha256(binary).hexdigest()
+        asset_url = "https://github.com/dcc-mcp/dcc-mcp-core/releases/download/v0.19.63/dcc-mcp-cli-linux-x86_64"
+        manifest = json.dumps(
+            {
+                "dcc-mcp-cli": {
+                    "version": "0.19.63",
+                    "url": asset_url,
+                    "sha256": digest,
+                }
+            }
+        ).encode()
+        requested_urls: list[str] = []
+
+        def open_url(url, **_kwargs):
+            requested_urls.append(str(url))
+            return _BytesResponse(manifest if len(requested_urls) == 1 else binary)
+
+        with patch.object(dcc_gateway_mod.platform, "system", return_value="Linux"):
+            with patch.object(dcc_gateway_mod.platform, "machine", return_value="x86_64"):
+                with patch.object(dcc_gateway_mod.urllib.request, "urlopen", side_effect=open_url):
+                    ok, installed, resolved_url = dcc_gateway_mod.install_cli(install_dir=tmp_path)
+
+        assert ok is True
+        assert Path(installed).read_bytes() == binary
+        assert resolved_url == asset_url
+        assert requested_urls == [
+            "https://github.com/dcc-mcp/dcc-mcp-core/releases/latest/download/"
+            "dcc-mcp-update-manifest-linux-x86_64.json",
+            asset_url,
+        ]
+
+    def test_verified_cli_bootstrap_rejects_requested_version_mismatch(self, tmp_path) -> None:
+        asset_url = "https://github.com/dcc-mcp/dcc-mcp-core/releases/download/v0.19.62/dcc-mcp-cli-linux-x86_64"
+        manifest = json.dumps(
+            {
+                "dcc-mcp-cli": {
+                    "version": "0.19.62",
+                    "url": asset_url,
+                    "sha256": "a" * 64,
+                }
+            }
+        ).encode()
+
+        with patch.object(dcc_gateway_mod.platform, "system", return_value="Linux"):
+            with patch.object(dcc_gateway_mod.platform, "machine", return_value="x86_64"):
+                with patch.object(
+                    dcc_gateway_mod.urllib.request,
+                    "urlopen",
+                    return_value=_BytesResponse(manifest),
+                ) as opener:
+                    ok, message, resolved_url = dcc_gateway_mod.install_cli(
+                        install_dir=tmp_path,
+                        version="v0.19.63",
+                    )
+
+        assert ok is False
+        assert "does not match" in message.lower()
+        assert resolved_url is None
+        assert opener.call_count == 1
+        assert not (tmp_path / "dcc-mcp-cli").exists()
+
     def test_probe_cli_missing(self) -> None:
         with patch.object(check_cli_mod.shutil, "which", return_value=None):
-            with patch.object(check_cli_mod.dcc_gateway, "python_fallback", return_value={}):
-                payload = check_cli_mod.probe(cli="missing-dcc-mcp-cli", base_url="http://127.0.0.1:9765")
+            with patch.object(check_cli_mod.dcc_gateway, "install_cli") as installer:
+                with patch.object(check_cli_mod.dcc_gateway, "python_fallback", return_value={}):
+                    payload = check_cli_mod.probe(
+                        cli="missing-dcc-mcp-cli",
+                        base_url="http://127.0.0.1:9765",
+                    )
+        installer.assert_not_called()
         assert payload["cli_ok"] is False
         assert payload["gateway_ok"] is False
         assert payload["total"] == 0
