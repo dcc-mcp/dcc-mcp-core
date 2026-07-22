@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.65](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.64...v0.19.65) (2026-07-22)
+
+
+### Features
+
+* add attributable gateway control route ([#2015](https://github.com/dcc-mcp/dcc-mcp-core/issues/2015)) ([d0a9a1c](https://github.com/dcc-mcp/dcc-mcp-core/commit/d0a9a1cbbe001941301e29e73e748a9632653c8b))
+* **ui-control:** add exact-version host delivery and game navigation ([#2018](https://github.com/dcc-mcp/dcc-mcp-core/issues/2018)) ([a8df43a](https://github.com/dcc-mcp/dcc-mcp-core/commit/a8df43aef1a5f04456dc502766af0d8304e87aa2))
+* **ui-control:** add exact-window recording and scoped sessions ([#2017](https://github.com/dcc-mcp/dcc-mcp-core/issues/2017)) ([4f460d7](https://github.com/dcc-mcp/dcc-mcp-core/commit/4f460d7fde4d12963749355b7d44ef5819f65eb5))
+
+
+### Bug Fixes
+
+* verify cli release installs ([412a7fb](https://github.com/dcc-mcp/dcc-mcp-core/commit/412a7fbf778b85713db80bd98ef6b8b3294595b4))
+
 ## [0.19.64](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.63...v0.19.64) (2026-07-21)
 
 
