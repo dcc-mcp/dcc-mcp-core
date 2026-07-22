@@ -323,21 +323,16 @@ impl TrafficCapture {
     where
         F: Fn(&EventEnvelope) + Send + Sync + 'static,
     {
-        let subscriber_id = self.next_subscriber_id.fetch_add(1, Ordering::Relaxed) + 1;
-        self.redacted_subscribers
-            .lock()
-            .insert(subscriber_id, Arc::new(callback));
-        subscriber_id
+        self.event_bus
+            .subscribe_event(TRAFFIC_FRAME_EVENT.to_owned(), callback)
     }
 
     /// Remove a redacted-frame subscriber previously returned by
     /// [`Self::subscribe_redacted_frames`].
     #[must_use]
     pub fn unsubscribe_redacted_frames(&self, subscriber_id: u64) -> bool {
-        self.redacted_subscribers
-            .lock()
-            .remove(&subscriber_id)
-            .is_some()
+        self.event_bus
+            .unsubscribe(TRAFFIC_FRAME_EVENT, subscriber_id)
     }
 
     fn next_frame_id(&self) -> String {
