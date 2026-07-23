@@ -30,28 +30,25 @@ pub const VETOABLE_EVENTS: &[&str] = &[
 /// Event subscriber ID for unsubscription.
 pub(crate) type SubscriberId = u64;
 
-/// Callback type for non-Python mode (placeholder for future pure-Rust subscribe API).
-///
-/// Wrapped in `Arc` so callbacks can be cloned out of the DashMap before
-/// invocation — this avoids holding a read-lock while executing user code.
-#[cfg(not(feature = "python-bindings"))]
-type EventCallback = Arc<dyn Fn(&EventEnvelope) + Send + Sync>;
+/// Callback type for Rust-native subscribers (available regardless of
+/// `python-bindings` feature — the gateway and other pure-Rust crates need
+/// this even when the overall workspace builds with Python bindings enabled).
+type NativeEventCallback = Arc<dyn Fn(&EventEnvelope) + Send + Sync>;
 
 /// Callback type for non-Python veto hooks.
-#[cfg(not(feature = "python-bindings"))]
-type BeforeCallback = Arc<dyn Fn(&EventEnvelope) -> Option<EventVeto> + Send + Sync>;
+type NativeBeforeCallback = Arc<dyn Fn(&EventEnvelope) -> Option<EventVeto> + Send + Sync>;
 
 /// Type alias for the subscriber storage map.
 #[cfg(feature = "python-bindings")]
 pub(crate) type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, Py<PyAny>)>>>;
 #[cfg(not(feature = "python-bindings"))]
-type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, EventCallback)>>>;
+type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, NativeEventCallback)>>>;
 
 /// Type alias for veto hook storage.
 #[cfg(feature = "python-bindings")]
 pub(crate) type BeforeSubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, Py<PyAny>)>>>;
 #[cfg(not(feature = "python-bindings"))]
-type BeforeSubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, BeforeCallback)>>>;
+type BeforeSubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, NativeBeforeCallback)>>>;
 
 /// Thread-safe event bus.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
@@ -65,6 +62,12 @@ pub struct EventBus {
     pub(crate) next_event_id: Arc<AtomicU64>,
     pub(crate) subscribers: SubscriberMap,
     pub(crate) before_subscribers: BeforeSubscriberMap,
+    /// Rust-native subscribers (separate from Python callbacks so that
+    /// pure-Rust crates like the gateway can subscribe regardless of the
+    /// `python-bindings` feature).
+    native_subscribers: Arc<DashMap<String, Vec<(SubscriberId, NativeEventCallback)>>>,
+    #[allow(dead_code)]
+    native_before_subscribers: Arc<DashMap<String, Vec<(SubscriberId, NativeBeforeCallback)>>>,
 }
 
 /// Structured event envelope shared by in-process subscribers and future webhooks.
@@ -158,6 +161,14 @@ impl std::fmt::Debug for EventBus {
                     .map(|r| r.key().clone())
                     .collect::<Vec<_>>(),
             )
+            .field(
+                "native_subscriber_events",
+                &self
+                    .native_subscribers
+                    .iter()
+                    .map(|r| r.key().clone())
+                    .collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -176,6 +187,8 @@ impl EventBus {
             next_event_id: Arc::new(AtomicU64::new(0)),
             subscribers: Arc::new(DashMap::new()),
             before_subscribers: Arc::new(DashMap::new()),
+            native_subscribers: Arc::new(DashMap::new()),
+            native_before_subscribers: Arc::new(DashMap::new()),
         }
     }
 
@@ -191,12 +204,19 @@ impl EventBus {
                 .iter()
                 .map(|r| r.value().len())
                 .sum::<usize>()
+            + self
+                .native_subscribers
+                .iter()
+                .map(|r| r.value().len())
+                .sum::<usize>()
     }
 
     /// Check if any subscribers exist for the given event.
     #[must_use]
     pub fn has_subscribers(&self, event_name: &str) -> bool {
         self.subscribers.iter().any(|entry| {
+            !entry.value().is_empty() && subscription_matches(entry.key().as_str(), event_name)
+        }) || self.native_subscribers.iter().any(|entry| {
             !entry.value().is_empty() && subscription_matches(entry.key().as_str(), event_name)
         })
     }
@@ -244,6 +264,56 @@ impl EventBus {
         false
     }
 
+    /// Subscribe a Rust closure to structured event envelopes.
+    ///
+    /// This is always available — in Python-bindings mode callbacks land in a
+    /// dedicated native subscriber map, and in pure-Rust mode they land in the
+    /// shared subscriber map.  Either way the `publish_event` path delivers to
+    /// both Python and Rust-native subscribers.
+    #[must_use]
+    pub fn subscribe_event<F>(&self, event_name: String, callback: F) -> SubscriberId
+    where
+        F: Fn(&EventEnvelope) + Send + Sync + 'static,
+    {
+        let id = self.next_subscriber_id();
+        #[cfg(feature = "python-bindings")]
+        {
+            self.native_subscribers
+                .entry(event_name)
+                .or_default()
+                .push((id, Arc::new(callback)));
+        }
+        #[cfg(not(feature = "python-bindings"))]
+        {
+            self.subscribers
+                .entry(event_name)
+                .or_default()
+                .push((id, Arc::new(callback)));
+        }
+        id
+    }
+
+    /// Unsubscribe a Rust-native subscriber by event name and ID.
+    ///
+    /// Named `unsubscribe_event` to avoid conflicting with the PyO3
+    /// `#[pymethods]` `unsubscribe` when `python-bindings` is enabled.
+    #[must_use]
+    pub fn unsubscribe_event(&self, event_name: &str, subscriber_id: SubscriberId) -> bool {
+        #[cfg(feature = "python-bindings")]
+        {
+            if let Some(mut subs) = self.native_subscribers.get_mut(event_name) {
+                let before = subs.len();
+                subs.retain(|(id, _)| *id != subscriber_id);
+                return subs.len() < before;
+            }
+            false
+        }
+        #[cfg(not(feature = "python-bindings"))]
+        {
+            self.remove_subscriber(event_name, subscriber_id)
+        }
+    }
+
     #[must_use]
     pub(crate) fn make_event(
         &self,
@@ -273,6 +343,37 @@ impl EventBus {
         let event = self.make_event(event_name, source, correlation, attributes);
         self.publish_event(&event);
         event
+    }
+
+    pub(crate) fn publish_to_native_subscribers(&self, event: &EventEnvelope) {
+        #[cfg(feature = "python-bindings")]
+        let map = &self.native_subscribers;
+        #[cfg(not(feature = "python-bindings"))]
+        let map = &self.subscribers;
+
+        let callbacks: Vec<_> = map
+            .iter()
+            .filter(|entry| subscription_matches(entry.key().as_str(), &event.name))
+            .flat_map(|entry| {
+                entry
+                    .value()
+                    .iter()
+                    .map(|(_, cb)| Clone::clone(cb))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for callback in &callbacks {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                callback(event);
+            })) {
+                let msg = e
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| e.downcast_ref::<String>().map(|s| s.as_str()))
+                    .unwrap_or("unknown panic");
+                tracing::error!("Panic in native event subscriber for {}: {msg}", event.name);
+            }
+        }
     }
 
     pub(crate) fn make_vetoable_event(
@@ -350,26 +451,6 @@ impl EventBus {
         F: Fn() + Send + Sync + 'static,
     {
         self.subscribe_event(event_name, move |_| callback())
-    }
-
-    /// Subscribe a Rust closure to structured event envelopes.
-    #[must_use]
-    pub fn subscribe_event<F>(&self, event_name: String, callback: F) -> SubscriberId
-    where
-        F: Fn(&EventEnvelope) + Send + Sync + 'static,
-    {
-        let id = self.next_subscriber_id();
-        self.subscribers
-            .entry(event_name)
-            .or_default()
-            .push((id, Arc::new(callback)));
-        id
-    }
-
-    /// Unsubscribe from an event by subscriber ID.
-    #[must_use]
-    pub fn unsubscribe(&self, event_name: &str, subscriber_id: SubscriberId) -> bool {
-        self.remove_subscriber(event_name, subscriber_id)
     }
 
     /// Register a veto hook for one of the whitelisted lifecycle events.
@@ -464,30 +545,7 @@ impl EventBus {
 
     /// Publish an existing structured event envelope.
     pub fn publish_event(&self, event: &EventEnvelope) {
-        let callbacks: Vec<_> = self
-            .subscribers
-            .iter()
-            .filter(|entry| subscription_matches(entry.key().as_str(), &event.name))
-            .flat_map(|entry| {
-                entry
-                    .value()
-                    .iter()
-                    .map(|(_, cb)| Clone::clone(cb))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        for callback in &callbacks {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                callback(event);
-            })) {
-                let msg = e
-                    .downcast_ref::<&str>()
-                    .copied()
-                    .or_else(|| e.downcast_ref::<String>().map(|s| s.as_str()))
-                    .unwrap_or("unknown panic");
-                tracing::error!("Panic in event subscriber for {}: {msg}", event.name);
-            }
-        }
+        self.publish_to_native_subscribers(event);
     }
 }
 
@@ -709,14 +767,14 @@ mod tests {
         bus.publish("evt");
         assert_eq!(counter.load(Ordering::Relaxed), 1);
 
-        assert!(bus.unsubscribe("evt", id));
+        assert!(bus.unsubscribe_event("evt", id));
         bus.publish("evt");
         assert_eq!(counter.load(Ordering::Relaxed), 1); // unchanged
 
         // Double-unsubscribe returns false
-        assert!(!bus.unsubscribe("evt", id));
+        assert!(!bus.unsubscribe_event("evt", id));
         // Unsubscribe wrong event
-        assert!(!bus.unsubscribe("nonexistent", 1));
+        assert!(!bus.unsubscribe_event("nonexistent", 1));
     }
 
     #[test]
@@ -740,7 +798,7 @@ mod tests {
         bus.publish("multi");
         assert_eq!(total.load(Ordering::Relaxed), 11);
 
-        let _ = bus.unsubscribe("multi", id1);
+        let _ = bus.unsubscribe_event("multi", id1);
         bus.publish("multi");
         // Only _id2 fires: adds 1 more → total = 12
         assert_eq!(total.load(Ordering::Relaxed), 12);
@@ -751,7 +809,7 @@ mod tests {
         let bus = EventBus::new();
         let id = bus.subscribe("evt".to_string(), || {});
         assert_eq!(bus.subscription_count(), 1);
-        let _ = bus.unsubscribe("evt", id);
+        let _ = bus.unsubscribe_event("evt", id);
         assert_eq!(bus.subscription_count(), 0);
         assert!(!bus.has_subscribers("evt"));
     }

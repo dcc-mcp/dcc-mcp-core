@@ -192,7 +192,7 @@ impl EventWebhookRuntime {
 impl Drop for EventWebhookRuntime {
     fn drop(&mut self) {
         for (event_name, subscriber_id) in self.subscriptions.drain(..) {
-            let _ = self.bus.unsubscribe(&event_name, subscriber_id);
+            let _ = self.bus.unsubscribe_event(&event_name, subscriber_id);
         }
         self.worker.abort();
     }
