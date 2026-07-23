@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - Python 3.7 only
             for base in cls.__mro__:
                 if base in (Protocol, object):
                     continue
-                members.update(name for name in base.__dict__.get("__annotations__", {}) if not name.startswith("_"))  # ruff: ignore[access-annotations-from-class-dict] — Python 3.7 compat: deliberate __dict__ access; get_annotations() would eval string annotations unnecessarily
+                members.update(name for name in base.__dict__.get("__annotations__", {}) if not name.startswith("_"))
                 for name, value in base.__dict__.items():
                     if name.startswith("_"):
                         continue
