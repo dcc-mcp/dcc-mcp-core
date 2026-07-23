@@ -9,6 +9,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(windows)]
+use std::mem::size_of;
+#[cfg(windows)]
+use std::os::windows::io::{FromRawHandle, OwnedHandle};
+
 use parking_lot::Mutex;
 use tokio::process::{Child, Command};
 use tokio::time;
@@ -17,6 +22,49 @@ use tracing::{debug, info, warn};
 use crate::error::ProcessError;
 use crate::types::{DccLaunchOptions, DccProcessConfig, ProcessInfo, ProcessStatus};
 
+#[cfg(windows)]
+struct ChildJob {
+    _handle: OwnedHandle,
+}
+
+#[cfg(windows)]
+fn assign_kill_on_close_job(child: &Child) -> std::io::Result<ChildJob> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+
+    let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+    if job.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    let configured = unsafe {
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &limits as *const _ as *const _,
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    };
+    let process = child
+        .raw_handle()
+        .ok_or_else(|| std::io::Error::other("child exited before job assignment"))?;
+    let assigned =
+        configured != 0 && unsafe { AssignProcessToJobObject(job, process as HANDLE) } != 0;
+    if !assigned {
+        let error = std::io::Error::last_os_error();
+        unsafe { CloseHandle(job) };
+        return Err(error);
+    }
+    Ok(ChildJob {
+        _handle: unsafe { OwnedHandle::from_raw_handle(job as _) },
+    })
+}
+
 /// Manages the lifecycle (spawn, terminate, kill) of DCC application processes.
 ///
 /// All operations are async; wrap in `tokio::task::spawn_blocking` if you
@@ -24,6 +72,9 @@ use crate::types::{DccLaunchOptions, DccProcessConfig, ProcessInfo, ProcessStatu
 pub struct DccLauncher {
     /// Live child processes indexed by the config `name` field.
     children: Arc<Mutex<HashMap<String, Child>>>,
+    /// Windows job handles that terminate their entire child tree when dropped.
+    #[cfg(windows)]
+    jobs: Arc<Mutex<HashMap<String, ChildJob>>>,
     /// Restart counters per config name.
     restart_counts: Arc<Mutex<HashMap<String, u32>>>,
 }
@@ -33,6 +84,8 @@ impl DccLauncher {
     pub fn new() -> Self {
         Self {
             children: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(windows)]
+            jobs: Arc::new(Mutex::new(HashMap::new())),
             restart_counts: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -86,12 +139,26 @@ impl DccLauncher {
             .id()
             .ok_or_else(|| ProcessError::internal("child has no PID immediately after spawn"))?;
 
+        #[cfg(windows)]
+        let job = match assign_kill_on_close_job(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                let mut child = child;
+                let _ = child.start_kill();
+                return Err(ProcessError::internal(format!(
+                    "failed to assign Windows ownership job for child {pid}: {error}"
+                )));
+            }
+        };
+
         debug!(pid, name = %config.name, "DCC process spawned");
 
         {
             let mut children = self.children.lock();
             children.insert(config.name.clone(), child);
         }
+        #[cfg(windows)]
+        self.jobs.lock().insert(config.name.clone(), job);
 
         Ok(ProcessInfo::new(
             pid,
@@ -118,6 +185,8 @@ impl DccLauncher {
             }
             // MutexGuard dropped here
         };
+        #[cfg(windows)]
+        let job = self.jobs.lock().remove(name);
 
         // Try graceful kill first
         let pid = child.id().unwrap_or(0);
@@ -146,6 +215,9 @@ impl DccLauncher {
             }
         }
 
+        #[cfg(windows)]
+        drop(job);
+
         Ok(())
     }
 
@@ -164,6 +236,8 @@ impl DccLauncher {
             }
             // MutexGuard dropped here
         };
+        #[cfg(windows)]
+        let job = self.jobs.lock().remove(name);
 
         let pid = child.id().unwrap_or(0);
         child
@@ -175,6 +249,8 @@ impl DccLauncher {
             })?;
 
         info!(name, "process killed");
+        #[cfg(windows)]
+        drop(job);
         Ok(())
     }
 
@@ -217,6 +293,38 @@ mod tests {
 
     mod test_launcher_basic {
         use super::*;
+
+        #[cfg(windows)]
+        #[tokio::test]
+        async fn dropping_launcher_kills_its_child() {
+            use sysinfo::{Pid, ProcessesToUpdate, System};
+
+            let launcher = DccLauncher::new();
+            let mut config = DccProcessConfig::new("owned-child", "cmd");
+            config.args = vec!["/C".into(), "ping 127.0.0.1 -n 30 > nul".into()];
+            let info = launcher.launch(&config).await.expect("launch child");
+
+            drop(launcher);
+
+            let deadline = time::Instant::now() + Duration::from_secs(1);
+            let exited = loop {
+                let mut system = System::new();
+                system.refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(info.pid)]), true);
+                if system.process(Pid::from_u32(info.pid)).is_none() {
+                    break true;
+                }
+                if time::Instant::now() >= deadline {
+                    break false;
+                }
+                time::sleep(Duration::from_millis(50)).await;
+            };
+            if !exited {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/PID", &info.pid.to_string(), "/T", "/F"])
+                    .status();
+            }
+            assert!(exited, "child survived its launcher");
+        }
 
         #[test]
         fn new_has_zero_running() {

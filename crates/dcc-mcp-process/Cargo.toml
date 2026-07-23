@@ -27,6 +27,9 @@ dcc-mcp-models = { path = "../dcc-mcp-models" }
 sysinfo = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects"] }
+
 [dev-dependencies]
 rstest = "0.26"
 tokio = { workspace = true, features = ["test-util"] }
