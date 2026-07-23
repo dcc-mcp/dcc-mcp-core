@@ -206,6 +206,10 @@ or cancellation: rediscover the instance and query the job before retrying.
   `ui_control__snapshot`, and pass the latest `snapshot_id` unchanged. End every
   path with `ui_control__stop_computer_use`. Screenshot coordinates belong to that
   observation only.
+- Preserve `capture_provenance` with saved evidence. Only
+  `backend=windows-ui-control-host` plus `pixels_captured=true` proves native
+  Windows screenshot capture; keep the logical UI Control `session_id`
+  distinct from the gateway agent session used for stats attribution.
 - When the exact HWND is minimized or hidden before the first snapshot, use
   only `get_window_state` followed by the necessary `restore_window`,
   `show_window`, and `activate_window` host actions, then take a fresh

@@ -50,6 +50,27 @@ key/button release; retry cleanup and do not start another session. The global
 input owner stays held across adapter processes until reconnect allows those
 releases to drain.
 
+## Evidence Attribution
+
+Every successful snapshot or recording includes `capture_provenance`. Keep it
+beside any materialized image or frame sequence instead of inferring origin
+from the filename or picture contents. Native Windows screenshot evidence must
+report `backend="windows-ui-control-host"` and `pixels_captured=true`; mock and
+accessibility-only results do not prove that the native Host captured pixels.
+
+The provenance also reports the logical `session_id`, `snapshot_id`, exact
+PID/HWND when available, image dimensions, native capture backend, and whether
+the bounded PNG was downscaled. The matching redacted
+`ui_control_operation` audit event carries the same `snapshot_id`. It does not
+record typed text or screenshot coordinates.
+
+The exact-window PNG intentionally excludes UI Control's capsule, brackets,
+and cursor marker because those are separate safety overlay windows. Verify
+activation from provenance and audit rather than expecting the overlay inside
+the captured DCC pixels. For acceptance telemetry, route every call through
+the gateway with `--require-gateway` and one stable `--agent-session-id`; keep
+that gateway id distinct from the logical UI Control `session_id`.
+
 For gateway clients, discover and inspect tools before calling:
 
 ```json

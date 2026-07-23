@@ -373,30 +373,32 @@ CDP presets:
   `DCC_MCP_UI_CONTROL_AGENT_BROWSER_BIN`; this preset is suitable for CI when
   `agent-browser install` has provisioned Chrome for Testing.
 
-## Agent Loop
+## Evidence Attribution
 
-Use this loop:
+Successful snapshots and recordings return `capture_provenance`. Preserve it
+with every saved or presented image. It identifies the tool, backend, logical
+session, pixel availability, exact target, output dimensions, capture backend,
+and whether the bounded PNG was downscaled.
 
-1. Try the structured DCC skill, host API, or adapter script.
-2. If it returns `unsupported` or `capability_missing`,
-   call `ui_control__snapshot` for the exact application window.
-3. `ui_control__find` to resolve a control by label, role, text, or object name.
-4. `ui_control__act` to perform one scoped action using the resolved control id or
-   screenshot coordinates when no semantic control is available.
-5. `ui_control__snapshot` immediately to verify the result before another action.
-6. Use `ui_control__wait_for` only for a known UI condition, then snapshot again.
-7. Call `ui_control__stop_computer_use` when the fallback is complete or abandoned.
+For native Windows evidence, require
+`backend="windows-ui-control-host"` and `pixels_captured=true`. A mock or
+accessibility-only CDP result is useful for tests and semantic inspection but
+is not native screenshot evidence. Unity Game View captures, RenderDoc exports,
+ImageGen output, and files later opened with an image viewer are separate
+sources; never label them as UI Control evidence.
 
-For gameplay capture, start from a fresh exact-window snapshot, call
-`ui_control__record_clip` once for a bounded shot, validate its manifest and
-hashes through `game-pv-capture`, then stop the same session. Do not send UI
-actions while recording and do not treat a completed frame sequence as a
-finished PV.
+The exact-window PNG intentionally excludes the capsule, corner brackets, and
+cursor marker because they are separate safety overlay windows. Their absence
+inside the PNG does not prove UI Control was inactive; use
+`capture_provenance` plus the matching redacted `ui_control_operation` audit
+event. The audit event carries the same `snapshot_id` without recording text or
+coordinates.
 
-If an action returns `stale_control`, restart at `ui_control__snapshot`. If an
-action returns `policy_disabled`, prefer a native DCC skill or ask for an
-explicit policy change. On `user_interrupted` or `desktop_unavailable`, stop;
-do not follow a generic retry or fallback route.
+For acceptance runs, use one meaningful UI Control `session_id`, route every
+measured CLI call with `--require-gateway`, and use one stable
+`--agent-session-id`. These are separate namespaces. If provenance reports
+`downscaled=true`, prefer semantic `find`; enlarge the target and take a fresh
+snapshot before using coordinates on small controls.
 
 ## Workflow Examples
 
