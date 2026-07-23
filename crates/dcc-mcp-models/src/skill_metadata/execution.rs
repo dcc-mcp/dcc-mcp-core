@@ -34,6 +34,35 @@ impl ExecutionMode {
     }
 }
 
+/// How long-running work preserves host responsiveness and recoverability.
+///
+/// This is deliberately separate from [`ExecutionMode`]: `async` describes
+/// the request contract, while `job_strategy` tells agents and adapters how
+/// the work itself is executed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStrategy {
+    /// One indivisible host call. Cancellation can only be acknowledged after
+    /// the call returns.
+    #[default]
+    Monolithic,
+    /// Bounded main-thread steps advanced by the host event-loop pump.
+    Chunked,
+    /// A process- or service-owned durable operation, queried by job id.
+    Isolated,
+}
+
+impl JobStrategy {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Monolithic => "monolithic",
+            Self::Chunked => "chunked",
+            Self::Isolated => "isolated",
+        }
+    }
+}
+
 // ── ThreadAffinity (issue #332) ───────────────────────────────────────────
 
 /// Where a tool is allowed to execute.

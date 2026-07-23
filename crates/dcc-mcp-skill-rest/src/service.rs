@@ -403,6 +403,7 @@ pub struct CatalogAction {
     pub annotations: ToolAnnotations,
     pub execution: ExecutionMode,
     pub timeout_hint_secs: Option<u32>,
+    pub job_strategy: dcc_mcp_models::JobStrategy,
     pub thread_affinity: ThreadAffinity,
     pub enforce_thread_affinity: bool,
     pub available_groups: Vec<SkillGroupState>,
@@ -772,6 +773,7 @@ impl SkillCatalogSource for CatalogSource {
                 annotations: meta.annotations,
                 execution: meta.execution,
                 timeout_hint_secs: meta.timeout_hint_secs,
+                job_strategy: meta.job_strategy,
                 thread_affinity: meta.thread_affinity,
                 enforce_thread_affinity: meta.enforce_thread_affinity,
                 available_groups: groups_by_skill
@@ -856,6 +858,7 @@ impl SkillCatalogSource for CatalogSource {
                     annotations: tool_decl.annotations.clone(),
                     execution: tool_decl.execution,
                     timeout_hint_secs: tool_decl.timeout_hint_secs,
+                    job_strategy: tool_decl.job_strategy,
                     thread_affinity: tool_decl.thread_affinity,
                     enforce_thread_affinity: tool_decl.enforce_thread_affinity,
                     available_groups: groups_by_skill

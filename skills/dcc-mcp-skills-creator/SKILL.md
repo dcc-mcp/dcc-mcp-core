@@ -10,7 +10,7 @@ allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.19.64"
+    version: "0.19.69"  # x-release-please-version
     layer: infrastructure
     compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy, long-running main-thread tools"
@@ -142,6 +142,8 @@ Generated `tools.yaml` entries follow the modern contract:
   the tool script or handler validation instead of `anyOf`, `oneOf`, `allOf`,
   `not`, `if`/`then`/`else`, or dependent-schema keywords.
 - `execution` is `sync` or `async`; use `async` for deferred/long-running work.
+- `job_strategy` is `monolithic` (default), `chunked`, or `isolated`. Agents
+  use it to select a safe execution and recovery workflow.
 - `affinity` is explicit. Use `main` for host API or scene mutation work and `any` for pure work.
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
@@ -154,6 +156,7 @@ host call interruptible. For long scene mutations:
 
 ```yaml
 execution: async
+job_strategy: chunked
 affinity: main
 enforce_thread_affinity: true
 annotations:
@@ -172,14 +175,26 @@ def build_bake_steps():
         yield lambda frame=frame: bake_one_frame(frame)
 ```
 
-The adapter-owned handler must submit the returned runner to the shared host
-pump. A declarative script returning `ChunkedRunner` is not automatically
-scheduled. Do not create a skill-local timer, thread, pump, or job registry.
+Return the runner from the declarative entry point. `HostExecutionBridge`
+automatically submits it to the shared host pump and binds it to the outer
+JobManager cancellation probe. Do not create a skill-local timer, thread,
+pump, or second job registry.
 Keep each yielded callable bounded, return a string when a progress message is
 useful, and let cancellation become terminal only after a runner checkpoint.
 If the adapter does not expose the shared chunked path, document that the tool
 is monolithic and request an adapter/core integration instead of claiming
 mid-call interruption.
+
+Use `job_strategy: isolated` when the typed tool launches a process- or
+service-owned operation and returns a durable job id immediately. Declare the
+poll and cancel tools in `next-tools` and in the result recovery context.
+Status must remain readable after a transport disconnect or adapter restart;
+state cancellation ownership honestly when it cannot be reconstructed.
+
+For one indivisible DCC-native call, keep `job_strategy: monolithic`. Prefer
+`execution: async` so the initial transport returns a core job id, then poll
+the instance-routable `jobs_get_status`. A transport timeout is not completion
+or cancellation: rediscover the instance and query the job before retrying.
 
 ### Computer Use Fallback Contract
 

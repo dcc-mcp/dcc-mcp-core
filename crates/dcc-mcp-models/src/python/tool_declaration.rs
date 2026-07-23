@@ -6,7 +6,8 @@ use pyo3::types::{PyAnyMethods, PyDictMethods};
 use pyo3_stub_gen_derive::gen_stub_pymethods;
 
 use crate::skill_metadata::{
-    ExecutionMode, NextTools, SkillGroup, ThreadAffinity, ToolAnnotations, ToolDeclaration,
+    ExecutionMode, JobStrategy, NextTools, SkillGroup, ThreadAffinity, ToolAnnotations,
+    ToolDeclaration,
 };
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
@@ -41,7 +42,7 @@ impl SkillGroup {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=vec![], requires_in_process=false))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, job_strategy="monolithic".to_string(), thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=vec![], requires_in_process=false))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -56,6 +57,7 @@ impl ToolDeclaration {
         group: String,
         execution: String,
         timeout_hint_secs: Option<u32>,
+        job_strategy: String,
         thread_affinity: String,
         enforce_thread_affinity: bool,
         search_aliases: Vec<String>,
@@ -68,6 +70,7 @@ impl ToolDeclaration {
             .and_then(|schema| serde_json::from_str(&schema).ok())
             .unwrap_or(serde_json::Value::Null);
         let execution = parse_execution_mode(&execution)?;
+        let job_strategy = parse_job_strategy(&job_strategy)?;
         let thread_affinity = parse_thread_affinity(&thread_affinity)?;
         Ok(Self {
             name,
@@ -84,6 +87,7 @@ impl ToolDeclaration {
             group,
             execution,
             timeout_hint_secs,
+            job_strategy,
             thread_affinity,
             enforce_thread_affinity,
             _deferred_guard: None,
@@ -129,6 +133,17 @@ impl ToolDeclaration {
     #[setter]
     fn set_execution(&mut self, value: String) -> pyo3::PyResult<()> {
         self.execution = parse_execution_mode(&value)?;
+        Ok(())
+    }
+
+    #[getter]
+    fn job_strategy(&self) -> &'static str {
+        self.job_strategy.as_str()
+    }
+
+    #[setter]
+    fn set_job_strategy(&mut self, value: String) -> pyo3::PyResult<()> {
+        self.job_strategy = parse_job_strategy(&value)?;
         Ok(())
     }
 
@@ -281,6 +296,17 @@ fn parse_execution_mode(value: &str) -> pyo3::PyResult<ExecutionMode> {
         "async" => Ok(ExecutionMode::Async),
         other => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "execution must be 'sync' or 'async' (got {other:?})",
+        ))),
+    }
+}
+
+fn parse_job_strategy(value: &str) -> pyo3::PyResult<JobStrategy> {
+    match value {
+        "monolithic" => Ok(JobStrategy::Monolithic),
+        "chunked" => Ok(JobStrategy::Chunked),
+        "isolated" => Ok(JobStrategy::Isolated),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "job_strategy must be 'monolithic', 'chunked', or 'isolated' (got {other:?})"
         ))),
     }
 }

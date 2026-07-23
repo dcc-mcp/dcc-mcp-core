@@ -26,16 +26,6 @@ on:
       - ".github/clawhub-skills.json"
       - ".github/workflows/clawhub.yml"
       - "justfile"
-  push:
-    branches:
-      - main
-    paths:
-      - "skills/**"
-      - "scripts/package_openclaw_skill.py"
-      - "scripts/clawhub_sync.py"
-      - ".github/clawhub-skills.json"
-      - ".github/workflows/clawhub.yml"
-      - "justfile"
   workflow_dispatch:
     inputs:
       publish:
@@ -92,7 +82,6 @@ jobs:
 
       - name: Require ClawHub token
         if: >-
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
           (github.event_name == 'workflow_call' && inputs.publish) ||
           (github.event_name == 'workflow_dispatch' && inputs.publish)
         shell: bash
@@ -106,7 +95,6 @@ jobs:
 
       - name: Login to ClawHub
         if: >-
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
           (github.event_name == 'workflow_call' && inputs.publish) ||
           (github.event_name == 'workflow_dispatch' && inputs.publish)
         shell: bash
@@ -125,7 +113,6 @@ jobs:
 
       - name: Publish skills to ClawHub
         if: >-
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
           (github.event_name == 'workflow_call' && inputs.publish) ||
           (github.event_name == 'workflow_dispatch' && inputs.publish)
         run: python scripts/clawhub_sync.py

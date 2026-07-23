@@ -106,6 +106,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
+  publish-clawhub-skills:
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/clawhub.yml
+    with:
+      checkout-ref: ${{ needs.release-please.outputs.tag_name }}
+      publish: true
+    secrets: inherit
+
   build-admin-ui:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
@@ -902,6 +911,7 @@ jobs:
       - publish-core-pypi
       - publish-server-pypi
       - publish-semantic-pypi
+      - publish-clawhub-skills
       - publish-github-release-assets
     if: always() && needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
@@ -913,11 +923,13 @@ jobs:
           core="${{ needs.publish-core-pypi.result }}"
           server="${{ needs.publish-server-pypi.result }}"
           semantic="${{ needs.publish-semantic-pypi.result }}"
+          clawhub="${{ needs.publish-clawhub-skills.result }}"
           release_assets="${{ needs.publish-github-release-assets.result }}"
 
           echo "PyPI dcc-mcp-core: ${core}"
           echo "PyPI dcc-mcp-server: ${server}"
           echo "PyPI dcc-mcp-core-semantic: ${semantic}"
+          echo "ClawHub skills: ${clawhub}"
           echo "GitHub Release assets: ${release_assets}"
 
           failed=0
@@ -927,6 +939,10 @@ jobs:
           fi
           if [ "$release_assets" != "success" ]; then
             echo "::error::GitHub Release safety-net upload did not complete (result=${release_assets})."
+            failed=1
+          fi
+          if [ "$clawhub" != "success" ]; then
+            echo "::error::ClawHub skill publication did not complete (result=${clawhub})."
             failed=1
           fi
           exit "$failed"

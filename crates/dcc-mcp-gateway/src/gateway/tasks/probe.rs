@@ -5,22 +5,13 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 use dcc_mcp_transport::error::TransportResult;
 use futures::future::join_all;
 
-fn evict_probe_snapshot(
-    registry: &FileRegistry,
-    observed: &ServiceEntry,
-) -> TransportResult<Option<ServiceEntry>> {
-    registry.deregister_if_unchanged(observed)
-}
-
-/// On gateway startup, probe every registered instance's TCP port and
-/// deregister any that are unreachable. Complements `prune_dead_pids`
-/// which only checks PID liveness — a process may be alive but its MCP
-/// listener already shut down (issue #556).
+/// On gateway startup, probe every registered instance's TCP port and mark
+/// unreachable rows without deleting live-owned registrations.
 ///
 /// Probes run **in parallel** so many DCC instances do not stretch gateway
 /// startup by `N × timeout` (sequential behaviour made 4+ instances flaky on
 /// busy hosts where each connect approached the deadline).
-pub(crate) async fn probe_and_evict_dead_instances(
+pub(crate) async fn probe_and_mark_unreachable_instances(
     registry: &FileRegistry,
     stale_timeout: Duration,
     own_host: &str,
@@ -64,18 +55,20 @@ pub(crate) async fn probe_and_evict_dead_instances(
         .collect();
 
     let outcomes = join_all(futures).await;
-    let mut evicted = Vec::new();
+    let mut marked = Vec::new();
     for (observed, reachable, addr, dcc_type, instance_id) in outcomes {
         if !reachable {
-            let removed = evict_probe_snapshot(registry, &observed)?;
-            if let Some(entry) = removed {
+            if registry.update_status_if_unchanged(
+                &observed,
+                dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable,
+            )? {
                 tracing::info!(
                     dcc_type = %dcc_type,
                     instance_id = %instance_id,
                     addr = %addr,
-                    "Startup probe: instance unreachable — deregistered"
+                    "Startup probe: instance unreachable — retained for owner/TTL recovery"
                 );
-                evicted.push(entry);
+                marked.push(observed);
             } else {
                 tracing::debug!(
                     dcc_type = %dcc_type,
@@ -86,7 +79,7 @@ pub(crate) async fn probe_and_evict_dead_instances(
             }
         }
     }
-    Ok(evicted)
+    Ok(marked)
 }
 
 /// Verify that the gateway accept-loop is actually running by connecting to it.
@@ -156,12 +149,16 @@ mod tests {
         let key = entry.key();
         registry.register(entry).unwrap();
 
-        let evicted =
-            probe_and_evict_dead_instances(&registry, Duration::from_secs(30), "127.0.0.1", 9765)
-                .await
-                .unwrap();
+        let marked = probe_and_mark_unreachable_instances(
+            &registry,
+            Duration::from_secs(30),
+            "127.0.0.1",
+            9765,
+        )
+        .await
+        .unwrap();
 
-        assert!(evicted.is_empty());
+        assert!(marked.is_empty());
         assert!(
             registry.get(&key).is_some(),
             "port=0 sidecar rows are booting diagnostics, not startup-probe evictions"
@@ -169,7 +166,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn startup_probe_returns_evicted_rows_for_persistence() {
+    async fn startup_probe_marks_unreachable_row_without_removing_it() {
         let dir = tempdir().unwrap();
         let registry = FileRegistry::new(dir.path()).unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -181,34 +178,23 @@ mod tests {
         let key = entry.key();
         registry.register(entry).unwrap();
 
-        let evicted =
-            probe_and_evict_dead_instances(&registry, Duration::from_secs(30), "127.0.0.1", 9765)
-                .await
-                .unwrap();
+        let marked = probe_and_mark_unreachable_instances(
+            &registry,
+            Duration::from_secs(30),
+            "127.0.0.1",
+            9765,
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(evicted.len(), 1);
-        assert_eq!(evicted[0].instance_id, instance_id);
-        assert!(
-            registry.get(&key).is_none(),
-            "startup probe must remove unreachable rows from the live registry"
+        assert_eq!(marked.len(), 1);
+        assert_eq!(marked[0].instance_id, instance_id);
+        let row = registry
+            .get(&key)
+            .expect("startup probe must retain the row");
+        assert_eq!(
+            row.status,
+            dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
         );
-    }
-
-    #[test]
-    fn stale_probe_does_not_remove_refreshed_row() {
-        let dir = tempdir().unwrap();
-        let registry = FileRegistry::new(dir.path()).unwrap();
-        let entry = ServiceEntry::new("houdini", "127.0.0.1", 18814);
-        let key = entry.key();
-        registry.register(entry).unwrap();
-
-        let observed = registry.get(&key).unwrap();
-        std::thread::sleep(Duration::from_millis(1));
-        assert!(registry.heartbeat(&key).unwrap());
-
-        let removed = evict_probe_snapshot(&registry, &observed).unwrap();
-
-        assert!(removed.is_none());
-        assert!(registry.get(&key).is_some());
     }
 }

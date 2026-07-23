@@ -169,6 +169,9 @@ pub struct CapabilityMetadata {
     /// Suggested timeout budget in seconds.
     #[serde(rename = "timeoutHintSecs", skip_serializing_if = "Option::is_none")]
     pub timeout_hint_secs: Option<u32>,
+    /// Host-responsiveness strategy: `chunked` or `isolated` when declared.
+    #[serde(rename = "jobStrategy", skip_serializing_if = "Option::is_none")]
+    pub job_strategy: Option<String>,
     /// Whether the gateway/dispatcher should reject mismatched thread context.
     #[serde(
         rename = "enforceThreadAffinity",
@@ -196,6 +199,7 @@ impl CapabilityMetadata {
         self.affinity.is_none()
             && self.execution.is_none()
             && self.timeout_hint_secs.is_none()
+            && self.job_strategy.is_none()
             && self.enforce_thread_affinity.is_none()
             && self.risk.is_none()
             && self.tool_role.is_none()

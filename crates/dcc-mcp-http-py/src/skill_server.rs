@@ -428,6 +428,9 @@ impl PyMcpHttpServer {
                     kwargs
                         .set_item("timeout_hint_secs", context.timeout_hint_secs)
                         .map_err(|e| format!("executor kwargs: {e}"))?;
+                    kwargs
+                        .set_item("job_strategy", context.job_strategy.as_str())
+                        .map_err(|e| format!("executor kwargs: {e}"))?;
                     dcc_mcp_skills::catalog::execute::set_job_context_kwargs(gil, &kwargs)
                         .map_err(|e| format!("executor kwargs: {e}"))?;
                     let raw = dcc_mcp_skills::catalog::execute::call_python_executor(

@@ -164,7 +164,7 @@ server = SocketServerAdapter("/tmp/maya.sock", max_connections=8,
 from dcc_mcp_core._core import DeferredExecutor   # direct import required
 ```
 
-**Chunked main-affinity jobs — cancellation is acknowledged, not pre-emptive:**
+**Chunked main-affinity jobs — auto-submitted, cancellation is acknowledged:**
 ```python
 from dcc_mcp_core import chunked_job
 
@@ -173,11 +173,33 @@ def bake():
     for frame in range(10):
         yield lambda frame=frame: bake_one_frame(frame)
 
-dispatcher.submit_chunked_runner("bake", bake())
+return bake()
 ```
-The shared host pump advances one step per tick. `cancel()` sets the token;
+Declare `execution: async`, `affinity: main`, and `job_strategy: chunked`.
+`HostExecutionBridge` automatically submits a returned `ChunkedRunner`; a
+declared chunked tool returning anything else fails closed. The shared host
+pump advances one step per tick. `cancel()` sets the token;
 `cancelled` is published only when the runner observes the next checkpoint.
 Monolithic callbacks remain non-preemptive and stay running until they return.
+
+`job_strategy: isolated` advertises a process/service-owned durable operation.
+It must return a job id plus a poll path. The default
+`job_strategy: monolithic` means one indivisible call; pair long monolithic
+tools with `execution: async` and poll `jobs_get_status`.
+
+**Transport loss and DCC crash recovery:**
+
+1. Keep the `job_id`; a transport timeout is not cancellation.
+2. Re-read `gateway://instances?include_stale=true&include_dead=true` and
+   inspect the original row. `unreachable` with a live owner/TTL means retry
+   with backoff; do not submit duplicate work.
+3. If the same instance returns, call its indexed `jobs_get_status`.
+4. If owner death removes the row, wait for an explicitly restarted DCC,
+   rediscover by DCC type plus scene/project metadata, and use the new slug.
+   Never reuse coordinates, URLs, or slugs from the crashed instance.
+5. Query persisted core jobs on the replacement adapter; recovered in-flight
+   rows report `interrupted`. Query adapter durable-operation tools for
+   isolated jobs that survive the request transport.
 
 **`McpHttpServer` — register ALL handlers BEFORE `.start()`.**
 This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —

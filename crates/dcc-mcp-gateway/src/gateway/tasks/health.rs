@@ -14,8 +14,6 @@ pub(crate) struct HealthCheckConfig {
     pub own_port: u16,
     pub health_check_interval_secs: u64,
     pub health_check_failures: u32,
-    #[cfg(feature = "admin")]
-    pub admin_sqlite_lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
     #[cfg(feature = "prometheus")]
     pub metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
 }
@@ -26,17 +24,6 @@ fn port_zero_boot_reason(entry: &ServiceEntry) -> String {
         .get("failure_reason")
         .cloned()
         .unwrap_or_else(|| "sidecar listener has not published an MCP port yet".to_string())
-}
-
-#[cfg(feature = "admin")]
-fn persist_deregistered_instance(
-    lane: &Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
-    entry: &ServiceEntry,
-    reason: &str,
-) {
-    if let Some(lane) = lane {
-        lane.try_persist_deregistered_instance(entry, reason);
-    }
 }
 
 /// Spawn the periodic backend health-check task (issues #556 / #854).
@@ -141,7 +128,7 @@ pub(crate) fn spawn_health_check_task(
                     let was_not_available = !matches!(entry.status, ServiceStatus::Available);
                     if recovered_from_failure || was_not_available {
                         let r = registry.read().await;
-                        let _ = r.update_status(&entry.key(), ServiceStatus::Available);
+                        let _ = r.update_status_if_unchanged(entry, ServiceStatus::Available);
                         tracing::info!(
                             dcc_type = %entry.dcc_type,
                             instance_id = %entry.instance_id,
@@ -157,7 +144,7 @@ pub(crate) fn spawn_health_check_task(
                 if outcome.is_alive() {
                     if !matches!(entry.status, ServiceStatus::Booting) {
                         let r = registry.read().await;
-                        let _ = r.update_status(&entry.key(), ServiceStatus::Booting);
+                        let _ = r.update_status_if_unchanged(entry, ServiceStatus::Booting);
                         tracing::info!(
                             dcc_type = %entry.dcc_type,
                             instance_id = %entry.instance_id,
@@ -180,7 +167,7 @@ pub(crate) fn spawn_health_check_task(
 
                 let count = {
                     let c = failure_counts.entry(key.clone()).or_insert(0);
-                    *c += 1;
+                    *c = c.saturating_add(1);
                     *c
                 };
                 tracing::warn!(
@@ -192,7 +179,7 @@ pub(crate) fn spawn_health_check_task(
 
                 if count >= effective_failures {
                     let r = registry.read().await;
-                    let _ = r.update_status(&entry.key(), ServiceStatus::Unreachable);
+                    let _ = r.update_status_if_unchanged(entry, ServiceStatus::Unreachable);
                     crate::gateway::event_log::record_event(
                         &event_log,
                         #[cfg(feature = "prometheus")]
@@ -204,50 +191,12 @@ pub(crate) fn spawn_health_check_task(
                     );
                 }
 
-                if count > effective_failures {
-                    let r = registry.read().await;
-                    let removed = match r.deregister_if_unchanged(entry) {
-                        Ok(removed) => removed,
-                        Err(error) => {
-                            tracing::warn!(
-                                dcc_type = %entry.dcc_type,
-                                instance_id = %entry.instance_id,
-                                %error,
-                                "Health check failed to deregister unreachable instance"
-                            );
-                            None
-                        }
-                    };
-                    failure_counts.remove(&key);
-                    if removed.is_some() {
-                        let reason = format!("{} consecutive health-check failures", count);
-                        tracing::info!(
-                            dcc_type = %entry.dcc_type,
-                            instance_id = %entry.instance_id,
-                            consecutive_failures = count,
-                            "Auto-deregistered after consecutive health-check failures"
-                        );
-                        #[cfg(feature = "admin")]
-                        if let Some(removed) = removed.as_ref() {
-                            persist_deregistered_instance(&cfg.admin_sqlite_lane, removed, &reason);
-                        }
-                        crate::gateway::event_log::record_event(
-                            &event_log,
-                            #[cfg(feature = "prometheus")]
-                            &cfg.metrics,
-                            crate::gateway::event_log::EventKind::AutoDeregister,
-                            &entry.dcc_type,
-                            &id8,
-                            Some(reason),
-                        );
-                    } else {
-                        tracing::debug!(
-                            dcc_type = %entry.dcc_type,
-                            instance_id = %entry.instance_id,
-                            "Health-check result was stale — keeping refreshed instance"
-                        );
-                    }
-                }
+                // A transport/readiness timeout is not proof that the DCC
+                // process died: a monolithic host-main call can temporarily
+                // starve HTTP while the independent registry heartbeat and
+                // owner sentinel remain valid. Keep the row Unreachable so
+                // agents can rediscover/retry it. Owner-lock/PID pruning and
+                // remote-registration TTL are the authoritative death tests.
             }
         }
     })
@@ -284,8 +233,6 @@ mod tests {
                 own_port: 9765,
                 health_check_interval_secs: 60,
                 health_check_failures: 1,
-                #[cfg(feature = "admin")]
-                admin_sqlite_lane: None,
                 #[cfg(feature = "prometheus")]
                 metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
             },
@@ -324,5 +271,54 @@ mod tests {
                 .iter()
                 .any(|event| event.event == crate::gateway::event_log::EventKind::AutoDeregister)
         );
+    }
+
+    #[tokio::test]
+    async fn transport_failures_mark_unreachable_without_deregistering_live_owner() {
+        let dir = tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let entry = ServiceEntry::new("houdini", "127.0.0.1", 9);
+        let key = entry.key();
+        {
+            let reg = registry.write().await;
+            reg.register(entry).unwrap();
+        }
+
+        let handle = spawn_health_check_task(
+            registry.clone(),
+            reqwest::Client::new(),
+            Arc::new(crate::gateway::event_log::EventLog::new()),
+            Arc::new(InstanceDiagnosticsStore::new()),
+            HealthCheckConfig {
+                own_host: "127.0.0.1".into(),
+                own_port: 9765,
+                health_check_interval_secs: 1,
+                health_check_failures: 1,
+                #[cfg(feature = "prometheus")]
+                metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            },
+        );
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+        loop {
+            let row = registry.read().await.get(&key);
+            if row
+                .as_ref()
+                .is_some_and(|row| row.status == ServiceStatus::Unreachable)
+            {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        handle.abort();
+
+        let row = registry.read().await.get(&key);
+        assert!(
+            row.is_some(),
+            "transport failures must not erase a live-owned row"
+        );
+        assert_eq!(row.unwrap().status, ServiceStatus::Unreachable);
     }
 }

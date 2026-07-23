@@ -562,6 +562,21 @@ fn test_tool_declaration_execution_default_sync() {
 }
 
 #[test]
+fn test_tool_declaration_job_strategy_round_trip() {
+    let json = r#"{"name": "s", "tools": [
+            {"name": "quick"},
+            {"name": "bake", "execution": "async", "job_strategy": "chunked"},
+            {"name": "render", "job-strategy": "isolated"}
+        ]}"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    assert_eq!(meta.tools[0].job_strategy, JobStrategy::Monolithic);
+    assert_eq!(meta.tools[1].job_strategy, JobStrategy::Chunked);
+    assert_eq!(meta.tools[2].job_strategy, JobStrategy::Isolated);
+    let value = serde_json::to_value(&meta.tools[1]).unwrap();
+    assert_eq!(value["job_strategy"], serde_json::json!("chunked"));
+}
+
+#[test]
 fn test_tool_declaration_parses_persistent_in_process_requirement() {
     let json = r#"{"name": "s", "tools": [
             {"name": "snapshot", "requires_in_process": true},

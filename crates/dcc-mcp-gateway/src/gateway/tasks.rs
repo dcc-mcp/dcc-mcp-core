@@ -5,7 +5,7 @@ mod health;
 mod metrics;
 mod probe;
 
-use probe::probe_and_evict_dead_instances;
+use probe::probe_and_mark_unreachable_instances;
 pub(crate) use probe::self_probe_listener;
 
 /// Outcome of [`start_gateway_tasks`] for the ambient (shared-runtime) path.
@@ -799,10 +799,8 @@ pub(crate) async fn start_gateway_tasks(
     // stale / dead-PID entries during the first ~15 s and pay the full
     // exponential-backoff retry cost trying to reach them.
     //
-    // Issue #556: also probe every registered port and immediately deregister
-    // instances whose TCP port is closed, even if the PID still appears alive.
-    #[cfg(feature = "admin")]
-    let mut startup_probe_evictions = Vec::new();
+    // Probe every registered port, but retain live-owned rows as Unreachable.
+    // Owner/PID pruning above remains the authoritative local death test.
     {
         let r = registry.read().await;
         match r.prune_dead_pids() {
@@ -825,17 +823,12 @@ pub(crate) async fn start_gateway_tasks(
             Err(e) => tracing::warn!("Gateway: pre-subscribe stale sweep error: {e}"),
             _ => {}
         }
-        // Startup port probe: evict any instance whose port is unreachable.
-        match probe_and_evict_dead_instances(&r, stale_timeout, &own_host, own_port).await {
-            Ok(evicted) if !evicted.is_empty() => {
+        match probe_and_mark_unreachable_instances(&r, stale_timeout, &own_host, own_port).await {
+            Ok(marked) if !marked.is_empty() => {
                 tracing::info!(
-                    evicted = evicted.len(),
-                    "Gateway: startup port probe evicted unreachable instance(s)"
+                    marked = marked.len(),
+                    "Gateway: startup port probe marked unreachable instance(s)"
                 );
-                #[cfg(feature = "admin")]
-                {
-                    startup_probe_evictions = evicted;
-                }
             }
             Err(e) => tracing::warn!("Gateway: startup port probe error: {e}"),
             _ => {}
@@ -1004,9 +997,6 @@ pub(crate) async fn start_gateway_tasks(
     {
         gw_state.admin_sqlite_lane = sqlite_lane.clone();
     }
-
-    #[cfg(feature = "admin")]
-    persist_startup_probe_evictions(&sqlite_lane, &startup_probe_evictions);
 
     #[cfg(feature = "admin")]
     let gw_router = {
@@ -1180,8 +1170,6 @@ pub(crate) async fn start_gateway_tasks(
         own_port,
         health_check_interval_secs,
         health_check_failures,
-        #[cfg(feature = "admin")]
-        admin_sqlite_lane: sqlite_lane.clone(),
         #[cfg(feature = "prometheus")]
         metrics: gateway_metrics.clone(),
     };
@@ -1288,42 +1276,4 @@ pub(crate) async fn start_gateway_tasks(
         supervisor: combined,
         yield_tx,
     })
-}
-
-#[cfg(feature = "admin")]
-fn persist_startup_probe_evictions(
-    lane: &Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
-    evictions: &[dcc_mcp_transport::discovery::types::ServiceEntry],
-) {
-    if let Some(lane) = lane {
-        for entry in evictions {
-            lane.try_persist_deregistered_instance(entry, "startup port probe unreachable");
-        }
-    }
-}
-
-#[cfg(all(test, feature = "admin-persist-sqlite"))]
-mod tests {
-    use super::*;
-    use dcc_mcp_transport::discovery::types::ServiceEntry;
-
-    #[test]
-    fn startup_probe_evictions_are_persisted_to_admin_sqlite() {
-        let tmp = tempfile::tempdir().unwrap();
-        let db_path = tmp.path().join("startup-deregistered.sqlite");
-        let lane = crate::gateway::admin::sqlite_lane::AdminSqliteLane::spawn(db_path.clone(), 30)
-            .expect("spawn lane");
-        let entry = ServiceEntry::new("maya", "127.0.0.1", 18815);
-        let instance_id = entry.instance_id.to_string();
-
-        persist_startup_probe_evictions(&Some(lane.clone()), &[entry]);
-        drop(lane);
-
-        let rows = crate::gateway::admin::sqlite_lane::AdminSqliteReader::new(db_path)
-            .list_deregistered_instances(10);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["reason"], "startup port probe unreachable");
-        assert_eq!(rows[0]["dcc_type"], "maya");
-        assert_eq!(rows[0]["instance_id"], instance_id);
-    }
 }

@@ -895,7 +895,7 @@ async fn test_gateway_winner_drop_deregisters_instance_and_sentinel() {
     // `__gateway__` sentinel key, and Drop must purge both rows.
     //
     // We bind a real loopback listener and register the instance under
-    // that port so the gateway's startup `probe_and_evict_dead_instances`
+    // that port so the gateway's startup `probe_and_mark_unreachable_instances`
     // sweep keeps the row alive. Without this the probe would evict our
     // fake port=0 instance before we could observe it.
     let dir = tempfile::tempdir().unwrap();

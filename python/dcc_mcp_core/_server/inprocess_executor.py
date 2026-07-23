@@ -37,13 +37,13 @@ import uuid
 from dcc_mcp_core._server._inprocess_contracts import BaseDccCallableDispatcher
 from dcc_mcp_core._server._inprocess_contracts import DeferredToolResult
 from dcc_mcp_core._server._inprocess_contracts import InProcessExecutionContext
-from dcc_mcp_core._server._inprocess_contracts import attach_deferred_streams as _attach_deferred_streams
 from dcc_mcp_core._server._inprocess_contracts import context_from_kwargs as _context_from_kwargs
 from dcc_mcp_core._server._inprocess_contracts import exception_to_error_envelope
 from dcc_mcp_core._server._inprocess_contracts import is_host_queue_dispatcher as _is_host_queue_dispatcher
 from dcc_mcp_core._server._inprocess_contracts import resolve_sandbox_action_name as _resolve_sandbox_action_name
 from dcc_mcp_core._server._inprocess_contracts import sandbox_denied_envelope
 from dcc_mcp_core._server._inprocess_contracts import timeout_hint_secs_to_ms
+from dcc_mcp_core._server._inprocess_results import resolve_execution_result
 from dcc_mcp_core.cancellation import _reset_current_job_id
 from dcc_mcp_core.cancellation import _set_current_job_id
 from dcc_mcp_core.cancellation import check_cancelled
@@ -185,6 +185,7 @@ class HostExecutionBridge:
         thread_affinity: str | None = None,
         execution: str | None = None,
         timeout_hint_secs: int | None = None,
+        job_strategy: str = "monolithic",
         job_id: str | None = None,
         cancel_token: Any | None = None,
     ) -> InProcessExecutionContext:
@@ -195,6 +196,7 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity or self.default_thread_affinity,
             execution=execution or self.default_execution,
             timeout_hint_secs=timeout_hint_secs if timeout_hint_secs is not None else self.default_timeout_hint_secs,
+            job_strategy=job_strategy,
             job_id=job_id,
             cancel_token=cancel_token,
         )
@@ -208,6 +210,7 @@ class HostExecutionBridge:
         thread_affinity: str | None = None,
         execution: str | None = None,
         timeout_hint_secs: int | None = None,
+        job_strategy: str = "monolithic",
         job_id: str | None = None,
         cancel_token: Any | None = None,
         **kwargs: Any,
@@ -219,6 +222,7 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity,
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
+            job_strategy=job_strategy,
             job_id=job_id,
             cancel_token=cancel_token,
         )
@@ -338,47 +342,13 @@ class HostExecutionBridge:
         result: Any,
         context: InProcessExecutionContext,
     ) -> Any:
-        """Poll a DeferredToolResult until it yields a final result."""
-        if not isinstance(result, DeferredToolResult):
-            return result
-
-        deadline = time.monotonic() + result.timeout_secs
-        while True:
-            if time.monotonic() >= deadline:
-                envelope = exception_to_error_envelope(
-                    TimeoutError(f"Deferred tool timed out after {result.timeout_secs:g}s"),
-                    message="Deferred tool did not finish before timeout",
-                )
-                return _attach_deferred_streams(envelope, result)
-
-            try:
-                finished = self._dispatch_raw(
-                    result.check_is_finished,
-                    (),
-                    {},
-                    context,
-                )
-            except Exception as exc:  # pragma: no cover - _dispatch_raw normalises
-                finished = exception_to_error_envelope(exc)
-
-            if finished is not None:
-                if isinstance(finished, DeferredToolResult):
-                    envelope = exception_to_error_envelope(
-                        TypeError("Nested DeferredToolResult is not supported"),
-                        message="Deferred tool returned another deferred result",
-                    )
-                    return _attach_deferred_streams(envelope, result)
-                try:
-                    json.dumps(finished)
-                except TypeError as exc:
-                    envelope = exception_to_error_envelope(
-                        exc,
-                        message="Deferred tool returned a non-serialisable result",
-                    )
-                    return _attach_deferred_streams(envelope, result)
-                return _attach_deferred_streams(finished, result)
-
-            time.sleep(result.poll_interval_secs)
+        """Resolve a DeferredToolResult or ChunkedRunner."""
+        return resolve_execution_result(
+            result,
+            context,
+            dispatcher=self.dispatcher,
+            dispatch_raw=self._dispatch_raw,
+        )
 
     def execute_script(
         self,
@@ -390,6 +360,7 @@ class HostExecutionBridge:
         thread_affinity: str | None = None,
         execution: str | None = None,
         timeout_hint_secs: int | None = None,
+        job_strategy: str = "monolithic",
         job_id: str | None = None,
         cancel_token: Any | None = None,
     ) -> Any:
@@ -409,6 +380,7 @@ class HostExecutionBridge:
                 thread_affinity=thread_affinity,
                 execution=execution,
                 timeout_hint_secs=timeout_hint_secs,
+                job_strategy=job_strategy,
                 job_id=resolved_job_id,
                 cancel_token=cancel_token,
                 admission_generation=generation,
@@ -423,6 +395,7 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity,
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
+            job_strategy=job_strategy,
             job_id=resolved_job_id,
             cancel_token=cancel_token,
         )
@@ -558,6 +531,7 @@ class HostExecutionBridge:
         thread_affinity: str | None,
         execution: str | None,
         timeout_hint_secs: int | None,
+        job_strategy: str,
         job_id: str | None,
         cancel_token: Any | None,
         admission_generation: int,
@@ -570,6 +544,7 @@ class HostExecutionBridge:
             thread_affinity=thread_affinity,
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
+            job_strategy=job_strategy,
             job_id=job_id,
             cancel_token=cancel_token,
         )
@@ -605,6 +580,7 @@ class HostExecutionBridge:
             thread_affinity: str = "any",
             execution: str = "sync",
             timeout_hint_secs: int | None = None,
+            job_strategy: str = "monolithic",
             job_id: str | None = None,
             cancel_token: Any | None = None,
         ) -> Any:
@@ -616,6 +592,7 @@ class HostExecutionBridge:
                 thread_affinity=thread_affinity,
                 execution=execution,
                 timeout_hint_secs=timeout_hint_secs,
+                job_strategy=job_strategy,
                 job_id=job_id,
                 cancel_token=cancel_token,
             )

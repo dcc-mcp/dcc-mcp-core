@@ -13,7 +13,7 @@ metadata:
     dcc: python
     layer: infrastructure
     compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
-    version: "0.19.64"
+    version: "0.19.69"  # x-release-please-version
     search-hint: >-
       create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge,
       dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal,
@@ -170,20 +170,21 @@ one host UI tick. The adapter owns scheduling; skill code only defines bounded
 steps:
 
 ```python
-from dcc_mcp_core import chunked_job, current_job_id
+from dcc_mcp_core import chunked_job
 
 @chunked_job(total=100)
 def bake_frames():
     for frame in range(100):
         yield lambda frame=frame: bake_one_frame(frame)
 
-dispatcher.submit_chunked_runner(
-    "bake-frames",
-    bake_frames(),
-    job_id=current_job_id(),
-)
+# A declarative in-process tool returns this runner. HostExecutionBridge
+# detects and submits it to HostUiDispatcherBase automatically.
+return bake_frames()
 ```
 
+- Declare `execution: async`, `affinity: main`, and
+  `job_strategy: chunked`. The bridge rejects a declared chunked tool that
+  returns a monolithic value.
 - Yield one bounded host-API callable per step. A returned string becomes the
   progress message.
 - `submit_chunked_runner()` advances at most one step per host pump tick, so
@@ -196,6 +197,28 @@ dispatcher.submit_chunked_runner(
 - Test pending cancellation, cancellation during a step, monotonic progress,
   failure, exactly one terminal result, unrelated pump work, and at least two
   host labels.
+
+Do not label an indivisible native call as chunked. Use
+`job_strategy: monolithic` when the host API cannot yield, or
+`job_strategy: isolated` when a process/service-owned operation can return a
+durable job id. Isolated status must remain queryable after transport loss;
+cancellation may remain process-owner scoped when reconstructing ownership
+would be unsafe.
+
+## Liveness and Crash Recovery
+
+- Keep registry heartbeat and HTTP readiness independent of the DCC main
+  thread. A readiness/transport timeout marks the instance `unreachable`; it
+  must not erase a row whose owner lock/PID or remote TTL is still valid.
+- Treat owner lock/PID death or remote TTL expiry as crash evidence. After a
+  crash, the adapter cannot reconnect until the DCC or sidecar starts again.
+- Preserve stable `dcc_type`, scene/project metadata, and adapter identity so
+  agents can rediscover a replacement instance. Never reuse an old tool slug
+  or direct MCP URL after the instance id changes.
+- Enable core job persistence. On restart, in-flight core jobs become
+  `interrupted` and remain queryable through the replacement instance's
+  `jobs_get_status`; adapter-owned isolated jobs need their own durable status
+  tool when they outlive the request transport.
 
 ## Example: New Nuke Adapter
 

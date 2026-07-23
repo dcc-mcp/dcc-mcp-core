@@ -23,7 +23,7 @@
 //! [`SkillCatalog::with_in_process_executor`]) it is used; otherwise the
 //! subprocess path is taken.
 
-use dcc_mcp_models::{ExecutionMode, ThreadAffinity, ToolDeclaration};
+use dcc_mcp_models::{ExecutionMode, JobStrategy, ThreadAffinity, ToolDeclaration};
 
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_actions::{DispatchJobContext, current_dispatch_job_context};
@@ -41,6 +41,7 @@ pub struct ScriptExecutionContext {
     pub enforce_thread_affinity: bool,
     pub execution: ExecutionMode,
     pub timeout_hint_secs: Option<u32>,
+    pub job_strategy: JobStrategy,
 }
 
 /// Python-facing read-only view of a Rust cancellation probe.
@@ -131,20 +132,33 @@ pub fn call_python_executor<'py>(
         return executor.call(py, (script_path, params), Some(kwargs));
     }
 
-    let legacy_kwargs = PyDict::new(py);
-    for key in [
-        "action_name",
-        "skill_name",
-        "thread_affinity",
-        "execution",
-        "timeout_hint_secs",
+    for keys in [
+        &[
+            "action_name",
+            "skill_name",
+            "thread_affinity",
+            "execution",
+            "timeout_hint_secs",
+            "job_id",
+            "cancel_token",
+        ][..],
+        &[
+            "action_name",
+            "skill_name",
+            "thread_affinity",
+            "execution",
+            "timeout_hint_secs",
+        ][..],
     ] {
-        if let Some(value) = kwargs.get_item(key)? {
-            legacy_kwargs.set_item(key, value)?;
+        let legacy_kwargs = PyDict::new(py);
+        for key in keys {
+            if let Some(value) = kwargs.get_item(*key)? {
+                legacy_kwargs.set_item(*key, value)?;
+            }
         }
-    }
-    if signature_accepts(&signature, script_path, params, Some(&legacy_kwargs))? {
-        return executor.call(py, (script_path, params), Some(&legacy_kwargs));
+        if signature_accepts(&signature, script_path, params, Some(&legacy_kwargs))? {
+            return executor.call(py, (script_path, params), Some(&legacy_kwargs));
+        }
     }
 
     if signature_accepts(&signature, script_path, params, None)? {
@@ -174,6 +188,7 @@ mod python_executor_compat_tests {
             "thread_affinity",
             "execution",
             "timeout_hint_secs",
+            "job_strategy",
             "job_id",
             "cancel_token",
         ] {
