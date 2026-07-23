@@ -463,6 +463,7 @@ _LAZY: dict[str, str] = {
     "ChunkedProgress": "dcc_mcp_core.chunked_runner",
     "ChunkedRunner": "dcc_mcp_core.chunked_runner",
     "ChunkedStep": "dcc_mcp_core.chunked_runner",
+    "chunked_job": "dcc_mcp_core.chunked_runner",
     "CheckpointStore": "dcc_mcp_core.checkpoint",
     "checkpoint_every": "dcc_mcp_core.checkpoint",
     "clear_checkpoint": "dcc_mcp_core.checkpoint",

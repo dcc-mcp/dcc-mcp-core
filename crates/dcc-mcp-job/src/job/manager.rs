@@ -265,19 +265,46 @@ impl JobManager {
         Some(())
     }
 
-    /// Cancel a job.  Valid from `Pending` or `Running`; no-op on terminal
-    /// states (returns `None`).  Triggers `cancel_token` so the running tool
-    /// can observe the cancellation.
+    /// Request cooperative cancellation.
+    ///
+    /// Valid from `Pending` or `Running`; no-op on terminal states. This only
+    /// triggers the cancellation token. The job remains non-terminal until
+    /// the execution lane observes the request and calls
+    /// [`Self::acknowledge_cancel`].
     pub fn cancel(&self, id: &str) -> Option<()> {
+        let entry = self.jobs.get(id)?;
+        let job = entry.read();
+        match job.status {
+            JobStatus::Pending | JobStatus::Running => {
+                job.cancel_token.cancel();
+                Some(())
+            }
+            other => {
+                debug!(
+                    job_id = %id,
+                    from = ?other,
+                    to = ?JobStatus::Cancelled,
+                    "invalid job transition"
+                );
+                None
+            }
+        }
+    }
+
+    /// Confirm that the execution lane observed a cancellation checkpoint.
+    ///
+    /// This is the only transition from `Pending` or `Running` to
+    /// [`JobStatus::Cancelled`]. A bare cancellation request must not call
+    /// this method until queued work was skipped or active work yielded.
+    pub fn acknowledge_cancel(&self, id: &str) -> Option<()> {
         let entry = self.jobs.get(id)?;
         let mut job = entry.write();
         match job.status {
-            JobStatus::Pending | JobStatus::Running => {
+            JobStatus::Pending | JobStatus::Running if job.cancel_token.is_cancelled() => {
                 let now = Utc::now();
                 job.status = JobStatus::Cancelled;
                 job.completed_at = Some(now);
                 job.updated_at = now;
-                job.cancel_token.cancel();
                 let snapshot = job.clone();
                 drop(job);
                 self.persist_put(&snapshot);
@@ -289,7 +316,7 @@ impl JobManager {
                     job_id = %id,
                     from = ?other,
                     to = ?JobStatus::Cancelled,
-                    "invalid job transition"
+                    "cancellation was not requested or job is already terminal"
                 );
                 None
             }
@@ -305,6 +332,19 @@ impl JobManager {
                 job_id = %id,
                 status = ?job.status,
                 "ignoring progress update for non-running job"
+            );
+            return None;
+        }
+        if progress.current > progress.total
+            || job.progress.as_ref().is_some_and(|previous| {
+                progress.current < previous.current || progress.total < previous.total
+            })
+        {
+            debug!(
+                job_id = %id,
+                current = progress.current,
+                total = progress.total,
+                "ignoring non-monotonic job progress"
             );
             return None;
         }

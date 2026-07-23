@@ -164,6 +164,21 @@ server = SocketServerAdapter("/tmp/maya.sock", max_connections=8,
 from dcc_mcp_core._core import DeferredExecutor   # direct import required
 ```
 
+**Chunked main-affinity jobs — cancellation is acknowledged, not pre-emptive:**
+```python
+from dcc_mcp_core import chunked_job
+
+@chunked_job(total=10)
+def bake():
+    for frame in range(10):
+        yield lambda frame=frame: bake_one_frame(frame)
+
+dispatcher.submit_chunked_runner("bake", bake())
+```
+The shared host pump advances one step per tick. `cancel()` sets the token;
+`cancelled` is published only when the runner observes the next checkpoint.
+Monolithic callbacks remain non-preemptive and stay running until they return.
+
 **`McpHttpServer` — register ALL handlers BEFORE `.start()`.**
 This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —
 register them before calling `server.start()`, never after.

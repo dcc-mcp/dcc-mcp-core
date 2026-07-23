@@ -83,11 +83,21 @@ impl ToolInvoker for JobAwareInvoker {
         let spawned_job_id = job_id.clone();
         let meta = attach_job_id_to_meta(meta, &job_id);
         tokio::task::spawn_blocking(move || {
-            if cancel_token.is_cancelled() || jobs.start(&spawned_job_id).is_none() {
+            if cancel_token.is_cancelled() {
+                let _ = jobs.acknowledge_cancel(&spawned_job_id);
+                return;
+            }
+            if jobs.start(&spawned_job_id).is_none() {
                 return;
             }
             let cancellation = InvocationCancellation::new(spawned_job_id.clone(), cancel_token);
-            match invoker.invoke_with_cancellation(&action_name, params, meta, cancellation) {
+            let result =
+                invoker.invoke_with_cancellation(&action_name, params, meta, cancellation.clone());
+            if cancellation.cancel_token().is_cancelled() {
+                let _ = jobs.acknowledge_cancel(&spawned_job_id);
+                return;
+            }
+            match result {
                 Ok(outcome) => {
                     let _ = jobs.complete(&spawned_job_id, outcome.output);
                 }
@@ -138,6 +148,31 @@ mod tests {
             meta: Option<Value>,
         ) -> Result<CallOutcome, ServiceError> {
             *self.0.lock() = meta;
+            Ok(CallOutcome {
+                slug: ToolSlug(action_name.to_string()),
+                output: Value::Null,
+                validation_skipped: false,
+            })
+        }
+    }
+
+    struct BlockingInvoker {
+        started: Arc<std::sync::atomic::AtomicBool>,
+        release: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl ToolInvoker for BlockingInvoker {
+        fn invoke(
+            &self,
+            action_name: &str,
+            _params: Value,
+            _meta: Option<Value>,
+        ) -> Result<CallOutcome, ServiceError> {
+            self.started
+                .store(true, std::sync::atomic::Ordering::Release);
+            while !self.release.load(std::sync::atomic::Ordering::Acquire) {
+                std::thread::yield_now();
+            }
             Ok(CallOutcome {
                 slug: ToolSlug(action_name.to_string()),
                 output: Value::Null,
@@ -210,5 +245,51 @@ mod tests {
         let meta = seen.lock().clone().expect("metadata captured");
         assert_eq!(meta["dcc"]["jobId"], pending.job_id);
         assert_eq!(meta["dcc"]["parentJobId"], "parent");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancellation_stays_requested_until_monolithic_handler_returns() {
+        let jobs = Arc::new(JobManager::new());
+        let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let invoker = JobAwareInvoker::new(
+            Arc::new(BlockingInvoker {
+                started: Arc::clone(&started),
+                release: Arc::clone(&release),
+            }),
+            Arc::clone(&jobs),
+        );
+        let pending = invoker
+            .invoke_async(
+                &ToolSlug("maya.monolithic".into()),
+                "monolithic",
+                json!({}),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !started.load(std::sync::atomic::Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        jobs.cancel(&pending.job_id).unwrap();
+        assert_eq!(
+            jobs.get(&pending.job_id).unwrap().read().status,
+            JobStatus::Running,
+            "requesting cancellation must not claim the active closure stopped"
+        );
+
+        release.store(true, std::sync::atomic::Ordering::Release);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while jobs.get(&pending.job_id).unwrap().read().status != JobStatus::Cancelled {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
     }
 }

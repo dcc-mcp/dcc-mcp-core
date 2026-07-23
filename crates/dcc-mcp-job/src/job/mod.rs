@@ -15,8 +15,9 @@
 //!   keep contention local to a single job.
 //! - `parking_lot::RwLock` is used instead of `std::sync::RwLock` for
 //!   performance and consistency with the rest of the workspace.
-//! - `cancel_token` is a `tokio_util::sync::CancellationToken` so long-running
-//!   async tool handlers can observe cancellation via `.cancelled().await`.
+//! - `cancel_token` is a `tokio_util::sync::CancellationToken`. `cancel()`
+//!   requests cooperative cancellation; the runner calls
+//!   `acknowledge_cancel()` only after observing a checkpoint.
 //!
 //! # State machine
 //!
@@ -43,11 +44,13 @@
 //! | `job_manager.rs` | `JobManager` — registry, transitions, persistence, subscribers, GC |
 //! | `job_tests.rs`   | Unit tests (lifecycle, cancellation, invalid transitions, GC, serde) |
 
+mod chunked;
 mod manager;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
+pub use chunked::{ChunkedJobRunner, ChunkedStep, ChunkedStepOutput};
 pub use manager::JobManager;
 pub use types::{Job, JobEvent, JobProgress, JobStatus, JobSubscriber};

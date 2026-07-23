@@ -28,11 +28,15 @@ Use this table when choosing adapter runtime wiring for a new DCC.
   `main()`. Use `check_dcc_cancelled()` in Python and
   `DispatchJobContext::is_cancelled()` in Rust. Never trust or mint a
   client-supplied job id.
+- Interactive Python hosts should use `@chunked_job` and
+  `HostUiDispatcherBase.submit_chunked_runner()` so the shared pump executes at
+  most one bounded step per tick. Do not add an adapter-local generator pump.
 - The built-in propagation contract covers in-process Rust/Python handlers over
   MCP and REST. Subprocess, native IPC, and remote bridge adapters must forward
   both the server-owned job id and cancellation signal explicitly, then prove
   that wiring in an adapter test.
-- Cancellation skips queued work and cooperatively stops running chunks. It
+- Cancellation requests skip queued work and cooperatively stop running chunks
+  when the execution lane acknowledges the next checkpoint. They
   cannot safely interrupt a DCC-native API call or an uncooperative hot loop
   already executing on the host thread; use typed, bounded operations and
   return control to the pump between chunks.
