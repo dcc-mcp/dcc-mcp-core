@@ -256,7 +256,44 @@ or drive the interface state directly. Agents use `ui_control__snapshot`,
 `ui_control__record_clip`, and `ui_control__stop_computer_use` to observe,
 find, act on, and record exact target windows.
 
+Use UI Control as a bounded fallback, not as the default DCC integration:
+
+- Prefer structured adapter tools for scene, asset, render, and project work.
+- Use UI Control for controls that have no API, incomplete adapter coverage,
+  and end-to-end GUI acceptance tests.
+- Do not treat every image in an agent task as UI Control evidence. DCC-native
+  captures, RenderDoc exports, ImageGen output, and video frames have different
+  provenance.
+
 ![Controlled window with corner brackets and capsule overlay](docs/assets/ui-control/corner-brackets-capsule.png)
+
+### How screenshots and clicks work
+
+`ui_control__snapshot` captures only the bound window. It preserves native
+resolution until either the longest edge exceeds 1600 pixels or the image
+exceeds 1.5 million pixels, then downsizes while preserving aspect ratio. A
+1280×720 window stays 1280×720; a 1920×1080 window becomes 1600×900. Smaller
+text and custom-drawn icons are therefore easier to recognize when the target
+window is large and unobstructed.
+
+The agent receives three complementary signals:
+
+1. PNG pixels for visual recognition and spatial understanding.
+2. A Windows UI Automation (UIA) tree with labels, roles, and stable control
+   identifiers when the application exposes them.
+3. Observation metadata for the exact PID, HWND, DPI, source rectangle,
+   desktop generation, session, and snapshot.
+
+Clicks prefer a semantic `control_id`. For custom-drawn UI, screenshot-relative
+coordinates are mapped back through the source rectangle and DPI. Every action
+must cite the latest `snapshot_id`; the host revalidates the window, desktop,
+geometry, and generation before sending input, and rejects stale observations.
+
+Successful snapshots and recordings include `capture_provenance`, including
+the backend, session, target PID/HWND, output and source dimensions, scaling,
+and native capture backend. Preserve that block with screenshots used as
+evidence. Older images without provenance cannot be reliably attributed to UI
+Control after the fact.
 
 ### Capabilities
 

@@ -656,7 +656,35 @@ DCC 适配器（如 `dcc-mcp-maya`）默认包含内置 skills。关闭：`start
 Agent 通过 `ui_control__snapshot`（截图）、`ui_control__find`（查找控件）、`ui_control__act`（执行操作）、
 `ui_control__wait_for`（等待条件）和 `ui_control__stop_computer_use`（停止控制）等工具来观测和操作目标窗口。
 
+UI Control 是受限兜底，不是默认的 DCC 集成方式：
+
+- 场景、资产、渲染和项目操作优先使用结构化适配器工具。
+- 仅在应用没有接口、适配器覆盖不完整或需要端到端 GUI 验收时使用 UI Control。
+- Agent 任务中的图片不一定来自 UI Control。DCC 原生截图、RenderDoc 导出、
+  ImageGen 输出和视频抽帧都有各自独立的来源。
+
 ![带角标和底部胶囊的受控窗口](docs/assets/ui-control/corner-brackets-capsule.png)
+
+### 截图识别与点击原理
+
+`ui_control__snapshot` 只捕获绑定窗口。最长边不超过 1600 像素且总像素不超过
+150 万时保留原始分辨率，否则保持宽高比缩小。1280×720 窗口仍为 1280×720；
+1920×1080 窗口会变为 1600×900。因此，窗口越大、遮挡越少，Agent 越容易识别
+小字号文字和自绘图标。
+
+Agent 同时获得三类信息：
+
+1. PNG 像素，用于视觉识别和空间理解。
+2. Windows UI Automation（UIA）语义树；应用支持时包含标签、角色和稳定控件 ID。
+3. 精确 PID、HWND、DPI、源矩形、桌面代际、会话和截图 ID 等观察元数据。
+
+点击优先使用语义 `control_id`。对于自绘 UI，Host 将截图相对坐标通过源矩形和
+DPI 映射回目标窗口。每次操作必须引用最新 `snapshot_id`；发送输入前会重新验证
+窗口、桌面、几何和代际，过期观察会被拒绝。
+
+成功截图和录制会返回 `capture_provenance`，记录后端、会话、目标 PID/HWND、
+输出与源尺寸、是否缩放以及原生捕获后端。用截图作为证据时应一并保存该字段。
+历史图片如果没有来源信息，事后无法可靠证明它是否由 UI Control 产生。
 
 ### 核心能力
 
