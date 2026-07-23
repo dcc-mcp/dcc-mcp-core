@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.72](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.71...v0.19.72) (2026-07-23)
+
+
+### Bug Fixes
+
+* ruff lint + format — RUF036, RUF063 suppression, and SKILL.md formatting ([#2046](https://github.com/dcc-mcp/dcc-mcp-core/issues/2046)) ([c79db80](https://github.com/dcc-mcp/dcc-mcp-core/commit/c79db805941cd170e2242f8cce59dfe152af2b0e))
+* simplify ClawHub publish conditions to use inputs.publish ([#2040](https://github.com/dcc-mcp/dcc-mcp-core/issues/2040)) ([d537dfd](https://github.com/dcc-mcp/dcc-mcp-core/commit/d537dfda544ba2874d05932b2c00d86d3aa3dd45))
+* **ui-control:** fall back when host env is blank ([#2048](https://github.com/dcc-mcp/dcc-mcp-core/issues/2048)) ([d0267de](https://github.com/dcc-mcp/dcc-mcp-core/commit/d0267deee685b6190dab0a5ada6245da28a56d85))
+
 ## [0.19.71](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.70...v0.19.71) (2026-07-23)
 
 
