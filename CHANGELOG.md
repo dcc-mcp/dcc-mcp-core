@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.70](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.69...v0.19.70) (2026-07-23)
+
+
+### Features
+
+* Add recoverable DCC job strategies ([#2036](https://github.com/dcc-mcp/dcc-mcp-core/issues/2036)) ([9955608](https://github.com/dcc-mcp/dcc-mcp-core/commit/9955608cf4e2cb91a840ad7e9873343409d4b341))
+
+
+### Bug Fixes
+
+* keep ClawHub release manifest valid ([bedd354](https://github.com/dcc-mcp/dcc-mcp-core/commit/bedd354f36cbeca69f8a90e2ff044d3220e30d6f))
+
 ## [0.19.69](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.68...v0.19.69) (2026-07-23)
 
 
