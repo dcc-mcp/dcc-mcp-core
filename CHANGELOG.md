@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.69](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.68...v0.19.69) (2026-07-23)
+
+
+### Features
+
+* add live instance context ([0673fe5](https://github.com/dcc-mcp/dcc-mcp-core/commit/0673fe5ddba99f4a4a651f95edc4b0e00d497ac0))
+* chunked main-affinity execution for cancellable DCC jobs ([#2035](https://github.com/dcc-mcp/dcc-mcp-core/issues/2035)) ([3d3b5fa](https://github.com/dcc-mcp/dcc-mcp-core/commit/3d3b5fad3f7e9275fbff1188c33aaff601bde792))
+
 ## [0.19.68](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.67...v0.19.68) (2026-07-23)
 
 
