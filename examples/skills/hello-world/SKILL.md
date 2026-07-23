@@ -40,6 +40,7 @@ Scripts in this skill read JSON parameters from stdin and write JSON results to 
 
 ```python
 import json, sys
+
 params = json.load(sys.stdin)
 name = params.get("name", "World")
 print(json.dumps({"success": True, "message": f"Hello, {name}!"}))

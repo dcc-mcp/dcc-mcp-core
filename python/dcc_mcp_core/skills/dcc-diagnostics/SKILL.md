@@ -80,9 +80,11 @@ Lists tracked PIDs and their liveness status.
 
 ```python
 import os
+
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/dcc-diagnostics"
 
 from dcc_mcp_maya import start_server  # or dcc_mcp_blender, etc.
+
 handle = start_server(port=8765)
 # dcc_diagnostics__error_report and all other tools are now available
 ```

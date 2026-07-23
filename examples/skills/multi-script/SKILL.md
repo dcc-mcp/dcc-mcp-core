@@ -59,6 +59,7 @@ a JSON result to **stdout**:
 ```python
 # action_python.py
 import json, sys
+
 params = json.load(sys.stdin)
 msg = params.get("message", "hello")
 print(json.dumps({"success": True, "message": f"Python says: {msg}"}))
