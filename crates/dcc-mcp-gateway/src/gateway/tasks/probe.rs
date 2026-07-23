@@ -55,7 +55,7 @@ pub(crate) async fn probe_and_mark_unreachable_instances(
         .collect();
 
     let outcomes = join_all(futures).await;
-    let mut evicted = Vec::new();
+    let mut marked = Vec::new();
     for (observed, reachable, addr, dcc_type, instance_id) in outcomes {
         if !reachable {
             if registry.update_status_if_unchanged(
@@ -68,7 +68,7 @@ pub(crate) async fn probe_and_mark_unreachable_instances(
                     addr = %addr,
                     "Startup probe: instance unreachable — retained for owner/TTL recovery"
                 );
-                evicted.push(observed);
+                marked.push(observed);
             } else {
                 tracing::debug!(
                     dcc_type = %dcc_type,
@@ -79,7 +79,7 @@ pub(crate) async fn probe_and_mark_unreachable_instances(
             }
         }
     }
-    Ok(evicted)
+    Ok(marked)
 }
 
 /// Verify that the gateway accept-loop is actually running by connecting to it.
@@ -149,7 +149,7 @@ mod tests {
         let key = entry.key();
         registry.register(entry).unwrap();
 
-        let evicted = probe_and_mark_unreachable_instances(
+        let marked = probe_and_mark_unreachable_instances(
             &registry,
             Duration::from_secs(30),
             "127.0.0.1",
@@ -158,7 +158,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(evicted.is_empty());
+        assert!(marked.is_empty());
         assert!(
             registry.get(&key).is_some(),
             "port=0 sidecar rows are booting diagnostics, not startup-probe evictions"
@@ -178,7 +178,7 @@ mod tests {
         let key = entry.key();
         registry.register(entry).unwrap();
 
-        let evicted = probe_and_mark_unreachable_instances(
+        let marked = probe_and_mark_unreachable_instances(
             &registry,
             Duration::from_secs(30),
             "127.0.0.1",
@@ -187,8 +187,8 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(evicted.len(), 1);
-        assert_eq!(evicted[0].instance_id, instance_id);
+        assert_eq!(marked.len(), 1);
+        assert_eq!(marked[0].instance_id, instance_id);
         let row = registry
             .get(&key)
             .expect("startup probe must retain the row");

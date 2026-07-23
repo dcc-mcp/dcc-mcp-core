@@ -1170,8 +1170,6 @@ pub(crate) async fn start_gateway_tasks(
         own_port,
         health_check_interval_secs,
         health_check_failures,
-        #[cfg(feature = "admin")]
-        admin_sqlite_lane: sqlite_lane.clone(),
         #[cfg(feature = "prometheus")]
         metrics: gateway_metrics.clone(),
     };

@@ -14,9 +14,6 @@ pub(crate) struct HealthCheckConfig {
     pub own_port: u16,
     pub health_check_interval_secs: u64,
     pub health_check_failures: u32,
-    #[cfg(feature = "admin")]
-    #[allow(dead_code)]
-    pub admin_sqlite_lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
     #[cfg(feature = "prometheus")]
     pub metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
 }
@@ -236,8 +233,6 @@ mod tests {
                 own_port: 9765,
                 health_check_interval_secs: 60,
                 health_check_failures: 1,
-                #[cfg(feature = "admin")]
-                admin_sqlite_lane: None,
                 #[cfg(feature = "prometheus")]
                 metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
             },
@@ -299,8 +294,6 @@ mod tests {
                 own_port: 9765,
                 health_check_interval_secs: 1,
                 health_check_failures: 1,
-                #[cfg(feature = "admin")]
-                admin_sqlite_lane: None,
                 #[cfg(feature = "prometheus")]
                 metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
             },
