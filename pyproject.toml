@@ -153,6 +153,8 @@ known-first-party = ["dcc_mcp_core"]
 # instead of ``from dcc_mcp_core import …`` so submodules avoid the lazy package facade.
 
 [tool.ruff.lint.per-file-ignores]
+# Python 3.7 compat: deliberate __dict__ access; get_annotations() would eval string annotations unnecessarily.
+"python/dcc_mcp_core/_typing_compat.py" = ["RUF063"]
 # Python 3.7 (Maya 2022) compat: use typing.Optional/Dict/List instead of PEP 604 syntax.
 "python/dcc_mcp_core/_server/host_ui_dispatcher.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_server/tools_list_policy.py" = ["UP006", "UP045"]

@@ -36,8 +36,8 @@
 ```python
 import dcc_mcp_core
 
-meta = dcc_mcp_core._core.parse_skill_md('/path/to/maya-pipeline')
+meta = dcc_mcp_core._core.parse_skill_md("/path/to/maya-pipeline")
 assert meta is not None
-assert meta.name == 'maya-pipeline'
+assert meta.name == "maya-pipeline"
 assert len(meta.scripts) >= 2
 ```
