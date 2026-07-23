@@ -93,7 +93,7 @@ def test_manifest_cli_packages_the_repository_suite(tmp_path: Path) -> None:
     )
 
     assert proc.returncode == 0, proc.stderr
-    entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    entries = json.loads(MANIFEST.read_text(encoding="utf-8"))["skills"]
     expected = {f"{Path(entry['path']).name}-{entry['version']}.zip" for entry in entries}
     assert {path.name for path in tmp_path.glob("*.zip")} == expected
 

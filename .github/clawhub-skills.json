@@ -1,20 +1,22 @@
-[
-  {
-    "path": "skills/dcc-mcp",
-    "slug": "dcc-mcp",
-    "owner": "loonghao",
-    "version": "0.19.69"
-  },
-  {
-    "path": "skills/dcc-mcp-skills-creator",
-    "slug": "dcc-mcp-skills-creator",
-    "owner": "loonghao",
-    "version": "0.19.69"
-  },
-  {
-    "path": "skills/dcc-mcp-creator",
-    "slug": "dcc-mcp-creator",
-    "owner": "loonghao",
-    "version": "0.19.69"
-  }
-]
+{
+  "skills": [
+    {
+      "path": "skills/dcc-mcp",
+      "slug": "dcc-mcp",
+      "owner": "loonghao",
+      "version": "0.19.69"
+    },
+    {
+      "path": "skills/dcc-mcp-skills-creator",
+      "slug": "dcc-mcp-skills-creator",
+      "owner": "loonghao",
+      "version": "0.19.69"
+    },
+    {
+      "path": "skills/dcc-mcp-creator",
+      "slug": "dcc-mcp-creator",
+      "owner": "loonghao",
+      "version": "0.19.69"
+    }
+  ]
+}

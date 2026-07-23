@@ -42,7 +42,7 @@ class TestDccMcpSkill:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None
         assert meta.name == "dcc-mcp"
-        entries = json.loads(CLAWHUB_MANIFEST.read_text(encoding="utf-8"))
+        entries = json.loads(CLAWHUB_MANIFEST.read_text(encoding="utf-8"))["skills"]
         manifest_version = next(entry["version"] for entry in entries if entry["slug"] == "dcc-mcp")
         assert meta.version == manifest_version
 

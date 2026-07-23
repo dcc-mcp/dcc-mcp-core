@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
         "--manifest",
         type=Path,
         default=MANIFEST,
-        help="JSON manifest: [{path, slug, owner, version}]",
+        help="JSON manifest: {skills: [{path, slug, owner, version}]}",
     )
     parser.add_argument(
         "--dry-run",
@@ -81,10 +81,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_manifest(path: Path) -> list[dict[str, Any]]:
-    """Load [{path, slug, owner, version}, ...] entries from the JSON manifest."""
+    """Load Skill entries from an object manifest, accepting the legacy array."""
     data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        data = data.get("skills")
     if not isinstance(data, list):
-        raise ValueError(f"manifest must be a JSON array: {path}")
+        raise ValueError(f"manifest must contain a JSON skills array: {path}")
     return data
 
 

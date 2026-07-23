@@ -63,7 +63,7 @@
         {
           "type": "json",
           "path": ".github/clawhub-skills.json",
-          "jsonpath": "$[*].version"
+          "jsonpath": "$.skills[*].version"
         },
         {
           "type": "generic",

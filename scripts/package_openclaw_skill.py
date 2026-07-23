@@ -138,9 +138,10 @@ def resolve_manifest_skills(manifest: Path, repo_root: Path) -> list[tuple[Path,
     """Resolve Skill directories and immutable versions from a ClawHub manifest."""
     if not manifest.is_file():
         raise ValueError(f"ClawHub manifest does not exist: {manifest}")
-    entries = json.loads(manifest.read_text(encoding="utf-8"))
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    entries = data.get("skills") if isinstance(data, dict) else data
     if not isinstance(entries, list) or not entries:
-        raise ValueError(f"ClawHub manifest must be a non-empty JSON array: {manifest}")
+        raise ValueError(f"ClawHub manifest must contain a non-empty JSON skills array: {manifest}")
     resolved: list[tuple[Path, str]] = []
     for entry in entries:
         if not isinstance(entry, dict) or not entry.get("path") or not entry.get("version"):
