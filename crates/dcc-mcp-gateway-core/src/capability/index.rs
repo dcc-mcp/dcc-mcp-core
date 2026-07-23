@@ -196,6 +196,7 @@ mod tests {
             affinity: None,
             execution: None,
             timeout_hint_secs: None,
+            job_strategy: None,
             enforce_thread_affinity: None,
             risk: Some("mutation".into()),
             tool_role: None,
