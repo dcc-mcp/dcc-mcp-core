@@ -23,6 +23,7 @@ fn test_action_meta_serde_round_trip() {
         required_capabilities: vec!["scene".into(), "render".into()],
         execution: dcc_mcp_models::ExecutionMode::Async,
         timeout_hint_secs: Some(900),
+        job_strategy: dcc_mcp_models::JobStrategy::Isolated,
         thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
         enforce_thread_affinity: false,
         annotations: dcc_mcp_models::ToolAnnotations::default(),
@@ -38,6 +39,7 @@ fn test_action_meta_execution_defaults_to_sync() {
     let meta = ToolMeta::default();
     assert_eq!(meta.execution, dcc_mcp_models::ExecutionMode::Sync);
     assert_eq!(meta.timeout_hint_secs, None);
+    assert_eq!(meta.job_strategy, dcc_mcp_models::JobStrategy::Monolithic);
 }
 
 #[test]
@@ -47,11 +49,13 @@ fn test_action_meta_execution_and_timeout_serde() {
         "name": "render",
         "description": "Render",
         "execution": "async",
-        "timeout_hint_secs": 600
+        "timeout_hint_secs": 600,
+        "job_strategy": "chunked"
     }"#;
     let meta: ToolMeta = serde_json::from_str(json).unwrap();
     assert_eq!(meta.execution, dcc_mcp_models::ExecutionMode::Async);
     assert_eq!(meta.timeout_hint_secs, Some(600));
+    assert_eq!(meta.job_strategy, dcc_mcp_models::JobStrategy::Chunked);
 }
 
 #[test]

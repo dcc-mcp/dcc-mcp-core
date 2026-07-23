@@ -294,7 +294,7 @@ links without exposing hidden reasoning or raw prompts.
 
 ## Execution hints: affinity, async, timeouts
 
-`describe` (and tool metadata) may declare **`affinity`** (e.g. main thread vs worker), **`execution`** (sync vs async), and **timeout** hints. **Follow them:** main-thread tools must not be “worked around” from the client; async tools may return job handles—poll or subscribe as the schema says. Ignoring affinity or timeouts produces flaky failures that look like gateway bugs but are contract violations.
+`describe` (and tool metadata) may declare **`affinity`** (e.g. main thread vs worker), **`execution`** (sync vs async), **`jobStrategy`**, and **timeout** hints. **Follow them:** `chunked` means bounded host-event-loop steps, `isolated` means a durable process/service-owned operation, and absent/`monolithic` means one indivisible call. Never infer that arbitrary script code can be split. Main-thread tools must not be “worked around” from the client; async tools return a core job handle—poll the instance-routable `jobs_get_status`. Ignoring these hints produces duplicate or flaky work that looks like a gateway bug but is a contract violation.
 
 ---
 
@@ -329,6 +329,9 @@ When a gateway accepts a cooperative `/gateway/yield`, connected SSE clients rec
 
 The **`instance_id`** in the registry usually **changes**. Cached **`tool_slug`** values from an earlier `search` run may fail with `unknown-slug` / `instance-offline` / 404-style errors.
 
-1. Refresh **`GET /v1/instances`** or **`resources/read` `gateway://instances`**.
-2. Run **`search(kind="tool")`** / **`POST /v1/search`** again (or keep using path-style calls with the **new** `instance_id`).
-3. Re-**`describe`** when you need schemas for tools you have not validated in this session.
+1. Keep any returned `job_id`. A transport timeout is not proof of failure or cancellation, so do not submit duplicate work.
+2. Refresh **`GET /v1/instances?include_stale=true&include_dead=true`** or **`resources/read` `gateway://instances?include_stale=true&include_dead=true`**. An `unreachable` row with a live owner/TTL is retained; retry discovery/status with bounded backoff.
+3. If the same instance recovers, search for its indexed `jobs_get_status` and query the original core job. Use the typed status tool returned by an isolated operation for adapter-owned durable jobs.
+4. If owner/PID death or remote TTL expiry removed the row, wait for the DCC to be restarted explicitly, then rediscover by `dcc_type` plus scene/project metadata. Do not auto-launch a DCC unless the user has granted that authority.
+5. Run **`search(kind="tool")`** / **`POST /v1/search`** again and use the **new** `instance_id`; never reuse old slugs or direct MCP URLs. Re-**`describe`** schemas as needed.
+6. Core persistent jobs that were running at process death recover as `interrupted`. Resume only through an explicit tool contract; otherwise report interruption instead of silently replaying mutations.

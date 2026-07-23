@@ -135,6 +135,9 @@ impl SkillCatalog {
                             kwargs
                                 .set_item("timeout_hint_secs", context.timeout_hint_secs)
                                 .map_err(|e| format!("executor kwargs: {e}"))?;
+                            kwargs
+                                .set_item("job_strategy", context.job_strategy.as_str())
+                                .map_err(|e| format!("executor kwargs: {e}"))?;
                             crate::catalog::execute::set_job_context_kwargs(py, &kwargs)
                                 .map_err(|e| format!("executor kwargs: {e}"))?;
                             let result = crate::catalog::execute::call_python_executor(

@@ -23,6 +23,7 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core import CancelToken
+from dcc_mcp_core import ChunkedRunner
 from dcc_mcp_core import current_job_id
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
@@ -952,6 +953,59 @@ def test_host_execution_bridge_resolves_deferred_tool_result() -> None:
         },
     }
     assert attempts == 3
+
+
+def test_host_execution_bridge_auto_submits_returned_chunked_runner() -> None:
+    class _ChunkDispatcher:
+        @staticmethod
+        def is_host_thread() -> bool:
+            return False
+
+        @staticmethod
+        def dispatch_callable(func, *args, **kwargs):
+            return func(*args)
+
+        @staticmethod
+        def submit_chunked_runner(request_id, runner, *, job_id=None, on_complete=None):
+            while runner.step():
+                pass
+            outcome = runner.outcome
+            assert outcome is not None
+            on_complete(
+                {
+                    "request_id": request_id,
+                    "job_id": job_id,
+                    "success": outcome.status == "completed",
+                    "output": {
+                        "current": outcome.progress.completed,
+                        "total": outcome.progress.total,
+                        "message": outcome.progress.message,
+                    },
+                    "error": outcome.error,
+                }
+            )
+            return {"success": True, "status": "pending"}
+
+    bridge = HostExecutionBridge(dispatcher=_ChunkDispatcher())
+    result = bridge.dispatch_callable(
+        lambda: ChunkedRunner([lambda: "first", lambda: "second"]),
+        execution="async",
+        job_strategy="chunked",
+        job_id="job-42",
+    )
+
+    assert result == {"current": 2, "total": 2, "message": "second"}
+
+
+def test_declared_chunked_tool_must_return_runner() -> None:
+    result = HostExecutionBridge().dispatch_callable(
+        lambda: {"success": True},
+        execution="async",
+        job_strategy="chunked",
+    )
+
+    assert result["success"] is False
+    assert result["message"] == "Chunked tool returned a monolithic result"
 
 
 def test_host_execution_bridge_polls_deferred_via_dispatcher() -> None:

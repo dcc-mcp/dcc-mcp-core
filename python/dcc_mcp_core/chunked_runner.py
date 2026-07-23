@@ -12,6 +12,7 @@ from typing import Iterator
 
 from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import CancelToken
+from dcc_mcp_core.cancellation import current_cancel_token
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class ChunkedRunner:
         steps: Iterable[ChunkedStep] | Iterable[Callable[[], Any]],
         *,
         total: int | None = None,
-        cancel_token: CancelToken | None = None,
+        cancel_token: Any | None = None,
         clock: Callable[[], float] = time.monotonic,
         on_progress: Callable[[ChunkedProgress], None] | None = None,
         on_terminal: Callable[[ChunkedOutcome], None] | None = None,
@@ -101,6 +102,7 @@ class ChunkedRunner:
             raise ValueError("total must be >= 0 or None")
         self._steps: Iterator[Any] = iter(steps)
         self._cancel_token = cancel_token if cancel_token is not None else CancelToken()
+        self._cancel_requested = False
         self._clock = clock
         self._on_progress = on_progress
         self._on_terminal = on_terminal
@@ -126,7 +128,7 @@ class ChunkedRunner:
         """Run one bounded step; return whether another tick is required."""
         if self._outcome is not None:
             return False
-        if self._cancel_token.cancelled:
+        if self._is_cancelled():
             self._publish_terminal("cancelled")
             return False
 
@@ -156,7 +158,7 @@ class ChunkedRunner:
                 self._publish_terminal("failed", f"{type(exc).__name__}: {exc}")
                 return False
 
-        if self._cancel_token.cancelled:
+        if self._is_cancelled():
             self._publish_terminal("cancelled")
             return False
         if self._progress.total is not None and self._progress.completed >= self._progress.total:
@@ -166,7 +168,13 @@ class ChunkedRunner:
 
     def cancel(self) -> None:
         """Request cancellation; the next checkpoint acknowledges it."""
-        self._cancel_token.cancel()
+        self._cancel_requested = True
+        cancel = getattr(self._cancel_token, "cancel", None)
+        if callable(cancel):
+            cancel()
+
+    def _is_cancelled(self) -> bool:
+        return self._cancel_requested or bool(getattr(self._cancel_token, "cancelled", False))
 
     def _publish_terminal(self, status: str, error: str | None = None) -> None:
         if self._outcome is not None:
@@ -198,7 +206,11 @@ def chunked_job(
     def decorate(factory: Callable[..., Iterable[Any]]) -> Callable[..., ChunkedRunner]:
         @wraps(factory)
         def create_runner(*args: Any, **kwargs: Any) -> ChunkedRunner:
-            return ChunkedRunner(factory(*args, **kwargs), total=total)
+            return ChunkedRunner(
+                factory(*args, **kwargs),
+                total=total,
+                cancel_token=current_cancel_token(),
+            )
 
         return create_runner
 

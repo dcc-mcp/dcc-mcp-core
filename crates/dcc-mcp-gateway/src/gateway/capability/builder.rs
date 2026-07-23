@@ -451,6 +451,11 @@ fn extract_metadata(meta: Option<&serde_json::Map<String, Value>>) -> Option<Cap
             .or_else(|| dcc.get("timeout_hint_secs"))
             .and_then(Value::as_u64)
             .and_then(|value| u32::try_from(value).ok()),
+        job_strategy: dcc
+            .get("jobStrategy")
+            .or_else(|| dcc.get("job_strategy"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
         enforce_thread_affinity: dcc
             .get("enforceThreadAffinity")
             .or_else(|| dcc.get("enforce_thread_affinity"))
@@ -919,6 +924,7 @@ mod unit_tests {
                     "affinity": "any",
                     "execution": "sync",
                     "timeoutHintSecs": 5,
+                    "jobStrategy": "chunked",
                     "enforceThreadAffinity": false,
                     "risk": "mutation",
                 }),
@@ -935,6 +941,7 @@ mod unit_tests {
         assert_eq!(meta.affinity.as_deref(), Some("any"));
         assert_eq!(meta.execution.as_deref(), Some("sync"));
         assert_eq!(meta.timeout_hint_secs, Some(5));
+        assert_eq!(meta.job_strategy.as_deref(), Some("chunked"));
         assert_eq!(meta.risk.as_deref(), Some("mutation"));
     }
 

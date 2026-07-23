@@ -295,6 +295,7 @@ pub fn build_tool_meta(
         .unwrap_or_else(|| meta.execution.is_deferred());
 
     let has_timeout = meta.timeout_hint_secs.is_some();
+    let has_job_strategy = !matches!(meta.job_strategy, dcc_mcp_models::JobStrategy::Monolithic);
     let missing = missing_capabilities(&meta.required_capabilities, declared_capabilities);
     let has_required_caps = !meta.required_capabilities.is_empty();
     let has_search_aliases = !meta.search_aliases.is_empty();
@@ -303,6 +304,7 @@ pub fn build_tool_meta(
         && !has_required_caps
         && !schema_is_incomplete
         && !has_search_aliases
+        && !has_job_strategy
     {
         return None;
     }
@@ -310,6 +312,12 @@ pub fn build_tool_meta(
     let mut dcc_meta = serde_json::Map::new();
     if let Some(t) = meta.timeout_hint_secs {
         dcc_meta.insert("timeoutHintSecs".to_string(), serde_json::json!(t));
+    }
+    if has_job_strategy {
+        dcc_meta.insert(
+            "jobStrategy".to_string(),
+            serde_json::json!(meta.job_strategy.as_str()),
+        );
     }
     if deferred {
         dcc_meta.insert("deferred_hint".to_string(), serde_json::json!(true));

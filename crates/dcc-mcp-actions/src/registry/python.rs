@@ -1,5 +1,5 @@
 use super::*;
-use dcc_mcp_models::{ExecutionMode, NextTools, ThreadAffinity, ToolAnnotations};
+use dcc_mcp_models::{ExecutionMode, JobStrategy, NextTools, ThreadAffinity, ToolAnnotations};
 
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pymethods;
@@ -131,6 +131,23 @@ impl ToolRegistry {
                 .ok()
                 .flatten()
                 .and_then(|v| v.extract().ok());
+            let job_strategy = match dict
+                .get_item("job_strategy")
+                .ok()
+                .flatten()
+                .and_then(|v| v.extract::<String>().ok())
+                .as_deref()
+            {
+                None | Some("monolithic") => JobStrategy::Monolithic,
+                Some("chunked") => JobStrategy::Chunked,
+                Some("isolated") => JobStrategy::Isolated,
+                Some(other) => {
+                    tracing::warn!(
+                        "Invalid job_strategy {other:?} for '{name}' — defaulting to monolithic"
+                    );
+                    JobStrategy::Monolithic
+                }
+            };
             let thread_affinity_str: Option<String> = dict
                 .get_item("thread_affinity")
                 .ok()
@@ -178,6 +195,7 @@ impl ToolRegistry {
                 required_capabilities,
                 execution,
                 timeout_hint_secs,
+                job_strategy,
                 thread_affinity,
                 enforce_thread_affinity,
                 annotations: ToolAnnotations::default(),
@@ -193,7 +211,7 @@ impl ToolRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=None))]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None, job_strategy="monolithic".to_string(), thread_affinity="any".to_string(), enforce_thread_affinity=false, search_aliases=None))]
     fn register(
         &self,
         name: String,
@@ -211,6 +229,7 @@ impl ToolRegistry {
         required_capabilities: Option<Vec<String>>,
         execution: String,
         timeout_hint_secs: Option<u32>,
+        job_strategy: String,
         thread_affinity: String,
         enforce_thread_affinity: bool,
         search_aliases: Option<Vec<String>>,
@@ -237,6 +256,16 @@ impl ToolRegistry {
                 "thread_affinity must be 'any' or 'main' (got {thread_affinity:?})"
             ))
         })?;
+        let job_strategy = match job_strategy.as_str() {
+            "monolithic" => JobStrategy::Monolithic,
+            "chunked" => JobStrategy::Chunked,
+            "isolated" => JobStrategy::Isolated,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "job_strategy must be 'monolithic', 'chunked', or 'isolated' (got {other:?})"
+                )));
+            }
+        };
 
         self.register_action(ToolMeta {
             name,
@@ -255,6 +284,7 @@ impl ToolRegistry {
             required_capabilities: required_capabilities.unwrap_or_default(),
             execution,
             timeout_hint_secs,
+            job_strategy,
             thread_affinity,
             enforce_thread_affinity,
             annotations: ToolAnnotations::default(),

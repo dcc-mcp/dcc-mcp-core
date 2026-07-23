@@ -20,11 +20,11 @@ pub use error::DccMcpError;
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};
 pub use session::{Session, SessionEndReason, SessionStatus};
 pub use skill_metadata::{
-    CallExample, ExecutionMode, NextTools, Precondition, RecallContext, RiskLevel, SideEffects,
-    SkillBranding, SkillDependencies, SkillDependency, SkillDependencyType, SkillGroup, SkillLinks,
-    SkillMetadata, SkillPolicy, SkillRuntimeDescriptor, SkillRuntimeKind, SkillRuntimeReport,
-    SkillRuntimeState, SkillRuntimeSummary, SuccessMetrics, ThreadAffinity, ToolAnnotations,
-    ToolDeclaration, ToolRole, resolve_runtime_reports, summarize_runtime_reports,
+    CallExample, ExecutionMode, JobStrategy, NextTools, Precondition, RecallContext, RiskLevel,
+    SideEffects, SkillBranding, SkillDependencies, SkillDependency, SkillDependencyType,
+    SkillGroup, SkillLinks, SkillMetadata, SkillPolicy, SkillRuntimeDescriptor, SkillRuntimeKind,
+    SkillRuntimeReport, SkillRuntimeState, SkillRuntimeSummary, SuccessMetrics, ThreadAffinity,
+    ToolAnnotations, ToolDeclaration, ToolRole, resolve_runtime_reports, summarize_runtime_reports,
 };
 pub use skill_scope::SkillScope;
 pub use tool_call_event::{

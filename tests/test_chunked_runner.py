@@ -10,6 +10,8 @@ from dcc_mcp_core import CancelToken
 from dcc_mcp_core import ChunkedRunner
 from dcc_mcp_core import ChunkedStep
 from dcc_mcp_core import chunked_job
+from dcc_mcp_core import reset_cancel_token
+from dcc_mcp_core import set_cancel_token
 from dcc_mcp_core._server.host_ui_dispatcher import HostUiDispatcherBase
 
 
@@ -212,6 +214,25 @@ def test_chunked_job_decorator_builds_lazy_runner() -> None:
     assert runner.step()
     assert not runner.step()
     assert built == ["factory", 1, 2]
+
+
+def test_chunked_job_inherits_outer_job_cancellation_probe() -> None:
+    token = CancelToken("outer-job")
+    reset = set_cancel_token(token)
+    try:
+
+        @chunked_job(total=1)
+        def build():
+            yield lambda: "should not run"
+
+        runner = build()
+    finally:
+        reset_cancel_token(reset)
+
+    token.cancel()
+    assert not runner.step()
+    assert runner.outcome is not None
+    assert runner.outcome.status == "cancelled"
 
 
 def test_chunked_runner_rejects_negative_total() -> None:

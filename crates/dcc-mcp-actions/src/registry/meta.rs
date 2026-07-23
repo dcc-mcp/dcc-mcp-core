@@ -1,4 +1,6 @@
-use dcc_mcp_models::{ExecutionMode, NextTools, RegistryEntry, ThreadAffinity, ToolAnnotations};
+use dcc_mcp_models::{
+    ExecutionMode, JobStrategy, NextTools, RegistryEntry, ThreadAffinity, ToolAnnotations,
+};
 use serde::{Deserialize, Serialize};
 
 /// Metadata about a registered Action (stored in Rust).
@@ -68,6 +70,9 @@ pub struct ToolMeta {
     /// never inside `annotations`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_hint_secs: Option<u32>,
+    /// Whether work is monolithic, host-tick chunked, or isolated/durable.
+    #[serde(default, skip_serializing_if = "is_default_job_strategy")]
+    pub job_strategy: JobStrategy,
     /// Thread-affinity hint surfaced by the skill author (issue #332).
     ///
     /// Drives async-dispatch routing in the HTTP server:
@@ -130,12 +135,17 @@ impl Default for ToolMeta {
             required_capabilities: Vec::new(),
             execution: ExecutionMode::Sync,
             timeout_hint_secs: None,
+            job_strategy: JobStrategy::Monolithic,
             thread_affinity: ThreadAffinity::Any,
             enforce_thread_affinity: false,
             annotations: ToolAnnotations::default(),
             next_tools: NextTools::default(),
         }
     }
+}
+
+fn is_default_job_strategy(strategy: &JobStrategy) -> bool {
+    matches!(strategy, JobStrategy::Monolithic)
 }
 
 // ── RegistryEntry impl ───────────────────────────────────────────────────────

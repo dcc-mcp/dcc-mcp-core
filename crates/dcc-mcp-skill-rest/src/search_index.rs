@@ -31,6 +31,12 @@ fn action_metadata_with_options(action: &CatalogAction, include_call_examples: b
     if let Some(timeout) = action.timeout_hint_secs {
         dcc.insert("timeoutHintSecs".to_string(), serde_json::json!(timeout));
     }
+    if action.job_strategy != dcc_mcp_models::JobStrategy::Monolithic {
+        dcc.insert(
+            "jobStrategy".to_string(),
+            Value::String(action.job_strategy.as_str().to_string()),
+        );
+    }
     dcc.insert(
         "enforceThreadAffinity".to_string(),
         Value::Bool(action.enforce_thread_affinity),
@@ -55,6 +61,7 @@ pub(crate) fn search_metadata(action: &CatalogAction) -> Option<Value> {
     let has_non_default_execution = action.thread_affinity.is_main()
         || action.execution.is_deferred()
         || action.timeout_hint_secs.is_some()
+        || action.job_strategy != dcc_mcp_models::JobStrategy::Monolithic
         || action.enforce_thread_affinity
         || !action.annotations.is_empty();
     let has_runtime = action.runtime.is_some();

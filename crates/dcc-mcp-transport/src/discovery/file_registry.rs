@@ -711,6 +711,25 @@ impl FileRegistry {
         })
     }
 
+    /// Update an asynchronously observed row only when it has not changed.
+    pub fn update_status_if_unchanged(
+        &self,
+        observed: &ServiceEntry,
+        status: ServiceStatus,
+    ) -> TransportResult<bool> {
+        let key = observed.key();
+        self.with_write_transaction(|| {
+            let unchanged = self
+                .services
+                .get(&key)
+                .is_some_and(|current| current.value() == observed);
+            if unchanged && let Some(mut entry) = self.services.get_mut(&key) {
+                entry.value_mut().status = status;
+            }
+            Ok((unchanged, unchanged))
+        })
+    }
+
     /// Acquire an optional pool lease for an idle instance.
     ///
     /// When `instance_id` is supplied it may be the full UUID or a unique prefix.

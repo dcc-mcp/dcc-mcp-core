@@ -240,6 +240,12 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                             "busy" if e.status.to_string() != "busy" || stale => {
                                 return false;
                             }
+                            "unreachable" if e.status.to_string() != "unreachable" || stale => {
+                                return false;
+                            }
+                            "booting" if e.status.to_string() != "booting" || stale => {
+                                return false;
+                            }
                             "stale" if !stale => {
                                 return false;
                             }

@@ -503,6 +503,7 @@ impl SkillCatalog {
                 required_capabilities: tool_decl.required_capabilities.clone(),
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
+                job_strategy: tool_decl.job_strategy,
                 thread_affinity: tool_decl.thread_affinity,
                 enforce_thread_affinity: tool_decl.enforce_thread_affinity,
                 annotations: tool_decl.annotations.clone(),
@@ -541,6 +542,7 @@ impl SkillCatalog {
                         enforce_thread_affinity: tool_decl.enforce_thread_affinity,
                         execution: tool_decl.execution,
                         timeout_hint_secs: tool_decl.timeout_hint_secs,
+                        job_strategy: tool_decl.job_strategy,
                     };
                     dispatcher.register_handler(&action_name_clone, move |params| {
                         executor(script_path_owned.clone(), params, context.clone())
@@ -584,6 +586,7 @@ impl SkillCatalog {
                     required_capabilities: Vec::new(),
                     execution: dcc_mcp_models::ExecutionMode::Sync,
                     timeout_hint_secs: None,
+                    job_strategy: dcc_mcp_models::JobStrategy::Monolithic,
                     thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
                     enforce_thread_affinity: false,
                     annotations: dcc_mcp_models::ToolAnnotations::default(),
@@ -604,6 +607,7 @@ impl SkillCatalog {
                             enforce_thread_affinity: false,
                             execution: dcc_mcp_models::ExecutionMode::Sync,
                             timeout_hint_secs: None,
+                            job_strategy: dcc_mcp_models::JobStrategy::Monolithic,
                         };
                         dispatcher.register_handler(&action_name_clone, move |params| {
                             executor(script_path_owned.clone(), params, context.clone())

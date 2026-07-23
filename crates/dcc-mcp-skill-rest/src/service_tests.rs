@@ -107,6 +107,7 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         annotations: Default::default(),
         execution: Default::default(),
         timeout_hint_secs: None,
+        job_strategy: Default::default(),
         thread_affinity: Default::default(),
         enforce_thread_affinity: false,
         available_groups: Vec::new(),
@@ -190,6 +191,7 @@ fn search_and_describe_surface_safety_and_execution_metadata() {
     action.annotations.destructive_hint = Some(false);
     action.annotations.idempotent_hint = Some(false);
     action.timeout_hint_secs = Some(5);
+    action.job_strategy = dcc_mcp_models::JobStrategy::Chunked;
     let (svc, _) = build_service(vec![action]);
 
     let search = svc.search(&SearchRequest {
@@ -202,6 +204,10 @@ fn search_and_describe_surface_safety_and_execution_metadata() {
         hit.metadata.as_ref().unwrap()["dcc"]["timeoutHintSecs"],
         serde_json::json!(5)
     );
+    assert_eq!(
+        hit.metadata.as_ref().unwrap()["dcc"]["jobStrategy"],
+        "chunked"
+    );
 
     let desc = svc
         .describe(&DescribeRequest {
@@ -211,6 +217,10 @@ fn search_and_describe_surface_safety_and_execution_metadata() {
         .expect("describe");
     assert_eq!(desc.annotations["readOnlyHint"], false);
     assert_eq!(desc.metadata.as_ref().unwrap()["dcc"]["execution"], "sync");
+    assert_eq!(
+        desc.metadata.as_ref().unwrap()["dcc"]["jobStrategy"],
+        "chunked"
+    );
     assert_eq!(desc.metadata.as_ref().unwrap()["dcc"]["risk"], "mutation");
 }
 
@@ -420,6 +430,7 @@ fn search_matches_aliases_and_schema_tokens_without_schema_expansion() {
         annotations: Default::default(),
         execution: Default::default(),
         timeout_hint_secs: None,
+        job_strategy: Default::default(),
         thread_affinity: Default::default(),
         enforce_thread_affinity: false,
         available_groups: Vec::new(),

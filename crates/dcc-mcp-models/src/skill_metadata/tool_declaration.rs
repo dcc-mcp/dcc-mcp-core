@@ -5,7 +5,7 @@ fn is_default_affinity(affinity: &ThreadAffinity) -> bool {
 use serde::{Deserialize, Serialize};
 
 use super::skill_recall::{RiskLevel, SideEffects, ToolRole};
-use super::{ExecutionMode, ThreadAffinity};
+use super::{ExecutionMode, JobStrategy, ThreadAffinity};
 
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
@@ -267,6 +267,16 @@ pub struct ToolDeclaration {
     )]
     pub timeout_hint_secs: Option<u32>,
 
+    /// Long-running execution strategy advertised to agents and enforced by
+    /// the in-process bridge where applicable.
+    #[serde(
+        default,
+        rename = "job_strategy",
+        alias = "job-strategy",
+        skip_serializing_if = "is_default_job_strategy"
+    )]
+    pub job_strategy: JobStrategy,
+
     /// Thread-affinity hint — either `any` (default) or `main` (issue #332).
     ///
     /// When `main`, the HTTP server routes this tool through
@@ -490,6 +500,8 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             execution: ExecutionMode,
             #[serde(rename = "timeout_hint_secs", alias = "timeout-hint-secs")]
             timeout_hint_secs: Option<u32>,
+            #[serde(rename = "job_strategy", alias = "job-strategy")]
+            job_strategy: JobStrategy,
             #[serde(
                 rename = "thread-affinity",
                 alias = "thread_affinity",
@@ -623,6 +635,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             group: w.group,
             execution: w.execution,
             timeout_hint_secs: w.timeout_hint_secs,
+            job_strategy: w.job_strategy,
             thread_affinity,
             enforce_thread_affinity,
             _deferred_guard: None,
@@ -638,6 +651,10 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             call_examples: w.call_examples,
         })
     }
+}
+
+fn is_default_job_strategy(strategy: &JobStrategy) -> bool {
+    matches!(strategy, JobStrategy::Monolithic)
 }
 
 /// Suggested next tools for a successful or failed tool call (issue #143).

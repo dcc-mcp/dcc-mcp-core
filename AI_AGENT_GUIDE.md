@@ -569,10 +569,17 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 6. **Use progressive loading** — don't load all skills at once, activate groups as needed
 7. **Prefer structured skill tools over raw scripting** — they provide validation, safety, and traceability
 8. **Check cancellations** — in long-running tools, periodically call `check_cancelled()`
-9. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
-10. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
-11. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
-12. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
+9. **Choose by `jobStrategy`** — `chunked` means bounded host ticks,
+   `isolated` means a durable external job, and absent/`monolithic` means an
+   indivisible call. Never infer that arbitrary script code is splittable.
+10. **Recover before retrying** — retain async `job_id`; after transport loss,
+    rediscover the instance and call its `jobs_get_status`. If the DCC crashed,
+    wait for a replacement instance, then query persisted status and treat
+    `interrupted` as terminal unless the tool exposes an explicit resume path.
+11. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
+12. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
+13. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
+14. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
 
 ---
 

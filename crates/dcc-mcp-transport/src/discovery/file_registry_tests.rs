@@ -130,6 +130,46 @@ fn test_file_registry_heartbeat() {
 }
 
 #[test]
+fn test_update_status_if_unchanged_rejects_refreshed_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let entry = ServiceEntry::new("houdini", "127.0.0.1", 18814);
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let observed = registry.get(&key).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1));
+    assert!(registry.heartbeat(&key).unwrap());
+
+    assert!(
+        !registry
+            .update_status_if_unchanged(&observed, ServiceStatus::Unreachable)
+            .unwrap()
+    );
+    assert_eq!(registry.get(&key).unwrap().status, ServiceStatus::Available);
+}
+
+#[test]
+fn test_update_status_if_unchanged_updates_current_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let entry = ServiceEntry::new("houdini", "127.0.0.1", 18814);
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let observed = registry.get(&key).unwrap();
+    assert!(
+        registry
+            .update_status_if_unchanged(&observed, ServiceStatus::Unreachable)
+            .unwrap()
+    );
+    assert_eq!(
+        registry.get(&key).unwrap().status,
+        ServiceStatus::Unreachable
+    );
+}
+
+#[test]
 fn test_file_registry_update_instance_metadata_merges_and_clears_keys() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
