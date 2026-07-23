@@ -1,9 +1,11 @@
 import {
   RiCheckboxCircleLine,
+  RiFileCopyLine,
   RiDownloadCloudLine,
   RiErrorWarningLine,
   RiRefreshLine,
 } from '@remixicon/react';
+import { useState } from 'react';
 import { Button } from '../../components/ui/button';
 import type {
   InstanceRow,
@@ -40,6 +42,7 @@ export type InstancesPanelProps = {
   instanceUpdateNotices: Record<string, InstanceUpdateNotice>;
   pendingInstanceUpdateId: string | null;
   onUpdateInstance: (instance: InstanceRow) => void;
+  onCopy: (text: string, label: string) => Promise<boolean>;
   onRefresh: () => void;
   t: Translator;
 };
@@ -53,9 +56,20 @@ export function InstancesPanel({
   instanceUpdateNotices,
   pendingInstanceUpdateId,
   onUpdateInstance,
+  onCopy,
   onRefresh,
   t,
 }: InstancesPanelProps) {
+  const [copiedInstanceId, setCopiedInstanceId] = useState<string | null>(null);
+
+  const copyInstanceContext = async (instance: InstanceRow) => {
+    const route = `gateway://instances/${instance.instance_id}`;
+    if (await onCopy(route, t('instances.copy.label'))) {
+      setCopiedInstanceId(instance.instance_id);
+      window.setTimeout(() => setCopiedInstanceId(null), 1800);
+    }
+  };
+
   return (
     <section className="panel active instances-panel">
       <h2>{t('instances.title')}</h2>
@@ -111,7 +125,9 @@ export function InstancesPanel({
                             </div>
                             <div className="instance-state-strip" aria-label={t('instances.state.aria')}>
                               <span>
-                                <small>{t('instances.field.status')}</small>
+                                <small title={instance.loaded_skills?.join(', ')}>
+                                  {t('instances.field.status')} · {t('instances.skills.count', { count: instance.loaded_skills?.length ?? 0 })}
+                                </small>
                                 <StatusBadge value={instance.status} />
                               </span>
                               {instance.dispatch_status ? (
@@ -148,11 +164,21 @@ export function InstancesPanel({
                             </span>
                             <span className="instance-detail-item">
                               <small>{t('instances.field.cpu')}</small>
-                              <strong>{instance.cpu_percent == null ? '-' : instance.cpu_percent.toFixed(1)}</strong>
+                              <strong>
+                                {instance.cpu_percent == null ? '-' : `${instance.cpu_percent.toFixed(1)}%`}
+                                {instance.performance?.machine?.cpu_percent == null
+                                  ? null
+                                  : ` / ${instance.performance.machine.cpu_percent.toFixed(1)}%`}
+                              </strong>
                             </span>
                             <span className="instance-detail-item">
                               <small>{t('instances.field.memory')}</small>
-                              <strong>{formatBytes(instance.memory_bytes)}</strong>
+                              <strong>
+                                {formatBytes(instance.memory_bytes)}
+                                {instance.performance?.machine?.used_memory_bytes == null
+                                  ? null
+                                  : ` / ${formatBytes(instance.performance.machine.used_memory_bytes)} of ${formatBytes(instance.performance.machine.total_memory_bytes)}`}
+                              </strong>
                             </span>
                             {instance.host_rpc_uri || instance.host_rpc_scheme ? (
                               <span className="instance-detail-item wide">
@@ -170,6 +196,18 @@ export function InstancesPanel({
                             <div className="instance-update-cell">
                               <div className="instance-update-head">
                                 <span className="instance-update-heading">{t('instances.update.label')}</span>
+                                <Button
+                                  aria-label={t('instances.copy.aria', { name: instance.display_name ?? compactInstanceId(instance.instance_id) })}
+                                  title={copiedInstanceId === instance.instance_id ? t('instances.copy.copied') : t('instances.copy.action')}
+                                  size="icon-sm"
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => void copyInstanceContext(instance)}
+                                >
+                                  {copiedInstanceId === instance.instance_id
+                                    ? <RiCheckboxCircleLine aria-hidden="true" />
+                                    : <RiFileCopyLine aria-hidden="true" />}
+                                </Button>
                                 <Button
                                   aria-label={t('instances.update.aria', { name: instance.display_name ?? compactInstanceId(instance.instance_id) })}
                                   className="instance-update-button"

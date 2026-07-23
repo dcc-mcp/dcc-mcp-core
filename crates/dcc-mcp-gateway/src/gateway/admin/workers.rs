@@ -7,17 +7,15 @@
 //! how long has it been alive, when did it last heartbeat" without having
 //! to round-trip the backend.
 //!
-//! CPU / memory / RSS would require every backend to serve a per-process
-//! diagnostic resource (the gateway's own `gateway://diagnostics/process`
-//! is gateway-side only).  That is intentionally left for a follow-up so
-//! Phase 4 can land without a cross-service contract change — see
-//! issue #863 Phase 4 acceptance criteria.
+//! Runtime fields come from the shared instance-context collector: local
+//! process/system metrics plus each backend's `/v1/context`.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
 use crate::gateway::http_registration::{MCP_URL_METADATA_KEY, entry_mcp_url};
+use crate::gateway::instance_context::InstanceContext;
 use crate::gateway::state::GatewayState;
 use dcc_mcp_transport::discovery::types::{
     INSTANCE_TYPE_METADATA_KEY, ServiceEntry, ServiceStatus,
@@ -89,7 +87,7 @@ fn gateway_recovery_driver(
 /// Build a single Worker JSON record from a `ServiceEntry`.
 ///
 /// Stable, low-allocation snapshot used by `GET /admin/api/workers`.
-fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
+fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState, context: &InstanceContext) -> Value {
     let stale = e.is_stale(gs.stale_timeout);
     let status = if stale {
         "stale".to_string()
@@ -149,7 +147,12 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         "adapter_version":      e.adapter_version,
         "instance_type":        instance_type(e),
         "adapter_dcc":          e.adapter_dcc,
-        "scene":                e.scene,
+        "scene":                context.scene,
+        "documents":            context.documents,
+        "loaded_skills":        context.loaded_skills,
+        "loaded_skill_count":   context.loaded_skills.len(),
+        "action_count":         context.action_count,
+        "performance":          crate::gateway::instance_context::performance_json(context),
         "failure_reason":       e.metadata.get("failure_reason").cloned(),
         "failure_stage":        e.metadata.get("failure_stage").cloned(),
         "dispatch_status":      dispatch_status,
@@ -162,9 +165,10 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState) -> Value {
         "gateway_recovery_driver": recovery_driver,
         "registration_refresh_mode": registration_refresh_mode,
         "metadata":             e.metadata,
-        // CPU / memory not yet available — see module docs.
-        "cpu_percent":          Value::Null,
-        "memory_bytes":         Value::Null,
+        "cpu_percent":          context.process.cpu_percent,
+        "memory_bytes":         context.process.memory_bytes,
+        "virtual_memory_bytes": context.process.virtual_memory_bytes,
+        "backend_context_error": context.backend_context_error,
     })
 }
 
@@ -189,6 +193,7 @@ pub async fn build_workers_payload(gs: &GatewayState) -> Value {
     let mut live = 0usize;
     let mut stale_count = 0usize;
     let mut unhealthy = 0usize;
+    let contexts = crate::gateway::instance_context::collect(gs, &live_instances).await;
     let workers: Vec<Value> = live_instances
         .iter()
         .map(|e| {
@@ -200,7 +205,8 @@ pub async fn build_workers_payload(gs: &GatewayState) -> Value {
             } else {
                 unhealthy += 1;
             }
-            entry_to_worker_json(e, gs)
+            let context = contexts.get(&e.instance_id).cloned().unwrap_or_default();
+            entry_to_worker_json(e, gs, &context)
         })
         .collect();
 
