@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.68](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.67...v0.19.68) (2026-07-23)
+
+
+### Features
+
+* add safe record and replay workflows ([#2027](https://github.com/dcc-mcp/dcc-mcp-core/issues/2027)) ([c91ab36](https://github.com/dcc-mcp/dcc-mcp-core/commit/c91ab366890435c358b0bac54d67e031b93475f6))
+* **computer-use:** add session color coding, last-action dot, and scope animation ([f338fcb](https://github.com/dcc-mcp/dcc-mcp-core/commit/f338fcbc7757a9d26bfee05380579207b138a7e3))
+
+
+### Bug Fixes
+
+* keep dcc mcp skill within budget ([#2029](https://github.com/dcc-mcp/dcc-mcp-core/issues/2029)) ([e38e8e9](https://github.com/dcc-mcp/dcc-mcp-core/commit/e38e8e97b1dd995e6b4b9196f303f668d6816634))
+* make EventBus::subscribe_event and unsubscribe_event always available ([0cf5640](https://github.com/dcc-mcp/dcc-mcp-core/commit/0cf5640d339c8a514048b91a546fb758af65060e))
+* own Windows DCC process trees ([863583e](https://github.com/dcc-mcp/dcc-mcp-core/commit/863583ea49126296b77bce719c1ba0e8b687d6a9))
+
 ## [0.19.67](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.66...v0.19.67) (2026-07-22)
 
 
