@@ -8,6 +8,8 @@ try:
     from typing import runtime_checkable
 except ImportError:  # pragma: no cover - Python 3.7 only
 
+    import typing_extensions
+
     class _ProtocolMeta(type):
         """Minimal structural runtime checks for Python 3.7 protocols."""
 
@@ -20,7 +22,7 @@ except ImportError:  # pragma: no cover - Python 3.7 only
             for base in cls.__mro__:
                 if base in (Protocol, object):
                     continue
-                members.update(name for name in base.__dict__.get("__annotations__", {}) if not name.startswith("_"))
+                members.update(name for name in typing_extensions.get_annotations(base) if not name.startswith("_"))
                 for name, value in base.__dict__.items():
                     if name.startswith("_"):
                         continue
