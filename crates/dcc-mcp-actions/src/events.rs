@@ -215,13 +215,9 @@ impl EventBus {
     pub fn has_subscribers(&self, event_name: &str) -> bool {
         self.subscribers.iter().any(|entry| {
             !entry.value().is_empty() && subscription_matches(entry.key().as_str(), event_name)
-        }) || self
-            .native_subscribers
-            .iter()
-            .any(|entry| {
-                !entry.value().is_empty()
-                    && subscription_matches(entry.key().as_str(), event_name)
-            })
+        }) || self.native_subscribers.iter().any(|entry| {
+            !entry.value().is_empty() && subscription_matches(entry.key().as_str(), event_name)
+        })
     }
 
     /// Check if any veto hooks exist for the given event.
@@ -374,10 +370,7 @@ impl EventBus {
                     .copied()
                     .or_else(|| e.downcast_ref::<String>().map(|s| s.as_str()))
                     .unwrap_or("unknown panic");
-                tracing::error!(
-                    "Panic in native event subscriber for {}: {msg}",
-                    event.name
-                );
+                tracing::error!("Panic in native event subscriber for {}: {msg}", event.name);
             }
         }
     }
