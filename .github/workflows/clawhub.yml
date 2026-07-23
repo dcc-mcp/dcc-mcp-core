@@ -81,9 +81,7 @@ jobs:
           if-no-files-found: error
 
       - name: Require ClawHub token
-        if: >-
-          (github.event_name == 'workflow_call' && inputs.publish) ||
-          (github.event_name == 'workflow_dispatch' && inputs.publish)
+        if: inputs.publish
         shell: bash
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
@@ -94,9 +92,7 @@ jobs:
           fi
 
       - name: Login to ClawHub
-        if: >-
-          (github.event_name == 'workflow_call' && inputs.publish) ||
-          (github.event_name == 'workflow_dispatch' && inputs.publish)
+        if: inputs.publish
         shell: bash
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
@@ -105,14 +101,9 @@ jobs:
           npx "$CLAWHUB_CLI_PACKAGE" --no-input login --token "$CLAWHUB_TOKEN" --no-browser
 
       - name: Dry-run ClawHub publish
-        if: >-
-          github.event_name == 'pull_request' ||
-          (github.event_name == 'workflow_call' && !inputs.publish) ||
-          (github.event_name == 'workflow_dispatch' && !inputs.publish)
+        if: ${{ !inputs.publish }}
         run: python scripts/clawhub_sync.py --dry-run
 
       - name: Publish skills to ClawHub
-        if: >-
-          (github.event_name == 'workflow_call' && inputs.publish) ||
-          (github.event_name == 'workflow_dispatch' && inputs.publish)
+        if: inputs.publish
         run: python scripts/clawhub_sync.py
