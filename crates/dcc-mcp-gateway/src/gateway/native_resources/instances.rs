@@ -301,7 +301,8 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
             let entry = gs
                 .resolve_instance(&reg, Some(instance_id.as_str()), None)
                 .map_err(|err| err.to_string())?;
-            Ok(gs.instance_json(&entry))
+            drop(reg);
+            Ok(super::super::instance_context::build_payload(gs, entry).await)
         }
     }
 }

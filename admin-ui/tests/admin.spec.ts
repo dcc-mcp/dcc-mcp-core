@@ -495,6 +495,23 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.instance-row')).toContainText('Blender Lookdev');
   });
 
+  test('copies the selected instance context route for an agent', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: async (value: string) => {
+            (window as typeof window & { __copiedInstanceRoute?: string }).__copiedInstanceRoute = value;
+          },
+        },
+      });
+    });
+    await page.goto('/?panel=instances');
+    await page.getByRole('button', { name: 'Copy the instance context route for Maya Layout' }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as typeof window & { __copiedInstanceRoute?: string }).__copiedInstanceRoute))
+      .toBe('gateway://instances/maya-1234567890');
+  });
+
   test('localizes instance field labels in Chinese', async ({ page }) => {
     await page.goto('/?panel=instances&lang=zh-CN');
     const panel = page.locator('.instances-panel');

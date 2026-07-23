@@ -1623,6 +1623,7 @@ function App() {
             instanceUpdateNotices={instanceUpdateNotices}
             pendingInstanceUpdateId={pendingInstanceUpdateId}
             onUpdateInstance={(instance) => void updateInstanceServer(instance)}
+            onCopy={copyText}
             onRefresh={() => workersQuery.refetch()}
             t={t}
           />

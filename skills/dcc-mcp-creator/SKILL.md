@@ -139,6 +139,9 @@ does not replace a running server binary.
    routable rows. Use `?include_stale=true`, `?include_dead=true`, or
    `?view=all` only for explicit diagnosis; never route a call from those
    expanded operator views without re-validating live readiness.
+   Once an instance is selected, reuse `gateway://instances/{instance_id}` or
+   `GET /v1/instances/{instance_id}/context` for live process/machine
+   performance, scene/documents, loaded skills, and canonical follow-up routes.
 9. Use `dcc_mcp_core.install_lifecycle.build_sidecar_command(...)` / `launch_sidecar(...)` for sidecar startup and readiness. Read `docs/guide/adapter-install-lifecycle.md` before changing host RPC, dispatch readiness, launch stdio, `watch_pid`, or `instance_id` handling.
    - The sidecar MCP listener is dispatch-only. A py37-lite factory can expose local skill metadata, but it cannot advertise or activate declarative skills through the gateway. Require a native py37 wheel for that path, or provide a separate discovery MCP URL; never report lite `load_skill` success without an executable catalog.
 10. Pass `instance_id` to sidecar launch helpers only when it is a real UUID for the DCC service. During early startup, omit it or pass `None`; `build_sidecar_command()` rejects cosmetic values such as `"unknown"` with `success=false` and `reason="invalid_instance_id"` so adapters do not spawn a child that can only fail with a CLI argument error.

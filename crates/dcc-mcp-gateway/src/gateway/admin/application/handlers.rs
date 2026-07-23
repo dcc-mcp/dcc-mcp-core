@@ -1227,10 +1227,8 @@ pub async fn handle_admin_search_telemetry(
 
 /// `GET /admin/api/workers` — per-instance worker cards (Phase 4).
 ///
-/// Returns the live registry view of each known instance plus best-effort
-/// uptime / heartbeat fields.  CPU and memory are reported as `null` until
-/// the per-backend diagnostic resource is wired (separate follow-up — see
-/// the `admin::workers` module docs).
+/// Returns the live registry view plus process/system performance, current
+/// scene/documents, and loaded-skill context.
 pub async fn handle_admin_workers(State(s): State<AdminState>) -> impl IntoResponse {
     let payload = crate::gateway::admin::workers::build_workers_payload(&s.gateway).await;
     Json(payload)

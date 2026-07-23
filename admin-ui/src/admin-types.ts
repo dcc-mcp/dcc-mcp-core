@@ -887,6 +887,23 @@ export type InstanceRow = {
   instance_type: string | null;
   cpu_percent: number | null;
   memory_bytes: number | null;
+  virtual_memory_bytes?: number | null;
+  loaded_skills?: string[];
+  loaded_skill_count?: number;
+  action_count?: number;
+  performance?: {
+    process?: {
+      cpu_percent?: number | null;
+      memory_bytes?: number | null;
+      virtual_memory_bytes?: number | null;
+    };
+    machine?: {
+      cpu_percent?: number | null;
+      total_memory_bytes?: number | null;
+      used_memory_bytes?: number | null;
+      available_memory_bytes?: number | null;
+    };
+  };
   mcp_url: string;
   scene?: string | null;
   failure_reason?: string | null;

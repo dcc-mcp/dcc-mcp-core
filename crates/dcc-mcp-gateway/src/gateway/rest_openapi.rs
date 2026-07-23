@@ -18,6 +18,7 @@ pub(crate) struct GatewayOpenApiRoute {
 #[cfg(test)]
 pub(crate) const GATEWAY_OPENAPI_ROUTES: &[GatewayOpenApiRoute] = &[
     get("/v1/instances"),
+    get("/v1/instances/{instance_id}/context"),
     post("/v1/instances/register"),
     post("/v1/instances/heartbeat"),
     post("/v1/instances/deregister"),
@@ -94,6 +95,19 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "List live gateway instances",
             "Returns the gateway registry rows that are currently live and routable.",
             json_response_ref("GatewayInstanceList"),
+        ),
+    );
+    paths.insert(
+        "/v1/instances/{instance_id}/context".to_string(),
+        get_operation_with_params(
+            &["instances"],
+            "Read one live instance context",
+            "Returns the selected instance with live process and machine performance, current scene/documents, loaded skills, and reusable agent routes.",
+            vec![path_param(
+                "instance_id",
+                "Full instance UUID, instance_short, or unique UUID prefix.",
+            )],
+            json_response_ref("GatewayInstance"),
         ),
     );
     paths.insert(

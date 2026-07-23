@@ -13,10 +13,10 @@ use super::handlers::{
     handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
     handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
     handle_v1_dcc_instance_stop, handle_v1_describe, handle_v1_describe_path, handle_v1_docs,
-    handle_v1_healthz, handle_v1_instances_deregister, handle_v1_instances_heartbeat,
-    handle_v1_instances_register, handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi,
-    handle_v1_readyz, handle_v1_search, handle_v1_skills, handle_v1_unload_skill,
-    handle_v1_update_check, handle_v1_update_download,
+    handle_v1_healthz, handle_v1_instance_context, handle_v1_instances_deregister,
+    handle_v1_instances_heartbeat, handle_v1_instances_register, handle_v1_list_skills,
+    handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz, handle_v1_search, handle_v1_skills,
+    handle_v1_unload_skill, handle_v1_update_check, handle_v1_update_download,
 };
 use super::http_limits::rate_limit_middleware;
 use super::resilience::gateway_limits;
@@ -35,6 +35,7 @@ use super::state::GatewayState;
 ///
 /// Dynamic-capability REST API (#654, introduced by #657):
 /// - `GET  /v1/instances` — same payload as `/instances`
+/// - `GET  /v1/instances/{instance_id}/context` — live performance, scene, and loaded skills
 /// - `POST /v1/instances/register` — register a remote DCC instance by MCP URL
 /// - `POST /v1/instances/heartbeat` — refresh a remote registration TTL
 /// - `POST /v1/instances/deregister` — remove a remote registration
@@ -133,6 +134,10 @@ fn build_base_router(state: GatewayState) -> Router {
         .route("/gateway/yield", routing::post(handle_gateway_yield))
         // ── #654 dynamic-capability REST API ─────────────────────────
         .route("/v1/instances", routing::get(handle_instances))
+        .route(
+            "/v1/instances/{instance_id}/context",
+            routing::get(handle_v1_instance_context),
+        )
         .route(
             "/v1/instances/register",
             routing::post(handle_v1_instances_register),

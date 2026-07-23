@@ -264,6 +264,26 @@ pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoRespon
     }))
 }
 
+/// `GET /v1/instances/{instance_id}/context` — live target context for agents.
+pub async fn handle_v1_instance_context(
+    State(gs): State<GatewayState>,
+    Path(instance_id): Path<String>,
+) -> Response {
+    let registry = gs.registry.read().await;
+    let entry = match gs.resolve_instance(&registry, Some(&instance_id), None) {
+        Ok(entry) => entry,
+        Err(error) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"kind": "instance-not-found", "message": error.to_string()})),
+            )
+                .into_response();
+        }
+    };
+    drop(registry);
+    Json(crate::gateway::instance_context::build_payload(&gs, entry).await).into_response()
+}
+
 // ── REST endpoints ────────────────────────────────────────────────────────
 
 /// `GET /v1/healthz` — REST liveness probe compatible with dcc-mcp-skill-rest.
