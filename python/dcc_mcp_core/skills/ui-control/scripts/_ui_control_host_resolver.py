@@ -392,10 +392,8 @@ def _downloaded_host(version: str) -> Path:
 def resolve_ui_control_host() -> Path:
     """Return an exact-version Host from trusted env configuration or GitHub Release."""
     version = _package_version()
-    if HOST_ENV in os.environ:
-        configured = os.environ[HOST_ENV].strip()
-        if not configured:
-            raise HostResolutionError(f"{HOST_ENV} must name an absolute Host executable.")
+    configured = os.environ.get(HOST_ENV, "").strip()
+    if configured:
         try:
             candidate = Path(configured)
         except (OSError, ValueError):

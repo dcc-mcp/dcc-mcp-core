@@ -324,7 +324,7 @@ def test_environment_host_requires_the_exact_client_version(tmp_path: Path, monk
         resolver.resolve_ui_control_host()
 
 
-@pytest.mark.parametrize("configured", ["", "relative\\dcc-mcp-ui-control-host.exe"])
+@pytest.mark.parametrize("configured", ["relative\\dcc-mcp-ui-control-host.exe"])
 def test_invalid_environment_path_never_downloads(
     configured: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -336,6 +336,22 @@ def test_invalid_environment_path_never_downloads(
 
     with pytest.raises(resolver.HostResolutionError, match=r"must (name an absolute|be an absolute)"):
         resolver.resolve_ui_control_host()
+
+
+@pytest.mark.parametrize("configured", ["", "  "])
+def test_blank_environment_uses_the_release_download_route(
+    configured: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = _load_resolver()
+    expected = tmp_path / "downloaded-host.exe"
+    monkeypatch.setenv(resolver.HOST_ENV, configured)
+    monkeypatch.setattr(resolver, "_package_version", lambda: VERSION)
+    monkeypatch.setattr(resolver, "_downloaded_host", lambda version: expected if version == VERSION else None)
+    monkeypatch.setattr(resolver, "_validate_host_file", lambda *_args: pytest.fail("blank env is not an override"))
+
+    assert resolver.resolve_ui_control_host() == expected
 
 
 def test_no_environment_has_only_the_release_download_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
