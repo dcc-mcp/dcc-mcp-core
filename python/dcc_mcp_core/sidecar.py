@@ -207,7 +207,7 @@ class SidecarActionDispatcher:
         *,
         action: str,
         request_id: str | None,
-    ) -> str | None | dict[str, Any]:
+    ) -> str | dict[str, Any] | None:
         for key in ("script_path", "source_file"):
             raw = payload.get(key)
             if raw is None:
