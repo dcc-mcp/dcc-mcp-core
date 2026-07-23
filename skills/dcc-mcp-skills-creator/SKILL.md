@@ -13,7 +13,7 @@ metadata:
     version: "0.19.64"
     layer: infrastructure
     compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
-    search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
+    search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy, long-running main-thread tools"
     tools: tools.yaml
     prompts: prompts.yaml
     skill-reference-docs:
@@ -146,6 +146,40 @@ Generated `tools.yaml` entries follow the modern contract:
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
 - `call_examples`: optional list of ready-to-copy argument payloads. Each entry has `arguments` (JSON object matching `input_schema.properties`) and an optional `note`. Surfaced in describe responses at `metadata.dcc.call_examples` so agents can construct correct arguments on the first attempt.
+
+### Long-Running Main-Affinity Tools
+
+`execution: async` changes the job lifecycle; it does not make one monolithic
+host call interruptible. For long scene mutations:
+
+```yaml
+execution: async
+affinity: main
+enforce_thread_affinity: true
+annotations:
+  deferred_hint: true
+```
+
+When the adapter supports `HostUiDispatcherBase.submit_chunked_runner()`,
+define bounded steps with the shared helper:
+
+```python
+from dcc_mcp_core import chunked_job
+
+@chunked_job(total=100)
+def build_bake_steps():
+    for frame in range(100):
+        yield lambda frame=frame: bake_one_frame(frame)
+```
+
+The adapter-owned handler must submit the returned runner to the shared host
+pump. A declarative script returning `ChunkedRunner` is not automatically
+scheduled. Do not create a skill-local timer, thread, pump, or job registry.
+Keep each yielded callable bounded, return a string when a progress message is
+useful, and let cancellation become terminal only after a runner checkpoint.
+If the adapter does not expose the shared chunked path, document that the tool
+is monolithic and request an adapter/core integration instead of claiming
+mid-call interruption.
 
 ### Computer Use Fallback Contract
 
