@@ -1247,9 +1247,11 @@ class TestClawhubSync:
         assert steps["Set up Rust"]["uses"] == "dtolnay/rust-toolchain@stable"
         assert "cargo-clippy" in steps["Remove pre-installed Rust component shims"]["run"]
         assert dry_run["run"] == "python scripts/clawhub_sync.py --dry-run"
-        assert "github.event_name == 'pull_request'" in dry_run["if"]
+        assert dry_run["if"] == "${{ !inputs.publish }}"
         assert publish["run"] == "python scripts/clawhub_sync.py"
-        assert "github.event_name == 'workflow_call' && inputs.publish" in publish["if"]
+        assert publish["if"] == "inputs.publish"
+        assert steps["Require ClawHub token"]["if"] == "inputs.publish"
+        assert steps["Login to ClawHub"]["if"] == "inputs.publish"
 
         release = yaml_loads(release_workflow)
         release_job = release["jobs"]["publish-clawhub-skills"]
