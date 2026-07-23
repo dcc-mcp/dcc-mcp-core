@@ -25,6 +25,13 @@ SYNC_SCRIPT = REPO_ROOT / "scripts" / "clawhub_sync.py"
 README = REPO_ROOT / "README.md"
 
 
+def manifest_entries() -> list[dict[str, str]]:
+    """Return the official ClawHub Skill entries."""
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    assert set(manifest) == {"skills"}
+    return manifest["skills"]
+
+
 def load_sync_module():
     """Load clawhub_sync.py as an importable module for focused unit tests."""
     spec = importlib.util.spec_from_file_location("clawhub_sync_under_test", SYNC_SCRIPT)
@@ -37,7 +44,7 @@ def load_sync_module():
 
 class TestClawhubSync:
     def test_manifest_lists_clawhub_skills(self) -> None:
-        entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        entries = manifest_entries()
         slugs = {e["slug"] for e in entries}
         assert "dcc-mcp" in slugs
         assert "dcc-mcp-skills-creator" in slugs
@@ -46,7 +53,7 @@ class TestClawhubSync:
         assert all(re.fullmatch(r"\d+\.\d+\.\d+", entry["version"]) for entry in entries)
 
     def test_published_skills_include_codex_interface_metadata(self) -> None:
-        entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        entries = manifest_entries()
         for entry in entries:
             metadata_path = REPO_ROOT / entry["path"] / "agents" / "openai.yaml"
             assert metadata_path.is_file(), metadata_path
@@ -83,7 +90,7 @@ class TestClawhubSync:
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
 
         monkeypatch.setattr(sync.subprocess, "run", fake_run)
-        entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        entries = manifest_entries()
         for entry in entries:
             assert sync.publish_one(entry, dry_run=True, cli=sync.DEFAULT_CLI) == 0
 
@@ -1200,14 +1207,14 @@ class TestClawhubSync:
         assert len(calls) == 1
 
     def test_clawhub_skill_versions_follow_independent_manifest(self) -> None:
-        entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        entries = manifest_entries()
         for entry in entries:
             meta = parse_skill_md(str(REPO_ROOT / entry["path"]))
             assert meta is not None
             assert meta.version == entry["version"]
 
     def test_release_please_updates_all_clawhub_skill_versions(self) -> None:
-        entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        entries = manifest_entries()
         config = json.loads(RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))
         extra_files = config["packages"]["."]["extra-files"]
         generic_paths = {item["path"] for item in extra_files if item.get("type") == "generic"}
@@ -1218,7 +1225,7 @@ class TestClawhubSync:
         }
         release_version = json.loads((REPO_ROOT / ".release-please-manifest.json").read_text(encoding="utf-8"))["."]
 
-        assert manifest_jsonpaths == {"$[*].version"}
+        assert manifest_jsonpaths == {"$.skills[*].version"}
         for entry in entries:
             skill_path = REPO_ROOT / entry["path"] / "SKILL.md"
             assert f"{entry['path']}/SKILL.md" in generic_paths
