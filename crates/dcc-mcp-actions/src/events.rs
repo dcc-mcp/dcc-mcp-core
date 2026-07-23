@@ -66,6 +66,7 @@ pub struct EventBus {
     /// pure-Rust crates like the gateway can subscribe regardless of the
     /// `python-bindings` feature).
     native_subscribers: Arc<DashMap<String, Vec<(SubscriberId, NativeEventCallback)>>>,
+    #[allow(dead_code)]
     native_before_subscribers: Arc<DashMap<String, Vec<(SubscriberId, NativeBeforeCallback)>>>,
 }
 

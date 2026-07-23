@@ -163,9 +163,9 @@ fn session_color(session_id: &str) -> COLORREF {
 
 /// Derive a lighter glow color from an accent color by blending with white.
 fn glow_from_accent(accent: COLORREF) -> COLORREF {
-    let r = ((accent.0 & 0xFF) as u32 + 102).min(255);
-    let g = (((accent.0 >> 8) & 0xFF) as u32 + 102).min(255);
-    let b = (((accent.0 >> 16) & 0xFF) as u32 + 102).min(255);
+    let r = ((accent.0 & 0xFF) + 102).min(255);
+    let g = (((accent.0 >> 8) & 0xFF) + 102).min(255);
+    let b = (((accent.0 >> 16) & 0xFF) + 102).min(255);
     COLORREF((b << 16) | (g << 8) | r)
 }
 
@@ -1594,10 +1594,10 @@ fn run_banner(
             Err(error) => return Err(error),
         };
         // Poll for new last-action points from the input thread
-        if let Ok(mut point) = last_action_point.lock() {
-            if let Some((screen_x, screen_y, _timestamp)) = point.take() {
-                overlay.record_last_action(screen_x, screen_y);
-            }
+        if let Ok(mut point) = last_action_point.lock()
+            && let Some((screen_x, screen_y, _timestamp)) = point.take()
+        {
+            overlay.record_last_action(screen_x, screen_y);
         }
         overlay.reposition(target, &rect)?;
         if !signals.visible.load(Ordering::Acquire) {

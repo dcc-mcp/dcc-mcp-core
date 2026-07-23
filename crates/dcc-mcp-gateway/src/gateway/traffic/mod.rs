@@ -52,6 +52,7 @@ pub struct TrafficCapture {
     filter: TrafficFilter,
     redactor: TrafficRedactor,
     next_capture_id: AtomicU64,
+    #[allow(dead_code)]
     next_subscriber_id: AtomicU64,
     redacted_subscribers: Mutex<HashMap<u64, RedactedFrameCallback>>,
     decisions: Mutex<VecDeque<TrafficCaptureDecision>>,
