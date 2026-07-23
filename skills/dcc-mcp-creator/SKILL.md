@@ -91,6 +91,11 @@ does not replace a running server binary.
      `ComputerUseSession` or add adapter-local screenshot/`SendInput` wrappers.
      Keep `ui_control__snapshot` and `ui_control__act` in the same long-lived adapter
      process so one thin named-pipe client retains the opaque host capability.
+     Preserve `capture_provenance` when snapshots or recordings become
+     evidence. Native Windows pixels require
+     `backend=windows-ui-control-host` and `pixels_captured=true`; use one
+     logical UI Control `session_id` plus one stable gateway
+     `agent_context.session_id` for attributable acceptance runs.
      The per-logon-session host owns the screenshot/UIA observations, visible
      banner, Esc stop token, input owner, confirmation, and native input.
      `ui-control` declares `requires_in_process: true` while keeping

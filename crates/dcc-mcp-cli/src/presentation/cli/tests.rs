@@ -417,6 +417,16 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
                 "width": 1280,
                 "height": 720
             },
+            "capture_provenance": {
+                "tool": "ui_control__snapshot",
+                "backend": "windows-ui-control-host",
+                "session_id": "fab",
+                "snapshot_id": "snapshot-7",
+                "pixels_captured": true,
+                "width": 1280,
+                "height": 720,
+                "downscaled": false
+            },
             "policy": {"allow_raw_coordinates": true},
             "audit": {"coordinates": [1, 2]},
             "__rich__": {
@@ -444,6 +454,11 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
     assert_eq!(compact["snapshot_id"], "snapshot-7");
     assert_eq!(compact["snapshot"]["node_count"], 501);
     assert_eq!(compact["observation"]["observation_id"], "observation-7");
+    assert_eq!(
+        compact["capture_provenance"]["backend"],
+        "windows-ui-control-host"
+    );
+    assert_eq!(compact["capture_provenance"]["pixels_captured"], true);
     assert_eq!(
         compact["__rich__"]["artifact_path"],
         artifact.display().to_string()

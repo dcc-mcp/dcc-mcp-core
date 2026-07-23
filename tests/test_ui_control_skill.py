@@ -42,6 +42,15 @@ def _load_windows_uia_module() -> Any:
     return module
 
 
+def _load_entrypoint_module() -> Any:
+    spec = importlib.util.spec_from_file_location("_test_ui_control_entrypoint", _SCRIPTS / "_entrypoint.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _run_tool(
     name: str,
     payload: dict[str, Any],
@@ -262,6 +271,13 @@ def test_ui_control_entrypoints_accept_inprocess_parameters(
         {"session_id": "inprocess"},
     )
     snapshot_id = snapshot["context"]["snapshot_id"]
+    assert snapshot["context"]["capture_provenance"] == {
+        "tool": "ui_control__snapshot",
+        "backend": "mock",
+        "session_id": "inprocess",
+        "pixels_captured": False,
+        "snapshot_id": snapshot_id,
+    }
 
     found = run_skill_script(
         str(_SCRIPTS / "find.py"),
@@ -280,6 +296,8 @@ def test_ui_control_entrypoints_accept_inprocess_parameters(
         },
     )
     assert changed["success"] is True
+    changed_snapshot_id = changed["context"]["snapshot_id"]
+    assert changed_snapshot_id != snapshot_id
 
     waited = run_skill_script(
         str(_SCRIPTS / "wait_for.py"),
@@ -314,7 +332,102 @@ def test_ui_control_entrypoints_accept_inprocess_parameters(
     ]
     assert all(row["event"] == "ui_control_operation" for row in audit_rows)
     assert all(row["dcc_type"] == "unreal" for row in audit_rows)
+    assert audit_rows[0]["snapshot_id"] == snapshot_id
+    assert audit_rows[0]["backend"] == "mock"
+    assert audit_rows[0]["pixels_captured"] is False
+    assert audit_rows[2]["snapshot_id"] == changed_snapshot_id
     assert "Signal Forge" not in log_text
+
+
+def test_ui_control_entrypoint_reports_real_snapshot_provenance(monkeypatch: Any) -> None:
+    entrypoint = _load_entrypoint_module()
+
+    class Backend:
+        @staticmethod
+        def snapshot_tool(_params: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "success": True,
+                "message": "Captured isolated Windows UI Control snapshot.",
+                "context": {
+                    "session_id": "evidence",
+                    "snapshot_id": "accessibility:1",
+                    "snapshot": {
+                        "metadata": {
+                            "ui_control": {"backend": "windows-ui-control-host"},
+                        }
+                    },
+                    "observation": {
+                        "observation_id": "obs-1",
+                        "process_id": 1234,
+                        "window_handle": 500,
+                        "width": 1600,
+                        "height": 900,
+                        "source_rect": [20, 30, 1920, 1080],
+                        "capture_backend": "windows-graphics-capture",
+                    },
+                    "__rich__": {"kind": "image", "data": "png"},
+                },
+            }
+
+        @staticmethod
+        def record_clip_tool(_params: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "success": True,
+                "message": "Recorded an exact-window JPEG sequence.",
+                "context": {
+                    "session_id": "evidence",
+                    "target": {"process_id": 1234, "window_handle": 500},
+                    "artifact": {
+                        "recording_id": "clip-1",
+                        "frame_count": 90,
+                        "width": 1280,
+                        "height": 720,
+                        "manifest_sha256": "a" * 64,
+                    },
+                },
+            }
+
+    monkeypatch.setattr(entrypoint, "_load_backend", lambda: Backend)
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "windows-uia")
+    monkeypatch.setenv("DCC_MCP_DISABLE_FILE_LOGGING", "1")
+
+    result = entrypoint.snapshot_tool({"session_id": "evidence"})
+
+    provenance = result["context"]["capture_provenance"]
+    assert provenance == {
+        "tool": "ui_control__snapshot",
+        "backend": "windows-ui-control-host",
+        "session_id": "evidence",
+        "snapshot_id": "accessibility:1",
+        "observation_id": "obs-1",
+        "process_id": 1234,
+        "window_handle": 500,
+        "capture_backend": "windows-graphics-capture",
+        "pixels_captured": True,
+        "width": 1600,
+        "height": 900,
+        "source_width": 1920,
+        "source_height": 1080,
+        "downscaled": True,
+    }
+    assert "windows-ui-control-host" in result["message"]
+    assert "1600x900" in result["message"]
+    assert "downscaled from 1920x1080" in result["message"]
+
+    clip = entrypoint.record_clip_tool({"session_id": "evidence"})
+    assert clip["context"]["capture_provenance"] == {
+        "tool": "ui_control__record_clip",
+        "backend": "windows-ui-control-host",
+        "session_id": "evidence",
+        "pixels_captured": True,
+        "process_id": 1234,
+        "window_handle": 500,
+        "recording_id": "clip-1",
+        "frame_count": 90,
+        "width": 1280,
+        "height": 720,
+        "manifest_sha256": "a" * 64,
+    }
 
 
 def test_ui_control_subprocess_forwards_action_to_windows_backend_without_host(tmp_path: Path) -> None:
