@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.71](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.70...v0.19.71) (2026-07-23)
+
+
+### Features
+
+* add UI Control capture provenance ([d8a6611](https://github.com/dcc-mcp/dcc-mcp-core/commit/d8a661177dbc8921d9d043bef57d014c38457222))
+
+
+### Documentation
+
+* explain UI Control evidence workflow ([2907383](https://github.com/dcc-mcp/dcc-mcp-core/commit/29073839981fa548a5e95e89478409eea94a7e5e))
+
 ## [0.19.70](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.69...v0.19.70) (2026-07-23)
 
 
