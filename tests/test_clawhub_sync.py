@@ -1230,10 +1230,10 @@ class TestClawhubSync:
         release_workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         assert workflow["env"]["CLAWHUB_CLI_PACKAGE"] == "clawhub@0.23.1"
         assert workflow["on"]["workflow_call"]["secrets"]["CLAWHUB_TOKEN"]["required"] is False
-        for event in ("pull_request", "push"):
-            assert workflow["on"][event]["branches"] == ["main"]
-            assert ".github/clawhub-skills.json" in workflow["on"][event]["paths"]
-            assert "skills/**" in workflow["on"][event]["paths"]
+        assert workflow["on"]["pull_request"]["branches"] == ["main"]
+        assert ".github/clawhub-skills.json" in workflow["on"]["pull_request"]["paths"]
+        assert "skills/**" in workflow["on"]["pull_request"]["paths"]
+        assert "push" not in workflow["on"]
         steps = {step["name"]: step for step in workflow["jobs"]["sync-skills"]["steps"] if "name" in step}
         dry_run = steps["Dry-run ClawHub publish"]
         publish = steps["Publish skills to ClawHub"]
@@ -1242,5 +1242,15 @@ class TestClawhubSync:
         assert dry_run["run"] == "python scripts/clawhub_sync.py --dry-run"
         assert "github.event_name == 'pull_request'" in dry_run["if"]
         assert publish["run"] == "python scripts/clawhub_sync.py"
-        assert "github.event_name == 'push' && github.ref == 'refs/heads/main'" in publish["if"]
-        assert "publish-clawhub-skills:" not in release_workflow
+        assert "github.event_name == 'workflow_call' && inputs.publish" in publish["if"]
+
+        release = yaml_loads(release_workflow)
+        release_job = release["jobs"]["publish-clawhub-skills"]
+        assert release_job["needs"] == ["release-please"]
+        assert release_job["if"] == "needs.release-please.outputs.release_created == 'true'"
+        assert release_job["uses"] == "./.github/workflows/clawhub.yml"
+        assert release_job["with"] == {
+            "checkout-ref": "${{ needs.release-please.outputs.tag_name }}",
+            "publish": True,
+        }
+        assert release_job["secrets"] == "inherit"
