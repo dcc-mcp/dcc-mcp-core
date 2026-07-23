@@ -61,13 +61,13 @@ async fn run_on_main_thread(
     let json_str = if let Some(cancellation) = cancellation {
         let cancel_token = cancellation.cancel_token().clone();
         let response = executor.submit_deferred(&tool_name, cancel_token.clone(), task);
-        tokio::select! {
-            outcome = response => outcome
-                .map_err(|_| DispatchError::HandlerError("CANCELLED".to_string()))?,
-            _ = cancel_token.cancelled() => {
-                return Err(DispatchError::HandlerError("CANCELLED".to_string()));
-            }
+        let outcome = response
+            .await
+            .map_err(|_| DispatchError::HandlerError("CANCELLED".to_string()))?;
+        if cancel_token.is_cancelled() {
+            return Err(DispatchError::HandlerError("CANCELLED".to_string()));
         }
+        outcome
     } else {
         executor
             .execute(task)
@@ -126,18 +126,13 @@ async fn run_on_worker(request: WorkerDispatch) -> Result<DispatchResult, Dispat
             })
         })
     });
-    if let Some(cancel_token) = cancel_token {
-        tokio::select! {
-            outcome = dispatch_fut => outcome
-                .map_err(|err| DispatchError::HandlerError(err.to_string()))?,
-            _ = cancel_token.cancelled() => {
-                Err(DispatchError::HandlerError("CANCELLED".to_string()))
-            }
-        }
+    let outcome = dispatch_fut
+        .await
+        .map_err(|err| DispatchError::HandlerError(err.to_string()))?;
+    if cancel_token.is_some_and(|token| token.is_cancelled()) {
+        Err(DispatchError::HandlerError("CANCELLED".to_string()))
     } else {
-        dispatch_fut
-            .await
-            .map_err(|err| DispatchError::HandlerError(err.to_string()))?
+        outcome
     }
 }
 

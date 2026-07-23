@@ -17,7 +17,7 @@ metadata:
     search-hint: >-
       create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge,
       dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal,
-      ZBrush, Houdini, Maya
+      ZBrush, Houdini, Maya, chunked main-thread jobs, cooperative cancellation
     tags: "adapter-development, host-runtime, dispatcher, gateway, nuke, blender, 3dsmax, unreal, zbrush"
     skill-reference-docs:
       - "references/*.md"
@@ -162,6 +162,40 @@ does not replace a running server binary.
     database, or a replay authority flag. Generated workflows re-resolve
     current tools and schemas; semantic UI replay resolves fresh control ids;
     raw/visual fallback requires exact-window calibration and drift guards.
+
+## Chunked Main-Thread Jobs
+
+Use the shared chunked path when a main-affinity operation cannot finish within
+one host UI tick. The adapter owns scheduling; skill code only defines bounded
+steps:
+
+```python
+from dcc_mcp_core import chunked_job, current_job_id
+
+@chunked_job(total=100)
+def bake_frames():
+    for frame in range(100):
+        yield lambda frame=frame: bake_one_frame(frame)
+
+dispatcher.submit_chunked_runner(
+    "bake-frames",
+    bake_frames(),
+    job_id=current_job_id(),
+)
+```
+
+- Yield one bounded host-API callable per step. A returned string becomes the
+  progress message.
+- `submit_chunked_runner()` advances at most one step per host pump tick, so
+  unrelated UI work can run between steps.
+- `cancel(request_id)` requests cancellation. The runner publishes
+  `cancelled` only after the next checkpoint observes it; a running native DCC
+  call or monolithic callback is not pre-empted.
+- Do not add adapter-local generator pumps, timer loops, worker threads, or a
+  second job registry.
+- Test pending cancellation, cancellation during a step, monotonic progress,
+  failure, exactly one terminal result, unrelated pump work, and at least two
+  host labels.
 
 ## Example: New Nuke Adapter
 

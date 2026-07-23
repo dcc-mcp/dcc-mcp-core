@@ -34,6 +34,7 @@ from typing import Tuple
 from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import reset_current_job
 from dcc_mcp_core.cancellation import set_current_job
+from dcc_mcp_core.chunked_runner import ChunkedRunner
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,22 @@ class HostUiJobEntry:
             return str(exc)
 
 
+class _ChunkedSubmission:
+    __slots__ = ("job_id", "on_complete", "request_id", "runner")
+
+    def __init__(
+        self,
+        request_id: str,
+        runner: ChunkedRunner,
+        job_id: Optional[str],
+        on_complete: Optional[Callable[[Dict[str, Any]], None]],
+    ) -> None:
+        self.request_id = request_id
+        self.runner = runner
+        self.job_id = job_id
+        self.on_complete = on_complete
+
+
 class HostUiDispatcherBase:
     """Base class for interactive DCC UI-thread dispatchers.
 
@@ -223,9 +240,11 @@ class HostUiDispatcherBase:
         label: Optional[str] = None,
     ) -> None:
         self._main_queue: Deque[HostUiJobEntry] = deque()
+        self._chunked_queue: Deque[_ChunkedSubmission] = deque()
         self._lock = threading.Lock()
         self._cancelled: Set[str] = set()
         self._active: Dict[str, HostUiJobEntry] = {}
+        self._active_chunked: Dict[str, _ChunkedSubmission] = {}
         self._http_dispatcher: Optional[Any] = None
         self._host_thread_id: Optional[int] = None
         self._shutdown = False
@@ -375,6 +394,36 @@ class HostUiDispatcherBase:
             "error": None,
         }
 
+    def submit_chunked_runner(
+        self,
+        request_id: str,
+        runner: ChunkedRunner,
+        *,
+        job_id: Optional[str] = None,
+        on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, Any]:
+        """Queue a runner that advances at most once per host pump tick."""
+        if not isinstance(runner, ChunkedRunner):
+            raise TypeError("runner must be a ChunkedRunner")
+        with self._lock:
+            if self._shutdown:
+                return {
+                    "request_id": request_id,
+                    "job_id": job_id,
+                    "status": "interrupted",
+                    "success": False,
+                    "error": DispatcherErrorCode.INTERRUPTED,
+                }
+            self._chunked_queue.append(_ChunkedSubmission(request_id, runner, job_id, on_complete))
+        self.poke_host_pump()
+        return {
+            "request_id": request_id,
+            "job_id": job_id,
+            "status": "pending",
+            "success": True,
+            "error": None,
+        }
+
     def attach_http_dispatcher(self, dispatcher: Any) -> None:
         """Attach the native queue used by HTTP main-affinity routing.
 
@@ -393,6 +442,14 @@ class HostUiDispatcherBase:
 
     def cancel(self, request_id: str) -> bool:
         with self._lock:
+            for submission in self._chunked_queue:
+                if submission.request_id == request_id:
+                    submission.runner.cancel()
+                    return True
+            active_chunked = self._active_chunked.get(request_id)
+            if active_chunked is not None:
+                active_chunked.runner.cancel()
+                return True
             self._cancelled.add(request_id)
             for job in self._main_queue:
                 if job.request_id == request_id:
@@ -422,12 +479,12 @@ class HostUiDispatcherBase:
     def queue_size(self) -> int:
         """Return the number of queued main-thread jobs."""
         with self._lock:
-            return len(self._main_queue)
+            return len(self._main_queue) + len(self._chunked_queue)
 
     def active_count(self) -> int:
         """Return the number of currently executing main-thread jobs."""
         with self._lock:
-            return len(self._active)
+            return len(self._active) + len(self._active_chunked)
 
     def has_pending(self) -> bool:
         return self.pending_count() > 0
@@ -436,6 +493,8 @@ class HostUiDispatcherBase:
         signalled = 0
         with self._lock:
             self._shutdown = True
+            chunked = list(self._chunked_queue)
+            self._chunked_queue.clear()
             while self._main_queue:
                 job = self._main_queue.popleft()
                 job.cancel()
@@ -452,6 +511,14 @@ class HostUiDispatcherBase:
             for job in list(self._active.values()):
                 job.cancel()
                 signalled += 1
+            for submission in list(self._active_chunked.values()):
+                submission.runner.cancel()
+                signalled += 1
+        for submission in chunked:
+            submission.runner.cancel()
+            submission.runner.step()
+            self._complete_chunked_submission(submission)
+            signalled += 1
         if signalled:
             logger.info(
                 "%s.shutdown: signalled %d job(s) with reason=%r",
@@ -485,6 +552,9 @@ class HostUiDispatcherBase:
         executed = 0
         start = time.monotonic()
         deadline = start + (budget_ms / 1000.0)
+
+        if time.monotonic() < deadline:
+            executed += self._drain_chunked_once()
 
         while time.monotonic() < deadline:
             http_executed = 0
@@ -598,6 +668,51 @@ class HostUiDispatcherBase:
             if self._main_queue:
                 return self._main_queue.popleft()
         return None
+
+    def _drain_chunked_once(self) -> int:
+        with self._lock:
+            if not self._chunked_queue:
+                return 0
+            submission = self._chunked_queue.popleft()
+            self._active_chunked[submission.request_id] = submission
+        try:
+            has_more = submission.runner.step()
+        finally:
+            with self._lock:
+                self._active_chunked.pop(submission.request_id, None)
+        if has_more:
+            with self._lock:
+                self._chunked_queue.append(submission)
+        else:
+            self._complete_chunked_submission(submission)
+        return 1
+
+    def _complete_chunked_submission(self, submission: _ChunkedSubmission) -> None:
+        outcome = submission.runner.outcome
+        if outcome is None or submission.on_complete is None:
+            return
+        result = host_ui_outcome(
+            submission.request_id,
+            "main",
+            success=outcome.status == "completed",
+            output={
+                "current": outcome.progress.completed,
+                "total": outcome.progress.total,
+                "message": outcome.progress.message,
+            },
+            error=(
+                None
+                if outcome.status == "completed"
+                else DispatcherErrorCode.CANCELLED
+                if outcome.status == "cancelled"
+                else outcome.error
+            ),
+            job_id=submission.job_id,
+        )
+        try:
+            submission.on_complete(result)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("submit_chunked_runner on_complete raised: %s", exc)
 
     def _format_exception_error(self, exc: BaseException) -> str:
         try:

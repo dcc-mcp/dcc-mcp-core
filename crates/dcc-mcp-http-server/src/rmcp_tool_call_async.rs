@@ -153,12 +153,14 @@ async fn run_async_execution_lane(
             }),
         );
 
-        tokio::select! {
-            outcome = response => match outcome {
-                Ok(json_str) => decode_dispatch_output(&json_str),
-                Err(_) => Err("CANCELLED".to_string()),
-            },
-            _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
+        let outcome = match response.await {
+            Ok(json_str) => decode_dispatch_output(&json_str),
+            Err(_) => Err("CANCELLED".to_string()),
+        };
+        if cancel_token.is_cancelled() {
+            Err("CANCELLED".to_string())
+        } else {
+            outcome
         }
     } else {
         let dispatch = dispatcher;
@@ -184,9 +186,14 @@ async fn run_async_execution_lane(
                 .map_err(|err| err.to_string())
         });
 
-        tokio::select! {
-            outcome = blocking => outcome.map_err(|err| err.to_string()).and_then(|inner| inner),
-            _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
+        let outcome = blocking
+            .await
+            .map_err(|err| err.to_string())
+            .and_then(|inner| inner);
+        if cancel_token.is_cancelled() {
+            Err("CANCELLED".to_string())
+        } else {
+            outcome
         }
     }
 }
@@ -199,6 +206,7 @@ fn spawn_async_registry_dispatch(state: &ServerState, request: AsyncExecutionReq
     tokio::spawn(async move {
         if request.cancel_token.is_cancelled() {
             tracing::debug!(job_id = %spawn_job_id, "job cancelled before execution");
+            let _ = jobs.acknowledge_cancel(&spawn_job_id);
             return;
         }
         if jobs.start(&spawn_job_id).is_none() {
@@ -223,7 +231,7 @@ fn spawn_async_registry_dispatch(state: &ServerState, request: AsyncExecutionReq
                     .map(|handle| handle.read().status)
                     .is_some_and(|status| !status.is_terminal())
                 {
-                    jobs.cancel(&spawn_job_id);
+                    let _ = jobs.acknowledge_cancel(&spawn_job_id);
                 }
             }
             Err(msg) => {

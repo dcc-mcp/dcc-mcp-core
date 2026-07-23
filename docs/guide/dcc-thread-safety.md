@@ -109,7 +109,7 @@ HTTP request (Tokio worker)
         ├─▶ executor.submit_deferred(tool_name, cancel_token, task_fn)
         │     │
         │     ├─▶ tx.reserve() races against cancel_token.cancelled()
-        │     │     └─▶ if cancelled first → job = Cancelled, task dropped
+        │     │     └─▶ if cancelled first → task dropped; runner acknowledges Cancelled
         │     │
         │     └─▶ permit.send(task) → DeferredExecutor::pending queue
         │
@@ -119,7 +119,7 @@ HTTP request (Tokio worker)
         ├─▶ task_fn checks is_cancelled() → skip if cancelled
         └─▶ run handler, send result via oneshot
         │
-      Tokio driver awaits oneshot, updates JobManager (Succeeded / Failed)
+      Tokio driver awaits oneshot, then updates JobManager terminal state
 ```
 
 Key invariants:
@@ -129,9 +129,11 @@ Key invariants:
 2. **Main-affined handler runs on the DCC main thread.** The thread ID
    of the handler closure equals the thread that called
    `poll_pending_bounded`. Any-affined handlers stay on Tokio.
-3. **Cancellation before pump drops the task.** If the caller cancels
+3. **Cancellation before pump drops the task.** If the caller requests cancellation
    the job (via `JobManager::cancel`) before the main thread pulls it,
-   the wrapper skips execution and the job ends in `Cancelled`.
+   the wrapper skips execution and the runner acknowledges `Cancelled`.
+   An active monolithic closure remains `Running` until it returns; token
+   delivery never claims that arbitrary Python or a host API call was pre-empted.
 4. **Soft fence.** `submit_deferred` logs a `tracing::warn!` if the
    deferred closure runs longer than 50 ms, surfacing candidates for
    chunking (`@chunked_job`, see [issue #332][chunked]).
@@ -209,10 +211,10 @@ do not receive reserved `_meta` arguments; call `current_job_id()` instead.
 `HostExecutionBridge` also installs a read-only probe backed by the same Rust
 cancellation token for MCP and REST jobs.
 
-- **Python `check_dcc_cancelled()`** — call between chunks. It raises
-  `CancelledError` after the client cancels the owning job. The bridge converts
-  an uncaught exception to the normal structured error envelope, while the job
-  remains `cancelled`.
+- **Python `ChunkedRunner` / `@chunked_job`** — yield bounded callables and
+  queue the runner with `HostUiDispatcherBase.submit_chunked_runner(...)`.
+  The shared dispatcher advances it once per host pump tick, reports progress
+  after acknowledged steps, and observes cancellation at the next checkpoint.
 - **Rust `current_dispatch_job_context()`** — read the server-owned job context
   inside a custom Rust handler and call `is_cancelled()` between chunks.
   `submit_deferred` also skips a task that is cancelled before the host pump
@@ -225,14 +227,14 @@ cancellation token for MCP and REST jobs.
   across ticks via the DCC's own timer primitive).
 
 ```python
-from dcc_mcp_core import check_dcc_cancelled, current_job_id
+from dcc_mcp_core import chunked_job, current_job_id
 
-def main(items):
-    job_id = current_job_id()
-    for item in items:
-        check_dcc_cancelled()
-        process_one_short_chunk(item, job_id=job_id)
-    return {"success": True}
+@chunked_job(total=100)
+def bake_frames():
+    for frame in range(100):
+        yield lambda frame=frame: bake_one_frame(frame)
+
+dispatcher.submit_chunked_runner("bake-frames", bake_frames(), job_id=current_job_id())
 ```
 
 ```rust
@@ -254,8 +256,7 @@ forward the server-owned job id and cancellation signal. Cancellation cannot
 safely pre-empt an already-running DCC-native call or an uncooperative hot
 loop; keep each main-thread chunk short and return to the host pump.
 
-Forbidden patterns inside a deferred closure (enforced by soft-fence
-warnings; will be upgraded to hard errors when `@chunked_job` lands):
+Forbidden patterns inside a deferred closure (surfaced by soft-fence warnings):
 
 - `time.sleep(n)` / `std::thread::sleep(n)` — blocks the DCC UI.
 - `threading.Thread(...).start()` that calls scene APIs — violates the
@@ -369,9 +370,8 @@ executor.poll_pending_bounded(max=8)
 A reasonable starting value is `max=8` at 60 FPS; tune down if individual
 tasks are expensive.
 
-The chunked-job decorator described in
-[issue #332 — `@chunked_job`](https://github.com/dcc-mcp/dcc-mcp-core/issues/332)
-will encode rules (1) and (2) automatically once it lands.
+Use `@chunked_job` plus `HostUiDispatcherBase.submit_chunked_runner()` to
+encode rules (1) and (2) without adapter-local queue pumping.
 
 ## Forbidden patterns
 

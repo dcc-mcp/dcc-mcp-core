@@ -69,7 +69,7 @@ fn lifecycle_timestamps_survive_progress_and_completion() {
 }
 
 #[test]
-fn cancel_before_start_marks_cancelled_and_triggers_token() {
+fn cancel_before_start_requires_runner_acknowledgement() {
     let jm = JobManager::new();
     let handle = jm.create("slow.tool");
     let id = handle.read().id.clone();
@@ -78,14 +78,13 @@ fn cancel_before_start_marks_cancelled_and_triggers_token() {
     assert!(!token.is_cancelled());
     assert_eq!(jm.cancel(&id), Some(()));
     assert!(token.is_cancelled());
+    assert_eq!(handle.read().status, JobStatus::Pending);
+    assert_eq!(jm.acknowledge_cancel(&id), Some(()));
     assert_eq!(handle.read().status, JobStatus::Cancelled);
-
-    // cannot start a cancelled job
-    assert_eq!(jm.start(&id), None);
 }
 
 #[test]
-fn cancel_during_run_marks_cancelled_and_triggers_token() {
+fn cancel_during_run_requires_runner_acknowledgement() {
     let jm = JobManager::new();
     let handle = jm.create("slow.tool");
     let id = handle.read().id.clone();
@@ -96,7 +95,48 @@ fn cancel_during_run_marks_cancelled_and_triggers_token() {
 
     assert_eq!(jm.cancel(&id), Some(()));
     assert!(token.is_cancelled());
+    assert_eq!(handle.read().status, JobStatus::Running);
+    assert_eq!(jm.acknowledge_cancel(&id), Some(()));
     assert_eq!(handle.read().status, JobStatus::Cancelled);
+}
+
+#[test]
+fn progress_rejects_regressions_and_invalid_totals() {
+    let jm = JobManager::new();
+    let handle = jm.create("progress.tool");
+    let id = handle.read().id.clone();
+    jm.start(&id).unwrap();
+    jm.update_progress(
+        &id,
+        JobProgress {
+            current: 2,
+            total: 4,
+            message: None,
+        },
+    )
+    .unwrap();
+
+    for progress in [
+        JobProgress {
+            current: 1,
+            total: 4,
+            message: None,
+        },
+        JobProgress {
+            current: 3,
+            total: 3,
+            message: None,
+        },
+        JobProgress {
+            current: 5,
+            total: 4,
+            message: None,
+        },
+    ] {
+        assert_eq!(jm.update_progress(&id, progress), None);
+    }
+    let progress = handle.read().progress.clone().unwrap();
+    assert_eq!((progress.current, progress.total), (2, 4));
 }
 
 #[test]
@@ -138,6 +178,84 @@ fn get_and_fail_missing_job_returns_none() {
     assert_eq!(jm.complete("missing", json!(null)), None);
     assert_eq!(jm.fail("missing", "err"), None);
     assert_eq!(jm.cancel("missing"), None);
+    assert_eq!(jm.acknowledge_cancel("missing"), None);
+}
+
+#[test]
+fn chunked_runner_yields_between_steps_and_updates_shared_jobs() {
+    let jobs = Arc::new(JobManager::new());
+    let pump_work = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let steps = (0..3)
+        .map(|index| {
+            Box::new(move || {
+                Ok(ChunkedStepOutput::new(
+                    json!(index),
+                    Some(format!("step {index}")),
+                ))
+            }) as ChunkedStep
+        })
+        .collect::<Vec<_>>();
+    let mut runner = ChunkedJobRunner::new(Arc::clone(&jobs), "maya.render", steps);
+    let id = runner.job_id().to_string();
+
+    let mut tick = 0;
+    while runner.tick() {
+        tick += 1;
+        pump_work.lock().push(tick);
+        let progress = jobs.get(&id).unwrap().read().progress.clone().unwrap();
+        assert_eq!(progress.current, tick);
+    }
+
+    assert_eq!(*pump_work.lock(), vec![1, 2]);
+    let job = jobs.get(&id).unwrap();
+    let job = job.read();
+    assert_eq!(job.status, JobStatus::Completed);
+    assert_eq!(job.progress.as_ref().unwrap().current, 3);
+    assert_eq!(job.result, Some(json!([0, 1, 2])));
+}
+
+#[test]
+fn chunked_runner_acknowledges_cancel_and_is_host_neutral() {
+    for label in ["houdini.cook", "photoshop.export"] {
+        let jobs = Arc::new(JobManager::new());
+        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let steps = (0..2)
+            .map(|_| {
+                let ran = Arc::clone(&ran);
+                Box::new(move || {
+                    ran.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(ChunkedStepOutput::new(json!(true), None))
+                }) as ChunkedStep
+            })
+            .collect::<Vec<_>>();
+        let mut runner = ChunkedJobRunner::new(Arc::clone(&jobs), label, steps);
+        let id = runner.job_id().to_string();
+
+        assert!(runner.tick());
+        assert!(runner.cancel());
+        assert_eq!(jobs.get(&id).unwrap().read().status, JobStatus::Running);
+        assert!(!runner.tick());
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(jobs.get(&id).unwrap().read().status, JobStatus::Cancelled);
+        assert!(!runner.tick());
+    }
+}
+
+#[test]
+fn chunked_runner_publishes_failure_once() {
+    let jobs = Arc::new(JobManager::new());
+    let steps = vec![Box::new(|| Err("generator failed".to_string())) as ChunkedStep];
+    let mut runner = ChunkedJobRunner::new(Arc::clone(&jobs), "blender.bake", steps);
+    let id = runner.job_id().to_string();
+
+    assert!(!runner.tick());
+    let updated_at = jobs.get(&id).unwrap().read().updated_at;
+    assert!(!runner.tick());
+    let job = jobs.get(&id).unwrap();
+    let job = job.read();
+    assert_eq!(job.status, JobStatus::Failed);
+    assert_eq!(job.error.as_deref(), Some("generator failed"));
+    assert_eq!(job.updated_at, updated_at);
 }
 
 #[test]

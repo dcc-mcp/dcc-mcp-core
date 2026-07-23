@@ -360,6 +360,24 @@ override only the small extension hooks they need:
   `label="3dsmax-ui"` or similar to the constructor.
 - `queue_size()` and `active_count()` expose safe read-only visibility for
   pump controllers, health checks, and adapter tests.
+- `submit_chunked_runner(request_id, runner, ...)` advances one
+  `ChunkedRunner` step per host pump tick; use it for long main-affinity jobs
+  instead of a monolithic callback or adapter-local timer loop.
+
+```python
+from dcc_mcp_core import chunked_job
+
+@chunked_job(total=10)
+def build_frames():
+    for frame in range(10):
+        yield lambda frame=frame: build_one_frame(frame)
+
+dispatcher.submit_chunked_runner("build-frames", build_frames())
+```
+
+`cancel(request_id)` only requests cancellation for a chunked runner. The
+runner publishes `cancelled` when the next pump checkpoint observes the
+request; an already-running monolithic callback remains non-preemptive.
 
 3ds Max migration note: replace local job-entry / queue / shutdown code with a
 `HostUiDispatcherBase` subclass, move .NET timer or rollout tick glue into a
