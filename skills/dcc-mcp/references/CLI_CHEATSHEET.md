@@ -78,6 +78,34 @@ their canonical `dcc_type`, adapters, version/source data when available, and
 `catalog_install_available`. Unknown/custom DCC identifiers remain valid at the
 core boundary even when no catalog install plan exists.
 
+### Job strategy and recovery
+
+Read `metadata.dcc.jobStrategy` from `search` or `describe`; do not infer it
+from prompt length:
+
+- absent or `monolithic` is one indivisible host call and is suitable only for
+  expected-short work.
+- `chunked` advances bounded adapter-authored steps on host event-loop ticks.
+  Call it once, preserve the returned core `job_id`, and poll status.
+- `isolated` returns an adapter operation ID with a typed status tool. Use it
+  for long native work that must remain queryable after adapter restart.
+
+Never split arbitrary Python or native DCC code. Automatic selection means
+choosing among tools whose authors declared these contracts.
+
+A transport timeout does not prove cancellation or failure. Preserve every
+known operation ID, do not replay the mutation, and re-run `list` with bounded
+backoff. A live-owned `unreachable` registry row is recoverable and must not be
+treated as deletion. When the same instance becomes ready, query the core job.
+For an `isolated` operation, rediscover its typed status tool and query the
+operation ID even after adapter restart.
+
+If owner death or remote TTL expiry removes the row, wait for an explicitly
+authorized DCC restart, then use the replacement instance and fresh
+`search`/`describe` results. Old instance IDs, slugs, direct URLs, and core jobs
+must not be reused; active core jobs become `interrupted`. Never silently replay
+a non-idempotent mutation.
+
 ## Post-task evidence
 
 After acceptance, query only the task scope:

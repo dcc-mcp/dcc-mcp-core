@@ -279,8 +279,7 @@ remove the old package to avoid duplicate intent routing.
 | Remote gateway unreachable | Stop; explain; ask user permission before troubleshooting |
 | User has not agreed to setup | Do not install packages, edit env files, launch GUI apps, or write configs |
 | User approved setup | Follow [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md) |
-| Transport timeout or temporary `unreachable` | Preserve any `job_id`; do not replay the mutation. Re-run `list`, then query the original core or durable job with bounded backoff |
-| After DCC crash/restart | Re-run `list` until the replacement is ready, then `search` and `describe` again; old instance IDs, slugs, and direct URLs are invalid |
+| Timeout, temporary `unreachable`, or DCC restart | Preserve operation IDs and follow the recovery contract in [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md); never blindly replay a mutation or reuse stale slugs |
 
 ---
 
@@ -367,24 +366,6 @@ Read `tool.inputSchema` and safety annotations before calling.
 
 ---
 
-## Step 3.5 — Select the Declared Job Strategy
-
-Read `metadata.dcc.jobStrategy` from search/describe instead of guessing from
-the prompt length:
-
-- absent or `monolithic`: one indivisible host call. Use only for expected-short
-  work; a timeout does not make native code interruptible.
-- `chunked`: the adapter advances bounded steps on host event-loop ticks. Call
-  once, preserve the returned core `job_id`, and poll status.
-- `isolated`: the tool returns its own durable operation ID and status tool.
-  Use it for long native cooks/renders that must remain queryable after an
-  adapter transport failure or restart.
-
-Never split arbitrary Python or native DCC code automatically. Automatic
-selection means choosing among tools whose authors declared these contracts.
-
----
-
 ## Step 4 — Call a Tool
 
 ```bash
@@ -410,16 +391,6 @@ For `execution: async`, REST returns `output.status="pending"` plus `output.job_
 do not retry HTTP 202. Poll `<same-instance>.jobs_get_status` through the gateway,
 never the adapter's private URL. Compact `ui-control` preserves `job_id`, `status`,
 `parent_job_id`, and `progress_token` for that canonical polling path.
-
-If the call transport times out, keep the known operation ID and assume the
-mutation may still be running. Re-run `list`; a live-owned `unreachable` row is
-recoverable and must not be treated as deletion. Retry discovery/status with
-bounded backoff. When the same instance returns, query `jobs_get_status`. If a
-durable `isolated` tool was used, rediscover its typed status tool and query its
-operation ID even after adapter restart. If owner death/TTL expiry removes the
-row, wait for an explicitly authorized DCC restart, then use the new instance
-and fresh slugs. Core jobs that were active at process death become
-`interrupted`; never silently replay a non-idempotent mutation.
 
 Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside
 the `--json` object. Do not pass them as top-level CLI flags unless the CLI adds

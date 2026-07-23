@@ -10,7 +10,7 @@ allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.19.64"
+    version: "0.19.69"
     layer: infrastructure
     compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy, long-running main-thread tools"
