@@ -83,6 +83,14 @@ async function mockAdminApi(page: Page) {
         p95_ms: 450,
         p99_ms: 890,
       };
+    } else if (path === '/skills') {
+      body = {
+        skills: [],
+        total: 50,
+        loaded: 40,
+        unloaded: 10,
+        action_count: 180,
+      };
     } else if (path === '/reliability') {
       body = {
         generated_at: new Date().toISOString(),
@@ -142,6 +150,17 @@ async function mockAdminApi(page: Page) {
           p50_latency_ms: 120,
         },
       };
+    } else if (path === '/artifacts') {
+      body = {
+        total: 1,
+        artifacts: [{
+          uri: 'artefact://sha256/abc',
+          display_name: 'ui-control-snapshot-evidence-accessibility-1.png',
+          session_id: 'evidence',
+          verification: { status: 'verified' },
+        }],
+        summary: { verified: 1, unverified: 0, failed: 0 },
+      };
     }
 
     await route.fulfill({ status: 200, json: body });
@@ -171,8 +190,7 @@ test.describe('Reliability Panel', () => {
   test('shows capability funnel metrics', async ({ page }) => {
     const panel = page.locator('section[data-panel="reliability"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    // Success rate should be displayed
-    await expect(panel).toContainText('98.0');
+    await expect(panel).toContainText('99.7');
   });
 
   test('shows stability data from /api/reliability', async ({ page }) => {
@@ -190,10 +208,16 @@ test.describe('Reliability Panel', () => {
     const panel = page.locator('section[data-panel="reliability"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
     // Instances ready / total
-    await expect(panel).toContainText('3 / 5');
+    await expect(panel).toContainText('1 / 2');
     // Skills loaded / total
     await expect(panel).toContainText('40 / 50');
     // Tools registered
     await expect(panel).toContainText('180');
+  });
+
+  test('shows traceable UI Control artifacts', async ({ page }) => {
+    const panel = page.locator('section[data-panel="reliability"]');
+    await expect(panel).toContainText('ui-control-snapshot-evidence-accessibility-1.png');
+    await expect(panel).toContainText('evidence');
   });
 });

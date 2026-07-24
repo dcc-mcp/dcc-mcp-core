@@ -29,6 +29,7 @@ const MAX_SCREENSHOT_PIXELS: f64 = 1_500_000.0;
 const MAX_DRAG_POINTS: usize = 256;
 const MAX_KEY_TOKENS: usize = 16;
 const MAX_TEXT_UTF16_UNITS: usize = 4_096;
+const MAX_GAME_NAVIGATION_KEYS: usize = 4;
 const MAX_GAME_NAVIGATION_HOLD_MS: u64 = 500;
 const CONTROL_THREAD_JOIN_TIMEOUT: Duration = Duration::from_millis(750);
 
@@ -109,8 +110,8 @@ pub struct ComputerUseAction {
     /// Literal Unicode text for the `type` action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Keys or key chords for `keypress`, one W/A/S/D key for
-    /// `game_navigation`, or held modifiers for pointer actions.
+    /// Keys or key chords for `keypress`, up to four simultaneous supported
+    /// keys for `game_navigation`, or held modifiers for pointer actions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keys: Vec<String>,
     /// Action duration, bounded game-navigation hold, or wait time, in milliseconds.
@@ -1089,10 +1090,10 @@ fn validate_action_limits(request: &ComputerUseAction) -> ComputerUseResult<()> 
         ));
     }
     if request.action == "game_navigation" {
-        if game_navigation_virtual_key(&request.keys).is_none() {
+        if game_navigation_virtual_keys(&request.keys).is_none() {
             return Err(ComputerUseError::new(
                 ComputerUseErrorCode::InvalidAction,
-                "game_navigation requires exactly one unmodified W, A, S, or D key",
+                "game_navigation requires one to four distinct supported canvas keys",
             ));
         }
         if request
@@ -1127,17 +1128,25 @@ fn validate_action_limits(request: &ComputerUseAction) -> ComputerUseResult<()> 
     Ok(())
 }
 
-fn game_navigation_virtual_key(keys: &[String]) -> Option<u16> {
-    let [key] = keys else {
-        return None;
-    };
-    match key.as_bytes() {
-        [b'W' | b'w'] => Some(u16::from(b'W')),
-        [b'A' | b'a'] => Some(u16::from(b'A')),
-        [b'S' | b's'] => Some(u16::from(b'S')),
-        [b'D' | b'd'] => Some(u16::from(b'D')),
-        _ => None,
+fn game_navigation_virtual_keys(keys: &[String]) -> Option<Vec<u16>> {
+    let mut virtual_keys = Vec::new();
+    for item in keys {
+        let tokens = item.split('+').collect::<Vec<_>>();
+        if tokens.is_empty() || tokens.iter().any(|token| token.trim().is_empty()) {
+            return None;
+        }
+        for token in tokens {
+            let virtual_key = keyboard_policy::virtual_key_code(token)?;
+            if virtual_keys.contains(&virtual_key) {
+                return None;
+            }
+            virtual_keys.push(virtual_key);
+            if virtual_keys.len() > MAX_GAME_NAVIGATION_KEYS {
+                return None;
+            }
+        }
     }
+    (!virtual_keys.is_empty()).then_some(virtual_keys)
 }
 
 fn target_matches(spec: &TargetSpec, info: &WindowInfo) -> bool {

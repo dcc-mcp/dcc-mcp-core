@@ -263,24 +263,42 @@ fn keypress_batch_releases_every_pressed_key_in_reverse_order() {
 }
 
 #[test]
-fn game_navigation_builds_one_bounded_key_down_and_release() {
-    for key in ["W", "a", "S", "d"] {
-        let (press, release) = game_navigation_key_inputs(&[key.to_owned()]).unwrap();
-        let press = unsafe { press.Anonymous.ki };
-        let release = unsafe { release.Anonymous.ki };
+fn game_navigation_builds_bounded_canvas_key_inputs() {
+    for key in ["W", "j", "SPACE", "F5", "LEFT"] {
+        let (presses, releases) = game_navigation_key_inputs(&[key.to_owned()]).unwrap();
+        let press = unsafe { presses[0].Anonymous.ki };
+        let release = unsafe { releases[0].Anonymous.ki };
 
-        assert_eq!(press.wVk.0, key.to_ascii_uppercase().as_bytes()[0] as u16);
-        assert_eq!(press.dwFlags, KEYBD_EVENT_FLAGS(0));
+        assert_eq!(presses.len(), 1);
+        assert_eq!(releases.len(), 1);
+        assert!(!press.dwFlags.contains(KEYEVENTF_KEYUP));
         assert_eq!(release.wVk, press.wVk);
         assert!(release.dwFlags.contains(KEYEVENTF_KEYUP));
     }
 
+    let (presses, releases) =
+        game_navigation_key_inputs(&["W".to_owned(), "D".to_owned()]).unwrap();
+    let virtual_keys = |inputs: &[INPUT]| {
+        inputs
+            .iter()
+            .map(|input| unsafe { input.Anonymous.ki.wVk.0 })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(virtual_keys(&presses), [b'W' as u16, b'D' as u16]);
+    assert_eq!(virtual_keys(&releases), [b'D' as u16, b'W' as u16]);
+    assert!(
+        releases
+            .iter()
+            .all(|input| unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP))
+    );
+
     for keys in [
         vec![],
-        vec!["W", "D"],
-        vec!["SHIFT+W"],
-        vec!["LEFT"],
-        vec![" W"],
+        vec!["W", "W"],
+        vec!["W", "A", "S", "D", "J"],
+        vec!["WIN", "R"],
+        vec!["NOT_A_KEY"],
+        vec!["CTRL+"],
     ] {
         let error = match game_navigation_key_inputs(
             &keys.into_iter().map(str::to_owned).collect::<Vec<_>>(),
@@ -297,13 +315,14 @@ fn game_navigation_key_up_is_released_or_deferred_exactly_once() {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    let (press, release) = game_navigation_key_inputs(&["W".to_owned()]).unwrap();
+    let keys = ["W".to_owned(), "D".to_owned()];
+    let (presses, releases) = game_navigation_key_inputs(&keys).unwrap();
 
     let drop_sends = Rc::new(RefCell::new(Vec::new()));
     let drop_deferred = Rc::new(RefCell::new(Vec::new()));
-    let held = HeldGameNavigationKey::press_with(
-        press,
-        release,
+    let held = HeldGameNavigationKeys::press_with(
+        presses,
+        releases,
         {
             let sends = Rc::clone(&drop_sends);
             move |batch: &[INPUT]| {
@@ -318,20 +337,26 @@ fn game_navigation_key_up_is_released_or_deferred_exactly_once() {
     )
     .unwrap();
     drop(held);
-    assert_eq!(drop_sends.borrow().len(), 2);
-    assert!(unsafe { drop_sends.borrow()[1].Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP));
+    assert_eq!(drop_sends.borrow().len(), 4);
+    assert!(
+        drop_sends.borrow()[2..]
+            .iter()
+            .all(|input| unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP))
+    );
     assert!(drop_deferred.borrow().is_empty());
 
+    let (presses, releases) = game_navigation_key_inputs(&keys).unwrap();
     let failed_sends = Rc::new(RefCell::new(Vec::new()));
     let failed_deferred = Rc::new(RefCell::new(Vec::new()));
-    let mut held = HeldGameNavigationKey::press_with(
-        press,
-        release,
+    let mut held = HeldGameNavigationKeys::press_with(
+        presses,
+        releases,
         {
             let sends = Rc::clone(&failed_sends);
             move |batch: &[INPUT]| {
+                let first_call = sends.borrow().is_empty();
                 sends.borrow_mut().extend_from_slice(batch);
-                if sends.borrow().len() == 1 {
+                if first_call {
                     Ok(())
                 } else {
                     Err(ComputerUseError::new(
@@ -353,9 +378,14 @@ fn game_navigation_key_up_is_released_or_deferred_exactly_once() {
     );
     drop(held);
 
-    assert_eq!(failed_sends.borrow().len(), 2);
-    assert_eq!(failed_deferred.borrow().len(), 1);
-    assert!(unsafe { failed_deferred.borrow()[0].Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP));
+    assert_eq!(failed_sends.borrow().len(), 4);
+    assert_eq!(failed_deferred.borrow().len(), 2);
+    assert!(
+        failed_deferred
+            .borrow()
+            .iter()
+            .all(|input| unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP))
+    );
 }
 
 #[test]

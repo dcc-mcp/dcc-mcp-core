@@ -34,7 +34,20 @@ _SESSION_LOCKS: Dict[str, threading.RLock] = {}
 _SESSION_LOCKS_GUARD = threading.Lock()
 _MAX_DRAG_POINTS = 256
 _MAX_KEY_TOKENS = 16
+_MAX_GAME_NAVIGATION_KEYS = 4
 _MAX_TEXT_UTF16_UNITS = 4096
+_GAME_NAVIGATION_NAMED_KEYS = _key_set(
+    "CTRL CONTROL LCTRL LEFTCTRL LEFT_CTRL CTRL_L CONTROL_L RCTRL RIGHTCTRL RIGHT_CTRL CTRL_R CONTROL_R "
+    "SHIFT LSHIFT LEFTSHIFT LEFT_SHIFT SHIFT_L RSHIFT RIGHTSHIFT RIGHT_SHIFT SHIFT_R "
+    "ALT LALT LEFTALT LEFT_ALT ALT_L RALT RIGHTALT RIGHT_ALT ALT_R ALTGR "
+    "ESC ESCAPE TAB SPACE PRINTSCREEN PRINT_SCREEN PRTSC ENTER RETURN BACKSPACE DELETE DEL INSERT INS "
+    "LEFT ARROWLEFT ARROW_LEFT UP ARROWUP ARROW_UP RIGHT ARROWRIGHT ARROW_RIGHT DOWN ARROWDOWN ARROW_DOWN "
+    "HOME END PAGEUP PAGE_UP PGUP PAGEDOWN PAGE_DOWN PGDN CAPSLOCK CAPS_LOCK NUMLOCK NUM_LOCK "
+    "SCROLLLOCK SCROLL_LOCK PAUSE KP_DECIMAL KPDECIMAL NUMPAD_DECIMAL "
+    "SEMICOLON EQUAL EQUALS COMMA MINUS PERIOD DOT SLASH GRAVE BACKTICK LEFTBRACKET BRACKETLEFT "
+    "BACKSLASH RIGHTBRACKET BRACKETRIGHT APOSTROPHE QUOTE"
+)
+_GAME_NAVIGATION_PUNCTUATION = frozenset(";=,-./`[]\\'")
 _DENIED_PROCESS_NAMES = frozenset(
     {
         "1password",
@@ -366,6 +379,36 @@ def _is_native_action(action: str, params: Dict[str, Any]) -> bool:
     }
 
 
+def _is_game_navigation_key(token: str) -> bool:
+    upper = token.upper()
+    if len(upper) == 1 and upper.isascii() and (upper.isalnum() or upper in _GAME_NAVIGATION_PUNCTUATION):
+        return True
+    if upper.startswith("F") and upper[1:].isdigit():
+        return 1 <= int(upper[1:]) <= 24
+    if upper.startswith("KP_") and len(upper) == 4 and upper[-1].isdigit():
+        return True
+    return upper in _GAME_NAVIGATION_NAMED_KEYS
+
+
+def _game_navigation_keys(keys: List[Any]) -> Optional[List[str]]:
+    tokens: List[str] = []
+    for item in keys:
+        if not isinstance(item, str):
+            return None
+        parts = [token.strip() for token in item.split("+")]
+        if not parts or any(not token for token in parts):
+            return None
+        tokens.extend(parts)
+    normalized = [token.upper() for token in tokens]
+    if (
+        not 1 <= len(normalized) <= _MAX_GAME_NAVIGATION_KEYS
+        or len(set(normalized)) != len(normalized)
+        or not all(_is_game_navigation_key(token) for token in normalized)
+    ):
+        return None
+    return normalized
+
+
 def _validate_action_limits(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     path = params.get("path") or []
     if not isinstance(path, list):
@@ -380,14 +423,9 @@ def _validate_action_limits(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not isinstance(keys, list):
         return skill_error("keys must be an array", UiErrorCode.INVALID_ACTION)
     if params.get("action") == UiActionKind.GAME_NAVIGATION:
-        if (
-            len(keys) != 1
-            or not isinstance(keys[0], str)
-            or len(keys[0]) != 1
-            or keys[0].upper() not in {"W", "A", "S", "D"}
-        ):
+        if _game_navigation_keys(keys) is None:
             return skill_error(
-                "game_navigation requires exactly one unmodified W, A, S, or D key",
+                "game_navigation requires one to four distinct supported canvas keys",
                 UiErrorCode.INVALID_ACTION,
             )
         duration_ms = params.get("duration_ms")
