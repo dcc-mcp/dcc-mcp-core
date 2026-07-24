@@ -17,9 +17,17 @@ from typing import Callable
 from typing import Dict
 from typing import Optional
 
-from dcc_mcp_core import artefact_put_bytes
-from dcc_mcp_core import artefact_put_file
 from dcc_mcp_core.skill import skill_error
+
+try:
+    from dcc_mcp_core import artefact_put_bytes
+except ImportError:
+    artefact_put_bytes = None
+
+try:
+    from dcc_mcp_core import artefact_put_file
+except ImportError:
+    artefact_put_file = None
 
 _AUDIT_LOCK = threading.Lock()
 _CAPTURE_TTL_SECS = 24 * 60 * 60
@@ -155,7 +163,7 @@ def _attach_capture_artifact(
             return
         mime = str(rich.get("mime") or "image/png").lower()
         extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(mime)
-        if extension is None:
+        if extension is None or artefact_put_bytes is None:
             return
         snapshot_id = str(provenance.get("snapshot_id") or "snapshot")
         display_name = f"ui-control-snapshot-{_artifact_token(session_id)}-{_artifact_token(snapshot_id)}.{extension}"
@@ -182,7 +190,7 @@ def _attach_capture_artifact(
         )
     else:
         clip = context.get("artifact")
-        if not isinstance(clip, dict) or not clip.get("manifest_path"):
+        if not isinstance(clip, dict) or not clip.get("manifest_path") or artefact_put_file is None:
             return
         recording_id = str(clip.get("recording_id") or "recording")
         display_name = f"ui-control-recording-{_artifact_token(session_id)}-{_artifact_token(recording_id)}.json"
