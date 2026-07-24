@@ -57,6 +57,80 @@ For direct per-DCC MCP connections, the compatibility discovery names
 (search_tools, describe_tool, and call_tool) remain available where the server
 exposes them. New gateway integrations should use the canonical names above.
 
+## Why dcc-mcp-core exists
+
+The shortest DCC agent demo asks a model to write and run a `mayapy`, `hython`,
+or Blender Python script. A production pipeline cannot depend on getting the
+right script from the model on every turn. Repeated code generation costs
+tokens, varies with the model and context, and leaves every adapter to rebuild
+transport, main-thread dispatch, validation, process lifecycle, routing, and
+diagnostics.
+
+dcc-mcp-core moves that common engineering into one reusable control plane:
+
+| Layer | Reused capability |
+|---|---|
+| Integration | MCP and REST endpoints, Host RPC/IPC, typed schemas, resources, prompts, and structured results |
+| DCC runtime | Main-thread affinity, readiness, multi-instance routing, async jobs, cancellation, checkpoints, workflows, artefacts, and UI Control |
+| Skill delivery | `SKILL.md` packages, progressive discovery, lint/schema validation, hot reload, persistence, marketplace distribution, and project/team scopes |
+| Operations | CLI, gateway, Admin UI, policies, audit records, traces, logs, metrics, health checks, and VRS replay |
+
+This project provides the infrastructure for agents to control DCC
+applications; it does not build or prescribe the agent itself. Agents and
+models will change, while studio interfaces, permission boundaries, and
+pipeline knowledge still need to be maintained. The framework turns those
+investments into reusable engineering assets.
+
+### Existing tools need AI access too
+
+Adding an AI-facing interface to a new tool is usually straightforward. The
+harder problem is making years of existing tools usable by agents when they
+have no API, cannot be modified, or expose part of a workflow only through a
+window or modal dialog.
+
+For that gap, dcc-mcp-core provides the bounded Computer Use-style
+[DCC UI Control](#dcc-ui-control) capability. It combines exact-window
+screenshots, semantic controls when available, scoped actions, waits, recording,
+policy checks, audit, and result verification. Native Skills/APIs remain the
+preferred path; UI Control lets legacy and interface-only workflows join the
+same agent control plane without pretending that every application has a clean
+programmable API.
+
+### MCP is an entry point, not the ceiling
+
+MCP is the industry-standard agent interface we reuse, not the limit of the
+framework. A stable Python, C++, HTTP, command-port, or native plugin interface
+can be integrated under the same discovery, execution, safety, and operations
+contracts.
+
+We also include useful vendor capabilities instead of replacing them. Unreal
+Engine 5.8 introduced an
+[experimental built-in MCP server and Toolset Registry](https://dev.epicgames.com/documentation/unreal-engine/unreal-mcp-in-unreal-editor).
+The
+[Unreal Official MCP Bridge](https://github.com/dcc-mcp/dcc-mcp-unreal/blob/main/src/dcc_mcp_unreal/skills/unreal-official-mcp/SKILL.md)
+enables and calls those official toolsets through DCC MCP without
+redistributing them. Vendor tools, DCC-MCP tools, and studio tools can share
+one agent-facing workflow.
+
+### Skills are the production unit
+
+A Skill turns proven pipeline knowledge into a versioned, typed, testable, and
+distributable operation. A lower-cost model may struggle to invent
+scene-editing logic from scratch but remain effective when selecting a
+well-described tool and supplying validated arguments. Studios can distribute
+different Skill sets by project and production stage, reducing repeated code
+generation, token use, and model-dependent variance.
+
+The Admin UI closes the feedback loop. Calls, traces, logs, health, statistics,
+and usage data show which tools agents selected and where they failed. Teams can
+improve a description, schema, or implementation, then verify the result
+against real calls instead of treating tool use as a black box.
+
+The boundaries remain explicit. Core cannot safely preempt arbitrary code
+already running on a DCC main thread, guarantee rollback for host APIs without
+transactions, or define one lossless mesh/rig/material model for every
+application. Host semantics still belong in adapters and pipeline Skills.
+
 ## Quick start: operate a DCC
 
 `dcc-mcp-cli` is the preferred control path for every shell-capable agent.
