@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.75](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.74...v0.19.75) (2026-07-24)
+
+
+### Bug Fixes
+
+* **gateway:** accept params alias in REST calls ([#2058](https://github.com/dcc-mcp/dcc-mcp-core/issues/2058)) ([f5f92fa](https://github.com/dcc-mcp/dcc-mcp-core/commit/f5f92fac88a0fe70903acd3e2850a3511e7522b8))
+
 ## [0.19.74](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.73...v0.19.74) (2026-07-24)
 
 
