@@ -55,6 +55,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import sys
 import time
 from typing import Any
 from typing import Callable
@@ -85,6 +86,7 @@ _WIN_PROCESS_QUERY_LIMITED_INFORMATION: int = 0x1000
 _sandbox_context: Any = None  # SandboxContext | None
 _action_recorder: Any = None  # ToolRecorder | None
 _dispatcher_ref: Any = None  # ToolDispatcher | None
+_server_ref: Any = None  # McpHttpServer | None — set by register_diagnostic_mcp_tools
 
 # Diagnostic instance context (DCC PID / window / resolver callback).
 _instance_context: dict[str, Any] = {
@@ -96,6 +98,9 @@ _instance_context: dict[str, Any] = {
     # Optional zero-arg callable returning the current gateway failover
     # state dict. Wired by DccServerBase via register_diagnostic_mcp_tools.
     "gateway_failover_resolver": None,
+    # DCC application version string (e.g. "2024.2"). Set by DccServerBase
+    # or adapter startup code via _instance_context or the register_* kwargs.
+    "dcc_version": None,
 }
 
 # Lazily-constructed capturers (one per kind, reused across screenshots).
@@ -458,6 +463,76 @@ def _handle_gateway_failover_status(params_json: str) -> str:
     return json_dumps(payload)
 
 
+def _handle_get_instance_info(params_json: str) -> str:
+    """Return DCC instance metadata (UUID, DCC type, version, PID, URLs)."""
+    _ = params_json
+    ctx = _instance_context
+    dcc_name = ctx.get("dcc_name") or "dcc"
+    dcc_pid = ctx.get("dcc_pid")
+    dcc_version = ctx.get("dcc_version")
+    server = _server_ref
+
+    # Resolve instance UUID from the server handle when available.
+    instance_uuid = None
+    if server is not None:
+        try:
+            instance_uuid = server.instance_id
+        except Exception:
+            pass
+
+    # Resolve MCP URL from the server handle when available.
+    mcp_url = None
+    if server is not None:
+        try:
+            mcp_url = server.mcp_url()
+        except Exception:
+            pass
+
+    # Resolve server port from the server handle when available.
+    server_port = None
+    if server is not None:
+        try:
+            server_port = server.port
+        except Exception:
+            pass
+
+    # Resolve gateway port from the failover resolver or config.
+    gateway_port = None
+    gateway_failover_resolver = ctx.get("gateway_failover_resolver")
+    if callable(gateway_failover_resolver):
+        try:
+            raw = gateway_failover_resolver() or {}
+            gp = raw.get("gateway_port")
+            if gp is not None and int(gp) > 0:
+                gateway_port = int(gp)
+        except Exception:
+            pass
+
+    # Resolve dcc-mcp-core package version.
+    try:
+        from dcc_mcp_core.server_base import _package_version
+
+        core_version = _package_version()
+    except Exception:
+        core_version = None
+
+    payload: dict[str, Any] = {
+        "success": True,
+        "dcc_name": dcc_name,
+        "dcc_pid": dcc_pid,
+        "dcc_version": dcc_version,
+        "adapter_pid": os.getpid(),
+        "instance_uuid": instance_uuid,
+        "mcp_url": mcp_url,
+        "server_port": server_port,
+        "gateway_port": gateway_port,
+        "dcc_mcp_core_version": core_version,
+        "python_version": "{}.{}.{}".format(*sys.version_info[:3]) if hasattr(sys, "version_info") else None,
+        "timestamp_ms": int(time.time() * 1000),
+    }
+    return json_dumps(payload)
+
+
 def _metadata_truthy(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -508,6 +583,7 @@ def register_diagnostic_handlers(
     dcc_pid: int | None = None,
     dcc_window_handle: int | None = None,
     dcc_window_title: str | None = None,
+    dcc_version: str | None = None,
     resolver: Callable[[], int | None] | None = None,
 ) -> None:
     """Register the standard diagnostic IPC action handlers on *server*.
@@ -561,6 +637,7 @@ def register_diagnostic_handlers(
             "dcc_pid": dcc_pid,
             "dcc_window_handle": dcc_window_handle,
             "dcc_window_title": dcc_window_title,
+            "dcc_version": dcc_version,
             "resolver": resolver,
         }
     )
@@ -664,6 +741,12 @@ _GATEWAY_FAILOVER_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
+_INSTANCE_INFO_SCHEMA: dict = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
 
 def register_diagnostic_mcp_tools(
     server: Any,
@@ -672,10 +755,11 @@ def register_diagnostic_mcp_tools(
     dcc_pid: int | None = None,
     dcc_window_handle: int | None = None,
     dcc_window_title: str | None = None,
+    dcc_version: str | None = None,
     resolver: Callable[[], int | None] | None = None,
     gateway_failover_resolver: Callable[[], dict[str, Any]] | None = None,
 ) -> None:
-    """Register the four ``dcc_diagnostics__*`` MCP tools on *server*.
+    """Register the ``dcc_diagnostics__*`` MCP tools on *server*.
 
     Tools are registered as regular :class:`ToolRegistry` entries so they
     appear in ``tools/list`` and can be invoked via ``tools/call``. Must be
@@ -694,6 +778,8 @@ def register_diagnostic_mcp_tools(
       ``dcc_diagnostics__action_metrics`` in 0.14.0, no compat alias)
     - ``dcc_diagnostics__process_status`` — adapter process / DCC alive check
     - ``dcc_diagnostics__gateway_failover`` — gateway election state (#1355)
+    - ``dcc_diagnostics__get_instance_info`` — DCC instance metadata (UUID,
+      DCC type, version, PID, MCP URL, gateway port)
 
     Args:
         server: An :class:`McpHttpServer` instance (must expose a
@@ -704,6 +790,7 @@ def register_diagnostic_mcp_tools(
         dcc_window_handle: Optional HWND / X11 window ID to capture directly.
         dcc_window_title: Optional window title substring used as a fallback
             when neither ``dcc_pid`` nor ``dcc_window_handle`` resolves.
+        dcc_version: Optional DCC application version string (e.g. "2024.2").
         resolver: Optional callable returning the current DCC PID on demand.
             Evaluated lazily per request so long-lived servers can track DCC
             process restarts.
@@ -717,12 +804,16 @@ def register_diagnostic_mcp_tools(
             (see #1355).
 
     """
+    global _server_ref
+    _server_ref = server
+
     _instance_context.update(
         {
             "dcc_name": dcc_name,
             "dcc_pid": dcc_pid,
             "dcc_window_handle": dcc_window_handle,
             "dcc_window_title": dcc_window_title,
+            "dcc_version": dcc_version,
             "resolver": resolver,
             "gateway_failover_resolver": gateway_failover_resolver,
         }
@@ -760,6 +851,12 @@ def register_diagnostic_mcp_tools(
             "Gateway election state (enabled, running, consecutive_failures, reason).",
             _GATEWAY_FAILOVER_SCHEMA,
             _handle_gateway_failover_status,
+        ),
+        (
+            "dcc_diagnostics__get_instance_info",
+            "DCC instance metadata (UUID, DCC type, version, PID, MCP URL, gateway port).",
+            _INSTANCE_INFO_SCHEMA,
+            _handle_get_instance_info,
         ),
     ]
 
