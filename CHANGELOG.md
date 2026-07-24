@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.73](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.72...v0.19.73) (2026-07-24)
+
+
+### Features
+
+* add dcc_diagnostics__get_instance_info builtin tool ([92330f0](https://github.com/dcc-mcp/dcc-mcp-core/commit/92330f0ccefb7ce5fd1901eab2a8cd1bd15e6920))
+* **ui-control:** add desktop automation test harness ([685316f](https://github.com/dcc-mcp/dcc-mcp-core/commit/685316f96ed107c119e5c08a085ebb59e80bc333))
+
+
+### Bug Fixes
+
+* **lint:** apply ruff check --fix and ruff format to _scenario.py ([724f3cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/724f3ccd53a6fb05cdcd6e628d7bdc64dba4ae74))
+* **lint:** apply ruff check --fix and ruff format to test_ui_control_desktop_automation ([f42959e](https://github.com/dcc-mcp/dcc-mcp-core/commit/f42959e849f6eb2b49035f3d0ff33c4d4d920f17))
+* resolve ruff lint errors in dcc_server.py (SIM105 + D417) ([34d5c8c](https://github.com/dcc-mcp/dcc-mcp-core/commit/34d5c8c2bc19bf595c5241abae991438eb250eed))
+
+
+### Documentation
+
+* explain production framework positioning ([3a89341](https://github.com/dcc-mcp/dcc-mcp-core/commit/3a8934186fcb80f1ce7498c791a4d6ec78f5f934))
+
 ## [0.19.72](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.71...v0.19.72) (2026-07-23)
 
 
