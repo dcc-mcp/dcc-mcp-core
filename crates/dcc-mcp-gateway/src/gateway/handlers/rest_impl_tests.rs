@@ -1943,8 +1943,13 @@ async fn gateway_rest_v1_call_batch_via_calls_dispatches_batch_response() {
 }
 
 #[tokio::test]
-async fn gateway_rest_v1_call_single_tool_slug_still_works() {
-    let gs = test_gateway_state("1.2.3");
+async fn gateway_rest_v1_call_single_tool_slug_accepts_params_alias() {
+    use crate::gateway::middleware::{AuditMiddleware, MiddlewareChain};
+
+    let sink = Arc::new(CaptureSink::default());
+    let mut gs = test_gateway_state("1.2.3");
+    gs.middleware_chain =
+        Arc::new(MiddlewareChain::new().with_after(Arc::new(AuditMiddleware::new(sink.clone()))));
     // Without a live backend single-call returns SERVICE_UNAVAILABLE,
     // but the dispatch path must still be exercised (backward compat).
     seed_unloaded_render_capability(&gs);
@@ -1954,7 +1959,7 @@ async fn gateway_rest_v1_call_single_tool_slug_still_works() {
         handle_v1_call(
             State(gs),
             HeaderMap::new(),
-            Json(json!({"tool_slug": slug, "arguments": {"radius": 3.0}})),
+            Json(json!({"tool_slug": slug, "params": {"radius": 3.0}})),
         )
         .await,
     )
@@ -1971,4 +1976,14 @@ async fn gateway_rest_v1_call_single_tool_slug_still_works() {
         body.get("success").is_none(),
         "single-call error should NOT have batch 'success' field"
     );
+    let entries = sink.0.lock().unwrap();
+    let input: Value = serde_json::from_str(
+        &entries[0]
+            .input_payload
+            .as_ref()
+            .expect("REST audit should capture call arguments")
+            .content,
+    )
+    .unwrap();
+    assert_eq!(input["radius"], 3.0);
 }

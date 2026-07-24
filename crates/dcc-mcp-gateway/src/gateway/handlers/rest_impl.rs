@@ -1072,7 +1072,8 @@ pub async fn handle_v1_dcc_instance_describe(
 /// via `calls[]`.
 ///
 /// **Single call** (backward compatible):
-/// `{"tool_slug": "...", "arguments": {...}, "meta": {...}}` (meta optional).
+/// `{"tool_slug": "...", "arguments": {...}, "meta": {...}}` (meta optional;
+/// `params` is accepted as an alias for `arguments`).
 ///
 /// **Batch call** (same semantics as `POST /v1/call_batch`):
 /// `{"calls": [{ "tool_slug", "arguments"?, "meta"?, "id"? }, ...],
@@ -1135,21 +1136,24 @@ pub async fn handle_v1_call(
             false,
         );
     };
-    let arguments =
-        match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
-            Ok(v) => v,
-            Err(msg) => {
-                let metadata = RestResponseMetadata::from_trace_context(&trace_context)
-                    .with_index_generation(index_generation(&gs.capability_index));
-                return service_error_response_with_metadata(
-                    &headers,
-                    &body,
-                    &ServiceError::new("bad-request", msg),
-                    &metadata,
-                    false,
-                );
-            }
-        };
+    let args = body
+        .get("arguments")
+        .or_else(|| body.get("params"))
+        .cloned();
+    let arguments = match dcc_mcp_jsonrpc::coerce_tool_arguments_object(args) {
+        Ok(v) => v,
+        Err(msg) => {
+            let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+                .with_index_generation(index_generation(&gs.capability_index));
+            return service_error_response_with_metadata(
+                &headers,
+                &body,
+                &ServiceError::new("bad-request", msg),
+                &metadata,
+                false,
+            );
+        }
+    };
     let meta = body.get("meta").cloned();
 
     match call_service_with_admin_trace(
