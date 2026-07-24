@@ -51,6 +51,29 @@ def _load_entrypoint_module() -> Any:
     return module
 
 
+def test_ui_control_entrypoint_imports_without_native_core(monkeypatch: Any) -> None:
+    monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", None)
+    entrypoint = _load_entrypoint_module()
+
+    class Backend:
+        @staticmethod
+        def snapshot_tool(_params: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "success": True,
+                "message": "Captured mock snapshot.",
+                "context": {
+                    "session_id": "mock",
+                    "snapshot": {"metadata": {"ui_control": {"backend": "mock"}}},
+                },
+            }
+
+    monkeypatch.setattr(entrypoint, "_load_backend", lambda: Backend)
+
+    result = entrypoint.snapshot_tool({"session_id": "mock"})
+    assert result["success"] is True
+    assert result["context"]["snapshot"]["metadata"]["ui_control"]["backend"] == "mock"
+
+
 def _run_tool(
     name: str,
     payload: dict[str, Any],
