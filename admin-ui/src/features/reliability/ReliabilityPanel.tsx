@@ -10,6 +10,18 @@ import './reliability.css';
 
 const POLL_INTERVAL_MS = 5_000;
 
+type ArtifactsPayload = {
+  total: number;
+  artifacts: Array<{
+    uri: string;
+    display_name?: string | null;
+    session_id?: string | null;
+    correlation_id?: string | null;
+    verification?: { status?: string | null };
+  }>;
+  summary: { verified: number; unverified: number; failed: number };
+};
+
 // ── helpers ───────────────────────────────────────────────────────────────
 
 function fmtUptime(secs: number): string {
@@ -86,6 +98,13 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
 
+  const artifactsQuery = useQuery({
+    queryKey: ['admin', 'artifacts'],
+    queryFn: () => apiJson<ArtifactsPayload>(`/artifacts?limit=20`),
+    enabled: active,
+    refetchInterval: active ? POLL_INTERVAL_MS : false,
+  });
+
   const error = healthQuery.error
     ? `Health: ${String(healthQuery.error)}`
     : instancesQuery.error
@@ -96,7 +115,9 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
           ? `Stats: ${String(statsQuery.error)}`
           : reliabilityQuery.error
             ? `Reliability: ${String(reliabilityQuery.error)}`
-            : undefined;
+            : artifactsQuery.error
+              ? `Artifacts: ${String(artifactsQuery.error)}`
+              : undefined;
 
   const handleRefresh = () => {
     healthQuery.refetch();
@@ -104,6 +125,7 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
     skillsQuery.refetch();
     statsQuery.refetch();
     reliabilityQuery.refetch();
+    artifactsQuery.refetch();
   };
 
   if (!active) return null;
@@ -113,8 +135,9 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
   const skills = skillsQuery.data;
   const stats = statsQuery.data;
   const reliability = reliabilityQuery.data;
+  const artifacts = artifactsQuery.data;
 
-  const isLoading = healthQuery.isLoading || instancesQuery.isLoading || skillsQuery.isLoading || statsQuery.isLoading;
+  const isLoading = healthQuery.isLoading || instancesQuery.isLoading || skillsQuery.isLoading || statsQuery.isLoading || artifactsQuery.isLoading;
 
   // ── aggregated data ─────────────────────────────────────────────────────
 
@@ -296,19 +319,34 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
             <div className="reliability-grid">
               <MetricTile
                 label={t('reliability.metric.buildsVerified')}
-                value="—"
-                detail="Not yet reported"
+                value={artifacts?.summary.verified ?? 0}
               />
               <MetricTile
                 label={t('reliability.metric.buildsTotal')}
-                value="—"
+                value={artifacts?.total ?? 0}
               />
               <MetricTile
-                tone="ok"
+                tone={(artifacts?.summary.failed ?? 0) > 0 ? 'err' : 'ok'}
                 label={t('reliability.metric.verificationErrors')}
-                value="—"
+                value={artifacts?.summary.failed ?? 0}
               />
             </div>
+            {artifacts?.artifacts.length ? (
+              <div className="reliability-config-grid">
+                {artifacts.artifacts.slice(0, 6).map((artifact) => (
+                  <div
+                    className="config-row"
+                    key={`${artifact.uri}:${artifact.session_id ?? ''}:${artifact.correlation_id ?? ''}`}
+                    title={artifact.uri}
+                  >
+                    <span className="config-label">{artifact.display_name || artifact.uri}</span>
+                    <span className="config-value">
+                      {[artifact.session_id, artifact.verification?.status].filter(Boolean).join(' · ') || '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {/* ── Stability ───────────────────────────────────────────────── */}

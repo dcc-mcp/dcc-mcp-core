@@ -42,10 +42,11 @@ mod tests;
 pub use types::{ProducerContent, ResourceError, ResourceProducer, ResourceResult};
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dcc_mcp_artefact::{InMemoryArtefactStore, SharedArtefactStore};
 use parking_lot::RwLock;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use self::producers::{ArtefactProducer, AuditProducer, CaptureProducer, SceneProducer};
@@ -72,6 +73,10 @@ struct ResourceRegistryInner {
     /// Scene snapshot injected by the embedding adapter. `None` means no
     /// scene has been published yet (producer returns an empty object).
     scene_snapshot: Arc<RwLock<Option<Value>>>,
+    /// Latest bounded semantic transition for `scene://delta`.
+    scene_delta: Arc<RwLock<Option<Value>>>,
+    /// Monotonic revision for changed scene snapshots.
+    scene_revision: AtomicU64,
     /// Enables `scene://` and `audit://` producers. Mirrored from
     /// [`crate::McpHttpConfig::enable_resources`].
     enabled: bool,
@@ -126,12 +131,15 @@ impl ResourceRegistry {
     ) -> Self {
         let (updated_tx, _) = broadcast::channel(64);
         let scene_snapshot = Arc::new(RwLock::new(None));
+        let scene_delta = Arc::new(RwLock::new(None));
         let skill_resources = Arc::new(RwLock::new(SkillResourceState::default()));
         let inner = Arc::new(ResourceRegistryInner {
             producers: RwLock::new(Vec::new()),
             subscriptions: RwLock::new(std::collections::HashMap::new()),
             updated_tx,
             scene_snapshot: scene_snapshot.clone(),
+            scene_delta: scene_delta.clone(),
+            scene_revision: AtomicU64::new(0),
             enabled,
             artefact_enabled,
             artefact_store: store.clone(),
@@ -141,6 +149,7 @@ impl ResourceRegistry {
         if enabled {
             registry.add_producer(Arc::new(SceneProducer {
                 snapshot: scene_snapshot,
+                delta: scene_delta,
             }));
             registry.add_producer(Arc::new(CaptureProducer));
             registry.add_producer(Arc::new(AuditProducer::disabled()));
@@ -222,8 +231,26 @@ impl ResourceRegistry {
     ///
     /// Fires `notifications/resources/updated` for subscribed clients.
     pub fn set_scene(&self, snapshot: Value) {
-        *self.inner.scene_snapshot.write() = Some(snapshot);
+        let mut current = self.inner.scene_snapshot.write();
+        if current.as_ref() == Some(&snapshot) {
+            return;
+        }
+        let revision = self.inner.scene_revision.fetch_add(1, Ordering::Relaxed) + 1;
+        let delta = dcc_mcp_models::diff_json_state(
+            current.as_ref(),
+            &snapshot,
+            dcc_mcp_models::DEFAULT_STATE_DELTA_MAX_CHANGES,
+        );
+        *self.inner.scene_delta.write() = Some(json!({
+            "source": "dcc_scene",
+            "base_revision": revision.saturating_sub(1),
+            "revision": revision,
+            "delta": delta,
+        }));
+        *current = Some(snapshot);
+        drop(current);
         self.notify_updated("scene://current");
+        self.notify_updated("scene://delta");
     }
 
     /// Wire an [`dcc_mcp_sandbox::AuditLog`] so that `audit://recent`

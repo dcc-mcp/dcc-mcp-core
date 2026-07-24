@@ -15,6 +15,7 @@ workspace = true
 dcc-mcp-artefact.workspace = true
 dcc-mcp-ui-control.workspace = true
 dcc-mcp-capture.workspace = true
+dcc-mcp-models.workspace = true
 dcc-mcp-paths.workspace = true
 dcc-mcp-shm.workspace = true
 pyo3 = { workspace = true, optional = true }

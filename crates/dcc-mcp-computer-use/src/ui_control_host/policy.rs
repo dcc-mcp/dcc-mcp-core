@@ -1,5 +1,96 @@
 use super::*;
 
+pub(super) fn action_fields_are_valid(action: &UiControlAction) -> bool {
+    let point = action.x.is_some() && action.y.is_some();
+    let no_point = action.x.is_none() && action.y.is_none();
+    let no_scroll = action.scroll_x.is_none() && action.scroll_y.is_none();
+    let no_pointer = no_point
+        && action.button.is_none()
+        && no_scroll
+        && action.path.is_empty()
+        && action.duration_ms.is_none();
+    let no_value = action.text.is_none() && action.checked.is_none();
+    let has_keys = action
+        .keys
+        .iter()
+        .flat_map(|item| item.split('+'))
+        .any(|item| !item.trim().is_empty());
+    let pointer_modifiers_are_valid = crate::keyboard_policy::are_pointer_modifiers(&action.keys);
+
+    match action.input_kind {
+        UiControlInputKind::Semantic => {
+            no_pointer
+                && action.keys.is_empty()
+                && match action.action.as_str() {
+                    "set_text" | "select_option" => {
+                        action.text.is_some() && action.checked.is_none()
+                    }
+                    "set_checked" => action.text.is_none() && action.checked.is_some(),
+                    _ => no_value,
+                }
+        }
+        UiControlInputKind::RawInput => {
+            if action.control_id.is_some() {
+                return false;
+            }
+            match action.action.as_str() {
+                "move" => {
+                    point
+                        && action.button.is_none()
+                        && no_scroll
+                        && action.path.is_empty()
+                        && no_value
+                        && action.keys.is_empty()
+                }
+                "click" | "double_click" | "raw_coordinate_click" => {
+                    point
+                        && no_scroll
+                        && action.path.is_empty()
+                        && no_value
+                        && pointer_modifiers_are_valid
+                }
+                "scroll" => {
+                    point
+                        && action.button.is_none()
+                        && (action.scroll_x.is_some_and(|value| value != 0)
+                            || action.scroll_y.is_some_and(|value| value != 0))
+                        && action.path.is_empty()
+                        && no_value
+                        && pointer_modifiers_are_valid
+                }
+                "drag" => {
+                    no_point
+                        && no_scroll
+                        && action.path.len() >= 2
+                        && no_value
+                        && pointer_modifiers_are_valid
+                }
+                "type" => {
+                    no_pointer
+                        && action.text.is_some()
+                        && action.keys.is_empty()
+                        && action.checked.is_none()
+                }
+                "keypress" | "keyboard_shortcut" => {
+                    no_pointer && action.text.is_none() && action.checked.is_none() && has_keys
+                }
+                "game_navigation" => {
+                    no_point
+                        && action.button.is_none()
+                        && no_scroll
+                        && action.path.is_empty()
+                        && no_value
+                        && crate::game_navigation_virtual_keys(&action.keys).is_some()
+                        && action
+                            .duration_ms
+                            .is_none_or(|duration| duration <= crate::MAX_GAME_NAVIGATION_HOLD_MS)
+                }
+                _ => false,
+            }
+        }
+    }
+}
+
 pub(super) fn allows_owned_standard_menu_popup(action: &UiControlAction) -> bool {
     if action.input_kind != UiControlInputKind::RawInput || action.action != "keypress" {
         return false;
@@ -211,6 +302,18 @@ fn action_control_fences(
     controls.into_iter().map(control_fence).collect()
 }
 
+pub(super) fn cached_action_fence(
+    action: &UiControlAction,
+    root: &Value,
+    focus_runtime_id: Option<&str>,
+    observation: Option<&Value>,
+) -> Result<(UiControlPolicyTier, Vec<ActionControlFence>), HostFailure> {
+    Ok((
+        classify_action(action, Some(root), observation),
+        action_control_fences(action, root, focus_runtime_id, observation)?,
+    ))
+}
+
 fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
     let (Some(root), Some(focused)) = (ancestry.first(), ancestry.last()) else {
         return false;
@@ -256,7 +359,7 @@ fn game_navigation_node_is_non_editable(control: &Value) -> bool {
 fn hard_denied_game_navigation_target() -> HostFailure {
     HostFailure::new(
         UiControlHostErrorCode::HardDenied,
-        "game_navigation requires an exact non-editable game surface in the scoped DCC window",
+        "game_navigation requires an exact non-editable DCC or game canvas in the scoped window",
     )
 }
 
@@ -305,7 +408,8 @@ pub(super) fn verify_action_fence(
     observation: Option<&Value>,
     live: &RuntimeAccessibilityState,
 ) -> Result<(UiControlPolicyTier, Vec<ActionControlFence>), HostFailure> {
-    let cached = action_control_fences(action, cached_root, cached_focus_runtime_id, observation)?;
+    let (_, cached) =
+        cached_action_fence(action, cached_root, cached_focus_runtime_id, observation)?;
     let current = action_control_fences(
         action,
         &live.root,

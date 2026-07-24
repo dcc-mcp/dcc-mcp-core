@@ -1555,6 +1555,17 @@ export async function mockAdminApi(page: Page) {
         },
         total: sessionRows.length,
       };
+    } else if (path === '/artifacts') {
+      body = {
+        total: 1,
+        artifacts: [{
+          uri: 'artefact://sha256/admin-fixture',
+          display_name: 'ui-control-snapshot-admin-fixture.png',
+          session_id: 'admin-fixture',
+          verification: { status: 'verified' },
+        }],
+        summary: { verified: 1, unverified: 0, failed: 0 },
+      };
     } else if (path === '/reliability') {
       body = {
         health: {

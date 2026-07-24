@@ -12,6 +12,7 @@ use dcc_mcp_jsonrpc::McpResource;
 
 pub(crate) struct SceneProducer {
     pub(crate) snapshot: Arc<RwLock<Option<Value>>>,
+    pub(crate) delta: Arc<RwLock<Option<Value>>>,
 }
 
 impl ResourceProducer for SceneProducer {
@@ -20,30 +21,48 @@ impl ResourceProducer for SceneProducer {
     }
 
     fn list(&self) -> Vec<McpResource> {
-        vec![McpResource {
-            uri: "scene://current".to_string(),
-            name: "Current Scene".to_string(),
-            description: Some(
-                "JSON summary of the current DCC scene (nodes, counts, metadata). \
-                 Updated by the embedding adapter via ResourceRegistry::set_scene()."
-                    .to_string(),
-            ),
-            mime_type: Some("application/json".to_string()),
-        }]
+        vec![
+            McpResource {
+                uri: "scene://current".to_string(),
+                name: "Current Scene".to_string(),
+                description: Some(
+                    "JSON summary of the current DCC scene (nodes, counts, metadata). \
+                     Updated by the embedding adapter via ResourceRegistry::set_scene()."
+                        .to_string(),
+                ),
+                mime_type: Some("application/json".to_string()),
+            },
+            McpResource {
+                uri: "scene://delta".to_string(),
+                name: "Latest Scene State Delta".to_string(),
+                description: Some(
+                    "Bounded semantic changes since the preceding scene snapshot. Subscribe for incremental updates."
+                        .to_string(),
+                ),
+                mime_type: Some("application/json".to_string()),
+            },
+        ]
     }
 
     fn read(&self, uri: &str) -> ResourceResult<ProducerContent> {
-        if uri != "scene://current" {
-            return Err(ResourceError::NotFound(uri.to_string()));
-        }
-        let snapshot = self.snapshot.read();
-        let text = match snapshot.as_ref() {
-            Some(v) => serde_json::to_string(v).map_err(|e| ResourceError::Read(e.to_string()))?,
-            None => serde_json::to_string(&json!({
-                "status": "no_scene_published",
-                "hint": "embedding adapter should call ResourceRegistry::set_scene"
-            }))
-            .map_err(|e| ResourceError::Read(e.to_string()))?,
+        let text = match uri {
+            "scene://current" => {
+                let snapshot = self.snapshot.read();
+                serde_json::to_string(snapshot.as_ref().unwrap_or(&json!({
+                    "status": "no_scene_published",
+                    "hint": "embedding adapter should call ResourceRegistry::set_scene"
+                })))
+                .map_err(|e| ResourceError::Read(e.to_string()))?
+            }
+            "scene://delta" => {
+                let delta = self.delta.read();
+                serde_json::to_string(delta.as_ref().unwrap_or(&json!({
+                    "status": "no_scene_delta",
+                    "hint": "subscribe to scene://delta and publish scene snapshots"
+                })))
+                .map_err(|e| ResourceError::Read(e.to_string()))?
+            }
+            _ => return Err(ResourceError::NotFound(uri.to_string())),
         };
         Ok(ProducerContent::Text {
             uri: uri.to_string(),

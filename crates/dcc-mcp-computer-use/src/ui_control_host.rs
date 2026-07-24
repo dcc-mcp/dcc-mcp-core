@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use dcc_mcp_models::{DEFAULT_STATE_DELTA_MAX_CHANGES, diff_json_state};
 use dcc_mcp_ui_control::host_protocol::{
     UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlAction, UiControlClipArtifact, UiControlClipFormat,
     UiControlHostErrorCode, UiControlHostHello, UiControlHostRequest, UiControlHostResponse,
@@ -9,9 +10,7 @@ use dcc_mcp_ui_control::host_protocol::{
     UiControlSystemOperation, UiControlTarget, UiControlTaskGrant, UiControlWindowOperation,
     UiControlWindowState,
 };
-use serde_json::Value;
-#[cfg(test)]
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 mod audit;
@@ -32,8 +31,8 @@ pub use connection::UiControlHostConnection;
 #[cfg(any(windows, test))]
 use policy::{ActionControlFence, verify_expected_action_fence};
 use policy::{
-    allows_owned_standard_menu_popup, classify_action, stale_accessibility_state,
-    verify_action_fence,
+    action_fields_are_valid, allows_owned_standard_menu_popup, cached_action_fence,
+    classify_action, stale_accessibility_state, verify_action_fence,
 };
 #[cfg(test)]
 use policy::{classify_control, classify_control_text};
@@ -101,6 +100,7 @@ struct RuntimeClipRequest {
 
 trait HostRuntimeSession: Send {
     fn target(&self) -> &UiControlTarget;
+    fn user_interrupted(&self) -> bool;
     fn start_visible_notice(&mut self) -> Result<(), HostFailure>;
     fn window_state(&mut self) -> Result<UiControlWindowState, HostFailure>;
     fn change_window_state(
@@ -140,7 +140,6 @@ trait HostRuntime: Send + Sync {
 enum ConfirmationKind<'a> {
     ConsequentialAction(UiControlPolicyTier),
     SystemOperation(&'a UiControlSystemOperation),
-    ResumeAfterStop,
 }
 
 trait ConfirmationSurface: Send + Sync {
@@ -162,6 +161,8 @@ struct HostSession {
     focus_runtime_id: Option<String>,
     accessibility_max_depth: Option<u32>,
     accessibility_max_nodes: Option<u32>,
+    last_accessibility_state: Option<Value>,
+    pending_action_id: Option<String>,
     runtime: Box<dyn HostRuntimeSession>,
 }
 
@@ -369,6 +370,8 @@ impl UiControlHost {
                 focus_runtime_id: None,
                 accessibility_max_depth: None,
                 accessibility_max_nodes: None,
+                last_accessibility_state: None,
+                pending_action_id: None,
                 runtime,
             },
         );
@@ -560,6 +563,18 @@ impl UiControlHost {
             Err(failure) => return failure.into_response(),
         };
         let accessibility_state_id = new_capability("accessibility");
+        let current_state = accessibility_state_value(
+            &snapshot.root,
+            snapshot.focus_runtime_id.as_deref(),
+            snapshot.node_count,
+        );
+        let state_delta = diff_json_state(
+            session.last_accessibility_state.as_ref(),
+            &current_state,
+            DEFAULT_STATE_DELTA_MAX_CHANGES,
+        );
+        session.last_accessibility_state = Some(current_state);
+        let cause_action_id = session.pending_action_id.take();
         session.observation_id = Some(snapshot.observation_id.clone());
         session.observation = Some(snapshot.observation.clone());
         session.accessibility_state_id = Some(accessibility_state_id.clone());
@@ -575,6 +590,8 @@ impl UiControlHost {
             root: snapshot.root,
             focus_runtime_id: snapshot.focus_runtime_id,
             node_count: snapshot.node_count,
+            state_delta: Some(state_delta),
+            cause_action_id,
             image: Box::new(snapshot.image),
         }
     }
@@ -610,6 +627,18 @@ impl UiControlHost {
             Err(failure) => return failure.into_response(),
         };
         let accessibility_state_id = new_capability("accessibility");
+        let current_state = accessibility_state_value(
+            &state.root,
+            state.focus_runtime_id.as_deref(),
+            state.node_count,
+        );
+        let state_delta = diff_json_state(
+            session.last_accessibility_state.as_ref(),
+            &current_state,
+            DEFAULT_STATE_DELTA_MAX_CHANGES,
+        );
+        session.last_accessibility_state = Some(current_state);
+        let cause_action_id = session.pending_action_id.take();
         session.accessibility_state_id = Some(accessibility_state_id.clone());
         session.accessibility_root = Some(state.root.clone());
         session.focus_runtime_id = state.focus_runtime_id.clone();
@@ -621,6 +650,8 @@ impl UiControlHost {
             root: state.root,
             focus_runtime_id: state.focus_runtime_id,
             node_count: state.node_count,
+            state_delta: Some(state_delta),
+            cause_action_id,
         }
     }
 
@@ -812,6 +843,8 @@ impl UiControlHost {
         }
 
         // Every attempted mutation consumes both fences, including backend failures.
+        let action_id = new_capability("action");
+        session.pending_action_id = Some(action_id.clone());
         consume_observation(session);
         match session
             .runtime
@@ -826,6 +859,7 @@ impl UiControlHost {
                 let response = completed_action_response(
                     true,
                     target_closed,
+                    Some(action_id),
                     policy_tier,
                     result.message,
                     None,
@@ -845,8 +879,10 @@ impl UiControlHost {
                     policy_tier,
                     Some(failure.code),
                 );
-                action_response(
+                completed_action_response(
                     false,
+                    false,
+                    Some(action_id),
                     policy_tier,
                     failure.message,
                     Some(failure.code),
@@ -863,7 +899,6 @@ impl UiControlHost {
         task_grant_id: &str,
         window_capability: &str,
     ) -> UiControlHostResponse {
-        let confirmation = &self.confirmation;
         let session = match Self::authorized_session_mut(
             &mut self.sessions,
             session_id,
@@ -873,21 +908,9 @@ impl UiControlHost {
             Ok(session) => session,
             Err(failure) => return failure.into_response(),
         };
-        match confirmation.confirm(
-            ConfirmationKind::ResumeAfterStop,
-            Some(session.runtime.target()),
-            None,
-        ) {
-            Ok(true) => {}
-            Ok(false) => {
-                return error(
-                    UiControlHostErrorCode::ApprovalRequired,
-                    "the user did not approve resuming UI Control",
-                );
-            }
-            Err(failure) => return failure.into_response(),
-        }
-        if let Err(failure) = session.runtime.resume_after_approval() {
+        if session.runtime.user_interrupted()
+            && let Err(failure) = session.runtime.resume_after_approval()
+        {
             return failure.into_response();
         }
         session.observation_id = None;
@@ -897,6 +920,7 @@ impl UiControlHost {
         session.focus_runtime_id = None;
         session.accessibility_max_depth = None;
         session.accessibility_max_nodes = None;
+        session.pending_action_id = None;
         UiControlHostResponse::SessionResumed {
             session_id: session_id.to_owned(),
         }
@@ -1092,6 +1116,33 @@ fn refresh_action_policy(
     let max_nodes = session
         .accessibility_max_nodes
         .ok_or_else(stale_accessibility_state)?;
+    let cached_root = session
+        .accessibility_root
+        .as_ref()
+        .ok_or_else(stale_accessibility_state)?;
+    let (cached_tier, _cached_controls) = cached_action_fence(
+        action,
+        cached_root,
+        session.focus_runtime_id.as_deref(),
+        session.observation.as_ref(),
+    )?;
+    if cached_tier == UiControlPolicyTier::TaskGrant {
+        return Ok((
+            cached_tier,
+            ActionFenceExpectation {
+                #[cfg(any(windows, test))]
+                controls: _cached_controls,
+                #[cfg(any(windows, test))]
+                observation: session.observation.clone(),
+                #[cfg(windows)]
+                max_depth,
+                #[cfg(windows)]
+                max_nodes,
+                #[cfg(any(windows, test))]
+                policy_tier: cached_tier,
+            },
+        ));
+    }
     let live = session.runtime.accessibility_state(
         max_depth,
         max_nodes,
@@ -1099,10 +1150,7 @@ fn refresh_action_policy(
     )?;
     let (policy_tier, _action_controls) = verify_action_fence(
         action,
-        session
-            .accessibility_root
-            .as_ref()
-            .ok_or_else(stale_accessibility_state)?,
+        cached_root,
         session.focus_runtime_id.as_deref(),
         session.observation.as_ref(),
         &live,
@@ -1132,6 +1180,18 @@ fn consume_observation(session: &mut HostSession) {
     session.focus_runtime_id = None;
     session.accessibility_max_depth = None;
     session.accessibility_max_nodes = None;
+}
+
+fn accessibility_state_value(
+    root: &Value,
+    focus_runtime_id: Option<&str>,
+    node_count: u32,
+) -> Value {
+    json!({
+        "root": root,
+        "focus_runtime_id": focus_runtime_id,
+        "node_count": node_count,
+    })
 }
 
 fn action_fence_failure(
@@ -1242,97 +1302,6 @@ fn validate_action_descriptor(action: &UiControlAction) -> Result<(), HostFailur
     Ok(())
 }
 
-fn action_fields_are_valid(action: &UiControlAction) -> bool {
-    let point = action.x.is_some() && action.y.is_some();
-    let no_point = action.x.is_none() && action.y.is_none();
-    let no_scroll = action.scroll_x.is_none() && action.scroll_y.is_none();
-    let no_pointer = no_point
-        && action.button.is_none()
-        && no_scroll
-        && action.path.is_empty()
-        && action.duration_ms.is_none();
-    let no_value = action.text.is_none() && action.checked.is_none();
-    let has_keys = action
-        .keys
-        .iter()
-        .flat_map(|item| item.split('+'))
-        .any(|item| !item.trim().is_empty());
-    let pointer_modifiers_are_valid = crate::keyboard_policy::are_pointer_modifiers(&action.keys);
-
-    match action.input_kind {
-        UiControlInputKind::Semantic => {
-            no_pointer
-                && action.keys.is_empty()
-                && match action.action.as_str() {
-                    "set_text" | "select_option" => {
-                        action.text.is_some() && action.checked.is_none()
-                    }
-                    "set_checked" => action.text.is_none() && action.checked.is_some(),
-                    _ => no_value,
-                }
-        }
-        UiControlInputKind::RawInput => {
-            if action.control_id.is_some() {
-                return false;
-            }
-            match action.action.as_str() {
-                "move" => {
-                    point
-                        && action.button.is_none()
-                        && no_scroll
-                        && action.path.is_empty()
-                        && no_value
-                        && action.keys.is_empty()
-                }
-                "click" | "double_click" | "raw_coordinate_click" => {
-                    point
-                        && no_scroll
-                        && action.path.is_empty()
-                        && no_value
-                        && pointer_modifiers_are_valid
-                }
-                "scroll" => {
-                    point
-                        && action.button.is_none()
-                        && (action.scroll_x.is_some_and(|value| value != 0)
-                            || action.scroll_y.is_some_and(|value| value != 0))
-                        && action.path.is_empty()
-                        && no_value
-                        && pointer_modifiers_are_valid
-                }
-                "drag" => {
-                    no_point
-                        && no_scroll
-                        && action.path.len() >= 2
-                        && no_value
-                        && pointer_modifiers_are_valid
-                }
-                "type" => {
-                    no_pointer
-                        && action.text.is_some()
-                        && action.keys.is_empty()
-                        && action.checked.is_none()
-                }
-                "keypress" | "keyboard_shortcut" => {
-                    no_pointer && action.text.is_none() && action.checked.is_none() && has_keys
-                }
-                "game_navigation" => {
-                    no_point
-                        && action.button.is_none()
-                        && no_scroll
-                        && action.path.is_empty()
-                        && no_value
-                        && crate::game_navigation_virtual_key(&action.keys).is_some()
-                        && action
-                            .duration_ms
-                            .is_none_or(|duration| duration <= crate::MAX_GAME_NAVIGATION_HOLD_MS)
-                }
-                _ => false,
-            }
-        }
-    }
-}
-
 impl HostFailure {
     fn into_response(self) -> UiControlHostResponse {
         error(self.code, self.message)
@@ -1361,6 +1330,7 @@ fn action_response(
     completed_action_response(
         success,
         false,
+        Some(new_capability("action")),
         policy_tier,
         message,
         error,
@@ -1373,6 +1343,7 @@ fn action_response(
 fn completed_action_response(
     success: bool,
     target_closed: bool,
+    action_id: Option<String>,
     policy_tier: UiControlPolicyTier,
     message: impl Into<String>,
     error: Option<UiControlHostErrorCode>,
@@ -1381,6 +1352,7 @@ fn completed_action_response(
 ) -> UiControlHostResponse {
     UiControlHostResponse::ActionCompleted {
         success,
+        action_id,
         target_closed,
         policy_tier,
         message: message.into(),
@@ -1445,7 +1417,6 @@ impl ConfirmationSurface for RejectingConfirmationSurface {
             ConfirmationKind::SystemOperation(operation) => {
                 let _ = operation;
             }
-            ConfirmationKind::ResumeAfterStop => {}
         }
         Ok(false)
     }

@@ -7,7 +7,10 @@ use dcc_mcp_ui_control::host_protocol::{
     UiControlSystemGrantOperation,
 };
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 mod connection_tests;
 mod navigation;
@@ -18,7 +21,10 @@ struct FakeRuntime {
     minimized: bool,
     target_closed_after_action: bool,
     captured_session_id: Arc<Mutex<Option<String>>>,
+    accessibility_refreshes: Arc<AtomicUsize>,
     stop_results: Mutex<VecDeque<bool>>,
+    user_interrupted: bool,
+    resume_calls: Arc<AtomicUsize>,
 }
 
 struct FakeSession {
@@ -28,7 +34,10 @@ struct FakeSession {
     minimized: bool,
     target_closed_after_action: bool,
     notice_started: bool,
+    accessibility_refreshes: Arc<AtomicUsize>,
     stop_results: VecDeque<bool>,
+    user_interrupted: bool,
+    resume_calls: Arc<AtomicUsize>,
 }
 
 impl Default for FakeRuntime {
@@ -39,7 +48,10 @@ impl Default for FakeRuntime {
             minimized: false,
             target_closed_after_action: false,
             captured_session_id: Arc::new(Mutex::new(None)),
+            accessibility_refreshes: Arc::new(AtomicUsize::new(0)),
             stop_results: Mutex::new(VecDeque::new()),
+            user_interrupted: false,
+            resume_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -73,12 +85,15 @@ impl HostRuntime for FakeRuntime {
             minimized: self.minimized,
             target_closed_after_action: self.target_closed_after_action,
             notice_started: false,
+            accessibility_refreshes: Arc::clone(&self.accessibility_refreshes),
             stop_results: std::mem::take(
                 &mut *self
                     .stop_results
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner()),
             ),
+            user_interrupted: self.user_interrupted,
+            resume_calls: Arc::clone(&self.resume_calls),
         }))
     }
 }
@@ -86,6 +101,10 @@ impl HostRuntime for FakeRuntime {
 impl HostRuntimeSession for FakeSession {
     fn target(&self) -> &UiControlTarget {
         &self.target
+    }
+
+    fn user_interrupted(&self) -> bool {
+        self.user_interrupted
     }
 
     fn start_visible_notice(&mut self) -> Result<(), HostFailure> {
@@ -181,6 +200,7 @@ impl HostRuntimeSession for FakeSession {
         _max_nodes: u32,
         _allow_owned_standard_menu_popup: bool,
     ) -> Result<RuntimeAccessibilityState, HostFailure> {
+        self.accessibility_refreshes.fetch_add(1, Ordering::Relaxed);
         Ok(self
             .live_states
             .pop_front()
@@ -207,6 +227,7 @@ impl HostRuntimeSession for FakeSession {
     }
 
     fn resume_after_approval(&mut self) -> Result<(), HostFailure> {
+        self.resume_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -268,7 +289,15 @@ fn host_with_accessibility_states(
     snapshot: RuntimeAccessibilityState,
     live_states: Vec<RuntimeAccessibilityState>,
 ) -> UiControlHost {
-    UiControlHost {
+    host_with_accessibility_states_and_counter(snapshot, live_states).0
+}
+
+fn host_with_accessibility_states_and_counter(
+    snapshot: RuntimeAccessibilityState,
+    live_states: Vec<RuntimeAccessibilityState>,
+) -> (UiControlHost, Arc<AtomicUsize>) {
+    let accessibility_refreshes = Arc::new(AtomicUsize::new(0));
+    let host = UiControlHost {
         sessions: HashMap::new(),
         system_sessions: HashMap::new(),
         system_grants: HashMap::new(),
@@ -278,10 +307,14 @@ fn host_with_accessibility_states(
             minimized: false,
             target_closed_after_action: false,
             captured_session_id: Arc::new(Mutex::new(None)),
+            accessibility_refreshes: Arc::clone(&accessibility_refreshes),
             stop_results: Mutex::new(VecDeque::new()),
+            user_interrupted: false,
+            resume_calls: Arc::new(AtomicUsize::new(0)),
         }),
         confirmation: Box::new(AllowConfirmation),
-    }
+    };
+    (host, accessibility_refreshes)
 }
 
 fn host_with_stop_results(results: impl IntoIterator<Item = bool>) -> UiControlHost {
@@ -419,6 +452,40 @@ fn opening_a_routine_session_does_not_request_confirmation() {
         ),
         UiControlHostResponse::SessionOpened { .. }
     ));
+}
+
+#[test]
+fn explicit_resume_clears_user_interrupt_without_another_confirmation() {
+    for user_interrupted in [false, true] {
+        let resume_calls = Arc::new(AtomicUsize::new(0));
+        let mut host = UiControlHost {
+            sessions: HashMap::new(),
+            system_sessions: HashMap::new(),
+            system_grants: HashMap::new(),
+            runtime: Box::new(FakeRuntime {
+                user_interrupted,
+                resume_calls: Arc::clone(&resume_calls),
+                ..FakeRuntime::default()
+            }),
+            confirmation: Box::new(DenyConfirmation),
+        };
+        let opened = host.open_session("resume".to_owned(), grant(false));
+        let UiControlHostResponse::SessionOpened {
+            window_capability, ..
+        } = opened
+        else {
+            panic!("session not opened: {opened:?}");
+        };
+        let resumed = host.resume_session("resume", "grant-1", &window_capability);
+        assert!(matches!(
+            resumed,
+            UiControlHostResponse::SessionResumed { .. }
+        ));
+        assert_eq!(
+            resume_calls.load(Ordering::SeqCst),
+            usize::from(user_interrupted)
+        );
+    }
 }
 
 #[test]
@@ -694,6 +761,69 @@ fn accessibility_snapshot_refreshes_uia_without_pixel_observation() {
             ..
         }
     ));
+}
+
+#[test]
+fn accessibility_snapshots_return_only_semantic_state_changes() {
+    let initial = RuntimeAccessibilityState {
+        root: json!({"runtime_id": "42.1", "name": "Viewport", "children": []}),
+        focus_runtime_id: Some("42.1".to_owned()),
+        node_count: 1,
+    };
+    let changed = RuntimeAccessibilityState {
+        root: json!({"runtime_id": "42.1", "name": "Game View", "children": []}),
+        ..initial.clone()
+    };
+    let mut host = host_with_accessibility_states(initial.clone(), vec![initial.clone(), changed]);
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = host.open_session("delta".to_owned(), grant(false))
+    else {
+        panic!("session did not open");
+    };
+
+    let first = host.snapshot("delta", "grant-1", &window_capability, 5, 250);
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        state_delta: Some(first_delta),
+        ..
+    } = first
+    else {
+        panic!("first accessibility snapshot failed: {first:?}");
+    };
+    assert!(first_delta.baseline);
+    assert!(first_delta.changes.is_empty());
+
+    let completed = host.execute_action(
+        "delta",
+        "grant-1",
+        &window_capability,
+        &observation_id,
+        &accessibility_state_id,
+        action(Some("uia:42.1"), UiControlInputKind::Semantic),
+    );
+    let UiControlHostResponse::ActionCompleted {
+        success: true,
+        action_id: Some(action_id),
+        ..
+    } = completed
+    else {
+        panic!("action failed: {completed:?}");
+    };
+
+    let second = host.accessibility_snapshot("delta", "grant-1", &window_capability, 5, 250);
+    let UiControlHostResponse::AccessibilitySnapshot {
+        state_delta: Some(second_delta),
+        cause_action_id: Some(cause_action_id),
+        ..
+    } = second
+    else {
+        panic!("second accessibility snapshot failed: {second:?}");
+    };
+    assert_eq!(second_delta.changes.len(), 1);
+    assert_eq!(second_delta.changes[0].path, "/root/name");
+    assert_eq!(cause_action_id, action_id);
 }
 
 #[test]
@@ -1385,10 +1515,9 @@ fn execution_fence_rejects_same_identity_with_a_changed_security_signature() {
 fn unity_shortcut_allows_ordinary_dynamic_focus_drift_before_input() {
     let snapshot =
         unity_game_view_accessibility_state("42.game-view.snapshot", "42.game-view.snapshot");
-    let host_refresh =
-        unity_game_view_accessibility_state("42.game-view.live", "42.game-view.live");
     let pre_input = unity_game_view_accessibility_state("42.game-view.live", "42.play");
-    let mut host = host_with_accessibility_states(snapshot, vec![host_refresh, pre_input]);
+    let (mut host, accessibility_refreshes) =
+        host_with_accessibility_states_and_counter(snapshot, vec![pre_input]);
     let mut connection = UiControlHostConnection::default();
     assert!(matches!(
         connection.handle(
@@ -1457,6 +1586,11 @@ fn unity_shortcut_allows_ordinary_dynamic_focus_drift_before_input() {
             ..
         }
     ));
+    assert_eq!(
+        accessibility_refreshes.load(Ordering::Relaxed),
+        0,
+        "ordinary task-grant actions must defer the live UIA read to the pre-input fence",
+    );
 }
 
 #[test]

@@ -326,7 +326,7 @@ async fn test_admin_logs_limit_1000_reads_file_log_tail() {
 async fn test_admin_logs_exposes_ui_control_operation() {
     let _env = API_LOGS_ENV_LOCK.lock();
     let disk_logs = ScopedDiskLogsDir::new();
-    let line = r#"2026-07-20T12:00:00.000Z INFO dcc_mcp_core.ui_control.audit: {"dcc_type":"unreal","detail":"backend=windows-uia action=click session=lookdev","error":null,"event":"ui_control_operation","message":"DCC UI Control act succeeded","success":true,"tool":"ui_control__act"}"#;
+    let line = r#"2026-07-20T12:00:00.000Z INFO dcc_mcp_core.ui_control.audit: {"action_id":"action:test","dcc_type":"unreal","detail":"backend=windows-uia action=click session=lookdev action_id=action:test state_changes=1 state_paths=/root/name","error":null,"event":"ui_control_operation","message":"DCC UI Control act succeeded","state_delta":{"change_count":1,"paths":["/root/name"]},"success":true,"tool":"ui_control__act"}"#;
     std::fs::write(disk_logs.path().join("dcc-mcp-ui-control.42.log"), line).unwrap();
 
     let (status, body) = body_json(admin_router(), "/api/logs").await;
@@ -341,6 +341,8 @@ async fn test_admin_logs_exposes_ui_control_operation() {
     assert_eq!(log["tool"], "ui_control__act");
     assert_eq!(log["success"], true);
     assert_eq!(log["message"], "DCC UI Control act succeeded");
+    assert_eq!(log["action_id"], "action:test");
+    assert_eq!(log["state_delta"]["paths"][0], "/root/name");
 }
 
 #[tokio::test]

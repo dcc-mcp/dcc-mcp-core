@@ -3,9 +3,10 @@ use super::*;
 mod game_navigation;
 mod send_input;
 
+use super::overlay::action_feedback_label;
 use game_navigation::game_navigation;
 #[cfg(test)]
-use game_navigation::{HeldGameNavigationKey, game_navigation_key_inputs};
+use game_navigation::{HeldGameNavigationKeys, game_navigation_key_inputs};
 pub(crate) use send_input::flush_pending_input_releases;
 pub(super) use send_input::flush_pending_input_releases_locked;
 #[cfg(test)]
@@ -66,7 +67,7 @@ pub(crate) fn perform_action(
     desktop_state: &Arc<AtomicU64>,
     desktop_barrier: &Arc<DesktopEventBarrier>,
     mut pre_input_fence: Option<&mut PreInputFence<'_>>,
-    last_action_point: &Arc<crate::platform::LastActionPoint>,
+    action_feedback: &Arc<crate::platform::LastActionFeedback>,
 ) -> ComputerUseResult<()> {
     if matches!(
         request.action.as_str(),
@@ -92,6 +93,8 @@ pub(crate) fn perform_action(
     let _focus_elevation = focus_target(window_handle, observation.process_id)?;
     guard.check()?;
     ensure_observation_target(window_handle, observation)?;
+    let feedback_label = action_feedback_label(request);
+    publish_action_feedback(action_feedback, None, feedback_label.clone());
 
     match request.action.as_str() {
         "move" => {
@@ -100,13 +103,12 @@ pub(crate) fn perform_action(
                 window_handle,
                 observation,
                 point,
+                request.duration_ms.unwrap_or(0),
                 &guard,
                 true,
                 &mut pre_input_fence,
             )?;
-            if let Ok(mut pt) = last_action_point.lock() {
-                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
-            }
+            publish_action_feedback(action_feedback, Some((screen_x, screen_y)), feedback_label);
             let effect = PointerEffect::new(screen_x, screen_y, "●")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
@@ -116,6 +118,7 @@ pub(crate) fn perform_action(
                 window_handle,
                 observation,
                 point,
+                request.duration_ms.unwrap_or(0),
                 &guard,
                 true,
                 &mut pre_input_fence,
@@ -129,10 +132,8 @@ pub(crate) fn perform_action(
                 &guard,
                 &mut pre_input_fence,
             )?;
-            if let Ok(mut pt) = last_action_point.lock() {
-                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
-            }
-            let effect = PointerEffect::new(screen_x, screen_y, "●")?;
+            publish_action_feedback(action_feedback, Some((screen_x, screen_y)), feedback_label);
+            let effect = PointerEffect::new(screen_x, screen_y, "◉")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
         "double_click" => {
@@ -141,6 +142,7 @@ pub(crate) fn perform_action(
                 window_handle,
                 observation,
                 point,
+                request.duration_ms.unwrap_or(0),
                 &guard,
                 true,
                 &mut pre_input_fence,
@@ -154,9 +156,7 @@ pub(crate) fn perform_action(
                 &guard,
                 &mut pre_input_fence,
             )?;
-            if let Ok(mut pt) = last_action_point.lock() {
-                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
-            }
+            publish_action_feedback(action_feedback, Some((screen_x, screen_y)), feedback_label);
             let effect = PointerEffect::new(screen_x, screen_y, "◎")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
@@ -166,6 +166,7 @@ pub(crate) fn perform_action(
                 window_handle,
                 observation,
                 point,
+                request.duration_ms.unwrap_or(0),
                 &guard,
                 true,
                 &mut pre_input_fence,
@@ -179,9 +180,7 @@ pub(crate) fn perform_action(
                 &guard,
                 &mut pre_input_fence,
             )?;
-            if let Ok(mut pt) = last_action_point.lock() {
-                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
-            }
+            publish_action_feedback(action_feedback, Some((screen_x, screen_y)), feedback_label);
             let effect = PointerEffect::new(screen_x, screen_y, "↕")?;
             effect.dwell(&guard, pointer_effect_dwell(request))?;
         }
@@ -193,9 +192,7 @@ pub(crate) fn perform_action(
                 &guard,
                 &mut pre_input_fence,
             )?;
-            if let Ok(mut pt) = last_action_point.lock() {
-                *pt = Some((screen_x, screen_y, std::time::Instant::now()));
-            }
+            publish_action_feedback(action_feedback, Some((screen_x, screen_y)), feedback_label);
         }
         "type" => type_text(
             window_handle,
@@ -230,6 +227,16 @@ pub(crate) fn perform_action(
         }
     }
     guard.check()
+}
+
+fn publish_action_feedback(
+    shared: &Arc<crate::platform::LastActionFeedback>,
+    point: Option<(i32, i32)>,
+    label: String,
+) {
+    if let Ok(mut feedback) = shared.lock() {
+        *feedback = Some(crate::platform::ActionFeedback { point, label });
+    }
 }
 
 struct ActionGuard<'a> {
@@ -584,6 +591,20 @@ fn prepare_point_target(
 }
 
 fn ensure_cursor_at(screen_x: i32, screen_y: i32) -> ComputerUseResult<()> {
+    let cursor = current_cursor_position()?;
+    if cursor != (screen_x, screen_y) {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidTarget,
+            format!(
+                "the pointer moved after observation (expected {screen_x},{screen_y}; found {},{}); take a new screenshot before clicking",
+                cursor.0, cursor.1
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn current_cursor_position() -> ComputerUseResult<(i32, i32)> {
     let mut cursor = POINT::default();
     unsafe { GetCursorPos(&mut cursor) }.map_err(|error| {
         ComputerUseError::new(
@@ -591,13 +612,36 @@ fn ensure_cursor_at(screen_x: i32, screen_y: i32) -> ComputerUseResult<()> {
             format!("GetCursorPos failed before input injection: {error}"),
         )
     })?;
-    if cursor.x != screen_x || cursor.y != screen_y {
-        return Err(ComputerUseError::new(
-            ComputerUseErrorCode::InvalidTarget,
-            "the pointer moved after observation; take a new screenshot before clicking",
-        ));
+    Ok((cursor.x, cursor.y))
+}
+
+fn wait_for_cursor_position(
+    expected: (i32, i32),
+    guard: &ActionGuard<'_>,
+) -> ComputerUseResult<(i32, i32)> {
+    let deadline = Instant::now() + Duration::from_millis(50);
+    let mut actual = current_cursor_position()?;
+    loop {
+        if cursor_position_matches(actual, expected) {
+            return Ok(actual);
+        }
+        guard.check()?;
+        if Instant::now() >= deadline {
+            return Err(ComputerUseError::new(
+                ComputerUseErrorCode::InvalidTarget,
+                format!(
+                    "the injected pointer step did not settle (expected {},{}; found {},{})",
+                    expected.0, expected.1, actual.0, actual.1
+                ),
+            ));
+        }
+        thread::sleep(Duration::from_millis(1));
+        actual = current_cursor_position()?;
     }
-    Ok(())
+}
+
+fn cursor_position_matches(actual: (i32, i32), expected: (i32, i32)) -> bool {
+    actual.0.abs_diff(expected.0) <= 1 && actual.1.abs_diff(expected.1) <= 1
 }
 
 fn current_window_rect(window_handle: u64) -> ComputerUseResult<[i32; 4]> {
@@ -682,6 +726,7 @@ fn move_to(
     window_handle: u64,
     observation: &ComputerUseObservation,
     point: ComputerUsePoint,
+    duration_ms: u64,
     guard: &ActionGuard<'_>,
     require_target_hit: bool,
     pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
@@ -691,6 +736,7 @@ fn move_to(
         window_handle,
         observation,
         mapped,
+        duration_ms,
         guard,
         require_target_hit,
         pre_input_fence,
@@ -701,6 +747,7 @@ fn move_to_mapped(
     window_handle: u64,
     observation: &ComputerUseObservation,
     mapped: MappedPointerPoint,
+    duration_ms: u64,
     guard: &ActionGuard<'_>,
     require_target_hit: bool,
     pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
@@ -722,15 +769,43 @@ fn move_to_mapped(
     } else {
         None
     };
+    let (cursor_x, cursor_y) = current_cursor_position()?;
+    let cursor = POINT {
+        x: cursor_x,
+        y: cursor_y,
+    };
+    let movement_duration_ms = if (cursor.x, cursor.y) == (mapped.screen_x, mapped.screen_y) {
+        0
+    } else {
+        duration_ms
+    };
+    let path = interpolated_pointer_path(
+        cursor,
+        mapped,
+        movement_duration_ms,
+        virtual_desktop_geometry(),
+    );
     guard.check()?;
     run_pre_input_fence(pre_input_fence)?;
-    send_mouse(
-        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-        mapped.absolute_x,
-        mapped.absolute_y,
-        0,
-    )?;
-    Ok((mapped.screen_x, mapped.screen_y))
+    let started = Instant::now();
+    for (index, point) in path.iter().copied().enumerate() {
+        let step = index + 1;
+        let deadline = started
+            + Duration::from_millis(
+                movement_duration_ms.saturating_mul(step as u64) / path.len() as u64,
+            );
+        guard.sleep(deadline.saturating_duration_since(Instant::now()))?;
+        guard.check()?;
+        ensure_target_foreground(window_handle, observation.process_id)?;
+        ensure_observation_target(window_handle, observation)?;
+        send_mouse(
+            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+            point.absolute_x,
+            point.absolute_y,
+            0,
+        )?;
+    }
+    wait_for_cursor_position((mapped.screen_x, mapped.screen_y), guard)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -776,16 +851,56 @@ fn mapped_pointer_point_for_desktop(
             "the mapped pointer coordinate is outside the visible virtual desktop",
         ));
     }
-    let absolute_x = ((screen_x - virtual_x) as i64 * 65_535 / (virtual_width - 1) as i64)
+    Ok(mapped_screen_point_for_desktop(
+        screen_x,
+        screen_y,
+        [virtual_x, virtual_y, virtual_width, virtual_height],
+    ))
+}
+
+fn mapped_screen_point_for_desktop(
+    screen_x: i32,
+    screen_y: i32,
+    [virtual_x, virtual_y, virtual_width, virtual_height]: [i32; 4],
+) -> MappedPointerPoint {
+    let absolute_x = ((screen_x - virtual_x) as i64 * 65_535 / (virtual_width.max(2) - 1) as i64)
         .clamp(0, 65_535) as i32;
-    let absolute_y = ((screen_y - virtual_y) as i64 * 65_535 / (virtual_height - 1) as i64)
+    let absolute_y = ((screen_y - virtual_y) as i64 * 65_535 / (virtual_height.max(2) - 1) as i64)
         .clamp(0, 65_535) as i32;
-    Ok(MappedPointerPoint {
+    MappedPointerPoint {
         screen_x,
         screen_y,
         absolute_x,
         absolute_y,
-    })
+    }
+}
+
+fn interpolated_pointer_path(
+    from: POINT,
+    to: MappedPointerPoint,
+    duration_ms: u64,
+    virtual_desktop: [i32; 4],
+) -> Vec<MappedPointerPoint> {
+    let path = [
+        ComputerUsePoint {
+            x: f64::from(from.x),
+            y: f64::from(from.y),
+        },
+        ComputerUsePoint {
+            x: f64::from(to.screen_x),
+            y: f64::from(to.screen_y),
+        },
+    ];
+    interpolated_drag_path(&path, duration_ms)
+        .into_iter()
+        .map(|point| {
+            mapped_screen_point_for_desktop(
+                point.x.round() as i32,
+                point.y.round() as i32,
+                virtual_desktop,
+            )
+        })
+        .collect()
 }
 
 fn virtual_desktop_geometry() -> [i32; 4] {
@@ -920,6 +1035,7 @@ fn drag(
         window_handle,
         observation,
         *start,
+        0,
         guard,
         true,
         pre_input_fence,
@@ -1144,7 +1260,6 @@ fn pointer_modifier_inputs(keys: &[String]) -> ComputerUseResult<(Vec<INPUT>, Ve
 }
 
 fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
-    let upper = key.to_ascii_uppercase();
     if let Some(common) = crate::keyboard_policy::common_key(key) {
         return common.virtual_key().map(VIRTUAL_KEY).ok_or_else(|| {
             ComputerUseError::new(
@@ -1153,58 +1268,9 @@ fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
             )
         });
     }
-    if let Some(virtual_key) = crate::keyboard_policy::function_key_virtual_key(key) {
-        return Ok(VIRTUAL_KEY(virtual_key));
-    }
-    if let Some(digit) = upper
-        .strip_prefix("KP_")
-        .filter(|value| value.len() == 1)
-        .and_then(|value| value.as_bytes().first().copied())
-        .filter(u8::is_ascii_digit)
-    {
-        return Ok(VIRTUAL_KEY(0x60 + u16::from(digit - b'0')));
-    }
-    let raw = match upper.as_str() {
-        "ENTER" | "RETURN" => 0x0D,
-        "BACKSPACE" => 0x08,
-        "DELETE" | "DEL" => 0x2E,
-        "INSERT" | "INS" => 0x2D,
-        "LEFT" | "ARROWLEFT" | "ARROW_LEFT" => 0x25,
-        "UP" | "ARROWUP" | "ARROW_UP" => 0x26,
-        "RIGHT" | "ARROWRIGHT" | "ARROW_RIGHT" => 0x27,
-        "DOWN" | "ARROWDOWN" | "ARROW_DOWN" => 0x28,
-        "HOME" => 0x24,
-        "END" => 0x23,
-        "PAGEUP" | "PAGE_UP" | "PGUP" => 0x21,
-        "PAGEDOWN" | "PAGE_DOWN" | "PGDN" => 0x22,
-        "CAPSLOCK" | "CAPS_LOCK" => 0x14,
-        "NUMLOCK" | "NUM_LOCK" => 0x90,
-        "SCROLLLOCK" | "SCROLL_LOCK" => 0x91,
-        "PAUSE" => 0x13,
-        "KP_DECIMAL" | "KPDECIMAL" | "NUMPAD_DECIMAL" => 0x6E,
-        ";" | "SEMICOLON" => 0xBA,
-        "=" | "EQUAL" | "EQUALS" => 0xBB,
-        "," | "COMMA" => 0xBC,
-        "-" | "MINUS" => 0xBD,
-        "." | "PERIOD" | "DOT" => 0xBE,
-        "/" | "SLASH" => 0xBF,
-        "`" | "GRAVE" | "BACKTICK" => 0xC0,
-        "[" | "LEFTBRACKET" | "BRACKETLEFT" => 0xDB,
-        "\\" | "BACKSLASH" => 0xDC,
-        "]" | "RIGHTBRACKET" | "BRACKETRIGHT" => 0xDD,
-        "'" | "APOSTROPHE" | "QUOTE" => 0xDE,
-        value
-            if value.len() == 1
-                && value
-                    .as_bytes()
-                    .first()
-                    .is_some_and(u8::is_ascii_alphanumeric) =>
-        {
-            u16::from(value.as_bytes()[0])
-        }
-        _ => return Err(invalid_key(key)),
-    };
-    Ok(VIRTUAL_KEY(raw))
+    crate::keyboard_policy::virtual_key_code(key)
+        .map(VIRTUAL_KEY)
+        .ok_or_else(|| invalid_key(key))
 }
 
 fn invalid_key(key: &str) -> ComputerUseError {

@@ -399,6 +399,14 @@ impl HostRuntimeSession for WindowsRuntimeSession {
         &self.target
     }
 
+    fn user_interrupted(&self) -> bool {
+        self.session
+            .status()
+            .get("user_interrupted")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    }
+
     fn start_visible_notice(&mut self) -> Result<(), HostFailure> {
         self.window_generation.verify()?;
         if self.started {

@@ -506,7 +506,8 @@ fn call_materializes_rest_rich_image_without_printing_base64() {
                 "__rich__": {
                     "kind": "image",
                     "data": encoded,
-                    "mime": "image/png"
+                    "mime": "image/png",
+                    "display_name": "ui-control-snapshot-session-snapshot.png"
                 }
             }
         }
@@ -519,12 +520,51 @@ fn call_materializes_rest_rich_image_without_printing_base64() {
     assert!(artifact.is_absolute());
     assert!(artifact.starts_with(root.path()));
     assert_eq!(
+        artifact.file_name().and_then(|value| value.to_str()),
+        Some("ui-control-snapshot-session-snapshot.png")
+    );
+    assert_eq!(
         artifact.extension().and_then(|value| value.to_str()),
         Some("png")
     );
     assert_eq!(std::fs::read(artifact).unwrap(), bytes);
     assert_eq!(rich["data"], MATERIALIZED_IMAGE_PLACEHOLDER);
     assert!(!serde_json::to_string(&value).unwrap().contains(&encoded));
+}
+
+#[test]
+fn native_mcp_image_reuses_ui_control_canonical_name() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let bytes = b"native ui control image";
+    let encoded = BASE64_STANDARD.encode(bytes);
+    let mut value = serde_json::json!({
+        "result": {
+            "content": [{"type": "image", "data": encoded, "mimeType": "image/png"}],
+            "structuredContent": {
+                "context": {
+                    "__rich__": {
+                        "kind": "image",
+                        "data": "<omitted; see native MCP image content>",
+                        "mime": "image/png",
+                        "display_name": "ui-control-snapshot-session-snapshot.png"
+                    }
+                }
+            }
+        }
+    });
+
+    materialize_call_images(&mut value, root.path());
+
+    let artifact = PathBuf::from(
+        value["result"]["content"][0]["artifact_path"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(
+        artifact.file_name().and_then(|value| value.to_str()),
+        Some("ui-control-snapshot-session-snapshot.png")
+    );
+    assert_eq!(std::fs::read(artifact).unwrap(), bytes);
 }
 
 #[test]

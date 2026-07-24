@@ -29,6 +29,7 @@ const MAX_SCREENSHOT_PIXELS: f64 = 1_500_000.0;
 const MAX_DRAG_POINTS: usize = 256;
 const MAX_KEY_TOKENS: usize = 16;
 const MAX_TEXT_UTF16_UNITS: usize = 4_096;
+const MAX_GAME_NAVIGATION_KEYS: usize = 4;
 const MAX_GAME_NAVIGATION_HOLD_MS: u64 = 500;
 const CONTROL_THREAD_JOIN_TIMEOUT: Duration = Duration::from_millis(750);
 
@@ -109,8 +110,8 @@ pub struct ComputerUseAction {
     /// Literal Unicode text for the `type` action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Keys or key chords for `keypress`, one W/A/S/D key for
-    /// `game_navigation`, or held modifiers for pointer actions.
+    /// Keys or key chords for `keypress`, up to four simultaneous supported
+    /// keys for `game_navigation`, or held modifiers for pointer actions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keys: Vec<String>,
     /// Action duration, bounded game-navigation hold, or wait time, in milliseconds.
@@ -361,7 +362,7 @@ struct SessionState {
     target_available: Arc<AtomicBool>,
     cleanup_pending: Arc<AtomicBool>,
     overlay_thread: Option<JoinHandle<()>>,
-    last_action_point: Arc<platform::LastActionPoint>,
+    action_feedback: Arc<platform::LastActionFeedback>,
 }
 
 impl Default for SessionState {
@@ -377,7 +378,7 @@ impl Default for SessionState {
             target_available: Arc::new(AtomicBool::new(false)),
             cleanup_pending: Arc::new(AtomicBool::new(false)),
             overlay_thread: None,
-            last_action_point: Arc::new(std::sync::Mutex::new(None)),
+            action_feedback: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }
@@ -543,7 +544,7 @@ impl ComputerUseSession {
         let target_available = Arc::new(AtomicBool::new(true));
         let cleanup_pending = Arc::new(AtomicBool::new(false));
         state.cleanup_pending = Arc::clone(&cleanup_pending);
-        let last_action_point = Arc::new(std::sync::Mutex::new(None));
+        let action_feedback = Arc::new(std::sync::Mutex::new(None));
         let thread = retain_pending_control_thread(
             &mut state,
             platform::start_control_banner(
@@ -560,7 +561,7 @@ impl ComputerUseSession {
                     target_available: Arc::clone(&target_available),
                     cleanup_pending,
                     session_id: self.session_id.clone(),
-                    last_action_point: Arc::clone(&last_action_point),
+                    action_feedback: Arc::clone(&action_feedback),
                 },
                 #[cfg(not(windows))]
                 platform::ControlBannerSignals,
@@ -575,7 +576,7 @@ impl ComputerUseSession {
         state.desktop_barrier = desktop_barrier;
         state.target_available = target_available;
         state.overlay_thread = Some(thread);
-        state.last_action_point = last_action_point;
+        state.action_feedback = action_feedback;
         Ok(self.status_locked(&state))
     }
 
@@ -704,7 +705,7 @@ impl ComputerUseSession {
             &state.desktop_state,
             &state.desktop_barrier,
             pre_input_fence,
-            &state.last_action_point,
+            &state.action_feedback,
         );
         action_result?;
         Ok(json!({
@@ -1089,10 +1090,10 @@ fn validate_action_limits(request: &ComputerUseAction) -> ComputerUseResult<()> 
         ));
     }
     if request.action == "game_navigation" {
-        if game_navigation_virtual_key(&request.keys).is_none() {
+        if game_navigation_virtual_keys(&request.keys).is_none() {
             return Err(ComputerUseError::new(
                 ComputerUseErrorCode::InvalidAction,
-                "game_navigation requires exactly one unmodified W, A, S, or D key",
+                "game_navigation requires one to four distinct supported canvas keys",
             ));
         }
         if request
@@ -1127,17 +1128,25 @@ fn validate_action_limits(request: &ComputerUseAction) -> ComputerUseResult<()> 
     Ok(())
 }
 
-fn game_navigation_virtual_key(keys: &[String]) -> Option<u16> {
-    let [key] = keys else {
-        return None;
-    };
-    match key.as_bytes() {
-        [b'W' | b'w'] => Some(u16::from(b'W')),
-        [b'A' | b'a'] => Some(u16::from(b'A')),
-        [b'S' | b's'] => Some(u16::from(b'S')),
-        [b'D' | b'd'] => Some(u16::from(b'D')),
-        _ => None,
+fn game_navigation_virtual_keys(keys: &[String]) -> Option<Vec<u16>> {
+    let mut virtual_keys = Vec::new();
+    for item in keys {
+        let tokens = item.split('+').collect::<Vec<_>>();
+        if tokens.is_empty() || tokens.iter().any(|token| token.trim().is_empty()) {
+            return None;
+        }
+        for token in tokens {
+            let virtual_key = keyboard_policy::virtual_key_code(token)?;
+            if virtual_keys.contains(&virtual_key) {
+                return None;
+            }
+            virtual_keys.push(virtual_key);
+            if virtual_keys.len() > MAX_GAME_NAVIGATION_KEYS {
+                return None;
+            }
+        }
     }
+    (!virtual_keys.is_empty()).then_some(virtual_keys)
 }
 
 fn target_matches(spec: &TargetSpec, info: &WindowInfo) -> bool {

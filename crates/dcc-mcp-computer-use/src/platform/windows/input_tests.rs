@@ -1,22 +1,17 @@
 use super::*;
 
 #[test]
-fn drag_branch_updates_last_action_point_with_final_screen_point() {
-    // The perform_action drag branch now captures drag()'s return value
-    // and writes it into last_action_point — the same pattern as move,
-    // click, double_click, and scroll. This test locks that pattern.
-    let last_action_point: Arc<crate::platform::LastActionPoint> =
-        Arc::new(std::sync::Mutex::new(None));
+fn action_feedback_preserves_pointer_point_and_safe_input_label() {
+    let feedback: Arc<crate::platform::LastActionFeedback> = Arc::new(std::sync::Mutex::new(None));
+    publish_action_feedback(&feedback, Some((1920, 1080)), "MOUSE · DRAG".to_owned());
 
-    let (screen_x, screen_y) = (1920, 1080);
-    if let Ok(mut pt) = last_action_point.lock() {
-        *pt = Some((screen_x, screen_y, std::time::Instant::now()));
-    }
-
-    let guard = last_action_point.lock().unwrap();
-    let (x, y, _instant) = guard.expect("last_action_point must be Some after drag");
-    assert_eq!(x, 1920);
-    assert_eq!(y, 1080);
+    assert_eq!(
+        *feedback.lock().unwrap(),
+        Some(crate::platform::ActionFeedback {
+            point: Some((1920, 1080)),
+            label: "MOUSE · DRAG".to_owned(),
+        })
+    );
 }
 
 #[test]
@@ -34,9 +29,19 @@ fn cross_version_input_and_interrupt_fences_keep_version_neutral_names() {
 }
 
 #[test]
-fn active_ui_control_reserves_ctrl_alt_escape_as_the_stop_key() {
+fn active_ui_control_stops_only_for_physical_escape() {
     assert_eq!(STOP_HOTKEY_LABEL, "Esc");
-    assert_eq!(STOP_HOTKEY_MODIFIERS.0, 0);
+    assert!(is_physical_escape_keydown(
+        WM_KEYDOWN,
+        VK_ESCAPE.0 as u32,
+        0
+    ));
+    assert!(!is_physical_escape_keydown(
+        WM_KEYDOWN,
+        VK_ESCAPE.0 as u32,
+        LLKHF_INJECTED.0,
+    ));
+    assert!(!is_physical_escape_keydown(WM_SYSKEYDOWN, b'A' as u32, 0,));
 }
 
 #[test]
@@ -263,24 +268,42 @@ fn keypress_batch_releases_every_pressed_key_in_reverse_order() {
 }
 
 #[test]
-fn game_navigation_builds_one_bounded_key_down_and_release() {
-    for key in ["W", "a", "S", "d"] {
-        let (press, release) = game_navigation_key_inputs(&[key.to_owned()]).unwrap();
-        let press = unsafe { press.Anonymous.ki };
-        let release = unsafe { release.Anonymous.ki };
+fn game_navigation_builds_bounded_canvas_key_inputs() {
+    for key in ["W", "j", "SPACE", "F5", "LEFT"] {
+        let (presses, releases) = game_navigation_key_inputs(&[key.to_owned()]).unwrap();
+        let press = unsafe { presses[0].Anonymous.ki };
+        let release = unsafe { releases[0].Anonymous.ki };
 
-        assert_eq!(press.wVk.0, key.to_ascii_uppercase().as_bytes()[0] as u16);
-        assert_eq!(press.dwFlags, KEYBD_EVENT_FLAGS(0));
+        assert_eq!(presses.len(), 1);
+        assert_eq!(releases.len(), 1);
+        assert!(!press.dwFlags.contains(KEYEVENTF_KEYUP));
         assert_eq!(release.wVk, press.wVk);
         assert!(release.dwFlags.contains(KEYEVENTF_KEYUP));
     }
 
+    let (presses, releases) =
+        game_navigation_key_inputs(&["W".to_owned(), "D".to_owned()]).unwrap();
+    let virtual_keys = |inputs: &[INPUT]| {
+        inputs
+            .iter()
+            .map(|input| unsafe { input.Anonymous.ki.wVk.0 })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(virtual_keys(&presses), [b'W' as u16, b'D' as u16]);
+    assert_eq!(virtual_keys(&releases), [b'D' as u16, b'W' as u16]);
+    assert!(
+        releases
+            .iter()
+            .all(|input| unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP))
+    );
+
     for keys in [
         vec![],
-        vec!["W", "D"],
-        vec!["SHIFT+W"],
-        vec!["LEFT"],
-        vec![" W"],
+        vec!["W", "W"],
+        vec!["W", "A", "S", "D", "J"],
+        vec!["WIN", "R"],
+        vec!["NOT_A_KEY"],
+        vec!["CTRL+"],
     ] {
         let error = match game_navigation_key_inputs(
             &keys.into_iter().map(str::to_owned).collect::<Vec<_>>(),
@@ -297,13 +320,14 @@ fn game_navigation_key_up_is_released_or_deferred_exactly_once() {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    let (press, release) = game_navigation_key_inputs(&["W".to_owned()]).unwrap();
+    let keys = ["W".to_owned(), "D".to_owned()];
+    let (presses, releases) = game_navigation_key_inputs(&keys).unwrap();
 
     let drop_sends = Rc::new(RefCell::new(Vec::new()));
     let drop_deferred = Rc::new(RefCell::new(Vec::new()));
-    let held = HeldGameNavigationKey::press_with(
-        press,
-        release,
+    let held = HeldGameNavigationKeys::press_with(
+        presses,
+        releases,
         {
             let sends = Rc::clone(&drop_sends);
             move |batch: &[INPUT]| {
@@ -318,20 +342,26 @@ fn game_navigation_key_up_is_released_or_deferred_exactly_once() {
     )
     .unwrap();
     drop(held);
-    assert_eq!(drop_sends.borrow().len(), 2);
-    assert!(unsafe { drop_sends.borrow()[1].Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP));
+    assert_eq!(drop_sends.borrow().len(), 4);
+    assert!(
+        drop_sends.borrow()[2..]
+            .iter()
+            .all(|input| unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP))
+    );
     assert!(drop_deferred.borrow().is_empty());
 
+    let (presses, releases) = game_navigation_key_inputs(&keys).unwrap();
     let failed_sends = Rc::new(RefCell::new(Vec::new()));
     let failed_deferred = Rc::new(RefCell::new(Vec::new()));
-    let mut held = HeldGameNavigationKey::press_with(
-        press,
-        release,
+    let mut held = HeldGameNavigationKeys::press_with(
+        presses,
+        releases,
         {
             let sends = Rc::clone(&failed_sends);
             move |batch: &[INPUT]| {
+                let first_call = sends.borrow().is_empty();
                 sends.borrow_mut().extend_from_slice(batch);
-                if sends.borrow().len() == 1 {
+                if first_call {
                     Ok(())
                 } else {
                     Err(ComputerUseError::new(
@@ -353,9 +383,14 @@ fn game_navigation_key_up_is_released_or_deferred_exactly_once() {
     );
     drop(held);
 
-    assert_eq!(failed_sends.borrow().len(), 2);
-    assert_eq!(failed_deferred.borrow().len(), 1);
-    assert!(unsafe { failed_deferred.borrow()[0].Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP));
+    assert_eq!(failed_sends.borrow().len(), 4);
+    assert_eq!(failed_deferred.borrow().len(), 2);
+    assert!(
+        failed_deferred
+            .borrow()
+            .iter()
+            .all(|input| unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP))
+    );
 }
 
 #[test]
@@ -492,6 +527,49 @@ fn drag_duration_interpolates_visible_steps_along_the_path() {
     let timed_corner = interpolated_drag_path(&cornered, 48);
     assert!(timed_corner.contains(&cornered[1]));
     assert_eq!(timed_corner.last(), Some(&cornered[2]));
+}
+
+#[test]
+fn pointer_duration_interpolates_visible_system_cursor_steps() {
+    let desktop = [0, 0, 1920, 1080];
+    let target = mapped_screen_point_for_desktop(96, 48, desktop);
+    let path = interpolated_pointer_path(POINT { x: 0, y: 0 }, target, 48, desktop);
+
+    assert_eq!(
+        path.iter()
+            .map(|point| (point.screen_x, point.screen_y))
+            .collect::<Vec<_>>(),
+        [(32, 16), (64, 32), (96, 48)]
+    );
+    assert_eq!(path.last(), Some(&target));
+    assert!(cursor_position_matches((95, 49), (96, 48)));
+    assert!(!cursor_position_matches((94, 48), (96, 48)));
+}
+
+#[test]
+fn overlay_feedback_labels_show_keyboard_chords_and_mouse_buttons() {
+    let action = |action: &str, keys: Vec<&str>, button: Option<&str>| ComputerUseAction {
+        action: action.to_owned(),
+        observation_id: None,
+        x: None,
+        y: None,
+        button: button.map(str::to_owned),
+        scroll_x: None,
+        scroll_y: None,
+        path: Vec::new(),
+        text: None,
+        keys: keys.into_iter().map(str::to_owned).collect(),
+        duration_ms: None,
+    };
+
+    assert_eq!(
+        action_feedback_label(&action("game_navigation", vec!["w", "d"], None)),
+        "KEYS · [W] + [D]"
+    );
+    assert_eq!(
+        action_feedback_label(&action("click", Vec::new(), Some("right"))),
+        "MOUSE · [RMB]"
+    );
 }
 
 #[test]
@@ -997,7 +1075,7 @@ fn escape_latch_blocks_new_sessions_until_explicit_reset() {
             target_available: Arc::new(AtomicBool::new(false)),
             cleanup_pending: Arc::new(AtomicBool::new(false)),
             session_id: None,
-            last_action_point: Arc::new(std::sync::Mutex::new(None)),
+            action_feedback: Arc::new(std::sync::Mutex::new(None)),
         },
     )
     .unwrap_err();

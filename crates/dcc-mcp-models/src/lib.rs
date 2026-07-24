@@ -8,6 +8,7 @@ pub mod registry;
 pub mod session;
 mod skill_metadata;
 pub mod skill_scope;
+pub mod state_delta;
 pub mod tool_call_event;
 
 #[cfg(feature = "python-bindings")]
@@ -27,6 +28,9 @@ pub use skill_metadata::{
     ToolAnnotations, ToolDeclaration, ToolRole, resolve_runtime_reports, summarize_runtime_reports,
 };
 pub use skill_scope::SkillScope;
+pub use state_delta::{
+    DEFAULT_STATE_DELTA_MAX_CHANGES, StateChange, StateChangeKind, StateDelta, diff_json_state,
+};
 pub use tool_call_event::{
     ArtifactStats, CoverageStats, CrashStats, FunnelStats, SessionStats, ToolCallEvent,
     ToolCallStats,
