@@ -743,5 +743,161 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
+def _build_detailed_node(
+    snapshot: Dict[str, Any],
+    node: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build a UiControlDetail dict, delegating to shared progressive query helpers."""
+    if __package__:
+        from ._progressive_query import build_control_detail
+    else:
+        from _progressive_query import build_control_detail
+
+    return build_control_detail(node, snapshot, "mock")
+
+
+def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return root-level controls without expanding children."""
+    if __package__:
+        from ._progressive_query import observe_from_snapshot
+    else:
+        from _progressive_query import observe_from_snapshot
+
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    max_roots = max(1, min(100, int(params.get("max_roots") or 20)))
+
+    if not policy.allow_snapshot:
+        return skill_error(
+            "ui_control observation disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped ui_control window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+
+    snapshot = _snapshot_dict(state)
+    result = observe_from_snapshot(snapshot, max_roots)
+
+    return skill_success(
+        f"Observed {len(result['roots'])} root-level control(s).",
+        prompt="Use ui_control__expand to drill into a node, or ui_control__inspect for details.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        roots=result["roots"],
+        total_roots=result["total_roots"],
+        truncated=result["truncated"],
+    )
+
+
+def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return direct children of a specific control node."""
+    if __package__:
+        from ._progressive_query import expand_from_snapshot
+    else:
+        from _progressive_query import expand_from_snapshot
+
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+    max_children = max(1, min(200, int(params.get("max_children") or 50)))
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped ui_control window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for expand",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    snapshot = _snapshot_dict(state)
+    result = expand_from_snapshot(snapshot, control_id, max_children)
+    if result is None:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    return skill_success(
+        f"Expanded {control_id!r}: {len(result['children'])} direct child(ren).",
+        prompt="Use ui_control__expand again to drill deeper, or ui_control__inspect for details on a child.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        control_id=result["control_id"],
+        children=result["children"],
+        total_children=result["total_children"],
+        truncated=result["truncated"],
+    )
+
+
+def inspect_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return detailed properties of a specific control."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped ui_control window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for inspect",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    snapshot = _snapshot_dict(state)
+    node = _find_by_id(snapshot, control_id)
+    if not node:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    detail = _build_detailed_node(snapshot, node)
+
+    return skill_success(
+        f"Inspected control {control_id!r} ({detail['role']}).",
+        prompt="Use ui_control__act with this control_id, or ui_control__expand to see its children.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        control=detail,
+    )
+
+
 def emit(result: Dict[str, Any]) -> None:
     print(json.dumps(result, sort_keys=True))

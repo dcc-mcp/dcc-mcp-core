@@ -649,6 +649,132 @@ pub struct UiWaitResult {
     pub metadata: Value,
 }
 
+/// Request for root-level window controls without full subtree expansion.
+///
+/// This is the first step in the progressive query chain:
+/// observe → expand → inspect. Unlike `snapshot`, it returns only the
+/// top-level controls with minimal metadata — no full subtree dump.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiObserveRequest {
+    /// Maximum root-level controls to return.
+    #[serde(default = "default_observe_max_roots")]
+    pub max_roots: u32,
+}
+
+const fn default_observe_max_roots() -> u32 {
+    20
+}
+
+/// Request to expand a specific control node to reveal its direct children.
+///
+/// This is step two in the progressive query chain. Agents call this
+/// after `observe` identified an interesting root, and can continue
+/// expanding children to drill down the tree lazily.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiExpandRequest {
+    /// Stable control id from a prior observation or expand call.
+    pub control_id: String,
+    /// Maximum direct children to return.
+    #[serde(default = "default_expand_max_children")]
+    pub max_children: u32,
+}
+
+const fn default_expand_max_children() -> u32 {
+    50
+}
+
+/// Request for detailed properties of a specific control.
+///
+/// This is the final step in the progressive query chain. Returns
+/// richer metadata than `find`: bounds, states, supported UIA patterns,
+/// runtime property bag, and position in the control tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiInspectRequest {
+    /// Stable control id from a prior observation, find, or expand call.
+    pub control_id: String,
+}
+
+/// Detailed control properties returned by `inspect_ui`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiControlDetail {
+    /// Stable control id.
+    pub id: String,
+    /// Role/type.
+    pub role: String,
+    /// Visible label or accessible name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Current visible text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Host object/control name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_name: Option<String>,
+    /// Tooltip/help text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<String>,
+    /// Whether the control is enabled.
+    pub enabled: bool,
+    /// Whether the control is visible.
+    pub visible: bool,
+    /// Whether the control has keyboard focus.
+    pub focused: bool,
+    /// Control bounds when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<UiBounds>,
+    /// Current value for value-bearing controls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// Checked state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+    /// Number of direct children (expanded or not).
+    #[serde(default)]
+    pub child_count: u32,
+    /// Supported UIA/accessibility pattern names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported_patterns: Vec<String>,
+    /// Supported action names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported_actions: Vec<String>,
+    /// Whether this control can receive keyboard focus.
+    #[serde(default)]
+    pub is_keyboard_focusable: bool,
+    /// Whether this control is a password field.
+    #[serde(default)]
+    pub is_password: bool,
+    /// Position in the tree as a dot-separated index path (e.g. "0.2.1").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_path: Option<String>,
+    /// Adapter-specific metadata.
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+/// Result of a progressive observe call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiObserveResult {
+    /// Root-level controls returned (children collapsed).
+    pub roots: Vec<UiControlNode>,
+    /// Total root-level controls found (may exceed max_roots).
+    pub total_roots: u32,
+    /// Whether the result was truncated by max_roots.
+    pub truncated: bool,
+}
+
+/// Result of a progressive expand call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiExpandResult {
+    /// Parent control id that was expanded.
+    pub control_id: String,
+    /// Direct children of the parent node.
+    pub children: Vec<UiControlNode>,
+    /// Total direct children (may exceed max_children).
+    pub total_children: u32,
+    /// Whether the result was truncated by max_children.
+    pub truncated: bool,
+}
+
 /// Small audit record for a `ui_control` action decision or outcome.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiControlAuditRecord {

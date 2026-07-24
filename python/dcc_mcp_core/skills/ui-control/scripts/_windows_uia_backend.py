@@ -792,6 +792,144 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         time.sleep(min(interval_ms / 1000.0, max(0.0, deadline - time.monotonic())))
 
 
+@_serialize_session_call
+def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return root-level controls from the Windows UIA backend without subtree expansion."""
+    _progressive = _load_sibling("_progressive_query")
+
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    max_roots = max(1, min(100, int(params.get("max_roots") or 20)))
+
+    if not policy.allow_snapshot and not policy.allow_find:
+        return skill_error(
+            "ui_control observation disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+
+    capture = _capture_accessibility_snapshot(session_id, policy, params)
+    if not capture.get("success"):
+        return capture
+
+    result = _progressive.observe_from_snapshot(capture["snapshot"], max_roots)
+
+    return skill_success(
+        f"Observed {len(result['roots'])} root-level control(s).",
+        prompt="Use ui_control__expand to drill into a node, or ui_control__inspect for details.",
+        session_id=session_id,
+        snapshot_id=capture.get("snapshot_id"),
+        roots=result["roots"],
+        total_roots=result["total_roots"],
+        truncated=result["truncated"],
+    )
+
+
+@_serialize_session_call
+def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return direct children of a specific control from the Windows UIA backend."""
+    _progressive = _load_sibling("_progressive_query")
+
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+    max_children = max(1, min(200, int(params.get("max_children") or 50)))
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for expand",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    capture = _capture_accessibility_snapshot(session_id, policy, params)
+    if not capture.get("success"):
+        return capture
+
+    result = _progressive.expand_from_snapshot(capture["snapshot"], control_id, max_children)
+    if result is None:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    return skill_success(
+        f"Expanded {control_id!r}: {len(result['children'])} direct child(ren).",
+        prompt="Use ui_control__expand again to drill deeper, or ui_control__inspect for details on a child.",
+        session_id=session_id,
+        snapshot_id=capture.get("snapshot_id"),
+        control_id=result["control_id"],
+        children=result["children"],
+        total_children=result["total_children"],
+        truncated=result["truncated"],
+    )
+
+
+@_serialize_session_call
+def inspect_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return detailed properties of a specific control from the Windows UIA backend."""
+    _progressive = _load_sibling("_progressive_query")
+
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for inspect",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    capture = _capture_accessibility_snapshot(session_id, policy, params)
+    if not capture.get("success"):
+        return capture
+
+    node = _progressive._find_by_id(capture["snapshot"], control_id)
+    if not node:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    override = {
+        "label_key": "name",
+        "object_name_key": "automation_id",
+        "tooltip_key": "help_text",
+        "role_key": "control_type",
+    }
+    detail = _progressive.build_control_detail(
+        node, capture["snapshot"], "windows-ui-control-host", override
+    )
+
+    return skill_success(
+        f"Inspected control {control_id!r} ({detail['role']}).",
+        prompt="Use ui_control__act with this control_id, or ui_control__expand to see its children.",
+        session_id=session_id,
+        snapshot_id=capture.get("snapshot_id"),
+        control=detail,
+    )
+
+
 def request_stop() -> None:
     """Interrupt package waits and request immediate host-session stops."""
     _STOP_EVENT.set()
