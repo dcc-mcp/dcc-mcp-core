@@ -357,9 +357,10 @@ tools:
           minimum: 0
           maximum: 60000
           description: >-
-            Optional drag duration, or visual pointer-effect dwell for a
-            non-drag pointer action, in milliseconds. For game_navigation it
-            is an optional key hold and must be between 0 and 500 ms.
+            Optional drag duration, or visible system-cursor travel plus
+            pointer-effect dwell for a non-drag pointer action, in
+            milliseconds. For game_navigation it is an optional key hold and
+            must be between 0 and 500 ms.
         snapshot_id:
           type: string
           description: >-

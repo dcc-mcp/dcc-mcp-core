@@ -491,10 +491,6 @@ impl ConfirmationSurface for WindowsConfirmationSurface {
                 "Confirm this Windows configuration change?",
                 "The operation will ensure one exact operator-approved HKCU value or symbolic link.",
             ),
-            ConfirmationKind::ResumeAfterStop => (
-                "Resume DCC UI Control?",
-                "The global Esc stop latch will be cleared for this Windows session.",
-            ),
         };
         let action_name = match kind {
             ConfirmationKind::SystemOperation(operation) => operation.audit_name(),

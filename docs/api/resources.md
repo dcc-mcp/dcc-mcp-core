@@ -25,11 +25,12 @@ Resources are advertised in `initialize` as:
 
 ## Built-in Resources
 
-`dcc-mcp-core` ships four built-in producers. Each is keyed by URI scheme.
+`dcc-mcp-core` ships built-in producers keyed by URI scheme.
 
 | URI | MIME | Description | Notifications |
 |-----|------|-------------|---------------|
-| `scene://current` | `application/json` | Current `SceneInfo` snapshot (or placeholder) | Fires when `set_scene()` is called |
+| `scene://current` | `application/json` | Current `SceneInfo` snapshot (or placeholder) | Fires when the scene changes |
+| `scene://delta` | `application/json` | Bounded changes from the previous scene revision | Fires when the scene changes |
 | `capture://current_window` | `image/png` | PNG of the active DCC window (base64 blob) | None (read-on-demand) |
 | `audit://recent?limit=N` | `application/json` | Tail of the `AuditLog` (default 50, max 500) | Fires on every `AuditLog.record()` |
 | `artefact://sha256/<hex>` | varies | Content-addressed artefact store (#349); bodies returned as base64 blobs with their declared MIME. Gated by `enable_artefact_resources`. | None (polling model) |
@@ -77,7 +78,7 @@ cfg.enable_resources = True              # default: True — advertise capabilit
 cfg.enable_artefact_resources = False    # default: False — artefact:// returns -32002 until enabled
 ```
 
-When `enable_resources = False` the server does not advertise the capability and all four
+When `enable_resources = False` the server does not advertise the capability and all
 `resources/*` methods return `-32601 method not found`.
 
 ## Wiring External State
@@ -182,12 +183,17 @@ can all publish the same project concepts.
 
 ### Updating the scene snapshot
 
-`set_scene()` replaces the snapshot atomically and emits a
-`notifications/resources/updated` with `uri = "scene://current"` to every subscribed session.
+`set_scene()` replaces the snapshot atomically and emits
+`notifications/resources/updated` for subscribed `scene://current` and
+`scene://delta` resources. Repeating an identical snapshot emits nothing.
 
 ```python
 server.resources().set_scene(new_snapshot_dict)
 ```
+
+`scene://delta` contains `base_revision`, `revision`, and a bounded JSON change
+list. Subscribe to it when an agent only needs changed DCC state; read
+`scene://current` for the full baseline after connecting or after a truncated delta.
 
 Pass `None` to clear the snapshot (readers then receive a placeholder with `status: "no_snapshot"`).
 

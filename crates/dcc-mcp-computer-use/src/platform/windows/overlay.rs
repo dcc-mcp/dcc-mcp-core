@@ -43,9 +43,12 @@ pub(super) struct ControlOverlay {
     cursor_ring: OverlayLayer,
     cursor_ring_size: Cell<i32>,
     cursor_visible: Cell<bool>,
+    capsule_geometry: Cell<OverlayGeometry>,
+    accent_color: Option<COLORREF>,
     pulse_started: Instant,
     scope_started: Instant,
     last_action_dot: Option<OverlayLayer>,
+    action_label: Option<OverlayLayer>,
     last_action_started: Option<Instant>,
 }
 
@@ -171,9 +174,12 @@ impl ControlOverlay {
             cursor_ring,
             cursor_ring_size: Cell::new(cursor_geometry.2),
             cursor_visible: Cell::new(cursor_visible),
+            capsule_geometry: Cell::new(capsule_geometry),
+            accent_color,
             pulse_started: Instant::now(),
             scope_started: Instant::now(),
             last_action_dot: None,
+            action_label: None,
             last_action_started: None,
         };
         if initially_visible {
@@ -186,58 +192,81 @@ impl ControlOverlay {
         self.capsule.hwnd
     }
 
-    /// Record a pointer action point so the fading dot can be shown.
-    pub(super) fn record_last_action(&mut self, screen_x: i32, screen_y: i32) {
-        // Destroy previous dot if any
+    pub(super) fn record_action_feedback(&mut self, point: Option<(i32, i32)>, label: &str) {
         if let Some(ref old) = self.last_action_dot {
             let _ = unsafe { DestroyWindow(old.hwnd) };
         }
+        if let Some(ref old) = self.action_label {
+            let _ = unsafe { DestroyWindow(old.hwnd) };
+        }
         self.last_action_dot = None;
+        self.action_label = None;
         self.last_action_started = Some(Instant::now());
 
-        // Create new dot at the action point
-        let x = screen_x - LAST_ACTION_DOT_SIZE / 2;
-        let y = screen_y - LAST_ACTION_DOT_SIZE / 2;
-        let geometry = (x, y, LAST_ACTION_DOT_SIZE, LAST_ACTION_DOT_SIZE);
+        if let Some((screen_x, screen_y)) = point {
+            let x = screen_x - LAST_ACTION_DOT_SIZE / 2;
+            let y = screen_y - LAST_ACTION_DOT_SIZE / 2;
+            let geometry = (x, y, LAST_ACTION_DOT_SIZE, LAST_ACTION_DOT_SIZE);
+            if let Ok(hwnd) = create_color_overlay(
+                "",
+                geometry,
+                255,
+                true,
+                OverlayTone::Accent,
+                self.accent_color,
+            ) {
+                let region =
+                    unsafe { CreateEllipticRgn(0, 0, LAST_ACTION_DOT_SIZE, LAST_ACTION_DOT_SIZE) };
+                if !region.0.is_null() {
+                    let _ = unsafe { SetWindowRgn(hwnd, Some(region), true) };
+                }
+                self.last_action_dot = Some(OverlayLayer::new(hwnd, 255, 255));
+            }
+        }
         if let Ok(hwnd) = create_color_overlay(
-            "",
-            geometry,
-            255,
+            label,
+            action_feedback_geometry(self.capsule_geometry.get()),
+            CONTROL_CAPSULE_ALPHA,
             true,
             OverlayTone::Accent,
-            Some(CONTROL_ACCENT_COLOR),
+            self.accent_color,
         ) {
-            // Make it circular
-            let region =
-                unsafe { CreateEllipticRgn(0, 0, LAST_ACTION_DOT_SIZE, LAST_ACTION_DOT_SIZE) };
-            if !region.0.is_null() {
-                let _ = unsafe { SetWindowRgn(hwnd, Some(region), true) };
-            }
-            self.last_action_dot = Some(OverlayLayer::new(hwnd, 255, 255));
+            self.action_label = Some(OverlayLayer::new(
+                hwnd,
+                CONTROL_CAPSULE_ALPHA,
+                CONTROL_CAPSULE_ALPHA,
+            ));
         }
     }
 
-    fn update_last_action_dot(&mut self) {
-        let Some(ref dot) = self.last_action_dot else {
-            return;
-        };
+    fn update_action_feedback(&mut self) {
         let Some(start) = self.last_action_started else {
             return;
         };
         let elapsed_ms = start.elapsed().as_millis() as u64;
-        if elapsed_ms >= LAST_ACTION_DOT_FADE_MS {
-            // Fully faded — hide and destroy
-            let _ = unsafe { DestroyWindow(dot.hwnd) };
+        if elapsed_ms >= ACTION_FEEDBACK_FADE_MS {
+            if let Some(ref dot) = self.last_action_dot {
+                let _ = unsafe { DestroyWindow(dot.hwnd) };
+            }
+            if let Some(ref label) = self.action_label {
+                let _ = unsafe { DestroyWindow(label.hwnd) };
+            }
             self.last_action_dot = None;
+            self.action_label = None;
             self.last_action_started = None;
             return;
         }
-        // Ease-out cubic: (1 - t)^3 for smooth fade
-        let progress = elapsed_ms as f64 / LAST_ACTION_DOT_FADE_MS as f64;
-        let alpha = ((1.0 - progress).powi(3) * 255.0) as u8;
-        if alpha != dot.applied_alpha.get() {
-            let _ = set_overlay_alpha(dot.hwnd, alpha);
-            dot.applied_alpha.set(alpha);
+        let progress = elapsed_ms as f64 / ACTION_FEEDBACK_FADE_MS as f64;
+        let scale = (1.0 - progress).powi(3);
+        for layer in [&self.last_action_dot, &self.action_label]
+            .into_iter()
+            .flatten()
+        {
+            let alpha = (f64::from(layer.base_alpha) * scale) as u8;
+            if alpha != layer.applied_alpha.get() {
+                let _ = set_overlay_alpha(layer.hwnd, alpha);
+                layer.applied_alpha.set(alpha);
+            }
         }
     }
 
@@ -251,6 +280,14 @@ impl ControlOverlay {
             position_overlay(layer.hwnd, geometry, false)?;
         }
         position_overlay(self.capsule.hwnd, capsule_geometry, false)?;
+        self.capsule_geometry.set(capsule_geometry);
+        if let Some(ref label) = self.action_label {
+            position_overlay(
+                label.hwnd,
+                action_feedback_geometry(capsule_geometry),
+                false,
+            )?;
+        }
         for (layer, (geometry, _alpha, _focus)) in self.corners.iter().zip(corner_geometries) {
             position_overlay(layer.hwnd, geometry, false)?;
         }
@@ -307,8 +344,7 @@ impl ControlOverlay {
             scope_boost,
         )?;
 
-        // Update the last-action fading dot
-        self.update_last_action_dot();
+        self.update_action_feedback();
 
         Ok(())
     }
@@ -320,6 +356,12 @@ impl ControlOverlay {
         set_overlay_visible(self.capsule.hwnd, visible)?;
         for layer in &self.corners {
             set_overlay_visible(layer.hwnd, visible)?;
+        }
+        if let Some(ref dot) = self.last_action_dot {
+            set_overlay_visible(dot.hwnd, visible)?;
+        }
+        if let Some(ref label) = self.action_label {
+            set_overlay_visible(label.hwnd, visible)?;
         }
         if visible {
             if self.cursor_visible.get() {
@@ -340,11 +382,56 @@ impl Drop for ControlOverlay {
         if let Some(ref dot) = self.last_action_dot {
             let _ = unsafe { DestroyWindow(dot.hwnd) };
         }
+        if let Some(ref label) = self.action_label {
+            let _ = unsafe { DestroyWindow(label.hwnd) };
+        }
         self.last_action_dot = None;
+        self.action_label = None;
         let _ = unsafe { DestroyWindow(self.cursor_ring.hwnd) };
         let _ = unsafe { DestroyWindow(self.capsule.hwnd) };
         for layer in self.capsule_glows.drain(..) {
             let _ = unsafe { DestroyWindow(layer.hwnd) };
         }
+    }
+}
+
+fn action_feedback_geometry((x, y, width, height): OverlayGeometry) -> OverlayGeometry {
+    (x, y.saturating_add(height + 8), width, height)
+}
+
+pub(super) fn action_feedback_label(request: &ComputerUseAction) -> String {
+    match request.action.as_str() {
+        "click" | "raw_coordinate_click" => format!(
+            "MOUSE · [{}]",
+            match request
+                .button
+                .as_deref()
+                .unwrap_or("left")
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "right" => "RMB",
+                "middle" => "MMB",
+                _ => "LMB",
+            }
+        ),
+        "double_click" => "MOUSE · [LMB] ×2".to_owned(),
+        "move" => "MOUSE · MOVE".to_owned(),
+        "scroll" => "MOUSE · [WHEEL]".to_owned(),
+        "drag" => "MOUSE · DRAG".to_owned(),
+        "keypress" | "keyboard_shortcut" | "game_navigation" => {
+            let keys = request
+                .keys
+                .iter()
+                .flat_map(|chord| chord.split('+'))
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_ascii_uppercase)
+                .collect::<Vec<_>>()
+                .join("] + [");
+            format!("KEYS · [{keys}]")
+        }
+        "type" => "KEYS · TEXT INPUT".to_owned(),
+        action => action.to_ascii_uppercase(),
     }
 }

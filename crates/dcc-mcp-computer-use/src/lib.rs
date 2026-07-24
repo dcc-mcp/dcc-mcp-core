@@ -362,7 +362,7 @@ struct SessionState {
     target_available: Arc<AtomicBool>,
     cleanup_pending: Arc<AtomicBool>,
     overlay_thread: Option<JoinHandle<()>>,
-    last_action_point: Arc<platform::LastActionPoint>,
+    action_feedback: Arc<platform::LastActionFeedback>,
 }
 
 impl Default for SessionState {
@@ -378,7 +378,7 @@ impl Default for SessionState {
             target_available: Arc::new(AtomicBool::new(false)),
             cleanup_pending: Arc::new(AtomicBool::new(false)),
             overlay_thread: None,
-            last_action_point: Arc::new(std::sync::Mutex::new(None)),
+            action_feedback: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }
@@ -544,7 +544,7 @@ impl ComputerUseSession {
         let target_available = Arc::new(AtomicBool::new(true));
         let cleanup_pending = Arc::new(AtomicBool::new(false));
         state.cleanup_pending = Arc::clone(&cleanup_pending);
-        let last_action_point = Arc::new(std::sync::Mutex::new(None));
+        let action_feedback = Arc::new(std::sync::Mutex::new(None));
         let thread = retain_pending_control_thread(
             &mut state,
             platform::start_control_banner(
@@ -561,7 +561,7 @@ impl ComputerUseSession {
                     target_available: Arc::clone(&target_available),
                     cleanup_pending,
                     session_id: self.session_id.clone(),
-                    last_action_point: Arc::clone(&last_action_point),
+                    action_feedback: Arc::clone(&action_feedback),
                 },
                 #[cfg(not(windows))]
                 platform::ControlBannerSignals,
@@ -576,7 +576,7 @@ impl ComputerUseSession {
         state.desktop_barrier = desktop_barrier;
         state.target_available = target_available;
         state.overlay_thread = Some(thread);
-        state.last_action_point = last_action_point;
+        state.action_feedback = action_feedback;
         Ok(self.status_locked(&state))
     }
 
@@ -705,7 +705,7 @@ impl ComputerUseSession {
             &state.desktop_state,
             &state.desktop_barrier,
             pre_input_fence,
-            &state.last_action_point,
+            &state.action_feedback,
         );
         action_result?;
         Ok(json!({

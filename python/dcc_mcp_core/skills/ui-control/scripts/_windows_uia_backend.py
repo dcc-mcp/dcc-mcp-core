@@ -337,6 +337,7 @@ def _capture_snapshot(
         return _host_error(exc)
 
     snapshot_id = str(raw["accessibility_state_id"])
+    state_delta = _state_delta_event(raw, snapshot_id)
     root = _node_from_uia_dict(raw["root"], snapshot_id)
     focus_runtime_id = str(raw.get("focus_runtime_id") or "")
     snapshot = UiSnapshot(
@@ -355,6 +356,7 @@ def _capture_snapshot(
                 "max_nodes": max_nodes,
             },
             "computer_use": raw.get("observation") or {},
+            "state_delta": state_delta,
         },
     ).to_dict()
     entry["snapshot_id"] = snapshot_id
@@ -367,6 +369,7 @@ def _capture_snapshot(
         "mime_type": str((raw.get("image") or {}).get("mime_type") or "image/png"),
         "observation": raw.get("observation") or {},
         "target": raw.get("target") or client.target,
+        "state_delta": state_delta,
     }
 
 
@@ -383,6 +386,7 @@ def _capture_accessibility_snapshot(
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc)
     snapshot_id = str(raw["accessibility_state_id"])
+    state_delta = _state_delta_event(raw, snapshot_id)
     root = _node_from_uia_dict(raw["root"], snapshot_id)
     focus_runtime_id = str(raw.get("focus_runtime_id") or "")
     snapshot = UiSnapshot(
@@ -401,11 +405,27 @@ def _capture_accessibility_snapshot(
                 "max_nodes": max_nodes,
                 "pixels_captured": False,
             },
+            "state_delta": state_delta,
         },
     ).to_dict()
     entry["snapshot_id"] = snapshot_id
     entry["snapshot"] = snapshot
-    return {"success": True, "snapshot_id": snapshot_id, "snapshot": snapshot}
+    return {
+        "success": True,
+        "snapshot_id": snapshot_id,
+        "snapshot": snapshot,
+        "state_delta": state_delta,
+    }
+
+
+def _state_delta_event(raw: Dict[str, Any], state_id: str) -> Optional[Dict[str, Any]]:
+    delta = raw.get("state_delta")
+    if not isinstance(delta, dict):
+        return None
+    event = {"source": "uia", "state_id": state_id, "delta": delta}
+    if raw.get("cause_action_id"):
+        event["cause_action_id"] = str(raw["cause_action_id"])
+    return event
 
 
 @_serialize_session_call
@@ -425,6 +445,7 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         snapshot_id=capture["snapshot_id"],
         snapshot=capture["snapshot"],
         observation=capture["observation"],
+        state_delta=capture.get("state_delta"),
         policy=policy.to_dict(),
         __rich__={
             "kind": "image",
@@ -677,6 +698,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return _host_error(exc)
     entry["snapshot_id"] = None
     success = bool(raw.get("success"))
+    action_id = str(raw.get("action_id") or "") or None
     target_closed = bool(raw.get("target_closed"))
     if target_closed:
         with _CLIENTS_LOCK:
@@ -694,13 +716,20 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             "requires_new_screenshot": not target_closed,
             "policy_tier": raw.get("policy_tier"),
             "target_closed": target_closed,
+            "action_id": action_id,
         },
     ).to_dict()
     audit = _audit_record(action, success, control, session_id, policy, error_code, message)
     if target_closed:
         audit["metadata"]["target_closed"] = True
     if not success:
-        return skill_error(message, error_code or UiErrorCode.BACKEND_ERROR, result=result, audit=audit)
+        return skill_error(
+            message,
+            error_code or UiErrorCode.BACKEND_ERROR,
+            action_id=action_id,
+            result=result,
+            audit=audit,
+        )
     return skill_success(
         f"Completed isolated Windows UI Control action {action!r}.",
         prompt=(
@@ -712,6 +741,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         session_id=session_id,
         session_active=not target_closed,
         target_closed=target_closed,
+        action_id=action_id,
         result=result,
         audit=audit,
     )

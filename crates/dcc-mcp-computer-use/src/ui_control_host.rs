@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use dcc_mcp_models::{DEFAULT_STATE_DELTA_MAX_CHANGES, diff_json_state};
 use dcc_mcp_ui_control::host_protocol::{
     UI_CONTROL_HOST_PROTOCOL_VERSION, UiControlAction, UiControlClipArtifact, UiControlClipFormat,
     UiControlHostErrorCode, UiControlHostHello, UiControlHostRequest, UiControlHostResponse,
@@ -9,9 +10,7 @@ use dcc_mcp_ui_control::host_protocol::{
     UiControlSystemOperation, UiControlTarget, UiControlTaskGrant, UiControlWindowOperation,
     UiControlWindowState,
 };
-use serde_json::Value;
-#[cfg(test)]
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 mod audit;
@@ -141,7 +140,6 @@ trait HostRuntime: Send + Sync {
 enum ConfirmationKind<'a> {
     ConsequentialAction(UiControlPolicyTier),
     SystemOperation(&'a UiControlSystemOperation),
-    ResumeAfterStop,
 }
 
 trait ConfirmationSurface: Send + Sync {
@@ -163,6 +161,8 @@ struct HostSession {
     focus_runtime_id: Option<String>,
     accessibility_max_depth: Option<u32>,
     accessibility_max_nodes: Option<u32>,
+    last_accessibility_state: Option<Value>,
+    pending_action_id: Option<String>,
     runtime: Box<dyn HostRuntimeSession>,
 }
 
@@ -370,6 +370,8 @@ impl UiControlHost {
                 focus_runtime_id: None,
                 accessibility_max_depth: None,
                 accessibility_max_nodes: None,
+                last_accessibility_state: None,
+                pending_action_id: None,
                 runtime,
             },
         );
@@ -561,6 +563,18 @@ impl UiControlHost {
             Err(failure) => return failure.into_response(),
         };
         let accessibility_state_id = new_capability("accessibility");
+        let current_state = accessibility_state_value(
+            &snapshot.root,
+            snapshot.focus_runtime_id.as_deref(),
+            snapshot.node_count,
+        );
+        let state_delta = diff_json_state(
+            session.last_accessibility_state.as_ref(),
+            &current_state,
+            DEFAULT_STATE_DELTA_MAX_CHANGES,
+        );
+        session.last_accessibility_state = Some(current_state);
+        let cause_action_id = session.pending_action_id.take();
         session.observation_id = Some(snapshot.observation_id.clone());
         session.observation = Some(snapshot.observation.clone());
         session.accessibility_state_id = Some(accessibility_state_id.clone());
@@ -576,6 +590,8 @@ impl UiControlHost {
             root: snapshot.root,
             focus_runtime_id: snapshot.focus_runtime_id,
             node_count: snapshot.node_count,
+            state_delta: Some(state_delta),
+            cause_action_id,
             image: Box::new(snapshot.image),
         }
     }
@@ -611,6 +627,18 @@ impl UiControlHost {
             Err(failure) => return failure.into_response(),
         };
         let accessibility_state_id = new_capability("accessibility");
+        let current_state = accessibility_state_value(
+            &state.root,
+            state.focus_runtime_id.as_deref(),
+            state.node_count,
+        );
+        let state_delta = diff_json_state(
+            session.last_accessibility_state.as_ref(),
+            &current_state,
+            DEFAULT_STATE_DELTA_MAX_CHANGES,
+        );
+        session.last_accessibility_state = Some(current_state);
+        let cause_action_id = session.pending_action_id.take();
         session.accessibility_state_id = Some(accessibility_state_id.clone());
         session.accessibility_root = Some(state.root.clone());
         session.focus_runtime_id = state.focus_runtime_id.clone();
@@ -622,6 +650,8 @@ impl UiControlHost {
             root: state.root,
             focus_runtime_id: state.focus_runtime_id,
             node_count: state.node_count,
+            state_delta: Some(state_delta),
+            cause_action_id,
         }
     }
 
@@ -813,6 +843,8 @@ impl UiControlHost {
         }
 
         // Every attempted mutation consumes both fences, including backend failures.
+        let action_id = new_capability("action");
+        session.pending_action_id = Some(action_id.clone());
         consume_observation(session);
         match session
             .runtime
@@ -827,6 +859,7 @@ impl UiControlHost {
                 let response = completed_action_response(
                     true,
                     target_closed,
+                    Some(action_id),
                     policy_tier,
                     result.message,
                     None,
@@ -846,8 +879,10 @@ impl UiControlHost {
                     policy_tier,
                     Some(failure.code),
                 );
-                action_response(
+                completed_action_response(
                     false,
+                    false,
+                    Some(action_id),
                     policy_tier,
                     failure.message,
                     Some(failure.code),
@@ -864,7 +899,6 @@ impl UiControlHost {
         task_grant_id: &str,
         window_capability: &str,
     ) -> UiControlHostResponse {
-        let confirmation = &self.confirmation;
         let session = match Self::authorized_session_mut(
             &mut self.sessions,
             session_id,
@@ -874,24 +908,10 @@ impl UiControlHost {
             Ok(session) => session,
             Err(failure) => return failure.into_response(),
         };
-        if session.runtime.user_interrupted() {
-            match confirmation.confirm(
-                ConfirmationKind::ResumeAfterStop,
-                Some(session.runtime.target()),
-                None,
-            ) {
-                Ok(true) => {}
-                Ok(false) => {
-                    return error(
-                        UiControlHostErrorCode::ApprovalRequired,
-                        "the user did not approve resuming UI Control",
-                    );
-                }
-                Err(failure) => return failure.into_response(),
-            }
-            if let Err(failure) = session.runtime.resume_after_approval() {
-                return failure.into_response();
-            }
+        if session.runtime.user_interrupted()
+            && let Err(failure) = session.runtime.resume_after_approval()
+        {
+            return failure.into_response();
         }
         session.observation_id = None;
         session.observation = None;
@@ -900,6 +920,7 @@ impl UiControlHost {
         session.focus_runtime_id = None;
         session.accessibility_max_depth = None;
         session.accessibility_max_nodes = None;
+        session.pending_action_id = None;
         UiControlHostResponse::SessionResumed {
             session_id: session_id.to_owned(),
         }
@@ -1161,6 +1182,18 @@ fn consume_observation(session: &mut HostSession) {
     session.accessibility_max_nodes = None;
 }
 
+fn accessibility_state_value(
+    root: &Value,
+    focus_runtime_id: Option<&str>,
+    node_count: u32,
+) -> Value {
+    json!({
+        "root": root,
+        "focus_runtime_id": focus_runtime_id,
+        "node_count": node_count,
+    })
+}
+
 fn action_fence_failure(
     session: &mut HostSession,
     action: &UiControlAction,
@@ -1297,6 +1330,7 @@ fn action_response(
     completed_action_response(
         success,
         false,
+        Some(new_capability("action")),
         policy_tier,
         message,
         error,
@@ -1309,6 +1343,7 @@ fn action_response(
 fn completed_action_response(
     success: bool,
     target_closed: bool,
+    action_id: Option<String>,
     policy_tier: UiControlPolicyTier,
     message: impl Into<String>,
     error: Option<UiControlHostErrorCode>,
@@ -1317,6 +1352,7 @@ fn completed_action_response(
 ) -> UiControlHostResponse {
     UiControlHostResponse::ActionCompleted {
         success,
+        action_id,
         target_closed,
         policy_tier,
         message: message.into(),
@@ -1381,7 +1417,6 @@ impl ConfirmationSurface for RejectingConfirmationSurface {
             ConfirmationKind::SystemOperation(operation) => {
                 let _ = operation;
             }
-            ConfirmationKind::ResumeAfterStop => {}
         }
         Ok(false)
     }

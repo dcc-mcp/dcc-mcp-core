@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
-    COLORREF, CloseHandle, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WAIT_ABANDONED,
+    COLORREF, CloseHandle, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WAIT_ABANDONED,
     WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
@@ -36,25 +36,26 @@ use windows::Win32::UI::HiDpi::{
     GetDpiForWindow, MDT_EFFECTIVE_DPI, SetThreadDpiAwarenessContext,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS,
     MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, RegisterHotKey,
-    SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_ESCAPE,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, SendInput,
+    VIRTUAL_KEY, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
-    GW_HWNDPREV, GWL_EXSTYLE, GWL_USERDATA, GetAncestor, GetClassInfoW, GetClassNameW,
-    GetClientRect, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow,
+    BringWindowToTop, CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyWindow,
+    DispatchMessageW, GA_ROOT, GW_HWNDPREV, GWL_EXSTYLE, GWL_USERDATA, GetAncestor, GetClassInfoW,
+    GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow,
     GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible,
-    LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassW,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
-    SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-    SetForegroundWindow, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, TranslateMessage, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_HOTKEY, WM_PAINT,
+    GetWindowThreadProcessId, HHOOK, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow,
+    IsWindowVisible, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LWA_ALPHA, MSG, PM_NOREMOVE, PM_REMOVE,
+    PeekMessageW, PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow, SetLayeredWindowAttributes,
+    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, ShowWindow,
+    TranslateMessage, UnhookWindowsHookEx, WDA_EXCLUDEFROMCAPTURE, WH_KEYBOARD_LL, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_KEYDOWN, WM_PAINT, WM_SYSKEYDOWN,
     WM_WTSSESSION_CHANGE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT,
     WTS_REMOTE_CONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
@@ -91,9 +92,7 @@ const INPUT_OWNER_MUTEX_NAME: &str = "Local\\DccMcpComputerUseInputOwner-v1";
 const USER_INTERRUPT_EVENT_NAME: &str = "Local\\DccMcpComputerUseUserInterrupted-v1";
 #[cfg(test)]
 const TEST_ISOLATION_MUTEX_NAME: &str = "Local\\DccMcpComputerUseTestIsolation-v1";
-const HOTKEY_ID: i32 = 0x4443;
 const STOP_HOTKEY_LABEL: &str = "Esc";
-const STOP_HOTKEY_MODIFIERS: HOT_KEY_MODIFIERS = HOT_KEY_MODIFIERS(0);
 const CORNER_GLOW_THICKNESS: i32 = 42;
 const CORNER_MID_THICKNESS: i32 = 28;
 const CORNER_ACCENT_THICKNESS: i32 = 12;
@@ -120,7 +119,7 @@ const CONTROL_GLOW_CLASS: PCWSTR = w!("DccMcpComputerUseGlowOverlay");
 const CONTROL_CURSOR_CLASS: PCWSTR = w!("DccMcpComputerUseCursorOverlay");
 const LAST_ACTION_DOT_CLASS: PCWSTR = w!("DccMcpComputerUseLastActionDot");
 const LAST_ACTION_DOT_SIZE: i32 = 16;
-const LAST_ACTION_DOT_FADE_MS: u64 = 2_000;
+const ACTION_FEEDBACK_FADE_MS: u64 = 5_000;
 const CONTROL_SCOPE_ANIMATION_MS: u64 = 1_500;
 const DEFAULT_POINTER_EFFECT_DWELL_MS: u64 = 350;
 const TARGET_RESTORE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -507,20 +506,32 @@ fn run_process_input_coordinator(
         let _dpi_awareness = ThreadDpiAwareness::enter()?;
         let mut message = MSG::default();
         let _ = unsafe { PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE) };
-        unsafe { RegisterHotKey(None, HOTKEY_ID, STOP_HOTKEY_MODIFIERS, VK_ESCAPE.0 as u32) }
-            .map_err(|error| {
-                ComputerUseError::new(
-                    ComputerUseErrorCode::BackendUnavailable,
-                    format!("failed to reserve {STOP_HOTKEY_LABEL} for DCC UI Control: {error}"),
-                )
-            })?;
-        let _hotkey = RegisteredHotKey;
+        let module = unsafe { GetModuleHandleW(None) }.map_err(|error| {
+            ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                format!("failed to resolve the DCC UI Control module: {error}"),
+            )
+        })?;
+        let hook = unsafe {
+            SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(stop_keyboard_hook),
+                Some(HINSTANCE(module.0)),
+                0,
+            )
+        }
+        .map_err(|error| {
+            ComputerUseError::new(
+                ComputerUseErrorCode::BackendUnavailable,
+                format!(
+                    "failed to monitor physical {STOP_HOTKEY_LABEL} for DCC UI Control: {error}"
+                ),
+            )
+        })?;
+        let _keyboard_hook = RegisteredKeyboardHook(hook);
         let _ = ready.send(Ok(()));
         while !stop.load(Ordering::Acquire) {
             while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
-                if message.message == WM_HOTKEY && message.wParam.0 == HOTKEY_ID as usize {
-                    set_user_interrupt();
-                }
                 unsafe {
                     let _ = TranslateMessage(&message);
                     DispatchMessageW(&message);
@@ -534,6 +545,22 @@ fn run_process_input_coordinator(
         set_user_interrupt();
         let _ = ready.try_send(Err(error));
     }
+}
+
+fn is_physical_escape_keydown(message: u32, virtual_key: u32, flags: u32) -> bool {
+    matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN)
+        && virtual_key == VK_ESCAPE.0 as u32
+        && flags & LLKHF_INJECTED.0 == 0
+}
+
+unsafe extern "system" fn stop_keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        let event = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+        if is_physical_escape_keydown(wparam.0 as u32, event.vkCode, event.flags.0) {
+            set_user_interrupt();
+        }
+    }
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
 fn create_manual_reset_event(name: &str) -> windows::core::Result<OwnedKernelHandle> {
@@ -974,7 +1001,7 @@ pub(crate) fn start_control_banner(
         target_available,
         cleanup_pending,
         session_id,
-        last_action_point,
+        action_feedback,
     } = signals;
     cleanup_pending.store(true, Ordering::Release);
     let _ = require_user_interrupt_event_raw().inspect_err(|_| {
@@ -998,7 +1025,7 @@ pub(crate) fn start_control_banner(
     };
     let startup_stop = Arc::clone(&runtime.stop);
     let thread_cleanup_pending = Arc::clone(&cleanup_pending);
-    let thread_last_action_point = Arc::clone(&last_action_point);
+    let thread_action_feedback = Arc::clone(&action_feedback);
     let thread = thread::Builder::new()
         .name("dcc-mcp-computer-use-banner".to_string())
         .spawn(move || {
@@ -1015,7 +1042,7 @@ pub(crate) fn start_control_banner(
                     &runtime,
                     &ready_tx,
                     session_id.as_deref(),
-                    &thread_last_action_point,
+                    &thread_action_feedback,
                 )
             })();
             if let Err(error) = result {
@@ -1061,11 +1088,11 @@ pub(crate) fn start_control_banner(
     }
 }
 
-struct RegisteredHotKey;
+struct RegisteredKeyboardHook(HHOOK);
 
-impl Drop for RegisteredHotKey {
+impl Drop for RegisteredKeyboardHook {
     fn drop(&mut self) {
-        let _ = unsafe { UnregisterHotKey(None, HOTKEY_ID) };
+        let _ = unsafe { UnhookWindowsHookEx(self.0) };
     }
 }
 
@@ -1451,7 +1478,7 @@ fn run_banner(
     signals: &BannerRuntimeSignals,
     ready: &std::sync::mpsc::SyncSender<ComputerUseResult<()>>,
     session_id: Option<&str>,
-    last_action_point: &Arc<crate::platform::LastActionPoint>,
+    action_feedback: &Arc<crate::platform::LastActionFeedback>,
 ) -> ComputerUseResult<()> {
     ensure_interactive_desktop()?;
     let target = HWND(window_handle as *mut core::ffi::c_void);
@@ -1593,11 +1620,10 @@ fn run_banner(
             }
             Err(error) => return Err(error),
         };
-        // Poll for new last-action points from the input thread
-        if let Ok(mut point) = last_action_point.lock()
-            && let Some((screen_x, screen_y, _timestamp)) = point.take()
+        if let Ok(mut feedback) = action_feedback.lock()
+            && let Some(feedback) = feedback.take()
         {
-            overlay.record_last_action(screen_x, screen_y);
+            overlay.record_action_feedback(feedback.point, &feedback.label);
         }
         overlay.reposition(target, &rect)?;
         if !signals.visible.load(Ordering::Acquire) {

@@ -159,6 +159,13 @@ redacted `ui_control_operation` event to the shared DCC-MCP log directory, so
 the existing Admin Logs panel can display it without exposing entered text or
 screenshot coordinates.
 
+Consecutive Windows UIA snapshots also return a bounded semantic `state_delta`.
+Native action attempts return an `action_id`, and the next required snapshot uses
+`cause_action_id` to link its changes to that action. This reuses the normal
+observe-act-observe loop; do not add screenshots or UIA polling just to obtain
+deltas. Admin logs retain the action id and a bounded change summary, not the
+full UIA state.
+
 Use semantic UI Automation first: resolve a stable `control_id` with
 `ui_control__find`, then use `click`, `set_text`, `toggle`, `set_checked`,
 or `focus`. Use screenshot coordinates and native input only when the required

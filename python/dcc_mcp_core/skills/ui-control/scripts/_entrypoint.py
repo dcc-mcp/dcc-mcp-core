@@ -150,6 +150,18 @@ def _artifact_dict(reference: Any, **metadata: Any) -> Dict[str, Any]:
     return artifact
 
 
+def _artefact_put_bytes(data: bytes, **kwargs: Any) -> Any:
+    from dcc_mcp_core import artefact_put_bytes
+
+    return artefact_put_bytes(data, **kwargs)
+
+
+def _artefact_put_file(path: str, **kwargs: Any) -> Any:
+    from dcc_mcp_core import artefact_put_file
+
+    return artefact_put_file(path, **kwargs)
+
+
 def _attach_capture_artifact(
     operation: str,
     context: Dict[str, Any],
@@ -167,7 +179,7 @@ def _attach_capture_artifact(
             return
         snapshot_id = str(provenance.get("snapshot_id") or "snapshot")
         display_name = f"ui-control-snapshot-{_artifact_token(session_id)}-{_artifact_token(snapshot_id)}.{extension}"
-        reference = artefact_put_bytes(
+        reference = _artefact_put_bytes(
             base64.b64decode(str(rich["data"]), validate=True),
             mime=mime,
             display_name=display_name,
@@ -194,7 +206,7 @@ def _attach_capture_artifact(
             return
         recording_id = str(clip.get("recording_id") or "recording")
         display_name = f"ui-control-recording-{_artifact_token(session_id)}-{_artifact_token(recording_id)}.json"
-        reference = artefact_put_file(
+        reference = _artefact_put_file(
             str(clip["manifest_path"]),
             mime="application/json",
             display_name=display_name,
@@ -314,6 +326,10 @@ def _record_operation(name: str, params: Dict[str, Any], result: Dict[str, Any])
         context = _result_context(result)
         session_id = str(context.get("session_id") or params.get("session_id") or "default")
         snapshot_id = context.get("snapshot_id") or params.get("snapshot_id")
+        action_id = context.get("action_id")
+        state_delta = context.get("state_delta")
+        if not action_id and isinstance(state_delta, dict):
+            action_id = state_delta.get("cause_action_id")
         capture_provenance = context.get("capture_provenance")
         condition = params.get("condition")
         condition_kind = condition.get("kind") if isinstance(condition, dict) else None
@@ -326,6 +342,25 @@ def _record_operation(name: str, params: Dict[str, Any], result: Dict[str, Any])
             detail.append(f"condition={condition_kind}")
         if error:
             detail.append(f"error={error}")
+        if action_id:
+            detail.append(f"action_id={action_id}")
+        delta_summary = None
+        if isinstance(state_delta, dict) and isinstance(state_delta.get("delta"), dict):
+            delta = state_delta["delta"]
+            changes = delta.get("changes") if isinstance(delta.get("changes"), list) else []
+            paths = [str(change.get("path")) for change in changes[:8] if isinstance(change, dict)]
+            delta_summary = {
+                "source": state_delta.get("source"),
+                "state_id": state_delta.get("state_id"),
+                "cause_action_id": state_delta.get("cause_action_id"),
+                "baseline": bool(delta.get("baseline")),
+                "change_count": len(changes),
+                "paths": paths,
+                "truncated": bool(delta.get("truncated")),
+            }
+            detail.append(f"state_changes={len(changes)}")
+            if paths:
+                detail.append(f"state_paths={','.join(paths)}")
         event = {
             "event": "ui_control_operation",
             "tool": f"ui_control__{operation}",
@@ -341,6 +376,10 @@ def _record_operation(name: str, params: Dict[str, Any], result: Dict[str, Any])
         }
         if snapshot_id:
             event["snapshot_id"] = str(snapshot_id)
+        if action_id:
+            event["action_id"] = str(action_id)
+        if delta_summary is not None:
+            event["state_delta"] = delta_summary
         if isinstance(capture_provenance, dict):
             event["pixels_captured"] = bool(capture_provenance.get("pixels_captured"))
             if capture_provenance.get("capture_backend"):

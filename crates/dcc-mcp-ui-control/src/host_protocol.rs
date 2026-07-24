@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use dcc_mcp_models::StateDelta;
+
 /// Only wire version supported by `dcc-mcp-ui-control-host`.
 pub const UI_CONTROL_HOST_PROTOCOL_VERSION: u32 = 3;
 
@@ -18,6 +20,7 @@ pub const UI_CONTROL_HOST_CAPABILITIES: &[&str] = &[
     "exact_window_recording",
     "connection_scoped_sessions",
     "accessibility_snapshot",
+    "semantic_state_deltas",
     "uia_snapshot_and_actions",
     "scoped_raw_input",
     "observation_fencing",
@@ -637,6 +640,12 @@ pub enum UiControlHostResponse {
         focus_runtime_id: Option<String>,
         /// UIA nodes collected.
         node_count: u32,
+        /// Bounded semantic changes since the preceding host observation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state_delta: Option<StateDelta>,
+        /// Successful action that caused this observed transition, when known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cause_action_id: Option<String>,
         /// Shared-memory PNG descriptor.
         image: Box<UiControlSharedImage>,
     },
@@ -653,6 +662,12 @@ pub enum UiControlHostResponse {
         focus_runtime_id: Option<String>,
         /// UIA nodes collected.
         node_count: u32,
+        /// Bounded semantic changes since the preceding host observation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state_delta: Option<StateDelta>,
+        /// Successful action that caused this observed transition, when known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cause_action_id: Option<String>,
     },
     /// Exact-window frame sequence completed in host-owned storage.
     ClipRecorded {
@@ -665,6 +680,9 @@ pub enum UiControlHostResponse {
     ActionCompleted {
         /// Whether the requested mutation completed.
         success: bool,
+        /// Host-minted correlation id for this action attempt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action_id: Option<String>,
         /// The exact capability-bound HWND closed after the action completed.
         /// The host revokes the session and never follows a replacement HWND.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -805,6 +823,8 @@ mod tests {
             root: serde_json::json!({"runtime_id": "42.1"}),
             focus_runtime_id: None,
             node_count: 1,
+            state_delta: None,
+            cause_action_id: None,
             image: Box::new(UiControlSharedImage {
                 name: "shared".to_owned(),
                 id: "image".to_owned(),
@@ -839,6 +859,7 @@ mod tests {
 
         let closed = serde_json::to_value(UiControlHostResponse::ActionCompleted {
             success: true,
+            action_id: Some("action:test".to_owned()),
             target_closed: true,
             policy_tier: UiControlPolicyTier::TaskGrant,
             message: "completed and closed".to_owned(),

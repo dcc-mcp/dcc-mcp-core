@@ -1170,6 +1170,7 @@ version = "0.19.73"
 dependencies = [
  "dcc-mcp-artefact",
  "dcc-mcp-capture",
+ "dcc-mcp-models",
  "dcc-mcp-paths",
  "dcc-mcp-shm",
  "dcc-mcp-ui-control",
@@ -1965,6 +1966,7 @@ dependencies = [
 name = "dcc-mcp-ui-control"
 version = "0.19.73"
 dependencies = [
+ "dcc-mcp-models",
  "serde",
  "serde_json",
  "workspace-hack",

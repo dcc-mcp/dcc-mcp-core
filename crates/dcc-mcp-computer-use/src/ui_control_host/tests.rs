@@ -24,6 +24,7 @@ struct FakeRuntime {
     accessibility_refreshes: Arc<AtomicUsize>,
     stop_results: Mutex<VecDeque<bool>>,
     user_interrupted: bool,
+    resume_calls: Arc<AtomicUsize>,
 }
 
 struct FakeSession {
@@ -36,6 +37,7 @@ struct FakeSession {
     accessibility_refreshes: Arc<AtomicUsize>,
     stop_results: VecDeque<bool>,
     user_interrupted: bool,
+    resume_calls: Arc<AtomicUsize>,
 }
 
 impl Default for FakeRuntime {
@@ -49,6 +51,7 @@ impl Default for FakeRuntime {
             accessibility_refreshes: Arc::new(AtomicUsize::new(0)),
             stop_results: Mutex::new(VecDeque::new()),
             user_interrupted: false,
+            resume_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -90,6 +93,7 @@ impl HostRuntime for FakeRuntime {
                     .unwrap_or_else(|poisoned| poisoned.into_inner()),
             ),
             user_interrupted: self.user_interrupted,
+            resume_calls: Arc::clone(&self.resume_calls),
         }))
     }
 }
@@ -223,6 +227,7 @@ impl HostRuntimeSession for FakeSession {
     }
 
     fn resume_after_approval(&mut self) -> Result<(), HostFailure> {
+        self.resume_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -305,6 +310,7 @@ fn host_with_accessibility_states_and_counter(
             accessibility_refreshes: Arc::clone(&accessibility_refreshes),
             stop_results: Mutex::new(VecDeque::new()),
             user_interrupted: false,
+            resume_calls: Arc::new(AtomicUsize::new(0)),
         }),
         confirmation: Box::new(AllowConfirmation),
     };
@@ -449,14 +455,16 @@ fn opening_a_routine_session_does_not_request_confirmation() {
 }
 
 #[test]
-fn resume_requests_confirmation_only_after_user_interrupt() {
+fn explicit_resume_clears_user_interrupt_without_another_confirmation() {
     for user_interrupted in [false, true] {
+        let resume_calls = Arc::new(AtomicUsize::new(0));
         let mut host = UiControlHost {
             sessions: HashMap::new(),
             system_sessions: HashMap::new(),
             system_grants: HashMap::new(),
             runtime: Box::new(FakeRuntime {
                 user_interrupted,
+                resume_calls: Arc::clone(&resume_calls),
                 ..FakeRuntime::default()
             }),
             confirmation: Box::new(DenyConfirmation),
@@ -469,20 +477,14 @@ fn resume_requests_confirmation_only_after_user_interrupt() {
             panic!("session not opened: {opened:?}");
         };
         let resumed = host.resume_session("resume", "grant-1", &window_capability);
-        if user_interrupted {
-            assert!(matches!(
-                resumed,
-                UiControlHostResponse::Error {
-                    code: UiControlHostErrorCode::ApprovalRequired,
-                    ..
-                }
-            ));
-        } else {
-            assert!(matches!(
-                resumed,
-                UiControlHostResponse::SessionResumed { .. }
-            ));
-        }
+        assert!(matches!(
+            resumed,
+            UiControlHostResponse::SessionResumed { .. }
+        ));
+        assert_eq!(
+            resume_calls.load(Ordering::SeqCst),
+            usize::from(user_interrupted)
+        );
     }
 }
 
@@ -759,6 +761,69 @@ fn accessibility_snapshot_refreshes_uia_without_pixel_observation() {
             ..
         }
     ));
+}
+
+#[test]
+fn accessibility_snapshots_return_only_semantic_state_changes() {
+    let initial = RuntimeAccessibilityState {
+        root: json!({"runtime_id": "42.1", "name": "Viewport", "children": []}),
+        focus_runtime_id: Some("42.1".to_owned()),
+        node_count: 1,
+    };
+    let changed = RuntimeAccessibilityState {
+        root: json!({"runtime_id": "42.1", "name": "Game View", "children": []}),
+        ..initial.clone()
+    };
+    let mut host = host_with_accessibility_states(initial.clone(), vec![initial.clone(), changed]);
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = host.open_session("delta".to_owned(), grant(false))
+    else {
+        panic!("session did not open");
+    };
+
+    let first = host.snapshot("delta", "grant-1", &window_capability, 5, 250);
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        state_delta: Some(first_delta),
+        ..
+    } = first
+    else {
+        panic!("first accessibility snapshot failed: {first:?}");
+    };
+    assert!(first_delta.baseline);
+    assert!(first_delta.changes.is_empty());
+
+    let completed = host.execute_action(
+        "delta",
+        "grant-1",
+        &window_capability,
+        &observation_id,
+        &accessibility_state_id,
+        action(Some("uia:42.1"), UiControlInputKind::Semantic),
+    );
+    let UiControlHostResponse::ActionCompleted {
+        success: true,
+        action_id: Some(action_id),
+        ..
+    } = completed
+    else {
+        panic!("action failed: {completed:?}");
+    };
+
+    let second = host.accessibility_snapshot("delta", "grant-1", &window_capability, 5, 250);
+    let UiControlHostResponse::AccessibilitySnapshot {
+        state_delta: Some(second_delta),
+        cause_action_id: Some(cause_action_id),
+        ..
+    } = second
+    else {
+        panic!("second accessibility snapshot failed: {second:?}");
+    };
+    assert_eq!(second_delta.changes.len(), 1);
+    assert_eq!(second_delta.changes[0].path, "/root/name");
+    assert_eq!(cause_action_id, action_id);
 }
 
 #[test]

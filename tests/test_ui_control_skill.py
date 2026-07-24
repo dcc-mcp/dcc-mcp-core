@@ -451,8 +451,8 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
             }
 
     monkeypatch.setattr(entrypoint, "_load_backend", lambda: Backend)
-    monkeypatch.setattr(entrypoint, "artefact_put_bytes", put_bytes)
-    monkeypatch.setattr(entrypoint, "artefact_put_file", put_file)
+    monkeypatch.setattr(entrypoint, "_artefact_put_bytes", put_bytes)
+    monkeypatch.setattr(entrypoint, "_artefact_put_file", put_file)
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "windows-uia")
     monkeypatch.setenv("DCC_MCP_DISABLE_FILE_LOGGING", "1")
 
@@ -559,6 +559,40 @@ def test_ui_control_admin_audit_records_rejection_without_sensitive_text(
     assert row["tool"] == "ui_control__act"
     assert row["success"] is False
     assert row["error"] == "policy_disabled"
+
+
+def test_ui_control_admin_audit_links_state_delta_to_action(tmp_path: Path, monkeypatch: Any) -> None:
+    entrypoint = _load_entrypoint_module()
+    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path))
+    monkeypatch.delenv("DCC_MCP_DISABLE_FILE_LOGGING", raising=False)
+
+    entrypoint._record_operation(
+        "snapshot_tool",
+        {"session_id": "delta"},
+        {
+            "success": True,
+            "context": {
+                "session_id": "delta",
+                "snapshot_id": "accessibility:2",
+                "state_delta": {
+                    "source": "uia",
+                    "state_id": "accessibility:2",
+                    "cause_action_id": "action:test",
+                    "delta": {
+                        "baseline": False,
+                        "changes": [{"path": "/root/name", "kind": "changed"}],
+                        "truncated": False,
+                    },
+                },
+            },
+        },
+    )
+
+    log_text = next(tmp_path.glob("dcc-mcp-ui-control.*.log")).read_text(encoding="utf-8")
+    row = json.loads(log_text.splitlines()[-1].split(": ", 1)[1])
+    assert row["action_id"] == "action:test"
+    assert row["state_delta"]["paths"] == ["/root/name"]
+    assert "state_changes=1" in row["detail"]
 
 
 def test_ui_control_mock_observe_act_wait_verify_loop(tmp_path: Path) -> None:
@@ -878,6 +912,12 @@ class _FakeHostClient:
             },
             "focus_runtime_id": "42.2",
             "node_count": 2,
+            "state_delta": {
+                "schema_version": 1,
+                "baseline": self.snapshot_calls == 1,
+                "changes": [] if self.snapshot_calls == 1 else [{"path": "/focus", "kind": "changed"}],
+                "truncated": False,
+            },
             "image": {"mime_type": "image/png"},
             "image_bytes": b"png",
         }
@@ -894,6 +934,8 @@ class _FakeHostClient:
             "root": snapshot["root"],
             "focus_runtime_id": snapshot["focus_runtime_id"],
             "node_count": snapshot["node_count"],
+            "state_delta": snapshot["state_delta"],
+            "cause_action_id": "action:test",
         }
 
     def execute(self, action: dict[str, Any]) -> dict[str, Any]:
@@ -901,6 +943,7 @@ class _FakeHostClient:
         return {
             "type": "action_completed",
             "success": True,
+            "action_id": "action:test",
             "policy_tier": "task_grant",
             "message": "completed",
         }
@@ -991,6 +1034,8 @@ def test_ui_control_windows_host_maps_snapshot_and_shared_image(monkeypatch: Any
     assert context["snapshot"]["root"]["children"][0]["role"] == "button"
     assert context["snapshot"]["metadata"]["ui_control"]["backend"] == "windows-ui-control-host"
     assert context["snapshot"]["metadata"]["computer_use"]["observation_id"] == "obs-1"
+    assert context["state_delta"]["source"] == "uia"
+    assert context["state_delta"]["delta"]["baseline"] is True
     assert base64.b64decode(context["__rich__"]["data"]) == b"png"
     assert _FakeHostClient.instances[0].kwargs["allow_raw_input"] is False
 
@@ -1079,6 +1124,7 @@ def test_ui_control_windows_host_semantic_action_is_thin_proxy(monkeypatch: Any)
     )
 
     assert result["success"] is True
+    assert result["context"]["action_id"] == "action:test"
     payload = _FakeHostClient.instances[0].executed[0]
     assert payload["input_kind"] == "semantic"
     assert payload["control_id"] == "uia:42.2"

@@ -26,11 +26,12 @@ Resources 在 `initialize` 中通告为：
 
 ## 内置 Resources
 
-`dcc-mcp-core` 附带四个内置 producer。每个都以 URI scheme 为键。
+`dcc-mcp-core` 附带按 URI scheme 区分的内置 producer。
 
 | URI | MIME | 说明 | 通知 |
 |-----|------|------|------|
-| `scene://current` | `application/json` | 当前 `SceneInfo` 快照（或占位符） | 调用 `set_scene()` 时触发 |
+| `scene://current` | `application/json` | 当前 `SceneInfo` 快照（或占位符） | 场景变化时触发 |
+| `scene://delta` | `application/json` | 相对上一场景修订的有界变化 | 场景变化时触发 |
 | `capture://current_window` | `image/png` | 活动 DCC 窗口的 PNG（base64 blob） | 无（按需读取） |
 | `audit://recent?limit=N` | `application/json` | `AuditLog` 的尾部（默认 50，最大 500） | 每次 `AuditLog.record()` 时触发 |
 | `artefact://sha256/<hex>` | 可变 | 内容寻址的制品存储 (#349)；body 以其声明的 MIME 作为 base64 blob 返回。由 `enable_artefact_resources` 门控。 | 无（轮询模型） |
@@ -69,7 +70,7 @@ cfg.enable_resources = True              # 默认: True — 通告能力 + 内�
 cfg.enable_artefact_resources = False    # 默认: False — 启用前 artefact:// 返回 -32002
 ```
 
-当 `enable_resources = False` 时，服务器不通告该能力，所有四个
+当 `enable_resources = False` 时，服务器不通告该能力，所有
 `resources/*` 方法返回 `-32601 method not found`。
 
 ## 连接外部状态
@@ -107,13 +108,17 @@ handle = server.start()
 
 ### 更新场景快照
 
-`set_scene()` 原子性地替换快照并发出一个
-`notifications/resources/updated`，其 `uri = "scene://current"`
-到每个已订阅的会话。
+`set_scene()` 原子性地替换快照，并向订阅 `scene://current` 和
+`scene://delta` 的会话发送 `notifications/resources/updated`。重复提交
+完全相同的快照不会发送事件。
 
 ```python
 server.resources().set_scene(new_snapshot_dict)
 ```
+
+`scene://delta` 包含 `base_revision`、`revision` 和有界 JSON 变化列表。
+Agent 只需变化状态时订阅它；首次连接或增量被截断时读取
+`scene://current` 取得完整基线。
 
 传递 `None` 以清除快照（读者随后收到一个带有 `status: "no_snapshot"` 的占位符）。
 

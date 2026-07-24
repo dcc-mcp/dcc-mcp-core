@@ -14,6 +14,7 @@ categories = ["api-bindings"]
 workspace = true
 
 [dependencies]
+dcc-mcp-models.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
