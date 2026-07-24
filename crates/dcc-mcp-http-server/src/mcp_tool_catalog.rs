@@ -382,9 +382,15 @@ pub fn build_skill_stub(summary: &SkillSummary) -> McpTool {
         !summary.search_hint.is_empty() && summary.search_hint != summary.description;
 
     let description = if has_explicit_hint {
+        const MAX_HINT_LEN: usize = 160;
+        let hint = if summary.search_hint.len() > MAX_HINT_LEN {
+            format!("{}…", &summary.search_hint[..MAX_HINT_LEN])
+        } else {
+            summary.search_hint.clone()
+        };
         format!(
             "[{}] {} tools • keywords: {} • Call load_skill(\"{}\")",
-            summary.dcc, summary.tool_count, summary.search_hint, summary.name
+            summary.dcc, summary.tool_count, hint, summary.name
         )
     } else {
         const PREVIEW_LIMIT: usize = 5;

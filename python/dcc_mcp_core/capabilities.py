@@ -40,6 +40,7 @@ __all__ = [
 
 _SKILL_STUB_PREFIX = "__skill__"
 _GROUP_STUB_PREFIX = "__group__"
+_MAX_TAGS_PER_RECORD = 8
 
 
 @dataclass(frozen=True)
@@ -168,7 +169,7 @@ class CapabilityManifestBuilder:
                 skill_info.get("description"),
                 "",
             ),
-            200,
+            120,
         )
 
         tags: list[str] = []
@@ -179,7 +180,7 @@ class CapabilityManifestBuilder:
             [action.get("group")],
         ):
             tags.extend(_as_str_list(source))
-        tags = sorted({t for t in tags if t})
+        tags = sorted({t for t in tags if t})[:_MAX_TAGS_PER_RECORD]
 
         loaded = self._is_loaded_safe(skill_name) if skill_name else False
         execution = _maybe_str(action.get("execution"))
@@ -233,7 +234,7 @@ class CapabilityManifestBuilder:
             return None
 
         backend_tool = "{}__{}".format(skill_name.replace("-", "_"), tool_name)
-        summary = _truncate(_first_nonempty(tool.get("summary"), tool.get("description"), ""), 160)
+        summary = _truncate(_first_nonempty(tool.get("summary"), tool.get("description"), ""), 120)
 
         tags: list[str] = []
         for source in (
@@ -243,7 +244,7 @@ class CapabilityManifestBuilder:
             [tool.get("group")],
         ):
             tags.extend(_as_str_list(source))
-        tags = sorted({t for t in tags if t})
+        tags = sorted({t for t in tags if t})[:_MAX_TAGS_PER_RECORD]
 
         schema = tool.get("input_schema") or tool.get("inputSchema")
         has_schema = bool(schema) and not _is_stub(tool_name)
