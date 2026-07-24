@@ -39,6 +39,7 @@ EXPECTED_TOOLS = [
     "dcc_diagnostics__tool_metrics",
     "dcc_diagnostics__process_status",
     "dcc_diagnostics__gateway_failover",
+    "dcc_diagnostics__get_instance_info",
 ]
 
 
@@ -108,6 +109,79 @@ class TestProcessStatusHandler:
             assert isinstance(payload["timestamp_ms"], int)
         finally:
             _instance_context.update(original)
+
+
+class TestGetInstanceInfoHandler:
+    def test_reports_context(self) -> None:
+        # Import local modules
+        from dcc_mcp_core.dcc_server import _handle_get_instance_info
+        from dcc_mcp_core.dcc_server import _instance_context
+
+        original = dict(_instance_context)
+        _instance_context.update(
+            {
+                "dcc_name": "maya",
+                "dcc_pid": 99999,
+                "dcc_window_handle": None,
+                "dcc_window_title": "Maya 2024",
+                "dcc_version": "2024.2",
+                "resolver": None,
+                "gateway_failover_resolver": None,
+            }
+        )
+        try:
+            payload = json.loads(_handle_get_instance_info("{}"))
+            assert payload["success"] is True
+            assert payload["dcc_name"] == "maya"
+            assert payload["dcc_pid"] == 99999
+            assert payload["dcc_version"] == "2024.2"
+            assert isinstance(payload["adapter_pid"], int)
+            assert isinstance(payload["timestamp_ms"], int)
+            # Fields that are None when no server is wired
+            assert payload["instance_uuid"] is None
+            assert payload["mcp_url"] is None
+            assert payload["server_port"] is None
+            assert payload["gateway_port"] is None
+            # Static fields
+            assert payload["dcc_mcp_core_version"] is not None
+            assert payload["python_version"] is not None
+        finally:
+            _instance_context.update(original)
+
+    def test_with_server_ref(self, server) -> None:
+        """Handler returns server-attached fields when server is wired."""
+        # Import local modules
+        from dcc_mcp_core.dcc_server import _handle_get_instance_info
+        from dcc_mcp_core.dcc_server import _instance_context
+        from dcc_mcp_core.dcc_server import _server_ref
+
+        register_diagnostic_mcp_tools(
+            server,
+            dcc_name="test-dcc",
+            dcc_pid=12345,
+            dcc_version="2025.1",
+        )
+
+        try:
+            payload = json.loads(_handle_get_instance_info("{}"))
+            assert payload["success"] is True
+            assert payload["dcc_name"] == "test-dcc"
+            assert payload["dcc_pid"] == 12345
+            assert payload["dcc_version"] == "2025.1"
+            # Server ref should be set by register_diagnostic_mcp_tools
+            assert _server_ref is not None
+        finally:
+            _instance_context.update(
+                {
+                    "dcc_name": None,
+                    "dcc_pid": None,
+                    "dcc_window_handle": None,
+                    "dcc_window_title": None,
+                    "dcc_version": None,
+                    "resolver": None,
+                    "gateway_failover_resolver": None,
+                }
+            )
 
 
 class TestToolCategoryAndMetadata:
