@@ -339,6 +339,14 @@ clawhub-sync-dry-run:
 clawhub-sync:
     python scripts/clawhub_sync.py
 
+# Run the UI Control desktop automation test harness (mock backend, no desktop needed)
+test-ui-control-automation:
+    pytest tests/test_ui_control_desktop_automation.py -v --tb=short --show-capture=no
+
+# Run all UI Control tests (skill + host + desktop automation)
+test-ui-control-all:
+    pytest tests/test_ui_control_*.py -v --tb=short --show-capture=no
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 
 [unix]
