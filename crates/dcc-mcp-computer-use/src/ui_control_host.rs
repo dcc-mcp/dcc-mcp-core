@@ -1099,7 +1099,7 @@ fn refresh_action_policy(
         .accessibility_root
         .as_ref()
         .ok_or_else(stale_accessibility_state)?;
-    let (cached_tier, cached_controls) = cached_action_fence(
+    let (cached_tier, _cached_controls) = cached_action_fence(
         action,
         cached_root,
         session.focus_runtime_id.as_deref(),
@@ -1110,7 +1110,7 @@ fn refresh_action_policy(
             cached_tier,
             ActionFenceExpectation {
                 #[cfg(any(windows, test))]
-                controls: cached_controls,
+                controls: _cached_controls,
                 #[cfg(any(windows, test))]
                 observation: session.observation.clone(),
                 #[cfg(windows)]
