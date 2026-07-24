@@ -53,6 +53,7 @@ The ``dcc_name`` argument is used to derive the default IPC pipe name when
 from __future__ import annotations
 
 import base64
+import contextlib
 import logging
 import os
 import sys
@@ -475,38 +476,30 @@ def _handle_get_instance_info(params_json: str) -> str:
     # Resolve instance UUID from the server handle when available.
     instance_uuid = None
     if server is not None:
-        try:
+        with contextlib.suppress(Exception):
             instance_uuid = server.instance_id
-        except Exception:
-            pass
 
     # Resolve MCP URL from the server handle when available.
     mcp_url = None
     if server is not None:
-        try:
+        with contextlib.suppress(Exception):
             mcp_url = server.mcp_url()
-        except Exception:
-            pass
 
     # Resolve server port from the server handle when available.
     server_port = None
     if server is not None:
-        try:
+        with contextlib.suppress(Exception):
             server_port = server.port
-        except Exception:
-            pass
 
     # Resolve gateway port from the failover resolver or config.
     gateway_port = None
     gateway_failover_resolver = ctx.get("gateway_failover_resolver")
     if callable(gateway_failover_resolver):
-        try:
+        with contextlib.suppress(Exception):
             raw = gateway_failover_resolver() or {}
             gp = raw.get("gateway_port")
             if gp is not None and int(gp) > 0:
                 gateway_port = int(gp)
-        except Exception:
-            pass
 
     # Resolve dcc-mcp-core package version.
     try:
@@ -607,6 +600,8 @@ def register_diagnostic_handlers(
             ``take_screenshot`` to resolve the window target.
         dcc_window_handle: Pre-resolved native window handle (HWND / XID).
         dcc_window_title: Substring of the DCC window title for title lookup.
+        dcc_version: DCC application version string (e.g. ``"2024.2"``).
+            Stored in instance context for diagnostic tools.
         resolver: Optional callback returning the current native window handle
             when neither ``dcc_window_handle`` nor a cache hit is available.
 
