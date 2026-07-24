@@ -28,14 +28,17 @@ import dataclasses
 import importlib.util
 import json
 import os
-import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import tempfile
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
 
 # Import local modules
 from dcc_mcp_core.adapter_contracts import UiActionKind
 from dcc_mcp_core.adapter_contracts import UiControlPolicy
-from dcc_mcp_core.adapter_contracts import UiSnapshot
 
 
 def _load_backend():
@@ -53,7 +56,7 @@ def _load_backend():
         scripts_dir / "_backend.py",
     )
     if spec is None or spec.loader is None:
-        raise ImportError("Cannot load _backend.py from %s" % scripts_dir)
+        raise ImportError(f"Cannot load _backend.py from {scripts_dir}")
     module = importlib.util.module_from_spec(spec)
     _sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -93,7 +96,7 @@ class ScenarioStep:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ScenarioStep":
+    def from_dict(cls, data: Dict[str, Any]) -> ScenarioStep:
         """Create a ScenarioStep from a dictionary."""
         return cls(
             tool=data["tool"],
@@ -128,7 +131,7 @@ class ScenarioScript:
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ScenarioScript":
+    def from_dict(cls, data: Dict[str, Any]) -> ScenarioScript:
         """Create a ScenarioScript from a dictionary."""
         return cls(
             name=data["name"],
@@ -138,7 +141,7 @@ class ScenarioScript:
         )
 
     @classmethod
-    def from_json(cls, json_str: str) -> "ScenarioScript":
+    def from_json(cls, json_str: str) -> ScenarioScript:
         """Deserialize a script from a JSON string."""
         return cls.from_dict(json.loads(json_str))
 
@@ -157,6 +160,7 @@ class ScenarioRunner:
         session_id: Session identifier passed to every tool call.
         state_dir: Temporary directory for mock state persistence. If None,
             a system temp directory is used.
+
     """
 
     def __init__(self, session_id: str, state_dir: Optional[Path] = None):
@@ -167,7 +171,7 @@ class ScenarioRunner:
         self._orig_state_env = os.environ.get("DCC_MCP_UI_CONTROL_MOCK_STATE_DIR")
         os.environ["DCC_MCP_UI_CONTROL_MOCK_STATE_DIR"] = str(self._state_dir)
 
-    def __enter__(self) -> "ScenarioRunner":
+    def __enter__(self) -> ScenarioRunner:
         return self
 
     def __exit__(self, *args: Any) -> None:
@@ -208,6 +212,7 @@ class ScenarioRunner:
             A dict with keys ``passed`` (bool), ``total`` (int),
             ``passed_count`` (int), ``failed_count`` (int),
             ``step_results`` (list of per-step dicts), and ``scenario`` (name).
+
         """
         step_results: List[Dict[str, Any]] = []
         passed_count = 0
@@ -223,28 +228,24 @@ class ScenarioRunner:
                 result = self._dispatch(step)
                 step_result["result"] = result
                 # Check success expectation
-                if step.expect_success is not None:
-                    if result.get("success") != step.expect_success:
-                        step_result["passed"] = False
-                        step_result["errors"].append(
-                            f"expected success={step.expect_success}, got success={result.get('success')}"
-                        )
+                if step.expect_success is not None and result.get("success") != step.expect_success:
+                    step_result["passed"] = False
+                    step_result["errors"].append(
+                        f"expected success={step.expect_success}, got success={result.get('success')}"
+                    )
                 # Check error_code expectation
                 if step.expect_error_code is not None:
                     actual = result.get("error") or result.get("context", {}).get("result", {}).get("error_code")
                     if actual != step.expect_error_code:
                         step_result["passed"] = False
-                        step_result["errors"].append(
-                            f"expected error_code={step.expect_error_code}, got {actual}"
-                        )
+                        step_result["errors"].append(f"expected error_code={step.expect_error_code}, got {actual}")
                 # Check message contains expectation
                 if step.expect_message_contains is not None:
                     message = result.get("message", "")
                     if step.expect_message_contains not in message:
                         step_result["passed"] = False
                         step_result["errors"].append(
-                            f"expected message to contain {step.expect_message_contains!r}, "
-                            f"got {message!r}"
+                            f"expected message to contain {step.expect_message_contains!r}, got {message!r}"
                         )
             except Exception as exc:
                 step_result["passed"] = False
@@ -268,9 +269,7 @@ class ScenarioRunner:
 # ── Snapshot diff ───────────────────────────────────────────────────────────
 
 
-def _flatten_nodes(
-    node: Dict[str, Any], path: str = ""
-) -> Dict[str, Dict[str, Any]]:
+def _flatten_nodes(node: Dict[str, Any], path: str = "") -> Dict[str, Dict[str, Any]]:
     """Flatten a UI tree node hierarchy into a dict keyed by node id."""
     result: Dict[str, Dict[str, Any]] = {}
     node_path = f"{path}/{node['id']}" if path else node["id"]
@@ -296,6 +295,7 @@ def diff_snapshots(
     Returns:
         A list of diff entries, each with keys:
         ``control_id``, ``field``, ``before``, ``after``, ``change_type``.
+
     """
     diffs: List[Dict[str, Any]] = []
     before_nodes = _flatten_nodes(before.get("root", {}))
@@ -308,47 +308,55 @@ def diff_snapshots(
         a = after_nodes.get(node_path)
 
         if b is None and a is not None:
-            diffs.append({
-                "control_id": control_id,
-                "field": "<node>",
-                "before": None,
-                "after": a,
-                "change_type": "added",
-            })
+            diffs.append(
+                {
+                    "control_id": control_id,
+                    "field": "<node>",
+                    "before": None,
+                    "after": a,
+                    "change_type": "added",
+                }
+            )
         elif a is None and b is not None:
-            diffs.append({
-                "control_id": control_id,
-                "field": "<node>",
-                "before": b,
-                "after": None,
-                "change_type": "removed",
-            })
+            diffs.append(
+                {
+                    "control_id": control_id,
+                    "field": "<node>",
+                    "before": b,
+                    "after": None,
+                    "change_type": "removed",
+                }
+            )
         elif b is not None and a is not None:
             all_fields = set(b) | set(a)
             for field in sorted(all_fields):
                 b_val = b.get(field)
                 a_val = a.get(field)
                 if b_val != a_val:
-                    diffs.append({
-                        "control_id": control_id,
-                        "field": field,
-                        "before": b_val,
-                        "after": a_val,
-                        "change_type": "changed",
-                    })
+                    diffs.append(
+                        {
+                            "control_id": control_id,
+                            "field": field,
+                            "before": b_val,
+                            "after": a_val,
+                            "change_type": "changed",
+                        }
+                    )
 
     # Also diff top-level metadata
     for key in ("focus_id", "node_count", "truncated"):
         b_val = before.get(key)
         a_val = after.get(key)
         if b_val != a_val:
-            diffs.append({
-                "control_id": "<snapshot>",
-                "field": key,
-                "before": b_val,
-                "after": a_val,
-                "change_type": "changed",
-            })
+            diffs.append(
+                {
+                    "control_id": "<snapshot>",
+                    "field": key,
+                    "before": b_val,
+                    "after": a_val,
+                    "change_type": "changed",
+                }
+            )
 
     return diffs
 
@@ -384,7 +392,7 @@ class ReplayTrace:
         return json_str
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ReplayTrace":
+    def from_dict(cls, data: Dict[str, Any]) -> ReplayTrace:
         return cls(
             trace_id=data["trace_id"],
             session_id=data.get("session_id", ""),
@@ -393,11 +401,11 @@ class ReplayTrace:
         )
 
     @classmethod
-    def from_json(cls, json_str: str) -> "ReplayTrace":
+    def from_json(cls, json_str: str) -> ReplayTrace:
         return cls.from_dict(json.loads(json_str))
 
     @classmethod
-    def from_file(cls, path: Path) -> "ReplayTrace":
+    def from_file(cls, path: Path) -> ReplayTrace:
         return cls.from_json(path.read_text(encoding="utf-8"))
 
 
@@ -523,6 +531,7 @@ class ActionReplayer:
         Returns:
             Dict with keys ``passed``, ``total``, ``passed_count``,
             ``failed_count``, ``step_results``.
+
         """
         step_results: List[Dict[str, Any]] = []
         passed_count = 0
@@ -539,16 +548,12 @@ class ActionReplayer:
                 if result.get("success") != step.get("result_success"):
                     sr["passed"] = False
                     sr["errors"].append(
-                        f"success mismatch: recorded={step.get('result_success')}, "
-                        f"replayed={result.get('success')}"
+                        f"success mismatch: recorded={step.get('result_success')}, replayed={result.get('success')}"
                     )
                 recorded_error = step.get("result_error")
                 if recorded_error is not None and result.get("error") != recorded_error:
                     sr["passed"] = False
-                    sr["errors"].append(
-                        f"error mismatch: recorded={recorded_error}, "
-                        f"replayed={result.get('error')}"
-                    )
+                    sr["errors"].append(f"error mismatch: recorded={recorded_error}, replayed={result.get('error')}")
             except Exception as exc:
                 sr["passed"] = False
                 sr["errors"].append(f"exception: {exc}")
@@ -584,6 +589,7 @@ POLICY_BOOLEAN_FLAGS: List[str] = [
     "scope_denied",
 ]
 
+
 # Default permissive policy for testing
 def _default_policy() -> UiControlPolicy:
     return UiControlPolicy(
@@ -615,94 +621,112 @@ def build_policy_test_cases() -> List[Tuple[str, Dict[str, Any], str, str, Dict[
     cases: List[Tuple[str, Dict[str, Any], str, str, Dict[str, Any]]] = []
 
     # allow_snapshot → snapshot is denied
-    cases.append((
-        "allow_snapshot",
-        {"allow_snapshot": False},
-        "snapshot",
-        "snapshot",
-        {},
-    ))
+    cases.append(
+        (
+            "allow_snapshot",
+            {"allow_snapshot": False},
+            "snapshot",
+            "snapshot",
+            {},
+        )
+    )
 
     # allow_find → find is denied
-    cases.append((
-        "allow_find",
-        {"allow_find": False},
-        "find",
-        "find",
-        {"label": "Apply"},
-    ))
+    cases.append(
+        (
+            "allow_find",
+            {"allow_find": False},
+            "find",
+            "find",
+            {"label": "Apply"},
+        )
+    )
 
     # allow_mutating_actions → click is denied
-    cases.append((
-        "allow_mutating_actions",
-        {"allow_mutating_actions": False},
-        "act",
-        "click",
-        {"control_id": "apply", "action": UiActionKind.CLICK},
-    ))
+    cases.append(
+        (
+            "allow_mutating_actions",
+            {"allow_mutating_actions": False},
+            "act",
+            "click",
+            {"control_id": "apply", "action": UiActionKind.CLICK},
+        )
+    )
 
     # allow_text_entry → set_text is denied
-    cases.append((
-        "allow_text_entry",
-        {"allow_text_entry": False},
-        "act",
-        "set_text",
-        {"control_id": "project-name", "action": UiActionKind.SET_TEXT, "text": "Test"},
-    ))
+    cases.append(
+        (
+            "allow_text_entry",
+            {"allow_text_entry": False},
+            "act",
+            "set_text",
+            {"control_id": "project-name", "action": UiActionKind.SET_TEXT, "text": "Test"},
+        )
+    )
 
     # allow_keyboard_shortcuts → keyboard_shortcut is denied
-    cases.append((
-        "allow_keyboard_shortcuts",
-        {"allow_keyboard_shortcuts": False},
-        "act",
-        "keyboard_shortcut",
-        {
-            "control_id": "apply",
-            "action": UiActionKind.KEYBOARD_SHORTCUT,
-            "keys": ["Ctrl", "S"],
-        },
-    ))
+    cases.append(
+        (
+            "allow_keyboard_shortcuts",
+            {"allow_keyboard_shortcuts": False},
+            "act",
+            "keyboard_shortcut",
+            {
+                "control_id": "apply",
+                "action": UiActionKind.KEYBOARD_SHORTCUT,
+                "keys": ["Ctrl", "S"],
+            },
+        )
+    )
 
     # allow_raw_coordinates → raw_coordinate_click is denied
-    cases.append((
-        "allow_raw_coordinates",
-        {"allow_raw_coordinates": False},
-        "act",
-        "raw_coordinate_click",
-        {
-            "control_id": "mock-window",
-            "action": UiActionKind.RAW_COORDINATE_CLICK,
-            "x": 10,
-            "y": 10,
-        },
-    ))
+    cases.append(
+        (
+            "allow_raw_coordinates",
+            {"allow_raw_coordinates": False},
+            "act",
+            "raw_coordinate_click",
+            {
+                "control_id": "mock-window",
+                "action": UiActionKind.RAW_COORDINATE_CLICK,
+                "x": 10,
+                "y": 10,
+            },
+        )
+    )
 
     # allowed_window_titles → snapshot denied when title doesn't match
-    cases.append((
-        "allowed_window_titles",
-        {"allowed_window_titles": ["Other App"]},
-        "snapshot",
-        "snapshot_window_title",
-        {},
-    ))
+    cases.append(
+        (
+            "allowed_window_titles",
+            {"allowed_window_titles": ["Other App"]},
+            "snapshot",
+            "snapshot_window_title",
+            {},
+        )
+    )
 
     # allowed_process_ids → snapshot denied when PID doesn't match
-    cases.append((
-        "allowed_process_ids",
-        {"allowed_process_ids": [9999]},
-        "snapshot",
-        "snapshot_process_id",
-        {},
-    ))
+    cases.append(
+        (
+            "allowed_process_ids",
+            {"allowed_process_ids": [9999]},
+            "snapshot",
+            "snapshot_process_id",
+            {},
+        )
+    )
 
     # scope_denied → all actions denied
-    cases.append((
-        "scope_denied",
-        {"scope_denied": True},
-        "act",
-        "scope_denied_action",
-        {"control_id": "apply", "action": UiActionKind.CLICK},
-    ))
+    cases.append(
+        (
+            "scope_denied",
+            {"scope_denied": True},
+            "act",
+            "scope_denied_action",
+            {"control_id": "apply", "action": UiActionKind.CLICK},
+        )
+    )
 
     return cases
 
