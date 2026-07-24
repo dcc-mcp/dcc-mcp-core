@@ -15,8 +15,8 @@ metadata:
     dcc: python
     version: "0.4.0"
     layer: infrastructure
-    search-hint: "dcc ui control, ui-control, ui control, ui automation, exact window recording, gameplay capture, game pv capture, jpeg sequence, frame hash, operate control menu dialog window button click keyboard, windows uia, chrome cdp, edge cdp, agent-browser, modal, settings panel, screenshot, snapshot, find control, custom control, face shaping, sculpt slider, modifier drag, registry, symlink, plugin setup, remote control, scroll, type, keypress, wait for ui, stale control, dcc debugging, operate maya menu, click button in dialog, fill form in 3ds max, 操作, 控制, 界面, 菜单, 弹窗, 窗口, 按钮, 点击, 键盘, 录制游戏, 游戏PV, 捏脸, 操控界面, 点击菜单, 自动化窗口, 界面自动化, 窗口操作, 控件识别"
-    tags: "ui-control, dcc-ui-control, ui-automation, exact-window-recording, gameplay-capture, game-pv, windows-uia, chrome-cdp, edge-cdp, agent-browser, diagnostics, infrastructure, mock, maya-ui, blender-ui, 3dsmax-ui, houdini-ui, photoshop-ui, unreal-ui, unity-ui, zbrush-ui"
+    search-hint: "dcc ui control, ui automation, windows uia, chrome cdp, edge cdp, screenshot snapshot, click type keypress, scroll wait find, window recording, gameplay capture, control menu dialog, plugin setup, registry symlink"
+    tags: "ui-control, ui-automation, windows-uia, dcc-ui-control, chrome-cdp, diagnostics, infrastructure, game-pv"
     tools: tools.yaml
 ---
 
