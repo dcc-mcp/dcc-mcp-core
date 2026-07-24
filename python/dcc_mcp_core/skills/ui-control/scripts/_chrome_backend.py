@@ -21,10 +21,12 @@ if __package__:
     from ._cdp_runtime import CdpBackendError as ChromeBackendError
     from ._cdp_runtime import CdpClient as _CdpClient
     from ._cdp_runtime import ensure_cdp_target as _ensure_cdp_target
+    from ._progressive_query import build_control_detail, expand_from_snapshot, observe_from_snapshot
 else:
     from _cdp_runtime import CdpBackendError as ChromeBackendError
     from _cdp_runtime import CdpClient as _CdpClient
     from _cdp_runtime import ensure_cdp_target as _ensure_cdp_target
+    from _progressive_query import build_control_detail, expand_from_snapshot, observe_from_snapshot
 
 from dcc_mcp_core.adapter_contracts import UiActionKind
 from dcc_mcp_core.adapter_contracts import UiActionResult
@@ -37,8 +39,7 @@ from dcc_mcp_core.adapter_contracts import UiSnapshot
 from dcc_mcp_core.adapter_contracts import UiWaitCondition
 from dcc_mcp_core.adapter_contracts import UiWaitConditionKind
 from dcc_mcp_core.adapter_contracts import UiWaitResult
-from dcc_mcp_core.skill import skill_error
-from dcc_mcp_core.skill import skill_success
+from dcc_mcp_core.skill import skill_error, skill_success
 
 _POLICY_KEYS = {
     "allow_snapshot",
@@ -860,7 +861,7 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 
 def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Return root-level controls from the CDP backend without subtree expansion."""
+    """Return root-level controls from the CDP backend."""
     params = dict(params) if params is not None else _read_params()
     session_id = _safe_session_id(params.get("session_id"))
     state = _load_state(session_id)
@@ -887,26 +888,16 @@ def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     _save_state(state)
 
     snapshot = _snapshot_dict(state)
-    all_roots = list(snapshot["root"].get("children", []) or [])
-    total_roots = len(all_roots)
-    truncated = total_roots > max_roots
-
-    roots = []
-    for child in all_roots[:max_roots]:
-        stripped = dict(child)
-        child_count = len(stripped.get("children", []) or [])
-        stripped["children"] = []
-        stripped["child_count"] = child_count
-        roots.append(stripped)
+    result = observe_from_snapshot(snapshot, max_roots)
 
     return skill_success(
-        f"Observed {len(roots)} root-level control(s).",
+        f"Observed {len(result['roots'])} root-level control(s).",
         prompt="Use ui_control__expand to drill into a node, or ui_control__inspect for details.",
         session_id=session_id,
         snapshot_id=snapshot["metadata"]["snapshot_id"],
-        roots=roots,
-        total_roots=total_roots,
-        truncated=truncated,
+        roots=result["roots"],
+        total_roots=result["total_roots"],
+        truncated=result["truncated"],
     )
 
 
@@ -939,8 +930,8 @@ def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         )
 
     snapshot = _snapshot_dict(state)
-    parent = _find_by_id(snapshot, control_id)
-    if not parent:
+    result = expand_from_snapshot(snapshot, control_id, max_children)
+    if result is None:
         return skill_error(
             f"control {control_id!r} not found; refresh observation",
             UiErrorCode.NOT_FOUND,
@@ -948,27 +939,15 @@ def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             session_id=session_id,
         )
 
-    all_children = list(parent.get("children", []) or [])
-    total_children = len(all_children)
-    truncated = total_children > max_children
-
-    children = []
-    for child in all_children[:max_children]:
-        stripped = dict(child)
-        grandchild_count = len(stripped.get("children", []) or [])
-        stripped["children"] = []
-        stripped["child_count"] = grandchild_count
-        children.append(stripped)
-
     return skill_success(
-        f"Expanded {control_id!r}: {len(children)} direct child(ren).",
+        f"Expanded {control_id!r}: {len(result['children'])} direct child(ren).",
         prompt="Use ui_control__expand again to drill deeper, or ui_control__inspect for details on a child.",
         session_id=session_id,
         snapshot_id=snapshot["metadata"]["snapshot_id"],
-        control_id=control_id,
-        children=children,
-        total_children=total_children,
-        truncated=truncated,
+        control_id=result["control_id"],
+        children=result["children"],
+        total_children=result["total_children"],
+        truncated=result["truncated"],
     )
 
 
@@ -1009,47 +988,7 @@ def inspect_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             session_id=session_id,
         )
 
-    role = str(node.get("role") or "unknown")
-    is_text_field = role == "text_field"
-    is_checkbox = role == "checkbox"
-    is_button = role == "button"
-
-    patterns = []
-    actions = []
-    if is_text_field:
-        patterns = ["ValuePattern", "TextPattern"]
-        actions = ["set_text", "focus"]
-    elif is_checkbox:
-        patterns = ["TogglePattern"]
-        actions = ["toggle", "set_checked", "click"]
-    elif is_button:
-        patterns = ["InvokePattern"]
-        actions = ["click"]
-    elif role in ("link", "list_item", "menu_item", "combo_box", "option", "listbox"):
-        patterns = ["SelectionItemPattern"]
-        actions = ["click", "focus"]
-
-    detail = {
-        "id": node.get("id", ""),
-        "role": role,
-        "enabled": bool(node.get("enabled", True)),
-        "visible": bool(node.get("visible", True)),
-        "focused": snapshot.get("focus_id") == node.get("id"),
-        "label": node.get("label"),
-        "text": node.get("text"),
-        "object_name": node.get("object_name"),
-        "tooltip": node.get("tooltip"),
-        "bounds": node.get("bounds"),
-        "value": node.get("value"),
-        "checked": node.get("checked"),
-        "child_count": len(node.get("children", []) or []),
-        "supported_patterns": patterns,
-        "supported_actions": actions,
-        "is_keyboard_focusable": role in ("text_field", "button", "checkbox", "combo_box", "link"),
-        "is_password": role == "password",
-        "tree_path": None,
-        "metadata": {"backend": "chrome-cdp"},
-    }
+    detail = build_control_detail(node, snapshot, "chrome-cdp")
 
     return skill_success(
         f"Inspected control {control_id!r} ({detail['role']}).",
