@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.74](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.73...v0.19.74) (2026-07-24)
+
+
+### Bug Fixes
+
+* cap capability manifest records and skill stub budgets ([#2053](https://github.com/dcc-mcp/dcc-mcp-core/issues/2053)) ([b1864d3](https://github.com/dcc-mcp/dcc-mcp-core/commit/b1864d3c2c8c93b47d2a7c2fb4273bde201e35cf))
+
 ## [0.19.73](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.72...v0.19.73) (2026-07-24)
 
 
