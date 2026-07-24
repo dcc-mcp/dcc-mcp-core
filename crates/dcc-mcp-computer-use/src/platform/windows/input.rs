@@ -5,7 +5,7 @@ mod send_input;
 
 use game_navigation::game_navigation;
 #[cfg(test)]
-use game_navigation::{HeldGameNavigationKey, game_navigation_key_inputs};
+use game_navigation::{HeldGameNavigationKeys, game_navigation_key_inputs};
 pub(crate) use send_input::flush_pending_input_releases;
 pub(super) use send_input::flush_pending_input_releases_locked;
 #[cfg(test)]
@@ -1144,7 +1144,6 @@ fn pointer_modifier_inputs(keys: &[String]) -> ComputerUseResult<(Vec<INPUT>, Ve
 }
 
 fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
-    let upper = key.to_ascii_uppercase();
     if let Some(common) = crate::keyboard_policy::common_key(key) {
         return common.virtual_key().map(VIRTUAL_KEY).ok_or_else(|| {
             ComputerUseError::new(
@@ -1153,58 +1152,9 @@ fn virtual_key(key: &str) -> ComputerUseResult<VIRTUAL_KEY> {
             )
         });
     }
-    if let Some(virtual_key) = crate::keyboard_policy::function_key_virtual_key(key) {
-        return Ok(VIRTUAL_KEY(virtual_key));
-    }
-    if let Some(digit) = upper
-        .strip_prefix("KP_")
-        .filter(|value| value.len() == 1)
-        .and_then(|value| value.as_bytes().first().copied())
-        .filter(u8::is_ascii_digit)
-    {
-        return Ok(VIRTUAL_KEY(0x60 + u16::from(digit - b'0')));
-    }
-    let raw = match upper.as_str() {
-        "ENTER" | "RETURN" => 0x0D,
-        "BACKSPACE" => 0x08,
-        "DELETE" | "DEL" => 0x2E,
-        "INSERT" | "INS" => 0x2D,
-        "LEFT" | "ARROWLEFT" | "ARROW_LEFT" => 0x25,
-        "UP" | "ARROWUP" | "ARROW_UP" => 0x26,
-        "RIGHT" | "ARROWRIGHT" | "ARROW_RIGHT" => 0x27,
-        "DOWN" | "ARROWDOWN" | "ARROW_DOWN" => 0x28,
-        "HOME" => 0x24,
-        "END" => 0x23,
-        "PAGEUP" | "PAGE_UP" | "PGUP" => 0x21,
-        "PAGEDOWN" | "PAGE_DOWN" | "PGDN" => 0x22,
-        "CAPSLOCK" | "CAPS_LOCK" => 0x14,
-        "NUMLOCK" | "NUM_LOCK" => 0x90,
-        "SCROLLLOCK" | "SCROLL_LOCK" => 0x91,
-        "PAUSE" => 0x13,
-        "KP_DECIMAL" | "KPDECIMAL" | "NUMPAD_DECIMAL" => 0x6E,
-        ";" | "SEMICOLON" => 0xBA,
-        "=" | "EQUAL" | "EQUALS" => 0xBB,
-        "," | "COMMA" => 0xBC,
-        "-" | "MINUS" => 0xBD,
-        "." | "PERIOD" | "DOT" => 0xBE,
-        "/" | "SLASH" => 0xBF,
-        "`" | "GRAVE" | "BACKTICK" => 0xC0,
-        "[" | "LEFTBRACKET" | "BRACKETLEFT" => 0xDB,
-        "\\" | "BACKSLASH" => 0xDC,
-        "]" | "RIGHTBRACKET" | "BRACKETRIGHT" => 0xDD,
-        "'" | "APOSTROPHE" | "QUOTE" => 0xDE,
-        value
-            if value.len() == 1
-                && value
-                    .as_bytes()
-                    .first()
-                    .is_some_and(u8::is_ascii_alphanumeric) =>
-        {
-            u16::from(value.as_bytes()[0])
-        }
-        _ => return Err(invalid_key(key)),
-    };
-    Ok(VIRTUAL_KEY(raw))
+    crate::keyboard_policy::virtual_key_code(key)
+        .map(VIRTUAL_KEY)
+        .ok_or_else(|| invalid_key(key))
 }
 
 fn invalid_key(key: &str) -> ComputerUseError {

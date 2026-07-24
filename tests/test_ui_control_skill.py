@@ -182,7 +182,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     keys_description = schema["properties"]["keys"]["description"]
     assert "pointer actions" in keys_description
     assert "navigation/control/function" in keys_description
-    assert "exactly one unmodified W, A, S, or D" in keys_description
+    assert "up to four simultaneous canvas keys" in keys_description
     assert all(modifier in keys_description for modifier in ("Ctrl", "Shift", "Alt"))
     assert "latest screenshot" in schema["properties"]["path"]["description"]
     assert "semantic lookup fails" in schema["properties"]["path"]["description"]
@@ -236,15 +236,27 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
 def test_ui_control_windows_game_navigation_contract_is_fail_closed() -> None:
     backend = _load_windows_uia_module()
 
-    for key in ("W", "a", "S", "d"):
-        assert backend._validate_action_limits({"action": "game_navigation", "keys": [key], "duration_ms": 500}) is None
-        assert backend._is_native_action("game_navigation", {"keys": [key]}) is True
+    for keys in (
+        ["W"],
+        ["W", "D"],
+        ["W", "D", "J", "K"],
+        ["J", "K"],
+        ["SHIFT", "E"],
+        ["CTRL+Z"],
+        ["SPACE"],
+        ["F5"],
+        ["LEFT", "UP"],
+    ):
+        assert backend._validate_action_limits({"action": "game_navigation", "keys": keys, "duration_ms": 500}) is None
+        assert backend._is_native_action("game_navigation", {"keys": keys}) is True
 
     for payload in (
         {"action": "game_navigation", "keys": []},
-        {"action": "game_navigation", "keys": ["W", "D"]},
-        {"action": "game_navigation", "keys": ["SHIFT+W"]},
-        {"action": "game_navigation", "keys": ["LEFT"]},
+        {"action": "game_navigation", "keys": ["W", "W"]},
+        {"action": "game_navigation", "keys": ["W", "A", "S", "D", "J"]},
+        {"action": "game_navigation", "keys": ["WIN", "R"]},
+        {"action": "game_navigation", "keys": ["NOT_A_KEY"]},
+        {"action": "game_navigation", "keys": ["CTRL+"]},
         {"action": "game_navigation", "keys": ["W"], "duration_ms": -1},
         {"action": "game_navigation", "keys": ["W"], "duration_ms": 501},
         {"action": "game_navigation", "keys": ["W"], "duration_ms": True},
@@ -339,8 +351,31 @@ def test_ui_control_entrypoints_accept_inprocess_parameters(
     assert "Signal Forge" not in log_text
 
 
-def test_ui_control_entrypoint_reports_real_snapshot_provenance(monkeypatch: Any) -> None:
+def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, monkeypatch: Any) -> None:
     entrypoint = _load_entrypoint_module()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text('{"frame_count": 90}', encoding="utf-8")
+    stored: list[dict[str, Any]] = []
+
+    class FileRef:
+        def __init__(self, *, mime: str, display_name: str, session_id: str, correlation_id: str) -> None:
+            self.uri = f"artefact://sha256/{'b' * 64}"
+            self.mime = mime
+            self.size_bytes = 3
+            self.display_name = display_name
+            self.digest = f"sha256:{'b' * 64}"
+            self.session_id = session_id
+            self.correlation_id = correlation_id
+            self.created_at = "2026-07-24T00:00:00Z"
+            self.expires_at = "2026-07-25T00:00:00Z"
+
+    def put_bytes(_data: bytes, **kwargs: Any) -> FileRef:
+        stored.append(kwargs)
+        return FileRef(**{key: kwargs[key] for key in ("mime", "display_name", "session_id", "correlation_id")})
+
+    def put_file(_path: str, **kwargs: Any) -> FileRef:
+        stored.append(kwargs)
+        return FileRef(**{key: kwargs[key] for key in ("mime", "display_name", "session_id", "correlation_id")})
 
     class Backend:
         @staticmethod
@@ -365,7 +400,11 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(monkeypatch: Any
                         "source_rect": [20, 30, 1920, 1080],
                         "capture_backend": "windows-graphics-capture",
                     },
-                    "__rich__": {"kind": "image", "data": "png"},
+                    "__rich__": {
+                        "kind": "image",
+                        "data": base64.b64encode(b"png").decode("ascii"),
+                        "mime": "image/png",
+                    },
                 },
             }
 
@@ -379,6 +418,7 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(monkeypatch: Any
                     "target": {"process_id": 1234, "window_handle": 500},
                     "artifact": {
                         "recording_id": "clip-1",
+                        "manifest_path": str(manifest),
                         "frame_count": 90,
                         "width": 1280,
                         "height": 720,
@@ -388,6 +428,8 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(monkeypatch: Any
             }
 
     monkeypatch.setattr(entrypoint, "_load_backend", lambda: Backend)
+    monkeypatch.setattr(entrypoint, "artefact_put_bytes", put_bytes)
+    monkeypatch.setattr(entrypoint, "artefact_put_file", put_file)
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "windows-uia")
     monkeypatch.setenv("DCC_MCP_DISABLE_FILE_LOGGING", "1")
 
@@ -413,6 +455,11 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(monkeypatch: Any
     assert "windows-ui-control-host" in result["message"]
     assert "1600x900" in result["message"]
     assert "downscaled from 1920x1080" in result["message"]
+    screenshot = result["context"]["artifacts"][0]
+    assert screenshot["kind"] == "ui_control_snapshot"
+    assert screenshot["display_name"] == "ui-control-snapshot-evidence-accessibility-1.png"
+    assert screenshot["session_id"] == "evidence"
+    assert result["context"]["__rich__"]["artifact_uri"] == screenshot["uri"]
 
     clip = entrypoint.record_clip_tool({"session_id": "evidence"})
     assert clip["context"]["capture_provenance"] == {
@@ -428,6 +475,10 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(monkeypatch: Any
         "height": 720,
         "manifest_sha256": "a" * 64,
     }
+    recording = clip["context"]["artifacts"][0]
+    assert recording["kind"] == "ui_control_recording_manifest"
+    assert recording["display_name"] == "ui-control-recording-evidence-clip-1.json"
+    assert [item["ttl_secs"] for item in stored] == [86_400, 86_400]
 
 
 def test_ui_control_subprocess_forwards_action_to_windows_backend_without_host(tmp_path: Path) -> None:

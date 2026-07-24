@@ -211,6 +211,18 @@ fn action_control_fences(
     controls.into_iter().map(control_fence).collect()
 }
 
+pub(super) fn cached_action_fence(
+    action: &UiControlAction,
+    root: &Value,
+    focus_runtime_id: Option<&str>,
+    observation: Option<&Value>,
+) -> Result<(UiControlPolicyTier, Vec<ActionControlFence>), HostFailure> {
+    Ok((
+        classify_action(action, Some(root), observation),
+        action_control_fences(action, root, focus_runtime_id, observation)?,
+    ))
+}
+
 fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
     let (Some(root), Some(focused)) = (ancestry.first(), ancestry.last()) else {
         return false;
@@ -256,7 +268,7 @@ fn game_navigation_node_is_non_editable(control: &Value) -> bool {
 fn hard_denied_game_navigation_target() -> HostFailure {
     HostFailure::new(
         UiControlHostErrorCode::HardDenied,
-        "game_navigation requires an exact non-editable game surface in the scoped DCC window",
+        "game_navigation requires an exact non-editable DCC or game canvas in the scoped window",
     )
 }
 
@@ -305,7 +317,8 @@ pub(super) fn verify_action_fence(
     observation: Option<&Value>,
     live: &RuntimeAccessibilityState,
 ) -> Result<(UiControlPolicyTier, Vec<ActionControlFence>), HostFailure> {
-    let cached = action_control_fences(action, cached_root, cached_focus_runtime_id, observation)?;
+    let (_, cached) =
+        cached_action_fence(action, cached_root, cached_focus_runtime_id, observation)?;
     let current = action_control_fences(
         action,
         &live.root,

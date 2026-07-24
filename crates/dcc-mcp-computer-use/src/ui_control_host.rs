@@ -32,8 +32,8 @@ pub use connection::UiControlHostConnection;
 #[cfg(any(windows, test))]
 use policy::{ActionControlFence, verify_expected_action_fence};
 use policy::{
-    allows_owned_standard_menu_popup, classify_action, stale_accessibility_state,
-    verify_action_fence,
+    allows_owned_standard_menu_popup, cached_action_fence, classify_action,
+    stale_accessibility_state, verify_action_fence,
 };
 #[cfg(test)]
 use policy::{classify_control, classify_control_text};
@@ -101,6 +101,7 @@ struct RuntimeClipRequest {
 
 trait HostRuntimeSession: Send {
     fn target(&self) -> &UiControlTarget;
+    fn user_interrupted(&self) -> bool;
     fn start_visible_notice(&mut self) -> Result<(), HostFailure>;
     fn window_state(&mut self) -> Result<UiControlWindowState, HostFailure>;
     fn change_window_state(
@@ -873,22 +874,24 @@ impl UiControlHost {
             Ok(session) => session,
             Err(failure) => return failure.into_response(),
         };
-        match confirmation.confirm(
-            ConfirmationKind::ResumeAfterStop,
-            Some(session.runtime.target()),
-            None,
-        ) {
-            Ok(true) => {}
-            Ok(false) => {
-                return error(
-                    UiControlHostErrorCode::ApprovalRequired,
-                    "the user did not approve resuming UI Control",
-                );
+        if session.runtime.user_interrupted() {
+            match confirmation.confirm(
+                ConfirmationKind::ResumeAfterStop,
+                Some(session.runtime.target()),
+                None,
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return error(
+                        UiControlHostErrorCode::ApprovalRequired,
+                        "the user did not approve resuming UI Control",
+                    );
+                }
+                Err(failure) => return failure.into_response(),
             }
-            Err(failure) => return failure.into_response(),
-        }
-        if let Err(failure) = session.runtime.resume_after_approval() {
-            return failure.into_response();
+            if let Err(failure) = session.runtime.resume_after_approval() {
+                return failure.into_response();
+            }
         }
         session.observation_id = None;
         session.observation = None;
@@ -1092,6 +1095,33 @@ fn refresh_action_policy(
     let max_nodes = session
         .accessibility_max_nodes
         .ok_or_else(stale_accessibility_state)?;
+    let cached_root = session
+        .accessibility_root
+        .as_ref()
+        .ok_or_else(stale_accessibility_state)?;
+    let (cached_tier, cached_controls) = cached_action_fence(
+        action,
+        cached_root,
+        session.focus_runtime_id.as_deref(),
+        session.observation.as_ref(),
+    )?;
+    if cached_tier == UiControlPolicyTier::TaskGrant {
+        return Ok((
+            cached_tier,
+            ActionFenceExpectation {
+                #[cfg(any(windows, test))]
+                controls: cached_controls,
+                #[cfg(any(windows, test))]
+                observation: session.observation.clone(),
+                #[cfg(windows)]
+                max_depth,
+                #[cfg(windows)]
+                max_nodes,
+                #[cfg(any(windows, test))]
+                policy_tier: cached_tier,
+            },
+        ));
+    }
     let live = session.runtime.accessibility_state(
         max_depth,
         max_nodes,
@@ -1099,10 +1129,7 @@ fn refresh_action_policy(
     )?;
     let (policy_tier, _action_controls) = verify_action_fence(
         action,
-        session
-            .accessibility_root
-            .as_ref()
-            .ok_or_else(stale_accessibility_state)?,
+        cached_root,
         session.focus_runtime_id.as_deref(),
         session.observation.as_ref(),
         &live,
@@ -1322,7 +1349,7 @@ fn action_fields_are_valid(action: &UiControlAction) -> bool {
                         && no_scroll
                         && action.path.is_empty()
                         && no_value
-                        && crate::game_navigation_virtual_key(&action.keys).is_some()
+                        && crate::game_navigation_virtual_keys(&action.keys).is_some()
                         && action
                             .duration_ms
                             .is_none_or(|duration| duration <= crate::MAX_GAME_NAVIGATION_HOLD_MS)

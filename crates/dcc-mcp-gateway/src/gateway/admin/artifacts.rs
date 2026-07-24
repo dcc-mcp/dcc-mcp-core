@@ -9,6 +9,9 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
+use dcc_mcp_db::read_gateway_log_dir_rows_recent;
+
 use super::state::AdminState;
 
 #[derive(Debug, Default, Deserialize)]
@@ -46,7 +49,7 @@ pub async fn handle_admin_artifacts(
             {
                 let file_refs = extract_file_refs(&parsed);
                 for fr in file_refs {
-                    artifacts.push(fr);
+                    artifacts.push(with_dcc_type(fr, trace.dcc_type.as_deref()));
                 }
             }
         }
@@ -62,13 +65,11 @@ pub async fn handle_admin_artifacts(
             {
                 let file_refs = extract_file_refs(&parsed);
                 for fr in file_refs {
-                    // Deduplicate by URI
-                    let uri = fr.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-                    if !artifacts.iter().any(|a| {
-                        a.get("uri")
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|u| u == uri)
-                    }) {
+                    let fr = with_dcc_type(fr, trace.dcc_type.as_deref());
+                    if !artifacts
+                        .iter()
+                        .any(|existing| same_artifact_identity(existing, &fr))
+                    {
                         artifacts.push(fr);
                     }
                 }
@@ -76,7 +77,28 @@ pub async fn handle_admin_artifacts(
         }
     }
 
-    // 3. Enrich with verification status from artefact store (best-effort)
+    // 3. From UI Control's existing redacted file audit stream. Direct
+    // instance calls do not necessarily traverse the gateway trace middleware.
+    let log_dir = std::env::var(ENV_DCC_MCP_LOG_DIR)
+        .unwrap_or_else(|_| dcc_mcp_db::default_gateway_log_dir());
+    if let Ok(rows) =
+        tokio::task::spawn_blocking(move || read_gateway_log_dir_rows_recent(&log_dir, limit)).await
+    {
+        for row in rows {
+            let dcc_type = row.get("dcc_type").and_then(Value::as_str);
+            for fr in extract_file_refs(&row) {
+                let fr = with_dcc_type(fr, dcc_type);
+                if !artifacts
+                    .iter()
+                    .any(|existing| same_artifact_identity(existing, &fr))
+                {
+                    artifacts.push(fr);
+                }
+            }
+        }
+    }
+
+    // 4. Enrich with verification status from artefact store (best-effort)
     let mut verified_count = 0usize;
     let mut unverified_count = 0usize;
     let mut failed_count = 0usize;
@@ -147,44 +169,121 @@ pub async fn handle_admin_artifacts(
 
 /// Extract file references from a tool-call output payload.
 ///
-/// Recognises JSON payloads that contain `files`, `artifacts`, `file_refs`,
-/// or a single file-like object with a `uri` field.
+/// Recognises wrapped or direct JSON payloads containing `files`, `artifacts`,
+/// `file_refs`, or a single file-like object with a `uri` field.
 fn extract_file_refs(output: &Value) -> Vec<Value> {
     let mut refs = Vec::new();
-
-    // Case 1: { "files": [...] }
-    if let Some(files) = output.get("files").and_then(|v| v.as_array()) {
-        for f in files {
-            if f.get("uri").and_then(|v| v.as_str()).is_some() {
-                refs.push(f.clone());
-            }
-        }
-    }
-
-    // Case 2: { "artifacts": [...] }
-    if let Some(arts) = output.get("artifacts").and_then(|v| v.as_array()) {
-        for a in arts {
-            if a.get("uri").and_then(|v| v.as_str()).is_some() {
-                refs.push(a.clone());
-            }
-        }
-    }
-
-    // Case 3: { "file_refs": [...] }
-    if let Some(frs) = output.get("file_refs").and_then(|v| v.as_array()) {
-        for fr in frs {
-            if fr.get("uri").and_then(|v| v.as_str()).is_some() {
-                refs.push(fr.clone());
-            }
-        }
-    }
-
-    // Case 4: output itself is a file ref { "uri": "...", ... }
-    if refs.is_empty() && output.get("uri").and_then(|v| v.as_str()).is_some() {
-        refs.push(output.clone());
-    }
-
+    collect_file_refs(output, &mut refs, true, false);
     refs
+}
+
+fn collect_file_refs(value: &Value, refs: &mut Vec<Value>, root: bool, file_collection: bool) {
+    match value {
+        Value::Object(object) => {
+            if (root || file_collection) && value.get("uri").and_then(Value::as_str).is_some() {
+                push_file_ref(value, refs);
+                return;
+            }
+            for (key, child) in object {
+                collect_file_refs(
+                    child,
+                    refs,
+                    false,
+                    matches!(key.as_str(), "files" | "artifacts" | "file_refs"),
+                );
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_file_refs(item, refs, false, file_collection);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn push_file_ref(value: &Value, refs: &mut Vec<Value>) {
+    if !refs
+        .iter()
+        .any(|existing| same_artifact_identity(existing, value))
+    {
+        refs.push(value.clone());
+    }
+}
+
+fn same_artifact_identity(left: &Value, right: &Value) -> bool {
+    ["uri", "session_id", "correlation_id"]
+        .into_iter()
+        .all(|key| left.get(key) == right.get(key))
+}
+
+fn with_dcc_type(mut artifact: Value, dcc_type: Option<&str>) -> Value {
+    if let (Some(object), Some(dcc_type)) = (artifact.as_object_mut(), dcc_type) {
+        object.insert("dcc_type".to_string(), json!(dcc_type));
+    }
+    artifact
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_nested_artifacts_once_for_admin_tracing() {
+        let value = json!({
+            "result": {
+                "structuredContent": {
+                    "context": {
+                        "artifacts": [{
+                            "uri": "artefact://sha256/abc",
+                            "display_name": "ui-control-snapshot-session-snapshot.png",
+                            "digest": "sha256:abc",
+                            "session_id": "session-a",
+                            "correlation_id": "snapshot-a"
+                        }]
+                    }
+                }
+            },
+            "duplicate": {"artifacts": [{
+                "uri": "artefact://sha256/abc",
+                "session_id": "session-a",
+                "correlation_id": "snapshot-a"
+            }]},
+            "same_pixels_new_capture": {"artifacts": [{
+                "uri": "artefact://sha256/abc",
+                "session_id": "session-b",
+                "correlation_id": "snapshot-b"
+            }]}
+        });
+
+        let artifacts = extract_file_refs(&value);
+
+        assert_eq!(artifacts.len(), 2);
+        assert_eq!(
+            artifacts[0]["display_name"],
+            "ui-control-snapshot-session-snapshot.png"
+        );
+        assert_eq!(
+            with_dcc_type(artifacts[0].clone(), Some("unity"))["dcc_type"],
+            "unity"
+        );
+    }
+
+    #[test]
+    fn extracts_ui_control_artifact_from_file_audit_row() {
+        let row = json!({
+            "dcc_type": "unity",
+            "artifacts": [{
+                "uri": "artefact://sha256/abc",
+                "display_name": "ui-control-snapshot-session-snapshot.png",
+                "session_id": "session-a",
+                "correlation_id": "snapshot-a"
+            }]
+        });
+
+        let artifact = with_dcc_type(extract_file_refs(&row).remove(0), row["dcc_type"].as_str());
+        assert_eq!(artifact["dcc_type"], "unity");
+    }
 }
 
 /// Check verification status of an artifact.

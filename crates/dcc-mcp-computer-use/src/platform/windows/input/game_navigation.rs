@@ -8,7 +8,7 @@ pub(super) fn game_navigation(
     guard: &ActionGuard<'_>,
     pre_input_fence: &mut Option<&mut PreInputFence<'_>>,
 ) -> ComputerUseResult<()> {
-    let (press, release) = game_navigation_key_inputs(keys)?;
+    let (presses, releases) = game_navigation_key_inputs(keys)?;
     let duration_ms = duration_ms.unwrap_or(0);
     if duration_ms > crate::MAX_GAME_NAVIGATION_HOLD_MS {
         return Err(ComputerUseError::new(
@@ -22,8 +22,8 @@ pub(super) fn game_navigation(
     run_pre_input_fence(pre_input_fence)?;
     ensure_target_foreground(window_handle, process_id)?;
 
-    let mut held_key =
-        HeldGameNavigationKey::press_with(press, release, send_inputs, defer_input_releases)?;
+    let mut held_keys =
+        HeldGameNavigationKeys::press_with(presses, releases, send_inputs, defer_input_releases)?;
     let hold_result = hold_key(
         window_handle,
         process_id,
@@ -31,7 +31,7 @@ pub(super) fn game_navigation(
         guard,
     );
     let foreground_result = ensure_target_foreground(window_handle, process_id);
-    let release_result = held_key.release();
+    let release_result = held_keys.release();
     hold_result?;
     foreground_result?;
     release_result?;
@@ -56,76 +56,75 @@ fn hold_key(
     }
 }
 
-pub(super) fn game_navigation_key_inputs(keys: &[String]) -> ComputerUseResult<(INPUT, INPUT)> {
-    let virtual_key = crate::game_navigation_virtual_key(keys)
-        .map(VIRTUAL_KEY)
-        .ok_or_else(|| {
-            ComputerUseError::new(
-                ComputerUseErrorCode::InvalidAction,
-                "game_navigation requires exactly one unmodified W, A, S, or D key",
-            )
-        })?;
-    Ok((
-        keyboard_vk(virtual_key, false),
-        keyboard_vk(virtual_key, true),
-    ))
+pub(super) fn game_navigation_key_inputs(
+    keys: &[String],
+) -> ComputerUseResult<(Vec<INPUT>, Vec<INPUT>)> {
+    if crate::game_navigation_virtual_keys(keys).is_none() {
+        return Err(ComputerUseError::new(
+            ComputerUseErrorCode::InvalidAction,
+            "game_navigation requires one to four distinct supported canvas keys",
+        ));
+    }
+    held_key_inputs(keys)
 }
 
-/// One bounded game-navigation key held between separate native input calls.
-/// Drop always attempts key-up and defers it through the session input-owner
-/// fence if Windows cannot accept the release immediately.
-pub(super) struct HeldGameNavigationKey<Send, Defer>
+/// Bounded canvas keys held between separate native input calls. Drop always
+/// attempts every key-up and defers them through the session input-owner fence
+/// if Windows cannot accept the release immediately.
+pub(super) struct HeldGameNavigationKeys<Send, Defer>
 where
     Send: FnMut(&[INPUT]) -> ComputerUseResult<()>,
     Defer: FnMut(&[INPUT]),
 {
-    release: Option<INPUT>,
+    releases: Vec<INPUT>,
     send: Send,
     defer: Defer,
 }
 
-impl<Send, Defer> HeldGameNavigationKey<Send, Defer>
+impl<Send, Defer> HeldGameNavigationKeys<Send, Defer>
 where
     Send: FnMut(&[INPUT]) -> ComputerUseResult<()>,
     Defer: FnMut(&[INPUT]),
 {
     pub(super) fn press_with(
-        press: INPUT,
-        release: INPUT,
+        presses: Vec<INPUT>,
+        releases: Vec<INPUT>,
         mut send: Send,
         defer: Defer,
     ) -> ComputerUseResult<Self> {
-        send(&[press])?;
+        send(&presses)?;
         Ok(Self {
-            release: Some(release),
+            releases,
             send,
             defer,
         })
     }
 
     pub(super) fn release(&mut self) -> ComputerUseResult<()> {
-        let Some(release) = self.release.take() else {
+        let releases = std::mem::take(&mut self.releases);
+        if releases.is_empty() {
             return Ok(());
-        };
-        if let Err(error) = (self.send)(&[release]) {
-            (self.defer)(&[release]);
+        }
+        if let Err(error) = (self.send)(&releases) {
+            (self.defer)(&releases);
             return Err(error);
         }
         Ok(())
     }
 }
 
-impl<Send, Defer> Drop for HeldGameNavigationKey<Send, Defer>
+impl<Send, Defer> Drop for HeldGameNavigationKeys<Send, Defer>
 where
     Send: FnMut(&[INPUT]) -> ComputerUseResult<()>,
     Defer: FnMut(&[INPUT]),
 {
     fn drop(&mut self) {
-        let Some(release) = self.release.take() else {
+        let releases = std::mem::take(&mut self.releases);
+        if releases.is_empty() {
             return;
-        };
-        if (self.send)(&[release]).is_err() {
-            (self.defer)(&[release]);
+        }
+        if (self.send)(&releases).is_err() {
+            (self.defer)(&releases);
         }
     }
 }

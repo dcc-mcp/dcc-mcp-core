@@ -38,7 +38,7 @@ tools:
           type: boolean
           default: false
           description: >-
-            Explicitly resume native DCC UI Control after the user stopped an
+            Explicitly resume native DCC UI Control after the user stopped a
             session with Esc. Agents must leave this false unless the user asks to
             resume control.
         policy:
@@ -206,8 +206,9 @@ tools:
       Windows keypress rejects ordinary printable, Shift-text, and AltGr-text
       input; use only navigation/control/function keys or genuine Ctrl/Alt
       shortcuts. Windows game_navigation is the separately governed game-canvas
-      path: it accepts exactly one W/A/S/D key and an optional 0..500 ms hold,
-      while preserving the existing raw-text denial.
+      path: it accepts up to four simultaneous supported canvas keys or `+`
+      chords and an optional 0..500 ms hold, while preserving the existing
+      raw-text denial.
       For a custom-drawn DCC canvas or face control that has no semantic node,
       use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in
       keys are held as pointer modifiers. Snapshot again immediately afterward.
@@ -268,8 +269,8 @@ tools:
             is hard denied by the Windows backend; use semantic set_text with
             an exact control_id for non-sensitive Windows text entry. Windows
             keypress cannot synthesize ordinary printable text. game_navigation
-            accepts exactly one W/A/S/D key for a non-editable game surface;
-            it is not a text-entry action.
+            accepts up to four simultaneous supported keys for a non-editable
+            DCC or game canvas; it is not a text-entry action.
         intent:
           type: string
           enum:
@@ -346,7 +347,8 @@ tools:
           description: >-
             Windows keypress accepts navigation/control/function keys or genuine
             Ctrl/Alt shortcuts; Ctrl/Shift/Alt may also modify pointer actions.
-            game_navigation accepts exactly one unmodified W, A, S, or D.
+            game_navigation accepts up to four simultaneous canvas keys,
+            including letters, digits, modifiers, navigation, and F1-F24.
           items:
             type: string
             maxLength: 32

@@ -185,11 +185,24 @@ fn nested_game_navigation_accessibility_state(
 
 #[test]
 fn game_navigation_has_a_separate_bounded_descriptor() {
-    for key in ["W", "a", "S", "d"] {
+    for keys in [
+        vec!["W"],
+        vec!["a"],
+        vec!["S"],
+        vec!["d"],
+        vec!["W", "D"],
+        vec!["W", "D", "J", "K"],
+        vec!["J", "K"],
+        vec!["SHIFT", "E"],
+        vec!["CTRL+Z"],
+        vec!["SPACE"],
+        vec!["F5"],
+        vec!["LEFT", "UP"],
+    ] {
         let game_navigation = UiControlAction {
             action: "game_navigation".to_owned(),
             input_kind: UiControlInputKind::RawInput,
-            keys: vec![key.to_owned()],
+            keys: keys.into_iter().map(str::to_owned).collect(),
             duration_ms: Some(500),
             ..action(None, UiControlInputKind::RawInput)
         };
@@ -198,10 +211,11 @@ fn game_navigation_has_a_separate_bounded_descriptor() {
 
     for keys in [
         vec![],
-        vec!["W", "D"],
-        vec!["SHIFT+W"],
-        vec!["LEFT"],
-        vec![" W"],
+        vec!["W", "W"],
+        vec!["W", "A", "S", "D", "J"],
+        vec!["WIN", "R"],
+        vec!["NOT_A_KEY"],
+        vec!["CTRL+"],
     ] {
         let invalid = UiControlAction {
             action: "game_navigation".to_owned(),
@@ -237,6 +251,30 @@ fn game_navigation_has_a_separate_bounded_descriptor() {
     assert_eq!(
         classify_action(&printable_keypress, Some(&safe_game.root), None),
         UiControlPolicyTier::HardDeny
+    );
+
+    let scope_escape = UiControlAction {
+        action: "game_navigation".to_owned(),
+        input_kind: UiControlInputKind::RawInput,
+        keys: vec!["ALT+TAB".to_owned()],
+        ..action(None, UiControlInputKind::RawInput)
+    };
+    validate_action_descriptor(&scope_escape).unwrap();
+    assert_eq!(
+        classify_action(&scope_escape, Some(&safe_game.root), None),
+        UiControlPolicyTier::HardDeny
+    );
+
+    let save_shortcut = UiControlAction {
+        action: "game_navigation".to_owned(),
+        input_kind: UiControlInputKind::RawInput,
+        keys: vec!["CTRL+S".to_owned()],
+        ..action(None, UiControlInputKind::RawInput)
+    };
+    validate_action_descriptor(&save_shortcut).unwrap();
+    assert_eq!(
+        classify_action(&save_shortcut, Some(&safe_game.root), None),
+        UiControlPolicyTier::ActionConfirmation
     );
 }
 

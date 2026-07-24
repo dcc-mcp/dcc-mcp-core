@@ -221,12 +221,17 @@ keys or a genuine Ctrl/Alt shortcut; it is not a one-character text-entry
 bypass.
 
 Windows `game_navigation` is a separate raw-input contract for non-editable
-game surfaces. It accepts exactly one unmodified `W`, `A`, `S`, or `D` key and
-an optional `duration_ms` from 0 through 500 (omitted means a tap). The native
-host rechecks the exact PID/HWND, foreground window, focused non-editable UIA
-ancestry, explicit absence of both UIA ValuePattern and TextPattern, and
-observation immediately before key-down. Unknown pattern metadata fails closed.
-This action does not relax the ordinary printable-key denial on `keypress`.
+DCC and game canvases. It accepts one to four distinct simultaneous supported
+keys (letters, digits, modifiers, navigation keys, punctuation, keypad keys,
+and `F1` through `F24`) and an optional `duration_ms` from 0 through 500
+(omitted means a tap). Keys may be separate array items or a `+` chord. The
+native host rechecks the exact PID/HWND, foreground window, focused
+non-editable UIA ancestry, explicit absence of both UIA ValuePattern and
+TextPattern, and observation immediately before key-down. Unknown keys,
+duplicate keys, malformed chords, and unknown pattern metadata fail closed.
+System/scope-escape chords remain denied, and risky application shortcuts keep
+their confirmation tier. This action does not relax the ordinary printable-key
+denial on `keypress`.
 
 `ui_control__act` advertises a destructive annotation and accepts an optional
 `intent` consequence hint. The native host independently classifies the UIA
@@ -305,9 +310,10 @@ not retry, do not switch to another input path, do not change `session_id`, and
 do not automatically start a new DCC UI Control session. The stop is latched across
 all DCC adapter processes in the same Windows logon session. Return control to
 the user. Resume only through an explicit `ui_control__snapshot` call with
-`resume_computer_use=true`. That flag only requests the flow: the native host
-always displays its own confirmation surface before clearing the global latch,
-so a model or adapter cannot approve itself. The native backend releases any held keys
+`resume_computer_use=true`. The request is idempotent when no interruption is
+latched and opens no dialog. After a real Esc interruption, the native host
+displays its own confirmation surface before clearing the global latch, so a
+model or adapter cannot approve itself. The native backend releases any held keys
 or mouse buttons before allowing more input. If Windows disconnects after a
 partial injection, those releases remain pending and retain the global input
 owner until reconnect makes them confirmable.
@@ -379,6 +385,14 @@ Successful snapshots and recordings return `capture_provenance`. Preserve it
 with every saved or presented image. It identifies the tool, backend, logical
 session, pixel availability, exact target, output dimensions, capture backend,
 and whether the bounded PNG was downscaled.
+
+Pixel snapshots also return a content-addressed `artifacts` FileRef named
+`ui-control-snapshot-<session>-<snapshot>.<ext>`. Exact-window recordings return
+the corresponding `ui-control-recording-<session>-<recording>.json` manifest
+FileRef while the bounded frame directory remains host-owned. Treat the
+`artefact://sha256/...` URI as authoritative; local image paths are materialized
+views. The existing Admin artifact API and Reliability panel index these refs by
+digest, DCC type, session, backend, and capture id for 24 hours.
 
 For native Windows evidence, require
 `backend="windows-ui-control-host"` and `pixels_captured=true`. A mock or

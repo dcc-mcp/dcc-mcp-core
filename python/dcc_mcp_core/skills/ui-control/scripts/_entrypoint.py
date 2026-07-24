@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from datetime import timezone
 import importlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 from typing import Any
@@ -15,9 +17,12 @@ from typing import Callable
 from typing import Dict
 from typing import Optional
 
+from dcc_mcp_core import artefact_put_bytes
+from dcc_mcp_core import artefact_put_file
 from dcc_mcp_core.skill import skill_error
 
 _AUDIT_LOCK = threading.Lock()
+_CAPTURE_TTL_SECS = 24 * 60 * 60
 
 
 def emit(result: Dict[str, Any]) -> None:
@@ -112,6 +117,95 @@ def _canonical_backend(result: Dict[str, Any]) -> str:
     return selected or "mock"
 
 
+def _artifact_token(value: Any) -> str:
+    token = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value)).strip("-._")
+    return token[:64] or "default"
+
+
+def _artifact_dict(reference: Any, **metadata: Any) -> Dict[str, Any]:
+    artifact = {
+        key: getattr(reference, key)
+        for key in (
+            "uri",
+            "mime",
+            "size_bytes",
+            "display_name",
+            "digest",
+            "session_id",
+            "correlation_id",
+            "created_at",
+            "expires_at",
+        )
+        if getattr(reference, key) is not None
+    }
+    artifact.update(metadata)
+    return artifact
+
+
+def _attach_capture_artifact(
+    operation: str,
+    context: Dict[str, Any],
+    provenance: Dict[str, Any],
+) -> None:
+    session_id = str(provenance["session_id"])
+    dcc_type = os.environ.get("DCC_MCP_UI_CONTROL_DCC_TYPE") or os.environ.get("DCC_MCP_DCC_TYPE", "ui-control")
+    if operation == "snapshot":
+        rich = context.get("__rich__")
+        if not isinstance(rich, dict) or rich.get("kind") != "image":
+            return
+        mime = str(rich.get("mime") or "image/png").lower()
+        extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(mime)
+        if extension is None:
+            return
+        snapshot_id = str(provenance.get("snapshot_id") or "snapshot")
+        display_name = f"ui-control-snapshot-{_artifact_token(session_id)}-{_artifact_token(snapshot_id)}.{extension}"
+        reference = artefact_put_bytes(
+            base64.b64decode(str(rich["data"]), validate=True),
+            mime=mime,
+            display_name=display_name,
+            session_id=session_id,
+            correlation_id=snapshot_id,
+            ttl_secs=_CAPTURE_TTL_SECS,
+        )
+        artifact = _artifact_dict(
+            reference,
+            kind="ui_control_snapshot",
+            operation=operation,
+            backend=provenance["backend"],
+            dcc_type=dcc_type,
+            snapshot_id=snapshot_id,
+        )
+        rich.update(
+            artifact_uri=artifact["uri"],
+            display_name=display_name,
+            digest=artifact.get("digest"),
+        )
+    else:
+        clip = context.get("artifact")
+        if not isinstance(clip, dict) or not clip.get("manifest_path"):
+            return
+        recording_id = str(clip.get("recording_id") or "recording")
+        display_name = f"ui-control-recording-{_artifact_token(session_id)}-{_artifact_token(recording_id)}.json"
+        reference = artefact_put_file(
+            str(clip["manifest_path"]),
+            mime="application/json",
+            display_name=display_name,
+            session_id=session_id,
+            correlation_id=recording_id,
+            ttl_secs=_CAPTURE_TTL_SECS,
+        )
+        artifact = _artifact_dict(
+            reference,
+            kind="ui_control_recording_manifest",
+            operation=operation,
+            backend=provenance["backend"],
+            dcc_type=dcc_type,
+            recording_id=recording_id,
+            manifest_sha256=clip.get("manifest_sha256"),
+        )
+    context["artifacts"] = [artifact]
+
+
 def _attach_capture_provenance(
     name: str,
     params: Dict[str, Any],
@@ -172,6 +266,13 @@ def _attach_capture_provenance(
                 provenance[key] = artifact[key]
 
     context["capture_provenance"] = provenance
+    try:
+        _attach_capture_artifact(operation, context, provenance)
+    except Exception as exc:
+        context["artifact_error"] = {
+            "code": type(exc).__name__,
+            "message": str(exc),
+        }
     if operation == "snapshot":
         if provenance["pixels_captured"]:
             size = "{}x{}".format(provenance.get("width", "?"), provenance.get("height", "?"))
@@ -236,6 +337,11 @@ def _record_operation(name: str, params: Dict[str, Any], result: Dict[str, Any])
             event["pixels_captured"] = bool(capture_provenance.get("pixels_captured"))
             if capture_provenance.get("capture_backend"):
                 event["capture_backend"] = capture_provenance["capture_backend"]
+        artifacts = context.get("artifacts")
+        if isinstance(artifacts, list) and artifacts and isinstance(artifacts[0], dict):
+            event["artifacts"] = artifacts[:1]
+            event["artifact_uri"] = artifacts[0].get("uri")
+            event["artifact_name"] = artifacts[0].get("display_name")
         directory = Path(os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir())
         directory.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
