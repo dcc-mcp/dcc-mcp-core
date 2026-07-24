@@ -317,3 +317,18 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Dispatch ui_control__stop_computer_use to the selected backend."""
     return _call("stop_computer_use_tool", params)
+
+
+def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch ui_control__observe to the selected backend."""
+    return _call("observe_tool", params)
+
+
+def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch ui_control__expand to the selected backend."""
+    return _call("expand_tool", params)
+
+
+def inspect_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch ui_control__inspect to the selected backend."""
+    return _call("inspect_tool", params)

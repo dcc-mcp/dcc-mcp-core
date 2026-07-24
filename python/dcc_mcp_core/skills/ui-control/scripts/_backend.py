@@ -743,5 +743,226 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
+def _build_detailed_node(
+    snapshot: Dict[str, Any],
+    node: Dict[str, Any],
+    tree_path: str,
+) -> Dict[str, Any]:
+    """Build a UiControlDetail dict from a snapshot node."""
+    role = str(node.get("role") or "unknown")
+    is_text_field = role == "text_field"
+    is_checkbox = role == "checkbox"
+    is_button = role == "button"
+
+    patterns = []
+    actions = []
+    if is_text_field:
+        patterns = ["ValuePattern", "TextPattern"]
+        actions = ["set_text", "focus"]
+    elif is_checkbox:
+        patterns = ["TogglePattern"]
+        actions = ["toggle", "set_checked", "click"]
+    elif is_button:
+        patterns = ["InvokePattern"]
+        actions = ["click"]
+    else:
+        patterns = ["SelectionItemPattern"] if role in ("list_item", "menu_item", "combo_box") else []
+        actions = ["click", "focus"]
+
+    return {
+        "id": node.get("id", ""),
+        "role": role,
+        "enabled": bool(node.get("enabled", True)),
+        "visible": bool(node.get("visible", True)),
+        "focused": snapshot.get("focus_id") == node.get("id"),
+        "label": node.get("label"),
+        "text": node.get("text"),
+        "object_name": node.get("object_name"),
+        "tooltip": node.get("tooltip"),
+        "bounds": node.get("bounds"),
+        "value": node.get("value"),
+        "checked": node.get("checked"),
+        "child_count": len(node.get("children", []) or []),
+        "supported_patterns": patterns,
+        "supported_actions": actions,
+        "is_keyboard_focusable": role in ("text_field", "button", "checkbox", "combo_box"),
+        "is_password": role == "password",
+        "tree_path": tree_path,
+        "metadata": {"backend": "mock"},
+    }
+
+
+def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return root-level controls without expanding children."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    max_roots = max(1, min(100, int(params.get("max_roots") or 20)))
+
+    if not policy.allow_snapshot:
+        return skill_error(
+            "ui_control observation disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped ui_control window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+
+    snapshot = _snapshot_dict(state)
+    # Return root-level children without their children expanded
+    all_roots = list(snapshot["root"].get("children", []) or [])
+    total_roots = len(all_roots)
+    truncated = total_roots > max_roots
+
+    roots = []
+    for i, child in enumerate(all_roots[:max_roots]):
+        # Strip children to return only root-level metadata
+        stripped = dict(child)
+        child_count = len(stripped.get("children", []) or [])
+        stripped["children"] = []
+        stripped["child_count"] = child_count
+        roots.append(stripped)
+
+    return skill_success(
+        f"Observed {len(roots)} root-level control(s).",
+        prompt="Use ui_control__expand to drill into a node, or ui_control__inspect for details.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        roots=roots,
+        total_roots=total_roots,
+        truncated=truncated,
+    )
+
+
+def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return direct children of a specific control node."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+    max_children = max(1, min(200, int(params.get("max_children") or 50)))
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped ui_control window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for expand",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    snapshot = _snapshot_dict(state)
+    parent = _find_by_id(snapshot, control_id)
+    if not parent:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    all_children = list(parent.get("children", []) or [])
+    total_children = len(all_children)
+    truncated = total_children > max_children
+
+    children = []
+    for i, child in enumerate(all_children[:max_children]):
+        stripped = dict(child)
+        grandchild_count = len(stripped.get("children", []) or [])
+        stripped["children"] = []
+        stripped["child_count"] = grandchild_count
+        children.append(stripped)
+
+    return skill_success(
+        f"Expanded {control_id!r}: {len(children)} direct child(ren).",
+        prompt="Use ui_control__expand again to drill deeper, or ui_control__inspect for details on a child.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        control_id=control_id,
+        children=children,
+        total_children=total_children,
+        truncated=truncated,
+    )
+
+
+def inspect_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return detailed properties of a specific control."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped ui_control window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for inspect",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    snapshot = _snapshot_dict(state)
+    node = _find_by_id(snapshot, control_id)
+    if not node:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    tree_path = _compute_tree_path(snapshot["root"], control_id)
+    detail = _build_detailed_node(snapshot, node, tree_path)
+
+    return skill_success(
+        f"Inspected control {control_id!r} ({detail['role']}).",
+        prompt="Use ui_control__act with this control_id, or ui_control__expand to see its children.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        control=detail,
+    )
+
+
+def _compute_tree_path(root: Dict[str, Any], target_id: str) -> str:
+    """Compute a dot-separated index path from root to target_id."""
+    queue = [(root, "")]
+    while queue:
+        node, prefix = queue.pop(0)
+        children = node.get("children", []) or []
+        for i, child in enumerate(children):
+            path = f"{prefix}{i}" if prefix else str(i)
+            if child.get("id") == target_id:
+                return path
+            queue.append((child, path + "."))
+    return ""
+
+
 def emit(result: Dict[str, Any]) -> None:
     print(json.dumps(result, sort_keys=True))

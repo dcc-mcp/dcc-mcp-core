@@ -468,6 +468,84 @@ class UiControlAuditRecord:
         return _drop_none(asdict(self))
 
 
+@dataclass
+class UiObserveRequest:
+    """Request for root-level window controls without full subtree expansion."""
+
+    max_roots: int = 20
+
+
+@dataclass
+class UiExpandRequest:
+    """Request to expand a specific control node to reveal its direct children."""
+
+    control_id: str
+    max_children: int = 50
+
+
+@dataclass
+class UiInspectRequest:
+    """Request for detailed properties of a specific control."""
+
+    control_id: str
+
+
+@dataclass
+class UiControlDetail:
+    """Detailed control properties returned by inspect_ui."""
+
+    id: str
+    role: str
+    enabled: bool
+    visible: bool
+    focused: bool = False
+    label: Optional[str] = None
+    text: Optional[str] = None
+    object_name: Optional[str] = None
+    tooltip: Optional[str] = None
+    bounds: Optional[UiBounds] = None
+    value: Optional[str] = None
+    checked: Optional[bool] = None
+    child_count: int = 0
+    supported_patterns: List[str] = field(default_factory=list)
+    supported_actions: List[str] = field(default_factory=list)
+    is_keyboard_focusable: bool = False
+    is_password: bool = False
+    tree_path: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
+
+
+@dataclass
+class UiObserveResult:
+    """Result of a progressive observe call."""
+
+    roots: List[UiControlNode]
+    total_roots: int
+    truncated: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
+
+
+@dataclass
+class UiExpandResult:
+    """Result of a progressive expand call."""
+
+    control_id: str
+    children: List[UiControlNode]
+    total_children: int
+    truncated: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the wire dictionary."""
+        return _drop_none(asdict(self))
+
+
 __all__ = [
     "DebugPathMapping",
     "DebugSessionDescriptor",
@@ -478,10 +556,16 @@ __all__ = [
     "UiArtifactRef",
     "UiBounds",
     "UiControlAuditRecord",
+    "UiControlDetail",
     "UiControlNode",
     "UiControlPolicy",
     "UiErrorCode",
+    "UiExpandRequest",
+    "UiExpandResult",
     "UiFindRequest",
+    "UiInspectRequest",
+    "UiObserveRequest",
+    "UiObserveResult",
     "UiPoint",
     "UiSnapshot",
     "UiWaitCondition",

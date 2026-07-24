@@ -792,6 +792,175 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         time.sleep(min(interval_ms / 1000.0, max(0.0, deadline - time.monotonic())))
 
 
+@_serialize_session_call
+def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return root-level controls from the Windows UIA backend without subtree expansion."""
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    max_roots = max(1, min(100, int(params.get("max_roots") or 20)))
+
+    if not policy.allow_snapshot and not policy.allow_find:
+        return skill_error(
+            "ui_control observation disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+
+    # Use accessibility snapshot to get the UIA tree
+    capture = _capture_accessibility_snapshot(session_id, policy, params)
+    if not capture.get("success"):
+        return capture
+
+    snapshot = capture["snapshot"]
+    all_roots = list(snapshot.get("root", {}).get("children", []) or [])
+    total_roots = len(all_roots)
+    truncated = total_roots > max_roots
+
+    roots = []
+    for child in all_roots[:max_roots]:
+        stripped = dict(child) if isinstance(child, dict) else {"id": str(child), "role": "unknown"}
+        child_count = len(stripped.get("children", []) or [])
+        stripped["children"] = []
+        stripped["child_count"] = child_count
+        roots.append(stripped)
+
+    return skill_success(
+        f"Observed {len(roots)} root-level control(s).",
+        prompt="Use ui_control__expand to drill into a node, or ui_control__inspect for details.",
+        session_id=session_id,
+        snapshot_id=capture.get("snapshot_id"),
+        roots=roots,
+        total_roots=total_roots,
+        truncated=truncated,
+    )
+
+
+@_serialize_session_call
+def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return direct children of a specific control from the Windows UIA backend."""
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+    max_children = max(1, min(200, int(params.get("max_children") or 50)))
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for expand",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    capture = _capture_accessibility_snapshot(session_id, policy, params)
+    if not capture.get("success"):
+        return capture
+
+    parent = _find_by_id(capture["snapshot"], control_id)
+    if not parent:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    all_children = list(parent.get("children", []) or [])
+    total_children = len(all_children)
+    truncated = total_children > max_children
+
+    children = []
+    for child in all_children[:max_children]:
+        stripped = dict(child) if isinstance(child, dict) else {"id": str(child), "role": "unknown"}
+        grandchild_count = len(stripped.get("children", []) or [])
+        stripped["children"] = []
+        stripped["child_count"] = grandchild_count
+        children.append(stripped)
+
+    return skill_success(
+        f"Expanded {control_id!r}: {len(children)} direct child(ren).",
+        prompt="Use ui_control__expand again to drill deeper, or ui_control__inspect for details on a child.",
+        session_id=session_id,
+        snapshot_id=capture.get("snapshot_id"),
+        control_id=control_id,
+        children=children,
+        total_children=total_children,
+        truncated=truncated,
+    )
+
+
+@_serialize_session_call
+def inspect_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return detailed properties of a specific control from the Windows UIA backend."""
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for inspect",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    capture = _capture_accessibility_snapshot(session_id, policy, params)
+    if not capture.get("success"):
+        return capture
+
+    node = _find_by_id(capture["snapshot"], control_id)
+    if not node:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    role = str(node.get("role") or node.get("control_type") or "unknown")
+    detail = {
+        "id": node.get("id", control_id),
+        "role": role,
+        "enabled": bool(node.get("enabled", True)),
+        "visible": bool(node.get("visible", True)),
+        "focused": node.get("focused") or node.get("has_focus") or False,
+        "label": node.get("label") or node.get("name"),
+        "text": node.get("text"),
+        "object_name": node.get("object_name") or node.get("automation_id"),
+        "tooltip": node.get("tooltip") or node.get("help_text"),
+        "bounds": node.get("bounds"),
+        "value": node.get("value"),
+        "checked": node.get("checked"),
+        "child_count": len(node.get("children", []) or []),
+        "supported_patterns": node.get("supported_patterns", []) or [],
+        "supported_actions": node.get("supported_actions", []) or [],
+        "is_keyboard_focusable": bool(node.get("is_keyboard_focusable", False)),
+        "is_password": bool(node.get("is_password", False)),
+        "tree_path": node.get("tree_path"),
+        "metadata": {"backend": "windows-ui-control-host"},
+    }
+
+    return skill_success(
+        f"Inspected control {control_id!r} ({detail['role']}).",
+        prompt="Use ui_control__act with this control_id, or ui_control__expand to see its children.",
+        session_id=session_id,
+        snapshot_id=capture.get("snapshot_id"),
+        control=detail,
+    )
+
+
 def request_stop() -> None:
     """Interrupt package waits and request immediate host-session stops."""
     _STOP_EVENT.set()

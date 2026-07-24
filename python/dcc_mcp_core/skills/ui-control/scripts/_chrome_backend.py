@@ -857,3 +857,204 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         audit=audit,
         attempts=attempts,
     )
+
+
+def observe_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return root-level controls from the CDP backend without subtree expansion."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    max_roots = max(1, min(100, int(params.get("max_roots") or 20)))
+
+    if not policy.allow_snapshot:
+        return skill_error(
+            "ui_control observation disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped Chrome window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+
+    try:
+        state = _refresh_from_browser(_ensure_chrome(state))
+    except Exception as exc:
+        return _backend_unavailable(exc, state)
+    _save_state(state)
+
+    snapshot = _snapshot_dict(state)
+    all_roots = list(snapshot["root"].get("children", []) or [])
+    total_roots = len(all_roots)
+    truncated = total_roots > max_roots
+
+    roots = []
+    for child in all_roots[:max_roots]:
+        stripped = dict(child)
+        child_count = len(stripped.get("children", []) or [])
+        stripped["children"] = []
+        stripped["child_count"] = child_count
+        roots.append(stripped)
+
+    return skill_success(
+        f"Observed {len(roots)} root-level control(s).",
+        prompt="Use ui_control__expand to drill into a node, or ui_control__inspect for details.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        roots=roots,
+        total_roots=total_roots,
+        truncated=truncated,
+    )
+
+
+def expand_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return direct children of a specific control from the CDP backend."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+    max_children = max(1, min(200, int(params.get("max_children") or 50)))
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped Chrome window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for expand",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    snapshot = _snapshot_dict(state)
+    parent = _find_by_id(snapshot, control_id)
+    if not parent:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    all_children = list(parent.get("children", []) or [])
+    total_children = len(all_children)
+    truncated = total_children > max_children
+
+    children = []
+    for child in all_children[:max_children]:
+        stripped = dict(child)
+        grandchild_count = len(stripped.get("children", []) or [])
+        stripped["children"] = []
+        stripped["child_count"] = grandchild_count
+        children.append(stripped)
+
+    return skill_success(
+        f"Expanded {control_id!r}: {len(children)} direct child(ren).",
+        prompt="Use ui_control__expand again to drill deeper, or ui_control__inspect for details on a child.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        control_id=control_id,
+        children=children,
+        total_children=total_children,
+        truncated=truncated,
+    )
+
+
+def inspect_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return detailed properties of a specific control from the CDP backend."""
+    params = dict(params) if params is not None else _read_params()
+    session_id = _safe_session_id(params.get("session_id"))
+    state = _load_state(session_id)
+    policy = _policy_from_params(params)
+    control_id = str(params.get("control_id") or "")
+
+    if not policy.allow_find:
+        return skill_error(
+            "ui_control find disabled by policy",
+            UiErrorCode.POLICY_DISABLED,
+            error_code=UiErrorCode.POLICY_DISABLED,
+        )
+    if not _window_allowed(state, policy):
+        return skill_error(
+            "scoped Chrome window is not allowed by policy",
+            UiErrorCode.MISSING_WINDOW,
+            error_code=UiErrorCode.MISSING_WINDOW,
+        )
+    if not control_id:
+        return skill_error(
+            "control_id is required for inspect",
+            UiErrorCode.INVALID_ACTION,
+            error_code=UiErrorCode.INVALID_ACTION,
+        )
+
+    snapshot = _snapshot_dict(state)
+    node = _find_by_id(snapshot, control_id)
+    if not node:
+        return skill_error(
+            f"control {control_id!r} not found; refresh observation",
+            UiErrorCode.NOT_FOUND,
+            error_code=UiErrorCode.NOT_FOUND,
+            session_id=session_id,
+        )
+
+    role = str(node.get("role") or "unknown")
+    is_text_field = role == "text_field"
+    is_checkbox = role == "checkbox"
+    is_button = role == "button"
+
+    patterns = []
+    actions = []
+    if is_text_field:
+        patterns = ["ValuePattern", "TextPattern"]
+        actions = ["set_text", "focus"]
+    elif is_checkbox:
+        patterns = ["TogglePattern"]
+        actions = ["toggle", "set_checked", "click"]
+    elif is_button:
+        patterns = ["InvokePattern"]
+        actions = ["click"]
+    elif role in ("link", "list_item", "menu_item", "combo_box", "option", "listbox"):
+        patterns = ["SelectionItemPattern"]
+        actions = ["click", "focus"]
+
+    detail = {
+        "id": node.get("id", ""),
+        "role": role,
+        "enabled": bool(node.get("enabled", True)),
+        "visible": bool(node.get("visible", True)),
+        "focused": snapshot.get("focus_id") == node.get("id"),
+        "label": node.get("label"),
+        "text": node.get("text"),
+        "object_name": node.get("object_name"),
+        "tooltip": node.get("tooltip"),
+        "bounds": node.get("bounds"),
+        "value": node.get("value"),
+        "checked": node.get("checked"),
+        "child_count": len(node.get("children", []) or []),
+        "supported_patterns": patterns,
+        "supported_actions": actions,
+        "is_keyboard_focusable": role in ("text_field", "button", "checkbox", "combo_box", "link"),
+        "is_password": role == "password",
+        "tree_path": None,
+        "metadata": {"backend": "chrome-cdp"},
+    }
+
+    return skill_success(
+        f"Inspected control {control_id!r} ({detail['role']}).",
+        prompt="Use ui_control__act with this control_id, or ui_control__expand to see its children.",
+        session_id=session_id,
+        snapshot_id=snapshot["metadata"]["snapshot_id"],
+        control=detail,
+    )

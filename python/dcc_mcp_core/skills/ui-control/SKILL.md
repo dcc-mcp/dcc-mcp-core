@@ -72,6 +72,9 @@ The Windows backend exposes DCC UI Control through the existing `ui_control` too
 | DCC UI Control operation | DCC-MCP tool |
 |------------------------|--------------|
 | `screenshot` | `ui_control__snapshot` |
+| `observe` (root-level structural view) | `ui_control__observe` |
+| `expand` (drill into a node's children) | `ui_control__expand` |
+| `inspect` (detailed control properties) | `ui_control__inspect` |
 | semantic `click`, `set_text`, `toggle`, `set_checked`, `select_option`, `focus` | `ui_control__act` with an exact `control_id` |
 | raw `click`, `move`, `double_click`, `scroll`, `drag`, `keypress`, `game_navigation` | `ui_control__act` with the latest `snapshot_id` |
 | typed HKCU value or symbolic-link ensure | `ui_control__system_operation` |
@@ -276,6 +279,73 @@ For native DCC UI Control actions, keep one `session_id` and use this loop:
 `ui_control__wait_for` remains interruptible while polling: Esc, an
 explicit `ui_control__stop_computer_use`, desktop loss, or backend cleanup cancels
 the wait without waiting for its condition timeout.
+
+### Progressive Semantic UI Tree Query
+
+For structural navigation without pixel data, prefer the progressive query
+chain over full snapshots. This is lighter on bandwidth, avoids loading the
+entire UIA tree into context, and maps directly to agent exploration patterns:
+
+```
+observe → expand → inspect → (act)
+```
+
+1. **`ui_control__observe`** — Return top-level root controls of the scoped
+   window **without** expanding their children. Each root node reports its
+   `child_count` so agents can decide whether to drill down. Returns root
+   metadata: id, role, label, enabled/visible state, and bounds when available.
+   Use this to get a high-level structural overview before deciding which
+   subtree to explore.
+
+2. **`ui_control__expand`** — Expand a specific `control_id` to reveal its
+   direct children. Each returned child also reports its own `child_count`,
+   enabling iterative drill-down one level at a time. This is idempotent and
+   read-only; call it repeatedly to walk the tree.
+
+3. **`ui_control__inspect`** — Return detailed properties of a specific
+   `control_id`: bounds, enabled/visible/focused state, `child_count`,
+   supported UIA patterns (`ValuePattern`, `InvokePattern`, …), supported
+   actions, keyboard-focusability, password-field detection, and tree position
+   (`tree_path`). Use this to verify a control's capabilities before calling
+   `ui_control__act`.
+
+4. **Act** — Once the correct control is identified, call `ui_control__act`
+   with its `control_id` as usual. After the action, re-observe or snapshot
+   to verify the result.
+
+**Workflow example** (structural navigation without pixel capture):
+
+```bash
+# Step 1: observe root structure
+dcc-mcp-cli ui-control observe --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+# Returns roots like: [menu_bar (child_count=5), tool_bar (child_count=12), canvas (child_count=0)]
+
+# Step 2: expand the menu bar
+dcc-mcp-cli ui-control expand --instance-id <id> --json '{"session_id":"ui","process_id":1234,"control_id":"menu_bar"}'
+# Returns: [file_menu, edit_menu, view_menu, ...]
+
+# Step 3: inspect the file menu for available actions
+dcc-mcp-cli ui-control inspect --instance-id <id> --json '{"session_id":"ui","process_id":1234,"control_id":"file_menu"}'
+# Returns: {role: "menu_item", supported_patterns: ["InvokePattern"], supported_actions: ["click"], ...}
+
+# Step 4: act
+dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","process_id":1234,"control_id":"file_menu","action":"click"}'
+```
+
+**When to use progressive query vs. snapshot**:
+
+| Scenario | Use |
+|---|---|
+| Structural navigation (menus, trees, tabs) | `observe` → `expand` → `inspect` |
+| Need pixel image for visual verification | `snapshot` |
+| Need to interact with custom-drawn controls | `snapshot` (for coordinates) |
+| Quick text-based control lookup | `find` (still works on any snapshot) |
+| Polling for a UI state change | `wait_for` |
+
+Progressive query tools are read-only and idempotent. They do not capture
+pixels, consume observations, or trigger the visual overlay. Use them freely
+for exploration; switch to `snapshot` when you need the pixel image or
+coordinate space.
 
 Agents should enter this loop only after a structured DCC operation returns
 `unsupported` or `capability_missing`; they should not ask the user to manually
