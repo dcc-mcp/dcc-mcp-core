@@ -10,9 +10,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -355,9 +355,7 @@ class TestSnapshotDiff:
             after = _snapshot_dict(_load_state(session))
 
         diffs = diff_snapshots(before, after)
-        checkbox_changes = [
-            d for d in diffs if d["control_id"] == "enable-cache" and d["field"] == "checked"
-        ]
+        checkbox_changes = [d for d in diffs if d["control_id"] == "enable-cache" and d["field"] == "checked"]
         assert len(checkbox_changes) == 1
         assert checkbox_changes[0]["before"] is False
         assert checkbox_changes[0]["after"] is True
@@ -579,11 +577,7 @@ class TestPolicyFlagCoverage:
         """POLICY_BOOLEAN_FLAGS covers every boolean UiControlPolicy field."""
         from dataclasses import fields
 
-        expected = {
-            f.name
-            for f in fields(UiControlPolicy)
-            if f.type in (bool, "bool")
-        }
+        expected = {f.name for f in fields(UiControlPolicy) if f.type in (bool, "bool")}
         covered = set(POLICY_BOOLEAN_FLAGS)
         missing = expected - covered
         assert not missing, f"Missing policy flags from POLICY_BOOLEAN_FLAGS: {missing}"
@@ -669,9 +663,7 @@ class TestPolicyMatrix:
         assert result["success"] is False
         assert result["context"]["result"]["error_code"] == "policy_disabled"
 
-    def test_allow_keyboard_shortcuts_denies_keyboard_shortcut_when_disabled(
-        self, tmp_path: Path
-    ) -> None:
+    def test_allow_keyboard_shortcuts_denies_keyboard_shortcut_when_disabled(self, tmp_path: Path) -> None:
         """keyboard_shortcut is denied when allow_keyboard_shortcuts=False."""
         session = "policy-kb"
         state_dir = tmp_path / "state"
@@ -693,9 +685,7 @@ class TestPolicyMatrix:
         assert result["success"] is False
         assert "disabled by policy" in result["message"]
 
-    def test_allow_raw_coordinates_denies_raw_coordinate_click_when_disabled(
-        self, tmp_path: Path
-    ) -> None:
+    def test_allow_raw_coordinates_denies_raw_coordinate_click_when_disabled(self, tmp_path: Path) -> None:
         """raw_coordinate_click is denied when allow_raw_coordinates=False."""
         session = "policy-raw"
         state_dir = tmp_path / "state"
@@ -786,7 +776,7 @@ class TestPolicyBuildMatrix:
         cases = build_policy_test_cases()
         for case in cases:
             assert len(case) == 5
-            flag_name, policy_overrides, tool, action, extra_params = case
+            flag_name, policy_overrides, tool, _action, extra_params = case
             assert isinstance(flag_name, str)
             assert isinstance(policy_overrides, dict)
             assert isinstance(tool, str)
@@ -802,16 +792,16 @@ class TestCiIntegration:
     """Tests verifying CI justfile targets and infrastructure."""
 
     def test_justfile_exists(self) -> None:
-        """justfile exists in the repository root."""
+        """Justfile exists in the repository root."""
         assert _JUSTFILE.exists(), f"justfile not found at {_JUSTFILE}"
 
     def test_justfile_has_test_target(self) -> None:
-        """justfile has the 'test' target that runs pytest tests/."""
+        """Justfile has the 'test' target that runs pytest tests/."""
         content = _JUSTFILE.read_text(encoding="utf-8")
         assert "pytest tests/" in content
 
     def test_justfile_has_test_suite_target(self) -> None:
-        """justfile has the 'test-suite' target for CI."""
+        """Justfile has the 'test-suite' target for CI."""
         content = _JUSTFILE.read_text(encoding="utf-8")
         assert "test-suite" in content
         assert "--dist loadfile" in content
@@ -820,10 +810,7 @@ class TestCiIntegration:
         """No test in this module sets the backend to windows-uia or chrome."""
         source = Path(__file__).read_text(encoding="utf-8")
         # Verify no subprocess test sets the backend to a real desktop backend
-        lines_with_backend = [
-            line for line in source.splitlines()
-            if "DCC_MCP_UI_CONTROL_BACKEND" in line
-        ]
+        lines_with_backend = [line for line in source.splitlines() if "DCC_MCP_UI_CONTROL_BACKEND" in line]
         for line in lines_with_backend:
             assert "windows-uia" not in line, f"Found windows-uia backend: {line.strip()}"
             assert "chrome" not in line, f"Found chrome backend: {line.strip()}"
