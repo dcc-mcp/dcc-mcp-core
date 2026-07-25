@@ -1463,6 +1463,15 @@ fn session_event_blocked(event: u32) -> Option<bool> {
     }
 }
 
+fn acknowledge_pending_desktop_barrier(
+    barrier: &DesktopEventBarrier,
+    pending_sequence: &mut Option<u32>,
+) {
+    if let Some(sequence) = pending_sequence.take() {
+        barrier.acknowledge(sequence);
+    }
+}
+
 struct BannerRuntimeSignals {
     stop: Arc<AtomicBool>,
     interrupted: Arc<AtomicBool>,
@@ -1603,6 +1612,10 @@ fn run_banner(
                 Err(error) => return Err(error),
             }
         }
+        // The barrier fences the message queue and display-generation update.
+        // Cosmetic overlay repositioning can be slow under RDP and must not
+        // hold the screenshot/input safety handshake open.
+        acknowledge_pending_desktop_barrier(&signals.desktop_barrier, &mut barrier_sequence);
         rect = match available_target_rect_for_process(target, process_id) {
             Ok(rect) => rect,
             Err(error) if error.code == ComputerUseErrorCode::MissingWindow => {
@@ -1631,9 +1644,6 @@ fn run_banner(
             signals.visible.store(true, Ordering::Release);
         }
         record_desktop_transition(&signals.desktop_state, true);
-        if let Some(sequence) = barrier_sequence.take() {
-            signals.desktop_barrier.acknowledge(sequence);
-        }
         thread::sleep(Duration::from_millis(16));
     }
     Ok(())

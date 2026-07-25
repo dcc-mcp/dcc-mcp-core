@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn desktop_barrier_acknowledges_before_cosmetic_refresh() {
+    let barrier = DesktopEventBarrier::default();
+    let sequence = barrier.request_sequence();
+    let mut pending = Some(sequence);
+
+    super::super::acknowledge_pending_desktop_barrier(&barrier, &mut pending);
+
+    assert!(barrier.is_acknowledged(sequence));
+    assert!(pending.is_none());
+}
+
+#[test]
 fn action_feedback_preserves_pointer_point_and_safe_input_label() {
     let feedback: Arc<crate::platform::LastActionFeedback> = Arc::new(std::sync::Mutex::new(None));
     publish_action_feedback(&feedback, Some((1920, 1080)), "MOUSE · DRAG".to_owned());
