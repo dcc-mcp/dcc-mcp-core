@@ -807,7 +807,9 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         diagnostic_row["direct_control"]["recommended_next_action"]
             .as_str()
             .unwrap()
-            .contains("wait-ready")
+            .contains("Instance is booting"),
+        "diagnostic row recommended_next_action: {}",
+        diagnostic_row["direct_control"]["recommended_next_action"]
     );
     let sidecar_row = instances
         .iter()
@@ -835,7 +837,9 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         sidecar_row["direct_control"]["recommended_next_action"]
             .as_str()
             .unwrap()
-            .contains("dispatch_status=ready")
+            .contains("failure stage/reason"),
+        "sidecar row recommended_next_action: {}",
+        sidecar_row["direct_control"]["recommended_next_action"]
     );
     let ready_row = instances
         .iter()
