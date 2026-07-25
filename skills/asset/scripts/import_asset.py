@@ -11,8 +11,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from typing import Any
+
+
+_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 def _run_cli(*args: str, timeout: int = 15) -> dict[str, Any] | None:
@@ -23,6 +27,7 @@ def _run_cli(*args: str, timeout: int = 15) -> dict[str, Any] | None:
             capture_output=True,
             text=True,
             timeout=timeout,
+            creationflags=_CREATION_FLAGS,
         )
         if result.returncode != 0:
             return None

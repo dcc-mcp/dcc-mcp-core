@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from typing import Any
+
+
+_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 def search_assets(
@@ -36,6 +40,7 @@ def search_assets(
             ["dcc-mcp-cli", "call", "asset_source__search_assets",
              "--json", json.dumps(search_args), "--output", "json"],
             capture_output=True, text=True, timeout=15,
+            creationflags=_CREATION_FLAGS,
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)
