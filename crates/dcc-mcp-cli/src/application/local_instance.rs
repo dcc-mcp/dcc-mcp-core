@@ -401,7 +401,7 @@ mod tests {
         let mut ready = ServiceEntry::new("maya", "127.0.0.1", 18081);
         ready.metadata.insert(
             DISPATCH_STATUS_METADATA_KEY.to_string(),
-            "ready".to_string(),
+            dcc_mcp_transport::discovery::types::DispatchStatus::Ready.to_string(),
         );
         let ready_id = ready.instance_id;
         registry.register(ready).unwrap();
@@ -448,7 +448,7 @@ mod tests {
         let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 18080);
         sidecar.metadata.insert(
             DISPATCH_STATUS_METADATA_KEY.to_string(),
-            "ready".to_string(),
+            dcc_mcp_transport::discovery::types::DispatchStatus::Ready.to_string(),
         );
         sidecar.metadata.insert(
             ROLE_METADATA_KEY.to_string(),
