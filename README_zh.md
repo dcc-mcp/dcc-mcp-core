@@ -20,9 +20,9 @@
 
 [English](README.md) | 中文
 
-**Agent-first DCC 控制面：一个 CLI、一个 gateway，连接所有在线创作宿主。**
+**Skills 驱动、Rust 加速的创作工具控制面：一套公共运行时，连接不断增长的生态。**
 
-`dcc-mcp-core` 把 Maya、Blender、Houdini、Photoshop 和自定义工作室工具变成可发现、可路由的 MCP 端点。Agent 不再只能猜测 shell 输出，而是可以面对实时场景状态、受作用域约束的工具目录、结构化结果、视口诊断、审计日志，以及能适应真实生产约束的工作流。
+`dcc-mcp-core` 把桌面 DCC、游戏引擎、二维工具、生产管理系统、资产提供器、性能分析器和工作室自研宿主接入可发现、可路由的 MCP 与 REST 能力。Agent 可以面对实时场景状态、受作用域约束的工具目录、结构化结果、视口诊断、审计日志，以及能适应真实生产约束的工作流。
 
 默认 operator 路径是 `dcc-mcp-cli`：本地命令从共享 FileRegistry 发现在线 DCC 会话并直连对应实例，远程 profile 则通过选中的 gateway 路由。endpoint/admin/update 命令仍可确保本机 gateway 存在，Agent 和 CI 脚本不需要再维护脆弱的预启动步骤。同一套能力也驱动浏览器 Admin UI、marketplace skill 安装、包更新、Sentry/webhook/OTLP 集成设置，以及 traces、calls、logs、runtime health 等证据面板。
 
@@ -34,7 +34,7 @@
 
 | 需求 | dcc-mcp-core 提供 |
 |---|---|
-| 让 Agent 操作真实 DCC 会话 | 面向 Maya、Blender、Houdini、Photoshop 和自定义宿主的 MCP + REST 端点 |
+| 让 Agent 操作真实创作会话 | 面向 DCC、游戏引擎、二维工具、生产系统和自定义宿主的 MCP + REST 端点 |
 | 控制工具上下文大小 | CLI 发现流程：`search` -> `describe` -> `call`，不依赖巨大的第一页 `tools/list` |
 | 从 Agent shell 可靠启动 | `dcc-mcp-cli list/search/describe/call` 默认先确保本机 gateway，再使用本机 registry + direct MCP 或远程 gateway profile |
 | 不写框架胶水也能新增和更新工具 | `SKILL.md` + 同级 YAML / 脚本、marketplace 安装/更新，遵循 agentskills.io |
@@ -270,6 +270,30 @@ Token 消耗，也降低生产结果对模型强弱的依赖。
 大型工作室还可以按项目、部门和制作阶段分发不同的 Skill：建模 Agent 不需要加载
 发行工具，镜头阶段也不必看到资产入库的全部能力。团队已有的 pipeline 不用推倒重
 来，只需要逐步封装成 Agent 可以可靠调用的能力。
+
+这也是 TD/TA 最实际的定制边界。Core 和 adapter 继续负责宿主连接、主线程执行、
+路由、安全和可观测性；TD/TA 只需要把内部项目真正的流程——命名与场景检查、资产
+准备、发布卡点、缓存/导出规范、审核交接——写成由 `SKILL.md`、`tools.yaml` 和
+现有脚本组成的 Skill。Skill 可以独立测试，按项目或团队分发，并进入公开或内部
+Marketplace，不需要 fork Core，也不需要为每个项目重写 adapter。
+
+### 一套契约，持续扩展的生态
+
+同一套 Skill 与运行时契约已经覆盖更多创作和生产环节：
+
+| 领域 | 代表项目 |
+|---|---|
+| 桌面 DCC | Maya、Blender、Houdini、3ds Max、Nuke、Katana、MotionBuilder、ZBrush |
+| 设计与内容工具 | Photoshop、Substance 3D Designer/Painter、After Effects、Premiere、GIMP、Krita |
+| 游戏与二维引擎 | Unreal Engine、Unity、Godot、Tiled、Material Maker |
+| Pipeline 与质量 | OpenUSD、Flow Production Tracking、MaterialX、纹理/发布流程、RenderDoc、Tracy |
+| 可复用 Skills | 资产提供器、2D/3D 生成服务、UI 自动化、绑定、程序化制作、游戏发行与验收 |
+
+可以在 [DCC-MCP 组织仓库](https://github.com/orgs/dcc-mcp/repositories)
+查看全部集成，也可以通过[官方 Marketplace](https://github.com/dcc-mcp/marketplace)
+发现和安装可选 Skills，而不必修改 adapter。
+
+[![DCC-MCP Skill Marketplace](docs/assets/admin-ui/admin-marketplace.png)](https://github.com/dcc-mcp/marketplace)
 
 ### 让 Agent 调用不再是黑盒
 
