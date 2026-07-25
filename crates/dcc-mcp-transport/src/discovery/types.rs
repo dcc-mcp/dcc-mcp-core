@@ -226,7 +226,7 @@ fn actionability(status: ServiceStatus, dispatch_status: DispatchStatus) -> (boo
         }
         (ServiceStatus::Available, DispatchStatus::Failed) => (
             false,
-            "Inspect instance failure stage/reason; the backend may need a restart.",
+            "Wait for dispatch_status=ready; inspect instance failure stage/reason; the backend may need a restart.",
         ),
         (ServiceStatus::Available, DispatchStatus::Unknown) => (
             true,
@@ -241,13 +241,17 @@ fn actionability(status: ServiceStatus, dispatch_status: DispatchStatus) -> (boo
         ),
         (ServiceStatus::Busy, DispatchStatus::Failed) => (
             false,
-            "Instance is busy but dispatch has failed; inspect failure details.",
+            "Instance is busy; wait for dispatch_status=ready; inspect failure details if persistent.",
         ),
         (ServiceStatus::Busy, DispatchStatus::Unknown) => (true, "Instance is busy; retry later."),
-        (ServiceStatus::Booting, DispatchStatus::Pending) => {
-            (true, "Instance is booting; wait for readiness and retry.")
-        }
-        (ServiceStatus::Booting, _) => (true, "Instance is booting; wait for readiness and retry."),
+        (ServiceStatus::Booting, DispatchStatus::Pending) => (
+            true,
+            "Instance is booting; run wait-ready for readiness and retry.",
+        ),
+        (ServiceStatus::Booting, _) => (
+            true,
+            "Instance is booting; run wait-ready for readiness and retry.",
+        ),
         (ServiceStatus::Unreachable, _) => (
             false,
             "Instance is unreachable; check logs and restart if needed.",
