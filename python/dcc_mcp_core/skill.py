@@ -94,10 +94,15 @@ _BUNDLED_SKILLS_DIR: Path = Path(__file__).parent / "skills"
 # overlaid during an upgrade, leaving removed package-data directories behind.
 # Those unowned directories must not become executable skills after restart.
 _BUNDLED_SKILL_NAMES: tuple[str, ...] = (
+    "asset",
+    "build",
     "dcc-diagnostics",
+    "debug",
     "media",
     "qt-ui-inspector",
+    "ui",
     "ui-control",
+    "verify",
     "workflow",
 )
 

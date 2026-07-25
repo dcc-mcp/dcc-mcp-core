@@ -196,40 +196,26 @@ untouched if validation or download fails. This is an integrity check, not a
 digital signature. Never pipe a remote installer directly into a shell or
 bypass the machine's script execution policy.
 
-### Install the agent Skill suite
+### Agent skill
 
-Install the three public Skills directly from ClawHub; cloning this repository
-is not required:
+The [`dcc-mcp`](skills/dcc-mcp/) agent skill teaches AI agents how to use
+`dcc-mcp-cli` to control live DCC applications. Install it with:
+
+~~~bash
+dcc-mcp-cli install skills
+~~~
+
+This copies the skill to the agent's skill directory so it is discovered
+automatically. When `dcc-mcp-cli` is not yet available, install the Skill
+from ClawHub instead:
 
 ~~~bash
 openclaw skills install @loonghao/dcc-mcp
-openclaw skills install @loonghao/dcc-mcp-skills-creator
-openclaw skills install @loonghao/dcc-mcp-creator
-~~~
-
-Add `--global` to each command when every local OpenClaw agent should see the
-suite. Other ClawHub-compatible workspaces can use the registry CLI directly:
-
-~~~bash
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
 ~~~
 
 | Skill | Agent role |
 |---|---|
-| [`dcc-mcp`](skills/dcc-mcp/) | Default live DCC control and marketplace discovery; Skill-store requests begin with `dcc-mcp-cli marketplace search` |
-| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | Create, validate, package, and review DCC-MCP Skill packages |
-| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | Create or modernize a complete DCC adapter and its runtime wiring |
-
-All three packages carry Codex `agents/openai.yaml` metadata while preserving
-their DCC-MCP and ClawHub contracts. Their immutable ClawHub releases are
-versioned independently in
-[`.github/clawhub-skills.json`](.github/clawhub-skills.json), so Skill updates
-do not collide with an already-published core version. The sync workflow
-publishes the manifest versions and verifies their packaged files. Bump both
-the manifest entry and the matching `SKILL.md` metadata version for every new
-immutable Skill release.
+| [`dcc-mcp`](skills/dcc-mcp/) | Default live DCC control and marketplace discovery. Teaches every shell-capable agent the `dcc-mcp-cli` workflow. |
 
 Keep an official build current through the release manifest:
 

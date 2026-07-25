@@ -88,30 +88,25 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 ## 快速开始
 
-### 安装 Agent Skill 套件
+### Agent Skill
 
-可以直接从 ClawHub 安装三个公开 Skill，无需克隆本仓库：
+[`dcc-mcp`](skills/dcc-mcp/) agent skill 教会 AI agent 如何用 `dcc-mcp-cli` 控制
+实时 DCC 应用。安装方式：
+
+```bash
+dcc-mcp-cli install skills
+```
+
+此命令将 skill 复制到 agent 的 skill 目录，agent 自动发现即可使用。若
+`dcc-mcp-cli` 尚未安装，可先从 ClawHub 安装：
 
 ```bash
 openclaw skills install @loonghao/dcc-mcp
-openclaw skills install @loonghao/dcc-mcp-skills-creator
-openclaw skills install @loonghao/dcc-mcp-creator
-```
-
-需要让本机所有 OpenClaw Agent 共享时，给每条命令加 `--global`。其他兼容
-ClawHub 的 workspace 可以直接使用 registry CLI：
-
-```bash
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
 ```
 
 | Skill | Agent 职责 |
 |---|---|
-| [`dcc-mcp`](skills/dcc-mcp/) | 默认实时 DCC 控制和 marketplace 发现；Skill 商城请求先运行 `dcc-mcp-cli marketplace search` |
-| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | 创建、验证、打包和评审 DCC-MCP Skill |
-| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | 创建或现代化完整 DCC adapter 及运行时接线 |
+| [`dcc-mcp`](skills/dcc-mcp/) | 默认实时 DCC 控制和 marketplace 发现。教会所有具备 shell 能力的 agent 使用 `dcc-mcp-cli` 工作流。 |
 
 ### 安装独立 CLI
 
