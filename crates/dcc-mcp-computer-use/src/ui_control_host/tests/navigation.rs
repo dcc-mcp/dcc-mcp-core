@@ -279,6 +279,38 @@ fn game_navigation_has_a_separate_bounded_descriptor() {
 }
 
 #[test]
+fn game_navigation_accepts_an_exact_native_unity_pane_root() {
+    let game_navigation = UiControlAction {
+        action: "game_navigation".to_owned(),
+        input_kind: UiControlInputKind::RawInput,
+        intent: UiControlIntent::Navigate,
+        keys: vec!["W".to_owned(), "D".to_owned()],
+        duration_ms: Some(500),
+        ..action(None, UiControlInputKind::RawInput)
+    };
+    let mut game = game_navigation_accessibility_state(
+        "42.game-root",
+        "42.game-root",
+        "ControlType.Pane",
+        42,
+        None,
+    );
+    game.root["control_type"] = json!("ControlType.Pane");
+    game.root["native_window_handle"] = json!(0x1234_u64);
+
+    assert_eq!(
+        classify_action(&game_navigation, Some(&game.root), None),
+        UiControlPolicyTier::TaskGrant
+    );
+
+    game.root["native_window_handle"] = Value::Null;
+    assert_eq!(
+        classify_action(&game_navigation, Some(&game.root), None),
+        UiControlPolicyTier::HardDeny
+    );
+}
+
+#[test]
 fn game_navigation_rejects_editable_or_unknown_intermediate_ancestors() {
     let game_navigation = UiControlAction {
         action: "game_navigation".to_owned(),
