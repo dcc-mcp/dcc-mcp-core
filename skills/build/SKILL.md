@@ -65,6 +65,35 @@ manually chaining CLI commands.
 - **Creating a full adapter repository** — use `dcc-mcp-creator` skill instead
 - **Marketplace search/install** — use `dcc-mcp` skill's marketplace commands
 
+## Usage
+
+**Prerequisites**: `dcc-mcp` and `dcc-mcp-skills-creator` skills loaded. No live
+DCC instance required — build operates on filesystem skill directories.
+
+### MCP-native agent (IDE)
+
+```
+search_skills("build")          → find this skill
+load_skill("build")             → load tools into namespace
+call("build__scaffold", {"name": "maya-rigging", "dcc": "maya", "tool_name": "create_rig"})
+call("build__validate", {"skill_path": "./skills/maya-rigging"})
+call("build__publish", {"skill_path": "./skills/maya-rigging", "dry_run": true})
+```
+
+### Shell/CLI agent
+
+```bash
+dcc-mcp-cli search-skills --query build
+dcc-mcp-cli load-skill build
+dcc-mcp-cli call <instance>.build__scaffold --json '{"name":"maya-rigging","dcc":"maya"}'
+dcc-mcp-cli call <instance>.build__list_installed --json '{}'
+```
+
+### Availability
+
+Ships with `dcc-mcp-core` wheel. No live DCC required. `publish` is destructive —
+obtain user consent before calling with `dry_run: false`.
+
 ## Development workflow
 
 ```

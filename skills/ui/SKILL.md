@@ -66,6 +66,47 @@ first choice.
 - **Verifying instance health** — use the `verify` skill
 - **Diagnosing tool failures** — use the `debug` skill
 
+## Usage
+
+**Prerequisites**: `dcc-mcp`, `qt-ui-inspector`, and `ui-control` skills loaded.
+A DCC instance must be running with its window visible. On Windows, the operator
+must set `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`.
+
+**⚠️ Policy**: Structured tools first. Only load `ui` after `dcc-mcp` search
+returns `unsupported` or `capability_missing`. Never start with UI automation.
+
+### MCP-native agent (IDE)
+
+```
+search_skills("ui")
+load_skill("ui")
+call("ui__inspect_ui", {"window_title": "Maya", "include_screenshot": true})
+call("ui__find_widget", {"query": "Save", "widget_type": "QPushButton"})
+call("ui__interact_widget", {"widget": {"control_id": "saveButton"}, "action": "click"})
+```
+
+### Shell/CLI agent
+
+```bash
+dcc-mcp-cli search-skills --query ui
+dcc-mcp-cli load-skill ui
+dcc-mcp-cli call <instance>.ui__inspect_ui --json '{"window_title":"Maya"}'
+dcc-mcp-cli call <instance>.ui__capture_ui_state --json '{"output_dir":"/tmp/ui-debug"}'
+```
+
+### Availability
+
+Ships with `dcc-mcp-core` wheel. Windows-only for UIA-based operations.
+Depends on `qt-ui-inspector` (Qt DCCs) and `ui-control` (all DCCs via
+computer-use fallback). Both must be loadable before `ui` tools resolve.
+
+### Hard stops (do NOT retry)
+
+- `desktop_unavailable` — lock screen / RDP disconnect
+- `user_interrupted` — user pressed Esc
+- `elevation_required` — needs admin
+- `approval_required` — operator grant missing
+
 ## UI interaction policy
 
 1. **Structured tools first** — always try MCP tools before UI fallback

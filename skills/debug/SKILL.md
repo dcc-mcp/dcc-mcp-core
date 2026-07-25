@@ -65,6 +65,36 @@ before attempting a fix.
 - **Interacting with UI** — use the `ui` skill
 - **Building/deploying** — use the `build` skill
 
+## Usage
+
+**Prerequisites**: `dcc-mcp` skill loaded, a tool call has failed or behavior
+is unexpected.
+
+### MCP-native agent (IDE)
+
+```
+search_skills("debug")          → find this skill
+load_skill("debug")             → load tools into namespace
+call("debug__diagnose", {"dcc_name": "maya", "failed_action": "maya_primitives__create_sphere", "error_message": "..."})
+call("debug__inspect_state", {"dcc_name": "maya"})
+call("debug__trace_tool", {"tool_slug": "maya.xxx.primitives__create_sphere", "arguments": {}})
+```
+
+### Shell/CLI agent
+
+```bash
+dcc-mcp-cli search-skills --query debug
+dcc-mcp-cli load-skill debug
+dcc-mcp-cli call <instance>.debug__diagnose --json '{"dcc_name":"maya","failed_action":"maya_primitives__create_sphere"}'
+dcc-mcp-cli call <instance>.debug__collect_evidence --json '{"dcc_name":"maya","output_dir":"/tmp/evidence"}'
+```
+
+### Availability
+
+Ships with `dcc-mcp-core` wheel. Auto-discovered by `create_skill_server()`.
+Depends on `dcc-mcp` and `dcc-diagnostics` skills — both must be loadable
+before `debug` tools resolve.
+
 ## Diagnostic workflow
 
 ```

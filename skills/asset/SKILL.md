@@ -67,6 +67,38 @@ DCCs without manually chaining search → resolve → import steps.
 - **Interacting with UI** — use the `ui` skill
 - **Building/deploying skills** — use the `build` skill
 
+## Usage
+
+**Prerequisites**: `dcc-mcp` and `asset-source` skills loaded. At least one
+DCC instance registered and ready for import/export operations.
+
+### MCP-native agent (IDE)
+
+```
+search_skills("asset")
+load_skill("asset")
+call("asset__search_assets", {"query": "table"})
+call("asset__resolve_asset", {"asset_name": "table_01", "format": "fbx"})
+call("asset__import_asset", {"descriptor": {...}, "target_dcc": "maya"})
+call("asset__export_asset", {"asset_name": "my_prop", "format": "fbx", "selection_only": true})
+```
+
+### Shell/CLI agent
+
+```bash
+dcc-mcp-cli search-skills --query asset
+dcc-mcp-cli load-skill asset
+dcc-mcp-cli call <instance>.asset__search_assets --json '{"query":"table"}'
+dcc-mcp-cli call <instance>.asset__catalog_status --json '{}'
+```
+
+### Availability
+
+Ships with `dcc-mcp-core` wheel. Depends on `asset-source` for catalog search
+and `dcc-mcp` for per-adapter import/export tool discovery. Import/export tools
+are `destructive` — they modify the DCC scene. `search_assets`, `resolve_asset`,
+`validate_asset`, `catalog_status` are read-only.
+
 ## Canonical import flow
 
 ```

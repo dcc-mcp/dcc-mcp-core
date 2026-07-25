@@ -66,6 +66,36 @@ you send work.
 - **Building/deploying** — use the `build` skill
 - **Asset operations** — use the `asset` skill
 
+## Usage
+
+**Prerequisites**: `dcc-mcp` skill loaded, a DCC instance registered and running
+(`dcc-mcp-cli list` shows at least one instance).
+
+### MCP-native agent (IDE)
+
+```
+search_skills("verify")         → find this skill
+load_skill("verify")            → load tools into namespace
+call("verify__verify_instance", {"dcc_type": "maya"})
+call("verify__verify_preflight", {"capability_query": "create sphere", "dcc_type": "maya"})
+```
+
+### Shell/CLI agent
+
+```bash
+dcc-mcp-cli search-skills --query verify
+dcc-mcp-cli load-skill verify
+dcc-mcp-cli call <instance>.verify__verify_instance --json '{"dcc_type":"maya"}'
+dcc-mcp-cli call <instance>.verify__verify_preflight --json '{"capability_query":"create sphere","dcc_type":"maya"}'
+```
+
+### Availability
+
+These skills ship with the `dcc-mcp-core` wheel. After `pip install dcc-mcp-core`,
+they are discovered automatically by `create_skill_server()` when the `skills/`
+directory is in the skill path (default for core-managed servers). Adapters can
+also reference them via `extra_paths` or `DCC_MCP_SKILL_PATHS`.
+
 ## Workflow
 
 ```
