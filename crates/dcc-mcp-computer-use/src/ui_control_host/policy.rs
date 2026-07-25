@@ -321,8 +321,15 @@ fn game_navigation_ancestry_is_safe(ancestry: &[&Value]) -> bool {
     let Some(root_process_id) = root.get("process_id").and_then(Value::as_u64) else {
         return false;
     };
+    let root_is_exact_native_window = root.get("control_type").and_then(Value::as_str)
+        == Some("ControlType.Window")
+        || (root.get("control_type").and_then(Value::as_str) == Some("ControlType.Pane")
+            && root
+                .get("native_window_handle")
+                .and_then(Value::as_u64)
+                .is_some_and(|handle| handle != 0));
     if root_process_id == 0
-        || root.get("control_type").and_then(Value::as_str) != Some("ControlType.Window")
+        || !root_is_exact_native_window
         || ancestry.iter().any(|control| {
             control.get("process_id").and_then(Value::as_u64) != Some(root_process_id)
                 || control.get("is_password").and_then(Value::as_bool) != Some(false)
