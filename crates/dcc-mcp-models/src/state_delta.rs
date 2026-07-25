@@ -1,6 +1,6 @@
 //! Bounded semantic deltas between two JSON state snapshots.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,6 +57,8 @@ impl StateDelta {
 }
 
 /// Compute a deterministic, bounded semantic delta.
+///
+/// Object arrays with unique `runtime_id` or `instance_id` values are aligned by identity.
 #[must_use]
 pub fn diff_json_state(before: Option<&Value>, after: &Value, max_changes: usize) -> StateDelta {
     let baseline = before.is_none();
@@ -106,6 +108,35 @@ fn walk(
             }
         }
         (Some(Value::Array(before)), Some(Value::Array(after))) => {
+            if let Some((before_ids, after_ids)) = stable_array_identities(before, after) {
+                let before_by_id: BTreeMap<&str, usize> = before_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(index, id)| (id.as_str(), index))
+                    .collect();
+                let after_id_set: BTreeSet<&str> = after_ids.iter().map(String::as_str).collect();
+                for (after_index, id) in after_ids.iter().enumerate() {
+                    walk(
+                        before_by_id.get(id.as_str()).map(|index| &before[*index]),
+                        Some(&after[after_index]),
+                        &child_path(path, &after_index.to_string()),
+                        max_changes,
+                        delta,
+                    );
+                }
+                for (before_index, id) in before_ids.iter().enumerate() {
+                    if !after_id_set.contains(id.as_str()) {
+                        walk(
+                            Some(&before[before_index]),
+                            None,
+                            &child_path(path, &before_index.to_string()),
+                            max_changes,
+                            delta,
+                        );
+                    }
+                }
+                return;
+            }
             for index in 0..before.len().max(after.len()) {
                 walk(
                     before.get(index),
@@ -177,6 +208,38 @@ fn walk(
     }
 }
 
+fn stable_array_identities(
+    before: &[Value],
+    after: &[Value],
+) -> Option<(Vec<String>, Vec<String>)> {
+    for key in ["runtime_id", "instance_id"] {
+        if let (Some(before_ids), Some(after_ids)) = (
+            identities_for_key(before, key),
+            identities_for_key(after, key),
+        ) {
+            return Some((before_ids, after_ids));
+        }
+    }
+    None
+}
+
+fn identities_for_key(values: &[Value], key: &str) -> Option<Vec<String>> {
+    let mut seen = BTreeSet::new();
+    let mut identities = Vec::with_capacity(values.len());
+    for value in values {
+        let identity = match value.get(key)? {
+            Value::String(value) => format!("string:{value}"),
+            Value::Number(value) => format!("number:{value}"),
+            _ => return None,
+        };
+        if !seen.insert(identity.clone()) {
+            return None;
+        }
+        identities.push(identity);
+    }
+    Some(identities)
+}
+
 fn child_path(parent: &str, key: &str) -> String {
     format!("{parent}/{}", key.replace('~', "~0").replace('/', "~1"))
 }
@@ -216,5 +279,49 @@ mod tests {
         let delta = diff_json_state(Some(&before), &after, 1);
         assert_eq!(delta.changes.len(), 1);
         assert!(!delta.truncated);
+    }
+
+    #[test]
+    fn runtime_id_insertion_does_not_cascade_across_stable_siblings() {
+        let before = json!({"children": [
+            {"runtime_id": "toolbar", "name": "Toolbar"},
+            {"runtime_id": "scene", "name": "Scene"}
+        ]});
+        let after = json!({"children": [
+            {"runtime_id": "tooltip", "name": "Create"},
+            {"runtime_id": "toolbar", "name": "Toolbar"},
+            {"runtime_id": "scene", "name": "Scene"}
+        ]});
+
+        let delta = diff_json_state(Some(&before), &after, 8);
+
+        assert_eq!(delta.changes.len(), 2);
+        assert!(!delta.truncated);
+        assert_eq!(delta.changes[0].path, "/children/0/runtime_id");
+        assert_eq!(delta.changes[0].kind, StateChangeKind::Added);
+        assert_eq!(delta.changes[1].path, "/children/0/name");
+        assert_eq!(delta.changes[1].kind, StateChangeKind::Added);
+    }
+
+    #[test]
+    fn instance_id_insertion_does_not_cascade_across_scene_nodes() {
+        let before = json!({"roots": [
+            {"instance_id": 10, "name": "Camera"},
+            {"instance_id": 20, "name": "Player"}
+        ]});
+        let after = json!({"roots": [
+            {"instance_id": 30, "name": "Probe"},
+            {"instance_id": 10, "name": "Camera"},
+            {"instance_id": 20, "name": "Player"}
+        ]});
+
+        let delta = diff_json_state(Some(&before), &after, 8);
+
+        assert_eq!(delta.changes.len(), 2);
+        assert!(!delta.truncated);
+        assert_eq!(delta.changes[0].path, "/roots/0/instance_id");
+        assert_eq!(delta.changes[0].kind, StateChangeKind::Added);
+        assert_eq!(delta.changes[1].path, "/roots/0/name");
+        assert_eq!(delta.changes[1].kind, StateChangeKind::Added);
     }
 }
