@@ -401,7 +401,7 @@ mod tests {
         let mut ready = ServiceEntry::new("maya", "127.0.0.1", 18081);
         ready.metadata.insert(
             DISPATCH_STATUS_METADATA_KEY.to_string(),
-            DISPATCH_STATUS_READY.to_string(),
+            "ready".to_string(),
         );
         let ready_id = ready.instance_id;
         registry.register(ready).unwrap();
@@ -416,7 +416,7 @@ mod tests {
         assert_eq!(value["direct_control"]["route"], "local_mcp");
         assert_eq!(
             value["direct_control"]["recommended_next_action"],
-            "Use this instance through the local MCP route."
+            "Instance is available for dispatch."
         );
     }
 
@@ -448,7 +448,7 @@ mod tests {
         let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 18080);
         sidecar.metadata.insert(
             DISPATCH_STATUS_METADATA_KEY.to_string(),
-            DISPATCH_STATUS_READY.to_string(),
+            "ready".to_string(),
         );
         sidecar.metadata.insert(
             ROLE_METADATA_KEY.to_string(),
