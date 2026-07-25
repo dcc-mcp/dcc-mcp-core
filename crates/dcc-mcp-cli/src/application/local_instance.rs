@@ -228,11 +228,18 @@ pub(crate) fn direct_control_ready(entry: &ServiceEntry) -> bool {
         .get(ROLE_METADATA_KEY)
         .is_some_and(|role| role == ROLE_PER_DCC_SIDECAR);
     let instance_status = InstanceStatus::from_entry(entry, false, is_sidecar);
-    instance_status.dispatch_status == dcc_mcp_transport::discovery::types::DispatchStatus::Ready
-        && matches!(
-            instance_status.status,
-            ServiceStatus::Available | ServiceStatus::Busy
-        )
+    let status_ok = matches!(
+        instance_status.status,
+        ServiceStatus::Available | ServiceStatus::Busy
+    );
+    // Direct MCP instances without explicit dispatch_status are treated as ready
+    // (legacy / embedded / pre-sidecar path — ADR 018 DispatchStatus::Unknown).
+    let dispatch_ok = instance_status.dispatch_status
+        == dcc_mcp_transport::discovery::types::DispatchStatus::Ready
+        || (instance_status.dispatch_status
+            == dcc_mcp_transport::discovery::types::DispatchStatus::Unknown
+            && !is_sidecar);
+    status_ok && dispatch_ok
 }
 
 pub(crate) fn direct_control_report(entry: &ServiceEntry) -> Value {
