@@ -78,17 +78,18 @@ tools:
           type: string
           minLength: 1
           description: "Exact asset name from search_assets result."
-        format:
+        preferred_format:
           type: string
           description: "Preferred format (e.g. fbx, usd, abc, obj, gltf). First available when omitted."
-        lod:
+        preferred_lod:
           type: string
-          description: "Level of detail: proxy, low, medium, high. Medium when omitted."
+          description: "Level of detail: proxy, low, medium, high. Closest available when omitted."
     output_schema:
       type: object
       required: [success]
       properties:
         success: { type: boolean }
+        resolved: { type: boolean }
         descriptor:
           type: object
           properties:
@@ -127,11 +128,11 @@ tools:
     call_examples:
       - arguments:
           asset_name: "table_01"
-          format: "fbx"
+          preferred_format: "fbx"
         note: "Resolve table_01 with FBX variant preferred"
       - arguments:
           asset_name: "hero_character"
-          lod: "high"
+          preferred_lod: "high"
         note: "Resolve character with high-detail LOD"
 
   - name: import_asset
@@ -348,6 +349,8 @@ tools:
       required: [success]
       properties:
         success: { type: boolean }
+        total_assets: { type: integer }
+        all_healthy: { type: boolean }
         catalogs:
           type: array
           items:
