@@ -16,7 +16,7 @@
 
 use serde_json::{Value, json};
 
-use dcc_mcp_transport::discovery::types::ServiceEntry;
+use dcc_mcp_transport::discovery::types::{InstanceStatus, ServiceEntry};
 
 use super::super::state::GatewayState;
 use super::util::{parse_bool, parse_query, split_uri};
@@ -352,6 +352,13 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
         Value::Null
     };
 
+    // ADR 018: unified instance_status block (canonical status representation).
+    let instance_status = InstanceStatus::from_entry(
+        e,
+        stale,
+        super::super::http_registration::entry_uses_sidecar_dispatch(e),
+    );
+
     json!({
         "instance_id":    e.instance_id.to_string(),
         "instance_short": dcc_mcp_gateway_core::naming::instance_short(&e.instance_id),
@@ -367,6 +374,12 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
         "stale":          stale,
         "scene":          e.scene,
         "metadata":       &e.metadata,
+        "instance_status": {
+            "status": instance_status.status.to_string(),
+            "dispatch_status": instance_status.dispatch_status.to_string(),
+            "retryable": instance_status.retryable,
+            "recommended_next_action": &instance_status.recommended_next_action,
+        },
         "dispatch": {
             "reported": dispatch_status.is_some(),
             "ready":    dispatch_ready_value,
@@ -691,6 +704,12 @@ mod tests {
         assert!(json["dispatch"]["ready"].is_null() || json["dispatch"]["ready"].is_boolean());
         assert!(json["dispatch"]["status"].is_string());
 
+        // ADR 018: instance_status block
+        assert!(json["instance_status"]["status"].is_string());
+        assert!(json["instance_status"]["dispatch_status"].is_string());
+        assert!(json["instance_status"]["retryable"].is_boolean());
+        assert!(json["instance_status"]["recommended_next_action"].is_string());
+
         // Compact projection must NOT include verbose fields
         assert!(json.get("lifecycle").is_none());
         assert!(json.get("gateway").is_none());
@@ -699,11 +718,11 @@ mod tests {
         assert!(json.get("pool").is_none());
         assert!(json.get("host_execution").is_none());
 
-        // Size check: compact hit should be well under 500B
+        // Size check: compact hit should be well under 600B (instance_status adds ~150B)
         let compact_str = serde_json::to_string(&json).unwrap();
         assert!(
-            compact_str.len() < 500,
-            "compact hit size {}B exceeds 500B target",
+            compact_str.len() < 600,
+            "compact hit size {}B exceeds 600B target",
             compact_str.len()
         );
     }
@@ -719,6 +738,10 @@ mod tests {
         let json = compact_instance_json(&entry, std::time::Duration::from_secs(30));
         assert_eq!(json["status"], "stale");
         assert_eq!(json["stale"], true);
+        // ADR 018: instance_status for stale entry
+        assert_eq!(json["instance_status"]["status"], "stale");
+        assert_eq!(json["instance_status"]["dispatch_status"], "unknown");
+        assert_eq!(json["instance_status"]["retryable"], false);
     }
 
     #[test]
@@ -736,6 +759,9 @@ mod tests {
         assert_eq!(json["dispatch"]["ready"], true);
         assert_eq!(json["dispatch"]["reported"], true);
         assert_eq!(json["dispatch"]["status"], "ready");
+        // ADR 018: instance_status for dispatch-ready entry
+        assert_eq!(json["instance_status"]["dispatch_status"], "ready");
+        assert_eq!(json["instance_status"]["retryable"], true);
     }
 
     // ── Query matching tests ─────────────────────────────────────────────
