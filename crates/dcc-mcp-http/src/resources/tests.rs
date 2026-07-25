@@ -50,6 +50,29 @@ async fn scene_delta_reports_only_changed_state_and_notifies_subscribers() {
 }
 
 #[test]
+fn scene_delta_aligns_nodes_by_instance_id() {
+    let reg = ResourceRegistry::new(true, false);
+    reg.set_scene(json!({"roots": [
+        {"instance_id": 10, "name": "Camera"},
+        {"instance_id": 20, "name": "Player"}
+    ]}));
+    reg.set_scene(json!({"roots": [
+        {"instance_id": 30, "name": "Probe"},
+        {"instance_id": 10, "name": "Camera"},
+        {"instance_id": 20, "name": "Player"}
+    ]}));
+
+    let result = reg.read("scene://delta").unwrap();
+    let delta: serde_json::Value =
+        serde_json::from_str(result.contents[0].text.as_deref().unwrap()).unwrap();
+    let changes = delta["delta"]["changes"].as_array().unwrap();
+    assert_eq!(changes.len(), 2);
+    assert!(!delta["delta"]["truncated"].as_bool().unwrap());
+    assert_eq!(changes[0]["path"], "/roots/0/instance_id");
+    assert_eq!(changes[1]["path"], "/roots/0/name");
+}
+
+#[test]
 fn list_includes_scene_and_audit_by_default() {
     let reg = ResourceRegistry::new(true, false);
     let uris: Vec<String> = reg.list().into_iter().map(|r| r.uri).collect();
