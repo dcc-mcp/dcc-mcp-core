@@ -9,11 +9,12 @@ use std::time::SystemTime;
 
 use anyhow::Context;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{
+    GATEWAY_SENTINEL_DCC_TYPE, InstanceStatus, ServiceEntry, ServiceStatus,
+};
 use serde_json::{Value, json};
 
 const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
-const DISPATCH_STATUS_READY: &str = "ready";
 const ROLE_METADATA_KEY: &str = "dcc_mcp_role";
 const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 const FAILURE_STAGE_METADATA_KEY: &str = "failure_stage";
@@ -226,21 +227,18 @@ pub(crate) fn direct_control_ready(entry: &ServiceEntry) -> bool {
         .metadata
         .get(ROLE_METADATA_KEY)
         .is_some_and(|role| role == ROLE_PER_DCC_SIDECAR);
-    if !matches!(entry.status, ServiceStatus::Available | ServiceStatus::Busy) {
-        return false;
-    }
-    match entry.metadata.get(DISPATCH_STATUS_METADATA_KEY) {
-        Some(status) => status == DISPATCH_STATUS_READY,
-        None => !is_sidecar,
-    }
+    let instance_status = InstanceStatus::from_entry(entry, false, is_sidecar);
+    instance_status.dispatch_status == dcc_mcp_transport::discovery::types::DispatchStatus::Ready
+        && matches!(
+            instance_status.status,
+            ServiceStatus::Available | ServiceStatus::Busy
+        )
 }
 
 pub(crate) fn direct_control_report(entry: &ServiceEntry) -> Value {
     let role = entry.metadata.get(ROLE_METADATA_KEY).map(String::as_str);
-    let dispatch_status = entry
-        .metadata
-        .get(DISPATCH_STATUS_METADATA_KEY)
-        .map(String::as_str);
+    let is_sidecar = role == Some(ROLE_PER_DCC_SIDECAR);
+    let instance_status = InstanceStatus::from_entry(entry, false, is_sidecar);
     let ready = direct_control_ready(entry);
     let reason = if ready {
         Value::Null
@@ -249,25 +247,17 @@ pub(crate) fn direct_control_report(entry: &ServiceEntry) -> Value {
     } else {
         Value::String("dispatch_status".to_string())
     };
-    let recommended_next_action = if ready {
-        "Use this instance through the local MCP route."
-    } else if !matches!(entry.status, ServiceStatus::Available | ServiceStatus::Busy) {
-        "Run wait-ready for this instance and inspect startup logs if it stays unavailable."
-    } else if role == Some(ROLE_PER_DCC_SIDECAR) {
-        "Wait for this sidecar to report dispatch_status=ready before routing local CLI calls to it."
-    } else {
-        "Wait for dispatch_status=ready before routing local CLI calls to this instance."
-    };
 
     json!({
         "ready": ready,
         "route": if ready { "local_mcp" } else { "none" },
         "reason": reason,
-        "service_status": entry.status.to_string(),
-        "dispatch_status": dispatch_status.unwrap_or("not_reported"),
+        "service_status": instance_status.status.to_string(),
+        "dispatch_status": instance_status.dispatch_status.to_string(),
+        "retryable": instance_status.retryable,
+        "recommended_next_action": instance_status.recommended_next_action,
         "role": role.unwrap_or("direct-mcp"),
         "diagnostics": direct_control_diagnostics(entry),
-        "recommended_next_action": recommended_next_action,
     })
 }
 

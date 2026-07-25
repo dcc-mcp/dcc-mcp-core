@@ -13,7 +13,7 @@ use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pym
 use std::collections::HashMap;
 
 #[cfg(feature = "python-bindings")]
-use crate::discovery::types::{ServiceEntry, ServiceStatus};
+use crate::discovery::types::{DispatchStatus, InstanceStatus, ServiceEntry, ServiceStatus};
 #[cfg(feature = "python-bindings")]
 use crate::ipc::{TransportAddress, TransportScheme};
 
@@ -84,6 +84,114 @@ impl From<ServiceStatus> for PyServiceStatus {
             ServiceStatus::ShuttingDown => PyServiceStatus::ShuttingDown,
             ServiceStatus::Booting => PyServiceStatus::Booting,
             ServiceStatus::Stale => PyServiceStatus::Stale,
+        }
+    }
+}
+
+// ── PyDispatchStatus ──
+
+/// Python-facing enum for application-level dispatch readiness.
+///
+/// ADR 018 — replaces the free-form ``dispatch_status`` metadata string.
+///
+/// ```python,ignore
+/// from dcc_mcp_core import DispatchStatus
+///
+/// status = DispatchStatus.READY
+/// print(status)  # "READY"
+/// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "DispatchStatus", eq, from_py_object)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PyDispatchStatus {
+    /// Instance has reported dispatch-ready.
+    #[pyo3(name = "READY")]
+    Ready,
+    /// Instance is alive but not yet dispatch-ready.
+    #[pyo3(name = "PENDING")]
+    Pending,
+    /// Instance reported a dispatch failure.
+    #[pyo3(name = "FAILED")]
+    Failed,
+    /// Instance has not reported dispatch status.
+    #[pyo3(name = "UNKNOWN")]
+    Unknown,
+}
+
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyDispatchStatus {
+    fn __repr__(&self) -> String {
+        format!("DispatchStatus.{}", self.__str__())
+    }
+
+    fn __str__(&self) -> &'static str {
+        match self {
+            Self::Ready => "READY",
+            Self::Pending => "PENDING",
+            Self::Failed => "FAILED",
+            Self::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<DispatchStatus> for PyDispatchStatus {
+    fn from(s: DispatchStatus) -> Self {
+        match s {
+            DispatchStatus::Ready => PyDispatchStatus::Ready,
+            DispatchStatus::Pending => PyDispatchStatus::Pending,
+            DispatchStatus::Failed => PyDispatchStatus::Failed,
+            DispatchStatus::Unknown => PyDispatchStatus::Unknown,
+        }
+    }
+}
+
+// ── PyInstanceStatus ──
+
+/// Python-facing unified instance status (ADR 018).
+///
+/// Combines transport-level status, dispatch readiness, retryability,
+/// and a recommended next action.
+///
+/// ```python,ignore
+/// from dcc_mcp_core import InstanceStatus
+///
+/// status = InstanceStatus.from_entry(entry, stale=False)
+/// print(status.status)               # ServiceStatus.AVAILABLE
+/// print(status.dispatch_status)      # DispatchStatus.READY
+/// print(status.retryable)            # True
+/// print(status.recommended_next_action)  # "Instance is available for dispatch."
+/// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "InstanceStatus", from_py_object)]
+#[derive(Debug, Clone)]
+pub struct PyInstanceStatus {
+    /// Transport-level connection state.
+    #[pyo3(get)]
+    pub status: PyServiceStatus,
+    /// Application-level dispatch readiness.
+    #[pyo3(get)]
+    pub dispatch_status: PyDispatchStatus,
+    /// Whether the current state is safe to retry.
+    #[pyo3(get)]
+    pub retryable: bool,
+    /// Human + machine-readable recommended next step.
+    #[pyo3(get)]
+    pub recommended_next_action: String,
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<InstanceStatus> for PyInstanceStatus {
+    fn from(s: InstanceStatus) -> Self {
+        Self {
+            status: s.status.into(),
+            dispatch_status: s.dispatch_status.into(),
+            retryable: s.retryable,
+            recommended_next_action: s.recommended_next_action,
         }
     }
 }
