@@ -5,9 +5,11 @@ use std::time::Duration;
 use anyhow::Context;
 #[cfg(test)]
 use base64::Engine;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use serde::Serialize;
 use serde_json::{Map, Value};
+
+use super::output::{ErrorEnvelope, ExitCode, OutputFormat, OutputWriter};
 
 use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
@@ -74,16 +76,26 @@ pub struct Args {
         default_value = "10"
     )]
     auto_gateway_timeout_secs: u64,
-    #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
-    output: OutputFormat,
+    /// Output format: human, json, or ndjson. Auto-detects from TTY when omitted.
+    #[arg(
+        long,
+        global = true,
+        env = "DCC_MCP_OUTPUT",
+        value_parser = parse_output_format
+    )]
+    output: Option<OutputFormat>,
+    /// Non-interactive mode: zero prompts, missing input fails immediately (exit code 2).
+    #[arg(long, global = true, env = "DCC_MCP_NON_INTERACTIVE")]
+    non_interactive: bool,
+    /// Global timeout in seconds for all operations.
+    #[arg(long, global = true, env = "DCC_MCP_TIMEOUT_SECS")]
+    timeout_secs: Option<u64>,
     #[command(subcommand)]
     command: Command,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum OutputFormat {
-    Json,
-    Pretty,
+fn parse_output_format(s: &str) -> Result<OutputFormat, String> {
+    OutputFormat::from_flag(s)
 }
 
 // clap keeps flattened command arguments by value; this parser enum is short-lived.
@@ -612,8 +624,21 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         auto_gateway_bin,
         auto_gateway_timeout_secs,
         output,
+        non_interactive: _non_interactive,
+        timeout_secs: global_timeout_secs,
         command,
     } = args;
+
+    // Resolve output format: explicit flag > env > TTY auto-detect.
+    let output = output.unwrap_or_else(OutputFormat::auto_detect);
+    let writer = OutputWriter::new(output);
+
+    // Deprecation warning for per-command timeout when global timeout is set.
+    if global_timeout_secs.is_some() && command_has_per_timeout(&command) {
+        let _ = writer.diagnostic(
+            "warning: --timeout-secs is set globally; per-command timeout flags are ignored",
+        );
+    }
 
     let profile_path = gateway_profile::default_profile_path();
     let profile_store = gateway_profile::GatewayProfileStore::load(&profile_path)?;
@@ -639,6 +664,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     }
 
     let mut failed = false;
+    let mut exit_code = ExitCode::GeneralError;
     let value = match command {
         Command::Smoke {
             url,
@@ -646,6 +672,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             limit,
             timeout_secs,
         } => {
+            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
             let endpoint = url
                 .as_deref()
                 .map(Endpoint::from_mcp_url)
@@ -653,10 +680,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             let mcp_url = url.as_ref().map(|raw| endpoint_for_mcp(raw));
             let client = DccMcpClient::with_gateway(
                 endpoint,
-                HttpGateway::with_timeout(Duration::from_secs(timeout_secs.max(1))),
+                HttpGateway::with_timeout(Duration::from_secs(effective_timeout.max(1))),
             );
             let result = client.smoke(mcp_url, query, limit).await;
             failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            if failed {
+                exit_code = ExitCode::Unavailable;
+            }
             result
         }
         Command::Health => {
@@ -752,12 +782,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             meta_json,
             timeout_secs,
         } => {
+            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
             let mut result = if batch {
                 let mut request =
                     read_batch_request(&arguments_json, steps.as_deref(), json_file.as_deref())?;
                 attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
                 control
-                    .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
+                    .call_batch(request, Duration::from_secs(effective_timeout.max(1)))
                     .await?
             } else {
                 let tool_slug = tool_slug
@@ -776,12 +807,15 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                         instance_id,
                         arguments,
                         meta,
-                        Duration::from_secs(timeout_secs.max(1)),
+                        Duration::from_secs(effective_timeout.max(1)),
                     )
                     .await?
             };
             materialize_call_images(&mut result, &default_image_artifact_root());
             failed = !crate::application::local_control::call_result_succeeded(&result);
+            if failed {
+                exit_code = ExitCode::GeneralError;
+            }
             result
         }
         Command::CallBatch {
@@ -789,18 +823,23 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             json_file,
             timeout_secs,
         } => {
+            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
             let mut request = read_call_arguments(&request_json, json_file.as_deref())?;
             attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
             let mut result = control
-                .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
+                .call_batch(request, Duration::from_secs(effective_timeout.max(1)))
                 .await?;
             materialize_call_images(&mut result, &default_image_artifact_root());
             failed = !crate::application::local_control::call_result_succeeded(&result);
+            if failed {
+                exit_code = ExitCode::GeneralError;
+            }
             result
         }
         Command::UiControl { action } => {
             let (tool_name, args) = action.into_call();
             let full_output = args.full_output;
+            let effective_timeout = global_timeout_secs.unwrap_or(args.timeout_secs);
             let arguments = read_call_arguments(&args.arguments_json, args.json_file.as_deref())?;
             let meta = args
                 .meta_json
@@ -815,11 +854,14 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     args.instance_id,
                     arguments,
                     meta,
-                    Duration::from_secs(args.timeout_secs.max(1)),
+                    Duration::from_secs(effective_timeout.max(1)),
                 )
                 .await?;
             materialize_call_images(&mut result, &default_image_artifact_root());
             failed = !crate::application::local_control::call_result_succeeded(&result);
+            if failed {
+                exit_code = ExitCode::GeneralError;
+            }
             if full_output {
                 result
             } else {
@@ -830,6 +872,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             let result =
                 run_record_replay(action, agent_session_id.as_deref(), &endpoint, &control).await?;
             failed = result.failed;
+            if failed {
+                exit_code = ExitCode::GeneralError;
+            }
             result.value
         }
         Command::WaitReady {
@@ -839,11 +884,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             timeout_secs,
             interval_secs,
         } => {
+            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
             let request = WaitReadyRequest {
                 dcc_type,
                 instance_id,
                 required: require,
-                timeout: Duration::from_secs(timeout_secs),
+                timeout: Duration::from_secs(effective_timeout),
                 interval: Duration::from_secs(interval_secs.max(1)),
             };
             let result = control.wait_ready(request).await?;
@@ -851,6 +897,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .get("ready")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            if failed {
+                exit_code = ExitCode::Timeout;
+            }
             result
         }
         Command::ReloadSkills {
@@ -863,6 +912,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             };
             let result = control.reload_skills(request).await?;
             failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            if failed {
+                exit_code = ExitCode::Unavailable;
+            }
             result
         }
         Command::StopInstance {
@@ -969,6 +1021,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         Command::Lint(lint_args) => {
             let result = lint::run_lint_cmd(&lint_args)?;
             failed = result.failed;
+            if failed {
+                exit_code = ExitCode::InvalidInput;
+            }
             result.value
         }
         Command::Update { action } => match action {
@@ -987,6 +1042,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 let value = service.check_update().await?;
                 if value.get("error").is_some() {
                     failed = true;
+                    exit_code = ExitCode::Unavailable;
                 }
                 to_json(value)?
             }
@@ -1013,9 +1069,15 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
     };
 
-    print_value(&value, output)?;
+    writer.write_data(&value)?;
     if failed {
-        std::process::exit(1);
+        let envelope = ErrorEnvelope::new(
+            exit_code_to_error_code(exit_code),
+            format!("command failed with exit code {}", exit_code.as_i32()),
+            exit_code,
+        );
+        writer.write_error(&envelope)?;
+        std::process::exit(exit_code.as_i32());
     }
     Ok(())
 }
@@ -1306,126 +1368,29 @@ fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
     serde_json::to_value(value).context("failed to serialize command output")
 }
 
-fn print_value(value: &Value, output: OutputFormat) -> anyhow::Result<()> {
-    match output {
-        OutputFormat::Json => println!("{}", serde_json::to_string(value)?),
-        OutputFormat::Pretty if is_list_payload(value) => print_list_pretty(value),
-        OutputFormat::Pretty => println!("{}", serde_json::to_string_pretty(value)?),
-    }
-    Ok(())
+/// Check whether a command has a per-command timeout flag.
+fn command_has_per_timeout(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Smoke { .. }
+            | Command::Call { .. }
+            | Command::CallBatch { .. }
+            | Command::UiControl { .. }
+            | Command::WaitReady { .. }
+    )
 }
 
-fn is_list_payload(value: &Value) -> bool {
-    value.get("instances").is_some() && value.get("gateway").is_some()
-}
-
-fn print_list_pretty(value: &Value) {
-    let gateway = value.get("gateway").unwrap_or(&Value::Null);
-    println!("Gateway");
-    if let Some(current) = gateway.get("current").filter(|v| !v.is_null()) {
-        println!(
-            "  owner      {}",
-            gateway_summary(
-                current,
-                current
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .unwrap_or("active")
-            )
-        );
-    } else if let Some(error) = gateway.get("error").and_then(Value::as_str) {
-        println!("  owner      unknown ({error})");
-    } else {
-        println!("  owner      unknown");
+fn exit_code_to_error_code(exit_code: ExitCode) -> &'static str {
+    match exit_code {
+        ExitCode::Success => "OK",
+        ExitCode::GeneralError => "GENERAL_ERROR",
+        ExitCode::InvalidInput => "INVALID_INPUT",
+        ExitCode::Unavailable => "UNAVAILABLE",
+        ExitCode::Timeout => "TIMEOUT",
+        ExitCode::Cancelled => "CANCELLED",
+        ExitCode::PermissionDenied => "PERMISSION_DENIED",
+        ExitCode::Conflict => "CONFLICT",
     }
-
-    let candidates = gateway
-        .get("candidates")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if candidates.is_empty() {
-        println!("  candidates none");
-    } else {
-        println!("  candidates");
-        for candidate in candidates {
-            println!("    {}", gateway_summary(&candidate, "challenger"));
-        }
-    }
-
-    println!();
-    println!("Instances");
-    let instances = value
-        .get("instances")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if instances.is_empty() {
-        println!("  none");
-        return;
-    }
-    for instance in instances {
-        let dcc = instance
-            .get("dcc_type")
-            .and_then(Value::as_str)
-            .unwrap_or("-");
-        let short = instance
-            .get("instance_short")
-            .or_else(|| instance.get("instance_id"))
-            .and_then(Value::as_str)
-            .unwrap_or("-");
-        let name = instance
-            .get("display_name")
-            .and_then(Value::as_str)
-            .unwrap_or("-");
-        let pid = instance
-            .get("pid")
-            .and_then(Value::as_u64)
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "-".to_string());
-        let status = instance
-            .get("status")
-            .and_then(Value::as_str)
-            .unwrap_or("available");
-        let mcp_url = instance
-            .get("mcp_url")
-            .and_then(Value::as_str)
-            .unwrap_or("-");
-        println!("  {dcc:<12} {short:<12} {status:<12} pid={pid:<8} name={name} mcp={mcp_url}");
-    }
-}
-
-fn gateway_summary(value: &Value, fallback_role: &str) -> String {
-    let name = value
-        .get("name")
-        .or_else(|| value.get("display_name"))
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    let role = value
-        .get("role")
-        .and_then(Value::as_str)
-        .unwrap_or(fallback_role);
-    let pid = value
-        .get("pid")
-        .and_then(Value::as_u64)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    let dcc = value
-        .get("adapter_dcc")
-        .and_then(Value::as_str)
-        .unwrap_or("-");
-    let version = value
-        .get("adapter_version")
-        .or_else(|| value.get("version"))
-        .and_then(Value::as_str)
-        .unwrap_or("-");
-    let host = value.get("host").and_then(Value::as_str).unwrap_or("-");
-    let port = value
-        .get("port")
-        .and_then(Value::as_u64)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    format!("{name} role={role} pid={pid} dcc={dcc} version={version} addr={host}:{port}")
 }
 
 #[cfg(test)]
