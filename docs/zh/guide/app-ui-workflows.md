@@ -21,7 +21,7 @@ Dashboard）、`ui_control` 自动化工具套件以及与 UI 功能交互的 CL
 - **合并日志（Merged Logs）** — 跨所有网关日志文件的聚合日志查看器
 - **健康检查（Health）** — 就绪与存活探针
 
-详见 [admin-ui.md](../guide/admin-ui.md) 了解激活标志、环境变量、
+详见 [admin-ui.md](../../guide/admin-ui.md) 了解激活标志、环境变量、
 Python/Rust API 配置及完整功能说明。
 
 ### 启用与禁用
@@ -55,7 +55,7 @@ dcc-mcp-server --admin-path /dcc-admin
 ### 分析仪表盘
 
 独立分析仪表盘提供 KPI 时序、热力图、工具排名及 CSV/JSONL 导出。
-详见 [analytics-dashboard.md](../guide/analytics-dashboard.md)。
+详见 [analytics-dashboard.md](../../guide/analytics-dashboard.md)。
 
 ## UI 控制自动化
 
@@ -73,7 +73,7 @@ dcc-mcp-server --admin-path /dcc-admin
 
 始终将第 6 步视为 `finally` 代码块——在成功、失败、取消或放弃时都需调用。
 
-详见 [ui-control-workflows.md](../guide/ui-control-workflows.md) 查阅完整参考：
+详见 [ui-control-workflows.md](../../guide/ui-control-workflows.md) 查阅完整参考：
 决策规则、证据溯源、系统配置操作、恢复模式及验证要求。
 
 ### CLI 接口
@@ -92,10 +92,10 @@ dcc-mcp-cli ui-control system-operation --instance-id <id> --json '{"operation_i
 
 | 文档 | 用途 |
 |------|------|
-| [admin-ui.md](../guide/admin-ui.md) | 管理面板完整参考：激活、面板、审计、健康检查 |
-| [analytics-dashboard.md](../guide/analytics-dashboard.md) | KPI 仪表盘、时序、热力图、CSV/JSONL 导出 |
-| [ui-control-workflows.md](../guide/ui-control-workflows.md) | UI 控制自动化：完整工作流参考、恢复、验证 |
-| [gateway.md](../guide/gateway.md) | 多 DCC 网关：聚合、工具路由、选举 |
-| [gateway-diagnostics.md](../guide/gateway-diagnostics.md) | 网关健康、就绪、争用、故障诊断 |
-| [cli-reference.md](../guide/cli-reference.md) | 规范 CLI 命令、标志、配置 |
-| [observability-usage.md](../guide/observability-usage.md) | Agent、CLI 和管理面板的可观测性用法 |
+| [admin-ui.md](../../guide/admin-ui.md) | 管理面板完整参考：激活、面板、审计、健康检查 |
+| [analytics-dashboard.md](../../guide/analytics-dashboard.md) | KPI 仪表盘、时序、热力图、CSV/JSONL 导出 |
+| [ui-control-workflows.md](../../guide/ui-control-workflows.md) | UI 控制自动化：完整工作流参考、恢复、验证 |
+| [gateway.md](../../guide/gateway.md) | 多 DCC 网关：聚合、工具路由、选举 |
+| [gateway-diagnostics.md](../../guide/gateway-diagnostics.md) | 网关健康、就绪、争用、故障诊断 |
+| [cli-reference.md](../../guide/cli-reference.md) | 规范 CLI 命令、标志、配置 |
+| [observability-usage.md](../../guide/observability-usage.md) | Agent、CLI 和管理面板的可观测性用法 |
