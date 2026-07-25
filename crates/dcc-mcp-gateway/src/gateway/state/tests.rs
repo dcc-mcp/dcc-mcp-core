@@ -1406,3 +1406,60 @@ async fn test_sub_state_views_carry_only_their_responsibility() {
     assert_eq!(s.adapter_version, gs.adapter_version.as_deref());
     assert_eq!(s.adapter_dcc, gs.adapter_dcc.as_deref());
 }
+
+// ── ADR 018 instance_status tests ─────────────────────────────────────
+
+#[test]
+fn test_instance_status_for_available_ready() {
+    let mut e = ServiceEntry::new("blender", "127.0.0.1", 9876);
+    e.metadata = std::collections::HashMap::from([
+        ("dispatch_status".to_string(), "ready".to_string()),
+        (
+            "mcp_url".to_string(),
+            "http://127.0.0.1:9876/mcp".to_string(),
+        ),
+    ]);
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
+    let is = &json["instance_status"];
+    assert_eq!(is["status"].as_str(), Some("available"));
+    assert_eq!(is["dispatch_status"].as_str(), Some("ready"));
+    assert_eq!(is["retryable"].as_bool(), Some(true));
+    assert!(is["recommended_next_action"].is_string());
+}
+
+#[test]
+fn test_instance_status_for_stale_entry() {
+    let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    e.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(600);
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
+    let is = &json["instance_status"];
+    assert_eq!(is["status"].as_str(), Some("stale"));
+    assert_eq!(is["dispatch_status"].as_str(), Some("unknown"));
+    assert_eq!(is["retryable"].as_bool(), Some(false));
+    assert!(is["recommended_next_action"].is_string());
+}
+
+#[test]
+fn test_instance_status_for_booting_pending() {
+    let mut e = ServiceEntry::new("houdini", "127.0.0.1", 9878);
+    e.status = ServiceStatus::Booting;
+    e.metadata =
+        std::collections::HashMap::from([("dispatch_status".to_string(), "pending".to_string())]);
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
+    let is = &json["instance_status"];
+    assert_eq!(is["status"].as_str(), Some("booting"));
+    assert_eq!(is["dispatch_status"].as_str(), Some("pending"));
+    assert_eq!(is["retryable"].as_bool(), Some(true));
+}
+
+#[test]
+fn test_instance_status_for_failed_dispatch() {
+    let mut e = ServiceEntry::new("maya", "127.0.0.1", 18813);
+    e.metadata =
+        std::collections::HashMap::from([("dispatch_status".to_string(), "failed".to_string())]);
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
+    let is = &json["instance_status"];
+    assert_eq!(is["status"].as_str(), Some("available"));
+    assert_eq!(is["dispatch_status"].as_str(), Some("failed"));
+    assert_eq!(is["retryable"].as_bool(), Some(false));
+}
