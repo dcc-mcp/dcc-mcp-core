@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.76](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.75...v0.19.76) (2026-07-25)
+
+
+### Features
+
+* **cli:** implement ADR 018 P0 CLI output contract (PIP-2894) ([285428a](https://github.com/dcc-mcp/dcc-mcp-core/commit/285428a7dfa63303d8f3e6076e5a5fdf3d6413b5))
+
+
+### Bug Fixes
+
+* **state:** align UIA and scene nodes by identity ([#2066](https://github.com/dcc-mcp/dcc-mcp-core/issues/2066)) ([3d09bf1](https://github.com/dcc-mcp/dcc-mcp-core/commit/3d09bf15dd57b631ab8a2d480de01b696bda62aa))
+* **ui-control:** acknowledge barrier before cosmetic refresh ([#2060](https://github.com/dcc-mcp/dcc-mcp-core/issues/2060)) ([16dc55b](https://github.com/dcc-mcp/dcc-mcp-core/commit/16dc55ba7cd8c3c452b3d572c4aeaf2e5bdb4a9d))
+
+
+### Documentation
+
+* add app-ui-workflows.md entry-point survey (PIP-2910) ([8cb96f3](https://github.com/dcc-mcp/dcc-mcp-core/commit/8cb96f300cb8ad148320936533ef2bb87359fc06))
+* highlight skill-driven ecosystem ([#2065](https://github.com/dcc-mcp/dcc-mcp-core/issues/2065)) ([90b8ea4](https://github.com/dcc-mcp/dcc-mcp-core/commit/90b8ea4607d1d1082e8248cd60103f3f0567c1fe))
+
 ## [0.19.75](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.74...v0.19.75) (2026-07-24)
 
 
