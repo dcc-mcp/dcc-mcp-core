@@ -351,11 +351,11 @@ impl UiControlHost {
             Ok(runtime) => runtime,
             Err(failure) => return failure.into_response(),
         };
-        if let Err(failure) = runtime.start_visible_notice() {
-            if failure.code != UiControlHostErrorCode::UserInterrupted {
-                runtime.stop();
-                return failure.into_response();
-            }
+        if let Err(failure) = runtime.start_visible_notice()
+            && failure.code != UiControlHostErrorCode::UserInterrupted
+        {
+            runtime.stop();
+            return failure.into_response();
         }
         let target = runtime.target().clone();
 
