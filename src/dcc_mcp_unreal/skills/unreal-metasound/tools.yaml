@@ -1,0 +1,232 @@
+tools:
+  - name: create_metasound_source
+    description: >-
+      Create a new MetaSound Source asset under /Game/ namespace.
+      Returns the asset path and initial graph handle. Fails if the
+      path is outside /Game/ or if an asset already exists at the
+      target location.
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/create_metasound_source.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Asset path under /Game/, e.g. '/Game/Audio/MySound'"
+        authoring_class:
+          type: string
+          description: "MetaSound authoring class. Default: 'MetasoundSource'"
+          default: MetasoundSource
+      required: [asset_path]
+    next-tools:
+      on-success: [unreal_metasound__add_metasound_input, unreal_metasound__add_metasound_node]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: add_metasound_input
+    description: >-
+      Add an input parameter to a MetaSound graph. Supported types:
+      Float, Bool, Int, String, WaveTable, Object. Returns the input
+      identifier and assigned type.
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/add_metasound_input.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Path to the MetaSound Source asset, e.g. '/Game/Audio/MySound'"
+        input_name:
+          type: string
+          description: "Name for the input parameter"
+        value_type:
+          type: string
+          description: "Parameter type: Float, Bool, Int, String, WaveTable, or Object"
+          enum: [Float, Bool, Int, String, WaveTable, Object]
+        default_value:
+          description: "Optional default value for the input. Type must match value_type."
+      required: [asset_path, input_name, value_type]
+    next-tools:
+      on-success: [unreal_metasound__set_metasound_parameter_default]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: add_metasound_node
+    description: >-
+      Add a DSP node to a MetaSound graph. Node type is validated
+      against a whitelist: Oscillator, Filter, Envelope, Mixer,
+      WavePlayer, Delay, Reverb, PitchShift, DynamicsProcessor,
+      Flanger, Chorus. Returns the node name and type.
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/add_metasound_node.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Path to the MetaSound Source asset, e.g. '/Game/Audio/MySound'"
+        node_type:
+          type: string
+          description: "DSP node type"
+          enum:
+            - Oscillator
+            - Filter
+            - Envelope
+            - Mixer
+            - WavePlayer
+            - Delay
+            - Reverb
+            - PitchShift
+            - DynamicsProcessor
+            - Flanger
+            - Chorus
+        node_name:
+          type: string
+          description: "Optional name for the node. Auto-generated if omitted."
+        position_x:
+          type: number
+          description: "Optional X position in graph canvas"
+        position_y:
+          type: number
+          description: "Optional Y position in graph canvas"
+      required: [asset_path, node_type]
+    next-tools:
+      on-success: [unreal_metasound__connect_metasound_nodes]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: connect_metasound_nodes
+    description: >-
+      Connect two nodes in a MetaSound graph using a structured
+      connection descriptor: from_node, from_pin, to_node, to_pin.
+      Returns the connection details on success.
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/connect_metasound_nodes.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Path to the MetaSound Source asset, e.g. '/Game/Audio/MySound'"
+        from_node:
+          type: string
+          description: "Source node name in the graph"
+        from_pin:
+          type: string
+          description: "Output pin name on the source node"
+        to_node:
+          type: string
+          description: "Target node name in the graph"
+        to_pin:
+          type: string
+          description: "Input pin name on the target node"
+      required: [asset_path, from_node, from_pin, to_node, to_pin]
+    next-tools:
+      on-success: [unreal_metasound__build_metasound, unreal_metasound__validate_metasound_graph]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: set_metasound_parameter_default
+    description: >-
+      Set the default value of a MetaSound input parameter. The value
+      must be type-compatible with the parameter's declared type.
+      Returns the updated parameter details.
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: true
+    source_file: scripts/set_metasound_parameter_default.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Path to the MetaSound Source asset, e.g. '/Game/Audio/MySound'"
+        input_name:
+          type: string
+          description: "Name of the input parameter to update"
+        value:
+          description: "New default value. Type must match the parameter's declared type."
+      required: [asset_path, input_name, value]
+    next-tools:
+      on-success: [unreal_metasound__build_metasound]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: build_metasound
+    description: >-
+      Compile / build a MetaSound asset. Returns build status, any
+      compilation errors or warnings, and the resulting asset
+      reference. Required before the asset can be used at runtime.
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: true
+    source_file: scripts/build_metasound.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Path to the MetaSound Source asset, e.g. '/Game/Audio/MySound'"
+      required: [asset_path]
+    next-tools:
+      on-success: [unreal_metasound__validate_metasound_graph]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log, unreal_metasound__validate_metasound_graph]
+
+  - name: list_metasound_nodes
+    description: >-
+      List all nodes in a MetaSound graph with their names and types.
+      Read-only inspection tool — no graph modifications.
+    execution: sync
+    affinity: main
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/list_metasound_nodes.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Path to the MetaSound Source asset, e.g. '/Game/Audio/MySound'"
+      required: [asset_path]
+    next-tools:
+      on-success: []
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: validate_metasound_graph
+    description: >-
+      Validate a MetaSound graph for structural correctness: no cycles,
+      all inputs connected, all nodes are valid types. When Unreal
+      version is below 5.4, returns compatible: false with a
+      structured reason. Read-only — does not modify the graph.
+    execution: sync
+    affinity: main
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/validate_metasound_graph.py
+    input_schema:
+      type: object
+      properties:
+        asset_path:
+          type: string
+          description: "Path to the MetaSound Source asset, e.g. '/Game/Audio/MySound'"
+      required: [asset_path]
+    next-tools:
+      on-success: []
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
