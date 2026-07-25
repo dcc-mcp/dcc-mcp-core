@@ -1,0 +1,313 @@
+tools:
+  - name: scaffold
+    description: >-
+      Generate a new DCC-MCP skill skeleton: SKILL.md with proper frontmatter,
+      tools.yaml with one example tool, scripts/ directory with a thin wrapper,
+      and references/ directory. Use this to start a new skill from a template
+      instead of copying an existing one.
+    input_schema:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: "Skill name (kebab-case, e.g. 'maya-rigging', 'blender-modeling')."
+        dcc:
+          type: string
+          description: "Target DCC (e.g. 'maya', 'blender', 'houdini', 'python' for cross-DCC)."
+        layer:
+          type: string
+          description: "Skill layer: 'domain' (default), 'infrastructure', 'thin-harness', or 'example'."
+          default: domain
+        description:
+          type: string
+          description: "Skill description. Auto-generated from name when omitted."
+        parent_dir:
+          type: string
+          description: "Parent directory for the skill. Defaults to current directory."
+        tool_name:
+          type: string
+          description: "First tool name (snake_case). Auto-generated from skill name when omitted."
+        affinity:
+          type: string
+          description: "Thread affinity for the first tool: 'main' or 'any' (default)."
+          default: any
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Skill tags for gateway search filtering."
+        compatibility:
+          type: string
+          description: "Compatibility string (default: 'Python 3.7+, dcc-mcp-core 0.19+')."
+          default: "Python 3.7+, dcc-mcp-core 0.19+"
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        skill_path:
+          type: string
+        created_files:
+          type: array
+          items: { type: string }
+        next_steps:
+          type: array
+          items: { type: string }
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 10
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+    source_file: scripts/scaffold.py
+    call_examples:
+      - arguments:
+          name: "maya-rigging"
+          dcc: "maya"
+          tool_name: "create_rig"
+          affinity: "main"
+        note: "Scaffold a new Maya rigging domain skill"
+      - arguments:
+          name: "blender-utils"
+          dcc: "blender"
+          layer: "thin-harness"
+        note: "Scaffold a Blender thin-harness skill"
+
+  - name: validate
+    description: >-
+      Run the full validation suite on a skill directory. Checks SKILL.md
+      frontmatter, tools.yaml schema compliance, script file references,
+      dependency consistency, and skill-helper adoption warnings.
+    input_schema:
+      type: object
+      required: [skill_path]
+      properties:
+        skill_path:
+          type: string
+          minLength: 1
+          description: "Path to the skill directory containing SKILL.md."
+        strict:
+          type: boolean
+          description: "Treat warnings as errors (default false)."
+          default: false
+    output_schema:
+      type: object
+      required: [success, valid]
+      properties:
+        success:
+          type: boolean
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              severity: { type: string }
+              category: { type: string }
+              message: { type: string }
+        warnings:
+          type: array
+          items:
+            type: object
+            properties:
+              severity: { type: string }
+              category: { type: string }
+              message: { type: string }
+        summary:
+          type: string
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 15
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    source_file: scripts/validate.py
+    call_examples:
+      - arguments:
+          skill_path: "/path/to/my-skill"
+        note: "Validate a skill directory"
+      - arguments:
+          skill_path: "./skills/maya-rigging"
+          strict: true
+        note: "Strict validation — warnings are errors"
+
+  - name: package
+    description: >-
+      Build a deployable marketplace package from a skill directory. Runs
+      validation first, then creates a versioned package ready for publishing.
+      The package includes SKILL.md, tools.yaml, scripts/, and references/.
+    input_schema:
+      type: object
+      required: [skill_path]
+      properties:
+        skill_path:
+          type: string
+          minLength: 1
+          description: "Path to the skill directory to package."
+        version:
+          type: string
+          description: "Version for the package. Reads from SKILL.md metadata when omitted."
+        output_dir:
+          type: string
+          description: "Output directory for the package. Defaults to ./dist/."
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        package_path:
+          type: string
+        version:
+          type: string
+        validation_passed:
+          type: boolean
+        size_bytes:
+          type: integer
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    source_file: scripts/package.py
+    call_examples:
+      - arguments:
+          skill_path: "./skills/maya-rigging"
+        note: "Package with auto-detected version"
+      - arguments:
+          skill_path: "./skills/my-skill"
+          version: "1.2.0"
+          output_dir: "./releases"
+        note: "Package with explicit version to custom output dir"
+
+  - name: publish
+    description: >-
+      Validate, package, and publish a skill to the marketplace. Runs the
+      full build pipeline and uploads the package. Fails early if validation
+      or packaging fails.
+    input_schema:
+      type: object
+      required: [skill_path]
+      properties:
+        skill_path:
+          type: string
+          minLength: 1
+          description: "Path to the skill directory to publish."
+        version:
+          type: string
+          description: "Version bump: 'auto' (from SKILL.md), 'patch', 'minor', 'major', or explicit semver."
+          default: auto
+        dry_run:
+          type: boolean
+          description: "Validate and package without uploading (default false)."
+          default: false
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        published:
+          type: boolean
+        package_version:
+          type: string
+        validation:
+          type: object
+        package_path:
+          type: string
+        marketplace_url:
+          type: string
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: true
+    source_file: scripts/publish.py
+    call_examples:
+      - arguments:
+          skill_path: "./skills/maya-rigging"
+          dry_run: true
+        note: "Dry run — validate + package without uploading"
+      - arguments:
+          skill_path: "./skills/maya-rigging"
+          version: "patch"
+        note: "Publish with auto patch version bump"
+
+  - name: list_installed
+    description: >-
+      List all locally installed DCC-MCP skills with their versions, layers,
+      and DCC targets. Use to check what's available before scaffolding or
+      to verify a publish succeeded.
+    input_schema:
+      type: object
+      properties:
+        dcc_type:
+          type: string
+          description: "Filter by DCC type (e.g. 'maya', 'blender')."
+        layer:
+          type: string
+          description: "Filter by layer: 'domain', 'infrastructure', 'thin-harness', 'example'."
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        count:
+          type: integer
+        skills:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              version: { type: string }
+              layer: { type: string }
+              dcc: { type: string }
+              path: { type: string }
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 10
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    source_file: scripts/list_installed.py
+    call_examples:
+      - arguments: {}
+        note: "List all installed skills"
+      - arguments:
+          dcc_type: "maya"
+          layer: "domain"
+        note: "List only Maya domain skills"
