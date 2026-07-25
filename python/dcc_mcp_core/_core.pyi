@@ -60,12 +60,14 @@ __all__ = [
     "DccErrorCode",
     "DccInfo",
     "DccLinkFrame",
+    "DispatchStatus",
     "EventBus",
     "FileRef",
     "FrameRange",
     "GracefulIpcChannelAdapter",
     "GuiExecutableHint",
     "InputValidator",
+    "InstanceStatus",
     "IpcChannelAdapter",
     "LoggingMiddleware",
     "ObjectTransform",
@@ -4055,6 +4057,41 @@ class ServiceStatus(enum.Enum):
     def __repr__(self) -> builtins.str: ...
     def __str__(self) -> builtins.str: ...
 
+class DispatchStatus(enum.Enum):
+    r"""
+    Python-facing enum for application-level dispatch readiness.
+
+    ADR 018 — replaces the free-form ``dispatch_status`` metadata string.
+
+    ```python,ignore
+    from dcc_mcp_core import DispatchStatus
+
+    status = DispatchStatus.READY
+    print(status)  # "READY"
+    ```
+    """
+    READY = ...
+    r"""
+    Instance has reported dispatch-ready (all readiness bits green).
+    """
+    PENDING = ...
+    r"""
+    Instance is alive but has not yet reported dispatch-ready (booting,
+    sidecar waiting for host, etc.).
+    """
+    FAILED = ...
+    r"""
+    Instance reported a dispatch failure (failure_stage + failure_reason
+    metadata set).
+    """
+    UNKNOWN = ...
+    r"""
+    Instance has not reported dispatch status (legacy / embedded / pre-sidecar).
+    """
+
+    def __repr__(self) -> builtins.str: ...
+    def __str__(self) -> builtins.str: ...
+
 @typing.final
 class SkillRuntimeKind(enum.Enum):
     r"""
@@ -4396,3 +4433,42 @@ def validate_tool_name(name: builtins.str) -> None:
 
     Raises ``ValueError`` on any violation; returns ``None`` on success.
     """
+
+@typing.final
+class InstanceStatus:
+    r"""
+    Python-facing unified instance status (ADR 018).
+
+    Combines transport-level status, dispatch readiness, retryability,
+    and a recommended next action.
+
+    ```python,ignore
+    from dcc_mcp_core import InstanceStatus
+
+    status = InstanceStatus.from_entry(entry, stale=False)
+    print(status.status)               # ServiceStatus.AVAILABLE
+    print(status.dispatch_status)      # DispatchStatus.READY
+    print(status.retryable)            # True
+    print(status.recommended_next_action)  # "Instance is available for dispatch."
+    ```
+    """
+    @property
+    def status(self) -> ServiceStatus:
+        r"""
+        Transport-level connection state.
+        """
+    @property
+    def dispatch_status(self) -> DispatchStatus:
+        r"""
+        Application-level dispatch readiness.
+        """
+    @property
+    def retryable(self) -> builtins.bool:
+        r"""
+        Whether the current state is safe to retry.
+        """
+    @property
+    def recommended_next_action(self) -> builtins.str:
+        r"""
+        Human + machine-readable recommended next step.
+        """

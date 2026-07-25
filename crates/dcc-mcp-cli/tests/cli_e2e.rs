@@ -845,7 +845,7 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
     assert_eq!(ready_row["direct_control"]["route"], "local_mcp");
     assert_eq!(
         ready_row["direct_control"]["recommended_next_action"],
-        "Use this instance through the local MCP route."
+        "Instance is available for dispatch."
     );
 
     let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
