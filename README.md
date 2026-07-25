@@ -10,13 +10,13 @@
 
 [中文](README_zh.md) | English
 
-**Rust-first control plane for connecting AI agents to live DCC sessions.**
+**Skill-first, Rust-powered control plane for a growing creative-tool ecosystem.**
 
-dcc-mcp-core turns Maya, Blender, Houdini, Photoshop, Godot, RenderDoc, and
-custom studio hosts into discoverable MCP and REST capabilities. It provides
-the gateway, skills, structured results, main-thread dispatch, diagnostics,
-IPC, workflows, and packaged CLI/server binaries needed to operate real
-desktop sessions.
+dcc-mcp-core connects agents to desktop DCCs, game engines, 2D tools,
+production systems, asset providers, profilers, and custom studio hosts through
+discoverable MCP and REST capabilities. It provides the gateway, Skills,
+structured results, main-thread dispatch, diagnostics, IPC, workflows, and
+packaged CLI/server binaries needed to operate real sessions.
 
 ## Choose your entry point
 
@@ -25,6 +25,7 @@ desktop sessions.
 | Control a running DCC from an agent or CI job | [dcc-mcp-cli](docs/guide/cli-reference.md) |
 | Expose a DCC adapter over MCP/REST | [create_skill_server](docs/guide/getting-started.md) |
 | Add tools without Python registration code | [SKILL.md + tools.yaml](docs/guide/skills.md) |
+| Discover and install reusable Skills | [DCC-MCP Marketplace](https://github.com/dcc-mcp/marketplace) |
 | Build a new DCC adapter | [new-adapter-onboarding.md](docs/guide/new-adapter-onboarding.md) |
 | Understand routing and multi-instance behavior | [gateway.md](docs/guide/gateway.md) |
 | Integrate from any HTTP client | [rest-api-surface.md](docs/guide/rest-api-surface.md) |
@@ -120,6 +121,35 @@ scene-editing logic from scratch but remain effective when selecting a
 well-described tool and supplying validated arguments. Studios can distribute
 different Skill sets by project and production stage, reducing repeated code
 generation, token use, and model-dependent variance.
+
+This is also the practical customization boundary for studio TDs and TAs. Core
+and adapters keep ownership of host connectivity, main-thread execution,
+routing, safety, and observability. A TD or TA can encode the actual project
+flow—naming and scene checks, asset preparation, publish gates, cache/export
+rules, and review hand-offs—as a Skill made from `SKILL.md`, `tools.yaml`, and
+the studio's existing scripts. Those Skills can be tested, scoped to a project
+or team, and distributed through a public or private marketplace without
+forking the control plane or rebuilding an adapter.
+
+### One contract, a growing ecosystem
+
+The same Skill and runtime contract now spans much more than the original DCC
+adapters:
+
+| Area | Examples |
+|---|---|
+| Desktop DCCs | Maya, Blender, Houdini, 3ds Max, Nuke, Katana, MotionBuilder, ZBrush |
+| Design and content tools | Photoshop, Substance 3D Designer/Painter, After Effects, Premiere, GIMP, Krita |
+| Game and 2D engines | Unreal Engine, Unity, Godot, Tiled, Material Maker |
+| Pipeline and quality | OpenUSD, Flow Production Tracking, MaterialX, texture/publish workflows, RenderDoc, Tracy |
+| Reusable Skills | Asset providers, generative 2D/3D services, UI automation, rigging, procedural authoring, game release and acceptance |
+
+Browse every integration in the
+[DCC-MCP organization](https://github.com/orgs/dcc-mcp/repositories), or use
+the [official Marketplace](https://github.com/dcc-mcp/marketplace) to discover
+optional Skills without changing an adapter.
+
+[![DCC-MCP Skill Marketplace](docs/assets/admin-ui/admin-marketplace.png)](https://github.com/dcc-mcp/marketplace)
 
 The Admin UI closes the feedback loop. Calls, traces, logs, health, statistics,
 and usage data show which tools agents selected and where they failed. Teams can
