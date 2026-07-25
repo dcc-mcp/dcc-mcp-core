@@ -22,6 +22,7 @@ Decision / Consequences / Alternatives considered.
 | 015 | [Bound Windows system configuration to operator grants](./015-bounded-ui-control-system-operations.md) | Accepted |
 | 016 | [Unify application automation under UI Control naming](./016-unify-ui-control-naming.md) | Accepted |
 | 017 | [Codex-style Record & Replay with visual closed-loop execution](./017-codex-record-replay-visual-closed-loop.md) | Accepted |
+| 018 | [CLI Interaction Contract & Workflow Consistency](./018-cli-interaction-contract-workflow-consistency.md) | Proposed |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any
