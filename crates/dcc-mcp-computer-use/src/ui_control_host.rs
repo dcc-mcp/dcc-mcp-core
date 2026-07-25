@@ -352,8 +352,10 @@ impl UiControlHost {
             Err(failure) => return failure.into_response(),
         };
         if let Err(failure) = runtime.start_visible_notice() {
-            runtime.stop();
-            return failure.into_response();
+            if failure.code != UiControlHostErrorCode::UserInterrupted {
+                runtime.stop();
+                return failure.into_response();
+            }
         }
         let target = runtime.target().clone();
 
@@ -507,6 +509,9 @@ impl UiControlHost {
             UiControlWindowOperation::Show => "show_window",
             UiControlWindowOperation::Activate => "activate_window",
         };
+        if let Err(failure) = session.runtime.start_visible_notice() {
+            return failure.into_response();
+        }
         match session.runtime.change_window_state(operation) {
             Ok(state) => {
                 audit_event(

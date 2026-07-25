@@ -108,6 +108,12 @@ impl HostRuntimeSession for FakeSession {
     }
 
     fn start_visible_notice(&mut self) -> Result<(), HostFailure> {
+        if self.user_interrupted {
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::UserInterrupted,
+                "the operator pressed physical Escape",
+            ));
+        }
         self.notice_started = true;
         Ok(())
     }
@@ -228,6 +234,7 @@ impl HostRuntimeSession for FakeSession {
 
     fn resume_after_approval(&mut self) -> Result<(), HostFailure> {
         self.resume_calls.fetch_add(1, Ordering::SeqCst);
+        self.user_interrupted = false;
         Ok(())
     }
 
@@ -476,6 +483,20 @@ fn explicit_resume_clears_user_interrupt_without_another_confirmation() {
         else {
             panic!("session not opened: {opened:?}");
         };
+        if user_interrupted {
+            assert!(matches!(
+                host.change_window_state(
+                    "resume",
+                    "grant-1",
+                    &window_capability,
+                    UiControlWindowOperation::Activate,
+                ),
+                UiControlHostResponse::Error {
+                    code: UiControlHostErrorCode::UserInterrupted,
+                    ..
+                }
+            ));
+        }
         let resumed = host.resume_session("resume", "grant-1", &window_capability);
         assert!(matches!(
             resumed,
@@ -485,6 +506,10 @@ fn explicit_resume_clears_user_interrupt_without_another_confirmation() {
             resume_calls.load(Ordering::SeqCst),
             usize::from(user_interrupted)
         );
+        assert!(matches!(
+            host.snapshot("resume", "grant-1", &window_capability, 5, 250),
+            UiControlHostResponse::Snapshot { .. }
+        ));
     }
 }
 
