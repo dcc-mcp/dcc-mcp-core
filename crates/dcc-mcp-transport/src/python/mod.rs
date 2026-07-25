@@ -22,4 +22,7 @@ pub use dcc_link::{
 };
 
 #[cfg(feature = "python-bindings")]
-pub use types::{PyServiceEntry, PyServiceStatus, PyTransportAddress, PyTransportScheme};
+pub use types::{
+    PyDispatchStatus, PyInstanceStatus, PyServiceEntry, PyServiceStatus, PyTransportAddress,
+    PyTransportScheme,
+};

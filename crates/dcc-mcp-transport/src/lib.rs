@@ -50,7 +50,9 @@ pub use dcc_link::{
     DccLinkFrame, DccLinkType, GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
 };
 pub use discovery::ServiceRegistry;
-pub use discovery::types::{ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus};
+pub use discovery::types::{
+    DispatchStatus, InstanceStatus, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
+};
 pub use error::{TransportError, TransportResult};
 pub use event_bridge::{EventBridge, EventBridgeService, NoopBridge};
 pub use ipc::{IpcConfig, PlatformCapabilities, TransportAddress, TransportScheme};
@@ -59,6 +61,7 @@ pub use listener::{IpcListener, ListenerHandle};
 // Re-export Python bindings
 #[cfg(feature = "python-bindings")]
 pub use python::{
-    PyDccLinkFrame, PyGracefulIpcChannelAdapter, PyIpcChannelAdapter, PyServiceEntry,
-    PyServiceStatus, PySocketServerAdapter, PyTransportAddress, PyTransportScheme,
+    PyDccLinkFrame, PyDispatchStatus, PyGracefulIpcChannelAdapter, PyInstanceStatus,
+    PyIpcChannelAdapter, PyServiceEntry, PyServiceStatus, PySocketServerAdapter,
+    PyTransportAddress, PyTransportScheme,
 };

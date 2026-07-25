@@ -61,7 +61,7 @@ use super::mdns_registration::MdnsInstanceRegistry;
 use super::relay_registration::RelayInstanceRegistry;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{InstanceStatus, ServiceEntry, ServiceStatus};
 
 use super::middleware::MiddlewareChain;
 
@@ -709,6 +709,25 @@ fn dispatch_json(e: &ServiceEntry, stale: bool) -> Value {
     })
 }
 
+/// Build the unified `instance_status` block per ADR 018.
+///
+/// This is the canonical status representation. The legacy `dispatch` sub-object
+/// is kept alongside it for backward compatibility and will be removed in a
+/// future release.
+fn instance_status_json(e: &ServiceEntry, stale: bool) -> Value {
+    let is = InstanceStatus::from_entry(
+        e,
+        stale,
+        super::http_registration::entry_uses_sidecar_dispatch(e),
+    );
+    json!({
+        "status": is.status.to_string(),
+        "dispatch_status": is.dispatch_status.to_string(),
+        "retryable": is.retryable,
+        "recommended_next_action": is.recommended_next_action,
+    })
+}
+
 fn ui_control_diagnostics(
     e: &ServiceEntry,
     snap: &crate::gateway::capability::IndexSnapshot,
@@ -820,6 +839,7 @@ pub fn entry_to_json(
         "adapter_dcc":     e.adapter_dcc,
         "lifecycle":       lifecycle_json(e),
         "gateway":         gateway_json(e),
+        "instance_status": instance_status_json(e, stale),
         "dispatch":        dispatch_json(e, stale),
         "metadata":        e.metadata,
         "pool": {
