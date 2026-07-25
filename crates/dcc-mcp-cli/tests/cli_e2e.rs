@@ -803,11 +803,9 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         .unwrap();
     assert_eq!(diagnostic_row["direct_control"]["ready"], false);
     assert_eq!(diagnostic_row["direct_control"]["reason"], "service_status");
-    assert!(
-        diagnostic_row["direct_control"]["recommended_next_action"]
-            .as_str()
-            .unwrap()
-            .contains("wait-ready")
+    assert_eq!(
+        diagnostic_row["direct_control"]["recommended_next_action"],
+        "Instance is booting; wait for readiness and retry."
     );
     let sidecar_row = instances
         .iter()
@@ -831,11 +829,9 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         sidecar_row["direct_control"]["diagnostics"]["logs"]["stderr_path"],
         "C:/tmp/dcc-sidecar-logs/sidecar-maya-4242.stderr.log"
     );
-    assert!(
-        sidecar_row["direct_control"]["recommended_next_action"]
-            .as_str()
-            .unwrap()
-            .contains("dispatch_status=ready")
+    assert_eq!(
+        sidecar_row["direct_control"]["recommended_next_action"],
+        "Inspect instance failure stage/reason; the backend may need a restart."
     );
     let ready_row = instances
         .iter()
