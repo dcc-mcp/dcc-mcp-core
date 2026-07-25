@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.77](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.76...v0.19.77) (2026-07-25)
+
+
+### Bug Fixes
+
+* **capture:** avoid redundant recording encodes ([#2072](https://github.com/dcc-mcp/dcc-mcp-core/issues/2072)) ([4add917](https://github.com/dcc-mcp/dcc-mcp-core/commit/4add91773a60fdc6c64c146f70017d6364e408f3))
+* **ui-control:** allow exact Unity pane navigation ([a3d31a7](https://github.com/dcc-mcp/dcc-mcp-core/commit/a3d31a727d33dc5efdc7d99fb50bb58d092f7149))
+* **ui-control:** allow explicit resume after escape ([#2070](https://github.com/dcc-mcp/dcc-mcp-core/issues/2070)) ([f0cae9d](https://github.com/dcc-mcp/dcc-mcp-core/commit/f0cae9d7026cfd2fbf4e0627c5d62878845c1d1b))
+
 ## [0.19.76](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.75...v0.19.76) (2026-07-25)
 
 
