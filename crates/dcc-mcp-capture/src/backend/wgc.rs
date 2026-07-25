@@ -289,7 +289,8 @@ mod imp {
 
     use crate::error::{CaptureError, CaptureResult};
     use crate::recording::{
-        WindowRecordingConfig, WindowRecordingFrame, WindowRecordingPacer, WindowRecordingSummary,
+        WindowRecordingConfig, WindowRecordingFrame, WindowRecordingPacer, WindowRecordingSchedule,
+        WindowRecordingSummary,
     };
     use crate::types::{CaptureConfig, CaptureFormat, CaptureFrame, CaptureTarget};
     use crate::window::WindowFinder;
@@ -535,30 +536,21 @@ mod imp {
             }
 
             let elapsed = clip_started.elapsed();
-            for index in pacer.take_due(elapsed) {
-                let (data, out_width, out_height) = encode_pixels(
-                    &encode_config,
-                    latest.data.clone(),
-                    latest.width,
-                    latest.height,
-                )?;
-                let timestamp_ms = started_at_ms
-                    + config
-                        .schedule()
-                        .deadline(index)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                on_frame(WindowRecordingFrame {
-                    index,
-                    timestamp_ms,
-                    data,
-                    width: out_width,
-                    height: out_height,
-                })?;
-                if is_cancelled() {
-                    return Err(CaptureError::Cancelled);
-                }
-            }
+            emit_due_frames(
+                pacer.take_due(elapsed),
+                config.schedule(),
+                started_at_ms,
+                || {
+                    encode_pixels(
+                        &encode_config,
+                        latest.data.clone(),
+                        latest.width,
+                        latest.height,
+                    )
+                },
+                &mut on_frame,
+                &mut is_cancelled,
+            )?;
 
             if pacer.is_complete() && elapsed >= duration {
                 break;
@@ -575,6 +567,39 @@ mod imp {
             width,
             height,
         })
+    }
+
+    fn emit_due_frames<Encode, OnFrame, IsCancelled>(
+        due: std::ops::Range<u32>,
+        schedule: WindowRecordingSchedule,
+        started_at_ms: u64,
+        mut encode: Encode,
+        on_frame: &mut OnFrame,
+        is_cancelled: &mut IsCancelled,
+    ) -> CaptureResult<()>
+    where
+        Encode: FnMut() -> CaptureResult<(Vec<u8>, u32, u32)>,
+        OnFrame: FnMut(WindowRecordingFrame) -> CaptureResult<()>,
+        IsCancelled: FnMut() -> bool,
+    {
+        if due.is_empty() {
+            return Ok(());
+        }
+        let (data, width, height) = encode()?;
+        for index in due {
+            on_frame(WindowRecordingFrame {
+                index,
+                timestamp_ms: started_at_ms
+                    + schedule.deadline(index).unwrap_or_default().as_millis() as u64,
+                data: data.clone(),
+                width,
+                height,
+            })?;
+            if is_cancelled() {
+                return Err(CaptureError::Cancelled);
+            }
+        }
+        Ok(())
     }
 
     struct CaptureSessionGuard<'a> {
@@ -944,6 +969,37 @@ mod imp {
             assert_eq!(checked_buffer_len(1920, 1080).unwrap(), 1920 * 1080 * 4);
             assert!(checked_buffer_len(0, 1080).is_err());
             assert!(checked_buffer_len(100_000, 100_000).is_err());
+        }
+
+        #[test]
+        fn overdue_frames_encode_the_shared_source_pixels_once() {
+            let schedule = WindowRecordingSchedule::new(1_000, 10).unwrap();
+            let mut encode_count = 0;
+            let mut frames = Vec::new();
+            let mut sink = |frame| {
+                frames.push(frame);
+                Ok(())
+            };
+            let mut is_cancelled = || false;
+
+            emit_due_frames(
+                2..5,
+                schedule,
+                1_000,
+                || {
+                    encode_count += 1;
+                    Ok((vec![1, 2, 3], 16, 9))
+                },
+                &mut sink,
+                &mut is_cancelled,
+            )
+            .unwrap();
+
+            assert_eq!(encode_count, 1);
+            assert_eq!(frames.len(), 3);
+            assert_eq!(frames[0].timestamp_ms, 1_200);
+            assert_eq!(frames[2].timestamp_ms, 1_400);
+            assert!(frames.iter().all(|frame| frame.data == [1, 2, 3]));
         }
 
         #[test]
