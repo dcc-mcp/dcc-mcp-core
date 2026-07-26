@@ -825,9 +825,6 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         .as_deref()
         .map(|path| crate::acquire_pid_file(path, args.force))
         .transpose()?;
-    if let Some(path) = args.pid_file.as_deref() {
-        crate::spawn_pid_cleanup_watcher(path, std::process::id());
-    }
 
     // ── Serve ─────────────────────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);

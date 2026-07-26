@@ -279,6 +279,7 @@ pub(crate) fn acquire_pid_file(
         std::fs::create_dir_all(parent)?;
     }
 
+    spawn_pid_cleanup_watcher(path, current_pid);
     std::fs::write(path, format!("{current_pid}\n"))?;
     Ok(PidFileGuard {
         path: path.to_path_buf(),
@@ -305,7 +306,8 @@ pub(crate) fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
-        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
 
     if let Err(error) = cmd.spawn() {
@@ -437,7 +439,12 @@ fn build_server_gateway_daemon_options(
 fn run_pid_cleanup_watcher(path: PathBuf, pid: u32) {
     loop {
         if !is_process_alive(pid) {
-            if let Err(error) = std::fs::remove_file(&path)
+            let owns_file = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|raw| raw.trim().parse::<u32>().ok())
+                == Some(pid);
+            if owns_file
+                && let Err(error) = std::fs::remove_file(&path)
                 && error.kind() != std::io::ErrorKind::NotFound
             {
                 tracing::warn!(path = %path.display(), %error, "PID cleanup watcher failed to remove file");
@@ -839,9 +846,6 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         .as_deref()
         .map(|path| acquire_pid_file(path, args.force))
         .transpose()?;
-    if let Some(path) = args.pid_file.as_deref() {
-        spawn_pid_cleanup_watcher(path, std::process::id());
-    }
 
     // ── Collect skill paths ───────────────────────────────────────────────
 

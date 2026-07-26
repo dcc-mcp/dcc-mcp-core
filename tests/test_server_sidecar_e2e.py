@@ -648,6 +648,7 @@ class TestServerBinarySidecar:
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **_process_group_kwargs(),
         )
         try:
             # Wait up to 5 s for the PID file to appear.
