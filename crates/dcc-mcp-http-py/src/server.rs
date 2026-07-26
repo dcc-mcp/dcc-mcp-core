@@ -4,6 +4,9 @@ use super::*;
 use std::collections::HashMap;
 use std::time::Duration;
 
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
+
 /// Handle returned by `McpHttpServer.start()`.
 ///
 /// Example::
@@ -11,6 +14,7 @@ use std::time::Duration;
 ///     handle = server.start()
 ///     # ... later ...
 ///     handle.shutdown()
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "McpServerHandle", skip_from_py_object)]
 pub struct PyServerHandle {
     pub(crate) inner: Option<McpServerHandle>,
@@ -19,6 +23,8 @@ pub struct PyServerHandle {
     pub bind_addr: String,
     /// ``True`` if this process won the gateway port competition.
     pub is_gateway: bool,
+    /// Canonical string form of the UUID registered in `FileRegistry`.
+    pub instance_id: Option<String>,
     /// Shared live metadata — mirrors `McpHttpServer::live_meta` so Python
     /// can push scene/version/documents updates that flow into FileRegistry
     /// on the next heartbeat tick.
@@ -70,6 +76,7 @@ impl Drop for PyServerHandle {
     }
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyServerHandle {
     /// The actual port the server is listening on.
@@ -118,6 +125,15 @@ impl PyServerHandle {
     #[getter]
     fn is_gateway(&self) -> bool {
         self.is_gateway
+    }
+
+    /// The exact UUID registered in ``FileRegistry``, or ``None``.
+    ///
+    /// ``None`` means gateway registration was disabled or unavailable. The
+    /// value is cached on the handle and remains readable after ``shutdown()``.
+    #[getter]
+    fn instance_id(&self) -> Option<&str> {
+        self.instance_id.as_deref()
     }
 
     /// Update the live instance metadata in the gateway registry.

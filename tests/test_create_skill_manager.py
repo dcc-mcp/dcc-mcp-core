@@ -13,8 +13,12 @@ Covers:
 
 from __future__ import annotations
 
+import json
+from uuid import UUID
+
 import pytest
 
+from conftest import allocate_gateway_port
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import create_skill_server
@@ -113,6 +117,42 @@ class TestCreateSkillManagerServerHandle:
         handle = server.start()
         handle.shutdown()
         handle.shutdown()  # Second shutdown must not raise
+
+    def test_instance_id_is_none_when_gateway_registration_is_disabled(self):
+        config = McpHttpConfig(port=0)
+        config.gateway_port = 0
+        server = create_skill_server("maya", config=config)
+
+        handle = server.start()
+        assert handle.instance_id is None
+        handle.shutdown()
+        assert handle.instance_id is None
+
+    def test_instance_id_matches_registry_and_survives_handle_shutdown(
+        self,
+        tmp_path,
+    ):
+        config = McpHttpConfig(port=0)
+        config.gateway_port = allocate_gateway_port()
+        config.registry_dir = str(tmp_path)
+        config.heartbeat_secs = 0
+        config.admin_enabled = False
+        config.dcc_type = "maya"
+        server = create_skill_server("maya", config=config)
+
+        handle = server.start()
+        instance_id = handle.instance_id
+        try:
+            assert instance_id is not None
+            assert instance_id == str(UUID(instance_id))
+            rows = json.loads((tmp_path / "services.json").read_text(encoding="utf-8"))
+            maya_rows = [row for row in rows if row["dcc_type"] == "maya"]
+            assert len(maya_rows) == 1
+            assert instance_id == maya_rows[0]["instance_id"]
+        finally:
+            handle.shutdown()
+
+        assert handle.instance_id == instance_id
 
 
 class TestCreateSkillManagerSkillMethods:
