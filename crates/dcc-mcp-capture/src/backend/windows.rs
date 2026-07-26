@@ -13,8 +13,10 @@ use crate::error::{CaptureError, CaptureResult};
 use crate::types::CaptureFormat;
 use crate::types::{CaptureBackendKind, CaptureConfig, CaptureFrame};
 
+#[cfg(any(target_os = "windows", test))]
 const E_ACCESSDENIED_HRESULT: i32 = 0x8007_0005_u32 as i32;
 
+#[cfg(any(target_os = "windows", test))]
 fn map_duplicate_output_error(code: i32, native_error: String) -> CaptureError {
     if code == E_ACCESSDENIED_HRESULT {
         CaptureError::DesktopUnavailable {
