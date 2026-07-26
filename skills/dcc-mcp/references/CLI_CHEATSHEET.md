@@ -72,6 +72,7 @@ vx python scripts/dcc_gateway.py --ensure-cli list
 | `dcc-mcp-cli describe <slug>` | Inspect schema |
 | `dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{"radius":2}'` | Invoke one tool through the measured gateway route with a stable task-scoped stats identifier |
 | `dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42"}'` | Invoke a measured tool call on an instance leased by this workflow |
+| `dcc-mcp-cli call <slug> --require-gateway --wait --wait-timeout-secs 600 --json '{}'` | Wait inside the CLI for an asynchronous job instead of spending agent calls on status polling |
 
 `dcc-types` reports the release catalog, not running instances. Entries include
 their canonical `dcc_type`, adapters, version/source data when available, and

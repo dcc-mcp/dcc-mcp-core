@@ -197,7 +197,7 @@ enum Command {
         /// Invoke an ordered gateway batch instead of one tool.
         #[arg(
             long,
-            conflicts_with_all = ["tool_slug", "dcc_type", "instance_id", "meta_json"]
+            conflicts_with_all = ["tool_slug", "dcc_type", "instance_id", "meta_json", "wait"]
         )]
         batch: bool,
         /// JSON array of batch call steps. Requires --batch.
@@ -216,6 +216,17 @@ enum Command {
         json_file: Option<PathBuf>,
         #[arg(long)]
         meta_json: Option<String>,
+        /// Poll an asynchronous job through the same DCC route until it reaches a terminal state.
+        #[arg(long, conflicts_with = "batch")]
+        wait: bool,
+        /// Maximum total time to wait for an asynchronous job.
+        #[arg(
+            long,
+            default_value = "600",
+            requires = "wait",
+            conflicts_with = "batch"
+        )]
+        wait_timeout_secs: u64,
         /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
         #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
         timeout_secs: u64,
@@ -780,6 +791,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             arguments_json,
             json_file,
             meta_json,
+            wait,
+            wait_timeout_secs,
             timeout_secs,
         } => {
             let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
@@ -800,16 +813,31 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     .map(|raw| parse_json_object(raw, "--meta-json"))
                     .transpose()?;
                 let meta = attach_agent_session_id(meta, agent_session_id.as_deref())?;
-                control
-                    .call(
-                        tool_slug,
-                        dcc_type,
-                        instance_id,
-                        arguments,
-                        meta,
-                        Duration::from_secs(effective_timeout.max(1)),
-                    )
-                    .await?
+                let request_timeout = Duration::from_secs(effective_timeout.max(1));
+                if wait {
+                    control
+                        .call_and_wait(
+                            tool_slug,
+                            dcc_type,
+                            instance_id,
+                            arguments,
+                            meta,
+                            request_timeout,
+                            Duration::from_secs(wait_timeout_secs.max(1)),
+                        )
+                        .await?
+                } else {
+                    control
+                        .call(
+                            tool_slug,
+                            dcc_type,
+                            instance_id,
+                            arguments,
+                            meta,
+                            request_timeout,
+                        )
+                        .await?
+                }
             };
             materialize_call_images(&mut result, &default_image_artifact_root());
             failed = !crate::application::local_control::call_result_succeeded(&result);

@@ -151,6 +151,7 @@ dcc-mcp-cli search --query "create sphere" --dcc-type maya --instance-id abc1234
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-id task-42 --json '{"radius":2}'
+dcc-mcp-cli call unity.abc12345.run_tests --require-gateway --wait --wait-timeout-secs 600 --json '{}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test

@@ -793,6 +793,8 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 arguments_json: "{}".to_string(),
                 json_file: None,
                 meta_json: None,
+                wait: false,
+                wait_timeout_secs: 600,
                 timeout_secs: 30,
             },
             &local,
@@ -936,6 +938,29 @@ fn call_parses_configurable_request_timeout() {
         panic!("expected call command");
     };
     assert_eq!(timeout_secs, 120);
+}
+
+#[test]
+fn call_contract_parses_wait_for_async_job() {
+    let args = Args::parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "unity.abc12345.run_tests",
+        "--wait",
+        "--wait-timeout-secs",
+        "90",
+    ]);
+
+    let Command::Call {
+        wait,
+        wait_timeout_secs,
+        ..
+    } = args.command
+    else {
+        panic!("expected call command");
+    };
+    assert!(wait);
+    assert_eq!(wait_timeout_secs, 90);
 }
 
 #[test]
