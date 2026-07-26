@@ -13,6 +13,19 @@ use crate::error::{CaptureError, CaptureResult};
 use crate::types::CaptureFormat;
 use crate::types::{CaptureBackendKind, CaptureConfig, CaptureFrame};
 
+const E_ACCESSDENIED_HRESULT: i32 = 0x8007_0005_u32 as i32;
+
+fn map_duplicate_output_error(code: i32, native_error: String) -> CaptureError {
+    if code == E_ACCESSDENIED_HRESULT {
+        CaptureError::DesktopUnavailable {
+            backend: CaptureBackendKind::DxgiDesktopDuplication.to_string(),
+            native_error,
+        }
+    } else {
+        CaptureError::Platform(format!("DuplicateOutput: {native_error}"))
+    }
+}
+
 // ── DxgiBackend ────────────────────────────────────────────────────────────
 
 /// Windows DXGI Desktop Duplication capture backend.
@@ -164,7 +177,7 @@ fn capture_dxgi(config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
     let duplication = unsafe {
         output1
             .DuplicateOutput(&device)
-            .map_err(|e| CaptureError::Platform(format!("DuplicateOutput: {e}")))?
+            .map_err(|error| map_duplicate_output_error(error.code().0, error.to_string()))?
     };
 
     // Get display mode dimensions.
@@ -343,5 +356,30 @@ mod tests {
     fn test_dxgi_backend_kind() {
         let b = DxgiBackend::new();
         assert_eq!(b.backend_kind(), CaptureBackendKind::DxgiDesktopDuplication);
+    }
+
+    #[test]
+    fn duplicate_output_access_denied_maps_to_desktop_unavailable() {
+        let error = map_duplicate_output_error(
+            E_ACCESSDENIED_HRESULT,
+            "Access is denied (0x80070005)".to_owned(),
+        );
+
+        assert!(matches!(
+            error,
+            CaptureError::DesktopUnavailable {
+                ref backend,
+                ref native_error,
+            } if backend == "DXGI Desktop Duplication" && native_error.contains("0x80070005")
+        ));
+    }
+
+    #[test]
+    fn duplicate_output_other_errors_remain_platform_errors() {
+        let error = map_duplicate_output_error(0x887A_0001_u32 as i32, "invalid call".to_owned());
+        assert!(matches!(
+            error,
+            CaptureError::Platform(message) if message == "DuplicateOutput: invalid call"
+        ));
     }
 }

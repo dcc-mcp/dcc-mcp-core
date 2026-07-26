@@ -481,3 +481,14 @@ fn file_and_directory_symlinks_report_created_and_unchanged_when_permitted() {
         UiControlEnsureOutcome::Unchanged
     );
 }
+
+#[test]
+fn recording_maps_capture_desktop_unavailable_without_downgrading_it() {
+    let failure = map_recording_capture_error(CaptureError::DesktopUnavailable {
+        backend: "DXGI Desktop Duplication".to_owned(),
+        native_error: "Access is denied (0x80070005)".to_owned(),
+    });
+
+    assert_eq!(failure.code, UiControlHostErrorCode::DesktopUnavailable);
+    assert!(failure.message.contains("0x80070005"));
+}

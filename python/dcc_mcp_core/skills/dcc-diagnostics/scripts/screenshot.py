@@ -55,6 +55,8 @@ def main(
     format: str = "png",
     scale: float = 1.0,
     jpeg_quality: int = 85,
+    process_id: int | None = None,
+    window_handle: int | None = None,
     window_title: str | None = None,
     save_path: str | None = None,
     timeout_ms: int = 5000,
@@ -69,10 +71,31 @@ def main(
             "scale": scale,
             "timeout_ms": timeout_ms,
             "full_screen": full_screen,
+            "process_id": process_id,
+            "window_handle": window_handle,
             "window_title": window_title,
         }
     )
-    if ipc_payload is not None and ipc_payload.get("success"):
+    if ipc_payload is not None and not ipc_payload.get("success"):
+        return {
+            "success": False,
+            "message": ipc_payload.get("message", "DCC screenshot capture failed"),
+            "error": ipc_payload.get("error"),
+            "error_kind": ipc_payload.get("error_kind", "capture_failed"),
+            "context": {
+                k: ipc_payload.get(k)
+                for k in (
+                    "capture_backend",
+                    "capture_health",
+                    "fallback_from",
+                    "native_error",
+                    "window_handle",
+                    "window_title",
+                )
+            },
+        }
+
+    if ipc_payload is not None:
         saved_path = None
         if save_path:
             try:
@@ -101,6 +124,10 @@ def main(
                         "timestamp_ms",
                         "window_rect",
                         "window_title",
+                        "window_handle",
+                        "capture_backend",
+                        "fallback_from",
+                        "capture_health",
                         "image_base64",
                     )
                 },
@@ -115,21 +142,66 @@ def main(
         return {"success": False, "message": "dcc_mcp_core not available. Install the package first."}
 
     try:
-        capturer = Capturer.new_auto()
-    except Exception:
+        capturer = (
+            Capturer.new_auto()
+            if full_screen or not (process_id or window_handle or window_title)
+            else Capturer.new_window_auto()
+        )
+    except Exception as exc:
+        message = str(exc)
+        if message.startswith("desktop_unavailable:"):
+            return {
+                "success": False,
+                "message": f"Capture failed: {message}",
+                "error_kind": "desktop_unavailable",
+                "context": {"native_error": message},
+            }
         # Fall back to mock backend in headless environments
         capturer = Capturer.new_mock(1920, 1080)
 
     try:
-        frame = capturer.capture(
-            format=format,
-            jpeg_quality=jpeg_quality,
-            scale=scale,
-            timeout_ms=timeout_ms,
-            window_title=window_title,
-        )
+        if not full_screen and (process_id or window_handle or window_title):
+            frame = capturer.capture_window(
+                process_id=process_id,
+                window_handle=window_handle,
+                window_title=window_title,
+                format=format,
+                jpeg_quality=jpeg_quality,
+                scale=scale,
+                timeout_ms=timeout_ms,
+            )
+        else:
+            frame = capturer.capture(
+                format=format,
+                jpeg_quality=jpeg_quality,
+                scale=scale,
+                timeout_ms=timeout_ms,
+            )
     except Exception as exc:
-        return {"success": False, "message": f"Capture failed: {exc}"}
+        message = str(exc)
+        error_kind = message.partition(":")[0] if message.startswith("desktop_unavailable:") else "capture_failed"
+        return {
+            "success": False,
+            "message": f"Capture failed: {message}",
+            "error_kind": error_kind,
+            "context": {
+                "capture_backend": capturer.backend_name(),
+                "native_error": message,
+            },
+        }
+
+    capture_backend = capturer.backend_name()
+    capture_health = getattr(frame, "capture_health", "unverified")
+    if capture_health == "unusable":
+        return {
+            "success": False,
+            "message": "Capture backend reported an unusable frame",
+            "error_kind": "unusable_capture",
+            "context": {
+                "capture_backend": capture_backend,
+                "capture_health": capture_health,
+            },
+        }
 
     # Optionally save to disk
     saved_path = None
@@ -160,6 +232,8 @@ def main(
             "byte_len": frame.byte_len(),
             "timestamp_ms": frame.timestamp_ms,
             "dpi_scale": frame.dpi_scale,
+            "capture_backend": capture_backend,
+            "capture_health": capture_health,
             "saved_path": saved_path,
             "image_base64": b64_data,
         },
@@ -174,6 +248,8 @@ def _main_cli() -> int:
     parser.add_argument("--format", default="png", choices=["png", "jpeg", "raw_bgra"])
     parser.add_argument("--scale", type=float, default=1.0)
     parser.add_argument("--jpeg-quality", type=int, default=85, dest="jpeg_quality")
+    parser.add_argument("--process-id", type=int, default=None, dest="process_id")
+    parser.add_argument("--window-handle", type=int, default=None, dest="window_handle")
     parser.add_argument("--window-title", default=None, dest="window_title")
     parser.add_argument("--save-path", default=None, dest="save_path")
     parser.add_argument("--timeout-ms", type=int, default=5000, dest="timeout_ms")
@@ -184,6 +260,8 @@ def _main_cli() -> int:
         format=args.format,
         scale=args.scale,
         jpeg_quality=args.jpeg_quality,
+        process_id=args.process_id,
+        window_handle=args.window_handle,
         window_title=args.window_title,
         save_path=args.save_path,
         timeout_ms=args.timeout_ms,

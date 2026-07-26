@@ -14,6 +14,15 @@ pub enum CaptureError {
     #[error("platform error: {0}")]
     Platform(String),
 
+    /// The interactive desktop cannot currently be captured.
+    #[error("desktop_unavailable: backend={backend}; native_error={native_error}")]
+    DesktopUnavailable {
+        /// Capture backend that reported the unavailable desktop.
+        backend: String,
+        /// Original platform error retained for diagnosis.
+        native_error: String,
+    },
+
     /// The target window or process could not be found.
     #[error("target not found: {0}")]
     TargetNotFound(String),
@@ -74,6 +83,19 @@ mod tests {
     fn test_error_display_timeout() {
         let e = CaptureError::Timeout(5000);
         assert!(e.to_string().contains("5000"));
+    }
+
+    #[test]
+    fn desktop_unavailable_preserves_backend_and_native_error() {
+        let error = CaptureError::DesktopUnavailable {
+            backend: "DXGI Desktop Duplication".to_owned(),
+            native_error: "Access is denied (0x80070005)".to_owned(),
+        };
+
+        let message = error.to_string();
+        assert!(message.starts_with("desktop_unavailable:"));
+        assert!(message.contains("DXGI Desktop Duplication"));
+        assert!(message.contains("0x80070005"));
     }
 
     #[test]

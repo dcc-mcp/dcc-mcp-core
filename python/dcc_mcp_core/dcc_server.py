@@ -273,6 +273,7 @@ def _handle_take_screenshot(params_json: str) -> str:
     pid = params.get("process_id") or _instance_context.get("dcc_pid")
     title = params.get("window_title") or _instance_context.get("dcc_window_title")
 
+    cap = None
     try:
         if full_screen:
             cap = _get_full_capturer()
@@ -290,6 +291,18 @@ def _handle_take_screenshot(params_json: str) -> str:
                         hwnd = resolver()
                     except Exception as exc:
                         logger.debug("take_screenshot: resolver failed: %s", exc)
+            if not hwnd and (pid or title):
+                try:
+                    from dcc_mcp_core import CaptureTarget
+                    from dcc_mcp_core import WindowFinder
+
+                    target = CaptureTarget.process_id(pid) if pid else CaptureTarget.window_title(title)
+                    window = WindowFinder().find(target)
+                    if window is not None:
+                        hwnd = window.handle
+                        title = window.title
+                except Exception as exc:
+                    logger.debug("take_screenshot: window discovery failed: %s", exc)
             cap = _get_window_capturer()
             frame = cap.capture_window(
                 process_id=pid,
@@ -299,6 +312,27 @@ def _handle_take_screenshot(params_json: str) -> str:
                 jpeg_quality=quality,
                 scale=scale,
                 timeout_ms=timeout_ms,
+            )
+        capture_backend = cap.backend_name()
+        fallback_from = "Windows.Graphics.Capture" if not full_screen and capture_backend == "GDI PrintWindow" else None
+        capture_health = getattr(
+            frame,
+            "capture_health",
+            "degraded" if fallback_from else "unverified",
+        )
+        if capture_health == "unusable":
+            return json_dumps(
+                {
+                    "success": False,
+                    "message": "Capture backend reported an unusable frame",
+                    "error_kind": "unusable_capture",
+                    "capture_backend": capture_backend,
+                    "fallback_from": fallback_from,
+                    "capture_health": capture_health,
+                    "window_handle": hwnd,
+                    "window_title": frame.window_title,
+                    "source": "dcc-ipc",
+                }
             )
         payload = {
             "success": True,
@@ -311,15 +345,25 @@ def _handle_take_screenshot(params_json: str) -> str:
             "image_base64": base64.b64encode(frame.data).decode("ascii"),
             "window_rect": list(frame.window_rect) if frame.window_rect else None,
             "window_title": frame.window_title,
+            "window_handle": hwnd,
+            "capture_backend": capture_backend,
+            "fallback_from": fallback_from,
+            "capture_health": capture_health,
             "timestamp_ms": int(time.time() * 1000),
             "source": "dcc-ipc",
         }
     except Exception as exc:
         logger.warning("take_screenshot handler error: %s", exc)
+        message = str(exc)
+        error_kind = message.partition(":")[0] if message.startswith("desktop_unavailable:") else "capture_failed"
         payload = {
             "success": False,
-            "message": str(exc),
+            "message": message,
             "error": type(exc).__name__,
+            "error_kind": error_kind,
+            "native_error": message,
+            "capture_backend": cap.backend_name() if cap is not None else None,
+            "window_handle": hwnd,
             "source": "dcc-ipc",
         }
     return json_dumps(payload)
