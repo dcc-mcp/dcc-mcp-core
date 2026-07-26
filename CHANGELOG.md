@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.82](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.81...v0.19.82) (2026-07-26)
+
+
+### Bug Fixes
+
+* **cli:** upgrade installed pip adapters ([#2091](https://github.com/dcc-mcp/dcc-mcp-core/issues/2091)) ([0a37047](https://github.com/dcc-mcp/dcc-mcp-core/commit/0a3704754e8c4276ffda75dec54ebbe35e8c088b))
+
 ## [0.19.81](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.80...v0.19.81) (2026-07-26)
 
 
