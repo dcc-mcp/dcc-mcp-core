@@ -455,6 +455,7 @@ Clients that can't consume the `$/dcc.jobUpdated` SSE stream (or simply prefer r
 
 - **Name**: `jobs_get_status` — client-safe (validated with `TOOL_NAME_RE` at server startup; the build panics if the regex ever rejects the name).
 - **Visibility**: surfaced in `tools/list` unconditionally, regardless of which skills are loaded or whether any jobs exist.
+- **Gateway routing**: remains callable while host/DCC readiness is temporarily red during a reload; ordinary DCC tools still require a ready backend.
 - **Annotations**: `readOnlyHint=true`, `destructiveHint=false`, `idempotentHint=true`, `openWorldHint=false`.
 
 Input schema:

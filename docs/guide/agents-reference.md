@@ -193,7 +193,9 @@ tools with `execution: async` and poll `jobs_get_status`.
 2. Re-read `gateway://instances?include_stale=true&include_dead=true` and
    inspect the original row. `unreachable` with a live owner/TTL means retry
    with backoff; do not submit duplicate work.
-3. If the same instance returns, call its indexed `jobs_get_status`.
+3. If the same instance returns, call its indexed `jobs_get_status`. The
+   server-local status tool remains routable while DCC readiness is temporarily
+   red during a host reload; keep polling the original job instead of resubmitting.
 4. If owner death removes the row, wait for an explicitly restarted DCC,
    rediscover by DCC type plus scene/project metadata, and use the new slug.
    Never reuse coordinates, URLs, or slugs from the crashed instance.

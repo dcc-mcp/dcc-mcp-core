@@ -168,6 +168,7 @@ pub struct BackendJsonRpcCallRequest<'a> {
     pub method: &'a str,
     pub params: Option<Value>,
     pub request_id: Option<String>,
+    pub require_ready: bool,
     pub trace_context: Option<&'a TraceContext>,
     pub traffic_capture: Option<&'a crate::gateway::traffic::TrafficCapture>,
     pub timeout: Duration,
@@ -180,19 +181,21 @@ pub async fn call_backend_with_observability(
     mcp_url: &str,
     request: BackendJsonRpcCallRequest<'_>,
 ) -> Result<Value, String> {
-    match probe_mcp_readiness(client, mcp_url, request.timeout).await {
-        ProbeOutcome::Ready => {}
-        ProbeOutcome::Booting => {
-            return Err(BackendCallError::Booting {
-                mcp_url: mcp_url.to_string(),
+    if request.require_ready {
+        match probe_mcp_readiness(client, mcp_url, request.timeout).await {
+            ProbeOutcome::Ready => {}
+            ProbeOutcome::Booting => {
+                return Err(BackendCallError::Booting {
+                    mcp_url: mcp_url.to_string(),
+                }
+                .to_string());
             }
-            .to_string());
-        }
-        ProbeOutcome::Unreachable => {
-            return Err(BackendCallError::Unreachable {
-                mcp_url: mcp_url.to_string(),
+            ProbeOutcome::Unreachable => {
+                return Err(BackendCallError::Unreachable {
+                    mcp_url: mcp_url.to_string(),
+                }
+                .to_string());
             }
-            .to_string());
         }
     }
 

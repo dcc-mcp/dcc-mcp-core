@@ -893,6 +893,7 @@ async fn call_backend_with_observability_propagates_trace_and_captures_traffic()
             method: "tools/call",
             params: Some(json!({"name": "maya_primitives__create_sphere", "arguments": {}})),
             request_id: None,
+            require_ready: true,
             trace_context: Some(&trace_context),
             traffic_capture: Some(&capture),
             timeout: Duration::from_secs(2),
