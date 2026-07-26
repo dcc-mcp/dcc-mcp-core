@@ -513,12 +513,15 @@ fn which_program(program: &str) -> bool {
 
 pub(crate) fn execute_script(
     script_path: &str,
-    params: serde_json::Value,
+    mut params: serde_json::Value,
     skill_dcc: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
+    if let Some(object) = params.as_object_mut() {
+        object.retain(|key, _| !key.starts_with('_'));
+    }
     let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
 
     let path = std::path::Path::new(script_path);
