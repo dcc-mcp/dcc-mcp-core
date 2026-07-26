@@ -56,7 +56,8 @@ GitHub Release 会附带可直接解压部署的
 同时还会发布仅含 CLI 的 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
 供仅需 CLI 二进制的环境使用。
 
-Windows 还会发布带 SHA-256 的
+Windows 还会发布仅含 Host 的 ZIP 包
+（`dcc-mcp-ui-control-host-<version>-windows-x86_64.zip`）用于直接部署，以及带 SHA-256 的
 `dcc-mcp-ui-control-host-windows-x86_64.exe` 更新资产，其版本必须与 server
 完全一致。请在目标安装目录运行 `dcc-mcp-server update apply`：Windows 会先
 校验 server 与 host 的版本和两个哈希，再作为一个绑定安装目录、可回滚恢复的

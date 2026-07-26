@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a standalone dcc-mcp-cli release zip."""
+"""Build a standalone binary release zip."""
 
 from __future__ import annotations
 
@@ -39,31 +39,32 @@ def build_bundle(
     *,
     version: str,
     platform: str,
-    cli_bin: Path,
+    binary_name: str,
+    binary_path: Path,
     out_dir: Path,
 ) -> Path:
-    """Create a deployable CLI zip and return its path."""
+    """Create a deployable standalone binary zip and return its path."""
     version = _validate_filename_part(version, label="version")
     platform = _validate_filename_part(platform, label="platform")
+    binary_name = _validate_filename_part(binary_name, label="binary name")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    bundle_path = out_dir / f"dcc-mcp-cli-{version}-{platform}.zip"
-
-    suffix = ".exe" if cli_bin.suffix.lower() == ".exe" else ""
-    archive_name = f"dcc-mcp-cli{suffix}"
+    bundle_path = out_dir / f"{binary_name}-{version}-{platform}.zip"
+    suffix = ".exe" if binary_path.suffix.lower() == ".exe" else ""
 
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as zf:
-        _write_binary(zf, cli_bin, archive_name)
+        _write_binary(zf, binary_path, f"{binary_name}{suffix}")
 
     return bundle_path
 
 
 def main() -> int:
-    """Run the CLI bundle builder."""
+    """Run the standalone bundle builder."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True)
-    parser.add_argument("--cli-bin", type=Path, required=True)
+    parser.add_argument("--binary-name", required=True)
+    parser.add_argument("--binary-path", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, default=Path())
     args = parser.parse_args()
 
@@ -71,7 +72,8 @@ def main() -> int:
         bundle_path = build_bundle(
             version=args.version,
             platform=args.platform,
-            cli_bin=args.cli_bin,
+            binary_name=args.binary_name,
+            binary_path=args.binary_path,
             out_dir=args.out_dir,
         )
     except Exception as exc:
@@ -82,7 +84,7 @@ def main() -> int:
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with Path(github_output).open("a", encoding="utf-8") as fh:
-            fh.write(f"cli_bundle_path={bundle_output}\n")
+            fh.write(f"bundle_path={bundle_output}\n")
     print(bundle_output)
     return 0
 

@@ -153,7 +153,7 @@ jobs:
 
   # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
-  # One job, one native cargo target/ (plus an isolated manylinux target/), four outputs:
+  # One job, one native cargo target/ (plus an isolated manylinux target/), six outputs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
@@ -162,8 +162,9 @@ jobs:
   #   3. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
   #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform,
   #      plus `dcc-mcp-ui-control-host.exe` on Windows.
-  #   4. Raw Windows UI Control host used by the paired server self-updater.
-  #   5. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
+  #   4. Deployable Windows UI Control host-only zip.
+  #   5. Raw Windows UI Control host used by the paired server self-updater.
+  #   6. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
@@ -374,10 +375,23 @@ jobs:
         id: cli-bundle
         shell: bash
         run: |
-          python scripts/release/build_cli_bundle.py \
+          python scripts/release/build_standalone_bundle.py \
             --version "${{ needs.release-please.outputs.version }}" \
             --platform "${{ matrix.platform }}" \
-            --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --binary-name dcc-mcp-cli \
+            --binary-path "${{ matrix.cli_artifact_name }}" \
+            --out-dir .
+
+      - name: Create standalone UI Control Host zip
+        id: ui-control-host-bundle
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          python scripts/release/build_standalone_bundle.py \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --binary-name dcc-mcp-ui-control-host \
+            --binary-path "${{ steps.windows-ui-control-host.outputs.host_asset }}" \
             --out-dir .
 
       - name: Generate update manifest
@@ -462,7 +476,8 @@ jobs:
             ${{ matrix.cli_artifact_name }}
             ${{ steps.windows-ui-control-host.outputs.host_asset }}
             ${{ steps.server-bundle.outputs.bundle_path }}
-            ${{ steps.cli-bundle.outputs.cli_bundle_path }}
+            ${{ steps.cli-bundle.outputs.bundle_path }}
+            ${{ steps.ui-control-host-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
 
       - name: Upload server wheel artefact (for cross-job collection)
@@ -480,7 +495,8 @@ jobs:
             ${{ matrix.cli_artifact_name }}
             ${{ steps.windows-ui-control-host.outputs.host_asset }}
             ${{ steps.server-bundle.outputs.bundle_path }}
-            ${{ steps.cli-bundle.outputs.cli_bundle_path }}
+            ${{ steps.cli-bundle.outputs.bundle_path }}
+            ${{ steps.ui-control-host-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
@@ -970,6 +986,7 @@ jobs:
             '^dcc-mcp-server-'
             '^dcc-mcp-cli-'
             '^dcc-mcp-ui-control-host-windows-x86_64\.exe$'
+            '^dcc-mcp-ui-control-host-[0-9A-Za-z.+-]+-windows-x86_64\.zip$'
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'

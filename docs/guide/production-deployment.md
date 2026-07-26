@@ -56,7 +56,9 @@ three files together in the same directory.
 
 A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published
 alongside the server bundle for environments that only need the CLI binary.
-Windows releases additionally publish
+Windows releases also publish a host-only ZIP
+(`dcc-mcp-ui-control-host-<version>-windows-x86_64.zip`) for direct
+deployment, plus
 `dcc-mcp-ui-control-host-windows-x86_64.exe` as a checksummed update asset.
 It is not an optional legacy helper: its manifest version must exactly match
 the server version.
