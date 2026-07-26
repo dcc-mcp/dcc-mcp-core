@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.80](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.79...v0.19.80) (2026-07-26)
+
+
+### Features
+
+* package UI Control Host as zip ([5c9e65b](https://github.com/dcc-mcp/dcc-mcp-core/commit/5c9e65b4a1e0ac71de2b5988461439cec2585f37))
+
+
+### Bug Fixes
+
+* gate Windows capture mapping by target ([d0146c7](https://github.com/dcc-mcp/dcc-mcp-core/commit/d0146c7a2a35a2e77af348ddfa53c22a0405ef14))
+* harden Windows capture diagnostics ([35325cf](https://github.com/dcc-mcp/dcc-mcp-core/commit/35325cf8b6e52c1204eb8b1dd1a7b054a8820975))
+
 ## [0.19.79](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.78...v0.19.79) (2026-07-26)
 
 
