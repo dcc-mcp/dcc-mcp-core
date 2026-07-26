@@ -1,0 +1,379 @@
+tools:
+  - name: search_assets
+    description: >-
+      Search the asset catalog by name, type, tags, and metadata. Returns
+      matching AssetDescriptor summaries. Wraps asset-source search with
+      enriched filtering and cross-catalog federation.
+    input_schema:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          description: "Search query: asset name, type, or keyword."
+        asset_type:
+          type: string
+          description: "Filter by type: model, texture, material, rig, animation."
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Filter by tags (AND)."
+        limit:
+          type: integer
+          description: "Max results (default 20)."
+          default: 20
+        catalog:
+          type: string
+          description: "Named catalog to search (default: all)."
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        total: { type: integer }
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              asset_type: { type: string }
+              display_name: { type: string }
+              tags: { type: array }
+              source: { type: string }
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 15
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    source_file: scripts/search_assets.py
+    call_examples:
+      - arguments:
+          query: "table"
+        note: "Search for table assets across all catalogs"
+      - arguments:
+          query: "character"
+          asset_type: "rig"
+          limit: 10
+        note: "Find character rigs, limited to 10 results"
+
+  - name: resolve_asset
+    description: >-
+      Resolve an asset name into a full AssetDescriptor: local path, file
+      variants (format, LOD), attribution, and metadata. Ready for import
+      into any DCC.
+    input_schema:
+      type: object
+      required: [asset_name]
+      properties:
+        asset_name:
+          type: string
+          minLength: 1
+          description: "Exact asset name from search_assets result."
+        format:
+          type: string
+          description: "Preferred format (e.g. fbx, usd, abc, obj, gltf). First available when omitted."
+        lod:
+          type: string
+          description: "Level of detail: proxy, low, medium, high. Medium when omitted."
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        descriptor:
+          type: object
+          properties:
+            name: { type: string }
+            asset_type: { type: string }
+            display_name: { type: string }
+            variants:
+              type: array
+              items:
+                type: object
+                properties:
+                  format: { type: string }
+                  path: { type: string }
+                  file_size: { type: integer }
+                  lod: { type: string }
+            attribution:
+              type: object
+              properties:
+                author: { type: string }
+                source: { type: string }
+                version: { type: string }
+                license: { type: string }
+            metadata: {}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 10
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    source_file: scripts/resolve_asset.py
+    call_examples:
+      - arguments:
+          asset_name: "table_01"
+          format: "fbx"
+        note: "Resolve table_01 with FBX variant preferred"
+      - arguments:
+          asset_name: "hero_character"
+          lod: "high"
+        note: "Resolve character with high-detail LOD"
+
+  - name: import_asset
+    description: >-
+      Import a resolved AssetDescriptor into the active DCC scene. Discovers
+      the host-specific import tool through dcc-mcp, then executes the import
+      with the validated descriptor.
+    input_schema:
+      type: object
+      required: [descriptor]
+      properties:
+        descriptor:
+          type: object
+          description: "AssetDescriptor from resolve_asset."
+          properties:
+            name: { type: string }
+            asset_type: { type: string }
+            variants:
+              type: array
+              items: {}
+            attribution: {}
+        target_dcc:
+          type: string
+          description: "Target DCC type (auto-detected from active instance when omitted)."
+        variant_index:
+          type: integer
+          description: "Which variant to import (0 = first matching, default)."
+          default: 0
+        import_options:
+          type: object
+          description: "DCC-specific options (e.g. scale, position, materials)."
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        imported: { type: boolean }
+        asset_name: { type: string }
+        file_path: { type: string }
+        format: { type: string }
+        scene_objects:
+          type: array
+          items: { type: string }
+        duration_ms: { type: number }
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: true
+    source_file: scripts/import_asset.py
+    call_examples:
+      - arguments:
+          descriptor:
+            name: "table_01"
+            asset_type: "model"
+            variants:
+              - format: "fbx"
+                path: "/assets/table_01.fbx"
+        note: "Import table_01 FBX into active DCC scene"
+
+  - name: export_asset
+    description: >-
+      Export the current DCC selection or scene as a named asset in the
+      catalog. Discovers the host-specific export tool, executes export,
+      and registers the result.
+    input_schema:
+      type: object
+      required: [asset_name, format]
+      properties:
+        asset_name:
+          type: string
+          minLength: 1
+          description: "Name for the exported asset."
+        asset_type:
+          type: string
+          description: "Asset type: model, material, texture, animation."
+        format:
+          type: string
+          description: "Export format: fbx, usd, abc, obj, gltf."
+        selection_only:
+          type: boolean
+          description: "Export only current selection (default true)."
+          default: true
+        output_dir:
+          type: string
+          description: "Output directory. Uses catalog default when omitted."
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Tags to attach to the asset."
+        source_dcc:
+          type: string
+          description: "Source DCC type (auto-detected when omitted)."
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        exported: { type: boolean }
+        asset_name: { type: string }
+        file_path: { type: string }
+        format: { type: string }
+        file_size: { type: integer }
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: true
+    source_file: scripts/export_asset.py
+    call_examples:
+      - arguments:
+          asset_name: "my_prop"
+          format: "fbx"
+          selection_only: true
+        note: "Export selected objects as FBX"
+      - arguments:
+          asset_name: "scene_main"
+          format: "usd"
+          selection_only: false
+          tags: ["hero", "layout"]
+        note: "Export full scene as USD with tags"
+
+  - name: validate_asset
+    description: >-
+      Validate an asset file: check format integrity, file existence, size
+      sanity, and AssetDescriptor schema compliance. Supports common DCC
+      formats: FBX, USD, ABC, OBJ, GLTF, and image textures.
+    input_schema:
+      type: object
+      required: [file_path]
+      properties:
+        file_path:
+          type: string
+          minLength: 1
+          description: "Asset file path to validate."
+        format:
+          type: string
+          description: "Expected format. Auto-detected from extension when omitted."
+        check_textures:
+          type: boolean
+          description: "Also validate referenced texture files."
+          default: false
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        valid: { type: boolean }
+        file_path: { type: string }
+        format: { type: string }
+        file_exists: { type: boolean }
+        file_size: { type: integer }
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              severity: { type: string }
+              message: { type: string }
+        referenced_files:
+          type: array
+          items:
+            type: object
+            properties:
+              path: { type: string }
+              exists: { type: boolean }
+              type: { type: string }
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 15
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    source_file: scripts/validate_asset.py
+    call_examples:
+      - arguments:
+          file_path: "/assets/table_01.fbx"
+        note: "Validate an FBX asset file"
+      - arguments:
+          file_path: "/assets/hero.png"
+          check_textures: true
+        note: "Validate a texture and its references"
+
+  - name: catalog_status
+    description: >-
+      Report asset catalog health and statistics: total assets, by type, by
+      source, storage usage, and last update time.
+    input_schema:
+      type: object
+      properties:
+        catalog:
+          type: string
+          description: "Named catalog (default: all)."
+    output_schema:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        catalogs:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              total_assets: { type: integer }
+              by_type: {}
+              storage_bytes: { type: integer }
+              last_updated: { type: string }
+              healthy: { type: boolean }
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 10
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    source_file: scripts/catalog_status.py
+    call_examples:
+      - arguments: {}
+        note: "Check all catalog health"
+      - arguments:
+          catalog: "studio-assets"
+        note: "Check specific catalog"
