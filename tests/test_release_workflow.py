@@ -148,10 +148,18 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
 
     cli_bundle = next(step for step in build["steps"] if step.get("id") == "cli-bundle")
     cli_run = cli_bundle["run"]
-    assert "scripts/release/build_cli_bundle.py" in cli_run
+    assert "scripts/release/build_standalone_bundle.py" in cli_run
     assert '--version "${{ needs.release-please.outputs.version }}"' in cli_run
     assert '--platform "${{ matrix.platform }}"' in cli_run
-    assert '--cli-bin "${{ matrix.cli_artifact_name }}"' in cli_run
+    assert "--binary-name dcc-mcp-cli" in cli_run
+    assert '--binary-path "${{ matrix.cli_artifact_name }}"' in cli_run
+
+    host_bundle = next(step for step in build["steps"] if step.get("id") == "ui-control-host-bundle")
+    host_bundle_run = host_bundle["run"]
+    assert host_bundle["if"] == "matrix.os == 'windows-latest'"
+    assert "scripts/release/build_standalone_bundle.py" in host_bundle_run
+    assert "--binary-name dcc-mcp-ui-control-host" in host_bundle_run
+    assert '--binary-path "${{ steps.windows-ui-control-host.outputs.host_asset }}"' in host_bundle_run
 
     host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows UI Control host")
     assert host_build["if"] == "matrix.os == 'windows-latest'"
@@ -182,15 +190,18 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
         if step.get("uses") == "actions/upload-artifact@v4" and step["with"]["name"] == "server-binary-${{ matrix.os }}"
     )
     assert "${{ steps.server-bundle.outputs.bundle_path }}" in raw_upload["with"]["path"]
-    assert "${{ steps.cli-bundle.outputs.cli_bundle_path }}" in raw_upload["with"]["path"]
+    assert "${{ steps.cli-bundle.outputs.bundle_path }}" in raw_upload["with"]["path"]
+    assert "${{ steps.ui-control-host-bundle.outputs.bundle_path }}" in raw_upload["with"]["path"]
 
     release_upload = next(step for step in build["steps"] if step.get("uses") == "softprops/action-gh-release@v3")
     assert "${{ steps.server-bundle.outputs.bundle_path }}" in release_upload["with"]["files"]
-    assert "${{ steps.cli-bundle.outputs.cli_bundle_path }}" in release_upload["with"]["files"]
+    assert "${{ steps.cli-bundle.outputs.bundle_path }}" in release_upload["with"]["files"]
+    assert "${{ steps.ui-control-host-bundle.outputs.bundle_path }}" in release_upload["with"]["files"]
 
     notify = next(step for step in jobs["publish"]["steps"] if step["name"] == "Notify Multica release-ready autopilot")
     assert r"^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
     assert r"^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
+    assert r"^dcc-mcp-ui-control-host-[0-9A-Za-z.+-]+-windows-x86_64\.zip$" in notify["run"]
 
 
 def test_release_workflow_skips_host_version_probe_for_01964_backfill() -> None:
