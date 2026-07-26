@@ -47,6 +47,17 @@ def _allocate_port() -> int:
     return allocate_gateway_port()
 
 
+def _wait_for_listener(port: int, timeout: float = 5.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return True
+        except (OSError, socket.timeout):
+            time.sleep(0.05)
+    return False
+
+
 @pytest.mark.skipif(_find_exe() is None, reason="dcc-mcp-server binary not built")
 def test_standalone_server_gateway_listener_reachable(tmp_path):
     """The standalone exe must answer on its gateway port within 5s."""
@@ -81,16 +92,7 @@ def test_standalone_server_gateway_listener_reachable(tmp_path):
     )
 
     try:
-        # Wait up to 5 seconds for the listener to come up.
-        deadline = time.time() + 5.0
-        reachable = False
-        while time.time() < deadline:
-            try:
-                with socket.create_connection(("127.0.0.1", gateway_port), timeout=0.2):
-                    reachable = True
-                    break
-            except (OSError, socket.timeout):
-                time.sleep(0.05)
+        reachable = _wait_for_listener(gateway_port)
 
         if not reachable and proc.poll() is not None:
             out = proc.stdout.read().decode("utf-8", "replace") if proc.stdout else ""
@@ -99,10 +101,7 @@ def test_standalone_server_gateway_listener_reachable(tmp_path):
             )
 
         assert reachable, f"gateway listener on port {gateway_port} unreachable 5s after start"
-
-        # Also check the per-instance listener.
-        with socket.create_connection(("127.0.0.1", mcp_port), timeout=1.0):
-            pass
+        assert _wait_for_listener(mcp_port), f"MCP listener on port {mcp_port} unreachable 5s after gateway"
     finally:
         proc.terminate()
         try:
