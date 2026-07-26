@@ -131,6 +131,10 @@ Run the creator validation tool or `dcc_mcp_core.validate_skill()` before adding
 the skill to an adapter's default path. Treat validation warnings as design
 feedback, not only syntax feedback.
 
+Every declared Python `source_file` must define a module-level `main(...)`
+entry point. For subprocess execution, emit its result with `run_main(main)`
+from the script's `if __name__ == "__main__"` block.
+
 `validate_skill_dir` adds `skill-helper-adoption` warnings for scripts that
 import avoidable dependencies covered by `skills_helper`. New generated and
 reference skills should ship without those warnings; legacy production skills
