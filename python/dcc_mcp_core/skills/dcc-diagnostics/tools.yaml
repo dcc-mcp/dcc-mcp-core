@@ -18,7 +18,19 @@ tools:
           default: 85
         window_title:
           type: string
-          description: "Capture only the window whose title contains this substring. If omitted, captures the full screen."
+          description: "Capture the window whose title contains this substring."
+        process_id:
+          type: integer
+          minimum: 1
+          description: "Capture the primary visible window owned by this process."
+        window_handle:
+          type: integer
+          minimum: 1
+          description: "Capture this exact native window handle. Overrides process_id and window_title."
+        full_screen:
+          type: boolean
+          default: false
+          description: "Capture the full primary display instead of the owning DCC window."
         save_path:
           type: string
           description: "If provided, save the image to this file path in addition to returning base64."

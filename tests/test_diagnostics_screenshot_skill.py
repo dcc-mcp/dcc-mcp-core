@@ -53,11 +53,21 @@ class _Capturer:
         return _Capturer()
 
     @staticmethod
+    def new_window_auto() -> _Capturer:
+        return _Capturer()
+
+    @staticmethod
     def new_mock(_width: int, _height: int) -> _Capturer:
         return _Capturer()
 
     def capture(self, **_kwargs: Any) -> _Frame:
         return _Frame()
+
+    def capture_window(self, **_kwargs: Any) -> _Frame:
+        return _Frame()
+
+    def backend_name(self) -> str:
+        return "Mock"
 
 
 def test_screenshot_main_returns_dict_for_inprocess_executor(monkeypatch) -> None:
@@ -99,3 +109,69 @@ def test_screenshot_main_returns_ipc_payload_dict(monkeypatch, tmp_path: Path) -
     assert result["context"]["source"] == "dcc-ipc"
     assert result["context"]["saved_path"] == str(out)
     assert out.read_bytes() == image_bytes
+
+
+def test_screenshot_main_preserves_structured_ipc_capture_failure(monkeypatch) -> None:
+    module = _load_screenshot_module()
+    monkeypatch.setattr(
+        module,
+        "_try_ipc_capture",
+        lambda _params: {
+            "success": False,
+            "message": (
+                "desktop_unavailable: backend=DXGI Desktop Duplication; native_error=Access is denied (0x80070005)"
+            ),
+            "error_kind": "desktop_unavailable",
+            "capture_backend": "DXGI Desktop Duplication",
+            "native_error": "Access is denied (0x80070005)",
+        },
+    )
+
+    result = module.main()
+
+    assert result["success"] is False
+    assert result["error_kind"] == "desktop_unavailable"
+    assert result["context"]["capture_backend"] == "DXGI Desktop Duplication"
+    assert result["context"]["native_error"].endswith("0x80070005)")
+
+
+def test_screenshot_main_does_not_mock_desktop_unavailable(monkeypatch) -> None:
+    class _UnavailableCapturer(_Capturer):
+        @staticmethod
+        def new_auto() -> _Capturer:
+            raise RuntimeError(
+                "desktop_unavailable: backend=DXGI Desktop Duplication; native_error=Access is denied (0x80070005)"
+            )
+
+    module = _load_screenshot_module()
+    monkeypatch.setattr(module, "_try_ipc_capture", lambda _params: None)
+    monkeypatch.setattr(dcc_mcp_core, "Capturer", _UnavailableCapturer)
+
+    result = module.main()
+
+    assert result["success"] is False
+    assert result["error_kind"] == "desktop_unavailable"
+
+
+def test_screenshot_main_forwards_exact_window_target_to_ipc(monkeypatch) -> None:
+    module = _load_screenshot_module()
+    observed = {}
+
+    def _capture(params):
+        observed.update(params)
+        return {
+            "success": True,
+            "image_base64": base64.b64encode(b"png").decode("ascii"),
+            "window_handle": 0x1234,
+            "capture_backend": "Windows.Graphics.Capture",
+            "capture_health": "unverified",
+        }
+
+    monkeypatch.setattr(module, "_try_ipc_capture", _capture)
+
+    result = module.main(process_id=42, window_handle=0x1234, window_title="Houdini")
+
+    assert observed["process_id"] == 42
+    assert observed["window_handle"] == 0x1234
+    assert observed["window_title"] == "Houdini"
+    assert result["context"]["window_handle"] == 0x1234

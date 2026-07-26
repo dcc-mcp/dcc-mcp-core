@@ -1118,6 +1118,7 @@ fn map_recording_capture_error(error: CaptureError) -> HostFailure {
         CaptureError::Cancelled => UiControlHostErrorCode::UserInterrupted,
         CaptureError::TargetNotFound(_) => UiControlHostErrorCode::InvalidTarget,
         CaptureError::BackendNotSupported(_) => UiControlHostErrorCode::BackendUnavailable,
+        CaptureError::DesktopUnavailable { .. } => UiControlHostErrorCode::DesktopUnavailable,
         _ => UiControlHostErrorCode::CaptureFailed,
     };
     HostFailure::new(code, error.to_string())

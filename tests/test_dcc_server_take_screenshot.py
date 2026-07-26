@@ -148,3 +148,87 @@ def test_take_screenshot_window_rect_none_for_full_screen():
     # Full-screen / mock captures report no window metadata.
     assert data["window_rect"] is None
     assert data["window_title"] is None
+
+
+class _Frame:
+    data = b"png"
+    width = 2
+    height = 2
+    format = "png"
+    mime_type = "image/png"
+    window_rect = (0, 0, 2, 2)
+    window_title = "Houdini FX"
+
+    def byte_len(self) -> int:
+        return len(self.data)
+
+
+class _WindowCapturer:
+    def __init__(self, *, health: str = "unverified") -> None:
+        self.health = health
+        self.arguments = None
+
+    def capture_window(self, **kwargs):
+        self.arguments = kwargs
+        frame = _Frame()
+        frame.capture_health = self.health
+        return frame
+
+    def backend_name(self) -> str:
+        return "GDI PrintWindow"
+
+
+def test_take_screenshot_exposes_exact_window_and_fallback_metadata(monkeypatch):
+    import dcc_mcp_core.dcc_server as mod
+
+    capturer = _WindowCapturer(health="degraded")
+    monkeypatch.setattr(mod, "_get_window_capturer", lambda: capturer)
+
+    result = mod._handle_take_screenshot(json.dumps({"window_handle": 0x1234, "process_id": 42}))
+    data = json.loads(result)
+
+    assert data["success"] is True
+    assert data["window_handle"] == 0x1234
+    assert data["window_title"] == "Houdini FX"
+    assert data["capture_backend"] == "GDI PrintWindow"
+    assert data["fallback_from"] == "Windows.Graphics.Capture"
+    assert data["capture_health"] == "degraded"
+    assert capturer.arguments["window_handle"] == 0x1234
+
+
+def test_take_screenshot_rejects_backend_marked_unusable_frame(monkeypatch):
+    import dcc_mcp_core.dcc_server as mod
+
+    monkeypatch.setattr(
+        mod,
+        "_get_window_capturer",
+        lambda: _WindowCapturer(health="unusable"),
+    )
+
+    data = json.loads(mod._handle_take_screenshot(json.dumps({"window_handle": 0x1234})))
+
+    assert data["success"] is False
+    assert data["error_kind"] == "unusable_capture"
+    assert data["capture_health"] == "unusable"
+
+
+def test_take_screenshot_preserves_desktop_unavailable_error(monkeypatch):
+    import dcc_mcp_core.dcc_server as mod
+
+    class _UnavailableCapturer:
+        def capture(self, **_kwargs):
+            raise RuntimeError(
+                "desktop_unavailable: backend=DXGI Desktop Duplication; native_error=Access is denied (0x80070005)"
+            )
+
+        def backend_name(self) -> str:
+            return "DXGI Desktop Duplication"
+
+    monkeypatch.setattr(mod, "_get_full_capturer", _UnavailableCapturer)
+
+    data = json.loads(mod._handle_take_screenshot('{"full_screen": true}'))
+
+    assert data["success"] is False
+    assert data["error_kind"] == "desktop_unavailable"
+    assert data["capture_backend"] == "DXGI Desktop Duplication"
+    assert data["native_error"].endswith("0x80070005)")

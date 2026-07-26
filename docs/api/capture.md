@@ -21,7 +21,7 @@ capturer = Capturer.new_auto()
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `new_auto()` | `Capturer` | Create capturer with best available backend (full-screen / display) |
-| `new_window_auto()` | `Capturer` | Create capturer configured for single-window capture (HWND PrintWindow on Windows; Mock elsewhere) |
+| `new_window_auto()` | `Capturer` | Create capturer configured for single-window capture (Windows.Graphics.Capture with bounded GDI fallback on Windows; Mock elsewhere) |
 | `new_mock(width=1920, height=1080)` | `Capturer` | Create capturer with mock backend (for testing/CI) |
 | `capture_window_png(pid, *, timeout_ms=1000)` | `bytes \| None` | One-shot helper: resolve the main window of `pid`, capture it, return PNG-encoded bytes. Returns `None` on any failure (window not found, backend error, …) instead of raising |
 | `capture_region_png(pid, x, y, w, h, *, timeout_ms=1000)` | `bytes \| None` | One-shot helper: capture window of `pid` and CPU-crop to the rectangle `(x, y, w, h)` (window-local pixels). Zero-width / zero-height regions short-circuit to `None` without touching the backend |
@@ -197,6 +197,12 @@ try:
 except RuntimeError as e:
     print(f"Capture failed: {e}")
 ```
+
+DXGI `DuplicateOutput` access-denied failures use the stable
+`desktop_unavailable:` prefix and retain both the backend and native error
+(including `0x80070005`). The bundled `dcc_diagnostics__screenshot` tool
+projects that prefix as `error_kind=desktop_unavailable` instead of silently
+switching to another capture path.
 
 ## Platform-Specific Notes
 
