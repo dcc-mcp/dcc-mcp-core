@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.79](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.78...v0.19.79) (2026-07-26)
+
+
+### Bug Fixes
+
+* expose registered server instance id ([#2082](https://github.com/dcc-mcp/dcc-mcp-core/issues/2082)) ([142747f](https://github.com/dcc-mcp/dcc-mcp-core/commit/142747fbe4861b46d8b76a2e4cd30ce7339c076a))
+* fail closed on incomplete task workflows ([#2080](https://github.com/dcc-mcp/dcc-mcp-core/issues/2080)) ([173e357](https://github.com/dcc-mcp/dcc-mcp-core/commit/173e35701587399bd04a3a9f81b461f51734fe21))
+* **gateway:** keep job polling available during reload ([#2084](https://github.com/dcc-mcp/dcc-mcp-core/issues/2084)) ([1578481](https://github.com/dcc-mcp/dcc-mcp-core/commit/15784818bef74fcdb147f712cdc33e06bdf5007c))
+* **server:** publish pid file after cleanup watcher ([#2086](https://github.com/dcc-mcp/dcc-mcp-core/issues/2086)) ([d2ef1db](https://github.com/dcc-mcp/dcc-mcp-core/commit/d2ef1dba9a29ff7433941f4f6d5c57bd690b0aa0))
+
 ## [0.19.78](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.77...v0.19.78) (2026-07-26)
 
 
