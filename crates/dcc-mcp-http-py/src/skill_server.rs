@@ -209,6 +209,7 @@ impl PyMcpHttpServer {
         let port = handle.port;
         let bind_addr = handle.bind_addr.clone();
         let is_gateway = handle.is_gateway;
+        let instance_id = handle.instance_id.map(|id| id.to_string());
 
         Ok(PyServerHandle {
             inner: Some(handle),
@@ -216,6 +217,7 @@ impl PyMcpHttpServer {
             port,
             bind_addr,
             is_gateway,
+            instance_id,
             live_meta: self.live_meta.clone(),
             shutdown_on_drop: self.config.shutdown_on_drop(),
         })

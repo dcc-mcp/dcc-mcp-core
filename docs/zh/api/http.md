@@ -74,6 +74,7 @@ from dcc_mcp_core import McpServerHandle  # McpServerHandle 的别名
 | `port` | `int` | 服务器实际绑定的端口（当 port=0 时有用） |
 | `bind_addr` | `str` | 绑定地址，如 `"127.0.0.1:8765"` |
 | `is_gateway` | `bool` | 若本进程赢得网关端口竞争则为 `True` |
+| `instance_id` | `str \| None` | `FileRegistry` 中注册的精确 UUID；网关注册禁用或不可用时为 `None` |
 
 ### 方法
 
@@ -96,11 +97,16 @@ server = McpHttpServer(registry, McpHttpConfig())
 handle = server.start()
 
 print(f"MCP HTTP 服务器运行于 {handle.mcp_url()}")
-# handle 返回操作系统实际分配的监听地址。
+print(f"已注册服务：{handle.instance_id}")
+# handle 返回操作系统实际分配的监听地址和规范注册 UUID。
 
 # 完成后关闭
 handle.shutdown()
 ```
+
+原始 handle 在 `shutdown()` 后仍保留缓存的 `instance_id`。
+`DccServerBase` 仅在运行期间通过 `server.instance_id` 暴露同一个值：
+`start()` 前、`stop()` 后或注册禁用时均为 `None`。适配器不得自行生成备用 UUID。
 
 ## McpHttpServer
 

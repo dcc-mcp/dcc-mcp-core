@@ -789,6 +789,11 @@ class DccServerBase:
         """The MCP endpoint URL, or ``None`` if not running."""
         return self._handle.mcp_url() if self._handle else None
 
+    @property
+    def instance_id(self) -> str | None:
+        """The registered service UUID, or ``None`` if not running/registered."""
+        return self._handle.instance_id if self._handle else None
+
     # --- gateway metadata update ------------------------------------------------
 
     def update_gateway_metadata(

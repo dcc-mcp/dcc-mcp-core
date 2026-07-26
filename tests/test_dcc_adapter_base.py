@@ -416,6 +416,7 @@ class TestDccServerBase:
         server = self._make_server(tmp_path)
         assert not server.is_running
         assert server.mcp_url is None
+        assert server.instance_id is None
         assert not server.is_hot_reload_enabled
 
     def test_start_and_stop(self, tmp_path):
@@ -424,10 +425,12 @@ class TestDccServerBase:
         assert server.is_running
         assert handle is not None
         assert server.mcp_url is not None
+        assert server.instance_id == "fake-id-001"
 
         server.stop()
         assert not server.is_running
         assert server.mcp_url is None
+        assert server.instance_id is None
 
     def test_start_logs_server_version(self, tmp_path, caplog):
         server = self._make_server(tmp_path)

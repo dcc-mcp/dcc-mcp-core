@@ -70,6 +70,7 @@ __all__ = [
     "InstanceStatus",
     "IpcChannelAdapter",
     "LoggingMiddleware",
+    "McpServerHandle",
     "ObjectTransform",
     "PromptArgument",
     "PromptDefinition",
@@ -1173,6 +1174,105 @@ class LoggingMiddleware:
 
         Args:
             log_params: If True, also log the action parameters (default: False).
+        """
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class McpServerHandle:
+    r"""
+    Handle returned by `McpHttpServer.start()`.
+
+    Example::
+
+        handle = server.start()
+        # ... later ...
+        handle.shutdown()
+    """
+    @property
+    def port(self) -> builtins.int:
+        r"""
+        The actual port the server is listening on.
+        """
+    @property
+    def bind_addr(self) -> builtins.str:
+        r"""
+        The bind address (e.g. ``127.0.0.1:8765``).
+        """
+    @property
+    def is_gateway(self) -> builtins.bool:
+        r"""
+        ``True`` if this process won the gateway port competition.
+        """
+    @property
+    def instance_id(self) -> typing.Optional[builtins.str]:
+        r"""
+        The exact UUID registered in ``FileRegistry``, or ``None``.
+
+        ``None`` means gateway registration was disabled or unavailable. The
+        value is cached on the handle and remains readable after ``shutdown()``.
+        """
+    def mcp_url(self) -> builtins.str:
+        r"""
+        The full MCP endpoint URL.
+        """
+    def shutdown(self) -> None:
+        r"""
+        Gracefully shut down the server.
+        """
+    def __enter__(self) -> McpServerHandle: ...
+    def __exit__(self, _exc_type: typing.Any, _exc: typing.Any, _tb: typing.Any) -> None: ...
+    def signal_shutdown(self) -> None:
+        r"""
+        Signal shutdown without blocking.
+        """
+    def update_scene(self, scene: typing.Optional[builtins.str] = None, version: typing.Optional[builtins.str] = None, documents: typing.Optional[typing.Sequence[builtins.str]] = None, display_name: typing.Optional[builtins.str] = None) -> None:
+        r"""
+        Update the live instance metadata in the gateway registry.
+
+        Works for both single-document DCCs (Maya, Blender — pass ``scene``
+        only) and multi-document DCCs (Photoshop, After Effects — also pass
+        ``documents`` with the full list of open files and optionally
+        ``display_name`` to label the instance).
+
+        Values are written into the shared live-metadata store and propagated
+        to ``FileRegistry`` on the next heartbeat tick (≤ 5 s).  After the
+        update, ``list_dcc_instances`` reflects the change so AI agents and
+        users can identify the correct instance without restarting.
+
+        Pass ``None`` to leave a field unchanged; pass ``""`` / ``[]`` to
+        clear it.
+
+        Examples::
+
+            # Maya — single active scene:
+            handle.update_scene("C:/projects/hero/rig.ma")
+
+            # Photoshop — active document + all open docs + instance label:
+            handle.update_scene(
+                scene="hero_comp.psd",
+                documents=["hero_comp.psd", "bg_plate.psd", "overlay.psd"],
+                display_name="PS-Marketing",
+            )
+
+            # Clear the document list (single-doc mode again):
+            handle.update_scene(documents=[])
+
+        Args:
+            scene: Active/focused scene or document path.
+                    ``None`` = no change, ``""`` = clear.
+            version: DCC application version string.
+                     ``None`` = no change, ``""`` = clear.
+            documents: Full list of open documents (multi-doc DCCs).
+                       ``None`` = no change, ``[]`` = clear list.
+            display_name: Human-readable instance label (e.g. ``"PS-Marketing"``).
+                          ``None`` = no change, ``""`` = clear.
+        """
+    def update_gateway_metadata(self, metadata: typing.Mapping[builtins.str, builtins.str]) -> None:
+        r"""
+        Merge arbitrary string metadata into the FileRegistry row.
+
+        Values propagate on the next heartbeat tick. Empty values clear the
+        matching key while preserving unrelated metadata.
         """
     def __repr__(self) -> builtins.str: ...
 

@@ -79,6 +79,7 @@ from dcc_mcp_core import McpServerHandle  # preferred public handle name
 | `port` | `int` | Actual port server is bound to (useful when port=0) |
 | `bind_addr` | `str` | Bind address, e.g. `"127.0.0.1:8765"` |
 | `is_gateway` | `bool` | `True` if this process won the gateway port competition |
+| `instance_id` | `str \| None` | Exact UUID registered in `FileRegistry`; `None` when gateway registration is disabled or unavailable |
 
 ### Methods
 
@@ -101,11 +102,17 @@ server = McpHttpServer(registry, McpHttpConfig())
 handle = server.start()
 
 print(f"MCP HTTP server running at {handle.mcp_url()}")
-# The handle exposes the OS-assigned listener URL.
+print(f"Registered service: {handle.instance_id}")
+# The handle exposes the OS-assigned listener URL and canonical registry UUID.
 
 # Shutdown when done
 handle.shutdown()
 ```
+
+The raw handle keeps its cached `instance_id` after `shutdown()`. A
+`DccServerBase` exposes the same value through `server.instance_id` only while
+running: it is `None` before `start()`, after `stop()`, or whenever registration
+is disabled. Adapters must not manufacture a fallback UUID.
 
 ## McpHttpServer
 

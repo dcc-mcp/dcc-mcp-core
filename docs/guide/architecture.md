@@ -438,7 +438,8 @@ dcc-mcp-ui-control (independent pure ui_control observation/action/wait/policy/a
 **Key Components**:
 - `McpHttpServer` — background-thread HTTP server (axum/Tokio).
 - `McpHttpConfig` — re-export of the `dcc-mcp-http-types::config` aggregate for compatibility; new Rust code can import it from `dcc-mcp-http-types` directly.
-- `McpServerHandle` — URL retrieval, `is_gateway` flag, and graceful shutdown.
+- `McpServerHandle` — URL retrieval, the exact registered `instance_id`,
+  `is_gateway` flag, and graceful shutdown.
 - `ResourceRegistry` and `PromptRegistry` — MCP `resources/*` and `prompts/*` implementation.
 - Gateway bootstrap — delegates dynamic gateway behavior to `dcc-mcp-gateway`.
 

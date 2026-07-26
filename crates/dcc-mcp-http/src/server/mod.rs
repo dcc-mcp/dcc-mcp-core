@@ -9,6 +9,7 @@ use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
+use uuid::Uuid;
 
 use crate::{
     config::McpHttpConfig,
@@ -74,6 +75,12 @@ pub struct McpServerHandle {
     /// `--no-default-features` (the `auto-gateway` feature is off and
     /// `gateway_port` becomes a no-op).
     pub is_gateway: bool,
+    /// Exact UUID used to register this service in `FileRegistry`.
+    ///
+    /// `None` means gateway registration was disabled or unavailable. No
+    /// fallback UUID is generated, so a present value always identifies the
+    /// same row exposed through gateway instance discovery.
+    pub instance_id: Option<Uuid>,
     // Keep the GatewayHandle alive so background tasks keep running.
     #[cfg(feature = "auto-gateway")]
     _gateway: Option<dcc_mcp_gateway::GatewayHandle>,
@@ -677,8 +684,16 @@ impl McpHttpServer {
             .map(|h| h.is_gateway)
             .unwrap_or(false);
 
+        #[cfg(feature = "auto-gateway")]
+        let instance_id = gateway_handle
+            .as_ref()
+            .map(|handle| handle.service_key.instance_id);
+
         #[cfg(not(feature = "auto-gateway"))]
         let is_gateway = false;
+
+        #[cfg(not(feature = "auto-gateway"))]
+        let instance_id = None;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -710,6 +725,7 @@ impl McpHttpServer {
             port,
             bind_addr: actual_bind,
             is_gateway,
+            instance_id,
             #[cfg(feature = "auto-gateway")]
             _gateway: gateway_handle,
         })
@@ -726,6 +742,9 @@ pub fn start_in_runtime(
 ) -> HttpResult<McpServerHandle> {
     runtime.block_on(async { McpHttpServer::new(registry, config).start().await })
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Build the [`JobManager`](crate::job::JobManager) for this server,
 /// attaching a SQLite-backed [`JobStorage`](crate::job_storage::JobStorage)
