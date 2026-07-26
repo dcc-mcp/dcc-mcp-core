@@ -34,7 +34,7 @@ Causes:
 1. Widget is disabled or hidden
 2. Wrong widget targeted (overlay or parent container)
 3. DCC is busy processing another operation
-4. Coordinates point to wrong screen position (multi-monitor)
+4. The control ID did not come from the current scoped UI Control session
 
 ```bash
 # Check widget state before clicking

@@ -56,7 +56,7 @@ first choice.
 |----------|------|
 | Find a widget by name/type/text | `find_widget` — search the widget tree |
 | Read UI state (checkboxes, fields, lists) | `inspect_ui` — snapshot full UI state |
-| Click a button or menu item | `interact_widget` — semantic or coordinate click |
+| Click a semantic UI Control node | `interact_widget` — scoped snapshot/action/verification/stop loop |
 | Wait for a dialog or window | `wait_for_ui` — poll until element appears |
 | Debug UI layout issues | `capture_ui_state` — full screenshot + widget dump |
 
@@ -81,8 +81,9 @@ returns `unsupported` or `capability_missing`. Never start with UI automation.
 search_skills("ui")
 load_skill("ui")
 call("ui__inspect_ui", {"window_title": "Maya", "include_screenshot": true})
-call("ui__find_widget", {"query": "Save", "widget_type": "QPushButton"})
-call("ui__interact_widget", {"widget": {"control_id": "saveButton"}, "action": "click"})
+call("ui_control__snapshot", {"session_id": "save-scene"})
+call("ui_control__find", {"session_id": "save-scene", "query": "Save"})
+call("ui__interact_widget", {"instance": "maya.abcd1234", "session_id": "save-scene", "widget": {"control_id": "saveButton"}, "action": "click"})
 ```
 
 ### Shell/CLI agent
@@ -91,7 +92,7 @@ call("ui__interact_widget", {"widget": {"control_id": "saveButton"}, "action": "
 dcc-mcp-cli search-skills --query ui
 dcc-mcp-cli load-skill ui
 dcc-mcp-cli call <instance>.ui__inspect_ui --json '{"window_title":"Maya"}'
-dcc-mcp-cli call <instance>.ui__capture_ui_state --json '{"output_dir":"/tmp/ui-debug"}'
+dcc-mcp-cli call <instance>.ui__capture_ui_state --json '{"instance":"<instance>","session_id":"ui-debug","output_dir":"/tmp/ui-debug"}'
 ```
 
 ### Availability

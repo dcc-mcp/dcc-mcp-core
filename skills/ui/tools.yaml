@@ -48,7 +48,8 @@ tools:
     description: >-
       Search the widget tree for elements matching criteria: by text,
       type (class name), accessible role, or control ID. Returns widget
-      paths and metadata for use with interact_widget.
+      paths and metadata for inspection. Use ui_control__snapshot/find when a
+      semantic control_id will be passed to interact_widget.
     input_schema:
       type: object
       required: [query]
@@ -91,21 +92,27 @@ tools:
 
   - name: interact_widget
     description: >-
-      Interact with a found widget: click, double-click, type text, select
-      an item, or toggle. Requires a widget descriptor from find_widget or
-      inspect_ui. Prefer semantic actions (control_id, role) over raw
-      coordinates.
+      Interact once with a semantic UI Control node, verify with a fresh
+      snapshot, and always stop the Computer Use session. Requires an exact
+      DCC instance, stable session id, and control_id. Raw coordinates must use
+      ui_control__act directly with the latest snapshot_id.
     input_schema:
       type: object
-      required: [widget]
+      required: [widget, instance, session_id]
       properties:
+        instance:
+          type: string
+          minLength: 1
+          description: "Exact DCC instance short ID or UUID; never inferred."
+        session_id:
+          type: string
+          minLength: 1
+          description: "Stable UI Control session ID for this one-action loop."
         widget:
           type: object
-          description: "Widget descriptor from find_widget or inspect_ui."
+          required: [control_id]
+          description: "Semantic widget descriptor from ui_control__snapshot or ui_control__find."
           properties:
-            widget_path:
-              type: string
-              description: "Full widget hierarchy path."
             control_id:
               type: string
               description: "Accessible control ID for semantic targeting."
@@ -119,12 +126,6 @@ tools:
         value:
           type: string
           description: "Value for 'type' (text to enter) or 'select' (item text)."
-        coordinates:
-          type: object
-          description: "Fallback: {x, y} coordinates relative to the window. Only when semantic targeting fails."
-          properties:
-            x: { type: integer }
-            y: { type: integer }
     read_only: false
     destructive: true
     idempotent: false
@@ -139,15 +140,20 @@ tools:
     source_file: scripts/interact_widget.py
     call_examples:
       - arguments:
+          instance: "maya.abcd1234"
+          session_id: "save-scene-1"
           widget:
             control_id: "saveButton"
           action: "click"
         note: "Click Save button by control ID"
       - arguments:
+          instance: "maya.abcd1234"
+          session_id: "save-scene-2"
           widget:
-            widget_path: "MayaWindow/QMenuBar/QMenu[File]/QAction[Save Scene]"
-          action: "click"
-        note: "Click File > Save Scene menu item"
+            control_id: "fileNameField"
+          action: "type"
+          value: "scene_v002.ma"
+        note: "Set non-sensitive text through a semantic control"
 
   - name: wait_for_ui
     description: >-
@@ -203,11 +209,20 @@ tools:
   - name: capture_ui_state
     description: >-
       Capture a comprehensive UI state bundle: screenshot + widget tree +
-      window list. Use for debugging UI issues or reporting UI bugs with
-      full context.
+      window list. The screenshot comes from canonical UI Control capture and
+      retains its provenance. Requires an exact DCC instance and session id.
     input_schema:
       type: object
+      required: [instance, session_id]
       properties:
+        instance:
+          type: string
+          minLength: 1
+          description: "Exact DCC instance short ID or UUID; never inferred."
+        session_id:
+          type: string
+          minLength: 1
+          description: "Stable UI Control session ID for this capture."
         window_title:
           type: string
           description: "Focus on a specific window."
@@ -232,9 +247,13 @@ tools:
     source_file: scripts/capture_ui_state.py
     call_examples:
       - arguments:
+          instance: "maya.abcd1234"
+          session_id: "ui-debug-1"
           window_title: "Maya"
           output_dir: "/tmp/ui-debug"
         note: "Capture full Maya UI state for debugging"
       - arguments:
+          instance: "blender.abcd1234"
+          session_id: "ui-debug-2"
           output_dir: "./ui-evidence"
         note: "Capture all windows' state to local dir"

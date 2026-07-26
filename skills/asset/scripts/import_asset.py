@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from typing import Any
@@ -22,8 +23,6 @@ def _get_first_instance(dcc_type: str | None = None) -> str | None:
                 continue
             if inst.get("direct_control", {}).get("ready"):
                 return inst.get("instance_short") or inst.get("instance_id")
-        if data.get("instances"):
-            return data["instances"][0].get("instance_short")
     except Exception:
         pass
     return None

@@ -6,90 +6,162 @@ import subprocess
 from typing import Any
 
 
-def _get_first_instance() -> str | None:
-    """Resolve first ready instance."""
+def _call_tool(
+    instance: str,
+    tool: str,
+    args: dict[str, Any],
+    timeout: int = 20,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Call one instance-bound tool and preserve structured failures."""
     try:
         result = subprocess.run(
-            ["dcc-mcp-cli", "list", "--output", "json"],
-            capture_output=True, text=True, timeout=10,
+            [
+                "dcc-mcp-cli",
+                "call",
+                f"{instance}.{tool}",
+                "--json",
+                json.dumps(args),
+                "--output",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         if result.returncode != 0:
-            return None
-        data = json.loads(result.stdout)
-        for inst in data.get("instances", []):
-            if inst.get("direct_control", {}).get("ready"):
-                return inst.get("instance_short") or inst.get("instance_id")
-        if data.get("instances"):
-            return data["instances"][0].get("instance_short")
-    except Exception:
-        pass
+            return None, result.stderr.strip() or f"{tool} failed"
+        return json.loads(result.stdout), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _find_value(payload: Any, key: str) -> Any:
+    """Return the first matching value from a bounded CLI result tree."""
+    if isinstance(payload, dict):
+        if key in payload:
+            return payload[key]
+        for value in payload.values():
+            found = _find_value(value, key)
+            if found is not None:
+                return found
+    elif isinstance(payload, list):
+        for value in payload:
+            found = _find_value(value, key)
+            if found is not None:
+                return found
     return None
+
+
+def _has_explicit_failure(payload: Any) -> bool:
+    if isinstance(payload, dict):
+        if payload.get("success") is False:
+            return True
+        return any(_has_explicit_failure(value) for value in payload.values())
+    if isinstance(payload, list):
+        return any(_has_explicit_failure(value) for value in payload)
+    return False
+
+
+def _tool_succeeded(payload: dict[str, Any] | None) -> bool:
+    """Treat an explicit nested failure as a failed tool call."""
+    return payload is not None and not _has_explicit_failure(payload)
 
 
 def interact_widget(
     widget: dict[str, Any],
+    instance: str,
+    session_id: str,
     action: str = "click",
     value: str | None = None,
-    coordinates: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Interact with a widget.
 
     Args:
-        widget: Widget descriptor from find_widget or inspect_ui.
+        widget: Widget descriptor containing a semantic control_id.
+        instance: Exact DCC instance short ID or UUID.
+        session_id: Stable UI Control session ID for this action.
         action: click, double_click, type, select, toggle, right_click.
         value: Text to type or item to select.
-        coordinates: Fallback {x, y} coordinates.
 
     Returns:
         Action result.
+
     """
-    instance = _get_first_instance()
-    if not instance:
-        return {"success": False, "error": "No ready DCC instance found."}
+    if not instance.strip() or not session_id.strip():
+        return {"success": False, "error": "instance and session_id are required."}
 
-    # Build interaction args
     control_id = widget.get("control_id", "")
-    widget_path = widget.get("widget_path", "")
     window_title = widget.get("window_title", "")
-
-    # Prefer semantic targeting via ui_control
-    # Build a find + act sequence
-    target: dict[str, Any] = {}
-    if control_id:
-        target["control_id"] = control_id
-    elif widget_path:
-        target["widget_path"] = widget_path
-    elif coordinates:
-        target["x"] = coordinates.get("x", 0)
-        target["y"] = coordinates.get("y", 0)
-    else:
-        return {"success": False, "error": "No target: provide control_id, widget_path, or coordinates."}
-
-    act_args: dict[str, Any] = {
-        "action": action,
-        "target": target,
-    }
-    if value:
-        act_args["value"] = value
-
-    try:
-        result = subprocess.run(
-            ["dcc-mcp-cli", "call", "{}.ui_control__act".format(instance),
-             "--json", json.dumps(act_args), "--output", "json"],
-            capture_output=True, text=True, timeout=20,
-        )
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            return {
-                "success": True,
-                "action": action,
-                "target": target,
-                "result": data,
-            }
+    if not control_id:
         return {
             "success": False,
-            "action": action,
-            "error": result.stderr,
+            "error": (
+                "A semantic control_id is required. Use ui_control__snapshot/find; "
+                "call ui_control__act directly for raw coordinates."
+            ),
         }
-    except Exception as e:
-        return {"success": False, "action": action, "error": str(e)}
+
+    action_map = {
+        "click": "click",
+        "double_click": "double_click",
+        "type": "set_text",
+        "select": "select_option",
+        "toggle": "toggle",
+        "right_click": "click",
+    }
+    mapped_action = action_map.get(action)
+    if mapped_action is None:
+        return {"success": False, "action": action, "error": f"Unsupported action: {action}"}
+    if action in ("type", "select") and value is None:
+        return {"success": False, "action": action, "error": f"value is required for {action}."}
+
+    snapshot_args: dict[str, Any] = {"session_id": session_id}
+    if window_title:
+        snapshot_args["window_title"] = window_title
+
+    try:
+        before, error = _call_tool(instance, "ui_control__snapshot", snapshot_args)
+        if error or not _tool_succeeded(before):
+            return {"success": False, "action": action, "error": error or "UI snapshot failed.", "result": before}
+
+        snapshot_id = _find_value(before, "snapshot_id")
+        if not snapshot_id:
+            return {"success": False, "action": action, "error": "UI snapshot returned no snapshot_id."}
+
+        act_args: dict[str, Any] = {
+            "session_id": session_id,
+            "snapshot_id": snapshot_id,
+            "control_id": control_id,
+            "action": mapped_action,
+        }
+        if window_title:
+            act_args["window_title"] = window_title
+        if action in ("type", "select"):
+            act_args["text"] = value
+        if action == "right_click":
+            act_args["button"] = "right"
+
+        act_result, error = _call_tool(instance, "ui_control__act", act_args)
+        if error or not _tool_succeeded(act_result):
+            return {"success": False, "action": action, "error": error or "UI action failed.", "result": act_result}
+
+        after, error = _call_tool(instance, "ui_control__snapshot", snapshot_args)
+        if error or not _tool_succeeded(after):
+            return {
+                "success": False,
+                "action": action,
+                "error": error or "UI action completed but verification snapshot failed.",
+                "result": act_result,
+            }
+
+        return {
+            "success": True,
+            "instance": instance,
+            "session_id": session_id,
+            "action": action,
+            "control_id": control_id,
+            "result": act_result,
+            "verification": after,
+        }
+    finally:
+        _call_tool(instance, "ui_control__stop_computer_use", {"session_id": session_id})
