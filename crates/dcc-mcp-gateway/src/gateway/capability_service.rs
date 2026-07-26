@@ -621,6 +621,7 @@ pub async fn call_service(
                 method: "tools/call",
                 params: Some(params),
                 request_id: None,
+                require_ready: !is_backend_job_tool(&record.backend_tool),
                 trace_context,
                 traffic_capture: Some(&gs.traffic_capture),
                 timeout: gs.backend_timeout,

@@ -387,10 +387,10 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
   --json '{"radius":2.0}'
 ```
 
-For asynchronous tools, add `--wait`; the CLI polls `jobs_get_status` through the
-same gateway/instance route and returns the terminal envelope. The default total
-wait is 600 seconds; override it with `--wait-timeout-secs`. Without `--wait`, REST
-returns `pending` plus `job_id`; manual gateway polling is only the fallback.
+For asynchronous tools, add `--wait`; the CLI polls `jobs_get_status` on the same route
+and returns the terminal result. The default is 600 seconds; use `--wait-timeout-secs` to override.
+Without `--wait`, REST returns `pending` plus `job_id`; manual gateway polling is only the fallback.
+During a host reload, keep that job ID: status stays routable while readiness is red. Never resubmit.
 
 Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside
 the `--json` object. Do not pass them as top-level CLI flags unless the CLI adds
