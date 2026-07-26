@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.78](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.77...v0.19.78) (2026-07-26)
+
+
+### Features
+
+* ADR-018 unified instance status vocabulary (PIP-2895) ([11468f6](https://github.com/dcc-mcp/dcc-mcp-core/commit/11468f6da5b9845f477f01c23b819f0ada2bc607))
+* ADR-018 unified instance status vocabulary (PIP-2895) ([dc44db7](https://github.com/dcc-mcp/dcc-mcp-core/commit/dc44db7cc71424359dc2ba3cf9a0000e8490eb3d))
+* **cli:** wait for asynchronous job completion ([#2079](https://github.com/dcc-mcp/dcc-mcp-core/issues/2079)) ([390187f](https://github.com/dcc-mcp/dcc-mcp-core/commit/390187f9e51e19128c7ec74d05f06bdd4a6f894b))
+* **gateway:** add instance_status to compact_instance_json (ADR-018 Phase 2) ([1258574](https://github.com/dcc-mcp/dcc-mcp-core/commit/1258574793104b73d35b00c28d54be127d6430a8))
+* **skills:** add task-oriented domain skills (verify/debug/build/ui/asset) ([#2076](https://github.com/dcc-mcp/dcc-mcp-core/issues/2076)) ([7f13075](https://github.com/dcc-mcp/dcc-mcp-core/commit/7f1307562c51ac06774b3c818a812d500be611f3))
+
+
+### Bug Fixes
+
+* align ADR-018 actionability messages with E2E test contract ([7bb9254](https://github.com/dcc-mcp/dcc-mcp-core/commit/7bb9254ec2a756fd9537117fac5dd60ecdf90d44))
+* **cli:** preserve backward compat for direct MCP dispatch readiness ([d81fcf6](https://github.com/dcc-mcp/dcc-mcp-core/commit/d81fcf6de20efa09eaaa67ca2cfbdb1474533182))
+* **cli:** replace removed DISPATCH_STATUS_READY with DispatchStatus::Ready in tests ([5ecad5c](https://github.com/dcc-mcp/dcc-mcp-core/commit/5ecad5c5b7632084e98ae02c45ce84a8ebeb9dcf))
+* **cli:** update e2e test assertions for ADR-018 instance status vocabulary ([ce3946c](https://github.com/dcc-mcp/dcc-mcp-core/commit/ce3946c514853038456e3a7d8f0f9860352bb21e))
+* regenerate _core.pyi stub after ADR-018 transport type changes ([26c742e](https://github.com/dcc-mcp/dcc-mcp-core/commit/26c742ef990183c6d0e979d68373db53c058db05))
+* resolve CI failures — DISPATCH_STATUS_READY compile error and stub drift ([534ea4d](https://github.com/dcc-mcp/dcc-mcp-core/commit/534ea4d12267f0fc977c5499bf8af37979f73a48))
+* restore Unknown dispatch_status fallback for non-sidecar direct control (ADR-018) ([8255d05](https://github.com/dcc-mcp/dcc-mcp-core/commit/8255d05ac044a3578cb4466222e0544086da9b07))
+
+
+### Documentation
+
+* **adr:** add ADR-018 instance status vocabulary unification ([a0cb4b5](https://github.com/dcc-mcp/dcc-mcp-core/commit/a0cb4b5145fbeb44dc61aae1a5d89f830cd9d5fc))
+
 ## [0.19.77](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.76...v0.19.77) (2026-07-25)
 
 
