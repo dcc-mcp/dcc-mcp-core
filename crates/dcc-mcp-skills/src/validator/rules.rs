@@ -343,6 +343,7 @@ fn validate_next_tools(
 fn validate_scripts(skill_dir: &Path, meta: &SkillMetadata, report: &mut SkillValidationReport) {
     let scripts_dir = skill_dir.join("scripts");
     let mut checked_python_sources = HashSet::new();
+    let mut checked_python_entrypoints = HashSet::new();
 
     for path in python_scripts_under(&scripts_dir) {
         checked_python_sources.insert(path.clone());
@@ -374,10 +375,13 @@ fn validate_scripts(skill_dir: &Path, meta: &SkillMetadata, report: &mut SkillVa
                             tool.name, tool.source_file, ext_str
                         ),
                     ));
-                } else if ext_str.eq_ignore_ascii_case("py")
-                    && checked_python_sources.insert(path.clone())
-                {
-                    validate_python_script_contract(&path, &tool.source_file, report);
+                } else if ext_str.eq_ignore_ascii_case("py") {
+                    if checked_python_sources.insert(path.clone()) {
+                        validate_python_script_contract(&path, &tool.source_file, report);
+                    }
+                    if checked_python_entrypoints.insert(path.clone()) {
+                        validate_python_entrypoint_contract(&path, &tool.source_file, report);
+                    }
                 }
             } else {
                 report.issues.push(SkillValidationIssue::warn(
@@ -446,6 +450,29 @@ fn validate_python_script_contract(
             IssueCategory::Scripts,
             format!(
                 "script '{}' must import sibling helpers directly; the shared runner owns script-directory import setup",
+                source_file
+            ),
+        ));
+    }
+}
+
+fn validate_python_entrypoint_contract(
+    path: &Path,
+    source_file: &str,
+    report: &mut SkillValidationReport,
+) {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let has_main = source.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("def main(") || line.starts_with("async def main(")
+    });
+    if !has_main {
+        report.issues.push(SkillValidationIssue::error(
+            IssueCategory::Scripts,
+            format!(
+                "declared Python source_file '{}' must define main(...) for skill execution",
                 source_file
             ),
         ));

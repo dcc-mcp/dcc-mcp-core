@@ -6,6 +6,34 @@ use tempfile::NamedTempFile;
 use support::*;
 
 #[test]
+fn non_interactive_install_execute_fails_without_reading_stdin() {
+    let output = cli_command()
+        .args([
+            "install",
+            "--dcc-type",
+            "maya",
+            "--execute",
+            "--non-interactive",
+            "--output",
+            "json",
+        ])
+        .env_remove("DCC_MCP_INSTALL_DISABLED")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "INVALID_INPUT");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("requires confirmation")
+    );
+}
+
+#[test]
 fn install_builds_auditable_plan_from_catalog() {
     let mut catalog = NamedTempFile::new().unwrap();
     std::io::Write::write_all(

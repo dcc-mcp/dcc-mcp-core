@@ -6,7 +6,8 @@ Use this checklist for every `tools.yaml` entry.
 
 - `name`: local snake_case tool name, never dotted.
 - `description`: concise action description shown to agents.
-- `source_file`: script path relative to the skill directory.
+- `source_file`: script path relative to the skill directory; Python sources
+  define module-level `main(...)` and call `run_main(main)` when run directly.
 - `input_schema`: JSON Schema for parameters.
 - `output_schema`: JSON Schema for returned data when practical.
 - `execution`: `sync` for quick calls, `async` for long-running work.

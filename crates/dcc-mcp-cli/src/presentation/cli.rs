@@ -635,7 +635,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         auto_gateway_bin,
         auto_gateway_timeout_secs,
         output,
-        non_interactive: _non_interactive,
+        non_interactive,
         timeout_secs: global_timeout_secs,
         command,
     } = args;
@@ -643,6 +643,16 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     // Resolve output format: explicit flag > env > TTY auto-detect.
     let output = output.unwrap_or_else(OutputFormat::auto_detect);
     let writer = OutputWriter::new(output);
+
+    if non_interactive && command_requires_interactive_input(&command) {
+        let envelope = ErrorEnvelope::new(
+            "INVALID_INPUT",
+            "--non-interactive cannot execute a command that requires confirmation",
+            ExitCode::InvalidInput,
+        );
+        writer.write_error(&envelope)?;
+        std::process::exit(ExitCode::InvalidInput.as_i32());
+    }
 
     // Deprecation warning for per-command timeout when global timeout is set.
     if global_timeout_secs.is_some() && command_has_per_timeout(&command) {
@@ -1108,6 +1118,10 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         std::process::exit(exit_code.as_i32());
     }
     Ok(())
+}
+
+fn command_requires_interactive_input(command: &Command) -> bool {
+    matches!(command, Command::Install { execute: true, .. })
 }
 
 async fn ensure_gateway_for_command(

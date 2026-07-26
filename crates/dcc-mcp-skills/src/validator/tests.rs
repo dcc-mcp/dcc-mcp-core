@@ -157,7 +157,7 @@ fn test_python_source_rejects_sibling_sys_path_mutation() {
     .unwrap();
     std::fs::write(
         dir.join("scripts/do_thing.py"),
-        "from _common import helper\n",
+        "from _common import helper\n\ndef main():\n    return helper()\n",
     )
     .unwrap();
     std::fs::write(
@@ -173,6 +173,31 @@ fn test_python_source_rejects_sibling_sys_path_mutation() {
             && issue
                 .message
                 .contains("shared runner owns script-directory import setup")
+    }));
+}
+
+#[test]
+fn test_declared_python_source_requires_main_entrypoint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("missing-main");
+    std::fs::create_dir_all(dir.join("scripts")).unwrap();
+    std::fs::write(
+        dir.join("SKILL.md"),
+        "---\nname: missing-main\ndescription: test\ntools:\n  - name: do_thing\n    source_file: scripts/do_thing.py\n---\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("scripts/do_thing.py"),
+        "def do_thing():\n    return {'success': True}\n",
+    )
+    .unwrap();
+
+    let report = validate_skill_dir(&dir);
+
+    assert!(report.issues.iter().any(|issue| {
+        issue.category == IssueCategory::Scripts
+            && issue.severity == IssueSeverity::Error
+            && issue.message.contains("must define main")
     }));
 }
 
