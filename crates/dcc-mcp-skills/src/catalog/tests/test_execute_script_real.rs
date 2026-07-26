@@ -202,6 +202,29 @@ print(json.dumps({"success": True, "argv": argv}))
 }
 
 #[test]
+fn test_real_python_reserved_metadata_is_not_forwarded() {
+    if skip_real_exec("python") {
+        return;
+    }
+    let body = r#"
+import json, sys
+params = json.loads(sys.stdin.read() or "{}")
+assert params == {"visible": "value"}, params
+assert "--_meta" not in sys.argv[1:], sys.argv[1:]
+print(json.dumps({"success": True, "params": params}))
+"#;
+    let (_dir, script) = write_script("reserved_metadata.py", body);
+    let result = execute_script(
+        script.to_str().unwrap(),
+        serde_json::json!({"visible": "value", "_meta": {"session": "test"}}),
+        None,
+    )
+    .expect("reserved call metadata must stay at the execution boundary");
+
+    assert_eq!(result["params"], serde_json::json!({"visible": "value"}));
+}
+
+#[test]
 fn test_real_python_nonzero_exit_returns_error_with_stderr() {
     if skip_real_exec("python") {
         return;
