@@ -703,6 +703,23 @@ async fn call_backend_refuses_forward_while_backend_is_booting() {
         !hit.load(Ordering::SeqCst),
         "call_backend must not post to /mcp while backend is red"
     );
+
+    call_backend_with_observability(
+        &client,
+        &mcp_url,
+        BackendJsonRpcCallRequest {
+            method: "tools/call",
+            params: Some(json!({"name": "jobs_get_status", "arguments": {"job_id": "job-1"}})),
+            request_id: Some("gw-x".into()),
+            require_ready: false,
+            trace_context: None,
+            traffic_capture: None,
+            timeout: Duration::from_secs(2),
+        },
+    )
+    .await
+    .expect("job polling may bypass transient readiness");
+    assert!(hit.load(Ordering::SeqCst), "job polling must reach /mcp");
     let _ = stop.send(());
 }
 

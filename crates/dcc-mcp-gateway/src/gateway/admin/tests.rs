@@ -314,34 +314,10 @@ filters:
 
     async fn spawn_sidecar_dispatch_backend() -> (u16, oneshot::Sender<()>, Arc<Mutex<Vec<Value>>>)
     {
-        spawn_sidecar_dispatch_backend_with_readiness(false).await
-    }
-
-    async fn spawn_sidecar_dispatch_backend_with_readiness(
-        booting: bool,
-    ) -> (u16, oneshot::Sender<()>, Arc<Mutex<Vec<Value>>>) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let calls_for_route = calls.clone();
         let app = Router::new()
             .route("/health", axum::routing::get(|| async { StatusCode::OK }))
-            .route(
-                "/v1/readyz",
-                axum::routing::get(move || async move {
-                    let status = if booting {
-                        StatusCode::SERVICE_UNAVAILABLE
-                    } else {
-                        StatusCode::OK
-                    };
-                    (
-                        status,
-                        axum::Json(json!({
-                            "process": true,
-                            "dispatcher": !booting,
-                            "dcc": !booting,
-                        })),
-                    )
-                }),
-            )
             .route(
                 "/mcp",
                 axum::routing::post(move |axum::Json(req): axum::Json<Value>| {
@@ -692,61 +668,6 @@ filters:
             calls[0].pointer("/params/arguments/name"),
             Some(&json!("random_sphere_1"))
         );
-    }
-
-    #[tokio::test]
-    async fn test_job_status_routes_while_backend_readiness_is_temporarily_red() {
-        let gs = make_gateway_state();
-        let (discovery_port, stop_discovery) = spawn_search_backend(json!([])).await;
-        let (sidecar_port, stop_sidecar, sidecar_calls) =
-            spawn_sidecar_dispatch_backend_with_readiness(true).await;
-        let mut entry = make_service_entry("unity", "127.0.0.1", sidecar_port, None);
-        entry.metadata.insert(
-            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
-            format!("http://127.0.0.1:{sidecar_port}/mcp"),
-        );
-        entry.metadata.insert(
-            crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
-            format!("http://127.0.0.1:{discovery_port}/mcp"),
-        );
-        entry.metadata.insert(
-            crate::gateway::http_registration::ROLE_METADATA_KEY.to_string(),
-            crate::gateway::http_registration::ROLE_PER_DCC_SIDECAR.to_string(),
-        );
-        let instance_id = entry.instance_id;
-        gs.registry.write().await.register(entry).unwrap();
-
-        crate::gateway::capability_service::refresh_all_live_backends(
-            &gs,
-            crate::gateway::capability::RefreshReason::Periodic,
-        )
-        .await;
-        let slug = crate::gateway::capability::tool_slug("unity", &instance_id, "jobs_get_status");
-
-        let result = crate::gateway::capability_service::call_service(
-            &gs,
-            &slug,
-            json!({"job_id": "job-during-domain-reload"}),
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("job polling must remain available while the DCC reloads");
-
-        assert_eq!(result["isError"], false);
-        let calls = sidecar_calls.lock();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(
-            calls[0].pointer("/params/name"),
-            Some(&json!("jobs_get_status"))
-        );
-        assert_eq!(
-            calls[0].pointer("/params/arguments/job_id"),
-            Some(&json!("job-during-domain-reload"))
-        );
-        let _ = stop_discovery.send(());
-        let _ = stop_sidecar.send(());
     }
 
     #[tokio::test]
