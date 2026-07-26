@@ -22,6 +22,8 @@ use crate::domain::rest::{
 use crate::infra::http::HttpGateway;
 
 const RELOAD_SKILLS_TOOL: &str = "dcc_admin__reload_skills";
+const JOB_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const TERMINAL_JOB_STATUSES: &[&str] = &["completed", "failed", "cancelled", "interrupted"];
 
 #[derive(Debug, Clone)]
 pub struct DccControlPlane {
@@ -156,6 +158,76 @@ impl DccControlPlane {
         Ok(attach_call_route(value, direct_local))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub async fn call_and_wait(
+        &self,
+        tool_slug: String,
+        dcc_type: Option<String>,
+        instance_id: Option<String>,
+        arguments: Value,
+        meta: Option<Value>,
+        request_timeout: Duration,
+        wait_timeout: Duration,
+    ) -> anyhow::Result<Value> {
+        let status_tool = job_status_tool(&tool_slug, dcc_type.as_deref(), instance_id.as_deref())?;
+        let poll_meta = job_poll_meta(meta.clone());
+        let mut result = self
+            .call(
+                tool_slug,
+                dcc_type.clone(),
+                instance_id.clone(),
+                arguments,
+                meta,
+                request_timeout,
+            )
+            .await?;
+        let Some((job_id, mut status)) = job_identity(&result, 0)
+            .map(|(job_id, status)| (job_id.to_string(), status.to_string()))
+        else {
+            return Ok(result);
+        };
+        if is_terminal_job_status(&status) {
+            return Ok(result);
+        }
+
+        let started = tokio::time::Instant::now();
+        loop {
+            if started.elapsed() >= wait_timeout {
+                return Ok(json!({
+                    "success": false,
+                    "error": format!("timed out waiting for job {job_id} after {}s", wait_timeout.as_secs()),
+                    "job_id": job_id,
+                    "status": status,
+                    "wait_timed_out": true,
+                    "last_result": result,
+                }));
+            }
+            tokio::time::sleep(JOB_POLL_INTERVAL).await;
+            result = self
+                .call(
+                    status_tool.clone(),
+                    dcc_type.clone(),
+                    instance_id.clone(),
+                    json!({"job_id": job_id, "include_result": true}),
+                    poll_meta.clone(),
+                    request_timeout,
+                )
+                .await?;
+            let Some((reported_job_id, reported_status)) = job_identity(&result, 0) else {
+                anyhow::bail!("jobs_get_status returned no job envelope for {job_id}");
+            };
+            if reported_job_id != job_id {
+                anyhow::bail!(
+                    "jobs_get_status returned job {reported_job_id} while waiting for {job_id}"
+                );
+            }
+            status = reported_status.to_string();
+            if is_terminal_job_status(&status) {
+                return Ok(result);
+            }
+        }
+    }
+
     pub async fn call_batch(&self, body: Value, timeout: Duration) -> anyhow::Result<Value> {
         // Local mode owns and auto-starts the machine gateway, so batches use
         // its REST endpoint even though single calls can take the direct MCP path.
@@ -273,6 +345,63 @@ fn attach_call_route(mut value: Value, direct_local: bool) -> Value {
     value
 }
 
+fn job_status_tool(
+    tool_slug: &str,
+    dcc_type: Option<&str>,
+    instance_id: Option<&str>,
+) -> anyhow::Result<String> {
+    if dcc_type.is_some() && instance_id.is_some() {
+        return Ok("jobs_get_status".to_string());
+    }
+    let mut parts = tool_slug.splitn(3, '.');
+    let dcc = parts.next().unwrap_or_default();
+    let instance = parts.next().unwrap_or_default();
+    if dcc.is_empty() || instance.is_empty() || parts.next().is_none() {
+        anyhow::bail!("--wait requires a canonical DCC tool slug or direct instance selection");
+    }
+    Ok(format!("{dcc}.{instance}.jobs_get_status"))
+}
+
+fn job_identity(value: &Value, depth: u8) -> Option<(&str, &str)> {
+    if depth > 4 {
+        return None;
+    }
+    if let (Some(job_id), Some(status)) = (
+        value.get("job_id").and_then(Value::as_str),
+        value.get("status").and_then(Value::as_str),
+    ) {
+        return Some((job_id, status));
+    }
+    [
+        "output",
+        "result",
+        "structuredContent",
+        "structured_content",
+    ]
+    .iter()
+    .filter_map(|key| value.get(*key))
+    .find_map(|nested| job_identity(nested, depth + 1))
+}
+
+fn is_terminal_job_status(status: &str) -> bool {
+    TERMINAL_JOB_STATUSES.contains(&status)
+}
+
+fn job_poll_meta(mut meta: Option<Value>) -> Option<Value> {
+    let Some(Value::Object(root)) = meta.as_mut() else {
+        return meta;
+    };
+    root.remove("progressToken");
+    if let Some(Value::Object(dcc)) = root.get_mut("dcc") {
+        dcc.remove("async");
+        dcc.remove("wait_for_terminal");
+        if dcc.is_empty() {
+            root.remove("dcc");
+        }
+    }
+    meta.filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
+}
+
 fn attach_stats_coverage(mut value: Value, direct_local: bool) -> Value {
     if let Some(object) = value.as_object_mut() {
         object.insert(
@@ -315,8 +444,9 @@ fn select_remote_instances(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
-    use axum::extract::Query;
+    use axum::extract::{Query, State};
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use tempfile::tempdir;
@@ -378,6 +508,91 @@ mod tests {
         assert_eq!(stats["stats_coverage"]["configured_route_recorded"], true);
         assert_eq!(stats["query"]["session_id"], "task-42");
 
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_for_async_call_returns_terminal_result_without_requeueing_polls() {
+        async fn call(
+            State(requests): State<Arc<Mutex<Vec<Value>>>>,
+            Json(body): Json<Value>,
+        ) -> Json<Value> {
+            let slug = body["tool_slug"].as_str().unwrap_or_default().to_string();
+            let poll = {
+                let mut requests = requests.lock().unwrap();
+                let poll = requests
+                    .iter()
+                    .filter(|request| {
+                        request["tool_slug"]
+                            .as_str()
+                            .is_some_and(|tool| tool.ends_with(".jobs_get_status"))
+                    })
+                    .count();
+                requests.push(body);
+                poll
+            };
+            if slug.ends_with(".jobs_get_status") {
+                let status = if poll == 0 { "running" } else { "completed" };
+                return Json(json!({
+                    "structuredContent": {
+                        "job_id": "job-42",
+                        "status": status,
+                        "result": (status == "completed").then(|| json!({
+                            "success": true,
+                            "message": "done"
+                        }))
+                    }
+                }));
+            }
+            Json(json!({
+                "slug": slug,
+                "output": {"job_id": "job-42", "status": "pending"}
+            }))
+        }
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .with_state(requests.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            true,
+        );
+
+        let result = control
+            .call_and_wait(
+                "unity.abc12345.run_tests".to_string(),
+                None,
+                None,
+                json!({}),
+                Some(json!({
+                    "agent_context": {"session_id": "task-42"},
+                    "lease_owner": "workflow-42",
+                    "dcc": {"async": true, "wait_for_terminal": true},
+                    "progressToken": "progress-9"
+                })),
+                Duration::from_secs(2),
+                Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        let poll_meta = &requests[1]["meta"];
+        assert_eq!(poll_meta["agent_context"]["session_id"], "task-42");
+        assert_eq!(poll_meta["lease_owner"], "workflow-42");
+        assert!(poll_meta["dcc"].get("async").is_none());
+        assert!(poll_meta["dcc"].get("wait_for_terminal").is_none());
+        assert!(poll_meta.get("progressToken").is_none());
+        assert_eq!(result["structuredContent"]["status"], "completed");
+        assert_eq!(result["structuredContent"]["result"]["message"], "done");
         server.abort();
     }
 

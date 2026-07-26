@@ -116,6 +116,12 @@ class TestDccMcpSkill:
         assert "review_skill_improvement" in body
         assert "do not use this skill" not in body
 
+    def test_async_calls_prefer_one_cli_wait_over_agent_polling(self) -> None:
+        body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8")
+        assert "add `--wait`" in body
+        assert "`--wait-timeout-secs`" in body
+        assert "manual gateway polling is only the fallback" in body
+
     def test_openclaw_metadata_does_not_require_gateway_env(self) -> None:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None
