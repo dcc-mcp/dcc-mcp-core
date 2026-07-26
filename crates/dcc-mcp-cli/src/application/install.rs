@@ -380,6 +380,7 @@ fn pip_install_args(package: &str, extras: Option<&[String]>) -> Vec<String> {
         "-m".into(),
         "pip".into(),
         "install".into(),
+        "--upgrade".into(),
         pip_package_spec(package, extras),
     ]
 }
@@ -856,6 +857,7 @@ mod tests {
                 "-m".to_string(),
                 "pip".to_string(),
                 "install".to_string(),
+                "--upgrade".to_string(),
                 "dcc-mcp-maya[maya]".to_string(),
             ]
         );
