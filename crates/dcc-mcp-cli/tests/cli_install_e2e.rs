@@ -196,6 +196,18 @@ fn install_bundled_catalog_covers_non_maya_first_party_adapters() {
 }
 
 #[test]
+fn bundled_catalog_reports_current_unity_adapter_version() {
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "unity"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-unity");
+    assert_eq!(plan["adapter"]["version"], "0.11.2");
+}
+
+#[test]
 fn install_prefers_adapter_over_same_dcc_skill_pack() {
     let plan = run_json_with_env_removed(
         &["install", "--dcc-type", "photoshop"],
