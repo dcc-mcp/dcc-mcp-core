@@ -644,16 +644,6 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let output = output.unwrap_or_else(OutputFormat::auto_detect);
     let writer = OutputWriter::new(output);
 
-    if non_interactive && command_requires_interactive_input(&command) {
-        let envelope = ErrorEnvelope::new(
-            "INVALID_INPUT",
-            "--non-interactive cannot execute a command that requires confirmation",
-            ExitCode::InvalidInput,
-        );
-        writer.write_error(&envelope)?;
-        std::process::exit(ExitCode::InvalidInput.as_i32());
-    }
-
     // Deprecation warning for per-command timeout when global timeout is set.
     if global_timeout_secs.is_some() && command_has_per_timeout(&command) {
         let _ = writer.diagnostic(
@@ -984,7 +974,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 python,
             };
             if execute {
-                to_json(service.execute(req)?)?
+                to_json(service.execute(req, non_interactive)?)?
             } else {
                 to_json(service.plan(req)?)?
             }
@@ -1118,10 +1108,6 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         std::process::exit(exit_code.as_i32());
     }
     Ok(())
-}
-
-fn command_requires_interactive_input(command: &Command) -> bool {
-    matches!(command, Command::Install { execute: true, .. })
 }
 
 async fn ensure_gateway_for_command(

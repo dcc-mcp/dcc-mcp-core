@@ -6,12 +6,14 @@ use tempfile::NamedTempFile;
 use support::*;
 
 #[test]
-fn non_interactive_install_execute_fails_without_reading_stdin() {
+fn non_interactive_install_execute_skips_confirmation_and_runs_plan() {
     let output = cli_command()
         .args([
             "install",
             "--dcc-type",
             "maya",
+            "--python",
+            "/__nonexistent__/python",
             "--execute",
             "--non-interactive",
             "--output",
@@ -21,16 +23,12 @@ fn non_interactive_install_execute_fails_without_reading_stdin() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(2));
+    assert_ne!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert_eq!(error["error"]["code"], "INVALID_INPUT");
-    assert!(
-        error["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("requires confirmation")
-    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("failed to launch /__nonexistent__/python"));
+    assert!(!stderr.contains("requires confirmation"));
+    assert!(!stderr.contains("Proceed with installation?"));
 }
 
 #[test]
