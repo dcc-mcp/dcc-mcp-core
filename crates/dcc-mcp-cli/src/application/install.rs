@@ -153,9 +153,13 @@ impl InstallService {
     /// Steps are executed sequentially.  If any step fails, all prior steps
     /// are rolled back in reverse order.  Returns the full plan (with step
     /// results) on success.
-    pub fn execute(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
+    pub fn execute(
+        &self,
+        request: InstallRequest,
+        skip_confirmation: bool,
+    ) -> Result<InstallPlan, InstallError> {
         let plan = self.plan(request)?;
-        self.execute_plan(&plan)
+        self.execute_plan(&plan, skip_confirmation)
     }
 
     fn load_entries(
@@ -184,7 +188,11 @@ impl InstallService {
         plan
     }
 
-    fn execute_plan(&self, plan: &InstallPlan) -> Result<InstallPlan, InstallError> {
+    fn execute_plan(
+        &self,
+        plan: &InstallPlan,
+        skip_confirmation: bool,
+    ) -> Result<InstallPlan, InstallError> {
         if !plan.install_policy.auto_install_enabled {
             if let Some(prompt) = &plan.install_policy.prompt {
                 eprintln!("{prompt}");
@@ -219,7 +227,7 @@ impl InstallService {
         eprintln!("╚══════════════════════════════════════════════╝");
         eprintln!();
 
-        if !ask_consent("Proceed with installation? [Y/n]")? {
+        if !skip_confirmation && !ask_consent("Proceed with installation? [Y/n]")? {
             return Err(InstallError::ConsentDenied);
         }
 
@@ -796,12 +804,15 @@ mod tests {
         );
 
         let plan = service
-            .execute(InstallRequest {
-                dcc_type: "maya".into(),
-                version: None,
-                catalog_path: None,
-                python: Some("/__nonexistent__/python".into()),
-            })
+            .execute(
+                InstallRequest {
+                    dcc_type: "maya".into(),
+                    version: None,
+                    catalog_path: None,
+                    python: Some("/__nonexistent__/python".into()),
+                },
+                true,
+            )
             .unwrap();
 
         assert!(!plan.install_policy.auto_install_enabled);
