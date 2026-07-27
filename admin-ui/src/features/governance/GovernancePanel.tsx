@@ -15,8 +15,10 @@ import {
   GovernanceControlCard,
   MetricTile,
   PanelHeader,
+  PanelTabs,
   StatusLine,
 } from '../../admin-ui-core';
+import type { ReliabilityTab } from '../../navigation';
 
 export type GovernanceSummary = {
   allowed: number;
@@ -37,6 +39,8 @@ export type GovernancePanelProps = {
   updatedAt: string;
   error?: string;
   onRefresh: () => void;
+  tab: ReliabilityTab;
+  onTabChange: (tab: ReliabilityTab) => void;
   t: Translator;
 };
 
@@ -47,18 +51,31 @@ export function GovernancePanel({
   updatedAt,
   error,
   onRefresh,
+  tab,
+  onTabChange,
   t,
 }: GovernancePanelProps) {
   return (
-    <section className="panel active governance-panel" data-panel="governance">
+    <section className="panel active governance-panel" data-panel="reliability">
       <PanelHeader
-        title={t('governance.title')}
+        title={t('reliability.title')}
         meta={governance?.mode?.reason ?? t('governance.meta')}
         action={(
-          <Button type="button" size="sm" onClick={onRefresh}>
-            <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-            {t('action.refresh')}
-          </Button>
+          <div className="table-actions">
+            <PanelTabs
+              value={tab}
+              tabs={[
+                { id: 'status', label: t('navigation.reliabilityTab.status') },
+                { id: 'policy', label: t('navigation.reliabilityTab.policy') },
+              ]}
+              ariaLabel={t('navigation.reliabilityTab.meta')}
+              onValueChange={onTabChange}
+            />
+            <Button type="button" size="sm" onClick={onRefresh}>
+              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
+              {t('action.refresh')}
+            </Button>
+          </div>
         )}
       />
       <StatusLine text={updatedAt} error={error} />

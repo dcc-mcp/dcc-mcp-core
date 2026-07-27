@@ -7,6 +7,7 @@
   "action.forgetting": "遗忘中",
   "filter.layer": "层级",
   "filter.dcc": "DCC",
+  "filter.session": "会话",
   "filter.keyPrefix": "Key 前缀",
   "filter.search": "搜索记录",
   "filter.all": "全部层级",

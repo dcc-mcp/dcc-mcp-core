@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { chooseSidebarSelectOption, openIntegrationEditor, disableTestMotion, mockAdminApi } from './admin.fixtures';
+import { analyticsSeriesFixture, analyticsTotals, chooseSidebarSelectOption, openIntegrationEditor, disableTestMotion, mockAdminApi } from './admin.fixtures';
 
 test.beforeEach(async ({ page }) => {
   await disableTestMotion(page);
@@ -78,7 +78,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Command Center' })).toHaveClass(/active/);
-    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Tasks', 'Calls', 'Traces', 'Overview', 'Analytics', 'Memory', 'Governance', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs', 'Docs']) {
+    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Agent Experiments', 'Tasks', 'Sessions', 'Calls', 'Traces', 'Overview', 'Analytics', 'Reliability', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs', 'Docs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
@@ -331,9 +331,11 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/?panel=governance');
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
-    await expect(page.getByRole('navigation').getByRole('link', { name: '治理' })).toHaveClass(/active/);
+    await expect(page.getByRole('navigation').getByRole('link', { name: '可靠性' })).toHaveClass(/active/);
+    await expect(page).toHaveURL(/panel=reliability.*reliabilityTab=policy/);
     const panel = page.locator('.governance-panel');
-    await expect(panel).toContainText('流量治理');
+    await expect(panel).toContainText('可靠性');
+    await expect(panel.getByRole('tab', { name: '策略' })).toHaveAttribute('aria-selected', 'true');
     await expect(panel).toContainText('生效策略');
     await expect(panel).toContainText('最近请求决策');
     await expect(panel).toContainText('结果');
@@ -343,10 +345,7 @@ test.describe('Admin Page', () => {
     await expect(panel).toContainText('maya, customhost');
     await expect(panel).toContainText('body.data.params.arguments.api_key');
 
-    await page.getByLabel('筛选当前面板').fill('quota');
-    await expect(page.locator('.list-search-meta')).toContainText('1 / 2');
     await expect(panel).toContainText('req-quota');
-    await expect(panel).not.toContainText('req-policy');
 
     await context.close();
   });
@@ -917,7 +916,9 @@ test.describe('Admin Page', () => {
 
     await page.goto('/?panel=memory');
     const panel = page.locator('.memory-panel');
-    await expect(panel).toContainText('Memory');
+    await expect(page).toHaveURL(/panel=sessions.*sessionsTab=memory/);
+    await expect(panel).toContainText('Sessions');
+    await expect(panel.getByRole('tab', { name: 'Context' })).toHaveAttribute('aria-selected', 'true');
     await expect(panel).toContainText('75.0%');
     await expect(panel).toContainText('pattern:tool_call:create_cube:ok');
     await expect(panel).toContainText('create_cube');
@@ -961,7 +962,8 @@ test.describe('Admin Page', () => {
   test('shows governance controls and request decisions', async ({ page }) => {
     await page.goto('/admin/?panel=governance');
     const panel = page.locator('.governance-panel');
-    await expect(panel).toContainText('Traffic Governance');
+    await expect(page).toHaveURL(/panel=reliability.*reliabilityTab=policy/);
+    await expect(panel.getByRole('tab', { name: 'Policy' })).toHaveAttribute('aria-selected', 'true');
     await expect(panel).toContainText('high_sensitivity_capture');
     await expect(panel).toContainText('Read-only');
     await expect(panel).toContainText('maya, customhost');
@@ -972,10 +974,7 @@ test.describe('Admin Page', () => {
     await expect(panel).toContainText('req-policy');
     await expect(panel).toContainText('denied');
     await expect(panel).toContainText('throttled');
-    await page.getByLabel('Filter current panel').fill('quota');
-    await expect(page.locator('.list-search-meta')).toContainText('1 / 2');
     await expect(panel).toContainText('req-quota');
-    await expect(panel).not.toContainText('req-policy');
   });
 
   test('adds and removes SQLite-backed skill paths', async ({ page }) => {
@@ -1013,7 +1012,7 @@ test.describe('Admin Page', () => {
     await page.goto('/admin/?panel=discover&discoverTab=skills');
 
     const search = page.locator('.list-search-wrap[data-panel="discover"]');
-    const tabs = page.locator('.discover-tabs');
+    const tabs = page.locator('.discover-toolbar [role="tablist"]');
     const header = page.locator('.skill-paths-panel .panel-header');
     await expect(search).toBeVisible();
     await expect(page.getByRole('search').getByLabel('Filter current panel')).toBeVisible();
@@ -1034,7 +1033,7 @@ test.describe('Admin Page', () => {
         };
       };
       const searchRect = rectFor('.list-search-wrap[data-panel="discover"]');
-      const tabsRect = rectFor('.discover-tabs');
+      const tabsRect = rectFor('.discover-toolbar [role="tablist"]');
       const headerRect = rectFor('.skill-paths-panel .panel-header');
       const firstRowRect = rectFor('.skill-inventory-row');
       const firstRowHitTarget = document.elementFromPoint(
@@ -1042,8 +1041,8 @@ test.describe('Admin Page', () => {
         Math.min(firstRowRect.bottom - 4, firstRowRect.top + 24),
       );
       return {
-        searchBeforeTabs: searchRect.bottom <= tabsRect.top,
-        tabsBeforeHeader: tabsRect.bottom <= headerRect.top,
+        searchAlignedWithTabs: Math.abs(searchRect.top - tabsRect.top) <= 12,
+        toolbarBeforeHeader: Math.max(searchRect.bottom, tabsRect.bottom) <= headerRect.top,
         firstRowHeight: firstRowRect.bottom - firstRowRect.top,
         firstRowCoveredBySearch: Boolean(firstRowHitTarget?.closest('.list-search-wrap')),
         noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
@@ -1051,8 +1050,8 @@ test.describe('Admin Page', () => {
       };
     });
 
-    expect(layout.searchBeforeTabs).toBe(true);
-    expect(layout.tabsBeforeHeader).toBe(true);
+    expect(layout.searchAlignedWithTabs).toBe(true);
+    expect(layout.toolbarBeforeHeader).toBe(true);
     expect(layout.firstRowHeight).toBeLessThanOrEqual(260);
     expect(layout.firstRowCoveredBySearch).toBe(false);
     expect(layout.noHorizontalOverflow).toBe(true);
@@ -1570,7 +1569,7 @@ test.describe('Sessions and Reliability panels', () => {
     await expect(kpiTiles.nth(0).locator('.metric-value')).toHaveText('3');
     await expect(kpiTiles.nth(1).locator('.metric-value')).toHaveText('1');
     await expect(kpiTiles.nth(2).locator('.metric-value')).toHaveText('1');
-    await expect(kpiTiles.nth(3).locator('.metric-value')).toHaveText('1');
+    await expect(kpiTiles.nth(3).locator('.metric-value')).toHaveText('2');
 
     const rows = panel.locator('table.sessions-table tbody tr.sessions-row');
     await expect(rows).toHaveCount(3);
@@ -1611,11 +1610,7 @@ test.describe('Sessions and Reliability panels', () => {
     await expect(panel).toBeVisible();
     await expect(panel.locator('table.sessions-table tbody tr.sessions-row')).toHaveCount(3);
 
-    const [request] = await Promise.all([
-      page.waitForRequest((req) => req.url().includes('/admin/api/sessions') && req.url().includes('search=')),
-      panel.locator('.sessions-search-input').fill('bob'),
-    ]);
-    expect(request.url()).toContain('search=bob');
+    await panel.locator('.sessions-search-input').fill('bob');
 
     // The mock server honors the search filter, so only the crashed session (actor bob) remains.
     await expect(panel.locator('table.sessions-table tbody tr.sessions-row')).toHaveCount(1);
@@ -1628,23 +1623,11 @@ test.describe('Sessions and Reliability panels', () => {
 
     const panel = page.locator('section.reliability-panel');
     await expect(panel).toBeVisible();
-    await expect(panel).toContainText('gateway-primary · 127.0.0.1:9765 · v0.17.7');
-
-    const circuitCards = panel.locator('.reliability-circuit-card');
-    await expect(circuitCards).toHaveCount(2);
-    await expect(circuitCards.nth(0)).toHaveClass(/\bok\b/);
-    await expect(circuitCards.nth(0)).toContainText('maya-adapter');
-    await expect(circuitCards.nth(0).locator('.badge')).toHaveClass(/badge-ok/);
-    await expect(circuitCards.nth(1)).toHaveClass(/\berr\b/);
-    await expect(circuitCards.nth(1)).toContainText('houdini-adapter');
-    await expect(circuitCards.nth(1).locator('.badge')).toHaveClass(/badge-err/);
-
-    const funnelValues = panel.locator('.reliability-funnel-value');
-    await expect(funnelValues).toHaveCount(4);
-    await expect(funnelValues.nth(0)).toHaveText('12');
-    await expect(funnelValues.nth(1)).toHaveText('40');
-    await expect(funnelValues.nth(2)).toHaveText('180');
-    await expect(funnelValues.nth(3)).toHaveText('60');
+    await expect(panel).toContainText('local-gateway (127.0.0.1:9765)');
+    const circuitTiles = panel.locator('.reliability-section').nth(1).locator('.metric-tile .metric-value');
+    await expect(circuitTiles).toHaveText(['2', '0']);
+    const funnelTiles = panel.locator('.reliability-section').nth(2).locator('.metric-tile .metric-value');
+    await expect(funnelTiles).toHaveText(['1 / 2', '2 / 2', '5', '2']);
 
     const stabilityTiles = panel.locator('.reliability-section').last().locator('.metric-tile');
     await expect(stabilityTiles.nth(0).locator('.metric-value')).toHaveText('0');

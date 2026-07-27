@@ -145,6 +145,21 @@ so operators and agents can compare results one-to-one:
 | `/v1/debug/integrations` | `/admin/api/integrations` | Masked integration state for Sentry, Event Webhooks, WeCom message push, and OTLP telemetry. |
 | `/v1/debug/health` | `/admin/api/health` | Debug provider health summary. |
 
+Reproducible experiments reuse the retained session timeline instead of a
+second recorder or store. `GET`/`POST /v1/experiments` list or create an
+experiment; `GET /v1/experiments/{experiment_id}` projects its latest runs,
+Session DAG, status counts, judge evidence, and ordered events. Append run
+states through `POST /v1/experiments/{experiment_id}/runs` and bounded,
+evidence-only judge results through
+`POST /v1/experiments/{experiment_id}/judge-results`. Writes require the
+`x-dcc-mcp-agent-session-id` header and Admin SQLite persistence.
+The Admin Experiments panel renders the same projection as KPIs, parent-linked
+run nodes, and evidence-only Judge cards.
+MCP agents can read the same list and detail projections through
+`gateway://experiments` and `gateway://experiments/{experiment_id}`. Effective
+governance is available through `gateway://governance`; these resources are
+read-only and do not expose the destructive Admin memory controls.
+
 Compact-aware debug routes (`/v1/debug/traces`, `/v1/debug/traces/{request_id}`,
 `/v1/debug/trace-context/{lookup_id}`, `/v1/debug/bundles/{request_id}`, and
 `/v1/debug/stats`) default to JSON for browser and GitHub compatibility. Agents

@@ -120,6 +120,10 @@ import sessionsEn from './locales/en/sessions.json' with { type: 'json' };
 import sessionsZhCN from './locales/zh-CN/sessions.json' with { type: 'json' };
 import sessionsJa from './locales/ja/sessions.json' with { type: 'json' };
 import sessionsKo from './locales/ko/sessions.json' with { type: 'json' };
+import experimentsEn from './locales/en/experiments.json' with { type: 'json' };
+import experimentsZhCN from './locales/zh-CN/experiments.json' with { type: 'json' };
+import experimentsJa from './locales/ja/experiments.json' with { type: 'json' };
+import experimentsKo from './locales/ko/experiments.json' with { type: 'json' };
 import reliabilityEn from './locales/en/reliability.json' with { type: 'json' };
 import reliabilityZhCN from './locales/zh-CN/reliability.json' with { type: 'json' };
 import reliabilityJa from './locales/ja/reliability.json' with { type: 'json' };
@@ -287,6 +291,12 @@ export const I18N_MESSAGES = {
     'zh-CN': sessionsZhCN,
     ja: sessionsJa,
     ko: sessionsKo,
+  },
+  experiments: {
+    en: experimentsEn,
+    'zh-CN': experimentsZhCN,
+    ja: experimentsJa,
+    ko: experimentsKo,
   },
 } as const;
 

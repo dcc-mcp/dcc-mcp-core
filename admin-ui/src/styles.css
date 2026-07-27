@@ -708,7 +708,6 @@ h2 {
   padding: 0.65rem 0.85rem;
 }
 
-.discover-tabs,
 .overview-tabs {
   align-items: center;
   border-bottom: 1px solid var(--border);
@@ -2763,21 +2762,6 @@ pre.empty {
   z-index: 1;
 }
 
-.list-search-wrap[data-panel="discover"] {
-  background: color-mix(in srgb, var(--card) 88%, var(--background));
-  border-color: var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  isolation: auto;
-  margin: 0 0 0.95rem;
-  padding: 0.55rem;
-  z-index: auto;
-}
-
-.list-search-wrap[data-panel="discover"] ~ .discover-panel .discover-tabs {
-  margin-top: 0;
-}
-
 .list-search-input {
   grid-column: 1;
   max-width: 100%;
@@ -2800,6 +2784,37 @@ pre.empty {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.discover-toolbar {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.discover-toolbar .overview-tabs {
+  border-bottom: 0;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.discover-toolbar .list-search-wrap {
+  background: transparent;
+  border: 0;
+  display: block;
+  margin: 0;
+  max-width: 22rem;
+  padding: 0;
+  width: 100%;
+}
+
+.discover-toolbar .list-search-input {
+  background: var(--muted);
+  border-color: var(--border);
+  border-radius: var(--radius);
 }
 
 /* Grouped tables (multi-instance gateway) */

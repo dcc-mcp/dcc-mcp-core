@@ -31,11 +31,21 @@ import { ActivityPanel } from './features/activity';
 import { HealthPanel } from './features/health';
 import { ReliabilityPanel } from './features/reliability';
 import { SessionsPanel } from './features/sessions';
+import { ExperimentsPanel } from './features/experiments';
 import { ToolsPanel } from './features/tools';
 import { WorkflowsPanel } from './features/workflows';
 import { TasksPanel } from './features/tasks';
 import { TracesPanel } from './features/traces';
-import { canonicalAdminPanelTarget, readDiscoverTabFromUrl, readOverviewTabFromUrl, readTracesTabFromUrl } from './navigation';
+import {
+  canonicalAdminPanelTarget,
+  readDiscoverTabFromUrl,
+  readOverviewTabFromUrl,
+  readReliabilityTabFromUrl,
+  readSessionsTabFromUrl,
+  readTracesTabFromUrl,
+  type ReliabilityTab,
+  type SessionsTab,
+} from './navigation';
 import { createTranslator, detectBrowserLocale, type SupportedLocale } from './i18n';
 import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
@@ -105,6 +115,9 @@ function App() {
     const tab = readTracesTabFromUrl();
     return tab === 'calls' ? 'calls' : 'traces';
   });
+  const [sessionsTab, setSessionsTab] = useState<SessionsTab>(() => readSessionsTabFromUrl());
+  const [reliabilityTab, setReliabilityTab] = useState<ReliabilityTab>(() => readReliabilityTabFromUrl());
+  const [memorySessionId, setMemorySessionId] = useState('');
   const [trafficDetail, setTrafficDetail] = useState<string>('Select a traffic frame row for detail.');
   const [callDetail, setCallDetail] = useState<string>('Select a call row for trace detail.');
   const [slowOnly, setSlowOnly] = useState(false);
@@ -136,7 +149,9 @@ function App() {
   const tasksQuery = useTasksQuery(isActive('tasks', 'debug'));
   const workflowsQuery = useWorkflowsQuery(isActive('workflows', 'debug'));
   const statsQuery = useStatsQuery(isActive('overview', 'debug'), statsRange);
-  const governanceQuery = useGovernanceQuery(isActive('governance', 'debug'));
+  const governanceQuery = useGovernanceQuery(
+    isActive('debug') || (activePanel === 'reliability' && reliabilityTab === 'policy'),
+  );
   const logsQuery = useLogsQuery(isActive('logs', 'debug'));
   const openApiQuery = useOpenApiSpecQuery(openApiSource.specUrl, isActive('openapi'));
   const instanceUpdateMutation = useInstanceServerUpdate();
@@ -205,6 +220,7 @@ function App() {
       instances: qm(workersQuery),
       tools: qm(toolsQuery),
       workflows: qm(workflowsQuery),
+      experiments: '',
       tasks: qm(tasksQuery),
       openapi: qm(openApiQuery),
       traces: qm(tracesQuery),
@@ -720,39 +736,7 @@ function App() {
 
   const filteredTokenByFormat = useMemo(() => filterTokenBreakdowns(stats?.token_usage?.by_response_format), [filterTokenBreakdowns, stats]);
 
-  const filteredGovernanceDecisions = useMemo(() => {
-    const rows = governance?.recent_decisions ?? [];
-    const q = listSearch.trim().toLowerCase();
-    if (!q) {
-      return rows;
-    }
-    return rows.filter((row) =>
-      matchesListFilter(
-        q,
-        haystack(
-          row.timestamp,
-          row.request_id ?? '',
-          row.trace_id ?? '',
-          row.session_id ?? '',
-          row.transport ?? '',
-          row.agent_id ?? '',
-          row.agent_name ?? '',
-          row.agent_model ?? '',
-          row.actor_id ?? '',
-          row.actor_name ?? '',
-          row.client_platform ?? '',
-          row.source_ip ?? '',
-          row.tool ?? '',
-          row.dcc_type ?? '',
-          row.outcome ?? '',
-          row.reason ?? '',
-          row.policy?.reason ?? '',
-          row.privacy?.redacted_paths?.join(' ') ?? '',
-          row.traffic_capture?.reasons?.join(' ') ?? '',
-        ),
-      ),
-    );
-  }, [governance, listSearch]);
+  const governanceDecisions = governance?.recent_decisions ?? [];
 
   const governanceSummary = useMemo(() => {
     const stats = governance?.stats ?? {};
@@ -1161,16 +1145,20 @@ function App() {
   }, [statsQuery, callsQuery, tracesQuery]);
 
   const pushAdminUrl = useCallback(
-    (panel: Panel, opts?: { traceId?: string | null; range?: string | null; openApiSource?: OpenApiSource | null; replace?: boolean; discoverTab?: string | null; overviewTab?: string | null; tracesTab?: string | null }) => {
+    (panel: Panel, opts?: { traceId?: string | null; range?: string | null; openApiSource?: OpenApiSource | null; replace?: boolean; discoverTab?: string | null; overviewTab?: string | null; tracesTab?: string | null; sessionsTab?: string | null; reliabilityTab?: string | null }) => {
       const target = canonicalAdminPanelTarget(panel, {
         discoverTab: opts?.discoverTab ?? undefined,
         overviewTab: opts?.overviewTab ?? undefined,
         tracesTab: opts?.tracesTab ?? undefined,
+        sessionsTab: opts?.sessionsTab ?? undefined,
+        reliabilityTab: opts?.reliabilityTab ?? undefined,
       });
       const targetPanel = target.panel;
       const targetDiscoverTab = target.extra.discoverTab;
       const targetOverviewTab = target.extra.overviewTab;
       const targetTracesTab = target.extra.tracesTab;
+      const targetSessionsTab = target.extra.sessionsTab;
+      const targetReliabilityTab = target.extra.reliabilityTab;
       const u = new URL(window.location.href);
       u.searchParams.set('panel', targetPanel);
       u.searchParams.delete('range');
@@ -1181,6 +1169,8 @@ function App() {
       u.searchParams.delete('discoverTab');
       u.searchParams.delete('overviewTab');
       u.searchParams.delete('tracesTab');
+      u.searchParams.delete('sessionsTab');
+      u.searchParams.delete('reliabilityTab');
       if (targetPanel === 'overview') {
         const r = opts?.range;
         if (r && STATS_RANGE_IDS.has(r)) {
@@ -1202,6 +1192,12 @@ function App() {
       if (targetPanel === 'overview' && targetOverviewTab) {
         u.searchParams.set('overviewTab', targetOverviewTab);
       }
+      if (targetPanel === 'sessions' && targetSessionsTab) {
+        u.searchParams.set('sessionsTab', targetSessionsTab);
+      }
+      if (targetPanel === 'reliability' && targetReliabilityTab) {
+        u.searchParams.set('reliabilityTab', targetReliabilityTab);
+      }
       const next = `${u.pathname}${u.search}`;
       const cur = `${window.location.pathname}${window.location.search}`;
       if (next === cur) {
@@ -1217,16 +1213,20 @@ function App() {
   );
 
   const goToPanel = useCallback(
-    (panel: Panel, opts?: { traceId?: string; range?: string; openApiSource?: OpenApiSource; replace?: boolean; discoverTab?: string; overviewTab?: string; tracesTab?: string }) => {
+    (panel: Panel, opts?: { traceId?: string; range?: string; openApiSource?: OpenApiSource; replace?: boolean; discoverTab?: string; overviewTab?: string; tracesTab?: string; sessionsTab?: string; reliabilityTab?: string }) => {
       const target = canonicalAdminPanelTarget(panel, {
         discoverTab: opts?.discoverTab,
         overviewTab: opts?.overviewTab,
         tracesTab: opts?.tracesTab,
+        sessionsTab: opts?.sessionsTab,
+        reliabilityTab: opts?.reliabilityTab,
       });
       const targetPanel = target.panel;
       const targetDiscoverTab = target.extra.discoverTab;
       const targetOverviewTab = target.extra.overviewTab;
       const targetTracesTab = target.extra.tracesTab;
+      const targetSessionsTab = target.extra.sessionsTab;
+      const targetReliabilityTab = target.extra.reliabilityTab;
       let effectiveRange = statsRange;
       if (opts?.range && STATS_RANGE_IDS.has(opts.range)) {
         effectiveRange = opts.range;
@@ -1245,6 +1245,12 @@ function App() {
       if (targetTracesTab === 'traces' || targetTracesTab === 'calls') {
         setTracesTab(targetTracesTab);
       }
+      if (targetSessionsTab === 'sessions' || targetSessionsTab === 'memory') {
+        setSessionsTab(targetSessionsTab);
+      }
+      if (targetReliabilityTab === 'status' || targetReliabilityTab === 'policy') {
+        setReliabilityTab(targetReliabilityTab);
+      }
       pushAdminUrl(targetPanel, {
         traceId: opts?.traceId,
         range: targetPanel === 'overview' && (targetOverviewTab ?? overviewTab) === 'stats' ? effectiveRange : null,
@@ -1253,6 +1259,8 @@ function App() {
         discoverTab: targetDiscoverTab ?? null,
         overviewTab: targetOverviewTab ?? null,
         tracesTab: targetTracesTab ?? null,
+        sessionsTab: targetSessionsTab ?? null,
+        reliabilityTab: targetReliabilityTab ?? null,
       });
       if (opts?.traceId) {
         setSelectedTraceId(opts.traceId);
@@ -1296,6 +1304,8 @@ function App() {
       if (tt === 'traces' || tt === 'calls') {
         setTracesTab(tt);
       }
+      setSessionsTab(readSessionsTabFromUrl());
+      setReliabilityTab(readReliabilityTabFromUrl());
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -1323,7 +1333,6 @@ function App() {
         activePanel === 'tasks' ? `${filteredTasks.length} / ${tasks.length}` : '',
         activePanel === 'traces' && tracesTab === 'traces' ? `${filteredTraces.length} / ${traces.length}` : '',
         activePanel === 'traces' && tracesTab === 'calls' ? `${filteredCalls.length} / ${calls.length}` : '',
-        activePanel === 'governance' ? `${filteredGovernanceDecisions.length} / ${governance?.recent_decisions?.length ?? 0}` : '',
         activePanel === 'discover' && discoverTab === 'skills' ? t('search.meta.skillsPaths', { skills: skillCounts.skills, paths: skillCounts.paths }) : '',
         activePanel === 'discover' && discoverTab === 'marketplace' ? t('search.meta.marketplace', { total: marketplaceCounts.total }) : '',
         activePanel === 'discover' && discoverTab === 'integrations' ? t('integrations.detail.count', { count: integrationsCounts.total }) : '',
@@ -1339,7 +1348,6 @@ function App() {
         }) : '',
         activePanel === 'overview' && overviewTab === 'traffic' ? `${filteredTrafficFrames.length} / ${trafficFrames.length}` : '',
         activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : '',
-        activePanel === 'governance' ? t('search.meta.governancePressure', { denied: governanceSummary.denied, throttled: governanceSummary.throttled }) : '',
       ].filter(Boolean).join(' ')
     : '';
 
@@ -1374,6 +1382,8 @@ function App() {
               discoverTab: panel.discoverTab,
               overviewTab: panel.overviewTab,
               tracesTab: panel.tracesTab,
+              sessionsTab: panel.sessionsTab,
+              reliabilityTab: panel.reliabilityTab,
               range: panel.panel === 'overview' ? statsRange : undefined,
             });
             return (
@@ -1389,6 +1399,8 @@ function App() {
                       discoverTab: panel.discoverTab,
                       overviewTab: panel.overviewTab,
                       tracesTab: panel.tracesTab,
+                      sessionsTab: panel.sessionsTab,
+                      reliabilityTab: panel.reliabilityTab,
                       range: panel.panel === 'overview' ? statsRange : undefined,
                     });
                   }}
@@ -1414,7 +1426,7 @@ function App() {
         </div>
       </nav>
       <main className="main-stage">
-        {activePanel !== 'setup' && activePanel !== 'health' && activePanel !== 'debug' && (
+        {!['setup', 'health', 'debug', 'sessions', 'experiments', 'reliability', 'analytics', 'discover'].includes(activePanel) && (
           <PanelSearchBar
             panel={activePanel}
             discoverTab={discoverTab}
@@ -1742,25 +1754,9 @@ function App() {
           />
         )}
 
-        {activePanel === 'governance' && (
-          <GovernancePanel
-            governance={governance}
-            governanceSummary={governanceSummary}
-            filteredGovernanceDecisions={filteredGovernanceDecisions}
-            updatedAt={updatedAt.governance}
-            error={errors.governance}
-            onRefresh={() => governanceQuery.refetch()}
-            t={t}
-          />
-        )}
         <AnalyticsPanel
           active={activePanel === 'analytics'}
           locale={localeDetection.locale}
-          t={t}
-        />
-
-        <MemoryPanel
-          active={activePanel === 'memory'}
           t={t}
         />
 
@@ -1768,6 +1764,9 @@ function App() {
           active={activePanel === 'discover'}
           discoverTab={discoverTab}
           search={listSearch}
+          searchPlaceholder={listSearchPlaceholder}
+          searchAriaLabel={t('search.input.ariaLabel')}
+          onSearchChange={setListSearch}
           onTabChange={setDiscoverTab}
           skillUpdatedAt={skillPathsUpdatedAt}
           skillError={skillPathsError}
@@ -1806,16 +1805,57 @@ function App() {
           />
         )}
 
-        {activePanel === 'sessions' && (
+        {activePanel === 'sessions' && sessionsTab === 'sessions' && (
           <SessionsPanel
-            active={activePanel === 'sessions'}
+            active={true}
+            tab={sessionsTab}
+            onTabChange={(tab) => goToPanel('sessions', { sessionsTab: tab, replace: true })}
+            onOpenMemory={(sessionId) => {
+              setMemorySessionId(sessionId);
+              goToPanel('sessions', { sessionsTab: 'memory' });
+            }}
             t={t}
           />
         )}
 
-        {activePanel === 'reliability' && (
+        {activePanel === 'sessions' && sessionsTab === 'memory' && (
+          <MemoryPanel
+            active={true}
+            tab={sessionsTab}
+            sessionId={memorySessionId}
+            onSessionIdChange={setMemorySessionId}
+            onTabChange={(tab) => goToPanel('sessions', { sessionsTab: tab, replace: true })}
+            t={t}
+          />
+        )}
+
+        {activePanel === 'experiments' && (
+          <ExperimentsPanel
+            active={activePanel === 'experiments'}
+            t={t}
+          />
+        )}
+
+        {activePanel === 'reliability' && reliabilityTab === 'status' && (
           <ReliabilityPanel
-            active={activePanel === 'reliability'}
+            active={true}
+            tab={reliabilityTab}
+            onTabChange={(tab) => goToPanel('reliability', { reliabilityTab: tab, replace: true })}
+            t={t}
+          />
+        )}
+
+
+        {activePanel === 'reliability' && reliabilityTab === 'policy' && (
+          <GovernancePanel
+            governance={governance}
+            governanceSummary={governanceSummary}
+            filteredGovernanceDecisions={governanceDecisions}
+            updatedAt={updatedAt.governance}
+            error={errors.governance}
+            onRefresh={() => governanceQuery.refetch()}
+            tab={reliabilityTab}
+            onTabChange={(tab) => goToPanel('reliability', { reliabilityTab: tab, replace: true })}
             t={t}
           />
         )}

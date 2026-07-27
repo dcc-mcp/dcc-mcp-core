@@ -151,6 +151,10 @@ does not replace a running server binary.
    Once an instance is selected, reuse `gateway://instances/{instance_id}` or
    `GET /v1/instances/{instance_id}/context` for live process/machine
    performance, scene/documents, loaded skills, and canonical follow-up routes.
+   For agent observability, read `gateway://experiments/{experiment_id}` for
+   runs, Session DAG links, metrics, and Judge evidence; read
+   `gateway://governance` for the effective policy boundary. Keep Admin memory
+   deletion controls out of agent-readable resources.
 9. Use `dcc_mcp_core.install_lifecycle.build_sidecar_command(...)` / `launch_sidecar(...)` for sidecar startup and readiness. Read `docs/guide/adapter-install-lifecycle.md` before changing host RPC, dispatch readiness, launch stdio, `watch_pid`, or `instance_id` handling.
    - The sidecar MCP listener is dispatch-only. A py37-lite factory can expose local skill metadata, but it cannot advertise or activate declarative skills through the gateway. Require a native py37 wheel for that path, or provide a separate discovery MCP URL; never report lite `load_skill` success without an executable catalog.
 10. Pass `instance_id` to sidecar launch helpers only when it is a real UUID for the DCC service. During early startup, omit it or pass `None`; `build_sidecar_command()` rejects cosmetic values such as `"unknown"` with `success=false` and `reason="invalid_instance_id"` so adapters do not spawn a child that can only fail with a CLI argument error.
@@ -176,6 +180,11 @@ does not replace a running server binary.
     database, or a replay authority flag. Generated workflows re-resolve
     current tools and schemas; semantic UI replay resolves fresh control ids;
     raw/visual fallback requires exact-window calibration and drift guards.
+22. Record reproducible experiment definitions, run states, Session DAG links,
+    metrics, and judge evidence through the gateway `/v1/experiments` APIs.
+    Reuse `session_events`, workflow/recording identifiers, and artifact
+    references; do not add adapter-local experiment storage or treat judge
+    output as approval authority.
 
 ## Chunked Main-Thread Jobs
 

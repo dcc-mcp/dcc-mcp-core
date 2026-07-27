@@ -44,8 +44,14 @@ async function mockAdminApi(page: Page) {
         circuits: { tracked_backends: 5, circuits_open: 1 },
       };
     } else if (path === '/instances') {
-      body = [
-        {
+      body = {
+        total: 2,
+        live: 2,
+        stale: 0,
+        unhealthy: 1,
+        view: 'live',
+        pruned_dead: 0,
+        instances: [{
           instance_id: 'maya-001',
           display_name: 'Maya Layout',
           dcc_type: 'maya',
@@ -56,8 +62,7 @@ async function mockAdminApi(page: Page) {
           version: '2026',
           server_version: '0.19.60',
           mcp_url: 'http://localhost:8765/mcp',
-        },
-        {
+        }, {
           instance_id: 'blender-001',
           display_name: 'Blender Render',
           dcc_type: 'blender',
@@ -69,8 +74,8 @@ async function mockAdminApi(page: Page) {
           server_version: null,
           mcp_url: 'http://localhost:0/mcp',
           failure_reason: 'host-rpc connect failed',
-        },
-      ];
+        }],
+      };
     } else if (path === '/stats') {
       body = {
         range: '24h',
@@ -220,4 +225,12 @@ test.describe('Reliability Panel', () => {
     await expect(panel).toContainText('ui-control-snapshot-evidence-accessibility-1.png');
     await expect(panel).toContainText('evidence');
   });
+});
+
+test('renders with the development API envelope', async ({ page }) => {
+  await page.goto('/admin/?panel=reliability');
+  const panel = page.locator('section[data-panel="reliability"]');
+  await expect(panel).toBeVisible({ timeout: 10_000 });
+  await expect(panel.getByRole('heading', { name: 'Gateway Health' })).toBeVisible();
+  await expect(panel.locator('.metric-tile')).not.toHaveCount(0);
 });

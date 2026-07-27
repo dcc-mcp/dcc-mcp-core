@@ -9,6 +9,10 @@ use super::analytics::{
 };
 use super::artifacts::handle_admin_artifacts;
 use super::events::handle_admin_events;
+use super::experiments::{
+    handle_experiment_create, handle_experiment_detail, handle_experiment_judge_result,
+    handle_experiment_run, handle_experiments_list,
+};
 use super::general::{
     handle_admin_activity, handle_admin_governance, handle_admin_traffic,
     handle_admin_traffic_export, handle_admin_ui,
@@ -145,6 +149,11 @@ pub fn build_admin_router(state: AdminState) -> Router {
             routing::get(handle_admin_session_detail),
         )
         .route("/api/events", routing::get(handle_admin_events))
+        .route("/api/experiments", routing::get(handle_experiments_list))
+        .route(
+            "/api/experiments/{experiment_id}",
+            routing::get(handle_experiment_detail),
+        )
         .route("/api/artifacts", routing::get(handle_admin_artifacts))
         .route(
             "/api/integrations",
@@ -212,6 +221,22 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
         .route(
             "/v1/recordings/{recording_id}",
             routing::get(handle_recording_review),
+        )
+        .route(
+            "/v1/experiments",
+            routing::get(handle_experiments_list).post(handle_experiment_create),
+        )
+        .route(
+            "/v1/experiments/{experiment_id}",
+            routing::get(handle_experiment_detail),
+        )
+        .route(
+            "/v1/experiments/{experiment_id}/runs",
+            routing::post(handle_experiment_run),
+        )
+        .route(
+            "/v1/experiments/{experiment_id}/judge-results",
+            routing::post(handle_experiment_judge_result),
         )
         .route("/v1/debug/instances", routing::get(handle_admin_instances))
         .route("/v1/debug/activity", routing::get(handle_admin_activity))

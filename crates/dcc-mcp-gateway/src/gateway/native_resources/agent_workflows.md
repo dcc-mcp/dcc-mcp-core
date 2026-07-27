@@ -169,7 +169,8 @@ clients that omit `client_platform` fall back to the first `User-Agent` product
 token.
 
 If a call is denied, throttled, or unexpectedly redacted, inspect
-`GET /v1/debug/governance` before retrying. It reports the effective read-only
+`resources/read uri=gateway://governance` (or `GET /v1/debug/governance`)
+before retrying. It reports the effective read-only
 policy, DCC/skill/tool allowlists, traffic capture mode and redaction paths,
 middleware quota pressure, and recent allow/deny/throttle/capture decisions.
 Use `GET /v1/debug/traffic` when the admin Traffic panel shows no rows: its
@@ -266,6 +267,8 @@ retry the same call. Instead:
 | `gateway://instances/{id}` | One row (full UUID or unique prefix). |
 | `gateway://diagnostics/*` | Gateway/backend health signals for operators and agents. |
 | `gateway://instances` rows | Each instance may include a `diagnostics` object (`readiness` bits from `/v1/readyz`, `last_error` from the most recent failed gateway-proxied call). Readiness includes `process`, `dcc`, `skill_catalog`, `dispatcher`, `host_execution_bridge`, and `main_thread_executor`. |
+| `gateway://experiments` | Reproducible experiment list. Read `gateway://experiments/{experiment_id}` for runs, Session DAG links, metrics, and evidence-only Judge results. |
+| `gateway://governance` | Effective allowlists, capture/redaction state, quota pressure, and recent governance decisions. |
 
 When a gateway-proxied `call` / `POST /v1/call` fails with `thread-affinity-violation`, read `error.backend` for the selected instance id, direct `mcp_url` vs `gateway_mcp_url`, readiness (`process` / `dcc` / `skill_catalog` / `dispatcher` / `host_execution_bridge` / `main_thread_executor`), and the backend's structured `context` before retrying.
 | `gateway://catalog` | Public package index (optional discovery). |

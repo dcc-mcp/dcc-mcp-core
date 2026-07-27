@@ -106,11 +106,12 @@ impl AdminSqliteReader {
         &self,
         layer: Option<&str>,
         dcc_name: Option<&str>,
+        session_id: Option<&str>,
         key_prefix: Option<&str>,
         limit: usize,
     ) -> Vec<serde_json::Value> {
         self.inner
-            .list_agent_memory_json(layer, dcc_name, key_prefix, limit)
+            .list_agent_memory_json(layer, dcc_name, session_id, key_prefix, limit)
             .into_iter()
             .filter_map(|s| serde_json::from_str(&s).ok())
             .collect()
@@ -142,6 +143,26 @@ impl AdminSqliteReader {
             .list_session_events_json(session_id, limit)
             .into_iter()
             .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
+
+    pub fn list_experiments(&self, limit: usize) -> Vec<serde_json::Value> {
+        self.inner
+            .list_experiments_json(limit)
+            .into_iter()
+            .filter_map(|value| serde_json::from_str(&value).ok())
+            .collect()
+    }
+
+    pub fn list_experiment_events(
+        &self,
+        experiment_id: &str,
+        limit: usize,
+    ) -> Vec<serde_json::Value> {
+        self.inner
+            .list_experiment_events_json(experiment_id, limit)
+            .into_iter()
+            .filter_map(|value| serde_json::from_str(&value).ok())
             .collect()
     }
 
@@ -403,6 +424,7 @@ impl AdminSqliteReader {
         &self,
         _layer: Option<&str>,
         _dcc_name: Option<&str>,
+        _session_id: Option<&str>,
         _key_prefix: Option<&str>,
         _limit: usize,
     ) -> Vec<serde_json::Value> {
@@ -423,6 +445,18 @@ impl AdminSqliteReader {
     }
 
     pub fn list_session_events(&self, _session_id: &str, _limit: usize) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn list_experiments(&self, _limit: usize) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn list_experiment_events(
+        &self,
+        _experiment_id: &str,
+        _limit: usize,
+    ) -> Vec<serde_json::Value> {
         vec![]
     }
 

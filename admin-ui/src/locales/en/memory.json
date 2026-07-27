@@ -7,6 +7,7 @@
   "action.forgetting": "Forgetting",
   "filter.layer": "Layer",
   "filter.dcc": "DCC",
+  "filter.session": "Session",
   "filter.keyPrefix": "Key prefix",
   "filter.search": "Search records",
   "filter.all": "All layers",

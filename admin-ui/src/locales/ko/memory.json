@@ -7,6 +7,7 @@
   "action.forgetting": "삭제 중",
   "filter.layer": "계층",
   "filter.dcc": "DCC",
+  "filter.session": "세션",
   "filter.keyPrefix": "키 접두사",
   "filter.search": "기록 검색",
   "filter.all": "전체 계층",

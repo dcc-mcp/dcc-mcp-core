@@ -2,7 +2,7 @@ import { type InterpolationValues, type MessageKey } from './i18n';
 
 export type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
-export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview' | 'reliability' | 'sessions';
+export type Panel = 'setup' | 'debug' | 'activity' | 'health' | 'instances' | 'tools' | 'workflows' | 'experiments' | 'tasks' | 'openapi' | 'calls' | 'traces' | 'traffic' | 'stats' | 'governance' | 'logs' | 'skill-paths' | 'analytics' | 'memory' | 'marketplace' | 'integrations' | 'discover' | 'overview' | 'reliability' | 'sessions';
 
 export type AnalyticsOverview = {
   range: string;
@@ -77,6 +77,7 @@ export type MemoryPayload = {
 export type MemoryFilters = {
   layer?: string;
   dccName?: string;
+  sessionId?: string;
   keyPrefix?: string;
   limit?: number;
 };
@@ -218,6 +219,7 @@ export type TraceRow = {
   status: string;
   success: boolean;
   total_ms: number | null;
+  session_id?: string | null;
   instance_id?: string | null;
   dcc_type?: string | null;
   transport?: string | null;
@@ -518,6 +520,8 @@ export type NavigateOptions = {
   discoverTab?: string;
   overviewTab?: string;
   tracesTab?: string;
+  sessionsTab?: string;
+  reliabilityTab?: string;
 };
 
 export type ActivityEvent = {

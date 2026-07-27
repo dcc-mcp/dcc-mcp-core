@@ -28,6 +28,7 @@ const jsonEndpoints: JsonEndpoint[] = [
   { path: '/admin/api/analytics/timeseries?range=30d&granularity=day', key: 'series' },
   { path: '/admin/api/analytics/heatmap?range=30d', key: 'heatmap' },
   { path: '/admin/api/governance?limit=300', key: 'schema_version' },
+  { path: '/admin/api/memory?limit=300&layer=longterm', key: 'memory' },
   { path: '/admin/api/logs', key: 'logs' },
   { path: '/admin/api/skills', key: 'skills' },
   { path: '/admin/api/skill-paths', key: 'paths' },

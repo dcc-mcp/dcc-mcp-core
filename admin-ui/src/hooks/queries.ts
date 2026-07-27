@@ -284,6 +284,7 @@ export function useMemoryQuery(enabled: boolean, filters: MemoryFilters = {}) {
   params.set('limit', String(filters.limit ?? 200));
   if (filters.layer && filters.layer !== 'all') params.set('layer', filters.layer);
   if (filters.dccName) params.set('dcc_name', filters.dccName);
+  if (filters.sessionId) params.set('session_id', filters.sessionId);
   if (filters.keyPrefix) params.set('key_prefix', filters.keyPrefix);
   const query = params.toString();
   return useQuery({

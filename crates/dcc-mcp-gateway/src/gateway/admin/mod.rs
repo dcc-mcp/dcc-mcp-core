@@ -87,6 +87,8 @@ mod debug_response;
 #[cfg(feature = "admin")]
 mod events;
 #[cfg(feature = "admin")]
+pub(crate) mod experiments;
+#[cfg(feature = "admin")]
 mod general;
 #[cfg(feature = "admin")]
 pub mod governance;

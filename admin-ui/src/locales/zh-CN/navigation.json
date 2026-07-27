@@ -44,5 +44,11 @@
   "overviewTab.meta": "概览",
   "tracesTab.traces": "追踪",
   "tracesTab.calls": "调用",
-  "tracesTab.meta": "追踪"
+  "tracesTab.meta": "追踪",
+  "sessionsTab.sessions": "会话",
+  "sessionsTab.memory": "上下文",
+  "sessionsTab.meta": "会话工作区",
+  "reliabilityTab.status": "状态",
+  "reliabilityTab.policy": "策略",
+  "reliabilityTab.meta": "可靠性工作区"
 }

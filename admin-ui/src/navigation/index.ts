@@ -14,7 +14,12 @@ export type NavigationDefinition = {
   discoverTab?: 'skills' | 'marketplace' | 'integrations';
   overviewTab?: 'stats' | 'traffic';
   tracesTab?: 'traces' | 'calls';
+  sessionsTab?: SessionsTab;
+  reliabilityTab?: ReliabilityTab;
 };
+
+export type SessionsTab = 'sessions' | 'memory';
+export type ReliabilityTab = 'status' | 'policy';
 
 export const PANELS: PanelDefinition[] = [
   { id: 'setup', labelKey: 'navigation.panel.setup', groupKey: 'navigation.group.onboarding' },
@@ -24,16 +29,15 @@ export const PANELS: PanelDefinition[] = [
   { id: 'activity', labelKey: 'navigation.panel.activity', groupKey: 'navigation.group.operations' },
   { id: 'health', labelKey: 'navigation.panel.health', groupKey: 'navigation.group.operations' },
   { id: 'workflows', labelKey: 'navigation.panel.workflows', groupKey: 'navigation.group.workspace' },
+  { id: 'experiments', labelKey: 'experiments.title', groupKey: 'navigation.group.workspace' },
   { id: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workspace' },
   { id: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.workspace' },
   { id: 'sessions', labelKey: 'navigation.panel.sessions', groupKey: 'navigation.group.workspace' },
   { id: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.contracts' },
   { id: 'traces', labelKey: 'navigation.panel.traces', groupKey: 'navigation.group.observability' },
-  { id: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.observability' },
   { id: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observability' },
   { id: 'reliability', labelKey: 'navigation.panel.reliability', groupKey: 'navigation.group.observability' },
   { id: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
-  { id: 'memory', labelKey: 'navigation.panel.memory', groupKey: 'navigation.group.insights' },
   { id: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.insights' },
 ];
 
@@ -47,17 +51,16 @@ export const NAVIGATION: NavigationDefinition[] = [
   { id: 'integrations', icon: 'integrations', panel: 'discover', discoverTab: 'integrations', labelKey: 'navigation.panel.integrations', groupKey: 'navigation.group.discoverExtend' },
   { id: 'tools', icon: 'tools', panel: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.discoverExtend' },
   { id: 'workflows', icon: 'workflows', panel: 'workflows', labelKey: 'navigation.panel.workflows', groupKey: 'navigation.group.workflows' },
+  { id: 'experiments', icon: 'experiments', panel: 'experiments', labelKey: 'experiments.title', groupKey: 'navigation.group.workflows' },
   { id: 'tasks', icon: 'tasks', panel: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workflows' },
   { id: 'activity', icon: 'activity', panel: 'activity', labelKey: 'navigation.panel.activity', groupKey: 'navigation.group.workflows' },
-  { id: 'sessions', icon: 'sessions', panel: 'sessions', labelKey: 'navigation.panel.sessions', groupKey: 'navigation.group.workflows' },
+  { id: 'sessions', icon: 'sessions', panel: 'sessions', sessionsTab: 'sessions', labelKey: 'navigation.panel.sessions', groupKey: 'navigation.group.workflows' },
   { id: 'traces', icon: 'traces', panel: 'traces', tracesTab: 'traces', labelKey: 'navigation.panel.traces', groupKey: 'navigation.group.observe' },
   { id: 'calls', icon: 'calls', panel: 'traces', tracesTab: 'calls', labelKey: 'navigation.panel.calls', groupKey: 'navigation.group.observe' },
   { id: 'overview', icon: 'overview', panel: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.observe' },
   { id: 'logs', icon: 'logs', panel: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observe' },
-  { id: 'reliability', icon: 'reliability', panel: 'reliability', labelKey: 'navigation.panel.reliability', groupKey: 'navigation.group.observe' },
+  { id: 'reliability', icon: 'reliability', panel: 'reliability', reliabilityTab: 'status', labelKey: 'navigation.panel.reliability', groupKey: 'navigation.group.observe' },
   { id: 'analytics', icon: 'analytics', panel: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
-  { id: 'memory', icon: 'memory', panel: 'memory', labelKey: 'navigation.panel.memory', groupKey: 'navigation.group.insights' },
-  { id: 'governance', icon: 'governance', panel: 'governance', labelKey: 'navigation.panel.governance', groupKey: 'navigation.group.governContracts' },
   { id: 'openapi', icon: 'openapi', panel: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.governContracts' },
 ];
 
@@ -86,6 +89,8 @@ export const PANEL_ALIAS_MAP: Record<string, Panel> = {
   stats: 'overview',
   traffic: 'overview',
   calls: 'traces',
+  memory: 'sessions',
+  governance: 'reliability',
 };
 
 const PANEL_ALIAS_DISCOVER_TAB: Record<string, 'skills' | 'marketplace' | 'integrations'> = {
@@ -101,6 +106,14 @@ const PANEL_ALIAS_OVERVIEW_TAB: Record<string, 'stats' | 'traffic'> = {
 
 const PANEL_ALIAS_TRACES_TAB: Record<string, 'traces' | 'calls'> = {
   calls: 'calls',
+};
+
+const PANEL_ALIAS_SESSIONS_TAB: Record<string, SessionsTab> = {
+  memory: 'memory',
+};
+
+const PANEL_ALIAS_RELIABILITY_TAB: Record<string, ReliabilityTab> = {
+  governance: 'policy',
 };
 
 export function isPanelId(value: string | null | undefined): value is Panel {
@@ -168,6 +181,14 @@ export function canonicalAdminPanelTarget(panel: Panel, extra?: AdminLinkExtra):
   const tracesTab = PANEL_ALIAS_TRACES_TAB[raw];
   if (tracesTab && nextExtra.tracesTab == null) {
     nextExtra.tracesTab = tracesTab;
+  }
+  const sessionsTab = PANEL_ALIAS_SESSIONS_TAB[raw];
+  if (sessionsTab && nextExtra.sessionsTab == null) {
+    nextExtra.sessionsTab = sessionsTab;
+  }
+  const reliabilityTab = PANEL_ALIAS_RELIABILITY_TAB[raw];
+  if (reliabilityTab && nextExtra.reliabilityTab == null) {
+    nextExtra.reliabilityTab = reliabilityTab;
   }
   return { panel: resolved, extra: nextExtra };
 }
@@ -277,6 +298,10 @@ export function readPanelFromUrl(): Panel {
     if (overviewTab) u.searchParams.set('overviewTab', overviewTab);
     const tracesTab = PANEL_ALIAS_TRACES_TAB[raw];
     if (tracesTab) u.searchParams.set('tracesTab', tracesTab);
+    const sessionsTab = PANEL_ALIAS_SESSIONS_TAB[raw];
+    if (sessionsTab) u.searchParams.set('sessionsTab', sessionsTab);
+    const reliabilityTab = PANEL_ALIAS_RELIABILITY_TAB[raw];
+    if (reliabilityTab) u.searchParams.set('reliabilityTab', reliabilityTab);
     window.history.replaceState(null, '', `${u.pathname}${u.search}`);
     return resolved;
   }
@@ -312,4 +337,16 @@ export function readOverviewTabFromUrl(): string {
 export function readTracesTabFromUrl(): string {
   const u = new URL(window.location.href);
   return u.searchParams.get('tracesTab')?.trim() || '';
+}
+
+/** Read the active sub-tab within the Sessions panel from the URL. */
+export function readSessionsTabFromUrl(): SessionsTab {
+  const tab = new URL(window.location.href).searchParams.get('sessionsTab');
+  return tab === 'memory' ? 'memory' : 'sessions';
+}
+
+/** Read the active sub-tab within the Reliability panel from the URL. */
+export function readReliabilityTabFromUrl(): ReliabilityTab {
+  const tab = new URL(window.location.href).searchParams.get('reliabilityTab');
+  return tab === 'policy' ? 'policy' : 'status';
 }

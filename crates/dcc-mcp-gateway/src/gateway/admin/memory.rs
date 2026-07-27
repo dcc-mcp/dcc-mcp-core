@@ -16,6 +16,7 @@ pub struct MemoryListQuery {
     pub layer: Option<String>,
     #[serde(alias = "dcc")]
     pub dcc_name: Option<String>,
+    pub session_id: Option<String>,
     pub key_prefix: Option<String>,
 }
 
@@ -45,10 +46,12 @@ pub async fn handle_admin_memory(
     let limit = query.limit.unwrap_or(200).clamp(1, 1_000);
     let layer = clean(query.layer);
     let dcc_name = clean(query.dcc_name);
+    let session_id = clean(query.session_id);
     let key_prefix = clean(query.key_prefix);
     let rows = lane.reader().list_agent_memory(
         layer.as_deref(),
         dcc_name.as_deref(),
+        session_id.as_deref(),
         key_prefix.as_deref(),
         limit,
     );
@@ -103,7 +106,7 @@ async fn wait_until_agent_memory_id_removed(
     for _ in 0..80 {
         if !lane
             .reader()
-            .list_agent_memory(None, None, None, 1_000)
+            .list_agent_memory(None, None, None, None, 1_000)
             .iter()
             .any(|row| row.get("id").and_then(Value::as_i64) == Some(id))
         {

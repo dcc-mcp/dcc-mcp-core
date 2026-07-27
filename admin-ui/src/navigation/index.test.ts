@@ -41,8 +41,8 @@ describe('PANELS', () => {
     const ids = new Set(PANELS.map((p) => p.id));
     for (const existing of [
       'setup', 'discover', 'debug', 'instances', 'activity', 'health',
-      'workflows', 'tasks', 'tools', 'openapi', 'traces',
-      'governance', 'logs', 'analytics', 'memory', 'overview',
+      'workflows', 'experiments', 'tasks', 'tools', 'sessions', 'openapi', 'traces',
+      'logs', 'reliability', 'analytics', 'overview',
     ] as Panel[]) {
       expect(ids.has(existing)).toBe(true);
     }
@@ -83,7 +83,8 @@ describe('isPanelId', () => {
     expect(isPanelId('setup')).toBe(true);
     expect(isPanelId('traces')).toBe(true);
     expect(isPanelId('discover')).toBe(true);
-    expect(isPanelId('memory')).toBe(true);
+    expect(isPanelId('memory')).toBe(false);
+    expect(isPanelId('governance')).toBe(false);
     expect(isPanelId('overview')).toBe(true);
   });
 
@@ -131,6 +132,8 @@ describe('readPanelFromUrl', () => {
     ['skill-paths', 'discover', '/admin?panel=discover&discoverTab=skills'],
     ['stats&range=7d', 'overview', '/admin?panel=overview&range=7d&overviewTab=stats'],
     ['calls&trace=req-123', 'traces', '/admin?panel=traces&trace=req-123&tracesTab=calls'],
+    ['memory', 'sessions', '/admin?panel=sessions&sessionsTab=memory'],
+    ['governance', 'reliability', '/admin?panel=reliability&reliabilityTab=policy'],
   ] as const)('resolves aliased panel "%s" and self-heals to its sub-tab', async (raw, panel, expectedUrl) => {
     mockLocation(`?panel=${raw}`);
     const replaceState = vi.spyOn(window.history, 'replaceState');
@@ -204,6 +207,19 @@ describe('readTracesTabFromUrl', () => {
   });
 });
 
+describe('merged workspace tabs', () => {
+  it('reads Sessions and Reliability tabs with stable defaults', async () => {
+    mockLocation('?panel=sessions&sessionsTab=memory&reliabilityTab=policy');
+    const { readReliabilityTabFromUrl, readSessionsTabFromUrl } = await loadNavigation();
+    expect(readSessionsTabFromUrl()).toBe('memory');
+    expect(readReliabilityTabFromUrl()).toBe('policy');
+
+    mockLocation('?panel=sessions');
+    expect(readSessionsTabFromUrl()).toBe('sessions');
+    expect(readReliabilityTabFromUrl()).toBe('status');
+  });
+});
+
 describe('hrefForAdmin with tab params', () => {
   // hrefForAdmin accepts extra query params via its second argument.
   // This verifies the mechanism works for the new tab params.
@@ -238,6 +254,8 @@ describe('hrefForAdmin with tab params', () => {
     ['marketplace', 'panel=discover', 'discoverTab=marketplace'],
     ['integrations', 'panel=discover', 'discoverTab=integrations'],
     ['skill-paths', 'panel=discover', 'discoverTab=skills'],
+    ['memory', 'panel=sessions', 'sessionsTab=memory'],
+    ['governance', 'panel=reliability', 'reliabilityTab=policy'],
   ] as const)('emits canonical URLs for legacy panel "%s"', async (panel, expectedPanel, expectedTab) => {
     mockLocation('');
     const { hrefForAdmin } = await loadNavigation();

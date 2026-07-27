@@ -437,6 +437,34 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "admin")]
+    #[tokio::test]
+    async fn observability_resources_are_listed_and_governance_is_readable() {
+        let gs = test_gs_with_events(Vec::new());
+        let listed = handle_resources_list(&gs, json!(1)).await;
+        let uris = listed["result"]["resources"]
+            .as_array()
+            .expect("resources/list must return resources")
+            .iter()
+            .filter_map(|resource| resource["uri"].as_str())
+            .collect::<Vec<_>>();
+        assert!(uris.contains(&"gateway://experiments"));
+        assert!(uris.contains(&"gateway://governance"));
+
+        let response = handle_resources_read(
+            &gs,
+            json!(2),
+            &make_read_req("gateway://governance?limit=10"),
+        )
+        .await;
+        let text = response["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("resources/read must return JSON text");
+        let payload: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(payload["schema_version"], "dcc-mcp.admin.governance.v1");
+        assert_eq!(payload["mode"]["admin_mutations"], "disabled");
+    }
+
     #[test]
     fn rewrites_matching_content_uris_only() {
         let mut result = json!({
