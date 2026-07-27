@@ -326,9 +326,15 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
     match action {
         InstallStepAction::PipInstall {
             package,
+            version,
             extras,
             python,
-        } => execute_pip_install(package, extras.as_deref(), python.as_deref()),
+        } => execute_pip_install(
+            package,
+            version.as_deref(),
+            extras.as_deref(),
+            python.as_deref(),
+        ),
         InstallStepAction::GitClone { url, ref_, dest } => {
             execute_git_clone(url, ref_.as_deref(), dest)
         }
@@ -349,12 +355,13 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
 
 fn execute_pip_install(
     package: &str,
+    version: Option<&str>,
     extras: Option<&[String]>,
     python: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
     let python_cmd = python.unwrap_or("python");
     let mut cmd = Command::new(python_cmd);
-    cmd.args(pip_install_args(package, extras));
+    cmd.args(pip_install_args(package, version, extras));
 
     let status = cmd.status().map_err(|e| InstallError::StepFailed {
         step: format!("pip-install-{package}"),
@@ -375,21 +382,30 @@ fn execute_pip_install(
     }))
 }
 
-fn pip_package_spec(package: &str, extras: Option<&[String]>) -> String {
-    if extras.is_some_and(|values| !values.is_empty()) {
+fn pip_package_spec(package: &str, version: Option<&str>, extras: Option<&[String]>) -> String {
+    let package_with_extras = if extras.is_some_and(|values| !values.is_empty()) {
         format!("{}[{}]", package, extras.unwrap().join(","))
     } else {
         package.to_string()
+    };
+    if let Some(version) = version.filter(|value| !value.trim().is_empty()) {
+        format!("{package_with_extras}=={version}")
+    } else {
+        package_with_extras
     }
 }
 
-fn pip_install_args(package: &str, extras: Option<&[String]>) -> Vec<String> {
+fn pip_install_args(
+    package: &str,
+    version: Option<&str>,
+    extras: Option<&[String]>,
+) -> Vec<String> {
     vec![
         "-m".into(),
         "pip".into(),
         "install".into(),
         "--upgrade".into(),
-        pip_package_spec(package, extras),
+        pip_package_spec(package, version, extras),
     ]
 }
 
@@ -821,8 +837,12 @@ mod tests {
 
     #[test]
     fn pip_install_missing_python_reports_error() {
-        let result =
-            execute_pip_install("nonexistent-package", None, Some("/__nonexistent__/python"));
+        let result = execute_pip_install(
+            "nonexistent-package",
+            None,
+            None,
+            Some("/__nonexistent__/python"),
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -863,13 +883,23 @@ mod tests {
     #[test]
     fn pip_install_uses_python_module_invocation() {
         assert_eq!(
-            pip_install_args("dcc-mcp-maya", Some(&["maya".to_string()])),
+            pip_install_args("dcc-mcp-maya", None, Some(&["maya".to_string()])),
             vec![
                 "-m".to_string(),
                 "pip".to_string(),
                 "install".to_string(),
                 "--upgrade".to_string(),
                 "dcc-mcp-maya[maya]".to_string(),
+            ]
+        );
+        assert_eq!(
+            pip_install_args("dcc-mcp-unity", Some("0.11.2"), None),
+            vec![
+                "-m".to_string(),
+                "pip".to_string(),
+                "install".to_string(),
+                "--upgrade".to_string(),
+                "dcc-mcp-unity==0.11.2".to_string(),
             ]
         );
         assert_eq!(
