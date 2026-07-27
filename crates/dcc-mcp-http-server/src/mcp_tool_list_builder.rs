@@ -1,6 +1,8 @@
 //! Assemble and paginate the MCP `tools/list` surface for rmcp.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 use dcc_mcp_gateway_core::naming::{BareNameInput, resolve_bare_names};
 use dcc_mcp_jsonrpc::{McpTool, TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
@@ -44,7 +46,7 @@ pub fn assemble_full_tool_list(
         HashSet::new()
     };
 
-    let mut inactive_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut inactive_groups: BTreeMap<(Option<String>, String), Vec<String>> = BTreeMap::new();
     for meta in &actions {
         if meta.enabled {
             tools.push(action_meta_to_mcp_tool(
@@ -56,15 +58,33 @@ pub fn assemble_full_tool_list(
             ));
         } else if !meta.group.is_empty() {
             inactive_groups
-                .entry(meta.group.clone())
+                .entry((meta.skill_name.clone(), meta.group.clone()))
                 .or_default()
                 .push(meta.name.clone());
         }
     }
 
     if !state.exclude_group_stubs_from_tools_list {
-        for (group, names) in &inactive_groups {
-            tools.push(build_group_stub(group, names));
+        for ((skill_name, group), names) in &inactive_groups {
+            let mut stub = build_group_stub(group, names);
+            if let Some(skill_name) = skill_name {
+                stub.name = group_stub_name(Some(skill_name), group);
+                stub.description = stub
+                    .description
+                    .replacen(
+                        &format!("Inactive group '{group}'"),
+                        &format!("Inactive group '{group}' in skill '{skill_name}'"),
+                        1,
+                    )
+                    .replacen(
+                        &format!("activate_tool_group(\"{group}\")"),
+                        &format!(
+                            "activate_tool_group(group_name=\"{group}\", skill_name=\"{skill_name}\")"
+                        ),
+                        1,
+                    );
+            }
+            tools.push(stub);
         }
     }
 
@@ -81,6 +101,36 @@ pub fn assemble_full_tool_list(
 
     tools.retain(tool_name_is_client_safe);
     tools
+}
+
+const GROUP_SKILL_SEPARATOR: &str = "__for_skill__";
+
+pub(crate) fn group_stub_name(skill_name: Option<&str>, group: &str) -> String {
+    let name = match skill_name {
+        Some(skill_name) => format!("__group__{group}{GROUP_SKILL_SEPARATOR}{skill_name}"),
+        None => format!("__group__{group}"),
+    };
+    if validate_tool_name(&name).is_ok() {
+        return name;
+    }
+
+    // ponytail: long stubs are error-only; use a stable bounded key instead
+    // of adding a runtime lookup map solely to recover their display names.
+    let mut hasher = DefaultHasher::new();
+    skill_name.hash(&mut hasher);
+    group.hash(&mut hasher);
+    format!("__group__scoped_{:016x}", hasher.finish())
+}
+
+pub(crate) fn parse_group_stub_name(name: &str) -> Option<(Option<&str>, &str)> {
+    let value = name.strip_prefix("__group__")?;
+    match value.rsplit_once(GROUP_SKILL_SEPARATOR) {
+        Some((group, skill_name)) if !group.is_empty() && !skill_name.is_empty() => {
+            Some((Some(skill_name), group))
+        }
+        _ if !value.is_empty() => Some((None, value)),
+        _ => None,
+    }
 }
 
 fn tool_name_is_client_safe(tool: &McpTool) -> bool {
@@ -117,4 +167,22 @@ pub fn slice_tools_page(
         None
     };
     (page, next_cursor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scoped_group_stub_names_stay_client_safe() {
+        let skill_name = "a".repeat(40);
+        let name = group_stub_name(Some(&skill_name), "inspection");
+
+        assert!(validate_tool_name(&name).is_ok(), "{name}");
+        assert_eq!(name, group_stub_name(Some(&skill_name), "inspection"));
+        assert_eq!(
+            parse_group_stub_name("__group__inspection__for_skill__houdini-scene"),
+            Some((Some("houdini-scene"), "inspection"))
+        );
+    }
 }

@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use dcc_mcp_jsonrpc::CallToolResult;
 
+use crate::mcp_tool_list_builder::group_stub_name;
 use crate::server_state::ServerState;
 
 pub(in crate::rmcp_tool_call_dispatch) fn is_progressive_stub(name: &str) -> bool {
@@ -16,6 +17,22 @@ pub(in crate::rmcp_tool_call_dispatch) fn schema_property_names(schema: &Value) 
         .and_then(Value::as_object)
         .map(|props| props.keys().cloned().collect())
         .unwrap_or_default()
+}
+
+fn schema_has_constraints(schema: &Value) -> bool {
+    let Some(object) = schema.as_object() else {
+        return !schema.is_null();
+    };
+    object.iter().any(|(key, value)| match key.as_str() {
+        "type" => value.as_str() != Some("object"),
+        "properties" => value
+            .as_object()
+            .is_none_or(|properties| !properties.is_empty()),
+        "required" => value.as_array().is_none_or(|required| !required.is_empty()),
+        "additionalProperties" => value != &Value::Bool(false),
+        "title" | "description" | "$schema" => false,
+        _ => true,
+    })
 }
 
 /// Check whether `haystack` matches a natural-language `query`.
@@ -80,6 +97,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
             continue;
         }
         let schema_props = schema_property_names(&meta.input_schema);
+        let has_schema = schema_has_constraints(&meta.input_schema);
         let haystack = format!(
             "{} {} {} {} {}",
             meta.name,
@@ -99,11 +117,28 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
             "category": meta.category,
             "group": meta.group,
             "enabled": meta.enabled,
+            "has_schema": has_schema,
             "dcc": meta.dcc,
         });
         if let Some(skill) = &meta.skill_name {
             hit["skill_name"] = Value::String(skill.clone());
         }
+        let annotations = serde_json::to_value(&meta.annotations).unwrap_or(Value::Null);
+        if annotations
+            .as_object()
+            .is_some_and(|value| !value.is_empty())
+        {
+            hit["annotations"] = annotations;
+        }
+        hit["metadata"] = json!({
+            "dcc": {
+                "affinity": &meta.thread_affinity,
+                "execution": &meta.execution,
+                "timeoutHintSecs": meta.timeout_hint_secs,
+                "jobStrategy": &meta.job_strategy,
+                "enforceThreadAffinity": meta.enforce_thread_affinity,
+            }
+        });
         tool_hits.push(hit);
         if tool_hits.len() >= limit {
             break;
@@ -148,25 +183,25 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
         }
 
         if tool_hits.len() < limit {
-            let mut seen_groups: std::collections::HashSet<String> =
+            let mut seen_groups: std::collections::HashSet<(String, String)> =
                 std::collections::HashSet::new();
             for (skill, group, active) in state.catalog.list_groups() {
                 if active {
                     continue;
                 }
-                if !seen_groups.insert(group.clone()) {
+                if !seen_groups.insert((skill.clone(), group.clone())) {
                     continue;
                 }
-                let haystack = format!("__group__{} {} {}", group, group, skill).to_lowercase();
+                let stub_name = group_stub_name(Some(&skill), &group);
+                let haystack = format!("{stub_name} {group} {skill}").to_lowercase();
                 if !matches_phrase(&haystack, &query, &query_words) {
                     continue;
                 }
                 tool_hits.push(json!({
                     "kind": "tool",
-                    "name": format!("__group__{}", group),
+                    "name": stub_name,
                     "description": format!(
-                        "[stub] inactive tool group `{}` — call activate_tool_group(group=\"{}\") to expose its members",
-                        group, group,
+                        "[stub] inactive tool group `{group}` in skill `{skill}` — call activate_tool_group(group_name=\"{group}\", skill_name=\"{skill}\") to expose its members",
                     ),
                     "category": "stub",
                     "group": group,
@@ -208,6 +243,18 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            let tool_group = detail.as_ref().and_then(|detail| {
+                let target = matching_tools.first()?;
+                detail
+                    .tools
+                    .iter()
+                    .find(|tool| tool.name == *target && !tool.group.is_empty())
+                    .map(|tool| tool.group.clone())
+            });
+            let mut load_arguments = json!({"skill_name": summary.name});
+            if let Some(group) = &tool_group {
+                load_arguments["tool_group"] = json!(group);
+            }
             skill_candidates.push(json!({
                 "kind": "skill_candidate",
                 "skill_name": summary.name,
@@ -217,10 +264,11 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
                 "scope": summary.scope,
                 "tool_count": summary.tool_count,
                 "matching_tools": matching_tools,
+                "tool_group": tool_group,
                 "requires_load_skill": true,
                 "load_hint": {
                     "tool": "load_skill",
-                    "arguments": { "skill_name": summary.name },
+                    "arguments": load_arguments,
                 },
             }));
         }
@@ -313,5 +361,35 @@ mod tests {
         let words: Vec<&str> = Vec::new();
         assert!(matches_phrase("at on", "at on", &words));
         assert!(!matches_phrase("create_sphere", "at on", &words));
+    }
+
+    #[test]
+    fn schema_constraints_include_non_property_json_schema_keywords() {
+        assert!(!schema_has_constraints(&json!({"type": "object"})));
+        assert!(!schema_has_constraints(&json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        })));
+        for schema in [
+            json!({"type": "object", "oneOf": []}),
+            json!({"type": "object", "anyOf": []}),
+            json!({"type": "object", "allOf": []}),
+            json!({"type": "object", "$ref": "#/$defs/input"}),
+            json!({"type": "object", "patternProperties": {}}),
+            json!({"type": "object", "dependentRequired": {}}),
+            json!({"type": "object", "if": {}, "then": {}}),
+        ] {
+            assert!(schema_has_constraints(&schema), "schema: {schema}");
+        }
+    }
+
+    #[test]
+    fn closed_empty_object_has_no_call_arguments() {
+        assert!(!schema_has_constraints(&json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        })));
     }
 }

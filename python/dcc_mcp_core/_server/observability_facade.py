@@ -245,7 +245,8 @@ class ObservabilityFacade:
 
         owner.set_after_load_skill_hook(_on_after_load)
         owner.set_after_unload_skill_hook(_on_after_unload)
-        owner.set_after_group_change_hook(_on_group_change)
+        if not owner._skill_client.set_after_scoped_group_change_hook(_on_group_change):
+            owner.set_after_group_change_hook(_on_group_change)
 
         snapshot = store.snapshot()
         if not snapshot.skills and not snapshot.active_groups:

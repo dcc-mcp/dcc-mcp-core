@@ -11,8 +11,8 @@ use crate::gateway::capability::search_cache::SearchCacheKey;
 use crate::gateway::capability::{RefreshReason, tool_slug};
 use crate::gateway::capability_service::{
     SearchResponseContext, ServiceError, describe_tool_full, index_generation,
-    parse_search_payload, refresh_all_live_backends, search_hit_to_value_with_context,
-    search_service_hits_for_policy, service_error_to_json,
+    parse_and_resolve_search_payload, refresh_all_live_backends, refresh_search_backends,
+    search_hit_to_value_with_context, search_snapshot_hits_for_policy, service_error_to_json,
 };
 use crate::gateway::response_codec::{compact_call_batch_payload, compact_describe_payload};
 use crate::gateway::search_telemetry::{SearchTelemetryInput, search_id_from_payload};
@@ -546,28 +546,11 @@ pub async fn handle_v1_search(
         Some(&body),
         body.get("meta").or_else(|| body.get("_meta")),
     );
-    // Refresh-on-demand so the first call after startup or a skill
-    // load sees fresh capabilities without waiting for a watcher tick.
-    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
-    let mut query = parse_search_payload(&body);
-    if query.instance_id.is_none()
-        && let Some(raw_instance_id) = body
-            .get("instance_id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-    {
-        let registry = gs.registry.read().await;
-        match gs.resolve_instance(&registry, Some(raw_instance_id), query.dcc_type.as_deref()) {
-            Ok(entry) => {
-                query.instance_id = Some(entry.instance_id);
-            }
-            Err(err) => {
-                drop(registry);
-                return resolve_instance_negotiated_response(&headers, &body, err);
-            }
-        }
-    }
+    let query = match parse_and_resolve_search_payload(&gs, &body).await {
+        Ok(query) => query,
+        Err(err) => return resolve_instance_negotiated_response(&headers, &body, err),
+    };
+    refresh_search_backends(&gs, &query).await;
 
     // Shared helper: hybrid→fuzzy downgrade + semantic diagnostic.
     // MCP and REST must produce byte-identical search responses for
@@ -580,43 +563,40 @@ pub async fn handle_v1_search(
 
     // --- LRU cache check (PIP-2471) ---
     let cache_key = SearchCacheKey::from_query(&query);
-    let index_gen = index_generation(&gs.capability_index);
-    if let Some(cached_body) = gs
+    let index_gen = gs.capability_index.generation();
+    let cached_hits = gs
         .search_cache
         .get_with_index_gen(&cache_key, Some(&index_gen))
-    {
-        let hits: Vec<Value> = serde_json::from_slice(&cached_body).unwrap_or_else(|e| {
-            tracing::warn!(?e, "search cache entry corrupt, falling back to recompute");
-            Vec::new()
+        .and_then(|cached_body| {
+            let hits = serde_json::from_slice(&cached_body).unwrap_or_else(|e| {
+                tracing::warn!(?e, "search cache entry corrupt, falling back to recompute");
+                Vec::new()
+            });
+            (!hits.is_empty()).then_some(hits)
         });
-        if hits.is_empty() {
-            // Cache miss due to corruption — fall through to recompute.
-        } else {
-            let index_generation = index_generation(&gs.capability_index);
-            let search_context = SearchResponseContext::new(
-                crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
-                index_generation,
-            );
-            let metadata = RestResponseMetadata::from_trace_context(&trace_context)
-                .with_index_generation(search_context.index_generation.clone())
-                .with_search(
-                    search_context.search_id.clone(),
-                    search_context.ranker_version.to_string(),
-                )
-                .with_search_cache_hit(true);
-            return search_response_with_metadata(&headers, &body, hits, &metadata, Some(semantic));
-        }
-    }
     // --- end cache check ---
 
-    let index_generation = index_generation(&gs.capability_index);
+    let (hits, index_generation, search_cache_hit) = match cached_hits {
+        Some(hits) => (hits, index_gen, true),
+        None => {
+            let (snapshot, generation) = gs.capability_index.snapshot_with_generation();
+            let hits = search_snapshot_hits_for_policy(&snapshot, &query, &gs.policy);
+            (hits, generation, false)
+        }
+    };
     let search_context = SearchResponseContext::new(
         crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
         index_generation,
     );
-    let hits = search_service_hits_for_policy(&gs.capability_index, &query, &gs.policy);
     let telemetry_hits = search_hits_for_telemetry(&hits);
     let total = hits.len();
+    if !search_cache_hit && let Ok(body_bytes) = serde_json::to_vec(&hits) {
+        gs.search_cache.put(
+            cache_key,
+            body_bytes,
+            search_context.index_generation.clone(),
+        );
+    }
     let hits: Vec<Value> = hits
         .into_iter()
         .map(|hit| search_hit_to_value_with_context(hit, Some(&search_context)))
@@ -667,15 +647,11 @@ pub async fn handle_v1_search(
             search_context.search_id.clone(),
             search_context.ranker_version.to_string(),
         );
-    // --- LRU cache store (PIP-2471) ---
-    if let Ok(body_bytes) = serde_json::to_vec(&hits) {
-        gs.search_cache.put(
-            cache_key,
-            body_bytes,
-            search_context.index_generation.clone(),
-        );
-    }
-    // --- end cache store ---
+    let metadata = if search_cache_hit {
+        metadata.with_search_cache_hit(true)
+    } else {
+        metadata
+    };
 
     search_response_with_metadata(&headers, &body, hits, &metadata, Some(semantic))
 }
@@ -713,7 +689,11 @@ async fn skill_lifecycle_response(
     );
     let search_id = search_id_from_payload(&body);
     let skill_name = skill_name_from_payload(&body);
-    let (text, is_error) = crate::gateway::aggregator::skill_mgmt_dispatch(gs, tool, &body).await;
+    let (text, is_error) = if tool == "load_skill" {
+        crate::gateway::tools::tool_load_skill(gs, &body).await
+    } else {
+        crate::gateway::aggregator::skill_mgmt_dispatch(gs, tool, &body).await
+    };
     if tool == "load_skill" {
         record_search_followup(
             gs,
@@ -846,7 +826,13 @@ pub async fn handle_v1_describe(
             true,
         );
     };
-    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+    refresh_before_describe(
+        &gs,
+        slug,
+        &body,
+        body.get("meta").or_else(|| body.get("_meta")),
+    )
+    .await;
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
 
@@ -870,8 +856,8 @@ pub async fn handle_v1_describe_path(
 ) -> Response {
     let trace_context = TraceContext::from_headers(&headers);
     let agent_context = AgentContext::from_request_parts_with_server_network(&headers, None, None);
-    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let body = json!({});
+    refresh_before_describe(&gs, &slug, &body, None).await;
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
     describe_slug_response(
@@ -884,6 +870,17 @@ pub async fn handle_v1_describe_path(
         agent_context.as_ref(),
     )
     .await
+}
+
+async fn refresh_before_describe(
+    gs: &GatewayState,
+    slug: &str,
+    args: &Value,
+    meta: Option<&Value>,
+) {
+    if crate::gateway::tools::describe_needs_refresh(gs, slug, args, meta) {
+        crate::gateway::capability_service::refresh_for_describe(gs, slug).await;
+    }
 }
 
 async fn describe_slug_response(
@@ -1024,7 +1021,6 @@ pub async fn handle_v1_dcc_instance_describe(
         );
     }
 
-    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
 
@@ -1056,6 +1052,9 @@ pub async fn handle_v1_dcc_instance_describe(
     }
 
     let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
+    refresh_before_describe(&gs, &slug, &body, None).await;
+    let metadata = RestResponseMetadata::from_trace_context(&trace_context)
+        .with_index_generation(index_generation(&gs.capability_index));
     describe_slug_response(
         &gs,
         &headers,

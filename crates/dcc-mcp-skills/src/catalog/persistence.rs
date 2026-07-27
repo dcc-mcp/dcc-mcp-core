@@ -72,9 +72,9 @@ pub struct PersistedCatalogState {
     /// Skills that were loaded at checkpoint time.
     #[serde(default)]
     pub skills: Vec<LoadedSkillRecord>,
-    /// Tool-group names that were active at checkpoint time. Catalog-wide
-    /// because [`crate::catalog::SkillCatalog::active_groups`] is a flat
-    /// set, not per-skill.
+    /// Tool-group keys that were active at checkpoint time. New scoped
+    /// entries use `"<skill>:<group>"`; legacy catalog-wide group names are
+    /// still accepted during replay.
     #[serde(default)]
     pub active_groups: Vec<String>,
     /// UNIX-ms timestamp the snapshot was written.

@@ -34,7 +34,7 @@ automation.
 
 | If you are... | Use this path | How to start |
 |---------------|---------------|--------------|
-| An AI agent in OpenClaw, Hermes, Codex CLI, or any headless agent runtime | **CLI+REST** ← **this is you** | Load `dcc-mcp` skill → call `dcc-mcp-cli search/describe/call` |
+| An AI agent in OpenClaw, Hermes, Codex CLI, or any headless agent runtime | **CLI+REST** ← **this is you** | Load `dcc-mcp` skill → search once → follow `next_step` |
 | An AI agent in Cursor / Claude Desktop / VS Code with MCP enabled | **Either works**, prefer CLI+REST | CLI+REST via `dcc-mcp` is preferred; IDE MCP is available as fallback |
 | Running a CI/CD or automation script | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
 | Troubleshooting DCC connectivity | **CLI+REST** | `dcc-mcp-cli health/list/smoke` |
@@ -289,10 +289,16 @@ before loading it. If you intentionally call `tools/list`, follow every
 If your MCP connection is the multi-DCC gateway, do not expect backend actions to appear directly in `tools/list`. The gateway surface is intentionally fixed and bounded; use the dynamic-capability workflow instead:
 
 ```python
-# Gateway MCP four-tool workflow
+# Gateway MCP workflow: follow the selected hit, do not describe unconditionally
 hits = search(kind="tool", query="create sphere", dcc_type="maya", limit=5)
-info = describe(tool_slug=hits["hits"][0]["tool_slug"])
-result = call(tool_slug=info["record"]["tool_slug"], arguments={"radius": 2.0})
+step = hits["hits"][0]["next_step"]
+if step["action"] == "load_skill":
+    step = load_skill(**step["arguments"])["next_step"]
+if step["action"] == "describe":
+    step = describe(**step["arguments"])["next_step"]
+assert step["action"] == "call"
+call_args = {**step["arguments"], "arguments": {"radius": 2.0}}
+result = call(**call_args)
 
 # Ordered MCP batch flow (max 25 calls)
 batch = call(
@@ -304,7 +310,7 @@ batch = call(
 )
 ```
 
-Use `search(kind="skill", ...)` to find unloaded skills, then `load_skill(skill_name="...", instance_id="...")` when a search hit's `next_step` asks for activation. Gateway `tools/list` advertises exactly `search`, `describe`, `load_skill`, and `call`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should use the four canonical tools.
+Use `search(kind="skill", ...)` to find unloaded skills, then pass the search hit's `next_step.arguments` unchanged when activation is requested. This preserves target instance, tool group, and correlation metadata. Gateway `tools/list` advertises exactly `search`, `describe`, `load_skill`, and `call`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should use the four canonical tools.
 
 Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()`.
 
@@ -333,11 +339,11 @@ to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
 and never echoes raw source. Gateway traces and admin audit rows redact
 script-source input fields by default and keep the descriptor metadata instead.
 
-Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, and gateway `POST /v1/call_batch`. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
+Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, targeted `POST /v1/load_skill` or `POST /v1/describe` only when requested, `POST /v1/call`, and gateway `POST /v1/call_batch`. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
 ### Gateway workflow guide (`gateway://docs/agent-workflows`)
 
-**`resources/read`** with **`uri=gateway://docs/agent-workflows`** is the **platform-agnostic** copy bundled with the gateway: MCP **tools** vs **`resources/list`/`read`** / **`prompts`**, using **`describe`** (schema, **affinity**, execution mode, timeouts), fewer redundant round-trips, optional **`call({calls:[...]})`** / **`POST /v1/call_batch`** (≤25 ordered steps), and reading **host-published help** URIs exactly as listed—never inventing schemes. Re-fetch in very long sessions if the contract might have fallen out of context.
+Use **`resources/read uri=gateway://docs/agent-workflows`** only when the workflow contract is unclear; do not fetch it before routine DCC work. It covers MCP tools vs resources/prompts, conditional `describe`, optional batches, and exact host-published help URIs.
 
 ### Gateway Instance Discovery
 
@@ -458,7 +464,7 @@ MemoryRecorder(store).install(hooks)  # wires 6 lifecycle events
 
 | Task | Use this API |
 |------|---------------|
-| **Control DCC via CLI (agent default)** | Load `dcc-mcp` skill → `dcc-mcp-cli search/describe/call` |
+| **Control DCC via CLI (agent default)** | Load `dcc-mcp` skill → search once → follow `next_step` |
 | **Expose DCC tools over MCP** | `DccServerOptions.from_env(...)` → `DccServerBase(opts)` → `start()` |
 | **Zero-code tool registration** | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` pointing at sibling `tools.yaml` + `scripts/` |
 | **Return structured results** | `success_result()` / `error_result()` |
@@ -561,7 +567,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 
 ## 💡 Pro Tips for AI Agents
 
-1. **CLI+REST is your default path** — load `dcc-mcp` skill and use `dcc-mcp-cli search/describe/call`. Only fall back to MCP when running inside an IDE.
+1. **CLI+REST is your default path** — load `dcc-mcp`, search once, and follow `next_step`. Only fall back to MCP when running inside an IDE.
 2. **Always search before assuming** — use `dcc-mcp-cli search --query "..." --dcc-type ...` or `search_skills()` to discover relevant tools
 3. **Read tool annotations** — respect safety hints (`read_only`, `destructive`)
 4. **Follow next-tools chains** — they guide you through complex workflows

@@ -8,6 +8,7 @@ use crate::server_state::ServerState;
 use dcc_mcp_jsonrpc::CallToolResult;
 
 use super::super::helpers::notify_tools_changed;
+use crate::mcp_tool_list_builder::group_stub_name;
 pub(in crate::rmcp_tool_call_dispatch) fn handle_list_roots(
     state: &ServerState,
     session_id: Option<&str>,
@@ -156,10 +157,25 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
         return CallToolResult::error("Missing required parameter: skill_name or skill_names");
     }
 
-    let activate_groups = arguments
-        .get("activate_groups")
+    let tool_group = arguments
+        .get("tool_group")
+        .or_else(|| arguments.get("group"))
+        .or_else(|| arguments.get("group_name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|group| !group.is_empty());
+    let strict_tool_group = arguments
+        .get("strict_tool_group")
         .and_then(Value::as_bool)
-        .unwrap_or(true);
+        .unwrap_or(false);
+    if strict_tool_group && tool_group.is_none() {
+        return CallToolResult::error("strict_tool_group requires tool_group");
+    }
+    let activate_groups = !strict_tool_group
+        && arguments
+            .get("activate_groups")
+            .and_then(Value::as_bool)
+            .unwrap_or(tool_group.is_none());
 
     let mut requested: Vec<String> = Vec::new();
     if !skill_name.is_empty() {
@@ -170,6 +186,23 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
             requested.push(name.clone());
         }
     }
+    if let Some(group) = tool_group {
+        if requested.len() != 1 {
+            return CallToolResult::error(
+                "tool_group requires exactly one skill_name; skill_names batching is not supported",
+            );
+        }
+        let group_exists = state
+            .catalog
+            .get_skill_info(&requested[0])
+            .is_some_and(|detail| detail.groups.iter().any(|item| item.name == group));
+        if !group_exists {
+            return CallToolResult::error(format!(
+                "Tool group '{group}' was not found in skill '{}'",
+                requested[0]
+            ));
+        }
+    }
 
     let mut all_registered_tools: Vec<String> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
@@ -178,7 +211,14 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
 
     for name in &requested {
         let was_loaded = state.catalog.is_loaded(name);
-        match state.catalog.load_skill_with_options(name, activate_groups) {
+        let loaded = if strict_tool_group && !was_loaded {
+            state
+                .catalog
+                .load_skill_target_group(name, tool_group.expect("strict group was validated"))
+        } else {
+            state.catalog.load_skill_with_options(name, activate_groups)
+        };
+        match loaded {
             Ok(tools) => {
                 all_registered_tools.extend(tools);
                 if was_loaded {
@@ -190,15 +230,35 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
             Err(e) => errors.push(format!("{name}: {e}")),
         }
     }
+    let activated_target_count = if errors.is_empty() {
+        tool_group
+            .map(|group| state.catalog.activate_skill_group(&requested[0], group))
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    if tool_group.is_some() && errors.is_empty() {
+        all_registered_tools = state
+            .catalog
+            .registry()
+            .list_actions_by_skill(&requested[0])
+            .into_iter()
+            .filter(|meta| meta.enabled)
+            .map(|meta| meta.name)
+            .collect();
+    }
 
-    if !newly_loaded.is_empty() {
+    if !newly_loaded.is_empty() || activated_target_count > 0 {
         state.bump_registry_generation();
         if let Some(sid) = session_id {
             let added = all_registered_tools.clone();
-            let removed: Vec<String> = newly_loaded
+            let mut removed: Vec<String> = newly_loaded
                 .iter()
                 .map(|n| format!("__skill__{n}"))
                 .collect();
+            if let Some(group) = tool_group {
+                removed.push(group_stub_name(Some(&requested[0]), group));
+            }
             notify_tools_changed(&state.sessions, sid, &added, &removed);
         }
         (ctx.on_skill_catalog_mutated)();
@@ -207,12 +267,25 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_load_skill(
     let mut tool_schemas: Vec<Value> = Vec::new();
     for name in newly_loaded.iter().chain(already_loaded.iter()) {
         for meta in state.catalog.registry().list_actions_by_skill(name) {
+            if tool_group.is_some() && !meta.enabled {
+                continue;
+            }
             tool_schemas.push(json!({
                 "name":          meta.name,
                 "description":   meta.description,
                 "inputSchema":   meta.input_schema,
                 "outputSchema":  meta.output_schema,
                 "skill_name":    meta.skill_name,
+                "annotations":   meta.annotations,
+                "metadata": {
+                    "dcc": {
+                        "affinity": meta.thread_affinity,
+                        "execution": meta.execution,
+                        "timeoutHintSecs": meta.timeout_hint_secs,
+                        "jobStrategy": meta.job_strategy,
+                        "enforceThreadAffinity": meta.enforce_thread_affinity,
+                    }
+                },
             }));
         }
     }
@@ -293,6 +366,25 @@ fn group_state_payloads(
         }
     }
     groups
+}
+
+fn group_stub_names(state: &ServerState, skill_name: Option<&str>, group: &str) -> Vec<String> {
+    if let Some(skill_name) = skill_name {
+        return vec![group_stub_name(Some(skill_name), group)];
+    }
+    let owners: std::collections::BTreeSet<_> = state
+        .registry
+        .list_actions_in_group(group)
+        .into_iter()
+        .map(|meta| meta.skill_name)
+        .collect();
+    if owners.is_empty() {
+        return vec![group_stub_name(None, group)];
+    }
+    owners
+        .iter()
+        .map(|owner| group_stub_name(owner.as_deref(), group))
+        .collect()
 }
 
 pub(in crate::rmcp_tool_call_dispatch) fn handle_unload_skill(
@@ -494,16 +586,25 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_activate_tool_group(
     if group.is_empty() {
         return CallToolResult::error("Missing required parameter: group or group_name");
     }
-    let changed = state.catalog.activate_group(group);
+    let skill_name = arguments
+        .get("skill_name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    let changed = skill_name.map_or_else(
+        || state.catalog.activate_group(group),
+        |skill| state.catalog.activate_skill_group(skill, group),
+    );
     state.bump_registry_generation();
     if let Some(sid) = session_id {
-        let added: Vec<String> = state
-            .registry
-            .list_actions_in_group(group)
-            .iter()
+        let added: Vec<String> = skill_name
+            .map(|skill| state.registry.list_actions_by_skill(skill))
+            .unwrap_or_else(|| state.registry.list_actions_in_group(group))
+            .into_iter()
+            .filter(|meta| meta.group == group)
             .map(|m| m.name.clone())
             .collect();
-        let removed = vec![format!("__group__{group}")];
+        let removed = group_stub_names(state, skill_name, group);
         notify_tools_changed(&state.sessions, sid, &added, &removed);
     }
     CallToolResult::text(
@@ -530,16 +631,25 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_deactivate_tool_group(
     if group.is_empty() {
         return CallToolResult::error("Missing required parameter: group or group_name");
     }
-    let changed = state.catalog.deactivate_group(group);
+    let skill_name = arguments
+        .get("skill_name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    let changed = skill_name.map_or_else(
+        || state.catalog.deactivate_group(group),
+        |skill| state.catalog.deactivate_skill_group(skill, group),
+    );
     state.bump_registry_generation();
     if let Some(sid) = session_id {
-        let removed: Vec<String> = state
-            .registry
-            .list_actions_in_group(group)
-            .iter()
+        let removed: Vec<String> = skill_name
+            .map(|skill| state.registry.list_actions_by_skill(skill))
+            .unwrap_or_else(|| state.registry.list_actions_in_group(group))
+            .into_iter()
+            .filter(|meta| meta.group == group)
             .map(|m| m.name.clone())
             .collect();
-        let added = vec![format!("__group__{group}")];
+        let added = group_stub_names(state, skill_name, group);
         notify_tools_changed(&state.sessions, sid, &added, &removed);
     }
     CallToolResult::text(

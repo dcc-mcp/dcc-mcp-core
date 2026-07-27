@@ -2580,6 +2580,14 @@ class SkillCatalog:
         r"""
         Clear any registered after-group-change hook.
         """
+    def set_after_scoped_group_change_hook(self, hook: typing.Optional[typing.Any]) -> None:
+        r"""
+        Register the persistence-only observer for exact scoped group keys.
+        """
+    def clear_after_scoped_group_change_hook(self) -> None:
+        r"""
+        Clear the scoped persistence observer.
+        """
     def replay_loaded(self, state_json: builtins.str, policy: builtins.str = 'skip_on_drift') -> builtins.str:
         r"""
         Replay a persisted set of loaded skills + active groups (#1405).

@@ -23,8 +23,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
+use dashmap::DashMap;
 use parking_lot::RwLock;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::record::CapabilityRecord;
@@ -44,6 +48,28 @@ pub struct CapabilityIndex {
     /// `HashMap::iter` resort on every snapshot build — the index is
     /// small enough that the log-n insert cost is noise.
     inner: RwLock<InnerState>,
+    /// Process-unique identity plus a monotonic content revision.
+    ///
+    /// This keeps cache validation O(1): callers do not need to clone and hash
+    /// the full index merely to learn whether its content changed.
+    generation_seed: Uuid,
+    revision: AtomicU64,
+    /// Serialises backend refreshes and remembers the last completed live set.
+    ///
+    /// On-demand discovery calls use this checkpoint to share one fresh index
+    /// snapshot instead of each re-fetching every backend catalog.
+    pub(crate) refresh_checkpoint: Mutex<Option<(Instant, Vec<Uuid>)>>,
+    /// Serialises refreshes of the same backend without coupling unrelated DCCs.
+    ///
+    /// ponytail: gates live for the gateway lifetime; prune only if
+    /// high-churn instance registration makes this map measurably large.
+    refresh_gates: DashMap<Uuid, Arc<Mutex<()>>>,
+    /// Last completed discovery refresh per backend.
+    ///
+    /// Search uses this independently from the full-live-set checkpoint so a
+    /// targeted query can reuse its own backend snapshot without waiting for
+    /// unrelated DCCs.
+    search_refresh_completed: RwLock<HashMap<Uuid, Instant>>,
 }
 
 #[derive(Default)]
@@ -65,7 +91,19 @@ impl CapabilityIndex {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(InnerState::default()),
+            generation_seed: Uuid::new_v4(),
+            revision: AtomicU64::new(0),
+            refresh_checkpoint: Mutex::new(None),
+            refresh_gates: DashMap::new(),
+            search_refresh_completed: RwLock::new(HashMap::new()),
         }
+    }
+
+    pub(crate) fn refresh_gate(&self, instance_id: Uuid) -> Arc<Mutex<()>> {
+        self.refresh_gates
+            .entry(instance_id)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     /// Replace every record owned by `instance_id` with `records`,
@@ -85,12 +123,22 @@ impl CapabilityIndex {
     ) -> Option<InstanceFingerprint> {
         let mut guard = self.inner.write();
         if records.is_empty() {
-            return guard
+            let previous = guard
                 .per_instance
                 .remove(&instance_id)
                 .map(|s| s.fingerprint);
+            if previous.is_some() {
+                self.bump_revision();
+            }
+            return previous;
         }
-        guard
+        if let Some(current) = guard.per_instance.get(&instance_id)
+            && current.fingerprint == fingerprint
+            && current.records.as_ref() == records.as_slice()
+        {
+            return Some(current.fingerprint);
+        }
+        let previous = guard
             .per_instance
             .insert(
                 instance_id,
@@ -99,14 +147,63 @@ impl CapabilityIndex {
                     fingerprint,
                 },
             )
-            .map(|s| s.fingerprint)
+            .map(|s| s.fingerprint);
+        self.bump_revision();
+        previous
     }
 
     /// Drop every record belonging to `instance_id`. Returns `true`
     /// if the instance was present.
     pub fn remove_instance(&self, instance_id: Uuid) -> bool {
         let mut guard = self.inner.write();
-        guard.per_instance.remove(&instance_id).is_some()
+        let removed = guard.per_instance.remove(&instance_id).is_some();
+        if removed {
+            self.bump_revision();
+        }
+        drop(guard);
+        self.search_refresh_completed.write().remove(&instance_id);
+        removed
+    }
+
+    /// Return indexed instance ids without cloning or sorting capability rows.
+    pub(crate) fn instance_ids(&self) -> Vec<Uuid> {
+        self.inner.read().per_instance.keys().copied().collect()
+    }
+
+    pub(crate) fn search_refresh_is_recent(
+        &self,
+        instance_id: Uuid,
+        max_age: std::time::Duration,
+    ) -> bool {
+        self.search_refresh_completed
+            .read()
+            .get(&instance_id)
+            .is_some_and(|completed_at| completed_at.elapsed() < max_age)
+    }
+
+    pub(crate) fn search_refresh_was_attempted(&self, instance_id: Uuid) -> bool {
+        self.search_refresh_completed
+            .read()
+            .contains_key(&instance_id)
+    }
+
+    pub(crate) fn mark_search_refresh_completed(
+        &self,
+        instance_ids: impl IntoIterator<Item = Uuid>,
+    ) {
+        let completed_at = Instant::now();
+        let mut guard = self.search_refresh_completed.write();
+        for instance_id in instance_ids {
+            guard.insert(instance_id, completed_at);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire_search_refresh_for_test(&self, instance_id: Uuid) {
+        self.search_refresh_completed.write().insert(
+            instance_id,
+            Instant::now() - std::time::Duration::from_secs(60),
+        );
     }
 
     /// Take an owned snapshot of the whole index. Intended for REST /
@@ -118,6 +215,27 @@ impl CapabilityIndex {
     /// that aren't connected yet.
     pub fn snapshot(&self) -> IndexSnapshot {
         let guard = self.inner.read();
+        Self::snapshot_locked(&guard)
+    }
+
+    /// Return a coherent owned snapshot and its generation.
+    ///
+    /// The read guard remains held until both values are captured, so search
+    /// results produced from the snapshot can be cached under exactly the
+    /// generation that produced them.
+    pub fn snapshot_with_generation(&self) -> (IndexSnapshot, String) {
+        let guard = self.inner.read();
+        let snapshot = Self::snapshot_locked(&guard);
+        let generation = self.generation_string(self.revision.load(Ordering::Acquire));
+        (snapshot, generation)
+    }
+
+    /// Return the current opaque generation without cloning index records.
+    pub fn generation(&self) -> String {
+        self.generation_string(self.revision.load(Ordering::Acquire))
+    }
+
+    fn snapshot_locked(guard: &InnerState) -> IndexSnapshot {
         let loaded_count: usize = guard.per_instance.values().map(|s| s.records.len()).sum();
         let unloaded_count = guard.unloaded.len();
         let mut records: Vec<CapabilityRecord> = Vec::with_capacity(loaded_count + unloaded_count);
@@ -137,6 +255,14 @@ impl CapabilityIndex {
             records: Arc::from(records),
             fingerprints,
         }
+    }
+
+    fn bump_revision(&self) {
+        self.revision.fetch_add(1, Ordering::Release);
+    }
+
+    fn generation_string(&self, revision: u64) -> String {
+        format!("{}:{revision:016x}", self.generation_seed.simple())
     }
 
     /// Return the fingerprint previously stored for `instance_id`, if
@@ -181,7 +307,11 @@ impl CapabilityIndex {
         // to re-sort them separately.
         let mut sorted = records;
         sorted.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
+        if guard.unloaded.as_ref() == sorted.as_slice() {
+            return;
+        }
         guard.unloaded = Arc::from(sorted);
+        self.bump_revision();
     }
 
     /// Number of unloaded skill records currently indexed; diagnostics-only.
@@ -233,6 +363,55 @@ mod unit_tests {
         assert!(idx.snapshot().is_empty());
         assert_eq!(idx.total_records(), 0);
         assert_eq!(idx.instance_count(), 0);
+    }
+
+    #[test]
+    fn generation_changes_only_when_index_content_changes() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::from_u128(1);
+        let record = rec("maya", iid, "create_sphere", true);
+
+        let initial = idx.generation();
+        let (snapshot, snapshot_generation) = idx.snapshot_with_generation();
+        assert!(snapshot.is_empty());
+        assert_eq!(snapshot_generation, initial);
+
+        idx.upsert_instance(iid, vec![record.clone()], InstanceFingerprint(1));
+        let after_insert = idx.generation();
+        assert_ne!(after_insert, initial);
+
+        idx.upsert_instance(iid, vec![record], InstanceFingerprint(1));
+        assert_eq!(idx.generation(), after_insert);
+
+        assert!(!idx.remove_instance(Uuid::from_u128(2)));
+        assert_eq!(idx.generation(), after_insert);
+
+        assert!(idx.remove_instance(iid));
+        let after_remove = idx.generation();
+        assert_ne!(after_remove, after_insert);
+
+        idx.set_unloaded_records(Vec::new());
+        assert_eq!(idx.generation(), after_remove);
+        let unloaded = CapabilityRecord::from_skill_tool(
+            "maya-geometry",
+            "create_cube",
+            "Create a cube",
+            "maya",
+            None,
+        );
+        idx.set_unloaded_records(vec![unloaded.clone()]);
+        let after_unloaded_insert = idx.generation();
+        assert_ne!(after_unloaded_insert, after_remove);
+        idx.set_unloaded_records(vec![unloaded]);
+        assert_eq!(idx.generation(), after_unloaded_insert);
+    }
+
+    #[test]
+    fn generation_is_unique_per_index_within_the_process() {
+        let first = CapabilityIndex::new();
+        let second = CapabilityIndex::new();
+
+        assert_ne!(first.generation(), second.generation());
     }
 
     #[test]

@@ -140,6 +140,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                           How to use:\n\
                           - Pass skill_name or skill_names.\n\
                           - Groups activate by default; set activate_groups=false for lazy group activation.\n\
+                          - Pass tool_group with one skill to activate only that group plus default-active groups.\n\
                           - After success, call tools/list or the specific tool directly."
                 .to_string(),
             input_schema: json!({
@@ -158,6 +159,10 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                         "type": "boolean",
                         "default": true,
                         "description": "Cascade-activate all declared tool groups after loading. Set false for lazy activation."
+                    },
+                    "tool_group": {
+                        "type": "string",
+                        "description": "Activate one group for a skill; defaults activate_groups=false and includes default-active groups."
                     }
                 }
             }),
@@ -268,6 +273,10 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                     "group": {
                         "type": "string",
                         "description": "Alias of group_name."
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Optional owning skill from a scoped group stub. Omit for legacy catalog-wide activation."
                     }
                 },
                 "required": ["group_name"]
@@ -301,6 +310,10 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                     "group": {
                         "type": "string",
                         "description": "Alias of group_name."
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Optional owning skill from a scoped group stub. Omit for legacy catalog-wide deactivation."
                     }
                 },
                 "required": ["group_name"]

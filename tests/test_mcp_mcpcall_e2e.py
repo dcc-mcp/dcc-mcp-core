@@ -1338,8 +1338,8 @@ class TestMcpcallToolGroupActivation:
         _mcpcall_call(url, name, "deactivate_tool_group", {"group": "rigging"})
         tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
-        assert "__group__rigging" in tool_names, (
-            f"rigging group must collapse to __group__rigging stub, got: {tool_names}"
+        assert "__group__rigging__for_skill__maya-geometry" in tool_names, (
+            f"rigging group must collapse to its skill-scoped stub, got: {tool_names}"
         )
         assert "create_joint" not in tool_names, (
             f"create_joint must be hidden while rigging is inactive, got: {tool_names}"
@@ -1355,8 +1355,8 @@ class TestMcpcallToolGroupActivation:
         tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "create_joint" in tool_names, f"create_joint must surface after activating rigging, got: {tool_names}"
-        assert "__group__rigging" not in tool_names, (
-            f"__group__rigging stub must disappear after activation, got: {tool_names}"
+        assert "__group__rigging__for_skill__maya-geometry" not in tool_names, (
+            f"skill-scoped rigging stub must disappear after activation, got: {tool_names}"
         )
 
     def test_deactivate_tool_group_collapses_members_again(self, server_for_tool_groups):
@@ -1368,7 +1368,7 @@ class TestMcpcallToolGroupActivation:
         tools = _mcpcall_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         assert "create_joint" not in tool_names
-        assert "__group__rigging" in tool_names
+        assert "__group__rigging__for_skill__maya-geometry" in tool_names
 
     def test_activate_unknown_group_does_not_crash(self, server_for_tool_groups):
         """Activating a non-existent group should return a structured response, never panic."""

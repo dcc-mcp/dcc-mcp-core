@@ -199,6 +199,42 @@ class SkillQueryClient:
                 return False
         return self.set_after_group_change_hook(None)
 
+    def set_after_scoped_group_change_hook(self, hook: Callable[[str, bool], Any] | None) -> bool:
+        """Register the exact-key observer used by loaded-state persistence."""
+        setter = getattr(self._server, "set_after_scoped_group_change_hook", None)
+        if not callable(setter):
+            logger.debug(
+                "[%s] set_after_scoped_group_change_hook unavailable on inner server",
+                self._dcc_name,
+            )
+            return False
+        try:
+            setter(hook)
+            return True
+        except Exception as exc:
+            logger.debug(
+                "[%s] set_after_scoped_group_change_hook failed: %s",
+                self._dcc_name,
+                exc,
+            )
+            return False
+
+    def clear_after_scoped_group_change_hook(self) -> bool:
+        """Remove the exact-key persistence observer, if registered."""
+        clearer = getattr(self._server, "clear_after_scoped_group_change_hook", None)
+        if callable(clearer):
+            try:
+                clearer()
+                return True
+            except Exception as exc:
+                logger.debug(
+                    "[%s] clear_after_scoped_group_change_hook failed: %s",
+                    self._dcc_name,
+                    exc,
+                )
+                return False
+        return self.set_after_scoped_group_change_hook(None)
+
     def replay_loaded_skills(self, state_json: str, *, policy: str = "skip_on_drift") -> str | None:
         """Replay a persisted catalog snapshot on the inner skill server (#1405).
 

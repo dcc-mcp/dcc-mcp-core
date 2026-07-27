@@ -3,7 +3,7 @@
 use std::process::Command;
 
 use axum::Router;
-use axum::extract::{Json, Path, Query};
+use axum::extract::{Json, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -31,6 +31,8 @@ pub(crate) struct LocalMcpFixture {
     pub(crate) base_url: String,
     pub(crate) shutdown: Option<oneshot::Sender<()>>,
     pub(crate) thread: Option<std::thread::JoinHandle<()>>,
+    pub(crate) tools_list_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) activate_group_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl LocalMcpFixture {
@@ -40,6 +42,16 @@ impl LocalMcpFixture {
 
     pub(crate) fn safe_stop_url(&self) -> String {
         format!("{}/safe-stop", self.base_url)
+    }
+
+    pub(crate) fn tools_list_calls(&self) -> usize {
+        self.tools_list_calls
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(crate) fn activate_group_calls(&self) -> usize {
+        self.activate_group_calls
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -545,10 +557,18 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
 }
 
 pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
+    let tools_list_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let activate_group_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let app = Router::new()
         .route(
             "/mcp",
-            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+            post(
+                |State((tools_list_calls, activate_group_calls)): State<(
+                    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+                    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+                )>,
+                 headers: HeaderMap,
+                 Json(body): Json<Value>| async move {
                 let accept = headers
                     .get(header::ACCEPT)
                     .and_then(|value| value.to_str().ok())
@@ -566,37 +586,40 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
 
                 let method = body.get("method").and_then(Value::as_str).unwrap_or("");
                 match method {
-                    "tools/list" => (
-                        StatusCode::OK,
-                        Json(json!({
-                            "jsonrpc": "2.0",
-                            "id": body.get("id").cloned().unwrap_or(json!(null)),
-                            "result": {
-                                "tools": [
-                                    {
-                                        "name": "search_tools",
-                                        "description": "Search local tools",
-                                        "inputSchema": {"type": "object"}
-                                    },
-                                    {
-                                        "name": "load_skill",
-                                        "description": "Load local skill",
-                                        "inputSchema": {"type": "object"}
-                                    },
-                                    {
-                                        "name": "maya_scene__get_session_info",
-                                        "description": "Read scene session info",
-                                        "inputSchema": {"type": "object", "properties": {}}
-                                    },
-                                    {
-                                        "name": "workflow__run",
-                                        "description": "Run workflow",
-                                        "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}
-                                    }
-                                ]
-                            }
-                        })),
-                    ),
+                    "tools/list" => {
+                        tools_list_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        (
+                            StatusCode::OK,
+                            Json(json!({
+                                "jsonrpc": "2.0",
+                                "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                "result": {
+                                    "tools": [
+                                        {
+                                            "name": "search_tools",
+                                            "description": "Search local tools",
+                                            "inputSchema": {"type": "object"}
+                                        },
+                                        {
+                                            "name": "load_skill",
+                                            "description": "Load local skill",
+                                            "inputSchema": {"type": "object"}
+                                        },
+                                        {
+                                            "name": "maya_scene__get_session_info",
+                                            "description": "Read scene session info",
+                                            "inputSchema": {"type": "object", "properties": {}}
+                                        },
+                                        {
+                                            "name": "workflow__run",
+                                            "description": "Run workflow",
+                                            "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}
+                                        }
+                                    ]
+                                }
+                            })),
+                        )
+                    }
                     "tools/call" => {
                         let params = body.get("params").cloned().unwrap_or_else(|| json!({}));
                         let name = params.get("name").and_then(Value::as_str).unwrap_or("");
@@ -623,7 +646,65 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         })),
                                     );
                                 }
-                                json!({
+                                if arguments.get("include_disabled") != Some(&json!(true)) {
+                                    return (
+                                        StatusCode::OK,
+                                        Json(json!({
+                                            "jsonrpc": "2.0",
+                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                            "error": {
+                                                "code": -32602,
+                                                "message": "local search must include inactive-group tools"
+                                            }
+                                        })),
+                                    );
+                                }
+                                if query == "skill-only" {
+                                    json!({
+                                        "total": 1,
+                                        "query": query,
+                                        "tools": [],
+                                        "skill_candidates": [{
+                                            "kind": "skill_candidate",
+                                            "skill_name": "workflow",
+                                            "description": "Workflow tools",
+                                            "tags": ["workflow"],
+                                            "dcc": "maya",
+                                            "scope": "repo",
+                                            "tool_count": 1,
+                                            "matching_tools": [],
+                                            "requires_load_skill": true,
+                                            "load_hint": {
+                                                "tool": "load_skill",
+                                                "arguments": {"skill_name": "workflow"}
+                                            }
+                                        }]
+                                    })
+                                } else if query == "inactive" {
+                                    json!({
+                                        "total": 1,
+                                        "query": query,
+                                        "tools": [{
+                                            "kind": "tool",
+                                            "name": "workflow__run",
+                                            "description": "Run workflow",
+                                            "category": "workflow",
+                                            "group": "execution",
+                                            "enabled": false,
+                                            "has_schema": true,
+                                            "dcc": "maya",
+                                            "skill_name": "workflow",
+                                            "annotations": {
+                                                "read_only_hint": false,
+                                                "destructive_hint": false,
+                                                "idempotent_hint": false,
+                                                "open_world_hint": false
+                                            }
+                                        }],
+                                        "skill_candidates": []
+                                    })
+                                } else {
+                                    json!({
                                     "total": 2,
                                     "query": query,
                                     "tools": [{
@@ -633,8 +714,22 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         "category": "scene",
                                         "group": "",
                                         "enabled": true,
+                                        "has_schema": false,
                                         "dcc": "maya",
-                                        "skill_name": "maya-scene"
+                                        "skill_name": "maya-scene",
+                                        "annotations": {
+                                            "read_only_hint": true,
+                                            "destructive_hint": false,
+                                            "idempotent_hint": true,
+                                            "open_world_hint": false
+                                        },
+                                        "metadata": {
+                                            "dcc": {
+                                                "affinity": "any",
+                                                "execution": "sync",
+                                                "jobStrategy": "monolithic"
+                                            }
+                                        }
                                     }],
                                     "skill_candidates": [{
                                         "kind": "skill_candidate",
@@ -644,19 +739,27 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         "dcc": "maya",
                                         "scope": "repo",
                                         "tool_count": 1,
-                                        "matching_tools": ["workflow__run"],
+                                        "matching_tools": ["run"],
+                                        "tool_group": "execution",
                                         "requires_load_skill": true,
                                         "load_hint": {
                                             "tool": "load_skill",
-                                            "arguments": {"skill_name": "workflow"}
+                                            "arguments": {
+                                                "skill_name": "workflow",
+                                                "tool_group": "execution"
+                                            }
                                         }
                                     }]
-                                })
+                                    })
+                                }
                             }
                             "load_skill" => {
                                 if arguments.get("dcc_type").is_some()
                                     || arguments.get("dcc").is_some()
                                     || arguments.get("instance_id").is_some()
+                                    || arguments.get("target_tool_slug").is_some()
+                                    || arguments.get("meta").is_some()
+                                    || arguments.get("_meta").is_some()
                                 {
                                     return (
                                         StatusCode::OK,
@@ -665,20 +768,85 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                             "id": body.get("id").cloned().unwrap_or(json!(null)),
                                             "error": {
                                                 "code": -32602,
-                                                "message": "load_skill received local routing fields"
+                                                "message": "load_skill received local or gateway routing fields"
                                             }
                                         })),
                                     );
                                 }
+                                if arguments.get("tool_group").is_some()
+                                    && arguments.get("activate_groups") != Some(&json!(false))
+                                {
+                                    return (
+                                        StatusCode::OK,
+                                        Json(json!({
+                                            "jsonrpc": "2.0",
+                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                            "error": {
+                                                "code": -32602,
+                                                "message": "targeted load_skill must default activate_groups=false"
+                                            }
+                                        })),
+                                    );
+                                }
+                                if arguments.get("skill_name") == Some(&json!("broken")) {
+                                    return (
+                                        StatusCode::OK,
+                                        Json(json!({
+                                            "jsonrpc": "2.0",
+                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                                            "result": {
+                                                "isError": true,
+                                                "content": [{"type": "text", "text": "skill load failed"}]
+                                            }
+                                        })),
+                                    );
+                                }
+                                match arguments.get("skill_name").and_then(Value::as_str) {
+                                    Some("broken-domain") => json!({
+                                        "success": false,
+                                        "message": "skill domain failure"
+                                    }),
+                                    Some("not-loaded") => json!({
+                                        "loaded": false,
+                                        "message": "skill not loaded"
+                                    }),
+                                    _ => json!({
+                                        "loaded": true,
+                                        "skill_name": arguments.get("skill_name").cloned().unwrap_or(Value::Null),
+                                        "activate_groups": arguments.get("activate_groups").cloned().unwrap_or(Value::Null),
+                                        "strict_tool_group": arguments.get("strict_tool_group").cloned().unwrap_or(Value::Null),
+                                        "registered_tools": ["workflow__run"],
+                                        "tool_count": 1,
+                                        "tools": [{
+                                            "name": "workflow__run",
+                                            "annotations": {
+                                                "read_only_hint": false,
+                                                "destructive_hint": false,
+                                                "idempotent_hint": false,
+                                                "open_world_hint": false
+                                            },
+                                            "metadata": {
+                                                "dcc": {
+                                                    "affinity": "any",
+                                                    "execution": "sync",
+                                                    "jobStrategy": "monolithic"
+                                                }
+                                            },
+                                            "inputSchema": {
+                                                "type": "object",
+                                                "properties": {"name": {"type": "string"}},
+                                                "required": ["name"]
+                                            }
+                                        }]
+                                    }),
+                                }
+                            }
+                            "activate_tool_group" => {
+                                activate_group_calls
+                                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 json!({
-                                    "loaded": true,
-                                    "skill_name": arguments.get("skill_name").cloned().unwrap_or(Value::Null),
-                                    "registered_tools": ["workflow__run"],
-                                    "tool_count": 1,
-                                    "tools": [{
-                                        "name": "workflow__run",
-                                        "inputSchema": {"type": "object"}
-                                    }]
+                                    "success": true,
+                                    "group": arguments.get("group_name").cloned().unwrap_or(Value::Null),
                                 })
                             }
                             "dcc_admin__reload_skills" => json!({
@@ -779,7 +947,8 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                     "session": body.get("session").cloned().unwrap_or(Value::Null)
                 }))
             }),
-        );
+        )
+        .with_state((tools_list_calls.clone(), activate_group_calls.clone()));
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -803,6 +972,8 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
         base_url: format!("http://{addr}"),
         shutdown: Some(shutdown_tx),
         thread: Some(thread),
+        tools_list_calls,
+        activate_group_calls,
     }
 }
 

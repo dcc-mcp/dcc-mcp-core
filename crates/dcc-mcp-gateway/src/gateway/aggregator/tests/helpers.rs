@@ -133,7 +133,13 @@ pub(crate) async fn make_gateway_state(
     }
 }
 
-pub(crate) async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
+pub(crate) async fn spawn_canonical_workflow_backend() -> (
+    u16,
+    tokio::sync::oneshot::Sender<()>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let mcp_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let loaded = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let app = axum::Router::new()
         .route(
             "/health",
@@ -141,28 +147,41 @@ pub(crate) async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::one
         )
         .route(
             "/v1/search",
-            axum::routing::post(|| async {
-                axum::Json(json!({
-                    "total": 1,
-                    "hits": [{
-                        "action": "create_sphere",
-                        "skill": "maya-primitives",
-                        "summary": "Create a polygon sphere in the current scene.",
-                        "loaded": true,
-                        "has_schema": true,
-                        "annotations": {
-                            "readOnlyHint": false,
-                            "destructiveHint": false,
-                            "openWorldHint": true
-                        },
-                        "metadata": {
-                            "dcc": {
-                                "affinity": "main",
-                                "execution": "in-process"
-                            }
-                        }
-                    }]
-                }))
+            axum::routing::post({
+                let loaded = loaded.clone();
+                move || {
+                    let loaded = loaded.clone();
+                    async move {
+                        axum::Json(json!({
+                            "total": 1,
+                            "hits": [{
+                                "action": "create_sphere",
+                                "skill": "maya-primitives",
+                                "summary": "Create a polygon sphere in the current scene.",
+                                "loaded": loaded.load(std::sync::atomic::Ordering::SeqCst),
+                                "has_schema": true,
+                                "annotations": {
+                                    "readOnlyHint": false,
+                                    "destructiveHint": false,
+                                    "idempotentHint": false,
+                                    "openWorldHint": true
+                                },
+                                "metadata": {
+                                    "dcc": {
+                                        "affinity": "main",
+                                        "execution": "in-process"
+                                    }
+                                },
+                                "available_groups": [{
+                                    "name": "inspection",
+                                    "tools": ["create_sphere"],
+                                    "default_active": false,
+                                    "active": loaded.load(std::sync::atomic::Ordering::SeqCst)
+                                }]
+                            }]
+                        }))
+                    }
+                }
             }),
         )
         .route(
@@ -191,6 +210,7 @@ pub(crate) async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::one
                     "annotations": {
                         "readOnlyHint": false,
                         "destructiveHint": false,
+                        "idempotentHint": false,
                         "openWorldHint": true
                     },
                     "metadata": {
@@ -220,42 +240,57 @@ pub(crate) async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::one
         )
         .route(
             "/mcp",
-            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
-                let id = body.get("id").cloned().unwrap_or(Value::Null);
-                let name = body
-                    .get("params")
-                    .and_then(|params| params.get("name"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let result = if name == "load_skill" {
-                    let received_arguments = body
-                        .get("params")
-                        .and_then(|params| params.get("arguments"))
-                        .cloned()
-                        .unwrap_or_else(|| json!({}));
-                    json!({
-                        "content": [{
-                            "type": "text",
-                            "text": serde_json::to_string_pretty(&json!({
-                                "loaded": true,
-                                "skill_name": "maya-primitives",
-                                "dcc_type": "maya",
-                                "activated_groups": ["core"],
-                                "received_arguments": received_arguments,
-                            })).unwrap()
-                        }],
-                        "isError": false
-                    })
-                } else {
-                    json!({
-                        "content": [{
-                            "type": "text",
-                            "text": format!("unexpected backend MCP tool: {name}")
-                        }],
-                        "isError": true
-                    })
-                };
-                axum::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+            axum::routing::post({
+                let mcp_calls = mcp_calls.clone();
+                let loaded = loaded.clone();
+                move |axum::Json(body): axum::Json<Value>| {
+                    let mcp_calls = mcp_calls.clone();
+                    let loaded = loaded.clone();
+                    async move {
+                        mcp_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let id = body.get("id").cloned().unwrap_or(Value::Null);
+                        let name = body
+                            .get("params")
+                            .and_then(|params| params.get("name"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        let result = if name == "load_skill" {
+                            loaded.store(true, std::sync::atomic::Ordering::SeqCst);
+                            let received_arguments = body
+                                .get("params")
+                                .and_then(|params| params.get("arguments"))
+                                .cloned()
+                                .unwrap_or_else(|| json!({}));
+                            let activated_group = received_arguments
+                                .get("tool_group")
+                                .and_then(Value::as_str)
+                                .unwrap_or("core");
+                            json!({
+                                "content": [{
+                                    "type": "text",
+                                    "text": serde_json::to_string_pretty(&json!({
+                                        "loaded": true,
+                                        "skill_name": "maya-primitives",
+                                        "dcc_type": "maya",
+                                        "activated_groups": [activated_group],
+                                        "registered_tools": ["create_sphere"],
+                                        "received_arguments": received_arguments,
+                                    })).unwrap()
+                                }],
+                                "isError": false
+                            })
+                        } else {
+                            json!({
+                                "content": [{
+                                    "type": "text",
+                                    "text": format!("unexpected backend MCP tool: {name}")
+                                }],
+                                "isError": true
+                            })
+                        };
+                        axum::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                    }
+                }
             }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -270,7 +305,7 @@ pub(crate) async fn spawn_canonical_workflow_backend() -> (u16, tokio::sync::one
             .ok();
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    (port, tx)
+    (port, tx, mcp_calls)
 }
 
 pub(crate) async fn post_mcp_json(client: &reqwest::Client, url: &str, body: Value) -> Value {

@@ -140,6 +140,10 @@ does not replace a running server binary.
      idempotent, confirmation-gated, and free of credentials. Do not treat
      `elevation_required` as permission to automate UAC or another shell path.
 8. Use CLI profiles (`dcc-mcp-cli gateway ...`, `list/search/describe/call`) as the user UX; treat `dcc-mcp-server` modes as runtime plumbing. Read `docs/guide/gateway.md` before changing daemon, guardian, sentinel, registry, or idle-timeout behavior.
+   Gateway discovery reuses a recent capability snapshot across adjacent
+   queries. Route adapter catalog changes through the existing
+   load/reload/unload contracts that force a refresh; never depend on every
+   search polling the full backend catalog.
    `gateway://instances` is agent-safe by default and returns only live,
    routable rows. Use `?include_stale=true`, `?include_dead=true`, or
    `?view=all` only for explicit diagnosis; never route a call from those

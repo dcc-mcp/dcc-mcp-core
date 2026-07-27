@@ -185,13 +185,15 @@ pub async fn tool_load_skill(gs: &GatewayState, args: &Value) -> (String, bool) 
     let tool_group = args
         .get("tool_group")
         .or_else(|| args.get("group_name"))
-        .cloned();
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|group| !group.is_empty());
 
     if matches!(group_action.as_deref(), Some("deactivate")) {
         let mut forward = args.clone();
         if let Some(obj) = forward.as_object_mut() {
-            if let Some(g) = tool_group {
-                obj.insert("group_name".to_string(), g);
+            if let Some(group) = tool_group {
+                obj.insert("group_name".to_string(), json!(group));
             }
             obj.remove("tool_group");
             obj.remove("group_action");
@@ -204,18 +206,23 @@ pub async fn tool_load_skill(gs: &GatewayState, args: &Value) -> (String, bool) 
         .await;
     }
 
-    if tool_group.is_some() && matches!(group_action.as_deref(), Some("activate") | None) {
+    if let Some(group) = tool_group
+        && matches!(group_action.as_deref(), Some("activate") | None)
+    {
         if args.get("skill_name").and_then(Value::as_str).is_some() {
             let (load_text, load_err) =
                 crate::gateway::aggregator::skill_mgmt_dispatch(gs, "load_skill", args).await;
             if load_err {
                 return (load_text, true);
             }
+            if load_response_activated_group(&load_text, group) {
+                return (load_text, false);
+            }
+
+            // Compatibility for older backends that ignore load_skill.tool_group.
             let mut group_args = args.clone();
             if let Some(obj) = group_args.as_object_mut() {
-                if let Some(g) = tool_group {
-                    obj.insert("group_name".to_string(), g);
-                }
+                obj.insert("group_name".to_string(), json!(group));
                 obj.remove("tool_group");
                 obj.remove("group_action");
             }
@@ -228,14 +235,11 @@ pub async fn tool_load_skill(gs: &GatewayState, args: &Value) -> (String, bool) 
             if group_err {
                 return (group_text, true);
             }
-            let combined = format!("{load_text}\n{group_text}");
-            return (combined, false);
+            return (mark_load_response_group_active(load_text, group), false);
         }
         let mut forward = args.clone();
         if let Some(obj) = forward.as_object_mut() {
-            if let Some(g) = tool_group {
-                obj.insert("group_name".to_string(), g);
-            }
+            obj.insert("group_name".to_string(), json!(group));
             obj.remove("tool_group");
             obj.remove("group_action");
         }
@@ -248,6 +252,33 @@ pub async fn tool_load_skill(gs: &GatewayState, args: &Value) -> (String, bool) 
     }
 
     crate::gateway::aggregator::skill_mgmt_dispatch(gs, "load_skill", args).await
+}
+
+fn load_response_activated_group(text: &str, group: &str) -> bool {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|value| value.get("activated_groups").cloned())
+        .and_then(|value| value.as_array().cloned())
+        .is_some_and(|groups| groups.iter().any(|value| value.as_str() == Some(group)))
+}
+
+fn mark_load_response_group_active(text: String, group: &str) -> String {
+    let Ok(mut value) = serde_json::from_str::<Value>(&text) else {
+        return text;
+    };
+    let Some(object) = value.as_object_mut() else {
+        return text;
+    };
+    let groups = object
+        .entry("activated_groups")
+        .or_insert_with(|| json!([]));
+    let Some(groups) = groups.as_array_mut() else {
+        return text;
+    };
+    if !groups.iter().any(|value| value.as_str() == Some(group)) {
+        groups.push(json!(group));
+    }
+    serde_json::to_string_pretty(&value).unwrap_or(text)
 }
 
 // ── #655 dynamic-capability MCP wrappers ──────────────────────────────────
@@ -264,17 +295,10 @@ pub async fn tool_search_tools(
     session_id: Option<&str>,
     agent_context: Option<&AgentContext>,
 ) -> Result<String, String> {
-    // Refresh on demand so the first query after startup (or after
-    // a skill load/unload) always sees current capabilities.
-    crate::gateway::capability_service::refresh_all_live_backends(
-        gs,
-        crate::gateway::capability::RefreshReason::Periodic,
-    )
-    .await;
-    let query = crate::gateway::capability_service::parse_search_payload(args);
-    let index_generation =
-        crate::gateway::capability_service::index_generation(&gs.capability_index);
-
+    let query = crate::gateway::capability_service::parse_and_resolve_search_payload(gs, args)
+        .await
+        .map_err(|err| err.to_string())?;
+    crate::gateway::capability_service::refresh_search_backends(gs, &query).await;
     // Shared helper: hybrid→fuzzy downgrade + semantic diagnostic
     let (query, semantic) = crate::gateway::capability_service::apply_search_mode_downgrade(
         query,
@@ -283,67 +307,44 @@ pub async fn tool_search_tools(
 
     // --- LRU cache check (PIP-2471) ---
     let cache_key = SearchCacheKey::from_query(&query);
-    let index_gen = crate::gateway::capability_service::index_generation(&gs.capability_index);
-    if let Some(cached_body) = gs
+    let index_gen = gs.capability_index.generation();
+    let cached_hits = gs
         .search_cache
         .get_with_index_gen(&cache_key, Some(&index_gen))
-    {
-        let cached_hits: Vec<Value> = serde_json::from_slice(&cached_body).unwrap_or_else(|e| {
-            tracing::warn!(
-                ?e,
-                "search cache entry corrupt (MCP), falling back to recompute"
-            );
-            Vec::new()
-        });
-        if !cached_hits.is_empty() {
-            let search_context = SearchResponseContext::new(
-                crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
-                index_gen,
-            );
-            gs.search_telemetry.record_search(SearchTelemetryInput {
-                search_id: search_context.search_id.clone(),
-                transport: "mcp".to_string(),
-                kind: "tool".to_string(),
-                query: query.query.clone(),
-                dcc_type: query.dcc_type.clone(),
-                dcc_types: query.dcc_types.clone(),
-                instance_id: query.instance_id.map(|id| id.to_string()),
-                limit: query.limit,
-                total: cached_hits.len(),
-                ranker_version: search_context.ranker_version.to_string(),
-                index_generation: search_context.index_generation.clone(),
-                hits: vec![],
-                trace_context: trace_context.cloned(),
-                session_id: session_id
-                    .map(str::to_string)
-                    .or_else(|| agent_context.and_then(|ctx| ctx.session_id.clone())),
-                agent_context: agent_context.cloned(),
-                tags_any: query.tags_any.clone(),
+        .and_then(|cached_body| {
+            let hits = serde_json::from_slice(&cached_body).unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "search cache entry corrupt (MCP), falling back to recompute"
+                );
+                Vec::new()
             });
-            return serde_json::to_string_pretty(&json!({
-                "search_id": search_context.search_id,
-                "ranker_version": search_context.ranker_version,
-                "index_generation": search_context.index_generation,
-                "total": cached_hits.len(),
-                "hits": cached_hits,
-                "semantic": semantic,
-                "search_cache_hit": true,
-            }))
-            .map_err(|e| e.to_string());
-        }
-    }
+            (!hits.is_empty()).then_some(hits)
+        });
     // --- end cache check ---
 
+    let (hits, index_generation, search_cache_hit) = match cached_hits {
+        Some(hits) => (hits, index_gen, true),
+        None => {
+            let (snapshot, generation) = gs.capability_index.snapshot_with_generation();
+            let hits = crate::gateway::capability_service::search_snapshot_hits_for_policy(
+                &snapshot, &query, &gs.policy,
+            );
+            (hits, generation, false)
+        }
+    };
     let search_context = SearchResponseContext::new(
         crate::gateway::search_telemetry::SearchTelemetryStore::new_search_id(),
         index_generation,
     );
-    let hits = crate::gateway::capability_service::search_service_hits_for_policy(
-        &gs.capability_index,
-        &query,
-        &gs.policy,
-    );
     let telemetry_hits = search_hits_for_telemetry(&hits);
+    if !search_cache_hit && let Ok(body_bytes) = serde_json::to_vec(&hits) {
+        gs.search_cache.put(
+            cache_key,
+            body_bytes,
+            search_context.index_generation.clone(),
+        );
+    }
     let annotated: Vec<Value> = hits
         .into_iter()
         .map(|hit| search_hit_to_value_with_context(hit, Some(&search_context)))
@@ -369,25 +370,18 @@ pub async fn tool_search_tools(
         tags_any: query.tags_any.clone(),
     });
 
-    // --- LRU cache store (PIP-2471) ---
-    if let Ok(body_bytes) = serde_json::to_vec(&annotated) {
-        gs.search_cache.put(
-            cache_key,
-            body_bytes,
-            search_context.index_generation.clone(),
-        );
-    }
-    // --- end cache store ---
-
-    serde_json::to_string_pretty(&json!({
+    let mut response = json!({
         "search_id": search_context.search_id,
         "ranker_version": search_context.ranker_version,
         "index_generation": search_context.index_generation,
         "total": annotated.len(),
         "hits":  annotated,
         "semantic": semantic,
-    }))
-    .map_err(|e| e.to_string())
+    });
+    if search_cache_hit {
+        response["search_cache_hit"] = json!(true);
+    }
+    serde_json::to_string_pretty(&response).map_err(|e| e.to_string())
 }
 
 /// `describe_tool` — MCP wrapper around
@@ -402,11 +396,7 @@ pub async fn tool_describe_tool(
         return Err("missing required argument: tool_slug".to_string());
     };
     if describe_needs_refresh(gs, slug, args, meta) {
-        crate::gateway::capability_service::refresh_all_live_backends(
-            gs,
-            crate::gateway::capability::RefreshReason::Periodic,
-        )
-        .await;
+        crate::gateway::capability_service::refresh_for_describe(gs, slug).await;
     }
     let search_id = search_id_from_inputs(args, meta);
     match crate::gateway::capability_service::describe_tool_full(gs, slug).await {
@@ -526,7 +516,7 @@ pub async fn tool_call_tool(
         Err(err) if call_error_needs_refresh(&err) => {
             // Refresh once when the slug just became valid or a live instance
             // has not reached this gateway's capability index yet.
-            crate::gateway::capability_service::refresh_all_live_backends(
+            crate::gateway::capability_service::refresh_all_live_backends_now(
                 gs,
                 crate::gateway::capability::RefreshReason::Periodic,
             )
@@ -748,7 +738,7 @@ pub async fn gateway_call_batch_inner(
             {
                 Ok(result) => Ok(result),
                 Err(err) if call_error_needs_refresh(&err) => {
-                    crate::gateway::capability_service::refresh_all_live_backends(
+                    crate::gateway::capability_service::refresh_all_live_backends_now(
                         gs,
                         crate::gateway::capability::RefreshReason::Periodic,
                     )
@@ -1137,44 +1127,12 @@ fn search_id_from_inputs(args: &Value, meta: Option<&Value>) -> Option<String> {
     search_id_from_payload(args).or_else(|| meta.and_then(search_id_from_meta))
 }
 
-fn index_generation_from_inputs(args: &Value, meta: Option<&Value>) -> Option<String> {
-    fn from_payload(value: &Value) -> Option<String> {
-        value
-            .get("index_generation")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .or_else(|| {
-                value
-                    .get("meta")
-                    .and_then(|meta| meta.get("index_generation"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .or_else(|| {
-                value
-                    .get("_meta")
-                    .and_then(|meta| meta.get("index_generation"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-    }
-
-    from_payload(args).or_else(|| meta.and_then(from_payload))
-}
-
 pub(crate) fn describe_needs_refresh(
     gs: &GatewayState,
     slug: &str,
-    args: &Value,
-    meta: Option<&Value>,
+    _args: &Value,
+    _meta: Option<&Value>,
 ) -> bool {
-    if let Some(generation) = index_generation_from_inputs(args, meta) {
-        let current = crate::gateway::capability_service::index_generation(&gs.capability_index);
-        if generation != current {
-            return true;
-        }
-    }
-
     crate::gateway::capability_service::describe_service(&gs.capability_index, slug)
         .map(|_| false)
         .unwrap_or(true)
@@ -1241,8 +1199,8 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "name": "search",
             "description": "Discover backend capabilities and/or skills. Default `kind=tool` runs the \
                 capability index (`search_tools` semantics): compact hits with `tool_slug` and \
-                executable `next_step`. Follow `next_step`: tools with `has_schema=false` can go \
-                straight to `call`; tools with schema still use `describe` first to fetch \
+                executable `next_step`. Follow `next_step`: no-schema tools with compact safety \
+                hints can go straight to `call`; other tools use `describe` first to fetch \
                 `input_schema` / required parameter names. \
                 `kind=skill` lists or searches skills (`list_skills` / `search_skills`). `kind=all` returns both.",
             "inputSchema": {
@@ -1253,6 +1211,7 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "dcc_type": {"type": "string"},
                     "dcc_types": {"type": "array", "items": {"type": "string"}, "description": "OR-matched DCC types. Combined with singular dcc_type."},
                     "dcc": {"type": "string", "description": "Alias of dcc_type for skill search"},
+                    "instance_id": {"type": "string", "description": "Target instance UUID or unique prefix."},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "tags_any": {"type": "array", "items": {"type": "string"}, "description": "OR tag filter — rows carrying any of these tags pass. tags remains AND."},
                     "mode": {"type": "string", "enum": ["fuzzy", "exact", "hybrid"], "default": "fuzzy", "description": "Search mode: fuzzy (default, BM25+nucleo), exact (substring), hybrid (fuzzy + semantic boost when configured)."},
@@ -1267,8 +1226,8 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "name": "describe",
             "description": "Fetch full metadata. Pass `tool_slug` from `search` to get `input_schema`, \
                 `properties`, and `required` (e.g. maya_geometry export uses `path`, not `destination`). \
-                MCP describe refreshes backend capabilities only when the slug is missing or the \
-                supplied `meta.index_generation` is stale. Pass `skill_name` for skill-level detail \
+                MCP describe refreshes capabilities only when the slug is missing; valid slugs \
+                refresh only their owning instance. Pass `skill_name` for skill-level detail \
                 (tools list, dependencies).",
             "inputSchema": {
                 "type": "object",
@@ -1291,7 +1250,7 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 activates all declared groups; set `activate_groups=false` for lazy loading, \
                 or pass `tool_group` to activate one group explicitly. When following a correlated \
                 search `next_step`, keep `target_tool_slug` and `meta.search_id`; the response may \
-                inline `compact_schema` and point directly to `call`.",
+                inline `compact_schema` with safety/execution hints and point directly to `call`.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1309,7 +1268,12 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
                     "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}
                 },
-                "required": ["skill_name"]
+                "anyOf": [
+                    {"required": ["skill_name"]},
+                    {"required": ["skill_names"]},
+                    {"required": ["tool_group"]},
+                    {"required": ["group_name"]}
+                ]
             },
             "annotations": {
                 "readOnlyHint": false,

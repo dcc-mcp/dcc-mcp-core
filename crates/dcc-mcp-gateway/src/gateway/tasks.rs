@@ -10,8 +10,7 @@ pub(crate) use probe::self_probe_listener;
 
 /// Outcome of [`start_gateway_tasks`] for the ambient (shared-runtime) path.
 pub(crate) struct GatewayTasks {
-    /// AbortHandle for the combined supervisor task (cleanup + watcher +
-    /// tools watcher + serve).
+    /// AbortHandle for the combined supervisor task (cleanup + watchers + serve).
     pub(crate) abort: AbortHandle,
     /// JoinHandle for the combined supervisor task. Retained by
     /// `GatewayHandle` so the task is not silently detached — this is the
@@ -384,14 +383,14 @@ pub(crate) async fn start_gateway_tasks(
     let yield_tx = Arc::new(yield_tx);
 
     // ── SSE broadcast channel ──────────────────────────────────────────────
-    // All MCP notifications (resources/list_changed, tools/list_changed) are
-    // sent here. Capacity 128 is generous; watchers fire at most every 2-3 s.
+    // All MCP list-change notifications are sent here. Capacity 128 is
+    // generous; watchers fire at most every 2-3 s.
     let (events_tx, _) = broadcast::channel::<String>(128);
     let events_tx = Arc::new(events_tx);
 
     // ── Shared HTTP client for backend fan-out (JSON-RPC calls) ───────────
-    // Reused by both the tools-list watcher task and the facade /mcp handler
-    // via GatewayState so connection pooling is shared across all consumers.
+    // Reused by watcher tasks and the facade /mcp handler via GatewayState so
+    // connection pooling is shared across all consumers.
     // A 30-second timeout is appropriate for regular request/response calls.
     let http_client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -605,63 +604,6 @@ pub(crate) async fn start_gateway_tasks(
                     }))
                     .unwrap_or_default();
                     let _ = events_tx_watch.send(notif);
-                }
-                last_fingerprint = fingerprint;
-            }
-        }
-    });
-
-    // ── Aggregated tools/list_changed watcher (every 3 s) ─────────────────
-    // Polls every live backend's `tools/list`, computes a set-fingerprint of
-    // "{instance_id}:{tool_name}" tuples, and broadcasts one
-    // `notifications/tools/list_changed` to gateway SSE subscribers when the
-    // aggregated set changes (skill loaded / unloaded on any DCC).
-    //
-    // Polling (vs. real SSE subscription to each backend) keeps the gateway
-    // decoupled from backend session lifecycles and works uniformly even when
-    // instances come and go. 3-second granularity is well within the latency
-    // budget for interactive skill loading.
-    let reg_tools = registry.clone();
-    let events_tx_tools = events_tx.clone();
-    let http_client_tools = http_client.clone();
-    let tools_own_host = own_host.clone();
-    let tools_own_port = own_port;
-    let tools_watcher_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(3));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let mut last_fingerprint = String::new();
-
-        loop {
-            interval.tick().await;
-            // Always compute the fingerprint so a subscriber that connects after
-            // startup does not inherit a stale empty baseline. Only the broadcast
-            // itself is gated on receivers below.
-            let fingerprint = aggregator::compute_tools_fingerprint_with_own(
-                &reg_tools,
-                stale_timeout,
-                &http_client_tools,
-                backend_timeout,
-                Some(tools_own_host.as_str()),
-                tools_own_port,
-            )
-            .await;
-
-            if fingerprint != last_fingerprint {
-                // First tick always "changes" from empty-string → don't push
-                // on initial startup unless there are actually tools.
-                if (!last_fingerprint.is_empty() || !fingerprint.is_empty())
-                    && events_tx_tools.receiver_count() > 0
-                {
-                    tracing::debug!(
-                        "Gateway: aggregated tool set changed — broadcasting tools/list_changed"
-                    );
-                    let notif = serde_json::to_string(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "method": "notifications/tools/list_changed",
-                        "params": {}
-                    }))
-                    .unwrap_or_default();
-                    let _ = events_tx_tools.send(notif);
                 }
                 last_fingerprint = fingerprint;
             }
@@ -1193,7 +1135,6 @@ pub(crate) async fn start_gateway_tasks(
     let mut task_handles = vec![
         cleanup_handle,
         watcher_handle,
-        tools_watcher_handle,
         prompts_watcher_handle,
         resources_watcher_handle,
         backend_sub_handle,

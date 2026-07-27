@@ -133,6 +133,8 @@ Generated `tools.yaml` entries follow the modern contract:
   not repo names or prose-only instructions. Use it when one skill must be
   discovered or loaded before another, for example `depends: ["qt-ui-inspector"]`.
 - `input_schema` and `output_schema` are declared explicitly.
+- A zero-argument tool still declares a closed schema:
+  `{"type":"object","properties":{},"additionalProperties":false}`.
 - Runtime discovery never imports or executes tool scripts to infer missing
   schemas by default. Treat Python-derived schemas as an authoring-time helper:
   generate them before publishing, then commit the JSON Schema to `tools.yaml`.
@@ -140,13 +142,20 @@ Generated `tools.yaml` entries follow the modern contract:
   `properties`, `required`, primitive `type`, bounds, and descriptions. Put
   mutually exclusive forms, conditional requirements, and cross-field rules in
   the tool script or handler validation instead of `anyOf`, `oneOf`, `allOf`,
-  `not`, `if`/`then`/`else`, or dependent-schema keywords.
+  `not`, `if`/`then`/`else`, or dependent-schema keywords. When a complex
+  schema is unavoidable, discovery must route through `describe` before call.
 - `execution` is `sync` or `async`; use `async` for deferred/long-running work.
 - `job_strategy` is `monolithic` (default), `chunked`, or `isolated`. Agents
   use it to select a safe execution and recovery workflow.
 - `affinity` is explicit. Use `main` for host API or scene mutation work and `any` for pure work.
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
-- `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
+- `annotations` explicitly declare boolean `read_only_hint`,
+  `destructive_hint`, `idempotent_hint`, and `open_world_hint`. Missing safety
+  fields force `describe`, even for a zero-argument tool; `deferred_hint` stays
+  optional.
+- Keep tool groups independently usable. A correlated load carrying
+  `target_tool_slug` activates only that tool's group; do not rely on a sibling
+  default-active group being activated with it.
 - `call_examples`: optional list of ready-to-copy argument payloads. Each entry has `arguments` (JSON object matching `input_schema.properties`) and an optional `note`. Surfaced in describe responses at `metadata.dcc.call_examples` so agents can construct correct arguments on the first attempt.
 
 ### Long-Running Main-Affinity Tools
@@ -267,7 +276,10 @@ or cancellation: rediscover the instance and query the job before retrying.
 5. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
 6. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. Do not rely on runtime Python introspection for missing schemas. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
 7. Put long examples, recipes, and host-specific notes under `references/`.
-8. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before loading it in an adapter.
+8. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before
+   loading it in an adapter. For discovery/load performance regressions, assert
+   deterministic backend operation counts; use elapsed-time thresholds only as
+   supplemental evidence.
 9. If the desired behavior requires parsing core internals or adapter-private YAML at runtime, stop and request a core API instead.
 
 ## Improve Skills From Completed Tasks
