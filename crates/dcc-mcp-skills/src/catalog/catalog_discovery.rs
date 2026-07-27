@@ -98,6 +98,7 @@ impl SkillCatalog {
             after_load_hook: RwLock::new(None),
             after_unload_hook: RwLock::new(None),
             after_group_change_hook: RwLock::new(None),
+            after_scoped_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
             inverted_index: RwLock::new(IndexGuard::default()),
             dcc_shards: DashMap::new(),
@@ -122,6 +123,7 @@ impl SkillCatalog {
             after_load_hook: RwLock::new(None),
             after_unload_hook: RwLock::new(None),
             after_group_change_hook: RwLock::new(None),
+            after_scoped_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
             inverted_index: RwLock::new(IndexGuard::default()),
             dcc_shards: DashMap::new(),
@@ -252,9 +254,8 @@ impl SkillCatalog {
     }
 
     /// Register an observer that runs after [`Self::activate_group`] /
-    /// [`Self::deactivate_group`] (#1405). `activated` is `true` for
-    /// activate and `false` for deactivate; the persistence layer uses
-    /// it to mirror catalog-wide group state on disk.
+    /// [`Self::deactivate_group`] (#1405). The first argument is always the
+    /// declared group name, including for skill-scoped operations.
     pub fn set_after_group_change_hook<F>(&self, hook: F)
     where
         F: Fn(&str, bool) -> Result<(), String> + Send + Sync + 'static,
@@ -265,6 +266,23 @@ impl SkillCatalog {
     /// Remove the after-group-change observer.
     pub fn clear_after_group_change_hook(&self) {
         *self.after_group_change_hook.write() = None;
+    }
+
+    /// Register a persistence observer that receives exact active-group keys.
+    ///
+    /// Unlike [`Self::set_after_group_change_hook`], scoped activations use
+    /// `"<skill>:<group>"` so persisted state can restore one skill without
+    /// enabling a sibling skill that declares the same group name.
+    pub fn set_after_scoped_group_change_hook<F>(&self, hook: F)
+    where
+        F: Fn(&str, bool) -> Result<(), String> + Send + Sync + 'static,
+    {
+        *self.after_scoped_group_change_hook.write() = Some(Arc::new(hook));
+    }
+
+    /// Remove the scoped persistence observer.
+    pub fn clear_after_scoped_group_change_hook(&self) {
+        *self.after_scoped_group_change_hook.write() = None;
     }
 
     /// Discover skills from the standard scan paths.

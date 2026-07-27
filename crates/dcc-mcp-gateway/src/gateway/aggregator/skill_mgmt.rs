@@ -50,12 +50,29 @@ pub(crate) async fn skill_mgmt_dispatch(
                     // Strip gateway-only routing keys before forwarding.
                     let mut forward_args = args.clone();
                     if let Some(obj) = forward_args.as_object_mut() {
+                        let correlated_target = tool == "load_skill"
+                            && obj
+                                .get("target_tool_slug")
+                                .and_then(Value::as_str)
+                                .is_some_and(|slug| !slug.trim().is_empty())
+                            && ["tool_group", "group", "group_name"].iter().any(|key| {
+                                obj.get(*key)
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|group| !group.trim().is_empty())
+                            });
                         obj.remove("instance_id");
                         obj.remove("meta");
                         obj.remove("_meta");
                         obj.remove("target_tool_slug");
+                        obj.remove("group_action");
+                        if correlated_target {
+                            obj.insert("strict_tool_group".to_string(), Value::Bool(true));
+                        }
                         if tool == "load_skill" && !obj.contains_key("activate_groups") {
-                            obj.insert("activate_groups".to_string(), Value::Bool(true));
+                            let targeted_group = ["tool_group", "group", "group_name"]
+                                .iter()
+                                .any(|key| obj.get(*key).and_then(Value::as_str).is_some());
+                            obj.insert("activate_groups".to_string(), Value::Bool(!targeted_group));
                         }
                         if let Some(group_name) = obj.get("group_name").cloned()
                             && !obj.contains_key("group")
@@ -76,6 +93,8 @@ pub(crate) async fn skill_mgmt_dispatch(
                         }
                     };
                     let params = json!({"name": tool, "arguments": forward_args});
+                    let mutation_gate = gs.capability_index.refresh_gate(entry.instance_id);
+                    let _mutation_guard = mutation_gate.lock().await;
                     match call_backend(
                         &gs.http_client,
                         &url,
@@ -125,8 +144,10 @@ pub(crate) async fn skill_mgmt_dispatch(
                                     );
                                 }
 
-                                crate::gateway::capability_service::refresh_all_live_backends(
+                                let discovery_url = entry_discovery_mcp_url(&entry);
+                                crate::gateway::capability_service::refresh_live_backend_locked(
                                     gs,
+                                    &entry,
                                     crate::gateway::capability::RefreshReason::ToolsListChanged,
                                 )
                                 .await;
@@ -134,41 +155,31 @@ pub(crate) async fn skill_mgmt_dispatch(
                                 // Layer 2: Retry refresh with backoff if tools
                                 // didn't appear in the index after the first
                                 // refresh (timing resilience, issue #1659).
-                                if !skill_names.is_empty() {
-                                    let discovery_url = entry_discovery_mcp_url(&entry);
-                                    if !discovery_url.is_empty() {
-                                        let max_retries = 2;
-                                        for attempt in 0..max_retries {
-                                            let slugs = new_tool_slugs_for_skill(
-                                                gs,
-                                                entry.instance_id,
-                                                Some(&skill_names[0]),
-                                            );
-                                            if !slugs.is_empty() {
-                                                break;
-                                            }
-                                            tokio::time::sleep(std::time::Duration::from_millis(
-                                                200,
-                                            ))
-                                            .await;
-                                            crate::gateway::capability::refresh_instance(
-                                                &gs.capability_index,
-                                                &gs.http_client,
-                                                &discovery_url,
-                                                entry.instance_id,
-                                                &entry.dcc_type,
-                                                gs.backend_timeout,
-                                                crate::gateway::capability::RefreshReason::ToolsListChanged,
-                                                Some(&gs.instance_diagnostics),
-                                            )
-                                            .await;
-                                            tracing::info!(
-                                                instance = %entry.instance_id,
-                                                skill = %skill_names[0],
-                                                retry = attempt + 1,
-                                                "load_skill: retried refresh after backoff",
-                                            );
+                                if !skill_names.is_empty() && !discovery_url.is_empty() {
+                                    let max_retries = 2;
+                                    for attempt in 0..max_retries {
+                                        let slugs = new_tool_slugs_for_skill(
+                                            gs,
+                                            entry.instance_id,
+                                            Some(&skill_names[0]),
+                                        );
+                                        if !slugs.is_empty() {
+                                            break;
                                         }
+                                        tokio::time::sleep(std::time::Duration::from_millis(200))
+                                            .await;
+                                        crate::gateway::capability_service::refresh_live_backend_locked(
+                                            gs,
+                                            &entry,
+                                            crate::gateway::capability::RefreshReason::ToolsListChanged,
+                                        )
+                                        .await;
+                                        tracing::info!(
+                                            instance = %entry.instance_id,
+                                            skill = %skill_names[0],
+                                            retry = attempt + 1,
+                                            "load_skill: retried refresh after backoff",
+                                        );
                                     }
                                 }
 
@@ -205,7 +216,14 @@ pub(crate) async fn skill_mgmt_dispatch(
         }
         _ => {
             // Fan-out aggregation.
-            let mut targets = targets_for_fanout(gs, dcc_filter).await;
+            let mut targets = if target_instance.is_some() {
+                match resolve_target(gs, target_instance, dcc_filter).await {
+                    Ok(entry) => vec![entry],
+                    Err(message) => return (message, true),
+                }
+            } else {
+                targets_for_fanout(gs, dcc_filter).await
+            };
             if targets.is_empty() {
                 return (
                     "No live DCC instances. Start dcc-mcp-server (or your DCC adapter) so the gateway can fan out skill tools. \
@@ -734,8 +752,7 @@ async fn decorate_load_skill_success(
     let target_tool_slug = request_args
         .get("target_tool_slug")
         .and_then(Value::as_str)
-        .filter(|slug| tool_slugs.iter().any(|candidate| candidate == *slug))
-        .map(str::to_string);
+        .and_then(|slug| resolve_loaded_target_slug(slug, &tool_slugs, requested_skill.as_deref()));
     obj.insert("new_tool_slugs".to_string(), json!(tool_slugs));
     obj.insert(
         "index_generation".to_string(),
@@ -744,13 +761,11 @@ async fn decorate_load_skill_success(
         )),
     );
 
-    if !obj.contains_key("activated_groups") {
-        let active_groups = obj
-            .get("active_groups")
-            .cloned()
-            .unwrap_or_else(|| json!([]));
-        obj.insert("activated_groups".to_string(), active_groups);
-    }
+    // `active_groups` from older backends is global and cannot prove that a
+    // same-named group is active for the requested skill.  Keep the scoped
+    // field empty so `tool_load_skill` performs its idempotent fallback.
+    obj.entry("activated_groups".to_string())
+        .or_insert_with(|| json!([]));
 
     let selected_tool_slug = target_tool_slug.or_else(|| {
         obj.get("new_tool_slugs")
@@ -806,6 +821,36 @@ fn new_tool_slugs_for_skill(
     slugs
 }
 
+fn resolve_loaded_target_slug(
+    requested_slug: &str,
+    loaded_tool_slugs: &[String],
+    skill_name: Option<&str>,
+) -> Option<String> {
+    if let Some(exact) = loaded_tool_slugs
+        .iter()
+        .find(|candidate| candidate.as_str() == requested_slug)
+    {
+        return Some(exact.clone());
+    }
+
+    let skill_name = skill_name?;
+    let requested_action = crate::gateway::capability::parse_slug(requested_slug)
+        .map(|(_, _, action)| action)
+        .unwrap_or(requested_slug);
+    let requested_bare =
+        dcc_mcp_gateway_core::naming::extract_bare_tool_name(skill_name, requested_action)
+            .replace('-', "_");
+    let mut matches = loaded_tool_slugs.iter().filter(|candidate| {
+        crate::gateway::capability::parse_slug(candidate).is_some_and(|(_, _, action)| {
+            dcc_mcp_gateway_core::naming::extract_bare_tool_name(skill_name, action)
+                .replace('-', "_")
+                == requested_bare
+        })
+    });
+    let canonical = matches.next()?.clone();
+    matches.next().is_none().then_some(canonical)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn suggested_post_load_next_step(
     gs: &GatewayState,
@@ -818,7 +863,7 @@ fn suggested_post_load_next_step(
     compact_schema: Option<&Value>,
 ) -> Value {
     if let Some(tool_slug) = first_tool_slug {
-        if compact_schema.is_some() {
+        if compact_schema.is_some_and(compact_schema_has_safety_hints) {
             let mut arguments = json!({ "tool_slug": tool_slug, "arguments": {} });
             attach_search_meta(&mut arguments, search_id, index_generation);
             let mut mcp_arguments = arguments.clone();
@@ -845,6 +890,7 @@ fn suggested_post_load_next_step(
         if let Ok(record) =
             crate::gateway::capability_service::describe_service(&gs.capability_index, tool_slug)
             && !record.has_schema
+            && crate::gateway::capability_service::capability_has_safety_hints(&record)
         {
             let mut arguments = json!({ "tool_slug": tool_slug, "arguments": {} });
             attach_search_meta(&mut arguments, search_id, index_generation);
@@ -965,10 +1011,128 @@ fn compact_schema_payload(
     json!({
         "tool_slug": tool_slug,
         "has_schema": record.has_schema,
+        "complete_for_call": simple_object_schema(input_schema),
         "required": required,
         "property_keys": property_keys,
         "properties": properties,
+        "annotations": record.annotations,
+        "metadata": record.metadata,
     })
+}
+
+fn compact_schema_has_safety_hints(schema: &Value) -> bool {
+    schema.get("complete_for_call").and_then(Value::as_bool) == Some(true)
+        && schema
+            .get("annotations")
+            .and_then(Value::as_object)
+            .is_some_and(|annotations| {
+                [
+                    "readOnlyHint",
+                    "destructiveHint",
+                    "idempotentHint",
+                    "openWorldHint",
+                ]
+                .iter()
+                .all(|key| annotations.get(*key).and_then(Value::as_bool).is_some())
+            })
+}
+
+fn simple_object_schema(schema: &Value) -> bool {
+    let Some(object) = schema.as_object() else {
+        return false;
+    };
+    if object.get("type").and_then(Value::as_str) != Some("object")
+        || object.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "type"
+                    | "properties"
+                    | "required"
+                    | "title"
+                    | "description"
+                    | "$schema"
+                    | "additionalProperties"
+            )
+        })
+    {
+        return false;
+    }
+    !schema_contains_complex_keyword(schema)
+}
+
+fn schema_contains_complex_keyword(schema: &Value) -> bool {
+    const COMPLEX: &[&str] = &[
+        "$ref",
+        "$dynamicRef",
+        "$defs",
+        "definitions",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "unevaluatedProperties",
+        "patternProperties",
+        "propertyNames",
+        "dependentRequired",
+        "dependentSchemas",
+        "dependencies",
+    ];
+    match schema {
+        Value::Object(object) => object.iter().any(|(key, value)| {
+            (key == "additionalProperties" && value != &Value::Bool(false))
+                || COMPLEX.contains(&key.as_str())
+                || schema_contains_complex_keyword(value)
+        }),
+        Value::Array(items) => items.iter().any(schema_contains_complex_keyword),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod compact_schema_tests {
+    use super::*;
+
+    #[test]
+    fn only_complete_simple_object_schemas_are_call_ready() {
+        assert!(simple_object_schema(&json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+            "additionalProperties": false
+        })));
+
+        for schema in [
+            json!({"type": "object", "oneOf": []}),
+            json!({"type": "object", "anyOf": []}),
+            json!({"type": "object", "allOf": []}),
+            json!({"type": "object", "$ref": "#/$defs/input", "$defs": {}}),
+            json!({"type": "object", "additionalProperties": true}),
+            json!({"type": "object", "additionalProperties": {"type": "string"}}),
+            json!({"type": "object", "patternProperties": {}}),
+            json!({"type": "object", "dependentRequired": {}}),
+            json!({"type": "object", "if": {}, "then": {}}),
+        ] {
+            assert!(!simple_object_schema(&schema), "schema: {schema}");
+        }
+    }
+
+    #[test]
+    fn compact_schema_requires_all_boolean_safety_hints() {
+        let mut schema = json!({
+            "complete_for_call": true,
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "openWorldHint": false
+            }
+        });
+        assert!(!compact_schema_has_safety_hints(&schema));
+        schema["annotations"]["idempotentHint"] = json!(true);
+        assert!(compact_schema_has_safety_hints(&schema));
+    }
 }
 
 fn attach_search_meta(

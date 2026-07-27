@@ -13,12 +13,46 @@ Use this checklist for every `tools.yaml` entry.
 - `execution`: `sync` for quick calls, `async` for long-running work.
 - `affinity`: `main` for host API calls, `any` for pure work.
 - `timeout_hint_secs`: realistic upper bound for dispatch and UX.
-- `annotations`: MCP safety hints.
+- `annotations`: MCP safety hints. Explicitly set all four boolean fields:
+  `read_only_hint`, `destructive_hint`, `idempotent_hint`, and
+  `open_world_hint`.
 
 Runtime discovery is manifest-first. Missing `input_schema` falls back to a
 permissive `{"type": "object"}` instead of importing or executing the script.
 If you derive schemas from Python annotations, do it while authoring and write
 the result into `tools.yaml`.
+
+A zero-argument tool must not use that permissive fallback. Declare the closed
+empty-object contract explicitly:
+
+```yaml
+input_schema:
+  type: object
+  properties: {}
+  additionalProperties: false
+```
+
+The gateway may skip `describe` only when the tool is known to take no
+arguments and all four safety annotations are present as booleans. Missing
+safety fields fail closed to `describe`. Schemas that use `$ref`, composition,
+conditionals, dependent schemas, pattern properties, or other complex JSON
+Schema features also require `describe`; do not treat a compact property list
+as the full validation contract.
+
+## Progressive Loading
+
+Keep every tool group independently usable. When a search result supplies a
+correlated `target_tool_slug`, loading activates only that target tool's group.
+Do not depend on default-active sibling groups being enabled as a side effect.
+An ordinary uncorrelated skill load keeps the declared default activation
+behavior.
+
+## Performance Regression Checks
+
+For discovery and load-path performance regressions, assert deterministic
+backend operation counts: searches, catalog/tool-list refreshes, loads, group
+activations, and describes. Wall-clock thresholds vary with CI load and should
+only supplement those contract checks.
 
 ## Sibling Imports
 

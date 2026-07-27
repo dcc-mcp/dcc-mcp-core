@@ -104,8 +104,9 @@ For these requests:
 3. Inventory live instances before choosing a host. If more than one matching
    instance exists, use task context or ask the user which scene/session owns
    the change.
-4. Search by the user's intent and target DCC, copy the returned tool slug,
-   inspect its schema and annotations, then call it.
+4. Search once by the user's intent and target DCC, then follow the returned
+   `next_step`. Describe only when requested; otherwise call directly or pass
+   correlated load arguments unchanged.
 5. Use raw scripting only when no typed tool covers the operation and the
    adapter exposes an explicit, policy-compliant automation tool. A repeated
    scripting pattern is a candidate for a reusable DCC skill.
@@ -128,7 +129,7 @@ or when the user explicitly chooses that integration.
 |-----------|----------------------------|---------------------------|
 | **Who** | OpenClaw, Hermes, Codex CLI, CI bots, custom agent runtimes, and any other host with shell access | MCP-only Cursor, Claude Desktop, VS Code MCP, or another client without shell access |
 | **Transport** | `dcc-mcp-cli` → local MCP or remote gateway REST | MCP Streamable HTTP → gateway `/mcp` |
-| **Discovery surface** | `search` → `describe` → `call` via CLI or bundled Python helper | Gateway MCP tools: `search`, `describe`, `load_skill`, `call` |
+| **Discovery surface** | `search` → returned `next_step` via CLI or bundled Python helper | Gateway MCP tools: `search`, `describe`, `load_skill`, `call` |
 | **Setup** | Install this skill and keep the official `dcc-mcp-cli` on `PATH`; installation/download requires user consent | Add gateway URL to IDE MCP settings (see repo `docs/guide/*`) |
 | **When to choose** | Default whenever the agent can run shell commands | The client cannot run shell commands or the user explicitly requests native MCP |
 | **Resources / prompts** | Not covered here; use REST `/v1/context` or IDE MCP if needed | `resources/read`, `prompts/get`, SSE subscribe via MCP |
@@ -138,10 +139,10 @@ or when the user explicitly chooses that integration.
 1. **Use this routing policy first** for every DCC-control request, whether the
    host is MCP-native or shell-only.
 2. **Shell-capable host** — use `dcc-mcp-cli`
-   (`inventory` → `search` → `describe` or `load-skill` → `call`), even when a
+   (`inventory` → one narrow `search` → returned `next_step`), even when a
    native MCP connector is also available.
 3. **MCP-only host** — call the gateway/DCC structured tools directly
-   (`inventory` → `search` → `describe` or `load_skill` → `call`). Do not ask the
+   (`inventory` → one narrow `search` → returned `next_step`). Do not ask the
    user to switch clients or manually repeat the operation.
 4. **Do not mix paths in one turn** — pick CLI+REST or MCP for the whole task,
    not both.
@@ -251,12 +252,10 @@ when setup, lifecycle, or transport troubleshooting is needed.
 ## Connection Order
 
 1. Use `dcc-mcp-cli list` for local inventory, or `dcc-mcp-cli list --gateway <name>` for a remote profile.
-2. Use `dcc-mcp-cli` for all subsequent commands when it is on `PATH`.
-3. If missing, ask user permission, then use the bundled verified installer for the official GitHub release.
-4. If manifest or SHA-256 verification fails, preserve any existing CLI and use the bundled Python stdlib REST fallback where supported.
+2. If missing, ask user permission, then use the bundled verified installer for the official GitHub release.
+3. If manifest or SHA-256 verification fails, preserve any existing CLI and use the bundled Python stdlib REST fallback where supported.
 
-Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
-[`dcc-mcp-core/skills/dcc-mcp/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-mcp).
+Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning [`dcc-mcp-core/skills/dcc-mcp/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-mcp).
 
 `dcc-mcp` supersedes the former `dcc-cli-gateway` skill slug. Do not install or
 load both names in one agent: install `dcc-mcp`, verify it is discoverable, then
@@ -280,14 +279,6 @@ remove the old package to avoid duplicate intent routing.
 | User has not agreed to setup | Do not install packages, edit env files, launch GUI apps, or write configs |
 | User approved setup | Follow [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md) |
 | Timeout, temporary `unreachable`, or DCC restart | Preserve operation IDs and follow the recovery contract in [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md); never blindly replay a mutation or reuse stale slugs |
-
----
-
-## Configuration
-
-Use the local profile unless the user selected a remote gateway. For measured tasks,
-add `--require-gateway` and a stable `--agent-session-id`. See the [CLI
-cheatsheet](references/CLI_CHEATSHEET.md); never install or write configuration without consent.
 
 ---
 
@@ -341,7 +332,9 @@ dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
 python scripts/dcc_gateway.py search --query sphere --dcc-type maya --limit 20
 ```
 
-Copy the returned slug exactly. Local and gateway slugs use the same
+Copy the returned slug exactly and follow that hit's `next_step`; do not run
+separate broad searches for selection, geometry, and scripting unless the
+first result proves they are needed. Local and gateway slugs use the same
 agent-facing shape:
 
 ```text
@@ -352,17 +345,24 @@ Never hand-build slugs.
 
 ---
 
-## Step 3 — Describe Schema
+## Step 3 — Follow `next_step`
+
+- `action=call` — call directly; no-schema tools receive this only when compact safety hints are already present.
+- `action=describe` — inspect the schema and safety annotations, then call.
+- `action=load_skill` — pass the returned arguments unchanged. If the load
+  response includes `compact_schema` and `next_step.action=call`, call directly;
+  otherwise describe the selected target once.
 
 ```bash
-# CLI (primary)
+# Only when next_step.action=describe
 dcc-mcp-cli describe maya.a1b2c3d4.maya_primitives__create_sphere
 
 # Python fallback
 python scripts/dcc_gateway.py describe maya.a1b2c3d4.maya_primitives__create_sphere
 ```
 
-Read `tool.inputSchema` and safety annotations before calling.
+When describe or `compact_schema` is returned, use those exact parameter names
+and safety annotations before calling.
 
 ---
 

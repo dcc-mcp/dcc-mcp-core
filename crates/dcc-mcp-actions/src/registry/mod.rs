@@ -360,6 +360,34 @@ impl ToolRegistry {
         changed
     }
 
+    /// Set ``enabled`` for one skill's actions in the named group.
+    ///
+    /// Group names are only required to be unique within a skill, so callers
+    /// targeting a discovered skill must not use [`Self::set_group_enabled`].
+    pub fn set_skill_group_enabled(&self, skill_name: &str, group: &str, enabled: bool) -> usize {
+        let mut changed = 0;
+        for mut entry in self.actions.iter_mut() {
+            if entry.value().skill_name.as_deref() == Some(skill_name)
+                && entry.value().group == group
+                && entry.value().enabled != enabled
+            {
+                entry.value_mut().enabled = enabled;
+                changed += 1;
+            }
+        }
+        for dcc_map in self.dcc_actions.iter() {
+            for mut entry in dcc_map.value().iter_mut() {
+                if entry.value().skill_name.as_deref() == Some(skill_name)
+                    && entry.value().group == group
+                    && entry.value().enabled != enabled
+                {
+                    entry.value_mut().enabled = enabled;
+                }
+            }
+        }
+        changed
+    }
+
     /// Enable or disable a single action by name.
     ///
     /// Returns ``true`` if the action existed.

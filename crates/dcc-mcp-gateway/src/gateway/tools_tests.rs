@@ -148,6 +148,22 @@ fn gateway_call_schema_keeps_compatibility_shape() {
 }
 
 #[test]
+fn gateway_search_schema_exposes_instance_filter() {
+    let defs = gateway_tool_defs();
+    let search = defs
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "search")
+        .expect("search tool advertised");
+
+    assert_eq!(
+        search["inputSchema"]["properties"]["instance_id"]["type"],
+        "string"
+    );
+}
+
+#[test]
 fn gateway_tool_defs_use_expected_annotations() {
     let annotations = annotations_by_tool();
 
@@ -162,7 +178,7 @@ fn gateway_tool_defs_use_expected_annotations() {
 }
 
 #[test]
-fn describe_refresh_is_conditional_on_generation_and_index_hit() {
+fn describe_refresh_depends_only_on_index_hit() {
     let gs = test_gateway_state();
     let instance_id = Uuid::from_u128(0x1234);
     let record = crate::gateway::capability::CapabilityRecord::new(
@@ -193,12 +209,10 @@ fn describe_refresh_is_conditional_on_generation_and_index_hit() {
         "tool_slug": record.tool_slug,
         "meta": {"index_generation": "stale"}
     });
-    assert!(describe_needs_refresh(
-        &gs,
-        &record.tool_slug,
-        &stale_args,
-        None
-    ));
+    assert!(
+        !describe_needs_refresh(&gs, &record.tool_slug, &stale_args, None),
+        "a present slug must ignore unrelated generation drift"
+    );
 
     assert!(describe_needs_refresh(
         &gs,

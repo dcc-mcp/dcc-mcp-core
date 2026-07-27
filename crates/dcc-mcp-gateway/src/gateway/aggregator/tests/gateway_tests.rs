@@ -247,8 +247,10 @@ async fn gateway_mcp_initialize_advertises_prompts_capability() {
 }
 
 #[tokio::test]
-async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
-    let (backend_port, stop_backend) = spawn_canonical_workflow_backend().await;
+async fn gateway_mcp_executes_search_load_call_before_optional_describe() {
+    use std::sync::atomic::Ordering;
+
+    let (backend_port, stop_backend, backend_mcp_calls) = spawn_canonical_workflow_backend().await;
     let dir = tempfile::tempdir().unwrap();
     let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
@@ -316,6 +318,97 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
         .as_str()
         .expect("search returns a tool_slug")
         .to_string();
+    assert_eq!(search_payload["hits"][0]["loaded"], false);
+    assert_eq!(
+        search_payload["hits"][0]["next_step"]["action"],
+        "load_skill"
+    );
+    let load_arguments = search_payload["hits"][0]["next_step"]["arguments"].clone();
+    assert_eq!(load_arguments["tool_group"], "inspection");
+    assert_eq!(load_arguments["target_tool_slug"], tool_slug);
+
+    let correlated_load = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 40,
+            "method": "tools/call",
+            "params": {
+                "name": "load_skill",
+                "arguments": load_arguments
+            }
+        }),
+    )
+    .await;
+    assert_eq!(
+        correlated_load["result"]["isError"], false,
+        "{correlated_load}"
+    );
+    let correlated_payload = mcp_call_text_json(&correlated_load);
+    assert_eq!(correlated_payload["compact_schema"]["tool_slug"], tool_slug);
+    assert_eq!(
+        correlated_payload["compact_schema"]["required"],
+        json!(["radius"])
+    );
+    assert_eq!(
+        correlated_payload["compact_schema"]["properties"]["radius"]["type"],
+        "number"
+    );
+    assert_eq!(correlated_payload["next_step"]["action"], "call");
+    assert_eq!(
+        correlated_payload["next_step"]["schema_source"],
+        "load_skill.compact_schema"
+    );
+    assert!(
+        correlated_payload["received_arguments"]
+            .get("target_tool_slug")
+            .is_none(),
+        "gateway-only target_tool_slug must not be forwarded to the backend"
+    );
+    assert_eq!(
+        correlated_payload["received_arguments"]["strict_tool_group"],
+        true
+    );
+    assert_eq!(
+        correlated_payload["received_arguments"]["activate_groups"],
+        false
+    );
+    assert_eq!(
+        correlated_payload["received_arguments"]["tool_group"],
+        "inspection"
+    );
+    assert_eq!(
+        backend_mcp_calls.load(Ordering::SeqCst),
+        1,
+        "targeted load must activate its group in the same backend request"
+    );
+
+    let mut call_arguments = correlated_payload["next_step"]["arguments"].clone();
+    call_arguments["arguments"] = json!({"radius": 2.0});
+    let single = post_mcp_json(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "call",
+                "arguments": call_arguments
+            }
+        }),
+    )
+    .await;
+    assert_eq!(single["result"]["isError"], false);
+    let single_payload = mcp_call_text_json(&single);
+    assert_eq!(single_payload["isError"], false);
+    assert!(
+        single_payload["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("radius")
+    );
 
     let describe = post_mcp_json(
         &client,
@@ -373,51 +466,6 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
     assert_eq!(load_payload["next_step"]["mcp"]["tool"], "describe");
     assert_eq!(load_payload["next_step"]["rest"]["path"], "/v1/describe");
 
-    let correlated_load = post_mcp_json(
-        &client,
-        &url,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 40,
-            "method": "tools/call",
-            "params": {
-                "name": "load_skill",
-                "arguments": {
-                    "skill_name": "maya-primitives",
-                    "dcc_type": "maya",
-                    "target_tool_slug": tool_slug.clone(),
-                    "meta": {
-                        "search_id": search_payload["search_id"],
-                        "index_generation": search_payload["index_generation"]
-                    }
-                }
-            }
-        }),
-    )
-    .await;
-    assert_eq!(correlated_load["result"]["isError"], false);
-    let correlated_payload = mcp_call_text_json(&correlated_load);
-    assert_eq!(correlated_payload["compact_schema"]["tool_slug"], tool_slug);
-    assert_eq!(
-        correlated_payload["compact_schema"]["required"],
-        json!(["radius"])
-    );
-    assert_eq!(
-        correlated_payload["compact_schema"]["properties"]["radius"]["type"],
-        "number"
-    );
-    assert_eq!(correlated_payload["next_step"]["action"], "call");
-    assert_eq!(
-        correlated_payload["next_step"]["schema_source"],
-        "load_skill.compact_schema"
-    );
-    assert!(
-        correlated_payload["received_arguments"]
-            .get("target_tool_slug")
-            .is_none(),
-        "gateway-only target_tool_slug must not be forwarded to the backend"
-    );
-
     let load_lazy = post_mcp_json(
         &client,
         &url,
@@ -441,30 +489,6 @@ async fn gateway_mcp_four_tool_workflow_covers_search_describe_load_and_call() {
     assert_eq!(
         load_lazy_payload["received_arguments"]["activate_groups"],
         false
-    );
-
-    let single = post_mcp_json(
-        &client,
-        &url,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 6,
-            "method": "tools/call",
-            "params": {
-                "name": "call",
-                "arguments": {"tool_slug": tool_slug.clone(), "arguments": {"radius": 2.0}}
-            }
-        }),
-    )
-    .await;
-    assert_eq!(single["result"]["isError"], false);
-    let single_payload = mcp_call_text_json(&single);
-    assert_eq!(single_payload["isError"], false);
-    assert!(
-        single_payload["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("radius")
     );
 
     let batch = post_mcp_json(

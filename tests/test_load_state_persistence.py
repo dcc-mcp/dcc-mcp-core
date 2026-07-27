@@ -93,6 +93,69 @@ def test_store_evicts_on_unload(isolated_admin_env: Path) -> None:
     assert [s.name for s in reopened.state.skills] == ["maya-export"]
 
 
+def test_server_persistence_uses_the_scoped_group_observer(
+    isolated_admin_env: Path,
+) -> None:
+    from dcc_mcp_core._testing import make_test_server
+
+    class _InnerServer:
+        def __init__(self) -> None:
+            self.public_group_hook = None
+            self.scoped_group_hook = None
+
+        def set_after_load_skill_hook(self, _hook: object) -> None:
+            pass
+
+        def set_after_unload_skill_hook(self, _hook: object) -> None:
+            pass
+
+        def set_after_group_change_hook(self, hook: object) -> None:
+            self.public_group_hook = hook
+
+        def set_after_scoped_group_change_hook(self, hook: object) -> None:
+            self.scoped_group_hook = hook
+
+    inner = _InnerServer()
+    server = make_test_server(server=inner, dcc_name="maya")
+
+    result = server.enable_skill_load_persistence(sqlite_mirror=False)
+
+    assert result["reason"] == "empty_state"
+    assert inner.public_group_hook is None
+    assert callable(inner.scoped_group_hook)
+    inner.scoped_group_hook("maya-scene:inspection", True)
+    assert server._loaded_state_store.snapshot().active_groups == ["maya-scene:inspection"]
+
+
+def test_server_persistence_falls_back_for_an_older_binding(
+    isolated_admin_env: Path,
+) -> None:
+    from dcc_mcp_core._testing import make_test_server
+
+    class _OldInnerServer:
+        def __init__(self) -> None:
+            self.public_group_hook = None
+
+        def set_after_load_skill_hook(self, _hook: object) -> None:
+            pass
+
+        def set_after_unload_skill_hook(self, _hook: object) -> None:
+            pass
+
+        def set_after_group_change_hook(self, hook: object) -> None:
+            self.public_group_hook = hook
+
+    inner = _OldInnerServer()
+    server = make_test_server(server=inner, dcc_name="maya")
+
+    result = server.enable_skill_load_persistence(sqlite_mirror=False)
+
+    assert result["reason"] == "empty_state"
+    assert callable(inner.public_group_hook)
+    inner.public_group_hook("inspection", True)
+    assert server._loaded_state_store.snapshot().active_groups == ["inspection"]
+
+
 def test_admin_sqlite_mirror_writes_rows(isolated_admin_env: Path) -> None:
     store = LoadedStateStore("maya")
     store.record_loaded("maya-render", version="1.0.0", skill_path=None)

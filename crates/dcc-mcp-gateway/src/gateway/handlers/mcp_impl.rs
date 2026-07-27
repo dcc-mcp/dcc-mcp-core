@@ -447,7 +447,7 @@ async fn handle_initialize(
                  1. Optional: resources/read uri=gateway://instances to inspect live DCCs\n\
                  1b. Optional: resources/read uri=gateway://docs/agent-workflows (MCP+REST patterns, path /v1/dcc/.../call, re-list instances after DCC restart)\n\
                  2. search(kind=\"skill\", ...) then load_skill(skill_name=..., instance_id=... when needed)\n\
-                 3. search(kind=\"tool\", ...) -> describe(tool_slug=...) -> call(tool_slug=..., arguments={...}); never put code/python/mel at the call top level\n\
+                 3. Run one narrow search(kind=\"tool\", ...), then follow the selected hit's next_step. Describe only when requested; schema-free hits can call directly, and correlated load may return compact_schema plus next_step=call. Never put code/python/mel at the call top level\n\
                  4. Optional: call({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
                  5. Compact-capable clients should request compact TOON payloads on high-token calls with params._meta.response_format=\"toon\" or params._meta.compact=true; use params._meta.response_format=\"json\" to opt out. JSON-RPC jsonrpc/id/result/error stay JSON.\n\
                  \n\

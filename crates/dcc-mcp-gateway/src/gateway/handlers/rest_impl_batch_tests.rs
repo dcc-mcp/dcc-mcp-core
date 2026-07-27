@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
+use tower::ServiceExt;
 
-use super::rest_impl_tests::test_gateway_state;
+use super::rest_impl_tests::{response_json, test_gateway_state};
 
 /// Spawn a fake backend that responds to /v1/describe and /v1/call.
 async fn spawn_echo_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
@@ -135,6 +136,75 @@ async fn gateway_rest_v1_call_batch_refreshes_a_cold_live_instance_index() {
 
     let _ = shutdown_tx.send(());
     let _ = server.await;
+    let _ = stop_backend.send(());
+}
+
+#[tokio::test]
+async fn gateway_rest_forces_refresh_when_a_live_slug_is_missing_from_a_fresh_index() {
+    let (backend_port, stop_backend) = spawn_echo_backend().await;
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    {
+        let r = registry.read().await;
+        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "127.0.0.1",
+            backend_port,
+        );
+        entry.instance_id = instance_id;
+        r.register(entry).unwrap();
+    }
+
+    let mut gs = test_gateway_state("1.2.3");
+    gs.registry = registry;
+    crate::gateway::capability_service::refresh_all_live_backends(
+        &gs,
+        crate::gateway::capability::RefreshReason::Periodic,
+    )
+    .await;
+    let index = gs.capability_index.clone();
+    assert!(index.remove_instance(instance_id));
+
+    let app = crate::gateway::router::build_gateway_router(gs);
+    let slug = format!("maya.{instance_id}.echo");
+    let call = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/v1/call")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    json!({"tool_slug": slug, "arguments": {}}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(call).await;
+    assert!(status.is_success(), "{body:#}");
+    assert_eq!(body["isError"], false, "{body:#}");
+
+    assert!(index.remove_instance(instance_id));
+    let describe = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/dcc/maya/instances/{instance_id}/describe?backend_tool=echo"
+                ))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = response_json(describe).await;
+    assert!(status.is_success(), "{body:#}");
+    assert_eq!(body["record"]["backend_tool"], "echo", "{body:#}");
+
     let _ = stop_backend.send(());
 }
 

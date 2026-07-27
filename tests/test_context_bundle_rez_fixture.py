@@ -350,6 +350,7 @@ def test_rez_skill_surface_stays_stubbed_until_context_load() -> None:
         before = _tool_names(url)
         registered_tool = "film_animation_blocking__summarize_blocking"
         visible_tool = "summarize_blocking"
+        group_stub = "__group__review__for_skill__film-animation-blocking"
 
         assert "__skill__film-animation-blocking" in before
         assert visible_tool not in before
@@ -370,7 +371,7 @@ def test_rez_skill_surface_stays_stubbed_until_context_load() -> None:
         assert load_payload["loaded"] is True
         assert load_payload["tool_count"] == 1
         assert registered_tool in load_payload["registered_tools"]
-        assert "__group__review" in loaded
+        assert group_stub in loaded
         assert visible_tool not in loaded
         assert "__skill__film-animation-blocking" not in loaded
         # Loading one context replaces its stub with one real tool; it must not
@@ -382,7 +383,7 @@ def test_rez_skill_surface_stays_stubbed_until_context_load() -> None:
         assert activate_is_error is False
         assert activate_payload["success"] is True
         assert visible_tool in activated
-        assert "__group__review" not in activated
+        assert group_stub not in activated
         assert len(activated) == len(before)
 
         unload_is_error, unload_payload = _tool_call_json(

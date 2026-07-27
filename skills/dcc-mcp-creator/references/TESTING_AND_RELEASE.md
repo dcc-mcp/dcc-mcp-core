@@ -10,7 +10,7 @@ HTTP-level smoke when behavior crosses process boundaries.
 | Unit | option resolution, server construction, env vars, skill path collection |
 | Dispatcher | main-affinity calls run on the host dispatcher and return envelopes |
 | Skill lifecycle | `search_skills` -> `load_skill` -> typed tool -> `unload_skill` |
-| REST/MCP | direct `/mcp` or `/v1/*` search, describe, load, and call |
+| REST/MCP | direct `/mcp` or `/v1/*` search, then the returned `next_step` |
 | Gateway | multi-instance routing, policy, compact responses, debug traces |
 | Live DCC | one host smoke that creates/queries/cleans up real scene state |
 | Packaging | wheel or plugin archive installs into the target host runtime |

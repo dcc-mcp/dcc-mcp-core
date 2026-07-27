@@ -14,6 +14,7 @@ use dcc_mcp_models::NextTools;
 use dcc_mcp_protocols::error_envelope::DccMcpError;
 
 use crate::mcp_tool_catalog::missing_capabilities;
+use crate::mcp_tool_list_builder::{group_stub_name, parse_group_stub_name};
 use crate::rmcp_registry_context::RegistryContext;
 use crate::server_state::ServerState;
 use crate::session::SessionManager;
@@ -283,7 +284,32 @@ pub(crate) fn dispatch_err_result(tool_name: &str, msg: impl Into<String>) -> Ca
     CallToolResult::error(err_msg)
 }
 
-pub(crate) fn handle_stub_tool(tool_name: &str) -> Option<CallToolResult> {
+fn resolve_group_stub(state: &ServerState, tool_name: &str) -> Option<(Option<String>, String)> {
+    const HASHED_PREFIX: &str = "__group__scoped_";
+    let hashed = tool_name.strip_prefix(HASHED_PREFIX).is_some_and(|value| {
+        value.len() == 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    });
+    if !hashed {
+        return parse_group_stub_name(tool_name)
+            .map(|(skill, group)| (skill.map(str::to_owned), group.to_owned()));
+    }
+
+    // ponytail: hashed stubs are an error path, so recover their display target
+    // with one registry scan instead of maintaining another runtime lookup map.
+    let mut matches = state
+        .registry
+        .list_actions(None)
+        .into_iter()
+        .filter(|meta| !meta.enabled && !meta.group.is_empty())
+        .filter_map(|meta| {
+            (group_stub_name(meta.skill_name.as_deref(), &meta.group) == tool_name)
+                .then_some((meta.skill_name, meta.group))
+        });
+    let target = matches.next()?;
+    (!matches.any(|candidate| candidate != target)).then_some(target)
+}
+
+pub(crate) fn handle_stub_tool(state: &ServerState, tool_name: &str) -> Option<CallToolResult> {
     if let Some(skill_name) = tool_name.strip_prefix("__skill__") {
         let envelope = DccMcpError::new(
             "gateway",
@@ -296,16 +322,27 @@ pub(crate) fn handle_stub_tool(tool_name: &str) -> Option<CallToolResult> {
         ));
         return Some(CallToolResult::error(envelope.to_json().to_string()));
     }
-    if let Some(group_name) = tool_name.strip_prefix("__group__") {
+    if let Some((skill_name, group_name)) = resolve_group_stub(state, tool_name) {
         let envelope = DccMcpError::new(
             "gateway",
             "GROUP_NOT_ACTIVATED",
-            format!("Tool group '{group_name}' is inactive."),
+            match skill_name.as_deref() {
+                Some(skill_name) => {
+                    format!("Tool group '{group_name}' in skill '{skill_name}' is inactive.")
+                }
+                None => format!("Tool group '{group_name}' is inactive."),
+            },
         )
-        .with_hint(format!(
-            "Call activate_tool_group with group=\"{group_name}\" to enable its tools, \
-             then re-list with tools/list."
-        ));
+        .with_hint(match skill_name.as_deref() {
+            Some(skill_name) => format!(
+                "Call activate_tool_group(group_name=\"{group_name}\", \
+                 skill_name=\"{skill_name}\") to enable its tools, then re-list with tools/list."
+            ),
+            None => format!(
+                "Call activate_tool_group with group=\"{group_name}\" to enable its tools, \
+                 then re-list with tools/list."
+            ),
+        });
         return Some(CallToolResult::error(envelope.to_json().to_string()));
     }
     None

@@ -440,50 +440,167 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
     assert_eq!(search["hits"][0]["instance_id"], instance_id);
     let slug = search["hits"][0]["slug"].as_str().unwrap();
     assert!(slug.starts_with(&format!("maya.{instance_short}.")));
+    assert_eq!(search["hits"][0]["has_schema"], false);
+    assert_eq!(search["hits"][0]["next_step"]["action"], "call");
 
     let describe = run_json_with_env(&["describe", slug], &envs);
     assert_eq!(describe["source"], "local_mcp");
     assert_eq!(describe["record"]["tool_slug"], slug);
     assert_eq!(describe["tool"]["name"], "maya_scene__get_session_info");
 
-    let loaded = run_json_with_env(
+    let stderr = run_failure_with_env(
         &[
             "load-skill",
-            "workflow",
-            "--dcc-type",
-            "maya",
-            "--instance-id",
-            &instance_short,
+            "--json",
+            &serde_json::to_string(&serde_json::json!({
+                "skill_name": "broken",
+                "dcc_type": "maya",
+                "instance_id": instance_id,
+                "tool_group": "execution"
+            }))
+            .unwrap(),
         ],
         &envs,
     );
+    assert!(stderr.contains("skill load failed"), "stderr: {stderr}");
+    assert_eq!(fixture.activate_group_calls(), 0);
+
+    for (skill_name, expected_error) in [
+        ("broken-domain", "skill domain failure"),
+        ("not-loaded", "skill not loaded"),
+    ] {
+        let stderr = run_failure_with_env(
+            &[
+                "load-skill",
+                "--json",
+                &serde_json::to_string(&serde_json::json!({
+                    "skill_name": skill_name,
+                    "dcc_type": "maya",
+                    "instance_id": instance_id,
+                    "tool_group": "execution"
+                }))
+                .unwrap(),
+            ],
+            &envs,
+        );
+        assert!(stderr.contains(expected_error), "stderr: {stderr}");
+        assert_eq!(fixture.activate_group_calls(), 0);
+    }
+
+    let load_step = &search["hits"][1]["next_step"];
+    assert_eq!(load_step["action"], "load_skill");
+    assert_eq!(load_step["arguments"]["dcc_type"], "maya");
+    assert_eq!(load_step["arguments"]["instance_id"], instance_id);
+    assert_eq!(load_step["arguments"]["tool_group"], "execution");
+    let load_json = serde_json::to_string(&load_step["arguments"]).unwrap();
+    let loaded = run_json_with_env(&["load-skill", "--json", &load_json], &envs);
     assert_eq!(loaded["source"], "local_mcp");
     assert_eq!(loaded["loaded"], true);
+    assert_eq!(loaded["activate_groups"], false);
+    assert_eq!(loaded["strict_tool_group"], true);
+    assert_eq!(loaded["activated_groups"], serde_json::json!(["execution"]));
+    assert_eq!(fixture.activate_group_calls(), 1);
     assert_eq!(loaded["registered_tools"][0], "workflow__run");
+    let canonical_tool_slug = loaded["compact_schema"]["tool_slug"].as_str().unwrap();
+    assert_ne!(
+        canonical_tool_slug,
+        load_step["arguments"]["target_tool_slug"].as_str().unwrap(),
+        "load response must replace the declarative bare action with the registered callable"
+    );
+    assert!(canonical_tool_slug.ends_with(".workflow__run"));
+    assert_eq!(
+        loaded["compact_schema"]["required"],
+        serde_json::json!(["name"])
+    );
+    assert_eq!(loaded["next_step"]["action"], "call");
+    assert_eq!(
+        loaded["next_step"]["schema_source"],
+        "load_skill.compact_schema"
+    );
 
-    let call = run_json_with_env(&["call", slug, "--json", r#"{"detail":true}"#], &envs);
+    let mut call_arguments = loaded["next_step"]["arguments"].clone();
+    call_arguments["arguments"] = serde_json::json!({"name": "demo"});
+    let target_tool_slug = call_arguments["tool_slug"].as_str().unwrap();
+    let backend_arguments = serde_json::to_string(&call_arguments["arguments"]).unwrap();
+    let call = run_json_with_env(
+        &["call", target_tool_slug, "--json", &backend_arguments],
+        &envs,
+    );
     assert_eq!(call["source"], "local_mcp");
     assert_eq!(call["control_route"], "local_mcp_direct");
     assert_eq!(call["gateway_stats_recorded"], false);
     assert_eq!(call["success"], true);
-    assert_eq!(call["tool_slug"], slug);
+    assert_eq!(call["tool_slug"], target_tool_slug);
+    assert_eq!(call["backend_tool"], "workflow__run");
     assert_eq!(call["result"]["isError"], false);
 
-    let direct_call = run_json_with_env(
+    let skill_only = run_json_with_env(
+        &["search", "--query", "skill-only", "--dcc-type", "maya"],
+        &envs,
+    );
+    assert_eq!(skill_only["total"], 1);
+    assert_eq!(
+        skill_only["hits"][0]["matching_tools"],
+        serde_json::json!([])
+    );
+    let skill_only_load = &skill_only["hits"][0]["next_step"];
+    assert_eq!(skill_only_load["action"], "load_skill");
+    assert!(
+        skill_only_load["arguments"]
+            .get("target_tool_slug")
+            .is_none()
+    );
+    let loaded = run_json_with_env(
         &[
-            "call",
-            "workflow__run",
-            "--dcc-type",
-            "maya",
-            "--instance-id",
-            &instance_short,
+            "load-skill",
             "--json",
-            r#"{"name":"demo"}"#,
+            &serde_json::to_string(&skill_only_load["arguments"]).unwrap(),
         ],
         &envs,
     );
-    assert_eq!(direct_call["success"], true);
-    assert_eq!(direct_call["backend_tool"], "workflow__run");
+    assert_eq!(loaded["next_step"]["action"], "call");
+    assert!(
+        loaded["next_step"]["arguments"]["tool_slug"]
+            .as_str()
+            .unwrap()
+            .ends_with(".workflow__run")
+    );
+
+    let inactive = run_json_with_env(
+        &["search", "--query", "inactive", "--dcc-type", "maya"],
+        &envs,
+    );
+    assert_eq!(inactive["total"], 1);
+    let inactive_step = &inactive["hits"][0]["next_step"];
+    assert_eq!(inactive["hits"][0]["enabled"], false);
+    assert_eq!(inactive_step["action"], "load_skill");
+    assert_eq!(inactive_step["arguments"]["skill_name"], "workflow");
+    assert_eq!(inactive_step["arguments"]["tool_group"], "execution");
+    assert_eq!(
+        inactive_step["arguments"]["target_tool_slug"],
+        inactive["hits"][0]["slug"]
+    );
+
+    let inactive_load = run_json_with_env(
+        &[
+            "load-skill",
+            "--json",
+            &serde_json::to_string(&inactive_step["arguments"]).unwrap(),
+        ],
+        &envs,
+    );
+    assert_eq!(fixture.activate_group_calls(), 2);
+    assert_eq!(
+        inactive_load["activated_groups"],
+        serde_json::json!(["execution"])
+    );
+    assert_eq!(inactive_load["next_step"]["action"], "call");
+    assert!(
+        inactive_load["next_step"]["arguments"]["tool_slug"]
+            .as_str()
+            .unwrap()
+            .ends_with(".workflow__run")
+    );
 
     let reload = run_json_with_env(
         &[
@@ -660,7 +777,7 @@ fn local_search_without_query_lists_tools_for_dcc_filter() {
 }
 
 #[test]
-fn local_describe_uses_rest_for_loaded_tool_missing_from_tools_list() {
+fn local_describe_prefers_exact_rest_lookup() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();
     let file_registry = FileRegistry::new(registry.path()).unwrap();
@@ -689,6 +806,11 @@ fn local_describe_uses_rest_for_loaded_tool_missing_from_tools_list() {
     assert_eq!(describe["source"], "local_mcp");
     assert_eq!(describe["tool"]["name"], "dynamic__run");
     assert_eq!(describe["tool"]["inputSchema"]["required"][0], "name");
+    assert_eq!(
+        fixture.tools_list_calls(),
+        0,
+        "exact local describe must not enumerate the full tools/list"
+    );
 }
 
 #[test]

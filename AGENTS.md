@@ -17,8 +17,8 @@ Natural DCC intent is enough to trigger the default `dcc-mcp` skill. If a user
 asks to create, edit, inspect, animate, render, composite, or export something
 in Maya, Blender, Houdini, Photoshop, 3ds Max, Nuke, Unreal, Substance 3D, or
 another supported host, load `dcc-mcp` first even when the user never says
-“MCP”. Inventory, search, describe, and call the structured DCC tool before
-falling back to raw scripting or scoped Computer Use.
+“MCP”. Inventory, run one narrow search, and follow the returned `next_step`
+before falling back to raw scripting or scoped Computer Use.
 
 **Why?** Skills provide:
 - ✅ Structured results with validation
@@ -27,7 +27,8 @@ falling back to raw scripting or scoped Computer Use.
 - ✅ Progressive loading (load only what you need)
 - ✅ Audit logs and traceability
 
-**Don't** call Maya/Blender/Python scripts directly — use `search_skills()` → `load_skill()` → call the tool.
+**Don't** call Maya/Blender/Python scripts directly — search once, follow the
+returned load/describe/call step, then invoke the typed tool.
 
 ## 🚀 Agent Entry Strategy: CLI+REST (default) vs IDE MCP
 
@@ -43,7 +44,7 @@ falling back to raw scripting or scoped Computer Use.
 | GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin exposes tools directly to the IDE |
 
 **Core principle:**
-- **AI agents** start with `dcc-mcp` skill + `dcc-mcp-cli` CLI. The CLI handles gateway lifecycle (ensure, health, start) and exposes `search → describe → call` via shell.
+- **AI agents** start with `dcc-mcp` skill + `dcc-mcp-cli` CLI. The CLI handles gateway lifecycle (ensure, health, start); `search` returns the exact next load, describe, or call step.
 - **Human IDE users** continue using MCP configuration. The gateway serves both paths simultaneously.
 - **CLI-first does not deprecate MCP** — the gateway always exposes both MCP and REST side by side.
 
@@ -141,7 +142,7 @@ falling back to raw scripting or scoped Computer Use.
 Gateway CLI+REST (agent default — use dcc-mcp skill + dcc-mcp-cli):
 Support check (only when unclear): `dcc-mcp-cli dcc-types` lists canonical adapter-backed identifiers from the release catalog without starting a gateway; use `list` for live sessions.
 1. Discover: `dcc-mcp-cli search --query "keyword" --dcc-type maya` or `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
-2. Inspect: `dcc-mcp-cli describe <slug>` or `POST /v1/describe` → read schema + annotations.
+2. Follow `next_step`: a no-schema hit calls directly only when search also carries safety hints; otherwise perform the returned targeted `load_skill` or `describe`. A correlated load may inline `compact_schema` with safety/execution hints and point straight to `call`.
 3. Execute: `dcc-mcp-cli call <slug> --json '{"radius": 2.0}'` or `POST /v1/call`.
 4. Batch execute: `dcc-mcp-cli call --batch --steps '<json-array>'` or `POST /v1/call_batch` for ordered batches (max 25).
 5. Package as a skill: fork or extend `dcc-mcp` to reuse `dcc-mcp-cli` calls as structured MCP tools.
@@ -157,7 +158,7 @@ Support check (only when unclear): `dcc-mcp-cli dcc-types` lists canonical adapt
 
 IDE MCP (for human IDE users — Cursor, Claude Desktop, VS Code):
 1. Discover: MCP `search(query="keyword", dcc_type="maya")` → get `tool_slug`.
-2. Inspect: MCP `describe(tool_slug=...)` → read schema + annotations.
+2. Follow the hit's `next_step`; describe only when requested, and pass correlated load arguments unchanged.
 3. Execute through MCP: `call(tool_slug, arguments)` or REST `POST /v1/call` / `POST /v1/call_batch` (max 25).
 4. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names.
 
@@ -169,7 +170,7 @@ Per-DCC MCP server (legacy / direct DCC connection):
 5. Debug on failure: use dcc_diagnostics__screenshot or audit_log
 
 Gateway instance discovery:
-1. Usually skip instance discovery and go straight to `search` / `POST /v1/search` → `describe` / `POST /v1/describe` → `POST /v1/call` (or `/v1/call_batch` when invoking several slugs in order).
+1. Usually skip instance discovery and go straight to `search` / `POST /v1/search`, then follow its returned `next_step` to targeted load, optional describe, or call.
 2. When you need a concrete DCC session or direct MCP URL, call resources/read with uri="gateway://instances"; rows always include `mcp_url`, `instance_short`, `source`, `source_meta`, and a normalized `dispatch` object (`reported`, `status`, `ready`, failure metadata), and the list payload includes `by_source` counts.
 3. For one instance, read gateway://instances/{instance_id}; full UUID, `instance_short`, or any unique ≥4-char UUID prefix works across gateway tools and tool slugs.
 4. Instance rows may come from the local FileRegistry (`source: "file"`), HTTP registration (`source: "http"`), relay-backed tunnels (`source: "relay"`), or optional mDNS/DNS-SD LAN discovery (`source: "mdns"`); HTTP rows win conflicts, then relay, then mDNS, then file rows.

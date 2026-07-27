@@ -234,10 +234,10 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
         post_operation_with_params(
             &["skills"],
             "Load a backend skill",
-            "Loads a skill on a selected backend instance. Gateway load_skill defaults to lazy group activation.",
+            "Loads a skill on a selected backend instance. Pass tool_group to activate only that group; otherwise declared groups remain enabled by default.",
             vec![accept_response_format_header()],
             request_body_ref("LoadSkillRequest"),
-            gateway_response_ref("SkillLifecycleResponse"),
+            gateway_response_ref("GatewayLoadSkillResponse"),
         ),
     );
     paths.insert(
@@ -501,6 +501,80 @@ fn annotate_response_format_controls(schemas: &mut Map<String, Value>) {
 
 fn gateway_schemas() -> Vec<(&'static str, Value)> {
     vec![
+        (
+            "LoadSkillRequest",
+            json!({
+                "type": "object",
+                "anyOf": [
+                    {"required": ["skill_name"]},
+                    {"required": ["skill_names"]},
+                    {"required": ["tool_group"]},
+                    {"required": ["group_name"]}
+                ],
+                "properties": {
+                    "skill_name": {"type": "string"},
+                    "skill_names": {"type": "array", "items": {"type": "string"}},
+                    "activate_groups": {"type": "boolean", "default": true},
+                    "tool_group": {"type": "string", "description": "Activate only this progressive group while loading the target skill."},
+                    "group_name": {"type": "string", "description": "Alias of tool_group."},
+                    "group_action": {"type": "string", "enum": ["activate", "deactivate"], "default": "activate"},
+                    "instance_id": {"type": "string", "description": "Target instance UUID or unique prefix."},
+                    "dcc": {"type": "string", "description": "DCC type filter."},
+                    "dcc_type": {"type": "string", "description": "Alias of dcc."},
+                    "target_tool_slug": {"type": "string", "description": "Correlated search hit used to inline compact_schema."},
+                    "meta": {"type": "object", "additionalProperties": true}
+                },
+                "additionalProperties": false,
+            }),
+        ),
+        (
+            "GatewayLoadSkillResponse",
+            json!({
+                "oneOf": [
+                    {"$ref": "#/components/schemas/GatewaySkillLoadResponse"},
+                    {"$ref": "#/components/schemas/GatewayGroupActionResponse"}
+                ]
+            }),
+        ),
+        (
+            "GatewaySkillLoadResponse",
+            json!({
+                "type": "object",
+                "required": ["loaded", "dcc_type", "instance_id", "instance_short", "new_tool_slugs", "next_step"],
+                "properties": {
+                    "loaded": {"type": "boolean"},
+                    "skill_name": {"type": "string"},
+                    "dcc_type": {"type": "string"},
+                    "instance_id": {"type": "string", "format": "uuid"},
+                    "instance_short": {"type": "string"},
+                    "activated_groups": {"type": "array", "items": {"type": "string"}},
+                    "new_tool_slugs": {"type": "array", "items": {"type": "string"}},
+                    "compact_schema": {
+                        "type": "object",
+                        "description": "Bounded target schema plus safety and execution hints for a correlated load.",
+                        "additionalProperties": true
+                    },
+                    "next_step": {"$ref": "#/components/schemas/ProgressiveNextStep"},
+                    "index_generation": {"type": "string"}
+                },
+                "additionalProperties": true,
+            }),
+        ),
+        (
+            "GatewayGroupActionResponse",
+            json!({
+                "type": "object",
+                "required": ["success", "group", "changed", "active_groups"],
+                "properties": {
+                    "success": {"type": "boolean"},
+                    "group": {"type": "string"},
+                    "changed": {"type": "integer", "minimum": 0},
+                    "active_groups": {"type": "array", "items": {"type": "string"}},
+                    "index_generation": {"type": "string"}
+                },
+                "additionalProperties": true,
+            }),
+        ),
         (
             "GatewayHealth",
             json!({
@@ -1226,6 +1300,9 @@ mod tests {
             "SearchRequest",
             "SearchResponse",
             "LoadSkillRequest",
+            "GatewayLoadSkillResponse",
+            "GatewaySkillLoadResponse",
+            "GatewayGroupActionResponse",
             "UnloadSkillRequest",
             "SkillLifecycleResponse",
             "DescribeRequest",
@@ -1242,6 +1319,79 @@ mod tests {
                 "gateway OpenAPI schema set missing {schema}"
             );
         }
+    }
+
+    #[test]
+    fn gateway_openapi_documents_correlated_targeted_skill_load() {
+        let doc = build_gateway_openapi_document("1.2.3");
+        let schema = &doc["components"]["schemas"]["LoadSkillRequest"];
+
+        for property in [
+            "skill_name",
+            "skill_names",
+            "activate_groups",
+            "tool_group",
+            "group_name",
+            "group_action",
+            "instance_id",
+            "dcc_type",
+            "target_tool_slug",
+            "meta",
+        ] {
+            assert!(
+                schema["properties"].get(property).is_some(),
+                "missing LoadSkillRequest.{property}"
+            );
+        }
+        assert_eq!(schema["additionalProperties"], false);
+        assert!(schema["anyOf"].as_array().is_some_and(|choices| {
+            choices
+                .iter()
+                .any(|choice| choice["required"] == json!(["skill_names"]))
+        }));
+
+        let response = &doc["components"]["schemas"]["GatewaySkillLoadResponse"];
+        for property in [
+            "activated_groups",
+            "new_tool_slugs",
+            "compact_schema",
+            "next_step",
+            "instance_id",
+        ] {
+            assert!(
+                response["properties"].get(property).is_some(),
+                "missing GatewaySkillLoadResponse.{property}"
+            );
+        }
+        assert_eq!(
+            doc["components"]["schemas"]["GatewayLoadSkillResponse"]["oneOf"],
+            json!([
+                {"$ref": "#/components/schemas/GatewaySkillLoadResponse"},
+                {"$ref": "#/components/schemas/GatewayGroupActionResponse"}
+            ])
+        );
+        let group_response = &doc["components"]["schemas"]["GatewayGroupActionResponse"];
+        assert_eq!(
+            group_response["required"],
+            json!(["success", "group", "changed", "active_groups"])
+        );
+        for property in [
+            "success",
+            "group",
+            "changed",
+            "active_groups",
+            "index_generation",
+        ] {
+            assert!(
+                group_response["properties"].get(property).is_some(),
+                "missing GatewayGroupActionResponse.{property}"
+            );
+        }
+        assert_eq!(
+            doc["paths"]["/v1/load_skill"]["post"]["responses"]["200"]["content"]["application/json"]
+                ["schema"]["$ref"],
+            "#/components/schemas/GatewayLoadSkillResponse"
+        );
     }
 
     #[test]

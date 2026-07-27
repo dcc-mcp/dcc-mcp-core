@@ -7,7 +7,7 @@ use crate::gateway::admin::trace::{
 use crate::gateway::agent_telemetry::{AgentWorkflowEvent, policy_reason_from_value};
 use crate::gateway::capability::{RefreshReason, parse_slug};
 use crate::gateway::capability_service::{
-    ServiceError, call_service, refresh_all_live_backends, service_error_to_json,
+    ServiceError, call_service, refresh_all_live_backends_now, service_error_to_json,
 };
 use crate::gateway::middleware::{CallContext, CallResult};
 use crate::gateway::response_codec::compact_call_batch_payload;
@@ -164,8 +164,8 @@ pub(super) async fn call_service_with_admin_trace(
         ctx.agent_context.as_ref(),
     )
     .await;
-    if matches!(&result, Err(err) if err.kind == "unknown-slug") {
-        refresh_all_live_backends(gs, RefreshReason::Periodic).await;
+    if matches!(&result, Err(err) if crate::gateway::tools::call_error_needs_refresh(err)) {
+        refresh_all_live_backends_now(gs, RefreshReason::Periodic).await;
         result = call_service(
             gs,
             slug,

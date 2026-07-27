@@ -90,9 +90,12 @@ pub type AfterSkillLoadFn = dyn Fn(&SkillMetadata, &[String]) -> Result<(), Stri
 pub type AfterSkillUnloadFn = dyn Fn(&str, &[String]) -> Result<(), String> + Send + Sync;
 /// Observer invoked after a successful
 /// [`SkillCatalog::activate_group`] / [`SkillCatalog::deactivate_group`].
-/// `activated` is `true` for activate, `false` for deactivate. Used by
-/// the persistence layer (#1405) to mirror catalog-wide group state.
+/// Receives the declared group name and whether it was activated. Scoped
+/// persistence consumers should use [`AfterScopedGroupChangeFn`] instead.
 pub type AfterGroupChangeFn = dyn Fn(&str, bool) -> Result<(), String> + Send + Sync;
+/// Internal observer for persistence consumers that need the exact active
+/// group key (`"<skill>:<group>"` for scoped state, bare for legacy state).
+pub type AfterScopedGroupChangeFn = dyn Fn(&str, bool) -> Result<(), String> + Send + Sync;
 
 // ── SkillCatalog ──
 
@@ -142,10 +145,11 @@ pub struct SkillCatalog {
     pub(super) after_load_hook: RwLock<Option<Arc<AfterSkillLoadFn>>>,
     /// Optional observer called after a skill is unloaded (#1405).
     pub(super) after_unload_hook: RwLock<Option<Arc<AfterSkillUnloadFn>>>,
-    /// Optional observer called after a tool group is activated or
-    /// deactivated (#1405). Lets the persistence layer mirror the
-    /// catalog-wide [`SkillCatalog::active_groups`] set on disk.
+    /// Optional public observer called after a tool group is activated or
+    /// deactivated (#1405). Always receives the declared, unscoped group name.
     pub(super) after_group_change_hook: RwLock<Option<Arc<AfterGroupChangeFn>>>,
+    /// Persistence-only observer that receives exact scoped group keys.
+    pub(super) after_scoped_group_change_hook: RwLock<Option<Arc<AfterScopedGroupChangeFn>>>,
     /// Tool groups currently active (`"<skill>:<group>"` keys).
     pub(super) active_groups: DashSet<String>,
     /// Inverted index for fast `search_skills` scoring. Built lazily on

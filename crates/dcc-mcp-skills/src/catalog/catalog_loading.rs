@@ -1,15 +1,15 @@
 use super::*;
 use serde_json::{Map, Value, json};
 
-fn activate_skill_groups(catalog: &SkillCatalog, metadata: &SkillMetadata) {
+fn activate_skill_groups(catalog: &SkillCatalog, skill_name: &str, metadata: &SkillMetadata) {
     for group in &metadata.groups {
         if !group.name.is_empty() {
-            catalog.activate_group(&group.name);
+            catalog.activate_skill_group(skill_name, &group.name);
         }
     }
     for tool in &metadata.tools {
         if !tool.group.is_empty() {
-            catalog.activate_group(&tool.group);
+            catalog.activate_skill_group(skill_name, &tool.group);
         }
     }
 }
@@ -181,7 +181,18 @@ impl SkillCatalog {
         activate_groups: bool,
     ) -> Result<Vec<String>, String> {
         let mut visiting = Vec::new();
-        self.load_skill_recursive(skill_name, activate_groups, &mut visiting)
+        self.load_skill_recursive(skill_name, activate_groups, None, &mut visiting)
+    }
+
+    /// Load a new skill with only one declared group (plus ungrouped tools)
+    /// enabled before the registry and after-load observers can see it.
+    pub fn load_skill_target_group(
+        &self,
+        skill_name: &str,
+        target_group: &str,
+    ) -> Result<Vec<String>, String> {
+        let mut visiting = Vec::new();
+        self.load_skill_recursive(skill_name, false, Some(target_group), &mut visiting)
     }
 
     /// Load a caller-supplied skill metadata object through the normal catalog path.
@@ -226,6 +237,7 @@ impl SkillCatalog {
         &self,
         skill_name: &str,
         activate_groups: bool,
+        target_group: Option<&str>,
         visiting: &mut Vec<String>,
     ) -> Result<Vec<String>, String> {
         if self.loaded.contains(skill_name) {
@@ -234,7 +246,7 @@ impl SkillCatalog {
                 .get(skill_name)
                 .map(|entry| {
                     if activate_groups {
-                        activate_skill_groups(self, &entry.metadata);
+                        activate_skill_groups(self, skill_name, &entry.metadata);
                     }
                     entry.registered_tools.clone()
                 })
@@ -325,7 +337,7 @@ impl SkillCatalog {
         visiting.push(skill_name.to_string());
         for dep in &metadata.depends {
             if !self.loaded.contains(dep.as_str())
-                && let Err(err) = self.load_skill_recursive(dep, activate_groups, visiting)
+                && let Err(err) = self.load_skill_recursive(dep, activate_groups, None, visiting)
             {
                 let err =
                     format!("Failed to load dependency '{dep}' for skill '{skill_name}': {err}");
@@ -352,7 +364,7 @@ impl SkillCatalog {
                 .unwrap_or_default());
         }
 
-        self.load_skill_metadata(skill_name, &metadata, activate_groups)
+        self.load_skill_metadata(skill_name, &metadata, activate_groups, target_group)
     }
 
     fn load_skill_metadata(
@@ -360,6 +372,7 @@ impl SkillCatalog {
         skill_name: &str,
         metadata: &SkillMetadata,
         activate_groups: bool,
+        target_group: Option<&str>,
     ) -> Result<Vec<String>, String> {
         // Pin one executor for the complete registration. A concurrent clear or
         // replacement must not make later tools silently fall back to subprocesses.
@@ -438,12 +451,19 @@ impl SkillCatalog {
             return Err(err);
         }
 
-        if activate_groups {
-            activate_skill_groups(self, metadata);
+        if let Some(group) = target_group {
+            if !metadata.groups.iter().any(|item| item.name == group) {
+                return Err(format!(
+                    "Tool group '{group}' was not found in skill '{skill_name}'"
+                ));
+            }
+            self.activate_skill_group(skill_name, group);
+        } else if activate_groups {
+            activate_skill_groups(self, skill_name, metadata);
         } else {
             for group in &metadata.groups {
                 if group.default_active {
-                    self.active_groups.insert(group.name.clone());
+                    self.activate_skill_group(skill_name, &group.name);
                 }
             }
         }
@@ -498,8 +518,10 @@ impl SkillCatalog {
                 source_file: script_path.clone(),
                 skill_name: Some(skill_name.to_string()),
                 group: tool_decl.group.clone(),
-                enabled: activate_groups
-                    || group_default_active(&metadata.groups, &tool_decl.group),
+                enabled: target_group.map_or_else(
+                    || activate_groups || group_default_active(&metadata.groups, &tool_decl.group),
+                    |group| tool_decl.group.is_empty() || tool_decl.group == group,
+                ),
                 required_capabilities: tool_decl.required_capabilities.clone(),
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
@@ -693,6 +715,16 @@ impl SkillCatalog {
             }
         }
 
+        let scoped_prefix = format!("{skill_name}:");
+        let scoped_groups: Vec<_> = self
+            .active_groups
+            .iter()
+            .filter_map(|key| key.strip_prefix(&scoped_prefix).map(str::to_string))
+            .collect();
+        for group_name in scoped_groups {
+            self.deactivate_skill_group(skill_name, &group_name);
+        }
+
         let count = self.registry.unregister_skill(skill_name);
 
         if let Some(mut entry) = self.entries.get_mut(skill_name) {
@@ -757,9 +789,9 @@ impl SkillCatalog {
     /// Replay a persisted set of loaded skills + active groups (#1405).
     ///
     /// Walks `state.skills` in order and attempts to re-load each one
-    /// using `load_skill_with_options(name, false)` so the catalog's own
-    /// default-active group computation does not interfere with the
-    /// explicit `state.active_groups` set replayed afterwards.
+    /// using `load_skill_with_options(name, false)`, then clears each
+    /// skill's default-active groups before replaying the explicit
+    /// `state.active_groups` set.
     ///
     /// The `policy` argument decides how to treat a record whose on-disk
     /// version differs from the one that was persisted:
@@ -819,7 +851,12 @@ impl SkillCatalog {
             }
 
             match self.load_skill_with_options(&record.name, false) {
-                Ok(_) => report.loaded.push(record.name.clone()),
+                Ok(_) => {
+                    for group in &entry.metadata.groups {
+                        self.deactivate_skill_group(&record.name, &group.name);
+                    }
+                    report.loaded.push(record.name.clone());
+                }
                 Err(err) => {
                     tracing::warn!(
                         skill = %record.name,
@@ -834,11 +871,17 @@ impl SkillCatalog {
             }
         }
 
-        // Replay catalog-wide active group selection. Groups declared by
-        // skills that failed to load are best-effort no-ops (the
-        // registry has no tools tagged with them).
+        // Replay scoped keys only for skills that were restored successfully.
+        // Bare names remain supported for legacy catalog-wide snapshots.
         for group in &state.active_groups {
-            self.activate_group(group);
+            if let Some((skill, name)) = group.split_once(':') {
+                if !self.loaded.contains(skill) || !self.has_skill_group(skill, name) {
+                    continue;
+                }
+                self.activate_skill_group(skill, name);
+            } else {
+                self.activate_group(group);
+            }
             report.activated_groups.push(group.clone());
         }
 

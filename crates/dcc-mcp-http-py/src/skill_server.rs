@@ -623,6 +623,43 @@ impl PyMcpHttpServer {
         self.catalog.clear_after_group_change_hook();
     }
 
+    /// Register the persistence-only observer for exact scoped group keys.
+    #[pyo3(signature = (hook))]
+    fn set_after_scoped_group_change_hook(
+        &self,
+        py: Python<'_>,
+        hook: Option<Py<PyAny>>,
+    ) -> PyResult<()> {
+        match hook {
+            None => self.catalog.clear_after_scoped_group_change_hook(),
+            Some(py_fn) => {
+                if !py_fn.bind(py).is_callable() {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "after-scoped-group-change hook must be callable",
+                    ));
+                }
+                let hook_ref = py_fn.clone_ref(py);
+                self.catalog
+                    .set_after_scoped_group_change_hook(move |key, activated| {
+                        Python::try_attach(|gil| {
+                            hook_ref
+                                .call1(gil, (key.to_string(), activated))
+                                .map(|_| ())
+                                .map_err(|e| format!("after-scoped-group-change hook failed: {e}"))
+                        })
+                        .ok_or_else(|| "Python interpreter not attached".to_string())
+                        .and_then(|r| r)
+                    });
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear the scoped persistence observer.
+    fn clear_after_scoped_group_change_hook(&self) {
+        self.catalog.clear_after_scoped_group_change_hook();
+    }
+
     /// Replay a persisted state on the inner catalog (#1405).
     ///
     /// ``state_json`` is the JSON-encoded ``PersistedCatalogState``;

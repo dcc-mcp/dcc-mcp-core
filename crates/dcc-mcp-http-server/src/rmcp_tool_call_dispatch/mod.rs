@@ -126,7 +126,7 @@ async fn dispatch_non_core_tool(
     tool_name: &str,
     arguments_value: Value,
 ) -> Result<CallToolResult, String> {
-    if let Some(r) = handle_stub_tool(tool_name) {
+    if let Some(r) = handle_stub_tool(state, tool_name) {
         return Ok(r);
     }
     if tool_name.starts_with(DYNAMIC_TOOL_PREFIX)
@@ -259,13 +259,16 @@ mod tests {
     use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
     use dcc_mcp_job::job::JobStatus;
     use dcc_mcp_jsonrpc::ToolContent;
-    use dcc_mcp_models::{ExecutionMode, SkillScope, ThreadAffinity};
+    use dcc_mcp_models::{
+        ExecutionMode, SkillGroup, SkillMetadata, SkillScope, ThreadAffinity, ToolAnnotations,
+        ToolDeclaration,
+    };
     use dcc_mcp_skill_rest::StaticReadiness;
     use dcc_mcp_skills::SkillCatalog;
     use serde_json::json;
 
     use crate::executor::InProcessExecutor;
-    use crate::mcp_tool_list_builder::assemble_full_tool_list;
+    use crate::mcp_tool_list_builder::{assemble_full_tool_list, group_stub_name};
 
     fn skill_tool_meta(name: &str, skill_name: &str) -> ToolMeta {
         ToolMeta {
@@ -296,6 +299,502 @@ mod tests {
             panic!("expected text content, got {result:?}");
         };
         text
+    }
+
+    #[tokio::test]
+    async fn targeted_load_activates_only_the_requested_tool_group() {
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        catalog.add_skill(SkillMetadata {
+            name: "houdini-scene".to_string(),
+            dcc: "houdini".to_string(),
+            groups: vec![
+                SkillGroup {
+                    name: "inspection".to_string(),
+                    tools: vec!["inspect_selection".to_string()],
+                    ..Default::default()
+                },
+                SkillGroup {
+                    name: "editing".to_string(),
+                    tools: vec!["mutate_scene".to_string()],
+                    default_active: true,
+                    ..Default::default()
+                },
+            ],
+            tools: vec![
+                ToolDeclaration {
+                    name: "inspect_selection".to_string(),
+                    group: "inspection".to_string(),
+                    annotations: ToolAnnotations {
+                        read_only_hint: Some(true),
+                        destructive_hint: Some(false),
+                        open_world_hint: Some(false),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                ToolDeclaration {
+                    name: "mutate_scene".to_string(),
+                    group: "editing".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        });
+        catalog.add_skill(SkillMetadata {
+            name: "houdini-analysis".to_string(),
+            dcc: "houdini".to_string(),
+            groups: vec![SkillGroup {
+                name: "inspection".to_string(),
+                tools: vec!["inspect_dependencies".to_string()],
+                ..Default::default()
+            }],
+            tools: vec![ToolDeclaration {
+                name: "inspect_dependencies".to_string(),
+                group: "inspection".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let publish_state = Arc::new(std::sync::Mutex::new(None));
+        let observed_publish_state = Arc::clone(&publish_state);
+        let observed_registry = Arc::clone(&registry);
+        catalog.set_after_load_hook(move |metadata, _| {
+            if metadata.name == "houdini-scene" {
+                *observed_publish_state.lock().unwrap() = Some((
+                    observed_registry
+                        .get_action("houdini_scene__inspect_selection", None)
+                        .is_some_and(|meta| meta.enabled),
+                    observed_registry
+                        .get_action("houdini_scene__mutate_scene", None)
+                        .is_some_and(|meta| meta.enabled),
+                ));
+            }
+            Ok(())
+        });
+        catalog
+            .load_skill_with_options("houdini-analysis", false)
+            .expect("comparison skill should load with its group disabled");
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+        let session_id = state.sessions.create();
+        assert!(state.sessions.set_supports_delta_tools(&session_id, true));
+        let mut notifications = state.sessions.subscribe(&session_id).unwrap();
+
+        let search = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_tools",
+            Some(json!({"query": "inspect_selection", "dcc": "houdini"})),
+            None,
+        )
+        .await
+        .expect("unloaded skill search should dispatch");
+        let search_payload = result_text_json(&search);
+        let candidate = search_payload["skill_candidates"]
+            .as_array()
+            .and_then(|candidates| {
+                candidates
+                    .iter()
+                    .find(|candidate| candidate["skill_name"] == "houdini-scene")
+            })
+            .expect("houdini-scene candidate");
+        assert_eq!(candidate["tool_group"], "inspection");
+        assert_eq!(
+            candidate["load_hint"]["arguments"]["tool_group"],
+            "inspection"
+        );
+
+        let result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            Some(&session_id),
+            "load_skill",
+            Some(json!({
+                "skill_name": "houdini-scene",
+                "tool_group": "inspection",
+                "strict_tool_group": true
+            })),
+            None,
+        )
+        .await
+        .expect("targeted load should dispatch");
+        let payload = result_text_json(&result);
+
+        assert!(!result.is_error, "{payload:#}");
+        assert_eq!(
+            payload["registered_tools"],
+            json!(["houdini_scene__inspect_selection"])
+        );
+        assert_eq!(payload["activated_groups"], json!(["inspection"]));
+        assert_eq!(
+            *publish_state.lock().unwrap(),
+            Some((true, false)),
+            "strict load must publish only its target group"
+        );
+        assert!(
+            state
+                .registry
+                .get_action("houdini_scene__inspect_selection", None)
+                .is_some_and(|meta| meta.enabled)
+        );
+        assert!(
+            state
+                .registry
+                .get_action("houdini_scene__mutate_scene", None)
+                .is_some_and(|meta| !meta.enabled)
+        );
+        assert!(
+            state
+                .registry
+                .get_action("houdini_analysis__inspect_dependencies", None)
+                .is_some_and(|meta| !meta.enabled),
+            "a same-named group in another skill must stay disabled"
+        );
+        assert_eq!(
+            state
+                .catalog
+                .list_groups()
+                .into_iter()
+                .find(|(skill, group, _)| { skill == "houdini-analysis" && group == "inspection" })
+                .map(|(_, _, active)| active),
+            Some(false)
+        );
+
+        dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "activate_tool_group",
+            Some(json!({
+                "skill_name": "houdini-analysis",
+                "group": "inspection"
+            })),
+            None,
+        )
+        .await
+        .unwrap();
+        dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "deactivate_tool_group",
+            Some(json!({
+                "skill_name": "houdini-analysis",
+                "group": "inspection"
+            })),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            state
+                .registry
+                .get_action("houdini_scene__inspect_selection", None)
+                .is_some_and(|meta| meta.enabled),
+            "scoped group handlers must not change a sibling skill"
+        );
+        let event = notifications.try_recv().expect("delta tools notification");
+        let delta: Value = serde_json::from_str(
+            event
+                .strip_prefix("data: ")
+                .expect("SSE data prefix")
+                .trim(),
+        )
+        .unwrap();
+        assert!(
+            delta["params"]["removed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|name| { name == &group_stub_name(Some("houdini-scene"), "inspection") })
+        );
+
+        dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "deactivate_tool_group",
+            Some(json!({
+                "skill_name": "houdini-scene",
+                "group": "inspection"
+            })),
+            None,
+        )
+        .await
+        .unwrap();
+        let listed = assemble_full_tool_list(&state, false, None);
+        assert_eq!(
+            listed
+                .iter()
+                .find(|tool| tool.name == "activate_tool_group")
+                .unwrap()
+                .input_schema["properties"]["skill_name"]["type"],
+            "string"
+        );
+        let expected_stubs = ["houdini-analysis", "houdini-scene"]
+            .map(|skill| group_stub_name(Some(skill), "inspection"));
+
+        let search = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_tools",
+            Some(json!({
+                "query": "inspection",
+                "dcc": "houdini",
+                "include_stubs": true,
+                "include_unloaded_skills": false,
+            })),
+            None,
+        )
+        .await
+        .expect("inactive group search should dispatch");
+        let search_payload = result_text_json(&search);
+        let searched_stubs: Vec<_> = search_payload["tools"]
+            .as_array()
+            .expect("search tools array")
+            .iter()
+            .filter(|hit| hit["group"] == "inspection" && hit["category"] == "stub")
+            .collect();
+        assert_eq!(searched_stubs.len(), 2);
+        for (skill, stub_name) in ["houdini-analysis", "houdini-scene"]
+            .into_iter()
+            .zip(expected_stubs.iter())
+        {
+            let hit = searched_stubs
+                .iter()
+                .find(|hit| hit["skill_name"] == skill)
+                .expect("same-named sibling group needs its own search hit");
+            assert_eq!(hit["name"], stub_name.as_str());
+            dcc_mcp_naming::validate_tool_name(hit["name"].as_str().unwrap())
+                .expect("scoped group stub name must be MCP-safe");
+            let description = hit["description"].as_str().unwrap();
+            assert!(description.contains(&format!("skill `{skill}`")));
+            assert!(description.contains(&format!("skill_name=\"{skill}\"")));
+        }
+
+        for (skill, stub_name) in ["houdini-analysis", "houdini-scene"]
+            .into_iter()
+            .zip(expected_stubs.iter())
+        {
+            let stub = listed
+                .iter()
+                .find(|tool| &tool.name == stub_name)
+                .expect("same-named sibling group needs its own stub");
+            assert!(stub.description.contains(&format!("skill '{skill}'")));
+            assert!(
+                stub.description
+                    .contains(&format!("skill_name=\"{skill}\""))
+            );
+        }
+
+        let stub_result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            &expected_stubs[0],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            result_text(&stub_result).contains(
+                "activate_tool_group(group_name=\\\"inspection\\\", skill_name=\\\"houdini-analysis\\\")"
+            )
+        );
+        let legacy_stub = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "__group__legacy",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(result_text(&legacy_stub).contains("group=\\\"legacy\\\""));
+        assert!(!result_text(&legacy_stub).contains("skill_name"));
+
+        dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            Some(&session_id),
+            "activate_tool_group",
+            Some(json!({"group_name": "inspection"})),
+            None,
+        )
+        .await
+        .unwrap();
+        let activation_event = notifications.try_recv().unwrap();
+        let activation_delta: Value =
+            serde_json::from_str(activation_event.strip_prefix("data: ").unwrap().trim()).unwrap();
+        let expected_stub_set: std::collections::BTreeSet<_> =
+            expected_stubs.iter().cloned().collect();
+        let removed_stub_set: std::collections::BTreeSet<_> = activation_delta["params"]["removed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+        assert_eq!(removed_stub_set, expected_stub_set);
+
+        dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            Some(&session_id),
+            "deactivate_tool_group",
+            Some(json!({"group_name": "inspection"})),
+            None,
+        )
+        .await
+        .unwrap();
+        let deactivation_event = notifications.try_recv().unwrap();
+        let deactivation_delta: Value =
+            serde_json::from_str(deactivation_event.strip_prefix("data: ").unwrap().trim())
+                .unwrap();
+        let added_stub_set: std::collections::BTreeSet<_> = deactivation_delta["params"]["added"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+        assert_eq!(added_stub_set, expected_stub_set);
+    }
+
+    #[tokio::test]
+    async fn hashed_group_stub_reports_the_exact_activation_target() {
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let skill_name = "a".repeat(40);
+        catalog.add_skill(SkillMetadata {
+            name: skill_name.clone(),
+            dcc: "houdini".to_string(),
+            groups: vec![SkillGroup {
+                name: "inspection".to_string(),
+                tools: vec!["inspect".to_string()],
+                ..Default::default()
+            }],
+            tools: vec![ToolDeclaration {
+                name: "inspect".to_string(),
+                group: "inspection".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        catalog
+            .load_skill_with_options(&skill_name, false)
+            .expect("skill should load with its group disabled");
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+        let stub_name = group_stub_name(Some(&skill_name), "inspection");
+        assert!(stub_name.starts_with("__group__scoped_"));
+        assert!(
+            assemble_full_tool_list(&state, false, None)
+                .iter()
+                .any(|tool| tool.name == stub_name)
+        );
+
+        let result =
+            dispatch_rmcp_tool_call(&state, &ready_context(), None, &stub_name, None, None)
+                .await
+                .unwrap();
+        let text = result_text(&result);
+        assert!(text.contains(&format!("skill '{skill_name}'")), "{text}");
+        assert!(
+            text.contains(&format!(
+                "group_name=\\\"inspection\\\", skill_name=\\\"{skill_name}\\\""
+            )),
+            "{text}"
+        );
+
+        dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "activate_tool_group",
+            Some(json!({"skill_name": skill_name, "group_name": "inspection"})),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(state.registry.list_actions(None).iter().any(|meta| {
+            meta.skill_name.as_deref() == Some(skill_name.as_str()) && meta.enabled
+        }));
+    }
+
+    #[tokio::test]
+    async fn ordinary_targeted_load_keeps_default_active_groups() {
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        catalog.add_skill(SkillMetadata {
+            name: "houdini-scene".to_string(),
+            dcc: "houdini".to_string(),
+            groups: vec![
+                SkillGroup {
+                    name: "inspection".to_string(),
+                    ..Default::default()
+                },
+                SkillGroup {
+                    name: "core".to_string(),
+                    default_active: true,
+                    ..Default::default()
+                },
+            ],
+            tools: vec![
+                ToolDeclaration {
+                    name: "inspect".to_string(),
+                    group: "inspection".to_string(),
+                    ..Default::default()
+                },
+                ToolDeclaration {
+                    name: "status".to_string(),
+                    group: "core".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        });
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "load_skill",
+            Some(json!({
+                "skill_name": "houdini-scene",
+                "tool_group": "inspection"
+            })),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(!result.is_error);
+        for tool in ["houdini_scene__inspect", "houdini_scene__status"] {
+            assert!(
+                state
+                    .registry
+                    .get_action(tool, None)
+                    .is_some_and(|meta| meta.enabled),
+                "{tool} should remain enabled"
+            );
+        }
     }
 
     #[tokio::test]

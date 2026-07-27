@@ -376,6 +376,210 @@ fn test_load_skill_can_leave_groups_inactive_when_requested() {
 }
 
 #[test]
+fn scoped_group_changes_preserve_the_public_hook_contract() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("maya-scene", "maya", &[]);
+    skill.groups = vec![SkillGroup {
+        name: "inspection".to_string(),
+        ..Default::default()
+    }];
+    skill.tools = vec![ToolDeclaration {
+        name: "inspect".to_string(),
+        group: "inspection".to_string(),
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+    catalog
+        .load_skill_with_options("maya-scene", false)
+        .unwrap();
+
+    let public_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let public_observed = public_changes.clone();
+    catalog.set_after_group_change_hook(move |group, active| {
+        public_observed
+            .lock()
+            .unwrap()
+            .push((group.to_string(), active));
+        Ok(())
+    });
+    let scoped_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let scoped_observed = scoped_changes.clone();
+    catalog.set_after_scoped_group_change_hook(move |key, active| {
+        scoped_observed
+            .lock()
+            .unwrap()
+            .push((key.to_string(), active));
+        Ok(())
+    });
+
+    catalog.activate_skill_group("maya-scene", "inspection");
+
+    assert_eq!(
+        *public_changes.lock().unwrap(),
+        vec![("inspection".to_string(), true)]
+    );
+    assert_eq!(
+        *scoped_changes.lock().unwrap(),
+        vec![("maya-scene:inspection".to_string(), true)]
+    );
+}
+
+#[test]
+fn test_unload_clears_only_its_scoped_active_groups() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("maya-scene", "maya", &[]);
+    skill.groups = ["inspection", "editing"]
+        .into_iter()
+        .map(|name| SkillGroup {
+            name: name.to_string(),
+            ..Default::default()
+        })
+        .collect();
+    skill.tools = ["inspection", "editing"]
+        .into_iter()
+        .map(|group| ToolDeclaration {
+            name: group.to_string(),
+            group: group.to_string(),
+            ..Default::default()
+        })
+        .collect();
+    catalog.add_skill(skill);
+
+    let public_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let public_observed = public_changes.clone();
+    catalog.set_after_group_change_hook(move |group, active| {
+        public_observed
+            .lock()
+            .unwrap()
+            .push((group.to_string(), active));
+        Ok(())
+    });
+    let scoped_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let scoped_observed = scoped_changes.clone();
+    catalog.set_after_scoped_group_change_hook(move |key, active| {
+        scoped_observed
+            .lock()
+            .unwrap()
+            .push((key.to_string(), active));
+        Ok(())
+    });
+    catalog
+        .load_skill_with_options("maya-scene", false)
+        .unwrap();
+    catalog.activate_group("legacy-global");
+    catalog.activate_skill_group("maya-scene", "inspection");
+
+    catalog.unload_skill("maya-scene").unwrap();
+    catalog
+        .load_skill_with_options("maya-scene", false)
+        .unwrap();
+    catalog.activate_skill_group("maya-scene", "editing");
+
+    assert!(
+        catalog
+            .active_groups()
+            .contains(&"legacy-global".to_string())
+    );
+    assert!(
+        !catalog
+            .active_group_keys()
+            .contains(&"maya-scene:inspection".to_string())
+    );
+    assert!(
+        catalog
+            .active_group_keys()
+            .contains(&"maya-scene:editing".to_string())
+    );
+    assert!(catalog.active_groups().contains(&"editing".to_string()));
+    let groups = catalog.list_groups();
+    assert!(groups.contains(&("maya-scene".to_string(), "inspection".to_string(), false)));
+    assert!(groups.contains(&("maya-scene".to_string(), "editing".to_string(), true)));
+    assert!(
+        scoped_changes
+            .lock()
+            .unwrap()
+            .contains(&("maya-scene:inspection".to_string(), false))
+    );
+
+    catalog.deactivate_group("editing");
+    assert!(
+        !catalog
+            .active_group_keys()
+            .contains(&"maya-scene:editing".to_string())
+    );
+    assert!(
+        scoped_changes
+            .lock()
+            .unwrap()
+            .contains(&("maya-scene:editing".to_string(), false))
+    );
+    assert!(
+        public_changes
+            .lock()
+            .unwrap()
+            .contains(&("editing".to_string(), false))
+    );
+}
+
+#[test]
+fn legacy_deactivate_clears_every_scoped_group_key() {
+    let catalog = make_test_catalog();
+    for name in ["alpha", "beta"] {
+        let mut skill = make_test_skill(name, "maya", &[]);
+        skill.groups = vec![SkillGroup {
+            name: "inspection".to_string(),
+            ..Default::default()
+        }];
+        skill.tools = vec![ToolDeclaration {
+            name: "inspect".to_string(),
+            group: "inspection".to_string(),
+            ..Default::default()
+        }];
+        catalog.add_skill(skill);
+        catalog.load_skill_with_options(name, false).unwrap();
+        catalog.activate_skill_group(name, "inspection");
+    }
+    let public_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let public_observed = public_changes.clone();
+    catalog.set_after_group_change_hook(move |group, active| {
+        public_observed
+            .lock()
+            .unwrap()
+            .push((group.to_string(), active));
+        Ok(())
+    });
+    let scoped_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let scoped_observed = scoped_changes.clone();
+    catalog.set_after_scoped_group_change_hook(move |key, active| {
+        scoped_observed
+            .lock()
+            .unwrap()
+            .push((key.to_string(), active));
+        Ok(())
+    });
+
+    catalog.deactivate_group("inspection");
+
+    assert!(catalog.active_group_keys().is_empty());
+    assert!(
+        catalog
+            .registry()
+            .list_actions_in_group("inspection")
+            .iter()
+            .all(|tool| !tool.enabled)
+    );
+    assert_eq!(
+        scoped_changes.lock().unwrap().len(),
+        2,
+        "each scoped key must emit a persistence hook"
+    );
+    assert_eq!(
+        *public_changes.lock().unwrap(),
+        vec![("inspection".to_string(), false)]
+    );
+}
+
+#[test]
 fn test_load_skill_propagates_thread_affinity_enforcement() {
     let (catalog, dispatcher) = make_catalog_with_dispatcher();
     catalog.set_in_process_executor(|_, _, _| Ok(serde_json::json!({"ok": true})));

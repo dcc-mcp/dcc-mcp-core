@@ -9,7 +9,7 @@
 ## Use MCP the way the gateway expects
 
 1. **`tools/list`** — Small, stable set: exactly **`search`**, **`describe`**, **`load_skill`**, and **`call`**. Treat it as an **index of gateway verbs**, not the full catalog of every backend action.
-2. **Discover backend work** — `search(kind="tool")` returns compact hits with an executable `next_step`. Follow it: hits with `has_schema=false` can go straight to **`call`** with `{}` arguments; hits with schema still use **`describe`** (read schema, descriptions, safety hints, **`affinity`**, **`execution`**, timeouts) before **`call`**. On REST, use `/v1/search`, `/v1/describe`, `/v1/call` (or the path-style `POST /v1/dcc/{dcc}/instances/{id}/call` from **REST clients** below). Skipping `describe` for schema-bearing tools wastes retries and breaks validation. Preserve the returned `next_step.arguments.meta.search_id` (or the same object as MCP `_meta`) on `describe`, `load_skill`, and `call`; this lets the gateway measure selected rank and hit rate without storing full prompts.
+2. **Discover backend work** — `search(kind="tool")` returns compact hits with an executable `next_step`. Follow it: no-schema hits go straight to **`call`** with `{}` only when compact safety hints are already present; otherwise use **`describe`** to read schema, safety hints, **`affinity`**, **`execution`**, and timeouts before **`call`**. On REST, use `/v1/search`, `/v1/describe`, `/v1/call` (or the path-style `POST /v1/dcc/{dcc}/instances/{id}/call` from **REST clients** below). Preserve the returned `next_step.arguments.meta.search_id` (or the same object as MCP `_meta`) on `describe`, `load_skill`, and `call`; this lets the gateway measure selected rank and hit rate without storing full prompts.
 3. **Chaining** — **`call({calls:[...]})`** / **`POST /v1/call_batch`** runs up to **25** ordered calls when you have several **different** validated steps. Prefer fewer, well-formed calls over chatty micro-steps.
 4. **Skills vs tools** — `search(kind="skill")` / `load_skill` load packaged workflows on a host; `search(kind="tool")` resolves a **`tool_slug`** for the dynamic surface. Keep names straight; use `describe` before calling an unfamiliar schema-bearing slug. Unloaded hits carry `load_state`, `available_groups` when known, and `next_step` with both MCP and REST call shapes.
 5. **Progressive groups** — gateway `load_skill` activates declared groups by default (`activate_groups=true` when omitted). Pass `activate_groups=false` for lazy loading, or `load_skill(..., tool_group="...")` when you only want one group.
@@ -284,7 +284,7 @@ links without exposing hidden reasoning or raw prompts.
 
 ## Efficiency (without a separate “bulk” playbook)
 
-- One **`describe`** per new schema-bearing slug; cache the schema mentally for the rest of the task. If `search` says `has_schema=false`, use the returned `call` next_step directly.
+- One **`describe`** per returned describe step; cache the schema mentally for the rest of the task. A no-schema hit calls directly only when search already surfaced its safety hints.
 - After a correlated `load_skill`, prefer the returned `compact_schema` when present instead of immediately calling `describe` again.
 - One **`search(kind="tool")`** with a tight `query` and correct **`dcc_type`** / **`instance_id`** when the user names a host or you see multiple live rows in `gateway://instances`.
 - Prefer **structured arguments** (paths, flags, IDs) in a single **`call`** when the schema supports it, instead of many tiny speculative calls.

@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use dcc_mcp_gateway_core::policy::{GatewayPolicy, GatewayPolicyDenial, GatewayPolicyOperation};
@@ -37,12 +38,12 @@ use super::backend_client::{
     forward_tools_call, try_describe_tool,
 };
 use super::capability::{
-    CapabilityIndex, CapabilityRecord, RANKER_VERSION, RefreshReason, SearchHit, SearchMode,
-    SearchQuery, backend_job_status_tool, is_backend_job_tool, parse_slug, refresh_instance,
-    remove_instance, search,
+    CapabilityIndex, CapabilityRecord, IndexSnapshot, RANKER_VERSION, RefreshReason, SearchHit,
+    SearchMode, SearchQuery, backend_job_status_tool, is_backend_job_tool, parse_slug,
+    refresh_instance, remove_instance, search,
 };
 use super::request_meta::meta_with_agent_context;
-use super::state::GatewayState;
+use super::state::{GatewayState, ResolveInstanceError};
 use dcc_mcp_gateway_core::naming::instance_short;
 
 /// Metadata attached to one gateway search response for follow-up correlation.
@@ -180,7 +181,21 @@ pub fn search_service_hits_for_policy(
     query: &SearchQuery,
     policy: &GatewayPolicy,
 ) -> Vec<SearchHit> {
-    search_service(index, query)
+    let snapshot = index.snapshot();
+    search_snapshot_hits_for_policy(&snapshot, query, policy)
+}
+
+/// Search one immutable index snapshot after applying gateway policy filters.
+///
+/// Callers that also publish an index generation should obtain both values via
+/// [`CapabilityIndex::snapshot_with_generation`] so cached hits and response
+/// metadata describe the same coherent view.
+pub fn search_snapshot_hits_for_policy(
+    snapshot: &IndexSnapshot,
+    query: &SearchQuery,
+    policy: &GatewayPolicy,
+) -> Vec<SearchHit> {
+    search(snapshot, query)
         .into_iter()
         .filter(|hit| {
             policy
@@ -251,39 +266,50 @@ pub fn search_hit_to_value_with_context(
         } else if let Some(group_name) = hit.record.disabled_by_group() {
             // Tool is loaded but its progressive group is inactive.
             value["disabled_by_group"] = json!(group_name);
-            // Provide an activate_tool_group next_step (MCP only —
-            // activate_tool_group is a gateway meta-tool, not a
-            // capability-indexed action, so there is no REST /v1/call
-            // route for it).
+            // Reuse the public load_skill contract to activate the group so
+            // the same next step works through both gateway MCP and REST.
             if let Some(skill_name) = &hit.record.skill_name {
                 let mut arguments = json!({
                     "skill_name": skill_name,
                     "dcc": &hit.record.dcc_type,
                     "dcc_type": &hit.record.dcc_type,
                     "tool_group": group_name,
+                    "group_action": "activate",
                     "instance_id": hit.record.instance_id.to_string(),
+                    "target_tool_slug": &hit.record.tool_slug,
                 });
                 attach_search_meta(&mut arguments, context);
                 value["next_step"] = json!({
-                    "action": "activate_tool_group",
+                    "action": "load_skill",
                     "arguments": arguments.clone(),
                     "mcp": {
-                        "tool": "activate_tool_group",
-                        "arguments": {
-                            "skill_name": skill_name,
-                            "group": group_name,
-                        },
+                        "tool": "load_skill",
+                        "arguments": arguments.clone(),
                         "_meta": search_meta(context),
+                    },
+                    "rest": {
+                        "method": "POST",
+                        "path": "/v1/load_skill",
+                        "body": arguments,
                     },
                 });
             }
-        } else if hit.record.has_schema {
+        } else if hit.record.has_schema || !capability_has_safety_hints(&hit.record) {
             value["next_step"] = describe_next_step(&hit.record.tool_slug, context);
         } else {
             value["next_step"] = call_next_step(&hit.record.tool_slug, context);
         }
     }
     value
+}
+
+pub(crate) fn capability_has_safety_hints(record: &CapabilityRecord) -> bool {
+    record.annotations.as_ref().is_some_and(|annotations| {
+        annotations.read_only_hint.is_some()
+            && annotations.destructive_hint.is_some()
+            && annotations.idempotent_hint.is_some()
+            && annotations.open_world_hint.is_some()
+    })
 }
 
 pub fn describe_next_step(slug: &str, context: Option<&SearchResponseContext>) -> Value {
@@ -353,32 +379,7 @@ fn search_meta(context: Option<&SearchResponseContext>) -> Option<Value> {
 /// The value is intentionally opaque. Clients can compare it for equality to
 /// detect that a cached `tool_slug` came from an older search view.
 pub fn index_generation(index: &CapabilityIndex) -> String {
-    index_snapshot_generation(&index.snapshot())
-}
-
-fn index_snapshot_generation(snapshot: &super::capability::IndexSnapshot) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    let mut fingerprints: Vec<_> = snapshot.fingerprints.iter().collect();
-    fingerprints.sort_by_key(|(id, _)| id.to_string());
-    for (id, fp) in fingerprints {
-        id.hash(&mut hasher);
-        fp.0.hash(&mut hasher);
-    }
-    for record in snapshot.records.iter() {
-        record.tool_slug.hash(&mut hasher);
-        record.loaded.hash(&mut hasher);
-        record.has_schema.hash(&mut hasher);
-        record.tool_group.hash(&mut hasher);
-        for group in &record.available_groups {
-            group.name.hash(&mut hasher);
-            group.default_active.hash(&mut hasher);
-            group.active.hash(&mut hasher);
-        }
-    }
-    format!("{:016x}", hasher.finish())
+    index.generation()
 }
 
 /// Resolve `slug` to its record. Returns a structured error when the
@@ -742,19 +743,327 @@ pub fn parse_search_payload(payload: &Value) -> SearchQuery {
     query
 }
 
+/// Parse a search request before any backend discovery work and resolve the
+/// REST/MCP short instance-id form against the live registry.
+pub async fn parse_and_resolve_search_payload(
+    gs: &GatewayState,
+    payload: &Value,
+) -> Result<SearchQuery, ResolveInstanceError> {
+    let mut query = parse_search_payload(payload);
+    if query.instance_id.is_none()
+        && let Some(raw_instance_id) = payload
+            .get("instance_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        let registry = gs.registry.read().await;
+        let entry =
+            gs.resolve_instance(&registry, Some(raw_instance_id), query.dcc_type.as_deref())?;
+        query.instance_id = Some(entry.instance_id);
+    }
+    Ok(query)
+}
+
+const SEARCH_REFRESH_WINDOW: Duration = Duration::from_secs(10);
+const CAPABILITY_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
+
+async fn refresh_instance_bounded(
+    gs: &GatewayState,
+    url: &str,
+    instance_id: Uuid,
+    dcc_type: &str,
+    reason: RefreshReason,
+) -> bool {
+    match tokio::time::timeout(
+        CAPABILITY_DISCOVERY_TIMEOUT,
+        refresh_instance(
+            &gs.capability_index,
+            &gs.http_client,
+            url,
+            instance_id,
+            dcc_type,
+            gs.backend_timeout.min(CAPABILITY_DISCOVERY_TIMEOUT),
+            reason,
+            Some(&gs.instance_diagnostics),
+        ),
+    )
+    .await
+    {
+        Ok(updated) => updated,
+        Err(_) => {
+            tracing::warn!(
+                instance = %instance_id,
+                dcc = dcc_type,
+                timeout_secs = CAPABILITY_DISCOVERY_TIMEOUT.as_secs(),
+                "capability discovery refresh timed out; preserving existing index"
+            );
+            false
+        }
+    }
+}
+
+/// Refresh only the backends that can contribute rows to `query`.
+///
+/// Missing snapshots are populated synchronously so a cold search remains
+/// correct. Existing snapshots are served immediately; when stale, their
+/// refresh runs in the background (stale-while-revalidate).
+pub async fn refresh_search_backends(gs: &GatewayState, query: &SearchQuery) {
+    let reg = gs.registry.read().await;
+    let reachable_instances: Vec<_> = gs
+        .live_instances(&reg)
+        .into_iter()
+        .filter(|entry| {
+            !matches!(
+                entry.status,
+                dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
+            )
+        })
+        .collect();
+    let live_ids: std::collections::HashSet<_> = reachable_instances
+        .iter()
+        .map(|entry| entry.instance_id)
+        .collect();
+    let instances: Vec<_> = reachable_instances
+        .into_iter()
+        .filter(|entry| search_query_matches_instance(query, entry))
+        .collect();
+    drop(reg);
+
+    remove_missing_capability_instances(gs, &live_ids).await;
+
+    if instances.is_empty() {
+        return;
+    }
+
+    let has_cold_instance = instances.iter().any(|entry| {
+        gs.capability_index
+            .fingerprint_for(entry.instance_id)
+            .is_none()
+            && !gs
+                .capability_index
+                .search_refresh_was_attempted(entry.instance_id)
+    });
+    if has_cold_instance {
+        refresh_search_instances(gs, instances, SearchRefreshMode::Cold).await;
+        return;
+    }
+
+    if instances.iter().any(|entry| {
+        !gs.capability_index
+            .search_refresh_is_recent(entry.instance_id, SEARCH_REFRESH_WINDOW)
+    }) {
+        let state = gs.clone();
+        tokio::spawn(async move {
+            refresh_search_instances(&state, instances, SearchRefreshMode::Stale).await;
+        });
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SearchRefreshMode {
+    Cold,
+    Stale,
+}
+
+async fn refresh_search_instances(
+    gs: &GatewayState,
+    instances: Vec<ServiceEntry>,
+    mode: SearchRefreshMode,
+) {
+    let refreshes = instances.into_iter().map(|entry| {
+        let gate = gs.capability_index.refresh_gate(entry.instance_id);
+        async move {
+            let _refresh_guard = match mode {
+                SearchRefreshMode::Cold => gate.lock().await,
+                SearchRefreshMode::Stale => {
+                    let Ok(guard) = gate.try_lock() else {
+                        tracing::trace!(
+                            instance = %entry.instance_id,
+                            "capability index: skipped queued stale refresh"
+                        );
+                        return;
+                    };
+                    guard
+                }
+            };
+            let needs_refresh = match mode {
+                SearchRefreshMode::Cold => {
+                    gs.capability_index
+                        .fingerprint_for(entry.instance_id)
+                        .is_none()
+                        && !gs
+                            .capability_index
+                            .search_refresh_was_attempted(entry.instance_id)
+                }
+                SearchRefreshMode::Stale => !gs
+                    .capability_index
+                    .search_refresh_is_recent(entry.instance_id, SEARCH_REFRESH_WINDOW),
+            };
+            if !needs_refresh {
+                return;
+            }
+
+            let url = entry_discovery_mcp_url(&entry);
+            if !url.is_empty() {
+                refresh_instance_bounded(
+                    gs,
+                    &url,
+                    entry.instance_id,
+                    &entry.dcc_type,
+                    RefreshReason::Periodic,
+                )
+                .await;
+            }
+            // Failed fetches are deliberately throttled too; forced slug
+            // recovery still bypasses this search freshness window.
+            gs.capability_index
+                .mark_search_refresh_completed([entry.instance_id]);
+        }
+    });
+    futures::future::join_all(refreshes).await;
+}
+
+async fn remove_missing_capability_instances(
+    gs: &GatewayState,
+    live_ids: &std::collections::HashSet<Uuid>,
+) {
+    let stale_ids: Vec<_> = gs
+        .capability_index
+        .instance_ids()
+        .into_iter()
+        .filter(|instance_id| !live_ids.contains(instance_id))
+        .collect();
+    for instance_id in stale_ids {
+        let gate = gs.capability_index.refresh_gate(instance_id);
+        let _refresh_guard = gate.lock().await;
+        let reg = gs.registry.read().await;
+        let still_missing = !gs.live_instances(&reg).iter().any(|entry| {
+            entry.instance_id == instance_id
+                && !matches!(
+                    entry.status,
+                    dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
+                )
+        });
+        drop(reg);
+        if still_missing {
+            remove_instance(&gs.capability_index, instance_id);
+        }
+    }
+}
+
+fn search_query_matches_instance(query: &SearchQuery, entry: &ServiceEntry) -> bool {
+    if query
+        .instance_id
+        .is_some_and(|instance_id| instance_id != entry.instance_id)
+    {
+        return false;
+    }
+    let dcc_matches = query
+        .dcc_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|dcc| !dcc.is_empty())
+        .is_some_and(|dcc| entry.dcc_type.eq_ignore_ascii_case(dcc))
+        || query
+            .dcc_types
+            .iter()
+            .map(|dcc| dcc.trim())
+            .filter(|dcc| !dcc.is_empty())
+            .any(|dcc| entry.dcc_type.eq_ignore_ascii_case(dcc));
+    let has_dcc_filter = query
+        .dcc_type
+        .as_deref()
+        .is_some_and(|dcc| !dcc.trim().is_empty())
+        || query.dcc_types.iter().any(|dcc| !dcc.trim().is_empty());
+    !has_dcc_filter || dcc_matches
+}
+
 /// Refresh the capability index for every currently-live backend.
 ///
 /// Called on-demand by the REST / MCP dynamic-capability entry
 /// points so the first agent query after startup (or after a skill
 /// load/unload) always sees fresh data without waiting for the
-/// periodic watcher. Each backend's slice is short-circuited on an
-/// unchanged fingerprint, so the extra `tools/list` round-trips are
-/// free in the steady state.
+/// periodic watcher. Periodic callers with the same live instance set share a
+/// recent snapshot, avoiding repeated full-catalog network requests during one
+/// discovery workflow. Lifecycle-triggered refreshes always bypass that window.
 ///
 /// Evicts records owned by instances that have disappeared from the
 /// live registry — this is how `instance-offline` errors stay rare
 /// after a backend crashes.
 pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason) {
+    refresh_all_live_backends_inner(gs, reason, true).await;
+}
+
+/// Refresh every live backend without reusing a recent periodic checkpoint.
+///
+/// Unknown-slug recovery uses this path because the missing capability may
+/// have appeared after the last otherwise-fresh snapshot.
+pub async fn refresh_all_live_backends_now(gs: &GatewayState, reason: RefreshReason) {
+    refresh_all_live_backends_inner(gs, reason, false).await;
+}
+
+/// Refresh discovery before describing a slug that is absent from the index.
+///
+/// A well-formed slug carries its owning DCC and instance prefix, so refresh
+/// only that backend. Malformed, stale, or ambiguous ownership falls back to a
+/// full refresh because no narrower route is trustworthy.
+pub async fn refresh_for_describe(gs: &GatewayState, slug: &str) {
+    if describe_service(&gs.capability_index, slug).is_ok() {
+        return;
+    }
+
+    let owner = if let Some((dcc_type, instance_hint, _)) = parse_slug(slug) {
+        let registry = gs.registry.read().await;
+        gs.resolve_instance(&registry, Some(instance_hint), Some(dcc_type))
+            .ok()
+    } else {
+        None
+    };
+
+    if let Some(entry) = owner {
+        refresh_live_backend_now(gs, &entry, RefreshReason::Periodic).await;
+    } else {
+        refresh_all_live_backends_now(gs, RefreshReason::Periodic).await;
+    }
+}
+
+/// Refresh one backend after a known capability mutation.
+///
+/// This shares the full-refresh lock so an older periodic snapshot cannot
+/// overwrite the just-mutated instance.
+pub async fn refresh_live_backend_now(
+    gs: &GatewayState,
+    entry: &ServiceEntry,
+    reason: RefreshReason,
+) {
+    let gate = gs.capability_index.refresh_gate(entry.instance_id);
+    let _refresh_guard = gate.lock().await;
+    refresh_live_backend_locked(gs, entry, reason).await;
+}
+
+/// Refresh one backend while the caller holds its per-instance refresh gate.
+///
+/// Skill lifecycle mutations use this helper so the backend call, optimistic
+/// index update, and authoritative refresh form one serialized transaction.
+pub(crate) async fn refresh_live_backend_locked(
+    gs: &GatewayState,
+    entry: &ServiceEntry,
+    reason: RefreshReason,
+) {
+    let url = entry_discovery_mcp_url(entry);
+    if !url.is_empty() {
+        refresh_instance_bounded(gs, &url, entry.instance_id, &entry.dcc_type, reason).await;
+        gs.capability_index
+            .mark_search_refresh_completed([entry.instance_id]);
+    }
+}
+
+async fn refresh_all_live_backends_inner(
+    gs: &GatewayState,
+    reason: RefreshReason,
+    reuse_recent_periodic: bool,
+) {
     let reg = gs.registry.read().await;
     let instances: Vec<_> = gs
         .live_instances(&reg)
@@ -768,38 +1077,49 @@ pub async fn refresh_all_live_backends(gs: &GatewayState, reason: RefreshReason)
         .collect();
     drop(reg);
 
+    let mut instance_ids: Vec<_> = instances.iter().map(|entry| entry.instance_id).collect();
+    instance_ids.sort_unstable();
+    let mut checkpoint = gs.capability_index.refresh_checkpoint.lock().await;
+    const REFRESH_COALESCE_WINDOW: Duration = Duration::from_secs(10);
+    if reuse_recent_periodic
+        && reason == RefreshReason::Periodic
+        && checkpoint
+            .as_ref()
+            .is_some_and(|(completed_at, refreshed_ids)| {
+                refreshed_ids == &instance_ids && completed_at.elapsed() < REFRESH_COALESCE_WINDOW
+            })
+    {
+        tracing::trace!(
+            instances = instance_ids.len(),
+            "capability index: reused recent refresh"
+        );
+        return;
+    }
+
     // Remove records owned by instances that left between refreshes.
     let current: std::collections::HashSet<uuid::Uuid> =
         instances.iter().map(|e| e.instance_id).collect();
-    let snap = gs.capability_index.snapshot();
-    for iid in snap.fingerprints.keys() {
-        if !current.contains(iid) {
-            remove_instance(&gs.capability_index, *iid);
-        }
-    }
+    remove_missing_capability_instances(gs, &current).await;
 
     // Refresh every live instance in parallel. Errors are logged and
     // swallowed — a single flaky backend must not break the others.
     let refreshes = instances.iter().map(|entry| {
+        let gate = gs.capability_index.refresh_gate(entry.instance_id);
         let url = entry_discovery_mcp_url(entry);
         async move {
+            let _refresh_guard = gate.lock().await;
             if url.is_empty() {
                 return;
             }
-            refresh_instance(
-                &gs.capability_index,
-                &gs.http_client,
-                &url,
-                entry.instance_id,
-                &entry.dcc_type,
-                gs.backend_timeout,
-                reason,
-                Some(&gs.instance_diagnostics),
-            )
-            .await;
+            refresh_instance_bounded(gs, &url, entry.instance_id, &entry.dcc_type, reason).await;
         }
     });
     futures::future::join_all(refreshes).await;
+    gs.capability_index
+        .mark_search_refresh_completed(instance_ids.iter().copied());
+    // This is also a short retry throttle after failures; forced recovery
+    // paths bypass it when a concrete slug is missing.
+    *checkpoint = Some((Instant::now(), instance_ids));
 }
 
 /// Convert a [`ServiceError`] into the gateway's existing
@@ -1498,7 +1818,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn progressive_group_inactive_generates_activate_next_step() {
+    fn progressive_group_inactive_generates_public_load_next_step() {
         let rec = make_group_record(
             "maya.abcdef01.create_sphere",
             Some("maya-modeling"),
@@ -1518,19 +1838,32 @@ mod unit_tests {
             score: 10,
             match_reasons: vec![],
         };
-        let row = search_hit_to_value(hit);
+        let context = SearchResponseContext::new("search-1".into(), "generation-1".into());
+        let row = search_hit_to_value_with_context(hit, Some(&context));
 
         assert_eq!(row["callable"], false);
         assert_eq!(row["load_state"], "loaded");
         assert_eq!(row["disabled_by_group"], "modeling");
-        assert_eq!(row["next_step"]["action"], "activate_tool_group");
+        assert_eq!(row["next_step"]["action"], "load_skill");
         assert_eq!(row["next_step"]["arguments"]["skill_name"], "maya-modeling");
         assert_eq!(row["next_step"]["arguments"]["tool_group"], "modeling");
-        assert_eq!(row["next_step"]["mcp"]["tool"], "activate_tool_group");
-        assert_eq!(row["next_step"]["mcp"]["arguments"]["group"], "modeling");
-        // REST block must NOT be present for activate_tool_group
-        // (gateway meta-tool, not a capability-indexed action).
-        assert!(row["next_step"].get("rest").is_none());
+        assert_eq!(row["next_step"]["arguments"]["group_action"], "activate");
+        assert_eq!(
+            row["next_step"]["arguments"]["target_tool_slug"],
+            "maya.abcdef01.create_sphere"
+        );
+        assert_eq!(row["next_step"]["mcp"]["tool"], "load_skill");
+        assert_eq!(row["next_step"]["mcp"]["_meta"]["search_id"], "search-1");
+        assert_eq!(
+            row["next_step"]["mcp"]["arguments"],
+            row["next_step"]["arguments"]
+        );
+        assert_eq!(row["next_step"]["rest"]["method"], "POST");
+        assert_eq!(row["next_step"]["rest"]["path"], "/v1/load_skill");
+        assert_eq!(
+            row["next_step"]["rest"]["body"],
+            row["next_step"]["arguments"]
+        );
     }
 
     #[test]
@@ -1665,6 +1998,16 @@ mod unit_tests {
             true,
             None, // no group
             vec![],
+        )
+        .with_surface_metadata(
+            Some(crate::gateway::capability::CapabilityAnnotations {
+                title: None,
+                read_only_hint: Some(false),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(false),
+                open_world_hint: Some(false),
+            }),
+            None,
         );
         let hit = SearchHit {
             record: rec,
@@ -1681,6 +2024,35 @@ mod unit_tests {
         assert_eq!(row["next_step"]["arguments"]["arguments"], json!({}));
         assert_eq!(row["next_step"]["rest"]["path"], "/v1/call");
         assert_eq!(row["next_step"]["mcp"]["tool"], "call");
+    }
+
+    #[test]
+    fn loaded_no_arg_tool_without_complete_safety_hints_requires_describe() {
+        let rec = make_group_record(
+            "maya.abcdef01.reset_scene",
+            Some("maya-scene"),
+            true,
+            None,
+            vec![],
+        )
+        .with_surface_metadata(
+            Some(crate::gateway::capability::CapabilityAnnotations {
+                title: None,
+                read_only_hint: Some(false),
+                destructive_hint: None,
+                idempotent_hint: None,
+                open_world_hint: None,
+            }),
+            None,
+        );
+        let row = search_hit_to_value(SearchHit {
+            record: rec,
+            rank: 1,
+            score: 10,
+            match_reasons: vec![],
+        });
+
+        assert_eq!(row["next_step"]["action"], "describe");
     }
 
     #[test]
