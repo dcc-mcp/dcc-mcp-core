@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { RiDeleteBinLine, RiRefreshLine } from '@remixicon/react';
-import { EmptyRow, MetricTile, PanelHeader, StatusLine, TimeValue } from '../../admin-ui-core';
+import { EmptyRow, MetricTile, PanelHeader, PanelTabs, StatusLine, TimeValue } from '../../admin-ui-core';
 import type { MemoryFilters, MemoryRow, Translator } from '../../admin-types';
+import type { SessionsTab } from '../../navigation';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import {
@@ -43,8 +44,22 @@ function rowHaystack(row: MemoryRow): string {
   ].join(' ').toLowerCase();
 }
 
-export function MemoryPanel({ active, t }: { active: boolean; t: Translator }) {
-  const [layer, setLayer] = useState<LayerFilter>('longterm');
+export function MemoryPanel({
+  active,
+  tab,
+  sessionId,
+  onSessionIdChange,
+  onTabChange,
+  t,
+}: {
+  active: boolean;
+  tab: SessionsTab;
+  sessionId: string;
+  onSessionIdChange: (sessionId: string) => void;
+  onTabChange: (tab: SessionsTab) => void;
+  t: Translator;
+}) {
+  const [layer, setLayer] = useState<LayerFilter>('all');
   const [dccName, setDccName] = useState('');
   const [keyPrefix, setKeyPrefix] = useState('');
   const [search, setSearch] = useState('');
@@ -52,10 +67,11 @@ export function MemoryPanel({ active, t }: { active: boolean; t: Translator }) {
     () => ({
       layer,
       dccName: dccName.trim(),
+      sessionId: sessionId.trim(),
       keyPrefix: keyPrefix.trim(),
       limit: 300,
     }),
-    [dccName, keyPrefix, layer],
+    [dccName, keyPrefix, layer, sessionId],
   );
   const memoryQuery = useMemoryQuery(active, filters);
   const forgetMemory = useForgetMemory();
@@ -66,7 +82,7 @@ export function MemoryPanel({ active, t }: { active: boolean; t: Translator }) {
     if (!needle) return rows;
     return rows.filter((row) => rowHaystack(row).includes(needle));
   }, [rows, search]);
-  const hasForgetSelector = Boolean(dccName.trim()) || Boolean(keyPrefix.trim());
+  const hasForgetSelector = Boolean(dccName.trim()) || Boolean(sessionId.trim()) || Boolean(keyPrefix.trim());
   const busy = memoryQuery.isLoading || forgetMemory.isPending;
   const error = memoryQuery.error?.message ?? (payload?.enabled === false ? payload.error : undefined);
 
@@ -74,19 +90,30 @@ export function MemoryPanel({ active, t }: { active: boolean; t: Translator }) {
 
   const forgetMatches = () => {
     if (!hasForgetSelector) return;
-    const body: { layer?: string; dcc_name?: string; key_prefix?: string } = {};
+    const body: { layer?: string; dcc_name?: string; session_id?: string; key_prefix?: string } = {};
     if (layer !== 'all') body.layer = layer;
     if (dccName.trim()) body.dcc_name = dccName.trim();
+    if (sessionId.trim()) body.session_id = sessionId.trim();
     if (keyPrefix.trim()) body.key_prefix = keyPrefix.trim();
     forgetMemory.mutate(body);
   };
 
   return (
-    <section className="panel active memory-panel" data-panel="memory">
+    <section className="panel active memory-panel" data-panel="sessions">
       <PanelHeader
-        title={t('memory.title')}
+        title={t('sessions.title')}
+        meta={t('memory.description')}
         action={
           <div className="memory-actions">
+            <PanelTabs
+              value={tab}
+              tabs={[
+                { id: 'sessions', label: t('navigation.sessionsTab.sessions') },
+                { id: 'memory', label: t('navigation.sessionsTab.memory') },
+              ]}
+              ariaLabel={t('navigation.sessionsTab.meta')}
+              onValueChange={onTabChange}
+            />
             <Button type="button" size="sm" disabled={busy} onClick={() => { void memoryQuery.refetch(); }}>
               <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
               {t('memory.action.refresh')}
@@ -133,6 +160,12 @@ export function MemoryPanel({ active, t }: { active: boolean; t: Translator }) {
           value={dccName}
           onChange={(event) => setDccName(event.target.value)}
           placeholder={t('memory.filter.dcc')}
+        />
+        <input
+          className="filter-input memory-filter-input"
+          value={sessionId}
+          onChange={(event) => onSessionIdChange(event.target.value)}
+          placeholder={t('memory.filter.session')}
         />
         <input
           className="filter-input memory-filter-input"

@@ -40,6 +40,8 @@ pub mod agent_workflows;
 pub mod catalog;
 pub mod diagnostics;
 pub mod instances;
+#[cfg(feature = "admin")]
+pub mod observability;
 pub mod util;
 
 use serde_json::Value;
@@ -52,11 +54,13 @@ use super::state::GatewayState;
 ///
 /// Order is stable: instances first, then diagnostics, then catalog, then docs.
 pub fn pointers_for_list() -> Vec<Value> {
-    let mut out = Vec::with_capacity(7);
+    let mut out = Vec::with_capacity(if cfg!(feature = "admin") { 9 } else { 7 });
     out.push(instances::pointer());
     out.extend(diagnostics::pointers());
     out.push(catalog::pointer());
     out.push(agent_workflows::pointer());
+    #[cfg(feature = "admin")]
+    out.extend(observability::pointers());
     out
 }
 
@@ -69,6 +73,8 @@ pub enum Request {
     Instances(instances::Query),
     Diagnostics(diagnostics::Query),
     Catalog(catalog::Query),
+    #[cfg(feature = "admin")]
+    Observability(observability::Query),
     AgentWorkflows,
 }
 
@@ -87,6 +93,10 @@ impl Request {
         }
         if let Some(q) = catalog::parse(uri) {
             return Some(Self::Catalog(q));
+        }
+        #[cfg(feature = "admin")]
+        if let Some(q) = observability::parse(uri) {
+            return Some(Self::Observability(q));
         }
         if agent_workflows::parse(uri) {
             return Some(Self::AgentWorkflows);
@@ -111,6 +121,8 @@ impl Request {
             Self::Instances(q) => instances::build_payload(gs, q).await,
             Self::Diagnostics(q) => diagnostics::build_payload(gs, q, local_tool_count).await,
             Self::Catalog(q) => catalog::build_payload(q).await,
+            #[cfg(feature = "admin")]
+            Self::Observability(q) => observability::build_payload(gs, q).await,
             Self::AgentWorkflows => agent_workflows::build_payload().await,
         }
     }
@@ -173,6 +185,13 @@ mod tests {
         assert!(uris.contains(&diagnostics::SEARCH_URI));
         assert!(uris.contains(&catalog::ROOT_URI));
         assert!(uris.contains(&agent_workflows::ROOT_URI));
+        #[cfg(feature = "admin")]
+        {
+            assert!(uris.contains(&observability::EXPERIMENTS_URI));
+            assert!(uris.contains(&observability::GOVERNANCE_URI));
+            assert_eq!(ps.len(), 9);
+        }
+        #[cfg(not(feature = "admin"))]
         assert_eq!(ps.len(), 7);
     }
 
@@ -182,5 +201,20 @@ mod tests {
             Request::parse(agent_workflows::ROOT_URI),
             Some(Request::AgentWorkflows)
         ));
+    }
+
+    #[cfg(feature = "admin")]
+    #[test]
+    fn parse_dispatches_to_observability() {
+        for uri in [
+            observability::EXPERIMENTS_URI,
+            "gateway://experiments/exp-42",
+            observability::GOVERNANCE_URI,
+        ] {
+            assert!(matches!(
+                Request::parse(uri),
+                Some(Request::Observability(_))
+            ));
+        }
     }
 }

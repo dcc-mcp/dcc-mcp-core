@@ -124,6 +124,13 @@ export async function mockAdminApi(page: Page) {
         },
         circuits: { tracked_backends: 2, circuits_open: 0 },
       };
+    } else if (path === '/instances') {
+      body = {
+        instances: [
+          { instance_id: 'maya-inst-1', dcc_type: 'maya', status: 'ready' },
+          { instance_id: 'houdini-inst-1', dcc_type: 'houdini', status: 'unhealthy' },
+        ],
+      };
     } else if (path === '/activity') {
       body = {
         total: 2,
@@ -1568,6 +1575,7 @@ export async function mockAdminApi(page: Page) {
       };
     } else if (path === '/reliability') {
       body = {
+        generated_at: now,
         health: {
           status: 'ok',
           uptime_secs: 86400,
@@ -1592,6 +1600,12 @@ export async function mockAdminApi(page: Page) {
           success_rate_pct: 99.8,
           avg_latency_ms: 120,
           p95_latency_ms: 340,
+        },
+        stability: {
+          crashes_24h: 0,
+          reconnects_24h: 3,
+          recoveries_24h: 3,
+          uptime_pct: 99.8,
         },
       };
     } else {

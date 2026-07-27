@@ -44,5 +44,11 @@
   "overviewTab.meta": "Overview",
   "tracesTab.traces": "Traces",
   "tracesTab.calls": "Calls",
-  "tracesTab.meta": "Traces"
+  "tracesTab.meta": "Traces",
+  "sessionsTab.sessions": "Sessions",
+  "sessionsTab.memory": "Context",
+  "sessionsTab.meta": "Session workspace",
+  "reliabilityTab.status": "Status",
+  "reliabilityTab.policy": "Policy",
+  "reliabilityTab.meta": "Reliability workspace"
 }

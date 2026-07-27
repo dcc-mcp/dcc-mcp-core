@@ -9,7 +9,7 @@
   align-items: center;
   display: grid;
   gap: 0.65rem;
-  grid-template-columns: 11rem minmax(8rem, 12rem) minmax(10rem, 18rem) minmax(14rem, 1fr);
+  grid-template-columns: 9rem minmax(7rem, 10rem) minmax(10rem, 14rem) minmax(9rem, 14rem) minmax(12rem, 1fr);
   margin: 1rem 0;
 }
 

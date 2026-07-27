@@ -51,5 +51,11 @@
   "overviewTab.meta": "概要",
   "tracesTab.traces": "トレース",
   "tracesTab.calls": "呼び出し",
-  "tracesTab.meta": "トレース"
+  "tracesTab.meta": "トレース",
+  "sessionsTab.sessions": "セッション",
+  "sessionsTab.memory": "コンテキスト",
+  "sessionsTab.meta": "セッションワークスペース",
+  "reliabilityTab.status": "ステータス",
+  "reliabilityTab.policy": "ポリシー",
+  "reliabilityTab.meta": "信頼性ワークスペース"
 }

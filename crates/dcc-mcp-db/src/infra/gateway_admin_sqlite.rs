@@ -273,6 +273,62 @@ impl GatewayAdminSqliteReader {
         rows.filter_map(|r| r.ok()).collect()
     }
 
+    /// List experiment definitions from the existing session event timeline.
+    pub fn list_experiments_json(&self, limit: usize) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut stmt = match conn.prepare_cached(
+            "SELECT event_json FROM session_events WHERE event_type = 'experiment.created' \
+             ORDER BY created_at_ms DESC, id DESC LIMIT ?1",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params![limit.clamp(1, 1_000) as i64], |row| row.get(0));
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(Result::ok).collect()
+    }
+
+    /// Project all events for one experiment from the shared session timeline.
+    pub fn list_experiment_events_json(&self, experiment_id: &str, limit: usize) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        // ponytail: bounded scan avoids a second projection table; add an indexed
+        // experiment_id column only after retained event volume makes this measurable.
+        let mut stmt = match conn.prepare_cached(
+            "SELECT event_json FROM session_events WHERE event_type LIKE 'experiment.%' \
+             ORDER BY created_at_ms DESC, id DESC LIMIT 10000",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0));
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        let mut events = rows
+            .filter_map(Result::ok)
+            .filter(|event| {
+                serde_json::from_str::<serde_json::Value>(event)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("experiment_id")
+                            .and_then(|value| value.as_str())
+                            .map(|value| value == experiment_id)
+                    })
+                    .unwrap_or(false)
+            })
+            .take(limit.clamp(1, 1_000))
+            .collect::<Vec<_>>();
+        events.reverse();
+        events
+    }
+
     /// PIP-2751: List tool calls for a given session, newest first.
     pub fn list_tool_calls_json(&self, session_id: &str, limit: usize) -> Vec<String> {
         let Some(conn) = self.open_ro() else {
@@ -375,6 +431,7 @@ impl GatewayAdminSqliteReader {
         &self,
         layer: Option<&str>,
         dcc_name: Option<&str>,
+        session_id: Option<&str>,
         key_prefix: Option<&str>,
         limit: usize,
     ) -> Vec<String> {
@@ -392,6 +449,10 @@ impl GatewayAdminSqliteReader {
         }
         if let Some(value) = non_empty(dcc_name) {
             sql.push_str(" AND dcc_name = ?");
+            values.push(Box::new(value.to_owned()));
+        }
+        if let Some(value) = non_empty(session_id) {
+            sql.push_str(" AND session_id = ?");
             values.push(Box::new(value.to_owned()));
         }
         if let Some(value) = non_empty(key_prefix) {
@@ -1059,13 +1120,19 @@ mod tests {
         drop(conn);
 
         let reader = GatewayAdminSqliteReader::new(db.clone());
-        let rows =
-            reader.list_agent_memory_json(Some("longterm"), Some("maya"), Some("pattern:"), 10);
+        let rows = reader.list_agent_memory_json(
+            Some("longterm"),
+            Some("maya"),
+            None,
+            Some("pattern:"),
+            10,
+        );
         assert_eq!(rows.len(), 5);
         assert!(rows[0].contains("create_cube"));
         let rows = reader.list_agent_memory_json(
             Some("longterm"),
             Some("maya"),
+            None,
             Some("pattern:tool_call:maya_python"),
             10,
         );
@@ -1074,11 +1141,17 @@ mod tests {
         let rows = reader.list_agent_memory_json(
             Some("longterm"),
             Some("maya"),
+            None,
             Some("pattern:tool_call:maya%python"),
             10,
         );
         assert_eq!(rows.len(), 1);
         assert!(rows[0].contains("maya%python__execute"));
+        assert!(
+            reader
+                .list_agent_memory_json(None, None, Some("missing-session"), None, 10)
+                .is_empty()
+        );
 
         let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
         assert!(lane.try_delete_agent_memory(
@@ -1097,7 +1170,8 @@ mod tests {
         ));
         drop(lane);
 
-        let rows = GatewayAdminSqliteReader::new(db).list_agent_memory_json(None, None, None, 10);
+        let rows =
+            GatewayAdminSqliteReader::new(db).list_agent_memory_json(None, None, None, None, 10);
         assert_eq!(rows.len(), 3);
         assert!(rows.iter().any(|row| row.contains("create_cube")));
         assert!(rows.iter().any(|row| row.contains("mayaXpython__execute")));
@@ -1173,5 +1247,55 @@ mod tests {
         let traces = r.list_traces_since_json(None, 100);
         assert_eq!(traces.len(), 1);
         assert!(traces[0].contains("new-req"));
+    }
+
+    #[test]
+    fn experiment_events_are_projected_from_the_existing_session_timeline() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("experiments.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        for event in [
+            json!({
+                "session_id": "maya-run-a",
+                "event_type": "experiment.created",
+                "created_at_ms": 10,
+                "experiment_id": "exp-a",
+                "name": "Maya scene validation"
+            }),
+            json!({
+                "session_id": "maya-run-a",
+                "event_type": "experiment.run.running",
+                "created_at_ms": 20,
+                "experiment_id": "exp-a",
+                "run_id": "run-a"
+            }),
+            json!({
+                "session_id": "maya-run-a",
+                "event_type": "experiment.run.passed",
+                "created_at_ms": 20,
+                "experiment_id": "exp-a",
+                "run_id": "run-a"
+            }),
+            json!({
+                "session_id": "houdini-run-b",
+                "event_type": "experiment.created",
+                "created_at_ms": 30,
+                "experiment_id": "exp-b",
+                "name": "Houdini render validation"
+            }),
+        ] {
+            lane.try_persist_session_event_json(&event.to_string());
+        }
+        drop(lane);
+
+        let reader = GatewayAdminSqliteReader::new(db);
+        let experiments = reader.list_experiments_json(10);
+        assert_eq!(experiments.len(), 2);
+        assert!(experiments[0].contains("exp-b"));
+
+        let events = reader.list_experiment_events_json("exp-a", 10);
+        assert_eq!(events.len(), 3);
+        assert!(events.iter().all(|event| event.contains("exp-a")));
+        assert!(events.last().unwrap().contains("experiment.run.passed"));
     }
 }

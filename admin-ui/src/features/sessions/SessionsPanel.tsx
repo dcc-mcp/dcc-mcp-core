@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { RiRefreshLine } from '@remixicon/react';
 import {
   PanelHeader,
+  PanelTabs,
   StatusLine,
   MetricTile,
   apiJson,
@@ -24,6 +25,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import type { Translator } from '../../admin-types';
 import type { MessageKey } from '../../i18n';
+import type { SessionsTab } from '../../navigation';
 import './sessions.css';
 
 // ── types ──────────────────────────────────────────────────────────────────
@@ -31,46 +33,42 @@ import './sessions.css';
 type SessionStatus =
   | 'active'
   | 'ended'
+  | 'interrupted'
   | 'disconnected'
   | 'crashed'
   | 'gpu_crashed'
   | 'timed_out'
   | 'cancelled'
-  | 'thread_affinity_failure';
-
-type SessionEndReason =
-  | { normal: null }
-  | { disconnect: { detail: string } }
-  | { host_crash: { detail: string } }
-  | { gpu_crash: { detail: string } }
-  | { timeout: { detail: string } }
-  | { cancelled: { detail: string } }
-  | { thread_affinity_failure: { detail: string } };
+  | 'thread_affinity_failure'
+  | 'unknown';
 
 type SessionRow = {
   session_id: string;
   parent_session_id?: string | null;
-  dcc_type: string;
+  dcc_type?: string | null;
   instance_id?: string | null;
   status: SessionStatus;
-  started_at_ms: number;
-  last_activity_at_ms: number;
-  ended_at_ms?: number | null;
-  end_reason?: SessionEndReason | null;
+  started_at: string;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+  end_reason?: string | null;
+  turn_count: number;
   tool_call_count: number;
-  error_count: number;
-  core_version: string;
-  adapter_version?: string | null;
-  build_sha?: string | null;
+  version?: string | null;
+  agent_name?: string | null;
+  actor_name?: string | null;
 };
 
 type SessionsPayload = {
   sessions: SessionRow[];
   total: number;
-  active: number;
-  ended: number;
-  by_dcc: Record<string, number>;
-  by_status: Record<string, number>;
+  kpi: {
+    total: number;
+    active: number;
+    ended: number;
+    crashed: number;
+    by_dcc: Record<string, number>;
+  };
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -84,6 +82,7 @@ function statusBadgeClass(status: SessionStatus): string {
     case 'active':
       return 'badge badge-ok';
     case 'ended':
+    case 'interrupted':
     case 'cancelled':
       return 'badge badge-muted';
     case 'disconnected':
@@ -93,6 +92,7 @@ function statusBadgeClass(status: SessionStatus): string {
     case 'gpu_crashed':
     case 'thread_affinity_failure':
       return 'badge badge-err';
+    case 'unknown':
     default:
       return 'badge badge-muted';
   }
@@ -101,42 +101,21 @@ function statusBadgeClass(status: SessionStatus): string {
 const STATUS_LABEL_KEYS: Record<SessionStatus, MessageKey> = {
   active: 'sessions.status.active',
   ended: 'sessions.status.ended',
+  interrupted: 'sessions.status.interrupted',
   disconnected: 'sessions.status.disconnected',
   crashed: 'sessions.status.crashed',
   gpu_crashed: 'sessions.status.gpuCrashed',
   timed_out: 'sessions.status.timedOut',
   cancelled: 'sessions.status.cancelled',
   thread_affinity_failure: 'sessions.status.threadAffinityFailure',
+  unknown: 'sessions.status.unknown',
 };
 
-function endReasonLabel(reason: SessionEndReason | null | undefined): string {
-  if (!reason) return '-';
-  if ('normal' in reason) return 'Normal';
-  if ('disconnect' in reason) return `Disconnect: ${reason.disconnect.detail}`;
-  if ('host_crash' in reason) return `Host Crash: ${reason.host_crash.detail}`;
-  if ('gpu_crash' in reason) return `GPU Crash: ${reason.gpu_crash.detail}`;
-  if ('timeout' in reason) return `Timeout: ${reason.timeout.detail}`;
-  if ('cancelled' in reason) return `Cancelled: ${reason.cancelled.detail}`;
-  if ('thread_affinity_failure' in reason) return `Thread Affinity: ${reason.thread_affinity_failure.detail}`;
-  return '-';
-}
-
-function endReasonKind(reason: SessionEndReason | null | undefined): string {
-  if (!reason) return '-';
-  if ('normal' in reason) return 'normal';
-  if ('disconnect' in reason) return 'disconnect';
-  if ('host_crash' in reason) return 'host_crash';
-  if ('gpu_crash' in reason) return 'gpu_crash';
-  if ('timeout' in reason) return 'timeout';
-  if ('cancelled' in reason) return 'cancelled';
-  if ('thread_affinity_failure' in reason) return 'thread_affinity_failure';
-  return '-';
-}
-
 function sessionDurationMs(session: SessionRow): number | null {
-  const end = session.ended_at_ms ?? Date.now();
-  if (end < session.started_at_ms) return null;
-  return end - session.started_at_ms;
+  if (session.duration_ms != null) return session.duration_ms;
+  const start = Date.parse(session.started_at);
+  const end = session.ended_at ? Date.parse(session.ended_at) : Date.now();
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : null;
 }
 
 type TreeNode = {
@@ -187,11 +166,24 @@ function flattenTree(nodes: TreeNode[]): TreeNode[] {
 
 // ── component ──────────────────────────────────────────────────────────────
 
-export function SessionsPanel({ active, t }: { active: boolean; t: Translator }) {
+export function SessionsPanel({
+  active,
+  tab,
+  onTabChange,
+  onOpenMemory,
+  t,
+}: {
+  active: boolean;
+  tab: SessionsTab;
+  onTabChange: (tab: SessionsTab) => void;
+  onOpenMemory: (sessionId: string) => void;
+  t: Translator;
+}) {
   const [dccFilter, setDccFilter] = useState(ALL_DCC);
   const [statusFilter, setStatusFilter] = useState(ALL_STATUS);
   const [search, setSearch] = useState('');
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['admin', 'sessions'],
@@ -207,12 +199,12 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
 
   const dccTypes = useMemo(() => {
     if (!data?.sessions) return [];
-    return Array.from(new Set(data.sessions.map((s) => s.dcc_type))).sort();
+    return Array.from(new Set(data.sessions.flatMap((s) => s.dcc_type ? [s.dcc_type] : []))).sort();
   }, [data]);
 
   const allStatuses: SessionStatus[] = [
-    'active', 'ended', 'disconnected', 'crashed',
-    'gpu_crashed', 'timed_out', 'cancelled', 'thread_affinity_failure',
+    'active', 'ended', 'interrupted', 'disconnected', 'crashed',
+    'gpu_crashed', 'timed_out', 'cancelled', 'thread_affinity_failure', 'unknown',
   ];
 
   const flatNodes = useMemo(() => flattenTree(tree), [tree]);
@@ -223,15 +215,15 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
       if (dccFilter !== ALL_DCC && s.dcc_type !== dccFilter) return false;
       if (statusFilter !== ALL_STATUS && s.status !== statusFilter) return false;
       if (search.trim()) {
-        const hay = haystack(s.session_id, s.dcc_type, s.status, s.instance_id);
+        const hay = haystack(s.session_id, s.dcc_type, s.status, s.instance_id, s.agent_name, s.actor_name);
         if (!matchesListFilter(search, hay)) return false;
       }
       return true;
     });
   }, [flatNodes, dccFilter, statusFilter, search]);
 
-  function toggleExpand(id: string) {
-    setExpandedIds((prev) => {
+  function toggleCollapsed(id: string) {
+    setCollapsedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -250,14 +242,14 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
         const parent = flatNodes.find((n) => n.session.session_id === node.session.parent_session_id);
         if (!parent || !filtered.includes(parent)) {
           visible = false;
-        } else if (!expandedIds.has(parent.session.session_id)) {
+        } else if (collapsedIds.has(parent.session.session_id)) {
           visible = false;
         }
       }
       if (visible) ids.add(node.session.session_id);
     }
     return ids;
-  }, [filtered, expandedIds, flatNodes]);
+  }, [filtered, collapsedIds, flatNodes]);
 
   const displayNodes = useMemo(() => {
     return filtered.filter((node) => visibleNodeIds.has(node.session.session_id));
@@ -271,15 +263,26 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
         title={t('sessions.title')}
         meta={t('sessions.meta')}
         action={
-          <Button type="button" size="sm" disabled={isLoading} onClick={() => refetch()}>
-            <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-            {t('sessions.action.refresh')}
-          </Button>
+          <div className="table-actions">
+            <PanelTabs
+              value={tab}
+              tabs={[
+                { id: 'sessions', label: t('navigation.sessionsTab.sessions') },
+                { id: 'memory', label: t('navigation.sessionsTab.memory') },
+              ]}
+              ariaLabel={t('navigation.sessionsTab.meta')}
+              onValueChange={onTabChange}
+            />
+            <Button type="button" size="sm" disabled={isLoading} onClick={() => refetch()}>
+              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
+              {t('sessions.action.refresh')}
+            </Button>
+          </div>
         }
       />
 
       {/* ── KPI metrics ─────────────────────────────────────────────── */}
-      <div className="sessions-metrics">
+      <div className="sessions-metrics sessions-kpi-row">
         <MetricTile
           label={t('sessions.kpi.total')}
           value={data?.total ?? '-'}
@@ -287,22 +290,22 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
         <MetricTile
           tone="ok"
           label={t('sessions.kpi.active')}
-          value={data?.active ?? '-'}
+          value={data?.kpi.active ?? '-'}
         />
         <MetricTile
           label={t('sessions.kpi.ended')}
-          value={data?.ended ?? '-'}
+          value={data?.kpi.ended ?? '-'}
         />
         <MetricTile
           label={t('sessions.kpi.byDcc')}
-          value={data?.by_dcc ? Object.keys(data.by_dcc).length : '-'}
+          value={data?.kpi.by_dcc ? Object.keys(data.kpi.by_dcc).length : '-'}
         />
       </div>
 
       {/* ── DCC chips ───────────────────────────────────────────────── */}
-      {data?.by_dcc && Object.keys(data.by_dcc).length > 0 && (
+      {data?.kpi.by_dcc && Object.keys(data.kpi.by_dcc).length > 0 && (
         <div className="sessions-by-dcc">
-          {Object.entries(data.by_dcc).map(([dcc, count]) => (
+          {Object.entries(data.kpi.by_dcc).map(([dcc, count]) => (
             <span className="dcc-chip" key={dcc}>
               {dcc}: {count}
             </span>
@@ -342,7 +345,8 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
 
         <input
           type="text"
-          className="input"
+          className="input sessions-search-input"
+          data-testid="sessions-search"
           placeholder={t('sessions.filter.search')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -366,14 +370,14 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
 
       {/* ── session table ────────────────────────────────────────────── */}
       {!isLoading && !error && displayNodes.length > 0 && (
-        <table className="sessions-tree-table">
+        <table className="sessions-tree-table sessions-table">
           <thead>
             <tr>
               <th style={{ width: '22%' }}>{t('sessions.label.sessionId')}</th>
               <th style={{ width: '10%' }}>{t('sessions.label.dccType')}</th>
               <th style={{ width: '12%' }}>{t('sessions.label.status')}</th>
               <th style={{ width: '8%' }}>{t('sessions.label.toolCalls')}</th>
-              <th style={{ width: '8%' }}>{t('sessions.label.errors')}</th>
+              <th style={{ width: '8%' }}>{t('sessions.label.turns')}</th>
               <th style={{ width: '18%' }}>{t('sessions.label.startTime')}</th>
               <th style={{ width: '12%' }}>{t('sessions.label.duration')}</th>
               <th style={{ width: '10%' }}>{t('sessions.label.instanceId')}</th>
@@ -382,18 +386,17 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
           <tbody>
             {displayNodes.map((node) => {
               const s = node.session;
-              const isExpanded = expandedIds.has(s.session_id);
+              const isDetailOpen = detailId === s.session_id;
+              const isCollapsed = collapsedIds.has(s.session_id);
               const hasChildren = node.children.length > 0;
               const indentStr = node.depth > 0 ? '\u00A0\u00A0\u00A0'.repeat(node.depth) : '';
               const branchPrefix = node.depth > 0 ? '\u2514\u2500 ' : '';
-              const startedAt = new Date(s.started_at_ms).toISOString();
-              const lastActivityAt = new Date(s.last_activity_at_ms).toISOString();
+              const startedAt = s.started_at;
 
               return (
                 <Fragment key={s.session_id}>
                   <tr
-                    className={`session-tree-row ${node.depth > 0 ? 'child' : ''} ${isExpanded ? 'expanded' : ''}`}
-                    onClick={() => toggleExpand(s.session_id)}
+                    className={`session-tree-row sessions-row ${node.depth > 0 ? 'child' : ''} ${isDetailOpen ? 'expanded' : ''}`}
                   >
                     <td>
                       <span className="session-tree-indent">
@@ -401,12 +404,19 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
                           {indentStr}{branchPrefix}
                         </span>
                         <span className="session-id-cell">
-                          <code title={s.session_id}>{compactId(s.session_id)}</code>
+                          <button
+                            type="button"
+                            className="sessions-detail-btn"
+                            aria-expanded={isDetailOpen}
+                            onClick={() => setDetailId(isDetailOpen ? null : s.session_id)}
+                          >
+                            <code title={s.session_id}>{compactId(s.session_id)}</code>
+                          </button>
                         </span>
                         {hasChildren && (
-                          <Badge variant="outline" className="source-pill">
-                            {isExpanded ? '\u25BC' : '\u25B6'} {node.children.length}
-                          </Badge>
+                          <button type="button" className="sessions-tree-btn" aria-expanded={!isCollapsed} onClick={() => toggleCollapsed(s.session_id)}>
+                            {isCollapsed ? '\u25B6' : '\u25BC'} {node.children.length}
+                          </button>
                         )}
                         {!s.parent_session_id ? (
                           <Badge variant="outline" className="badge-muted">{t('sessions.badge.root')}</Badge>
@@ -421,9 +431,7 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
                     </td>
                     <td>{s.tool_call_count}</td>
                     <td>
-                      <span className={s.error_count > 0 ? 'badge badge-err' : ''}>
-                        {s.error_count > 0 ? s.error_count : '\u2014'}
-                      </span>
+                      {s.turn_count}
                     </td>
                     <td>
                       <time dateTime={startedAt} title={formatTime(startedAt)}>
@@ -437,8 +445,8 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
                   </tr>
 
                   {/* ── expanded detail row ─────────────────────────── */}
-                  {isExpanded && (
-                    <tr>
+                  {isDetailOpen && (
+                    <tr className="sessions-detail-row">
                       <td colSpan={8} className="session-expand-detail" style={{ padding: 0 }}>
                         <div className="detail-grid">
                           <span>
@@ -464,25 +472,35 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
                             {s.tool_call_count}
                           </span>
                           <span>
-                            <strong>{t('sessions.label.errors')}</strong>
-                            {s.error_count}
+                            <strong>{t('sessions.label.turns')}</strong>
+                            {s.turn_count}
                           </span>
                           <span>
                             <strong>{t('sessions.label.startTime')}</strong>
                             {formatTime(startedAt)}
                           </span>
                           <span>
-                            <strong>{t('sessions.label.lastActivity')}</strong>
-                            {formatTime(lastActivityAt)}
-                          </span>
-                          <span>
                             <strong>{t('sessions.label.endedAt')}</strong>
-                            {s.ended_at_ms ? formatTime(new Date(s.ended_at_ms).toISOString()) : '\u2014'}
+                            {s.ended_at ? formatTime(s.ended_at) : '\u2014'}
                           </span>
                           <span>
                             <strong>{t('sessions.label.duration')}</strong>
                             {formatDurationMs(sessionDurationMs(s))}
                           </span>
+                        </div>
+
+                        <div className="detail-section session-detail-actions">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onOpenMemory(s.session_id);
+                            }}
+                          >
+                            {t('sessions.action.viewMemory')}
+                          </Button>
                         </div>
 
                         {/* parent info */}
@@ -506,15 +524,7 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
                           <div className="detail-grid">
                             <span>
                               <strong>{t('sessions.label.coreVersion')}</strong>
-                              <code>{s.core_version}</code>
-                            </span>
-                            <span>
-                              <strong>{t('sessions.label.adapterVersion')}</strong>
-                              <code>{s.adapter_version ?? '\u2014'}</code>
-                            </span>
-                            <span>
-                              <strong>{t('sessions.label.buildSha')}</strong>
-                              <code>{s.build_sha ?? '\u2014'}</code>
+                              <code>{s.version ?? '\u2014'}</code>
                             </span>
                           </div>
                         </div>
@@ -524,8 +534,7 @@ export function SessionsPanel({ active, t }: { active: boolean; t: Translator })
                           <div className="detail-section">
                             <div className="detail-section-title">{t('sessions.label.endReason')}</div>
                             <div className="end-reason-detail">
-                              <strong>{endReasonKind(s.end_reason)}:</strong>{' '}
-                              <code>{endReasonLabel(s.end_reason)}</code>
+                              <code>{s.end_reason}</code>
                             </div>
                           </div>
                         )}

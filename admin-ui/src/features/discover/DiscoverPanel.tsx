@@ -1,4 +1,6 @@
 import type { InterpolationValues, MessageKey } from '../../i18n';
+import { PanelTabs } from '../../admin-ui-core';
+import { PanelSearchBar } from '../../components/PanelSearchBar';
 import { SkillsPanel } from '../skills';
 import { MarketplacePanel } from '../marketplace';
 import { IntegrationsPanel } from '../integrations';
@@ -11,6 +13,9 @@ export type DiscoverPanelProps = {
   active: boolean;
   discoverTab: DiscoverTab;
   search: string;
+  searchPlaceholder: string;
+  searchAriaLabel: string;
+  onSearchChange: (value: string) => void;
   onTabChange: (tab: DiscoverTab) => void;
   // SkillsPanel props
   skillUpdatedAt: string;
@@ -49,6 +54,9 @@ export function DiscoverPanel({
   active,
   discoverTab,
   search,
+  searchPlaceholder,
+  searchAriaLabel,
+  onSearchChange,
   onTabChange,
   skillUpdatedAt,
   skillError,
@@ -76,20 +84,22 @@ export function DiscoverPanel({
 
   return (
     <section className="panel active discover-panel" data-panel="discover">
-      <nav className="discover-tabs" role="tablist" aria-label={t('navigation.discoverTab.meta')}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={discoverTab === tab.id ? 'discover-tab active' : 'discover-tab'}
-            role="tab"
-            aria-selected={discoverTab === tab.id}
-            type="button"
-            onClick={() => onTabChange(tab.id)}
-          >
-            {t(tab.labelKey as MessageKey)}
-          </button>
-        ))}
-      </nav>
+      <div className="discover-toolbar">
+        <PanelTabs
+          value={discoverTab}
+          tabs={TABS.map((tab) => ({ id: tab.id, label: t(tab.labelKey as MessageKey) }))}
+          ariaLabel={t('navigation.discoverTab.meta')}
+          onValueChange={onTabChange}
+        />
+        <PanelSearchBar
+          panel="discover"
+          discoverTab={discoverTab}
+          placeholder={searchPlaceholder}
+          value={search}
+          ariaLabel={searchAriaLabel}
+          onChange={onSearchChange}
+        />
+      </div>
       <SkillsPanel
         active={active && discoverTab === 'skills'}
         search={search}

@@ -1,17 +1,18 @@
 import { RiRefreshLine } from '@remixicon/react';
-import { PanelHeader, StatusLine, MetricTile } from '../../admin-ui-core';
+import { PanelHeader, PanelTabs, StatusLine, MetricTile } from '../../admin-ui-core';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { apiJson } from '../../admin-ui-core';
 import type { Translator } from '../../admin-types';
 import type { HealthPayload, InstanceRow, StatsPayload, SkillPayload, ReliabilityPayload } from '../../admin-types';
+import type { ReliabilityTab } from '../../navigation';
 import './reliability.css';
 
 const POLL_INTERVAL_MS = 5_000;
 
 type ArtifactsPayload = {
-  total: number;
+  total?: number;
   artifacts: Array<{
     uri: string;
     display_name?: string | null;
@@ -19,7 +20,11 @@ type ArtifactsPayload = {
     correlation_id?: string | null;
     verification?: { status?: string | null };
   }>;
-  summary: { verified: number; unverified: number; failed: number };
+  summary?: { verified: number; unverified: number; failed: number };
+};
+
+type InstancesPayload = {
+  instances: InstanceRow[];
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -62,7 +67,17 @@ function toneForRatio(ready: number, total: number): 'ok' | 'warn' | 'err' {
 
 // ── main component ────────────────────────────────────────────────────────
 
-export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator }) {
+export function ReliabilityPanel({
+  active,
+  tab,
+  onTabChange,
+  t,
+}: {
+  active: boolean;
+  tab: ReliabilityTab;
+  onTabChange: (tab: ReliabilityTab) => void;
+  t: Translator;
+}) {
   const healthQuery = useQuery({
     queryKey: ['admin', 'health'],
     queryFn: () => apiJson<HealthPayload>(`/health`),
@@ -72,7 +87,8 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
 
   const instancesQuery = useQuery({
     queryKey: ['admin', 'instances'],
-    queryFn: () => apiJson<InstanceRow[]>(`/instances`),
+    queryFn: () => apiJson<InstancesPayload>(`/instances`),
+    select: (payload) => payload.instances ?? [],
     enabled: active,
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
@@ -137,7 +153,7 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
   const reliability = reliabilityQuery.data;
   const artifacts = artifactsQuery.data;
 
-  const isLoading = healthQuery.isLoading || instancesQuery.isLoading || skillsQuery.isLoading || statsQuery.isLoading || artifactsQuery.isLoading;
+  const isLoading = healthQuery.isLoading || instancesQuery.isLoading || skillsQuery.isLoading || statsQuery.isLoading || reliabilityQuery.isLoading || artifactsQuery.isLoading;
 
   // ── aggregated data ─────────────────────────────────────────────────────
 
@@ -184,14 +200,25 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
       <PanelHeader
         title={t('reliability.title')}
         action={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleRefresh}
-            aria-label="Refresh"
-          >
-            <RiRefreshLine className={isLoading ? 'spin' : ''} />
-          </Button>
+          <div className="table-actions">
+            <PanelTabs
+              value={tab}
+              tabs={[
+                { id: 'status', label: t('navigation.reliabilityTab.status') },
+                { id: 'policy', label: t('navigation.reliabilityTab.policy') },
+              ]}
+              ariaLabel={t('navigation.reliabilityTab.meta')}
+              onValueChange={onTabChange}
+            />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleRefresh}
+              aria-label={t('action.refresh')}
+            >
+              <RiRefreshLine className={isLoading ? 'spin' : ''} />
+            </Button>
+          </div>
         }
       />
 
@@ -319,16 +346,16 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
             <div className="reliability-grid">
               <MetricTile
                 label={t('reliability.metric.buildsVerified')}
-                value={artifacts?.summary.verified ?? 0}
+                value={artifacts?.summary?.verified ?? 0}
               />
               <MetricTile
                 label={t('reliability.metric.buildsTotal')}
                 value={artifacts?.total ?? 0}
               />
               <MetricTile
-                tone={(artifacts?.summary.failed ?? 0) > 0 ? 'err' : 'ok'}
+                tone={(artifacts?.summary?.failed ?? 0) > 0 ? 'err' : 'ok'}
                 label={t('reliability.metric.verificationErrors')}
-                value={artifacts?.summary.failed ?? 0}
+                value={artifacts?.summary?.failed ?? 0}
               />
             </div>
             {artifacts?.artifacts.length ? (
@@ -356,17 +383,17 @@ export function ReliabilityPanel({ active, t }: { active: boolean; t: Translator
               <MetricTile
                 tone={crashes24h > 0 ? 'warn' : 'ok'}
                 label={t('reliability.metric.crashes')}
-                value={crashes24h || '—'}
+                value={crashes24h}
               />
               <MetricTile
                 tone={reconnects24h > 0 ? 'warn' : 'ok'}
                 label={t('reliability.metric.reconnects')}
-                value={reconnects24h || '—'}
+                value={reconnects24h}
               />
               <MetricTile
                 tone={recoveries24h > 0 ? 'ok' : undefined}
                 label={t('reliability.metric.recoveries')}
-                value={recoveries24h || '—'}
+                value={recoveries24h}
               />
               <MetricTile
                 tone={uptimeTone}

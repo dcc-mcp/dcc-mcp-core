@@ -280,7 +280,7 @@ export function statusClass(value: string): string {
   if (status.includes('fail') || status.includes('error') || status.includes('err') || status.includes('rejected') || status.includes('cancel') || status.includes('unavailable') || status.includes('unreachable')) {
     return 'badge badge-err';
   }
-  if (status.includes('ok') || status.includes('success') || status.includes('complete') || status.includes('completed') || status.includes('done') || status.includes('ready') || status.includes('available')) {
+  if (status.includes('ok') || status.includes('success') || status.includes('pass') || status.includes('complete') || status.includes('completed') || status.includes('done') || status.includes('ready') || status.includes('available')) {
     return 'badge badge-ok';
   }
   if (status.includes('stale') || status.includes('booting') || status.includes('warn') || status.includes('zero') || status.includes('pending') || status.includes('running') || status.includes('busy') || status.includes('queued')) {
@@ -363,6 +363,35 @@ export function PanelHeader({ title, meta, action }: { title: string; meta?: str
   );
 }
 
+export function PanelTabs<T extends string>({
+  value,
+  tabs,
+  ariaLabel,
+  onValueChange,
+}: {
+  value: T;
+  tabs: readonly { id: T; label: string }[];
+  ariaLabel: string;
+  onValueChange: (value: T) => void;
+}) {
+  return (
+    <nav className="overview-tabs" role="tablist" aria-label={ariaLabel}>
+      {tabs.map((tab) => (
+        <button
+          className={value === tab.id ? 'discover-tab active' : 'discover-tab'}
+          key={tab.id}
+          role="tab"
+          type="button"
+          aria-selected={value === tab.id}
+          onClick={() => onValueChange(tab.id)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export function NavIcon({ panel }: { panel: Panel }) {
   const icons: Record<Panel, string[]> = {
     setup: ['M5 12h10', 'M13 8l4 4-4 4', 'M4 5h16v14H4z'],
@@ -372,6 +401,7 @@ export function NavIcon({ panel }: { panel: Panel }) {
     instances: ['M6 7h12v10H6z', 'M9 4h6', 'M9 20h6'],
     tools: ['M5 19l5-5', 'M14 5l5 5', 'M12 7l5 5-5 5-5-5z'],
     workflows: ['M5 6h4v4H5z', 'M15 6h4v4h-4z', 'M5 15h4v4H5z', 'M9 8h6', 'M7 10v5'],
+    experiments: ['M8 3h8', 'M10 3v5l-5 10h14L14 8V3', 'M8 14h8'],
     tasks: ['M6 7h12', 'M6 12h12', 'M6 17h12', 'M4 7h.01', 'M4 12h.01', 'M4 17h.01'],
     calls: ['M7 7h10v10H7z', 'M10 10h4v4h-4z'],
     traces: ['M5 7h4v4H5z', 'M15 13h4v4h-4z', 'M9 9l6 6'],

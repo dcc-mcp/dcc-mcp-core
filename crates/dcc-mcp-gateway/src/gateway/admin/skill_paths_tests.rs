@@ -295,6 +295,11 @@ async fn test_admin_memory_lists_stats_and_forgets_rows() {
     assert_eq!(body["summary"]["fail_count"], 1);
     assert_eq!(body["summary"]["hit_rate_pct"].as_f64().unwrap(), 75.0);
 
+    let (status, empty_body) =
+        body_json(router.clone(), "/api/memory?session_id=missing-session").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(empty_body["summary"]["total"], 0);
+
     let id = body["memory"][0]["id"].as_i64().unwrap();
     let resp = router
         .clone()

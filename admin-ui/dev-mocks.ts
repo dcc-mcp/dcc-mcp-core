@@ -36,15 +36,15 @@ const SESSIONS_PAYLOAD = {
       dcc_type: 'maya',
       instance_id: 'maya-instance-1',
       status: 'active',
-      started_at_ms: NOW_MS - 3600000,
-      last_activity_at_ms: NOW_MS,
-      ended_at_ms: null,
+      started_at: new Date(NOW_MS - 3600000).toISOString(),
+      ended_at: null,
+      duration_ms: null,
       end_reason: null,
+      turn_count: 12,
       tool_call_count: 42,
-      error_count: 2,
-      core_version: '0.19.60',
-      adapter_version: '0.5.0',
-      build_sha: 'abc123',
+      version: '0.19.60',
+      agent_name: 'Scene Builder',
+      actor_name: 'hallong',
     },
     {
       session_id: 'child-session-1',
@@ -52,15 +52,15 @@ const SESSIONS_PAYLOAD = {
       dcc_type: 'maya',
       instance_id: 'maya-instance-1',
       status: 'ended',
-      started_at_ms: NOW_MS - 1800000,
-      last_activity_at_ms: NOW_MS - 600000,
-      ended_at_ms: NOW_MS - 600000,
-      end_reason: { normal: null },
+      started_at: new Date(NOW_MS - 1800000).toISOString(),
+      ended_at: new Date(NOW_MS - 600000).toISOString(),
+      duration_ms: 1200000,
+      end_reason: 'completed',
+      turn_count: 5,
       tool_call_count: 15,
-      error_count: 0,
-      core_version: '0.19.60',
-      adapter_version: '0.5.0',
-      build_sha: null,
+      version: '0.19.60',
+      agent_name: 'Review Agent',
+      actor_name: 'hallong',
     },
     {
       session_id: 'crashed-session',
@@ -68,22 +68,150 @@ const SESSIONS_PAYLOAD = {
       dcc_type: 'blender',
       instance_id: 'blender-instance-2',
       status: 'crashed',
-      started_at_ms: NOW_MS - 7200000,
-      last_activity_at_ms: NOW_MS - 7000000,
-      ended_at_ms: NOW_MS - 7000000,
-      end_reason: { host_crash: { detail: 'segfault in render thread' } },
+      started_at: new Date(NOW_MS - 7200000).toISOString(),
+      ended_at: new Date(NOW_MS - 7000000).toISOString(),
+      duration_ms: 200000,
+      end_reason: 'segfault in render thread',
+      turn_count: 3,
       tool_call_count: 8,
-      error_count: 8,
-      core_version: '0.19.59',
-      adapter_version: null,
-      build_sha: null,
+      version: '0.19.59',
+      agent_name: 'Render Agent',
+      actor_name: 'operator',
     },
   ],
   total: 3,
-  active: 1,
-  ended: 2,
-  by_dcc: { maya: 2, blender: 1 },
-  by_status: { active: 1, ended: 1, crashed: 1 },
+  kpi: {
+    total: 3,
+    active: 1,
+    ended: 1,
+    crashed: 1,
+    by_dcc: { maya: 2, blender: 1 },
+  },
+};
+
+const MEMORY_ROWS = [
+  {
+    id: 1,
+    layer: 'working',
+    key: 'tool_call:maya-scene__build_reference',
+    session_id: 'session-reference',
+    dcc_name: 'maya',
+    score: 1,
+    created_unix_secs: Math.floor((NOW_MS - 4_900_000) / 1000),
+    payload: { tool_name: 'maya-scene__build_reference', ok: true },
+  },
+  {
+    id: 2,
+    layer: 'longterm',
+    key: 'pattern:scene-fidelity:camera-evidence',
+    session_id: 'longterm',
+    dcc_name: 'blender',
+    score: -1,
+    created_unix_secs: Math.floor((NOW_MS - 1_700_000) / 1000),
+    payload: { ok_count: 0, fail_count: 1, reason: 'camera evidence diverged' },
+  },
+];
+
+function memoryPayload(requestUrl: URL) {
+  const layer = requestUrl.searchParams.get('layer');
+  const dccName = requestUrl.searchParams.get('dcc_name');
+  const sessionId = requestUrl.searchParams.get('session_id');
+  const keyPrefix = requestUrl.searchParams.get('key_prefix');
+  const memory = MEMORY_ROWS.filter((row) =>
+    (!layer || row.layer === layer)
+    && (!dccName || row.dcc_name === dccName)
+    && (!sessionId || row.session_id === sessionId)
+    && (!keyPrefix || row.key.startsWith(keyPrefix)),
+  );
+  const okCount = memory.reduce((total, row) => total + Number(row.payload.ok_count ?? (row.payload.ok === true ? 1 : 0)), 0);
+  const failCount = memory.reduce((total, row) => total + Number(row.payload.fail_count ?? (row.payload.ok === false ? 1 : 0)), 0);
+  return {
+    enabled: true,
+    memory,
+    summary: {
+      total: memory.length,
+      by_dcc: Object.fromEntries([...new Set(memory.map((row) => row.dcc_name))].map((dcc) => [dcc, memory.filter((row) => row.dcc_name === dcc).length])),
+      positive: memory.filter((row) => row.score > 0).length,
+      negative: memory.filter((row) => row.score < 0).length,
+      ok_count: okCount,
+      fail_count: failCount,
+      hit_rate_pct: okCount + failCount > 0 ? (okCount / (okCount + failCount)) * 100 : null,
+    },
+  };
+}
+
+const EXPERIMENT = {
+  experiment_id: 'exp-cross-dcc-fidelity',
+  name: 'Cross-DCC Scene Fidelity',
+  description: 'Replay the same scene-building intent across Maya and Blender, then compare deterministic evidence.',
+  scenario_id: 'scene-fidelity-v1',
+  workflow_id: 'workflow-scene-fidelity',
+  recording_id: 'recording-reference-042',
+  created_at_ms: NOW_MS - 5400000,
+  tags: ['maya', 'blender', 'replay'],
+};
+
+const EXPERIMENT_RUNS = [
+  {
+    run_id: 'run-reference',
+    session_id: 'session-reference',
+    parent_run_id: null,
+    status: 'passed',
+    created_at_ms: NOW_MS - 5000000,
+    parameters: { label: 'Reference capture', dcc_type: 'maya', seed: 17 },
+    metrics: { tool_calls: 18, duration_ms: 9420 },
+    evidence: ['artifact://reference-scene', 'artifact://reference-render'],
+  },
+  {
+    run_id: 'run-maya-baseline',
+    session_id: 'session-maya-baseline',
+    parent_run_id: 'run-reference',
+    status: 'passed',
+    created_at_ms: NOW_MS - 3600000,
+    parameters: { label: 'Maya baseline', dcc_type: 'maya', seed: 17 },
+    metrics: { tool_calls: 16, duration_ms: 8100 },
+    evidence: ['artifact://maya-scene', 'artifact://maya-render'],
+  },
+  {
+    run_id: 'run-blender-replay',
+    session_id: 'session-blender-replay',
+    parent_run_id: 'run-reference',
+    status: 'failed',
+    created_at_ms: NOW_MS - 1800000,
+    parameters: { label: 'Blender replay', dcc_type: 'blender', seed: 17 },
+    metrics: { tool_calls: 14, duration_ms: 7340 },
+    evidence: ['artifact://blender-scene', 'artifact://blender-render'],
+  },
+];
+
+const EXPERIMENT_DETAIL = {
+  experiment: EXPERIMENT,
+  runs: EXPERIMENT_RUNS,
+  session_dag: {
+    nodes: EXPERIMENT_RUNS,
+    edges: [
+      { from: 'run-reference', to: 'run-maya-baseline' },
+      { from: 'run-reference', to: 'run-blender-replay' },
+    ],
+  },
+  judge_results: [
+    {
+      run_id: 'run-blender-replay',
+      evaluator_id: 'scene-quality',
+      evaluator_version: '1',
+      status: 'failed',
+      scores: { fidelity: 0.72, topology: 0.91 },
+      summary: 'Topology is valid; material and camera evidence diverge from the reference run.',
+      authority: 'evidence_only',
+      duration_ms: 1280,
+      evidence: ['artifact://blender-render', 'artifact://reference-render'],
+    },
+  ],
+  metrics: {
+    runs: { total: 3, passed: 2, failed: 1 },
+    judges: { total: 1, failed: 1 },
+  },
+  events: [],
 };
 
 type BrandingMock = { accent_color?: string; emoji?: string; tagline?: string };
@@ -515,37 +643,62 @@ const CALLS = [
 
 const TRACES = [
   {
-    timestamp: NOW,
-    request_id: 'req-123',
-    tool: 'maya-dev__create_sphere',
+    timestamp: new Date(NOW_MS - 5_000_000).toISOString(),
+    request_id: 'req-reference-capture',
+    tool: 'maya-scene__build_reference',
     dcc_type: 'maya',
     status: 'ok',
     success: true,
-    total_ms: 48,
+    total_ms: 9420,
+    session_id: 'session-reference',
     instance_id: 'maya-1234567890',
-    span_count: 3,
-    input_tokens: 24,
-    output_tokens: 16,
-    total_tokens: 40,
+    span_count: 4,
+    input_tokens: 1840,
+    output_tokens: 620,
+    total_tokens: 2460,
     payload_token_estimator: 'dcc-mcp-byte4-v1',
     slowest_span_name: 'backend.dispatch',
     slowest_span_ms: 36,
     token_accounting: CALLS[0].token_accounting,
-    agent_name: 'Dev Admin UI',
-    agent_model: 'gpt-dev',
+    actor_name: 'hallong',
+    agent_name: 'CLI',
+    agent_model: 'dcc-agent',
   },
   {
-    timestamp: NOW,
-    request_id: 'req-slow',
-    tool: 'houdini-dev__render_preview',
-    dcc_type: 'houdini',
+    timestamp: new Date(NOW_MS - 3_600_000).toISOString(),
+    request_id: 'req-maya-baseline',
+    tool: 'maya-scene__replay_baseline',
+    dcc_type: 'maya',
+    status: 'ok',
+    success: true,
+    total_ms: 8100,
+    session_id: 'session-maya-baseline',
+    instance_id: 'maya-1234567890',
+    span_count: 4,
+    input_tokens: 1560,
+    output_tokens: 540,
+    total_tokens: 2100,
+    actor_name: 'hallong',
+    agent_name: 'CLI',
+  },
+  {
+    timestamp: new Date(NOW_MS - 1_800_000).toISOString(),
+    request_id: 'req-blender-replay',
+    tool: 'blender-scene__replay_reference',
+    dcc_type: 'blender',
     status: 'failed',
     success: false,
-    total_ms: 3200,
-    instance_id: 'houdini-abcdef1234',
-    span_count: 2,
-    slowest_span_name: 'host_rpc.connect',
-    slowest_span_ms: 3000,
+    total_ms: 7340,
+    session_id: 'session-blender-replay',
+    instance_id: 'blender-abcdef1234',
+    span_count: 4,
+    input_tokens: 1490,
+    output_tokens: 280,
+    total_tokens: 1770,
+    slowest_span_name: 'judge.compare_evidence',
+    slowest_span_ms: 3200,
+    actor_name: 'hallong',
+    agent_name: 'CLI',
   },
 ];
 
@@ -559,14 +712,16 @@ const TRACE_DETAIL = {
   total_ms: 48,
   ok: true,
   spans: [
-    { name: 'gateway.received', started_ns: 0, duration_ns: 2_000_000, ok: true },
-    { name: 'gateway.route', started_ns: 2_000_000, duration_ns: 10_000_000, ok: true },
-    { name: 'backend.dispatch', started_ns: 12_000_000, duration_ns: 36_000_000, ok: true },
+    { name: 'gateway.received', started_ns: 0, duration_ns: 120_000_000, ok: true },
+    { name: 'skill.resolve', started_ns: 120_000_000, duration_ns: 480_000_000, ok: true },
+    { name: 'backend.dispatch', started_ns: 600_000_000, duration_ns: 7_540_000_000, ok: true },
+    { name: 'evidence.capture', started_ns: 8_140_000_000, duration_ns: 1_280_000_000, ok: true },
   ],
   agent_context: {
     agent_name: 'Dev Admin UI',
     client_platform: 'vite',
-    session_id: 'session-dev',
+    actor_name: 'hallong',
+    session_id: 'session-reference',
     source_ip: '127.0.0.1',
     task: 'Create a sphere in the active Maya scene.',
     user_intent_summary: 'Validate a simple DCC tool call from the admin trace.',
@@ -583,14 +738,14 @@ const TRACE_DETAIL = {
     agent_reply_summary: 'Created pSphere1 and returned a compact success payload.',
   },
   input: {
-    content: '{"radius":1}',
+    content: '{"messages":[{"role":"system","content":"Execute the recorded scene scenario deterministically."},{"role":"user","content":"Replay the reference scene and preserve evidence."},{"role":"assistant","content":"I will resolve the scene skill and dispatch the recorded steps."}]}',
     mime_type: 'application/json',
     truncated: false,
-    original_size: 12,
-    estimated_tokens: 3,
+    original_size: 268,
+    estimated_tokens: 67,
   },
   output: {
-    content: '{"ok":true,"object":"pSphere1"}',
+    content: '{"ok":true,"artifacts":["artifact://reference-scene","artifact://reference-render"]}',
     mime_type: 'application/json',
     truncated: false,
     original_size: 31,
@@ -1229,6 +1384,8 @@ export function adminApiMockPlugin(): Plugin {
         if (url.startsWith('/health')) return send(res, 200, HEALTH);
         if (url.startsWith('/activity')) return send(res, 200, ACTIVITY_PAYLOAD);
         if (url.startsWith('/governance')) return send(res, 200, GOVERNANCE_PAYLOAD);
+        if (pathname === '/memory/forget') return send(res, 200, { ok: true });
+        if (url.startsWith('/memory')) return send(res, 200, memoryPayload(requestUrl));
         if (url.startsWith('/workers')) return send(res, 200, WORKERS_PAYLOAD);
         if (url.startsWith('/tools')) return send(res, 200, TOOLS_PAYLOAD);
         if (url.startsWith('/calls')) {
@@ -1236,10 +1393,26 @@ export function adminApiMockPlugin(): Plugin {
         }
         if (pathname.startsWith('/traces/') && pathname.length > '/traces/'.length) {
           const requestId = decodeURIComponent(pathname.slice('/traces/'.length));
+          const trace = TRACES.find((row) => row.request_id === requestId) ?? TRACES[0];
           return send(res, 200, {
             ...TRACE_DETAIL,
             request_id: requestId || TRACE_DETAIL.request_id,
             trace_id: `trace-${requestId || 'req-123'}`,
+            tool_slug: trace.tool,
+            dcc_type: trace.dcc_type,
+            instance_id: trace.instance_id,
+            session_id: trace.session_id,
+            started_at: trace.timestamp,
+            total_ms: trace.total_ms,
+            ok: trace.success,
+            input_tokens: trace.input_tokens,
+            output_tokens: trace.output_tokens,
+            total_tokens: trace.total_tokens,
+            agent_context: {
+              ...TRACE_DETAIL.agent_context,
+              session_id: trace.session_id,
+              actor_name: trace.actor_name,
+            },
           });
         }
         if (url.startsWith('/traces')) {
@@ -1504,6 +1677,12 @@ export function adminApiMockPlugin(): Plugin {
             },
             instances: [],
           });
+        }
+        if (pathname.startsWith('/experiments/') && pathname.length > '/experiments/'.length) {
+          return send(res, 200, EXPERIMENT_DETAIL);
+        }
+        if (url.startsWith('/experiments')) {
+          return send(res, 200, { total: 1, experiments: [EXPERIMENT] });
         }
         if (url.startsWith('/sessions')) return send(res, 200, SESSIONS_PAYLOAD);
         if (url.startsWith('/events')) return send(res, 200, { status: 'connected' });

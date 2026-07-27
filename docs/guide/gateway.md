@@ -816,6 +816,8 @@ Gateway-native diagnostics are always available as MCP **resources**
 | `gateway://diagnostics/process` | Gateway process metadata plus live/stale/unhealthy instance counts. Optional `?dcc_type=<type>` filter. |
 | `gateway://diagnostics/audit` | Gateway pending-call and subscription summary |
 | `gateway://diagnostics/metrics` | Gateway-local tool count, live backend count, and timeout settings |
+| `gateway://experiments` | Reproducible experiment summaries; append `/{experiment_id}` for runs, Session DAG links, metrics, and evidence-only Judge results. |
+| `gateway://governance` | Effective policy, capture/redaction state, quota pressure, and recent governance decisions. |
 
 Backend diagnostics tools remain available as normal prefixed instance tools
 when a DCC exposes them.
@@ -979,7 +981,7 @@ unconditional surface:
 
 | Surface | What appears in `tools/list` | Agent workflow |
 |---------|------------------------------|----------------|
-| Gateway MCP | Fixed workflow primitives: `search`, `describe`, `load_skill`, `call`. Instance registry, diagnostics, catalog, and the **agent workflow guide** are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`, `gateway://docs/agent-workflows`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search` → `describe`), optional `load_skill` from `next_step.arguments`, then `call` with one `tool_slug` or an ordered `calls` batch. Optional: `resources/read uri=gateway://docs/agent-workflows` for MCP+resources+efficiency guidance |
+| Gateway MCP | Fixed workflow primitives: `search`, `describe`, `load_skill`, `call`. Instance registry, diagnostics, experiments, governance, catalog, and the **agent workflow guide** are gateway-native resources read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search` → `describe`), optional `load_skill` from `next_step.arguments`, then `call` with one `tool_slug` or an ordered `calls` batch. Read `gateway://experiments` and `gateway://governance` for agent observability. |
 | Gateway REST | `/v1/search`, `/v1/load_skill`, `/v1/unload_skill`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → optional `/v1/load_skill` from `next_step.arguments` → `/v1/describe` → `/v1/call` (or `POST /v1/call_batch` for ordered batches); use resources/prompts/jobs routes for non-tool MCP primitives |
 | Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 
@@ -1043,7 +1045,8 @@ backend JSON-RPC: `GET /v1/resources`, `GET /v1/resources/{uri}`,
 
 1. Call `resources/list` on the gateway.
 2. Treat every returned URI as opaque. Gateway-native resources use
-   `gateway://instances`, `gateway://diagnostics/*`, and `gateway://catalog`.
+   `gateway://instances`, `gateway://diagnostics/*`, `gateway://experiments`,
+   `gateway://governance`, and `gateway://catalog`.
    Forwarded backend resources use a gateway-routable prefix so reads and
    subscriptions can find the owning backend.
 3. `resources/list` only emits root pointers for gateway-native families; it

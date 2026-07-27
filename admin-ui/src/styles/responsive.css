@@ -129,6 +129,17 @@
     white-space: normal;
   }
 
+  .discover-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .discover-toolbar .list-search-wrap {
+    max-width: none;
+  }
+
   .panel-header {
     flex-direction: column;
     gap: 0.6rem;

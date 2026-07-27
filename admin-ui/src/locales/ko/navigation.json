@@ -44,5 +44,11 @@
   "overviewTab.meta": "개요",
   "tracesTab.traces": "트레이스",
   "tracesTab.calls": "호출",
-  "tracesTab.meta": "트레이스"
+  "tracesTab.meta": "트레이스",
+  "sessionsTab.sessions": "세션",
+  "sessionsTab.memory": "컨텍스트",
+  "sessionsTab.meta": "세션 작업 영역",
+  "reliabilityTab.status": "상태",
+  "reliabilityTab.policy": "정책",
+  "reliabilityTab.meta": "신뢰성 작업 영역"
 }

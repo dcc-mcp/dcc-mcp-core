@@ -426,7 +426,7 @@ fn default_postcondition(query: &Value) -> Value {
     Value::Object(condition)
 }
 
-fn caller_session(headers: &HeaderMap) -> Option<String> {
+pub(super) fn caller_session(headers: &HeaderMap) -> Option<String> {
     AgentContext::from_request_parts_with_server_network(headers, None, None)
         .and_then(|context| context.session_id)
         .filter(|value| !value.trim().is_empty() && value.len() <= 256)
