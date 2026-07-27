@@ -82,6 +82,8 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
             "install",
             "--dcc-type",
             "maya",
+            "--version",
+            "0.11.2",
             "--python",
             "C:/Autodesk/Maya2026/bin/mayapy.exe",
         ],
@@ -95,6 +97,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
     assert_eq!(plan["steps"][0]["name"], "install-pip");
     assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
     assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-maya");
+    assert_eq!(plan["steps"][0]["action"]["version"], "0.11.2");
     assert_eq!(
         plan["steps"][0]["action"]["python"],
         "C:/Autodesk/Maya2026/bin/mayapy.exe"

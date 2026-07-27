@@ -80,6 +80,9 @@ pub enum InstallStepAction {
     PipInstall {
         /// Pip package name (e.g. "dcc-mcp-maya").
         package: String,
+        /// Optional exact package version requested by the user.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
         /// Optional pip extras (e.g. ["maya"]).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         extras: Option<Vec<String>>,
@@ -170,9 +173,13 @@ impl InstallPlanner {
         let version = request.version.clone();
 
         let steps = match &adapter.install {
-            Some(install) => {
-                Self::build_executable_steps(&adapter, install, &dcc_type, request.python.clone())
-            }
+            Some(install) => Self::build_executable_steps(
+                &adapter,
+                install,
+                &dcc_type,
+                version.clone(),
+                request.python.clone(),
+            ),
             None => Self::build_info_steps(),
         };
 
@@ -193,6 +200,7 @@ impl InstallPlanner {
         entry: &CatalogEntry,
         install: &CatalogInstall,
         dcc_type: &str,
+        version: Option<String>,
         python_override: Option<String>,
     ) -> Vec<InstallStep> {
         let adapter_dir = default_adapter_dir().join(&entry.name);
@@ -206,6 +214,7 @@ impl InstallPlanner {
                         .pip_package
                         .clone()
                         .unwrap_or_else(|| entry.name.clone()),
+                    version,
                     extras: install.pip_extras.clone(),
                     python,
                 }
@@ -622,11 +631,13 @@ mod tests {
         ));
         if let Some(InstallStepAction::PipInstall {
             package,
+            version,
             extras,
             python,
         }) = &plan.steps[0].action
         {
             assert_eq!(package, "dcc-mcp-maya");
+            assert_eq!(version, &None);
             assert_eq!(extras.as_deref(), Some(&["maya".into()][..]));
             assert_eq!(python.as_deref(), Some("/usr/bin/mayapy"));
         } else {
