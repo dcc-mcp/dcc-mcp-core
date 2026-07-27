@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.83](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.82...v0.19.83) (2026-07-27)
+
+
+### Bug Fixes
+
+* **catalog:** report current Unity adapter version ([#2095](https://github.com/dcc-mcp/dcc-mcp-core/issues/2095)) ([75f2a3f](https://github.com/dcc-mcp/dcc-mcp-core/commit/75f2a3f0baa595c8886a88fdbba878f271f28a4f))
+* **cli:** allow confirmed non-interactive installs ([#2093](https://github.com/dcc-mcp/dcc-mcp-core/issues/2093)) ([6ca63db](https://github.com/dcc-mcp/dcc-mcp-core/commit/6ca63dbcd2f482ea749f1d70ce5f9f6649cdbb0f))
+* **cli:** pin requested adapter versions ([#2094](https://github.com/dcc-mcp/dcc-mcp-core/issues/2094)) ([dd6c0f7](https://github.com/dcc-mcp/dcc-mcp-core/commit/dd6c0f7b8812928ffd1924e795d94ee55888487f))
+
+
+### Performance Improvements
+
+* streamline capability discovery ([6caee25](https://github.com/dcc-mcp/dcc-mcp-core/commit/6caee252760be77ce1e3a484590b468d5e217193))
+
 ## [0.19.82](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.81...v0.19.82) (2026-07-26)
 
 
