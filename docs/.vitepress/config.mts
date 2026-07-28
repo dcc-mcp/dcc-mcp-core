@@ -1,11 +1,35 @@
 import { defineConfig } from 'vitepress'
 
+const siteUrl = 'https://dcc-mcp.github.io/dcc-mcp-core/'
+
 export default defineConfig({
   title: 'DCC-MCP-Core',
   description: 'Production-grade MCP + Skills foundation for AI-assisted DCC workflows',
   base: '/dcc-mcp-core/',
   cleanUrls: true,
   lastUpdated: true,
+  sitemap: {
+    hostname: siteUrl,
+  },
+
+  transformPageData(pageData) {
+    const canonicalUrl = `${siteUrl}${pageData.relativePath}`
+      .replace(/index\.md$/, '')
+      .replace(/\.md$/, '')
+    const title = pageData.frontmatter.layout === 'home'
+      ? 'DCC-MCP-Core'
+      : `${pageData.title} | DCC-MCP-Core`
+
+    pageData.frontmatter.head ??= []
+    pageData.frontmatter.head.push(
+      ['link', { rel: 'canonical', href: canonicalUrl }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: pageData.description }],
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:url', content: canonicalUrl }],
+      ['meta', { name: 'twitter:card', content: 'summary' }],
+    )
+  },
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/dcc-mcp-core/logo.svg' }],
@@ -23,7 +47,7 @@ export default defineConfig({
           {
             text: 'v0.19.85', // x-release-please-version
             items: [
-              { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
+              { text: 'Changelog', link: 'https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
             ]
           }
@@ -208,7 +232,7 @@ export default defineConfig({
           {
             text: 'v0.19.85', // x-release-please-version
             items: [
-              { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
+              { text: '更新日志', link: 'https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
             ]
           }
@@ -386,7 +410,7 @@ export default defineConfig({
   themeConfig: {
     logo: '/logo.svg',
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/loonghao/dcc-mcp-core' }
+      { icon: 'github', link: 'https://github.com/dcc-mcp/dcc-mcp-core' }
     ],
     footer: {
       message: 'Released under the MIT License.',
@@ -396,7 +420,7 @@ export default defineConfig({
       provider: 'local'
     },
     editLink: {
-      pattern: 'https://github.com/loonghao/dcc-mcp-core/edit/main/docs/:path'
+      pattern: 'https://github.com/dcc-mcp/dcc-mcp-core/edit/main/docs/:path'
     },
   },
 
