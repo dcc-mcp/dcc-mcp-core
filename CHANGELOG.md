@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.84](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.83...v0.19.84) (2026-07-28)
+
+
+### Features
+
+* unify agent observability workflows ([61ed56a](https://github.com/dcc-mcp/dcc-mcp-core/commit/61ed56af368a29e259bec29d4f99b381e8d2d96a))
+
+
+### Performance Improvements
+
+* add discovery benchmark trends ([91d2dfc](https://github.com/dcc-mcp/dcc-mcp-core/commit/91d2dfc7fc14a7e3658bbe1629bddeb22d223169))
+* add opt-in Tracy discovery profiling ([3ec686b](https://github.com/dcc-mcp/dcc-mcp-core/commit/3ec686be595d21594ed1fb81d3b5dde405f37ab8))
+
 ## [0.19.83](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.82...v0.19.83) (2026-07-27)
 
 
