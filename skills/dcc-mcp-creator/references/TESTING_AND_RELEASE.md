@@ -32,6 +32,13 @@ python -m pytest
 For Rust/PyO3 core changes, run the workspace's `just` or `cargo` gates that
 match the touched crates.
 
+For gateway discovery performance, use deterministic tests or Criterion as the
+regression gate. If a regression needs local diagnosis, build
+`dcc-mcp-server` with `--no-default-features --features gateway-daemon,tracy`
+and follow the [local Tracy workflow](../../../docs/guide/observability.md#6-local-tracy-profiling).
+Do not wrap async work across `.await` in a Tracy zone; correlate those phases
+with the existing request IDs and OTLP spans instead.
+
 For `dcc-mcp-core` toolchain or dependency refreshes, prefer vx-managed Cargo so
 local runs match CI:
 

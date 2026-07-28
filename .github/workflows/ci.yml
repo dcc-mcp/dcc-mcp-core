@@ -243,6 +243,8 @@ jobs:
       - name: Rust compile smoke
         if: matrix.rust-validation == 'smoke'
         run: vx cargo check --workspace --all-targets
+      - name: Tracy feature compile smoke
+        run: vx cargo check -p dcc-mcp-server --no-default-features --features gateway-daemon,tracy
       # Verify the composition binary still builds in its slim variants
       # (issue #1359). Defaults are already exercised by the workspace
       # check / clippy / test steps above.
