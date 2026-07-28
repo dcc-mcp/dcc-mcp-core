@@ -1,10 +1,8 @@
 //! Criterion benchmarks for the search-scoring strategy seam (issue #765).
 //!
-//! These benchmarks pin the raw throughput of [`StrategyFuzzyScorer`] and
-//! [`StrategyExactScorer`] so that adding trait dispatch overhead is
-//! detected before merging. The acceptance criterion is that either
-//! scorer stays within 10 % of today's baseline when called via a
-//! `Box<dyn StrategyScorer>` obtained from [`ScorerFactory`].
+//! These benchmarks track the raw scorer throughput and the warm
+//! [`CapabilityIndex`] search pipeline. Results are diagnostic trends,
+//! not deterministic merge gates.
 //!
 //! Run with:
 //!
@@ -16,9 +14,10 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use dcc_mcp_gateway::{
     ScorerFactory, SearchMode, SearchQuery, StrategyExactScorer, StrategyFuzzyScorer,
     StrategyScorer,
-    capability::{CapabilityRecord, IndexSnapshot, search},
+    capability::{CapabilityIndex, CapabilityRecord, IndexSnapshot, InstanceFingerprint, search},
+    capability_service::search_service,
 };
-use std::{hint::black_box, sync::Arc};
+use std::{collections::BTreeMap, hint::black_box, sync::Arc};
 
 // ---------------------------------------------------------------------------
 // Shared corpus
@@ -70,8 +69,8 @@ fn score_all(scorer: &dyn StrategyScorer) -> f32 {
     total
 }
 
-fn capability_snapshot(size: usize) -> IndexSnapshot {
-    let records: Vec<CapabilityRecord> = (0..size)
+fn capability_records(size: usize, instance_count: usize) -> Vec<CapabilityRecord> {
+    (0..size)
         .map(|i| {
             let dcc = match i % 4 {
                 0 => "maya",
@@ -107,7 +106,7 @@ fn capability_snapshot(size: usize) -> IndexSnapshot {
                 ),
                 _ => ("layers", "select_layer", "Select a layer or document node."),
             };
-            let iid = uuid::Uuid::from_u128((i as u128) + 1);
+            let iid = uuid::Uuid::from_u128((i % instance_count) as u128 + 1);
             CapabilityRecord::new(
                 format!("{dcc}.{:08x}.{}_{}", i, family.0, i),
                 format!("{}_{}", family.1, i),
@@ -122,11 +121,52 @@ fn capability_snapshot(size: usize) -> IndexSnapshot {
                 None,
             )
         })
-        .collect();
+        .collect()
+}
+
+fn capability_snapshot(size: usize) -> IndexSnapshot {
+    let records = capability_records(size, size);
     IndexSnapshot {
         records: Arc::from(records.into_boxed_slice()),
         fingerprints: Default::default(),
     }
+}
+
+fn capability_index(size: usize) -> CapabilityIndex {
+    let index = CapabilityIndex::new();
+    let mut records_by_instance = BTreeMap::<_, Vec<_>>::new();
+    for record in capability_records(size, 4) {
+        records_by_instance
+            .entry(record.instance_id)
+            .or_default()
+            .push(record);
+    }
+    for (instance_id, records) in records_by_instance {
+        index.upsert_instance(
+            instance_id,
+            records,
+            InstanceFingerprint(instance_id.as_u128() as u64),
+        );
+    }
+    index
+}
+
+fn capability_queries() -> Vec<SearchQuery> {
+    [
+        "create poly sphere",
+        "destination path export",
+        "material lookdev",
+        "uv unwrap shells",
+        "render preview",
+        "selct layer", // typo fallback
+    ]
+    .into_iter()
+    .map(|query| SearchQuery {
+        query: query.to_string(),
+        limit: Some(20),
+        ..Default::default()
+    })
+    .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +239,27 @@ fn bench_hybrid_full_search_thousands(c: &mut Criterion) {
     });
 }
 
+fn bench_warm_capability_index(c: &mut Criterion) {
+    let index = capability_index(5_000);
+    let queries = capability_queries();
+    let mut group = c.benchmark_group("warm_capability_index/5000_records");
+
+    group.bench_function("snapshot_with_generation", |b| {
+        b.iter(|| black_box(&index).snapshot_with_generation())
+    });
+    group.bench_function("search_service", |b| {
+        b.iter(|| {
+            let mut total = 0usize;
+            for query in &queries {
+                let hits = search_service(black_box(&index), black_box(query));
+                total = total.saturating_add(hits.len());
+            }
+            black_box(total)
+        })
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_fuzzy_direct,
@@ -206,5 +267,6 @@ criterion_group!(
     bench_factory_dispatch,
     bench_factory_tag,
     bench_hybrid_full_search_thousands,
+    bench_warm_capability_index,
 );
 criterion_main!(benches);
