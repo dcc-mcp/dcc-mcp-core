@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.86](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.85...v0.19.86) (2026-07-28)
+
+
+### Documentation
+
+* improve agent onboarding and recovery ([#2106](https://github.com/dcc-mcp/dcc-mcp-core/issues/2106)) ([c685e52](https://github.com/dcc-mcp/dcc-mcp-core/commit/c685e521a2bd9f08832344d1d97507444b31eb19))
+
 ## [0.19.85](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.84...v0.19.85) (2026-07-28)
 
 
