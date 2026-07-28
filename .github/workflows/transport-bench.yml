@@ -1,7 +1,7 @@
-name: Transport Benchmark
+name: Performance Benchmarks
 
-# Transport benchmarks are trend signals, not PR merge gates. Run them on a
-# schedule or manually when investigating transport performance.
+# Performance benchmarks are trend signals, not PR merge gates. Run them on a
+# schedule or manually when investigating regressions.
 
 on:
   workflow_dispatch:
@@ -40,5 +40,32 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: criterion-report
+          path: target/criterion/
+          if-no-files-found: ignore
+
+  gateway-discovery-bench:
+    name: Gateway discovery benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: gateway-discovery-bench
+
+      - name: Capability discovery criterion bench
+        run: |
+          cargo bench -p dcc-mcp-gateway --bench search_bench -- \
+            --sample-size 30 --measurement-time 5
+        shell: bash
+        env:
+          CRITERION_CI: "1"
+
+      - name: Upload gateway discovery criterion HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gateway-discovery-criterion-report
           path: target/criterion/
           if-no-files-found: ignore
