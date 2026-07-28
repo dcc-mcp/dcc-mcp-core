@@ -92,9 +92,12 @@ semantic = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dcc-mcp/dcc-mcp-core"
+Homepage = "https://dcc-mcp.github.io/dcc-mcp-core/"
+Documentation = "https://dcc-mcp.github.io/dcc-mcp-core/"
 Repository = "https://github.com/dcc-mcp/dcc-mcp-core"
 Issues = "https://github.com/dcc-mcp/dcc-mcp-core/issues"
+Changelog = "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md"
+"Release Notes" = "https://github.com/dcc-mcp/dcc-mcp-core/releases"
 
 [tool.maturin]
 python-source = "python"
