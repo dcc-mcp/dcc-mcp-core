@@ -22,7 +22,7 @@ packaged CLI/server binaries needed to operate real sessions.
 
 | You want to… | Start with |
 |---|---|
-| Control a running DCC from an agent or CI job | [dcc-mcp-cli](docs/guide/cli-reference.md) |
+| Control a running DCC from an agent or CI job | Install the [`dcc-mcp` Agent Skill](https://clawhub.ai/loonghao/skills/dcc-mcp), then use [dcc-mcp-cli](docs/guide/cli-reference.md) |
 | Expose a DCC adapter over MCP/REST | [create_skill_server](docs/guide/getting-started.md) |
 | Add tools without Python registration code | [SKILL.md + tools.yaml](docs/guide/skills.md) |
 | Discover and install reusable Skills | [DCC-MCP Marketplace](https://github.com/dcc-mcp/marketplace) |
@@ -196,31 +196,38 @@ untouched if validation or download fails. This is an integrity check, not a
 digital signature. Never pipe a remote installer directly into a shell or
 bypass the machine's script execution policy.
 
-### Install the agent Skill suite
+### Install the Agent Skill you need
 
-Install the three public Skills directly from ClawHub; cloning this repository
-is not required:
+The three public Skills have separate jobs. Start with `dcc-mcp` for live DCC
+work; install a creator Skill only when the task reaches that boundary:
+
+| Agent task | Public Skill | Source |
+|---|---|---|
+| Operate a live DCC, discover tools, or search the Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) | [`skills/dcc-mcp`](skills/dcc-mcp/) |
+| Create or modernize a complete DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | [`skills/dcc-mcp-creator`](skills/dcc-mcp-creator/) |
+| Create, validate, or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | [`skills/dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) |
+
+OpenClaw installs into the active workspace by default; add `--global` only
+when every local OpenClaw agent should share the Skill:
 
 ~~~bash
 openclaw skills install @loonghao/dcc-mcp
-openclaw skills install @loonghao/dcc-mcp-skills-creator
 openclaw skills install @loonghao/dcc-mcp-creator
+openclaw skills install @loonghao/dcc-mcp-skills-creator
 ~~~
 
-Add `--global` to each command when every local OpenClaw agent should see the
-suite. Other ClawHub-compatible workspaces can use the registry CLI directly:
+For a Codex-compatible project, install into the standard project Skill root:
 
 ~~~bash
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
 ~~~
 
-| Skill | Agent role |
-|---|---|
-| [`dcc-mcp`](skills/dcc-mcp/) | Default live DCC control and marketplace discovery; Skill-store requests begin with `dcc-mcp-cli marketplace search` |
-| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | Create, validate, package, and review DCC-MCP Skill packages |
-| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | Create or modernize a complete DCC adapter and its runtime wiring |
+Other Agent Skills hosts should install the same ClawHub package into their
+configured Skill root. Start a new agent turn after installation. Natural DCC
+requests should trigger `dcc-mcp`; hosts with explicit Skill invocation can use
+`$dcc-mcp`, `$dcc-mcp-creator`, or `$dcc-mcp-skills-creator` respectively.
 
 All three packages carry Codex `agents/openai.yaml` metadata while preserving
 their DCC-MCP and ClawHub contracts. Their immutable ClawHub releases are
@@ -271,6 +278,12 @@ dcc-mcp-cli list
 Use dcc-mcp-cli doctor when startup or readiness is unclear. Open the local
 Admin UI at [http://127.0.0.1:9765/admin](http://127.0.0.1:9765/admin) after the
 gateway is available.
+
+When a call fails, preserve its `request_id`, run `doctor` or a failure-filtered
+`stats` query, and discover `dcc_feedback__report` through the normal
+`search -> describe -> call` flow. Gateway-routed failures also expose a
+public-safe `/v1/debug/issue-reports/<request_id>` payload for a reviewed bug
+report; raw bundles must never be uploaded automatically.
 
 After a task is accepted, agents can inspect bounded gateway evidence with
 `dcc-mcp-cli stats --range 24h --session-id task-42`. A zero call count means

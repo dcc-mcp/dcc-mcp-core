@@ -2,6 +2,26 @@
 
 ## 安装
 
+### 公开 Agent Skills
+
+按 Agent 任务安装对应 Skill，无需克隆本仓库：
+
+| 任务 | Skill |
+|------|-------|
+| 操作实时 DCC、发现工具或搜索 Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| 创建或现代化完整 DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| 创建、验证或改进 DCC 专项 Skill 包 | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
+```bash
+# OpenClaw workspace：默认实时 DCC 控制 Skill
+openclaw skills install @loonghao/dcc-mcp
+
+# 直接使用 ClawHub CLI
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+```
+
+只有任务进入对应开发边界时才替换为 creator slug。安装后开启新的 agent turn。
+
 ### 从 `dcc-mcp` Skill 安装 CLI
 
 ```bash
@@ -79,6 +99,21 @@ pip install -e .
 - **Python 依赖**: 零 — 所有功能都在编译的 Rust 扩展中
 
 ## 快速上手
+
+### Agent 操作实时 DCC
+
+加载 `dcc-mcp` 后，把 CLI 作为结构化控制路径：
+
+```bash
+dcc-mcp-cli dcc-types
+dcc-mcp-cli list
+dcc-mcp-cli search --query "create sphere" --dcc-type maya
+dcc-mcp-cli describe <tool-slug>
+dcc-mcp-cli call <tool-slug> --json '{"radius":2.0}'
+```
+
+只使用 `search` 返回的 slug，不要自行拼接。如果 `list` 返回零实例，按 Skill
+中需要用户同意的 setup 流程处理，不要切换到原始 DCC 脚本或通用 GUI 自动化。
 
 ### Skills-First：`create_skill_server`（推荐）
 

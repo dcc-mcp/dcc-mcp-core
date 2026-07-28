@@ -35,6 +35,22 @@ install lifecycle, or cross-DCC verification.
 For individual skill packages (`SKILL.md`, `tools.yaml`, scripts, groups, and
 skill taxonomy), load `dcc-mcp-skills-creator` instead.
 
+## Install and Route
+
+Install the published
+[`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator)
+package, then start a new agent turn:
+
+```bash
+openclaw skills install @loonghao/dcc-mcp-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
+```
+
+Use [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) to operate an
+existing DCC. Use
+[`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
+when only a DCC-specific Skill package is needed.
+
 ## CLI-First Control Path
 
 Use the `dcc-mcp` skill and `dcc-mcp-cli` for discovery, validation, and live
@@ -242,6 +258,22 @@ would be unsafe.
   `interrupted` and remain queryable through the replacement instance's
   `jobs_get_status`; adapter-owned isolated jobs need their own durable status
   tool when they outlive the request transport.
+
+## Failure Analysis and Bug Routing
+
+Reproduce through `dcc-mcp` and keep one gateway session id. Run
+`dcc-mcp-cli doctor`, then `dcc-mcp-cli stats --status failure --session-id
+<session-id>`; preserve the failed call's `request_id`, trace/job ids, adapter
+version, DCC version, readiness fields, and the smallest safe reproduction.
+Use `/v1/debug/issue-reports/<request_id>` for the public-safe issue body and
+review any `?mode=raw` export locally before sharing it.
+
+Report adapter-owned dispatch, host-thread, readiness, packaging, or install
+bugs in the adapter repository. Escalate shared CLI, gateway, protocol, or core
+contract failures to `dcc-mcp-core`. Tool schema/script/workflow defects belong
+to the owning Skill and `dcc-mcp-skills-creator`. Record runtime feedback with
+the CLI-discovered `dcc_feedback__report` tool; open an external issue only
+with user authorization.
 
 ## Example: New Nuke Adapter
 

@@ -48,9 +48,24 @@ returned load/describe/call step, then invoke the typed tool.
 - **Human IDE users** continue using MCP configuration. The gateway serves both paths simultaneously.
 - **CLI-first does not deprecate MCP** — the gateway always exposes both MCP and REST side by side.
 
+**Public Agent Skill router:**
+
+| Intent | Install from ClawHub |
+|--------|----------------------|
+| Operate a live DCC, discover tools, or search the Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| Create or modernize a complete DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| Create, validate, or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
+Install only the Skill matching the task. OpenClaw uses
+`openclaw skills install @loonghao/<slug>`; a ClawHub-compatible agent can use
+`npx --yes clawhub@0.23.1 install @loonghao/<slug>`.
+Start a new agent turn after installation.
+
 **CLI availability and updates:**
 - If `dcc-mcp-cli` is missing, obtain user consent before running an official
-  installer from `scripts/install-cli.sh` or `scripts/install-cli.ps1`.
+  installer. Prefer the verified helper bundled with the installed `dcc-mcp`
+  Skill; otherwise inspect `scripts/install-cli.sh` or `scripts/install-cli.ps1`
+  before running the local file.
 - Keep official builds current with `dcc-mcp-cli update check`, then
   `dcc-mcp-cli update apply`. The apply step stages the latest CLI for the next
   launch; it does not replace a running `dcc-mcp-server`.
@@ -107,10 +122,10 @@ returned load/describe/call step, then invoke the typed tool.
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
 | Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
-| Skill authoring | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) + `examples/skills/` | Creating or modifying skills |
-| Adapter developer guidance | [`skills/dcc-mcp-creator/SKILL.md`](skills/dcc-mcp-creator/SKILL.md) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
+| Skill authoring | [`dcc-mcp-skills-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) + [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Creating or modifying DCC-specific Skills |
+| Adapter developer guidance | [`dcc-mcp-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) + [`skills/dcc-mcp-creator/SKILL.md`](skills/dcc-mcp-creator/SKILL.md) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
 | Skill creator guidance | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Before creating or changing adapter skill authoring, tool schemas, scripts, skill taxonomy, testing, or agent-facing workflows |
-| CLI + marketplace operations | [`skills/dcc-mcp/SKILL.md`](skills/dcc-mcp/SKILL.md) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
+| CLI + marketplace operations | [`dcc-mcp` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp) + [`skills/dcc-mcp/SKILL.md`](skills/dcc-mcp/SKILL.md) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
 | Marketplace extension publishing | [`skills/marketplace-publish-extension/SKILL.md`](skills/marketplace-publish-extension/SKILL.md) | Before publishing a new skill package to the DCC-MCP marketplace |
 | Marketplace extension creation | [`skills/marketplace-create-extension/SKILL.md`](skills/marketplace-create-extension/SKILL.md) | Before creating a new marketplace extension package |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
@@ -147,14 +162,15 @@ Support check (only when unclear): `dcc-mcp-cli dcc-types` lists canonical adapt
 4. Batch execute: `dcc-mcp-cli call --batch --steps '<json-array>'` or `POST /v1/call_batch` for ordered batches (max 25).
 5. Package as a skill: fork or extend `dcc-mcp` to reuse `dcc-mcp-cli` calls as structured MCP tools.
 6. Review reusable friction only after acceptance: query narrowly scoped `dcc-mcp-cli stats`, then use the `review_skill_improvement` prompt from `dcc-mcp-skills-creator`; zero calls means no evidence, and review never expands edit/publish authority.
-7. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
-8. Use `ui-control` Computer Use only when a structured DCC skill/script/API is unsupported, missing, or cannot reach the required semantic UI. Never switch to another UI/input path after a policy, authorization, authentication, security, confirmation, desktop-availability, or user-interruption failure. The adapter/operator must bind native input to its DCC with `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; requests may only narrow that trusted scope. Use `snapshot` → one `act` → `snapshot`, then `stop_computer_use` on every exit path.
-9. The user presses `Esc` to stop UI Control across DCC adapter processes. After the hard stop, do not retry, change `session_id`, or restart. Resume only with `ui_control__snapshot(resume_computer_use=true)` after an explicit user request and only while no Computer Use owner is active.
-10. Treat `desktop_unavailable` as a pause when Windows is locked, disconnected, or on a secure desktop. No UIA/raw input runs, but the logical `session_id` remains and structured DCC/MCP calls may continue subject to host readiness. Never automate LockApp. After unlock, discard old ids and take a fresh exact-target snapshot so the banner returns.
-11. An ordinary process cannot show the banner on the Windows lock screen. Use a dedicated, always-unlocked VM for uninterrupted Windows GUI control. Public `openai/codex` `codex-rs` contains policy/plugin wiring, not the desktop Computer Use helper implementation; this repository's backend is independent.
-12. Computer Use executes on the adapter host in the interactive Windows logon session that owns the DCC. A central gateway routes calls but does not own coordinates. Never reuse gateway, other-host, or other-session coordinates. RDP disconnect/session switch pauses with `desktop_unavailable`; reconnect to the DCC session and take a fresh snapshot.
-13. Multi-monitor observations remain bounded to the scoped target window, which may sit at a negative virtual-desktop origin or span monitors with different DPI values. Any topology, resolution, or DPI/scaling change invalidates the observation and requires a fresh snapshot. The banner follows the scoped target within its owning session.
-14. Windows plug-in setup may use `ui_control__system_operation` only for an exact operator-owned HKCU String/DWORD or file/directory symlink grant. It is windowless and always confirmed, but never permits shell commands, arbitrary file operations, alternate registry hives, overwrite/delete, credentials, elevation, UAC, or security surfaces. Stop on `elevation_required`, `approval_required`, or `system_operation_not_granted`.
+7. On failure, preserve `request_id`; use `doctor`, failure-filtered `stats`, and the CLI-discovered `dcc_feedback__report`. Use public-safe `/v1/debug/issue-reports/{request_id}` for a reviewed bug report; never publish raw evidence or create an external issue without user authorization.
+8. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
+9. Use `ui-control` Computer Use only when a structured DCC skill/script/API is unsupported, missing, or cannot reach the required semantic UI. Never switch to another UI/input path after a policy, authorization, authentication, security, confirmation, desktop-availability, or user-interruption failure. The adapter/operator must bind native input to its DCC with `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; requests may only narrow that trusted scope. Use `snapshot` → one `act` → `snapshot`, then `stop_computer_use` on every exit path.
+10. The user presses `Esc` to stop UI Control across DCC adapter processes. After the hard stop, do not retry, change `session_id`, or restart. Resume only with `ui_control__snapshot(resume_computer_use=true)` after an explicit user request and only while no Computer Use owner is active.
+11. Treat `desktop_unavailable` as a pause when Windows is locked, disconnected, or on a secure desktop. No UIA/raw input runs, but the logical `session_id` remains and structured DCC/MCP calls may continue subject to host readiness. Never automate LockApp. After unlock, discard old ids and take a fresh exact-target snapshot so the banner returns.
+12. An ordinary process cannot show the banner on the Windows lock screen. Use a dedicated, always-unlocked VM for uninterrupted Windows GUI control. Public `openai/codex` `codex-rs` contains policy/plugin wiring, not the desktop Computer Use helper implementation; this repository's backend is independent.
+13. Computer Use executes on the adapter host in the interactive Windows logon session that owns the DCC. A central gateway routes calls but does not own coordinates. Never reuse gateway, other-host, or other-session coordinates. RDP disconnect/session switch pauses with `desktop_unavailable`; reconnect to the DCC session and take a fresh snapshot.
+14. Multi-monitor observations remain bounded to the scoped target window, which may sit at a negative virtual-desktop origin or span monitors with different DPI values. Any topology, resolution, or DPI/scaling change invalidates the observation and requires a fresh snapshot. The banner follows the scoped target within its owning session.
+15. Windows plug-in setup may use `ui_control__system_operation` only for an exact operator-owned HKCU String/DWORD or file/directory symlink grant. It is windowless and always confirmed, but never permits shell commands, arbitrary file operations, alternate registry hives, overwrite/delete, credentials, elevation, UAC, or security surfaces. Stop on `elevation_required`, `approval_required`, or `system_operation_not_granted`.
 
 IDE MCP (for human IDE users — Cursor, Claude Desktop, VS Code):
 1. Discover: MCP `search(query="keyword", dcc_type="maya")` → get `tool_slug`.

@@ -2,14 +2,15 @@
 
 **DCC-MCP-Core** is a Rust-first library (with Python bindings) that exposes capabilities inside DCC (Digital Content Creation) tools — Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity, Figma, and custom studio hosts — through a **layered surface**:
 
-- **AI assistants** → a small, static **MCP** discovery set (`search`, `describe`) via the gateway, plus REST `/v1/*` for execution.
+- **Shell-capable AI agents** → the published `dcc-mcp` Skill plus `dcc-mcp-cli` for `search → describe → call`.
+- **MCP-only IDE clients** → the gateway's small, static MCP workflow (`search`, `describe`, `load_skill`, `call`).
 - **Traditional callers** (cURL, CI, any HTTP client) → a full **`/v1/*` REST API** on every per-DCC server and on the gateway facade.
 
 The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). It has no third-party Python library runtime dependencies; the companion `dcc-mcp-server` wheel supplies the packaged gateway daemon binary.
 
 ---
 
-## Core workflow (2026-05 refresh)
+## Core workflow (2026-07 refresh)
 
 ```mermaid
 flowchart LR
@@ -29,11 +30,12 @@ flowchart LR
       PERDCC --> GW
     end
 
-    AGENT([AI assistant]):::client
+    AGENT([Shell-capable agent + dcc-mcp Skill]):::client
+    IDE([MCP-only IDE client]):::client
     TRAD([cURL / CI / traditional backends]):::client
 
-    AGENT -->|MCP: search<br/>describe| GW
-    AGENT -->|REST: POST /v1/call| GW
+    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
+    IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|direct REST to per-DCC| PERDCC
     GW -->|/v1/call routes to owning DCC| PERDCC

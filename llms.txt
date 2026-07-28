@@ -9,6 +9,19 @@
 dcc-mcp-core Skills through it. Do not confuse the typed CLI with raw DCC
 scripting.**
 
+Choose one published Agent Skill by intent:
+
+| Intent | ClawHub Skill |
+|--------|---------------|
+| Operate a live DCC or discover Marketplace capabilities | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| Create or modernize a complete DCC-MCP adapter | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| Create or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
+OpenClaw installs with `openclaw skills install @loonghao/<slug>`. A
+Direct ClawHub CLI uses
+`npx --yes clawhub@0.23.1 install @loonghao/<slug>`.
+Start a new agent turn after installation.
+
 ### Why Skills-First?
 
 | Aspect | dcc-mcp-core Skills | Raw CLI / Scripting |
@@ -31,7 +44,11 @@ scripting.**
 
 `search_tools` tokenizes backend tool names and summaries; literal underscores are honored but not required (`create_sphere` and `sphere` both match). Multi-word natural-language phrases ("create sphere", "rig framework") match word-split tokens across both names and descriptions.
 5. FOLLOW UP: Check next-tools.on-success for suggested next steps
-6. DEBUG: On failure, use dcc_diagnostics__screenshot or audit_log
+6. DEBUG: Preserve `request_id`; use `doctor` for startup/readiness and
+   `stats --status failure --session-id <id>` for bounded task evidence.
+7. REPORT: Discover and call `dcc_feedback__report`; for gateway failures use
+   public-safe `/v1/debug/issue-reports/<request_id>`. Never upload raw bundles
+   or create an external issue without user authorization.
 ```
 
 **❌ DON'T**: Run Maya/Blender/Python scripts directly via subprocess

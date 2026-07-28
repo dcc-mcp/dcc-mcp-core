@@ -6,6 +6,12 @@
 
 **如果你是 AI Agent**，请按以下顺序阅读：
 
+| 你的任务 | 首先安装 |
+|----------|----------|
+| 操作实时 DCC 或发现 Marketplace 能力 | [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| 创建或现代化完整 DCC-MCP adapter | [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| 创建或改进 DCC 专项 Skill 包 | [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
 | 优先级 | 文档 | 说明 |
 |--------|------|------|
 | 1 | [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) | 导航地图、响应规则、PR 规则及链接 |
@@ -18,7 +24,7 @@
 
 | 文档 | 用途 |
 |------|------|
-| [getting-started.md](getting-started.md) | 安装、第一个服务器、第一个工具 |
+| [getting-started.md](getting-started.md) | 安装正确的 Agent Skill/CLI、操作 DCC 或暴露第一个 server |
 | [what-is-dcc-mcp-core.md](what-is-dcc-mcp-core.md) | 项目高层概述与背景 |
 | [architecture.md](architecture.md) | Rust workspace 布局、crate 边界、PyO3 桥接 |
 

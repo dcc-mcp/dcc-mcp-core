@@ -158,6 +158,11 @@ OpenAPI contract 预留了 `cursor`、`since`、`until` 给后续 normalized env
 preview、prompt、script 和 scene data。`/admin?panel=traces&trace=<request_id>`
 以及历史 `/admin?agent=traces&trace=<id>` 是 UI 导航链接，不是稳定 API。
 
+上报 Bug 时，从 `dcc-mcp-cli` 返回的 `request_id` 开始，先读取 agent trace
+packet，再获取 `/v1/debug/issue-reports/{request_id}`。默认结果为 public-safe，
+并包含建议的 GitHub title/body；`?mode=raw` 是必须在分享前人工审查的本地证据。
+该接口只准备证据，不会授权或创建外部 issue。
+
 ---
 
 ## `POST /v1/call` —— 调用契约

@@ -2,14 +2,15 @@
 
 **DCC-MCP-Core** 是一套 Rust 基础库（含 Python 绑定），把 DCC（数字内容创作）软件中的"能力"—— Maya、Blender、Houdini、Photoshop、ZBrush、Unreal、Unity、Figma 等 ——分层暴露给两类消费者：
 
-- **AI 助手** → 通过 gateway 的**少量、固定、只读** **MCP 发现工具**（`search` / `describe`），再用 REST `/v1/*` 执行。
+- **具备 shell 能力的 Agent** → 安装公开 `dcc-mcp` Skill，通过 `dcc-mcp-cli` 执行 `search → describe → call`。
+- **MCP-only IDE 客户端** → 使用 gateway 的少量固定 MCP 工作流（`search`、`describe`、`load_skill`、`call`）。
 - **传统调用方** →（cURL / CI / 任意 HTTP 客户端）通过**完整的 `/v1/*` REST 服务**。
 
 底层是 Rust，通过 [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin) 编译成一个 Python 扩展模块。它没有第三方 Python 库运行时依赖；配套的 `dcc-mcp-server` wheel 提供打包后的 gateway daemon 二进制。
 
 ---
 
-## 核心工作流程（2026-05 更新）
+## 核心工作流程（2026-07 更新）
 
 ```mermaid
 flowchart LR
@@ -29,11 +30,12 @@ flowchart LR
       PERDCC --> GW
     end
 
-    AGENT([AI 助手]):::client
+    AGENT([Shell Agent + dcc-mcp Skill]):::client
+    IDE([MCP-only IDE 客户端]):::client
     TRAD([cURL / CI / 传统后端]):::client
 
-    AGENT -->|MCP: search<br/>describe| GW
-    AGENT -->|REST: POST /v1/call| GW
+    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
+    IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|直连 per-DCC REST| PERDCC
     GW -->|/v1/call 路由到具体 DCC| PERDCC

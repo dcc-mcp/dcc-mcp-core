@@ -7,6 +7,30 @@
 
 ---
 
+## Agent Bootstrap
+
+Most agents should not begin with the Python API. Install one published Skill
+for the task, then use its workflow:
+
+| Intent | ClawHub Skill | Runtime path |
+|--------|---------------|--------------|
+| Operate a live DCC or discover Marketplace capabilities | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) | `dcc-mcp-cli` |
+| Create or modernize a complete DCC-MCP adapter | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | Shared core adapter contracts |
+| Create or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | Skill scaffold, validation, and packaging |
+
+OpenClaw uses `openclaw skills install @loonghao/<slug>`. Direct ClawHub CLI uses
+`npx --yes clawhub@0.23.1 install @loonghao/<slug>`.
+Start a new agent turn after installation. Continue to the API guide only when
+the task is embedding core, implementing an adapter, or extending the runtime.
+
+On failure, the `dcc-mcp` workflow preserves `request_id`, uses `doctor` or a
+failure-filtered `stats` query for bounded diagnosis, records structured
+feedback through the CLI-discovered `dcc_feedback__report`, and uses public-safe
+`/v1/debug/issue-reports/<request_id>` for reviewed bug reports. Raw evidence
+and external issue creation require human review and user authorization.
+
+---
+
 ## Quick Decision Guide
 
 | I want to… | Use this API |

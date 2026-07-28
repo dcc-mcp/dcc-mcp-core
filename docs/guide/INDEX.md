@@ -19,6 +19,12 @@ Documentation contract:
 
 **Start here if you're an AI agent** — read these documents in order:
 
+| Your task | Install first |
+|-----------|---------------|
+| Operate a live DCC or discover Marketplace capabilities | [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| Create or modernize a complete DCC-MCP adapter | [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| Create or improve a DCC-specific Skill package | [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
 | Priority | Document | Why |
 |----------|----------|-----|
 | 1 | [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) | Navigation map, response rules, PR rules, and links |
@@ -31,7 +37,7 @@ Documentation contract:
 
 | Document | Purpose |
 |----------|---------|
-| [getting-started.md](getting-started.md) | Install, first server, first tool |
+| [getting-started.md](getting-started.md) | Install the right Agent Skill/CLI, operate a DCC, or expose a first server |
 | [what-is-dcc-mcp-core.md](what-is-dcc-mcp-core.md) | High-level project overview and motivation |
 | [architecture.md](architecture.md) | Rust workspace layout, crate boundaries, PyO3 bridge |
 

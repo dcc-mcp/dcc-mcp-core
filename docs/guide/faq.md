@@ -52,6 +52,25 @@ pip install maturin
 maturin develop
 ```
 
+### Which Agent Skill should I install?
+
+Install by task; most agents only need the first row:
+
+| Task | Skill |
+|------|-------|
+| Operate a live DCC, discover tools, or search the Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| Create or modernize a complete DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| Create, validate, or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
+```bash
+openclaw skills install @loonghao/dcc-mcp
+# Direct ClawHub CLI:
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+```
+
+Start a new agent turn after installation. The `dcc-mcp` Skill then guides the
+agent through `dcc-mcp-cli list -> search -> describe/load-skill -> call`.
+
 ## Tools
 
 ### How do I register a tool?
@@ -293,7 +312,10 @@ handle = server.start()
 print(handle.is_gateway)  # True if this process won the gateway port
 ```
 
-Agents always connect to `http://localhost:9765/mcp` and read the `gateway://instances` MCP resource (`resources/read uri=gateway://instances`) to discover and route to specific DCC processes — each entry already carries `mcp_url`.
+Shell-capable agents use the `dcc-mcp` Skill and `dcc-mcp-cli`; the local
+profile discovers registered instances automatically. MCP-only clients connect
+to `http://localhost:9765/mcp` and read the `gateway://instances` resource when
+they need a concrete DCC process; each entry already carries `mcp_url`.
 
 ### What is BridgeKind?
 
@@ -341,12 +363,22 @@ cfg.init()
 
 ### How do I report a bug or request a feature?
 
-Please open an issue on [GitHub](https://github.com/dcc-mcp/dcc-mcp-core/issues) with:
-- DCC application and version
-- Python version (`python --version`)
-- dcc-mcp-core version (`python -c "import dcc_mcp_core; print(dcc_mcp_core.__version__)"`)
-- Minimal reproduction code
-- Expected vs actual behavior
+Agents should self-check before opening an issue:
+
+1. Keep the failed call's `request_id`; run `dcc-mcp-cli doctor` for startup or
+   readiness faults and `dcc-mcp-cli stats --status failure --session-id <id>`
+   for the bounded task slice.
+2. Discover and call `dcc_feedback__report` to record structured feedback in
+   the runtime.
+3. For a gateway-routed failure, retrieve public-safe
+   `/v1/debug/issue-reports/<request_id>`. It includes a suggested title/body;
+   never upload `?mode=raw` without human review.
+4. Route Skill contract bugs to the owning Skill, adapter/host bugs to the
+   adapter repository, and shared CLI/gateway/protocol bugs to
+   [dcc-mcp-core](https://github.com/dcc-mcp/dcc-mcp-core/issues).
+5. Open the external issue only when the user requested or approved it. Include
+   the DCC/core versions, smallest reproduction, expected/actual behavior, and
+   the public-safe report.
 
 ## Contributing
 
