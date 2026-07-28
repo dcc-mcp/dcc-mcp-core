@@ -1357,6 +1357,22 @@ def test_ui_control_windows_expires_idle_session_without_touching_active_call(mo
     assert "active" in backend._CLIENTS
 
 
+def test_ui_control_windows_expires_idle_session_without_another_tool_call(monkeypatch: Any) -> None:
+    backend = _load_windows_uia_module()
+    _configure_fake_host(backend, monkeypatch)
+    monkeypatch.setattr(backend, "_IDLE_LEASE_SECONDS", 0.02)
+
+    assert backend.snapshot_tool({"session_id": "idle"})["success"] is True
+    idle_client = _FakeHostClient.instances[0]
+
+    deadline = time.monotonic() + 1.0
+    while not idle_client.stopped and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert idle_client.stopped is True
+    assert "idle" not in backend._CLIENTS
+
+
 def test_ui_control_windows_host_retries_pending_cleanup(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
 
