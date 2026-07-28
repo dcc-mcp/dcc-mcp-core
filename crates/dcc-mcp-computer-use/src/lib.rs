@@ -236,6 +236,23 @@ struct TargetSpec {
     app_name: String,
 }
 
+fn display_app_name(configured: &str, verified_window_title: &str) -> String {
+    let configured = configured.trim();
+    let name = if configured.eq_ignore_ascii_case("custom")
+        || configured.eq_ignore_ascii_case("DCC application")
+    {
+        verified_window_title.trim()
+    } else {
+        configured
+    };
+    let name = if name.is_empty() {
+        "DCC application"
+    } else {
+        name
+    };
+    name.chars().take(64).collect()
+}
+
 /// Exact target scope established by the adapter/runtime, not by an agent call.
 ///
 /// At least one stable native identity is required. Request parameters may
@@ -545,12 +562,13 @@ impl ComputerUseSession {
         let cleanup_pending = Arc::new(AtomicBool::new(false));
         state.cleanup_pending = Arc::clone(&cleanup_pending);
         let action_feedback = Arc::new(std::sync::Mutex::new(None));
+        let app_name = display_app_name(&self.spec.app_name, &target.title);
         let thread = retain_pending_control_thread(
             &mut state,
             platform::start_control_banner(
                 target.handle,
                 target.pid,
-                self.spec.app_name.clone(),
+                app_name,
                 #[cfg(windows)]
                 platform::ControlBannerSignals {
                     stop: Arc::clone(&self.stop_requested),
@@ -872,6 +890,14 @@ impl ComputerUseSession {
             && (state.overlay_thread.is_some() || state.cleanup_pending.load(Ordering::Acquire));
         let (desktop_interactive, desktop_generation) =
             desktop_state_snapshot(&state.desktop_state);
+        let app_name = display_app_name(
+            &self.spec.app_name,
+            state
+                .target
+                .as_ref()
+                .map(|target| target.title.as_str())
+                .unwrap_or_default(),
+        );
         json!({
             "success": true,
             "active": active,
@@ -881,13 +907,13 @@ impl ComputerUseSession {
             "desktop_interactive": desktop_interactive,
             "desktop_generation": desktop_generation,
             "input_suspended": active && !desktop_interactive,
-            "app_name": self.spec.app_name,
+            "app_name": app_name,
             "window_handle": state.target.as_ref().map(|target| target.handle),
             "process_id": state.target.as_ref().map(|target| target.pid),
             "window_title": state.target.as_ref().map(|target| target.title.clone()),
             "hint": format!(
                 "DCC UI Control is controlling {} - press Esc to stop",
-                self.spec.app_name
+                app_name
             ),
         })
     }

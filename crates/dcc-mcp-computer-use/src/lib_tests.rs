@@ -28,6 +28,18 @@ fn status_uses_public_dcc_ui_control_name() {
 }
 
 #[test]
+fn generic_overlay_name_uses_the_verified_window_title() {
+    assert_eq!(
+        display_app_name("custom", "Epic Games Launcher"),
+        "Epic Games Launcher"
+    );
+    assert_eq!(
+        display_app_name("Unreal", "Project - Unreal Editor"),
+        "Unreal"
+    );
+}
+
+#[test]
 fn public_perform_cannot_bypass_the_game_navigation_host_fence() {
     let session = test_session(std::process::id());
     let error = session
