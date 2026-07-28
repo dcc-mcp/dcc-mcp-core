@@ -198,6 +198,10 @@ validates the caller's Windows session, user, and integrity level, then starts
 the prominent non-modal control notice before minting its opaque capability.
 Routine session start does not open a confirmation dialog.
 
+When a generic sidecar reports `custom` instead of an application name, the
+notice uses the Host-verified target window title while routing and audit keep
+the original DCC type.
+
 The native DCC UI Control boundary imports that PID/HWND as a separate trusted
 scope, rejects construction without it, and revalidates the resolved native
 identity before the capsule, every capture, and every action. A request-supplied
