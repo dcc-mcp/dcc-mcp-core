@@ -2,7 +2,7 @@
 
 #[cfg(all(test, feature = "admin"))]
 #[allow(clippy::await_holding_lock)] // Intentional: parking_lot Mutex for env-var test serialization
-mod admin_tests {
+pub(in crate::gateway::admin) mod admin_tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -89,7 +89,7 @@ mod admin_tests {
         }
     }
 
-    fn make_admin_state() -> AdminState {
+    pub(in crate::gateway::admin) fn make_admin_state() -> AdminState {
         AdminState::new(make_gateway_state())
     }
 
@@ -97,7 +97,10 @@ mod admin_tests {
         build_admin_router(make_admin_state())
     }
 
-    async fn body_json(router: Router, uri: &str) -> (StatusCode, Value) {
+    pub(in crate::gateway::admin) async fn body_json(
+        router: Router,
+        uri: &str,
+    ) -> (StatusCode, Value) {
         let resp = router
             .oneshot(
                 Request::builder()
@@ -131,7 +134,7 @@ mod admin_tests {
         (status, json)
     }
 
-    async fn post_json_as_session(
+    pub(in crate::gateway::admin) async fn post_json_as_session(
         router: Router,
         uri: &str,
         session_id: &str,
@@ -1988,91 +1991,5 @@ filters:
         assert_eq!(body["total"].as_u64(), Some(1));
         assert_eq!(body["summary"]["live"].as_u64(), Some(1));
         assert_eq!(body["summary"]["stale"].as_u64(), Some(0));
-    }
-
-    #[cfg(feature = "admin-persist-sqlite")]
-    #[tokio::test]
-    async fn experiment_api_projects_runs_session_dag_metrics_and_judges() {
-        use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
-
-        let dir = tempfile::tempdir().unwrap();
-        let lane = AdminSqliteLane::spawn(dir.path().join("experiments.sqlite"), 30).unwrap();
-        let state = make_admin_state().with_admin_sqlite_lane(Some(lane));
-        let router = build_v1_debug_router(state);
-
-        let (status, created) = post_json_as_session(
-            router.clone(),
-            "/v1/experiments",
-            "maya-root-session",
-            json!({
-                "name": "Cross-DCC scene validation",
-                "scenario_id": "scene-validation-v1",
-                "workflow_id": "workflow-scene-validation"
-            }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED);
-        let experiment_id = created["experiment_id"].as_str().unwrap();
-
-        let run_uri = format!("/v1/experiments/{experiment_id}/runs");
-        let (status, _) = post_json_as_session(
-            router.clone(),
-            &run_uri,
-            "maya-root-session",
-            json!({
-                "run_id": "run-maya-1",
-                "status": "running",
-                "seed": 7,
-                "parameters": {"dcc_type": "maya"}
-            }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::ACCEPTED);
-
-        let (status, _) = post_json_as_session(
-            router.clone(),
-            &run_uri,
-            "maya-root-session",
-            json!({
-                "run_id": "run-maya-1",
-                "status": "passed",
-                "metrics": {"tool_calls": 4, "duration_ms": 1200}
-            }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::ACCEPTED);
-
-        let judge_uri = format!("/v1/experiments/{experiment_id}/judge-results");
-        let (status, _) = post_json_as_session(
-            router.clone(),
-            &judge_uri,
-            "maya-root-session",
-            json!({
-                "run_id": "run-maya-1",
-                "evaluator_id": "scene-quality",
-                "evaluator_version": "1",
-                "rubric_hash": "sha256:abc",
-                "status": "passed",
-                "scores": {"quality": 0.93},
-                "summary": "Scene evidence satisfies the rubric."
-            }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::ACCEPTED);
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let detail_uri = format!("/v1/experiments/{experiment_id}");
-        let (status, detail) = body_json(router, &detail_uri).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(detail["experiment"]["scenario_id"], "scene-validation-v1");
-        assert_eq!(detail["runs"][0]["status"], "passed");
-        assert_eq!(
-            detail["session_dag"]["nodes"][0]["session_id"],
-            "maya-root-session"
-        );
-        assert_eq!(detail["metrics"]["runs"]["passed"], 1);
-        assert_eq!(detail["metrics"]["judges"]["passed"], 1);
-        assert_eq!(detail["judge_results"][0]["evaluator_id"], "scene-quality");
-        assert_eq!(detail["judge_results"][0]["authority"], "evidence_only");
     }
 }
