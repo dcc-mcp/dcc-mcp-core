@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.85](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.84...v0.19.85) (2026-07-28)
+
+
+### Bug Fixes
+
+* label generic UI Control targets ([24ebc75](https://github.com/dcc-mcp/dcc-mcp-core/commit/24ebc75ac8e4144726d5a1ee26b471cdebe2e1db))
+* reap idle UI Control sessions ([ac71a58](https://github.com/dcc-mcp/dcc-mcp-core/commit/ac71a58b17860befb8d1619170794da979e62727))
+
 ## [0.19.84](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.83...v0.19.84) (2026-07-28)
 
 
