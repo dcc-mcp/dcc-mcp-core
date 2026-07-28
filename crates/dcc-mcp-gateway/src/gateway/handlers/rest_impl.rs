@@ -12,7 +12,8 @@ use crate::gateway::capability::{RefreshReason, tool_slug};
 use crate::gateway::capability_service::{
     SearchResponseContext, ServiceError, describe_tool_full, index_generation,
     parse_and_resolve_search_payload, refresh_all_live_backends, refresh_search_backends,
-    search_hit_to_value_with_context, search_snapshot_hits_for_policy, service_error_to_json,
+    search_hit_to_value_with_context, search_service_hits_for_policy_with_generation,
+    service_error_to_json,
 };
 use crate::gateway::response_codec::{compact_call_batch_payload, compact_describe_payload};
 use crate::gateway::search_telemetry::{SearchTelemetryInput, search_id_from_payload};
@@ -579,8 +580,11 @@ pub async fn handle_v1_search(
     let (hits, index_generation, search_cache_hit) = match cached_hits {
         Some(hits) => (hits, index_gen, true),
         None => {
-            let (snapshot, generation) = gs.capability_index.snapshot_with_generation();
-            let hits = search_snapshot_hits_for_policy(&snapshot, &query, &gs.policy);
+            let (hits, generation) = search_service_hits_for_policy_with_generation(
+                &gs.capability_index,
+                &query,
+                &gs.policy,
+            );
             (hits, generation, false)
         }
     };

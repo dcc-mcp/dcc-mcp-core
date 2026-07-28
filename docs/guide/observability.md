@@ -401,6 +401,30 @@ rate(dcc_mcp_gateway_probes_total{outcome="ready"}[5m])
 
 ---
 
+## 6. Local Tracy Profiling
+
+Use Tracy for local diagnosis when a deterministic benchmark or regression test
+shows discovery latency but not where the time is spent. The integration is
+compile-time opt-in, accepts profiler connections from localhost only, and
+exports only spans with the dedicated `dcc_mcp::profiling` target.
+
+```bash
+vx cargo run -p dcc-mcp-server --no-default-features --features gateway-daemon,tracy -- gateway --host 127.0.0.1 --port 9765
+```
+
+Run the slow search or refresh workload, then use
+[`dcc-mcp-tracy`](https://github.com/dcc-mcp/dcc-mcp-tracy) to capture a
+`.tracy` file, export its zones to CSV, and summarize the high-variance zones.
+Tracy zones deliberately cover synchronous capability-index work only; use the
+existing request IDs and OTLP spans to correlate async or cross-process work.
+
+Tracy traces are diagnostic artifacts, not merge gates. Keep deterministic
+unit/integration tests and Criterion benchmarks as the regression gates, and
+treat captured traces as sensitive debug artifacts because they contain build
+symbols and source locations.
+
+---
+
 ## See also
 
 - [metric-dictionary.md](metric-dictionary.md) — canonical reference for every metric, dimension, unit, sampling window, and null semantics

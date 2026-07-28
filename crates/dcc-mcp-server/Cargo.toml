@@ -127,6 +127,9 @@ prometheus = [
 otlp-exporter = ["dcc-mcp-telemetry/otlp-exporter", "dep:dcc-mcp-telemetry"]
 telemetry = ["dep:dcc-mcp-telemetry"]
 
+# Opt-in local Tracy profiling through dcc-mcp-logging's existing subscriber.
+tracy = ["dcc-mcp-logging/tracy"]
+
 # Sentry error monitoring (Rust backend). Controlled by DCC_MCP_SENTRY_DSN
 # env var at startup. Does nothing when the env var is absent.
 sentry = ["dep:sentry"]

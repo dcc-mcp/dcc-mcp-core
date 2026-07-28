@@ -8,7 +8,10 @@ use uuid;
 
 use crate::gateway::admin::trace::{AgentContext, TraceContext};
 use crate::gateway::capability::search_cache::SearchCacheKey;
-use crate::gateway::capability_service::{SearchResponseContext, search_hit_to_value_with_context};
+use crate::gateway::capability_service::{
+    SearchResponseContext, search_hit_to_value_with_context,
+    search_service_hits_for_policy_with_generation,
+};
 use crate::gateway::search_telemetry::{
     RANKER_VERSION, SearchFollowupInput, SearchTelemetryHit, SearchTelemetryInput,
     search_id_from_meta, search_id_from_payload,
@@ -326,9 +329,10 @@ pub async fn tool_search_tools(
     let (hits, index_generation, search_cache_hit) = match cached_hits {
         Some(hits) => (hits, index_gen, true),
         None => {
-            let (snapshot, generation) = gs.capability_index.snapshot_with_generation();
-            let hits = crate::gateway::capability_service::search_snapshot_hits_for_policy(
-                &snapshot, &query, &gs.policy,
+            let (hits, generation) = search_service_hits_for_policy_with_generation(
+                &gs.capability_index,
+                &query,
+                &gs.policy,
             );
             (hits, generation, false)
         }
