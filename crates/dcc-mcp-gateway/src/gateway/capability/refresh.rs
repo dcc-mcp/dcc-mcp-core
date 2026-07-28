@@ -35,6 +35,8 @@ use super::record::{CapabilityRecord, tool_slug};
 
 pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 
+const PROFILING_TARGET: &str = "dcc_mcp::profiling";
+
 /// Refresh one instance's slice of the index by fetching its current
 /// `tools/list` from `mcp_url`.
 ///
@@ -90,10 +92,18 @@ pub async fn refresh_instance(
     if !tools.iter().any(|tool| is_backend_job_tool(&tool.name)) {
         tools.push(backend_job_status_tool());
     }
-    let outcome = build_records_from_backend(BuildInput {
-        instance_id,
-        dcc_type,
-        backend_tools: &tools,
+    let outcome = tracing::trace_span!(
+        target: PROFILING_TARGET,
+        "capability.discovery.build_records",
+        instance = %instance_id,
+        tools = tools.len(),
+    )
+    .in_scope(|| {
+        build_records_from_backend(BuildInput {
+            instance_id,
+            dcc_type,
+            backend_tools: &tools,
+        })
     });
     let mut records = outcome.records;
     let loaded_records_len = records.len();
@@ -101,7 +111,13 @@ pub async fn refresh_instance(
     let unloaded_count = unloaded_records.len();
     records.append(&mut unloaded_records);
     records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
-    let fingerprint = compute_fingerprint(&records);
+    let fingerprint = tracing::trace_span!(
+        target: PROFILING_TARGET,
+        "capability.discovery.fingerprint",
+        instance = %instance_id,
+        records = records.len(),
+    )
+    .in_scope(|| compute_fingerprint(&records));
 
     // Short-circuit when nothing changed. This is the common path —
     // most periodic refreshes find an identical tool list.
@@ -119,7 +135,13 @@ pub async fn refresh_instance(
     }
 
     let records_len = records.len();
-    let prev = index.upsert_instance(instance_id, records, fingerprint);
+    let prev = tracing::trace_span!(
+        target: PROFILING_TARGET,
+        "capability.discovery.upsert",
+        instance = %instance_id,
+        records = records_len,
+    )
+    .in_scope(|| index.upsert_instance(instance_id, records, fingerprint));
 
     tracing::info!(
         instance = %instance_id,

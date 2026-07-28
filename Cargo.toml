@@ -117,6 +117,7 @@ dirs = "6.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+tracing-tracy = { version = "=0.11.4", default-features = false, features = ["enable", "ondemand", "only-localhost"] }
 time = { version = "0.3", features = ["formatting", "macros", "local-offset"] }
 parking_lot = "0.12"
 thiserror = "2.0"
@@ -265,6 +266,8 @@ job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
 # `dcc-mcp-gateway/admin`. Off by default — when disabled, zero admin
 # UI code or front-end assets are compiled into the wheel.
 admin = ["dcc-mcp-gateway/admin"]
+# Opt-in local Tracy profiling through the existing logging subscriber.
+tracy = ["dcc-mcp-logging/tracy"]
 
 # py37-lite: pure-Python wheel profile for Maya 2022 / Python 3.7.
 # Intentionally empty: ``build-py37`` only packages ``python/`` sources and

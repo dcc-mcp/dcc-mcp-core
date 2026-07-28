@@ -5,7 +5,8 @@
 //! ```text
 //! Registry
 //!   ├── fmt::Layer  → stderr (always on)
-//!   └── reload::Layer<Option<FileLayer>>  → disabled initially
+//!   ├── reload::Layer<Option<FileLayer>>  → disabled initially
+//!   └── TracyLayer  → local on-demand profiler (`tracy` feature only)
 //! ```
 //!
 //! The reload layer lets [`crate::file_logging::init_file_logging`]
@@ -19,6 +20,52 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::reload::{self, Handle};
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
+
+#[cfg(feature = "tracy")]
+use tracing_subscriber::fmt::format::DefaultFields;
+
+#[cfg(feature = "tracy")]
+const TRACY_TARGET: &str = "dcc_mcp::profiling";
+
+#[cfg(feature = "tracy")]
+fn is_tracy_profile(target: &str, is_span: bool) -> bool {
+    is_span && target == TRACY_TARGET
+}
+
+#[cfg(feature = "tracy")]
+fn is_tracy_metadata(metadata: &tracing::Metadata<'_>) -> bool {
+    is_tracy_profile(metadata.target(), metadata.is_span())
+}
+
+#[cfg(feature = "tracy")]
+fn enable_tracy_target(filter: EnvFilter) -> EnvFilter {
+    filter.add_directive(
+        format!("{TRACY_TARGET}=trace")
+            .parse()
+            .expect("static Tracy filter directive must be valid"),
+    )
+}
+
+#[cfg(feature = "tracy")]
+#[derive(Default)]
+struct TracyConfig(DefaultFields);
+
+#[cfg(feature = "tracy")]
+impl tracing_tracy::Config for TracyConfig {
+    type Formatter = DefaultFields;
+
+    fn formatter(&self) -> &Self::Formatter {
+        &self.0
+    }
+
+    fn stack_depth(&self, _metadata: &tracing::Metadata<'_>) -> u16 {
+        0
+    }
+
+    fn format_fields_in_zone_name(&self) -> bool {
+        false
+    }
+}
 
 /// Type-erased subscriber-agnostic layer installed behind the reload handle.
 ///
@@ -44,6 +91,7 @@ static RELOAD_HANDLE: OnceLock<FileLayerReloadHandle> = OnceLock::new();
 /// - a [`reload::Layer`] holding an `Option<BoxedLayer>` for dynamic
 ///   attachment of a rolling-file layer by
 ///   [`crate::file_logging::init_file_logging`].
+/// - a target-filtered local Tracy layer when the `tracy` feature is enabled.
 ///
 /// Safe to call multiple times — subsequent calls are no-ops thanks to
 /// the internal [`std::sync::Once`].
@@ -52,6 +100,9 @@ pub fn init_logging() {
         let filter = EnvFilter::try_from_env(ENV_LOG_LEVEL)
             .or_else(|_| EnvFilter::try_from_env(LEGACY_ENV_LOG_LEVEL))
             .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_LEVEL));
+
+        #[cfg(feature = "tracy")]
+        let filter = enable_tracy_target(filter);
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_target(true)
@@ -73,11 +124,18 @@ pub fn init_logging() {
         // `Layer<Registry>` so it MUST be attached directly on top of
         // `Registry`. Generic layers (`EnvFilter`, `fmt::Layer`) are
         // composed above it.
-        let _ = tracing_subscriber::registry()
+        let subscriber = tracing_subscriber::registry()
             .with(file_layer)
             .with(filter)
-            .with(fmt_layer)
-            .try_init();
+            .with(fmt_layer);
+
+        #[cfg(feature = "tracy")]
+        let subscriber = subscriber.with(
+            tracing_tracy::TracyLayer::new(TracyConfig::default())
+                .with_filter(tracing_subscriber::filter::filter_fn(is_tracy_metadata)),
+        );
+
+        let _ = subscriber.try_init();
     });
 }
 
@@ -141,5 +199,28 @@ mod tests {
         init_logging();
         init_logging();
         assert!(reload_handle().is_some());
+    }
+
+    #[cfg(feature = "tracy")]
+    #[test]
+    fn tracy_config_keeps_zone_names_stable_without_callstacks() {
+        use tracing_tracy::Config as _;
+
+        assert!(is_tracy_profile(TRACY_TARGET, true));
+        assert!(!is_tracy_profile("dcc_mcp::gateway", true));
+        assert!(!is_tracy_profile(TRACY_TARGET, false));
+        assert!(
+            enable_tracy_target(EnvFilter::new("off"))
+                .to_string()
+                .contains("dcc_mcp::profiling=trace")
+        );
+
+        let config = TracyConfig::default();
+        assert!(!config.format_fields_in_zone_name());
+
+        tracing::subscriber::with_default(tracing_subscriber::registry(), || {
+            let span = tracing::info_span!(target: "dcc_mcp::profiling", "config_test");
+            assert_eq!(config.stack_depth(span.metadata().unwrap()), 0);
+        });
     }
 }

@@ -46,6 +46,8 @@ use super::request_meta::meta_with_agent_context;
 use super::state::{GatewayState, ResolveInstanceError};
 use dcc_mcp_gateway_core::naming::instance_short;
 
+const PROFILING_TARGET: &str = "dcc_mcp::profiling";
+
 /// Metadata attached to one gateway search response for follow-up correlation.
 #[derive(Debug, Clone)]
 pub struct SearchResponseContext {
@@ -139,11 +141,15 @@ impl ServiceError {
     }
 }
 
-/// Run a capability search against the index. Pure and synchronous —
-/// every callable path reuses this function.
+/// Run a capability search against one coherent index snapshot.
+/// Pure and synchronous.
 pub fn search_service(index: &CapabilityIndex, query: &SearchQuery) -> Vec<SearchHit> {
-    let snap = index.snapshot();
-    search(&snap, query)
+    let snap = tracing::trace_span!(
+        target: PROFILING_TARGET,
+        "capability.discovery.snapshot"
+    )
+    .in_scope(|| index.snapshot());
+    search_snapshot(&snap, query)
 }
 
 /// Search and materialise transport-neutral JSON rows. Unloaded
@@ -181,21 +187,43 @@ pub fn search_service_hits_for_policy(
     query: &SearchQuery,
     policy: &GatewayPolicy,
 ) -> Vec<SearchHit> {
-    let snapshot = index.snapshot();
+    let snapshot = tracing::trace_span!(
+        target: PROFILING_TARGET,
+        "capability.discovery.snapshot"
+    )
+    .in_scope(|| index.snapshot());
     search_snapshot_hits_for_policy(&snapshot, query, policy)
+}
+
+/// Search one generation-coherent snapshot after applying gateway policy.
+///
+/// REST and MCP share this helper so their cache generation and profiling
+/// boundaries remain identical.
+pub fn search_service_hits_for_policy_with_generation(
+    index: &CapabilityIndex,
+    query: &SearchQuery,
+    policy: &GatewayPolicy,
+) -> (Vec<SearchHit>, String) {
+    let (snapshot, generation) = tracing::trace_span!(
+        target: PROFILING_TARGET,
+        "capability.discovery.snapshot"
+    )
+    .in_scope(|| index.snapshot_with_generation());
+    let hits = search_snapshot_hits_for_policy(&snapshot, query, policy);
+    (hits, generation)
 }
 
 /// Search one immutable index snapshot after applying gateway policy filters.
 ///
-/// Callers that also publish an index generation should obtain both values via
-/// [`CapabilityIndex::snapshot_with_generation`] so cached hits and response
-/// metadata describe the same coherent view.
+/// Callers that also publish an index generation should use
+/// [`search_service_hits_for_policy_with_generation`] so cached hits and
+/// response metadata describe the same coherent view.
 pub fn search_snapshot_hits_for_policy(
     snapshot: &IndexSnapshot,
     query: &SearchQuery,
     policy: &GatewayPolicy,
 ) -> Vec<SearchHit> {
-    search(snapshot, query)
+    search_snapshot(snapshot, query)
         .into_iter()
         .filter(|hit| {
             policy
@@ -203,6 +231,15 @@ pub fn search_snapshot_hits_for_policy(
                 .is_ok()
         })
         .collect()
+}
+
+fn search_snapshot(snapshot: &IndexSnapshot, query: &SearchQuery) -> Vec<SearchHit> {
+    tracing::trace_span!(
+        target: PROFILING_TARGET,
+        "capability.discovery.search",
+        records = snapshot.records.len(),
+    )
+    .in_scope(|| search(snapshot, query))
 }
 
 pub fn search_service_rows_for_policy_with_context(
@@ -1407,6 +1444,24 @@ mod unit_tests {
             .map(|h| h.record.tool_slug.as_str())
             .collect();
         assert_eq!(service_slugs, raw_slugs);
+    }
+
+    #[test]
+    fn search_with_generation_preserves_hits_and_generation() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::from_u128(1);
+        push(&idx, "maya", iid, "create_sphere", true);
+        let query = SearchQuery {
+            query: "sphere".into(),
+            ..Default::default()
+        };
+
+        let (hits, generation) =
+            search_service_hits_for_policy_with_generation(&idx, &query, &GatewayPolicy::default());
+
+        assert_eq!(generation, idx.generation());
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.backend_tool, "create_sphere");
     }
 
     #[test]

@@ -20,6 +20,7 @@ dcc-mcp-paths = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
+tracing-tracy = { workspace = true, optional = true }
 time = { workspace = true }
 parking_lot = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
@@ -27,5 +28,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [features]
 default = []
 python-bindings = ["pyo3"]
+tracy = ["dep:tracing-tracy"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
