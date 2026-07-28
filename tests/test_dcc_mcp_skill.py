@@ -114,6 +114,9 @@ class TestDccMcpSkill:
         assert "dcc-mcp-cli dcc-types" in body
         assert "dcc-mcp-cli stats" in body
         assert "review_skill_improvement" in body
+        assert "dcc_feedback__report" in body
+        assert "/v1/debug/issue-reports/<request_id>" in body
+        assert "public-safe" in body
         assert "do not use this skill" not in body
 
     def test_async_calls_prefer_one_cli_wait_over_agent_polling(self) -> None:

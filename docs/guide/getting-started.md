@@ -2,6 +2,28 @@
 
 ## Installation
 
+### Public Agent Skills
+
+Install the Skill that matches the agent's task. Cloning this repository is
+not required:
+
+| Task | Skill |
+|------|-------|
+| Operate a live DCC, discover tools, or search the Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| Create or modernize a complete DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| Create, validate, or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
+```bash
+# OpenClaw workspace: default live-DCC control Skill
+openclaw skills install @loonghao/dcc-mcp
+
+# Direct ClawHub CLI
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+```
+
+Substitute a creator slug only for its matching development task. Start a new
+agent turn after installation.
+
 ### CLI from the `dcc-mcp` Skill
 
 ```bash
@@ -81,6 +103,22 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 - **Python Dependencies**: Zero — everything is in the compiled Rust extension
 
 ## Quick Start
+
+### Operate a live DCC from an agent
+
+With `dcc-mcp` loaded, use the CLI as the structured control path:
+
+```bash
+dcc-mcp-cli dcc-types
+dcc-mcp-cli list
+dcc-mcp-cli search --query "create sphere" --dcc-type maya
+dcc-mcp-cli describe <tool-slug>
+dcc-mcp-cli call <tool-slug> --json '{"radius":2.0}'
+```
+
+Use the slug returned by `search`; never construct it. If `list` returns zero
+instances, follow the Skill's consent-gated setup flow instead of switching to
+raw DCC scripting or generic GUI automation.
 
 ### Skills-First: `create_skill_server` (recommended)
 

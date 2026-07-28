@@ -70,6 +70,25 @@ pip install maturin
 maturin develop
 ```
 
+### 应该安装哪个 Agent Skill？
+
+按任务安装；大多数 Agent 只需要第一项：
+
+| 任务 | Skill |
+|------|-------|
+| 操作实时 DCC、发现工具或搜索 Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| 创建或现代化完整 DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| 创建、验证或改进 DCC 专项 Skill 包 | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
+```bash
+openclaw skills install @loonghao/dcc-mcp
+# 直接使用 ClawHub CLI：
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+```
+
+安装后开启新的 agent turn。`dcc-mcp` 会指导 Agent 按
+`dcc-mcp-cli list -> search -> describe/load-skill -> call` 执行。
+
 ## Actions
 
 ### 如何注册 Action？
@@ -312,7 +331,10 @@ handle = server.start()
 print(handle.is_gateway)  # 如果此进程赢得了 Gateway 端口则为 True
 ```
 
-Agent 始终连接 `http://localhost:9765/mcp`，通过读取 `gateway://instances` MCP 资源（`resources/read uri=gateway://instances`）发现并路由到特定 DCC 进程 —— 每条记录已经携带 `mcp_url`，无需额外的连接工具。
+具备 shell 能力的 Agent 使用 `dcc-mcp` Skill 和 `dcc-mcp-cli`，local profile
+会自动发现已注册实例。只有 MCP-only 客户端才连接
+`http://localhost:9765/mcp`；需要指定 DCC 进程时读取
+`gateway://instances` 资源，每条记录已经携带 `mcp_url`。
 
 ### BridgeKind 是什么？
 
@@ -360,12 +382,20 @@ cfg.init()
 
 ### 如何报告 Bug 或请求功能？
 
-请在 [GitHub](https://github.com/dcc-mcp/dcc-mcp-core/issues) 上提 Issue，并包含：
-- DCC 应用及版本
-- Python 版本（`python --version`）
-- dcc-mcp-core 版本（`python -c "import dcc_mcp_core; print(dcc_mcp_core.__version__)"`）
-- 最小可复现代码
-- 预期行为与实际行为
+Agent 应先完成自查，再创建 issue：
+
+1. 保留失败调用的 `request_id`；启动/readiness 问题运行
+   `dcc-mcp-cli doctor`，任务范围证据运行
+   `dcc-mcp-cli stats --status failure --session-id <id>`。
+2. 发现并调用 `dcc_feedback__report`，把结构化反馈记录到 runtime。
+3. gateway 路径失败时获取 public-safe
+   `/v1/debug/issue-reports/<request_id>`；它包含建议 title/body，未经人工审查
+   禁止上传 `?mode=raw`。
+4. Skill 契约问题归属对应 Skill，adapter/host 问题归属 adapter 仓库，
+   CLI/gateway/protocol 共性问题归属
+   [dcc-mcp-core](https://github.com/dcc-mcp/dcc-mcp-core/issues)。
+5. 只有用户请求或授权后才创建外部 issue；附上 DCC/core 版本、最小复现、
+   预期/实际行为和 public-safe 报告。
 
 ## 贡献
 

@@ -34,35 +34,23 @@ a host such as Nuke, Blender, 3ds Max, Unreal, ZBrush, Houdini, or Maya. Use
 this skill when the task is to create or improve the skill packages loaded by
 those adapters.
 
-## Installation
+## Install and Route
 
-This skill ships with dcc-mcp-core. Add it to your skill path:
+Install the published
+[`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
+package, then start a new agent turn:
 
 ```bash
-# Linux/macOS
-export DCC_MCP_SKILL_PATHS="${DCC_MCP_SKILL_PATHS}:$(python -c 'import dcc_mcp_core; print(dcc_mcp_core.__file__)')/../skills"
-
-# Windows
-set DCC_MCP_SKILL_PATHS=%DCC_MCP_SKILL_PATHS%;C:\path\to\dcc-mcp-core\skills
+openclaw skills install @loonghao/dcc-mcp-skills-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
 ```
 
-Or reference it directly when starting your MCP server:
-
-```python
-from dcc_mcp_core import create_skill_server, McpHttpConfig
-
-server = create_skill_server(
-    "maya",
-    McpHttpConfig(),
-    extra_paths=["/path/to/dcc-mcp-core/skills"],
-)
-handle = server.start()
-print(handle.mcp_url())
-```
-
-The local instance port is OS-assigned by default. The CLI and gateway discover
-the resolved URL through the shared registry; pass an explicit port only when
-an external integration requires a fixed listener.
+Use [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) to operate an
+existing DCC and
+[`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) to build
+a complete adapter. A repository checkout may load this directory directly;
+`DCC_MCP_SKILL_PATHS` and `extra_paths` are runtime paths for DCC adapters, not
+installation instructions for an agent host.
 
 ## CLI-First Control Path
 
@@ -302,6 +290,18 @@ only for a repeated, reusable workflow that no current skill owns. Validate any
 accepted change with `validate_skill_dir` or `dcc-mcp-cli lint` before loading
 it. Statistics inform a proposal; they never authorize editing or publishing a
 skill without the task owner's requested scope.
+
+For a failed task, first use the `dcc-mcp` recovery flow: retain the
+`request_id`, run `doctor` for runtime/readiness faults, query
+`stats --status failure --session-id <session-id>`, and record structured
+feedback through the CLI-discovered `dcc_feedback__report` tool. The public-safe
+`/v1/debug/issue-reports/<request_id>` payload is suitable for a reviewed issue;
+never publish `?mode=raw` automatically.
+
+Fix this Skill only when the evidence identifies its schema, script,
+description, next-tool, or workflow contract. Route adapter/runtime failures to
+`dcc-mcp-creator` and shared CLI/gateway/core failures to `dcc-mcp-core`. A
+one-off tool bug is not evidence for creating another Skill.
 
 When reviewing existing skills, reject top-level DCC-MCP extension keys such
 as `dcc`, `version`, `tags`, `tools`, `groups`, `depends`, `search-hint`,

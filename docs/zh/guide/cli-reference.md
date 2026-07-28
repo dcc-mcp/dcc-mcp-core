@@ -6,7 +6,13 @@
 
 `dcc-mcp-cli` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
 Release 资产发布。它是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
-安装，先征得用户同意，再从已安装的 `dcc-mcp` Skill 目录运行：
+安装，先安装公开的
+[`dcc-mcp` Skill](https://clawhub.ai/loonghao/skills/dcc-mcp)，让 Agent 获得路由、
+安全与恢复流程。只有创建完整 adapter 时才使用
+[`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator)，创建 DCC
+专项 Skill 包时才使用
+[`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)。
+安装 CLI 前先征得用户同意，再从已安装的 `dcc-mcp` Skill 目录运行：
 
 ```bash
 python scripts/check_cli.py --ensure-cli --pretty
@@ -189,6 +195,23 @@ dcc-mcp-cli lint path/to/skills
 | `gateway daemon start/restart/stop/status` | local process | 显式管理本机 machine-wide gateway daemon 生命周期；`start` 和 `restart` 的启动阶段默认传 `--gateway-idle-timeout-secs 0`，无 backend 时也保持存活；`status` 会输出 registry dir、PID file、health URL 和 CLI version 等诊断字段。 |
 | `gateway ensure/start/stop/status` | local process | 旧脚本兼容 alias；面向用户文档优先使用 `gateway daemon ...`。 |
 | `lint [PATH ...]` | local filesystem validator | 默认递归校验每个路径下两层内的 SKILL.md 包。 |
+
+### 错误自查与 Bug 上报
+
+1. 保留失败调用的 `request_id`、trace/job id、tool slug、instance、脱敏后的参数、
+   error code 和验证结果；不要直接重放有副作用的调用。
+2. profile、registry、daemon、binary 或 readiness 异常先运行
+   `dcc-mcp-cli doctor`；任务范围内的失败证据运行
+   `dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>`。
+3. 用 `search --query "report feedback" -> describe -> call` 找到并调用
+   `dcc_feedback__report`，提交 `tool_name`、`intent`、`attempt`、`blocker` 和
+   `severity`。它只记录结构化运行时反馈，不会创建 GitHub issue。
+4. gateway 路径失败时，读取 public-safe
+   `/v1/debug/issue-reports/<request_id>`；其中已有摘要和建议的 GitHub
+   title/body。`?mode=raw` 只能本地人工审查，禁止自动上传。
+5. schema/script/workflow 问题归属对应 Skill；host dispatch/readiness 问题归属
+   adapter；CLI/gateway/protocol 共性问题归属 `dcc-mcp-core`。只有得到用户授权后
+   才创建外部 issue。
 
 `gateway daemon start` 和 `gateway daemon restart` 是持久 operator 路径。默认
 `--gateway-idle-timeout-secs 0` 会关闭 idle shutdown；只有脚本明确想要短生命周期

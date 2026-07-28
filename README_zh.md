@@ -88,30 +88,38 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 ## 快速开始
 
-### 安装 Agent Skill 套件
+### 按任务安装 Agent Skill
 
-可以直接从 ClawHub 安装三个公开 Skill，无需克隆本仓库：
+三个公开 Skill 各自负责一个边界。操作现有 DCC 时只需先安装 `dcc-mcp`；只有
+任务进入 adapter 或专项 Skill 开发时，才安装对应 creator：
+
+| Agent 任务 | 公开 Skill | 源码 |
+|---|---|---|
+| 操作实时 DCC、发现工具或搜索 Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) | [`skills/dcc-mcp`](skills/dcc-mcp/) |
+| 创建或现代化完整 DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | [`skills/dcc-mcp-creator`](skills/dcc-mcp-creator/) |
+| 创建、验证或改进 DCC 专项 Skill 包 | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | [`skills/dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) |
+
+OpenClaw 默认安装到当前 workspace；只有需要本机所有 OpenClaw Agent 共享时
+才加 `--global`：
 
 ```bash
 openclaw skills install @loonghao/dcc-mcp
-openclaw skills install @loonghao/dcc-mcp-skills-creator
 openclaw skills install @loonghao/dcc-mcp-creator
+openclaw skills install @loonghao/dcc-mcp-skills-creator
 ```
 
-需要让本机所有 OpenClaw Agent 共享时，给每条命令加 `--global`。其他兼容
-ClawHub 的 workspace 可以直接使用 registry CLI：
+Codex 项目应安装到标准项目 Skill 根目录：
 
 ```bash
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
-npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-creator
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp-skills-creator
 ```
 
-| Skill | Agent 职责 |
-|---|---|
-| [`dcc-mcp`](skills/dcc-mcp/) | 默认实时 DCC 控制和 marketplace 发现；Skill 商城请求先运行 `dcc-mcp-cli marketplace search` |
-| [`dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) | 创建、验证、打包和评审 DCC-MCP Skill |
-| [`dcc-mcp-creator`](skills/dcc-mcp-creator/) | 创建或现代化完整 DCC adapter 及运行时接线 |
+其他 Agent Skills 宿主应把同一个 ClawHub 包安装到自身配置的 Skill 根目录。
+安装后开启新的 agent turn。自然语言 DCC 请求应触发 `dcc-mcp`；支持显式 Skill
+调用的宿主也可以分别使用 `$dcc-mcp`、`$dcc-mcp-creator` 或
+`$dcc-mcp-skills-creator`。
 
 ### 安装独立 CLI
 
@@ -173,6 +181,12 @@ dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_versi
    traces、logs 和 Token 活动。
 4. 对正在运行的 backend，使用 Instances 面板里的更新按钮暂存
    `dcc-mcp-server` 更新。`dcc-mcp-cli update apply` 只用于更新 CLI 二进制本身。
+
+调用失败时保留 `request_id`，根据故障类型运行 `doctor` 或带
+`--status failure --session-id <id>` 的 `stats`，再通过正常的
+`search -> describe -> call` 流程调用 `dcc_feedback__report`。gateway 路径还提供
+public-safe `/v1/debug/issue-reports/<request_id>` 作为经审查的 Bug 报告材料；
+禁止自动上传 raw bundle。
 
 任意 gateway-backed 命令成功后，默认浏览器控制台可访问
 `http://127.0.0.1:9765/admin`。如果 gateway 在其他地址，可以使用

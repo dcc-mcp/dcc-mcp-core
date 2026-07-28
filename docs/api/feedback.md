@@ -16,6 +16,28 @@ Register the `dcc_feedback__report` MCP tool on `server`. Call **before** `serve
 
 The tool accepts: `tool_name`, `intent`, `blocker`, `severity` (`"blocked"` | `"workaround_found"` | `"suggestion"`), optional `attempt`.
 
+## Agent failure-reporting workflow
+
+Shell-capable agents use the published `dcc-mcp` Skill and existing CLI
+surfaces:
+
+```bash
+dcc-mcp-cli doctor
+dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>
+dcc-mcp-cli search --query "report feedback" --dcc-type <dcc>
+dcc-mcp-cli describe <returned-feedback-tool-slug>
+dcc-mcp-cli call <returned-feedback-tool-slug> --json \
+  '{"tool_name":"tool_that_failed","intent":"goal","attempt":"sanitized attempt","blocker":"observed failure","severity":"blocked"}'
+```
+
+The feedback call stores a structured runtime signal; it does not create an
+external issue. For a gateway-routed failure, preserve the CLI-returned
+`request_id` and retrieve public-safe
+`/v1/debug/issue-reports/<request_id>`. Review `?mode=raw` locally and never
+upload it automatically. Route Skill defects to the owning Skill, adapter or
+host-runtime defects to the adapter repository, and shared CLI/gateway/protocol
+defects to `dcc-mcp-core`; create an external issue only with user authorization.
+
 ## extract_rationale
 
 ```python

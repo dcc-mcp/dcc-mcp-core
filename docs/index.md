@@ -16,10 +16,16 @@ hero:
       text: Why MCP + Skills?
       link: /guide/what-is-dcc-mcp-core
     - theme: alt
+      text: Install dcc-mcp Skill
+      link: https://clawhub.ai/loonghao/skills/dcc-mcp
+    - theme: alt
       text: GitHub
       link: https://github.com/dcc-mcp/dcc-mcp-core
 
 features:
+  - icon: 🤖
+    title: Agent-Ready Entry
+    details: Install the public dcc-mcp Skill, then use dcc-mcp-cli to inventory, search, inspect, and call typed DCC capabilities.
   - icon: 🎯
     title: Dynamic Capability Routing
     details: Agents search, describe, load skills, and call tools through one gateway instead of carrying every backend tool in context.

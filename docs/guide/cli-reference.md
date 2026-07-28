@@ -8,8 +8,15 @@ same configuration surface.
 
 `dcc-mcp-cli` and `dcc-mcp-server` are published as raw GitHub Release
 assets on every release. It is the preferred control path for shell-capable
-agents. If it is missing, obtain the user's consent before installing it from
-the official release. From the installed `dcc-mcp` Skill directory, run:
+agents. Install the published
+[`dcc-mcp` Skill](https://clawhub.ai/loonghao/skills/dcc-mcp) for the routing,
+safety, and recovery workflow; use
+[`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) only for
+a complete adapter and
+[`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
+only for a DCC-specific Skill package. If the CLI is missing, obtain the user's
+consent before installing it from the official release. From the installed
+`dcc-mcp` Skill directory, run:
 
 ```bash
 python scripts/check_cli.py --ensure-cli --pretty
@@ -237,6 +244,28 @@ root-cause proof; `total_calls == 0` means no telemetry evidence, not that no
 calls occurred. The
 `review_skill_improvement` prompt in `skills/dcc-mcp-skills-creator/prompts.yaml`
 accepts this JSON plus bounded task and validation summaries.
+
+### Failure analysis and bug reporting
+
+Use the existing surfaces instead of copying unbounded logs:
+
+1. Preserve the failed call's `request_id`, trace/job ids, tool slug, instance,
+   sanitized arguments, error code, and validation result. Do not blindly
+   replay a mutating call.
+2. Run `dcc-mcp-cli doctor` for profile, registry, daemon, binary, or readiness
+   failures. For task-level evidence, run
+   `dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>`.
+3. Discover `dcc_feedback__report` with `search --query "report feedback"`,
+   follow `describe`, and call the returned slug with `tool_name`, `intent`,
+   `attempt`, `blocker`, and `severity`. This records runtime feedback; it does
+   not open a GitHub issue.
+4. For a gateway-routed failure, read the public-safe
+   `/v1/debug/issue-reports/<request_id>` payload. It contains a bounded summary
+   and suggested GitHub title/body. Review `?mode=raw` locally and never attach
+   it automatically.
+5. Route schema/script/workflow bugs to the owning Skill, host dispatch or
+   readiness bugs to the adapter, and shared CLI/gateway/protocol bugs to
+   `dcc-mcp-core`. Create the external issue only with user authorization.
 
 `gateway daemon start` and `gateway daemon restart` are the durable operator
 paths. Their default `--gateway-idle-timeout-secs 0` disables idle shutdown;

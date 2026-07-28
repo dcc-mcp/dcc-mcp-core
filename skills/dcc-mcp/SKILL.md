@@ -117,8 +117,6 @@ If the requested DCC is installed but no live adapter instance is registered,
 follow the zero-instance flow. Do not silently switch to GUI automation or a
 different DCC application.
 
----
-
 ## Agent Path vs IDE Path
 
 DCC-MCP supports two integration paths. `dcc-mcp-cli` is the default for every
@@ -188,8 +186,6 @@ the complete target-binding, system-operation, capture, and artifact contract.
 Internal studios can fork this skill once and reuse the same CLI+REST workflow across
 agents without maintaining per-host MCP server lists.
 
----
-
 ## Gateway Profiles And Local-First Inventory
 
 `dcc-mcp-cli` has a built-in `local` profile. In local mode, agent-control
@@ -247,21 +243,20 @@ Detailed daemon lifecycle, profile commands, release assets, and fallback
 behavior live in [CLI cheatsheet](references/CLI_CHEATSHEET.md). Read it only
 when setup, lifecycle, or transport troubleshooting is needed.
 
----
+## Install This Agent Skill
 
-## Connection Order
+Use this package to operate an existing DCC. For a new adapter use [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator); for a DCC-specific Skill use [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator).
 
-1. Use `dcc-mcp-cli list` for local inventory, or `dcc-mcp-cli list --gateway <name>` for a remote profile.
-2. If missing, ask user permission, then use the bundled verified installer for the official GitHub release.
-3. If manifest or SHA-256 verification fails, preserve any existing CLI and use the bundled Python stdlib REST fallback where supported.
+```bash
+openclaw skills install @loonghao/dcc-mcp
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+```
 
-Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning [`dcc-mcp-core/skills/dcc-mcp/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-mcp).
+The published package is [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp). Install it with the command for the current agent host, start a new agent turn, and invoke `$dcc-mcp` explicitly if automatic routing is uncertain. A checkout may load this directory directly.
 
-`dcc-mcp` supersedes the former `dcc-cli-gateway` skill slug. Do not install or
-load both names in one agent: install `dcc-mcp`, verify it is discoverable, then
-remove the old package to avoid duplicate intent routing.
+Then run `dcc-mcp-cli list`. If the CLI is missing, ask permission before the bundled verified installer downloads the official release. Preserve the existing CLI and use the Python REST fallback if manifest or SHA-256 verification fails.
 
----
+`dcc-mcp` supersedes `dcc-cli-gateway`; do not load both names in one agent.
 
 ## Critical Rules
 
@@ -280,45 +275,26 @@ remove the old package to avoid duplicate intent routing.
 | User approved setup | Follow [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md) |
 | Timeout, temporary `unreachable`, or DCC restart | Preserve operation IDs and follow the recovery contract in [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md); never blindly replay a mutation or reuse stale slugs |
 
----
-
 ## Step 0 — Local Inventory First
 
-Run this as the **very first step** every time you begin local work or after a
-DCC adapter restarts:
+Run this first when local work begins or a DCC adapter restarts:
 
 ```bash
-# Supported adapter identifiers, only when support is unclear
 dcc-mcp-cli dcc-types
-
-# Local FileRegistry inventory
 dcc-mcp-cli list
-
-# No-launch startup diagnostics when state is unclear
 dcc-mcp-cli doctor
-
-# Optional gateway health check
-dcc-mcp-cli health
 ```
 
 Interpret the result:
 
 - `list.total > 0` -> inspect status/dispatch metadata. Local `search`, `describe`, `load-skill`, `call`, and `reload-skills` only route to rows ready for local CLI control; use `wait-ready` or `doctor` for live-but-booting rows, including sidecars that have not reached `dispatch_status=ready`.
 - `doctor.profile.selected.mode` / `doctor.local.registry_dir` -> confirms which local/remote mode and registry path the CLI is using before adapter setup.
-- `health.status == "ok"` -> gateway is up when you need gateway endpoint/admin/update workflows.
 - Error / timeout -> stop; explain the failure to the user. For remote
   profiles, the CLI cannot auto-start the gateway.
 
----
-
 ## Step 1 — Select a Live Instance
 
-Run `dcc-mcp-cli list` whenever a DCC starts or stops. Report `total`, counts by
-`dcc_type`, stale rows, and the chosen `instance_id` or `instance_short`. If
-`total == 0`, stop and ask whether the user wants setup guidance. Continue only
-after explicit approval.
-
----
+Run `dcc-mcp-cli list` whenever a DCC starts or stops. Report `total`, counts by `dcc_type`, stale rows, and the chosen instance. If `total == 0`, stop and ask whether the user wants setup guidance; continue only after approval.
 
 ## Step 2 — Search Tools
 
@@ -343,8 +319,6 @@ maya.a1b2c3d4.maya_primitives__create_sphere
 
 Never hand-build slugs.
 
----
-
 ## Step 3 — Follow `next_step`
 
 - `action=call` — call directly; no-schema tools receive this only when compact safety hints are already present.
@@ -363,8 +337,6 @@ python scripts/dcc_gateway.py describe maya.a1b2c3d4.maya_primitives__create_sph
 
 When describe or `compact_schema` is returned, use those exact parameter names
 and safety annotations before calling.
-
----
 
 ## Step 4 — Call a Tool
 
@@ -422,30 +394,34 @@ off the process command line, which is especially important on Windows.
 See [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md) for command
 patterns and common errors.
 
----
+## Step 5 — Analyze Failures and Report Bugs
 
-## Step 5 — Review Reusable Friction
+Do not guess a root cause or blindly replay a mutation. Preserve `request_id`, `trace_id`, `job_id`, tool slug, instance id, sanitized arguments, error code, and validation result.
 
-Only after task acceptance, query narrowly scoped gateway evidence:
+```bash
+dcc-mcp-cli doctor
+dcc-mcp-cli stats --range 24h --status failure --session-id task-42
+dcc-mcp-cli search --query "report feedback" --dcc-type maya
+dcc-mcp-cli describe <returned-feedback-tool-slug>
+dcc-mcp-cli call <returned-feedback-tool-slug> --json \
+  '{"tool_name":"maya_geometry__create_sphere","intent":"Create a sphere","attempt":"radius=2.0","blocker":"Radius was ignored","severity":"blocked"}'
+```
+
+Use `doctor` for profile, registry, daemon, binary, and readiness failures. For a tool failure, refresh `describe`, compare the schema/annotations with the attempt, inspect failure-only stats, and call `dcc_feedback__report`. Its severity is `blocked`, `workaround_found`, or `suggestion`; it records feedback but does not create an external issue.
+
+For a gateway-routed failure, use the CLI-returned `request_id` to read `/v1/debug/agent-traces/<request_id>` and public-safe `/v1/debug/issue-reports/<request_id>`. The latter supplies a bounded summary and suggested GitHub title/body. Never publish `?mode=raw` without human review; create an external issue only with user authorization.
+
+Route schema/script/Skill defects to the owning package and `dcc-mcp-skills-creator`; dispatch/readiness/install/wiring defects to the adapter and `dcc-mcp-creator`; shared gateway/CLI/protocol defects to `dcc-mcp-core`. Include the smallest reproduction and safe report, not hidden reasoning.
+
+### Review Reusable Friction
 
 ```bash
 dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
 ```
 
-Check `stats_coverage` before the count. Gateway SQLite excludes
-`local_mcp_direct`; `configured_route_recorded=false` means that route cannot
-support reflection. Re-run through `--require-gateway`; never manufacture
-telemetry or treat `total_calls == 0` as proof that no calls occurred.
+Only after acceptance, inspect `stats_coverage`. Gateway SQLite excludes `local_mcp_direct`; `configured_route_recorded=false` cannot support reflection. Re-run through `--require-gateway`; zero calls means missing evidence.
 
-Then load `dcc-mcp-skills-creator` and request its
-`review_skill_improvement` prompt. Pass only bounded task, stats, validation,
-and existing-skill summaries. Treat `total_calls == 0` as no telemetry
-evidence, not success. Stats show aggregates, not root cause; prefer
-`no_change`, then `update_existing`, and create a skill only for a repeated,
-stable workflow. This review does not authorize editing or publishing outside
-the task scope.
-
----
+Load `dcc-mcp-skills-creator` and request `review_skill_improvement` with bounded task, stats, validation, and existing-skill summaries. Stats are not root-cause proof; prefer `no_change`, then `update_existing`, and create only for a repeated stable workflow. The review never authorizes out-of-scope changes.
 
 ## Updates and Marketplace Maintenance
 
@@ -484,8 +460,6 @@ dcc-mcp-cli install --dcc-type maya --version 2026
 Ask before `--execute`, follow the returned `next_steps`, and do not treat
 package installation as live registration. If auto-install is disabled, show
 the returned policy prompt and hand off to the named deployment owner.
-
----
 
 ## What This Skill Does Not Use
 

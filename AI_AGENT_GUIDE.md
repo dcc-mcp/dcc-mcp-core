@@ -48,10 +48,34 @@ automation.
 
 CLI-first does **not** deprecate MCP. The gateway always exposes both MCP and REST side by side.
 
+### Install the right Agent Skill
+
+Choose by task; live DCC control does not require either creator Skill:
+
+| Intent | Install |
+|--------|---------|
+| Operate a DCC, discover capabilities, or search the Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
+| Create or modernize a complete DCC-MCP adapter | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
+| Create or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
+
+```bash
+# OpenClaw workspace
+openclaw skills install @loonghao/dcc-mcp
+
+# Direct ClawHub CLI
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+```
+
+Substitute the selected creator package only for its matching development
+task. Start a new agent turn after installation. Natural DCC requests trigger
+`dcc-mcp`; explicit-capability hosts can invoke `$dcc-mcp`,
+`$dcc-mcp-creator`, or `$dcc-mcp-skills-creator`.
+
 ### Install and keep the CLI current
 
 If `dcc-mcp-cli` is missing, obtain the user's consent, install the public
-`dcc-mcp` Skill, and run its bundled verified helper from the Skill directory:
+[`dcc-mcp` Skill](https://clawhub.ai/loonghao/skills/dcc-mcp) using the command
+above, and run its bundled verified helper from the Skill directory:
 
 ```bash
 python scripts/check_cli.py --ensure-cli --pretty
@@ -204,8 +228,18 @@ Use the `dcc-mcp` skill to wrap these CLI calls as structured MCP tools in your 
 
 `dcc-types` reads the release catalog without starting a gateway; it reports
 adapter-backed identifiers such as `godot` and `renderdoc`, while `list` reports
-live sessions. After the task passes its acceptance checks, query bounded
-evidence with `dcc-mcp-cli stats --range 24h --session-id task-42`, then use the
+live sessions.
+
+On failure, keep the CLI-returned `request_id` and run `doctor` for startup or
+readiness faults, then `stats --status failure --session-id task-42` for the
+bounded task slice. Discover and call `dcc_feedback__report` through
+`search -> describe -> call` to record structured runtime feedback. For a
+gateway-routed failure, `/v1/debug/issue-reports/<request_id>` returns a
+public-safe summary and suggested GitHub issue body; never publish `?mode=raw`
+without human review, and create an external issue only with user authorization.
+
+After the task passes its acceptance checks, query bounded evidence with
+`dcc-mcp-cli stats --range 24h --session-id task-42`, then use the
 `review_skill_improvement` prompt from `dcc-mcp-skills-creator`. Treat zero calls
 as missing evidence, never send raw prompts or secrets, and prefer no change or
 an existing-skill update over creating another skill.

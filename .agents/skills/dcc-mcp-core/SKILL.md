@@ -14,6 +14,10 @@ The foundational library enabling AI assistants to interact with Digital Content
 
 | Task | Use this | Not this |
 |------|----------|----------|
+| Operate a live DCC from an agent | [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) + `dcc-mcp-cli` | embedding the Python API in the agent |
+| Create or modernize a DCC-MCP adapter | [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | adapter-local copies of core wiring |
+| Create a DCC-specific Skill package | [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | a new adapter repository |
+| Analyze or report a failed DCC call | `dcc-mcp` recovery flow: `doctor`, failure-filtered `stats`, `dcc_feedback__report`, public-safe issue report | raw unreviewed logs |
 | Return action result | `success_result()` / `error_result()` | raw dicts |
 | Load skills | `scan_and_load()` → `(skills, skipped)` | manual file scanning |
 | One-call MCP server | `create_skill_server("maya", McpHttpConfig(port=8765))` | manual wiring |
@@ -47,6 +51,20 @@ The foundational library enabling AI assistants to interact with Digital Content
 | **Skill Hot-Reload** | File-watching auto-reload for live skill development |
 
 ## Installation
+
+For agent-side DCC control, install the published `dcc-mcp` Skill and use its
+CLI workflow; the Python package below is for adapters and embedded runtimes:
+
+```bash
+openclaw skills install @loonghao/dcc-mcp
+# Direct ClawHub CLI:
+npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
+```
+
+Use [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator)
+only for a complete adapter/runtime, and
+[`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
+only for a DCC-specific Skill package.
 
 ```bash
 pip install dcc-mcp-core

@@ -186,6 +186,13 @@ response payload previews, prompts, scripts, and scene data. Browser URLs such
 as `/admin?panel=traces&trace=<request_id>` and historical
 `/admin?agent=traces&trace=<id>` links are UI navigation, not a stable API.
 
+For bug reporting, start from the `request_id` returned by `dcc-mcp-cli`, read
+the agent trace packet, then retrieve
+`/v1/debug/issue-reports/{request_id}`. The default report is public-safe and
+includes a suggested GitHub title/body; `?mode=raw` is local evidence that must
+be reviewed before sharing. This endpoint prepares evidence but never
+authorizes or creates an external issue.
+
 ---
 
 ## `POST /v1/call` — the invocation contract

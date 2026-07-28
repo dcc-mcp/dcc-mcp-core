@@ -16,10 +16,16 @@ hero:
       text: 为什么选择 MCP + Skills？
       link: /zh/guide/what-is-dcc-mcp-core
     - theme: alt
+      text: 安装 dcc-mcp Skill
+      link: https://clawhub.ai/loonghao/skills/dcc-mcp
+    - theme: alt
       text: GitHub
       link: https://github.com/dcc-mcp/dcc-mcp-core
 
 features:
+  - icon: 🤖
+    title: Agent 开箱即用
+    details: 安装公开 dcc-mcp Skill，再用 dcc-mcp-cli 完成实例盘点、能力搜索、契约检查与 typed tool 调用。
   - icon: 🎯
     title: 动态能力路由
     details: Agent 通过一个 gateway search、describe、call 工具，不再把所有后端工具塞进上下文。
