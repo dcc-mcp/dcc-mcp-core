@@ -50,6 +50,10 @@ key/button release; retry cleanup and do not start another session. The global
 input owner stays held across adapter processes until reconnect allows those
 releases to drain.
 
+As a final leak-recovery fence, the Windows proxy stops a session after five
+minutes without a tool call. Do not rely on that idle lease instead of the
+explicit `stop_computer_use` cleanup step.
+
 ## Evidence Attribution
 
 Every successful snapshot or recording includes `capture_provenance`. Keep it

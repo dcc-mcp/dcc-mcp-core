@@ -60,6 +60,7 @@ _CLIENTS: Dict[str, Dict[str, Any]] = {}
 _STOP_EVENT = threading.Event()
 _CLIENTS_LOCK = threading.RLock()
 _ACTIVE_CALLS: set[str] = set()
+_IDLE_REAPER: Optional[threading.Thread] = None
 _IDLE_LEASE_SECONDS = max(
     1.0,
     float(os.environ.get("DCC_MCP_UI_CONTROL_IDLE_LEASE_SECONDS", "300")),
@@ -140,6 +141,29 @@ def _prune_idle_clients(now: float) -> None:
                 _CLIENTS.pop(session_id, None)
 
 
+def _ensure_idle_reaper() -> None:
+    global _IDLE_REAPER
+    with _CLIENTS_LOCK:
+        if _IDLE_REAPER is not None and _IDLE_REAPER.is_alive():
+            return
+        _IDLE_REAPER = threading.Thread(
+            target=_reap_idle_clients,
+            name="dcc-mcp-ui-control-idle-reaper",
+            daemon=True,
+        )
+        _IDLE_REAPER.start()
+
+
+def _reap_idle_clients() -> None:
+    global _IDLE_REAPER
+    while not _STOP_EVENT.wait(min(_IDLE_LEASE_SECONDS, 1.0)):
+        _prune_idle_clients(time.monotonic())
+        with _CLIENTS_LOCK:
+            if not _CLIENTS:
+                _IDLE_REAPER = None
+                return
+
+
 def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if scope.get("invalid_reason"):
         return skill_error(str(scope["invalid_reason"]), UiErrorCode.INVALID_TARGET)
@@ -216,6 +240,7 @@ def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy
                 "last_activity": 0.0,
             }
             _CLIENTS[session_id] = entry
+            _ensure_idle_reaper()
         return entry["client"], entry
 
 

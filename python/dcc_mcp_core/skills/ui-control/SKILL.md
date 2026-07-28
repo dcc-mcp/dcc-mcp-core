@@ -285,6 +285,10 @@ For native DCC UI Control actions, keep one `session_id` and use this loop:
    remains fenced until every pending key/button release is confirmed. Stopping
    does not clear an Esc interruption latch created during a UI Control session.
 
+The Windows proxy also stops a session after five minutes without a tool call.
+That idle lease is a leak-recovery fence, not a replacement for the explicit
+`stop_computer_use` cleanup step.
+
 `ui_control__wait_for` remains interruptible while polling: Esc, an
 explicit `ui_control__stop_computer_use`, desktop loss, or backend cleanup cancels
 the wait without waiting for its condition timeout.
