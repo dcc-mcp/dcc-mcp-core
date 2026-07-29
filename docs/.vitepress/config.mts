@@ -1,3 +1,5 @@
+import { copyFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { defineConfig } from 'vitepress'
 
 const siteUrl = 'https://dcc-mcp.github.io/dcc-mcp-core/'
@@ -10,6 +12,12 @@ export default defineConfig({
   lastUpdated: true,
   sitemap: {
     hostname: siteUrl,
+  },
+
+  async buildEnd({ outDir }) {
+    await Promise.all(['llms.txt', 'llms-full.txt'].map((file) =>
+      copyFile(new URL(`../../${file}`, import.meta.url), resolve(outDir, file)),
+    ))
   },
 
   transformPageData(pageData) {
