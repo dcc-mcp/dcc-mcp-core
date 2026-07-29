@@ -10,6 +10,8 @@
 
 [中文](README_zh.md) | English
 
+[Website](https://dcc-mcp.github.io/) · [Marketplace](https://dcc-mcp.github.io/marketplace) · [Showcase](https://dcc-mcp.github.io/showcase) · [For Agents](https://dcc-mcp.github.io/agents) · [Ecosystem](https://dcc-mcp.github.io/ecosystem)
+
 **Skill-first, Rust-powered control plane for a growing creative-tool ecosystem.**
 
 dcc-mcp-core connects agents to desktop DCCs, game engines, 2D tools,
@@ -25,7 +27,7 @@ packaged CLI/server binaries needed to operate real sessions.
 | Control a running DCC from an agent or CI job | Install the [`dcc-mcp` Agent Skill](https://clawhub.ai/loonghao/skills/dcc-mcp), then use [dcc-mcp-cli](docs/guide/cli-reference.md) |
 | Expose a DCC adapter over MCP/REST | [create_skill_server](docs/guide/getting-started.md) |
 | Add tools without Python registration code | [SKILL.md + tools.yaml](docs/guide/skills.md) |
-| Discover and install reusable Skills | [DCC-MCP Marketplace](https://github.com/dcc-mcp/marketplace) |
+| Discover and install reusable Skills | [DCC-MCP Marketplace](https://dcc-mcp.github.io/marketplace) |
 | Build a new DCC adapter | [new-adapter-onboarding.md](docs/guide/new-adapter-onboarding.md) |
 | Understand routing and multi-instance behavior | [gateway.md](docs/guide/gateway.md) |
 | Integrate from any HTTP client | [rest-api-surface.md](docs/guide/rest-api-surface.md) |
@@ -145,11 +147,11 @@ adapters:
 | Reusable Skills | Asset providers, generative 2D/3D services, UI automation, rigging, procedural authoring, game release and acceptance |
 
 Browse every integration in the
-[DCC-MCP organization](https://github.com/orgs/dcc-mcp/repositories), or use
-the [official Marketplace](https://github.com/dcc-mcp/marketplace) to discover
+[ecosystem directory](https://dcc-mcp.github.io/ecosystem), or use
+the [official Marketplace](https://dcc-mcp.github.io/marketplace) to discover
 optional Skills without changing an adapter.
 
-[![DCC-MCP Skill Marketplace](docs/assets/admin-ui/admin-marketplace.png)](https://github.com/dcc-mcp/marketplace)
+[![DCC-MCP Skill Marketplace](docs/assets/admin-ui/admin-marketplace.png)](https://dcc-mcp.github.io/marketplace)
 
 The Admin UI closes the feedback loop. Calls, traces, logs, health, statistics,
 and usage data show which tools agents selected and where they failed. Teams can

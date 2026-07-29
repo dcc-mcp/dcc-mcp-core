@@ -20,6 +20,8 @@
 
 [English](README.md) | 中文
 
+[官网](https://dcc-mcp.github.io/zh/) · [技能市场](https://dcc-mcp.github.io/zh/marketplace) · [案例画廊](https://dcc-mcp.github.io/zh/showcase) · [Agent 使用](https://dcc-mcp.github.io/zh/agents) · [生态目录](https://dcc-mcp.github.io/zh/ecosystem)
+
 **Skills 驱动、Rust 加速的创作工具控制面：一套公共运行时，连接不断增长的生态。**
 
 `dcc-mcp-core` 把桌面 DCC、游戏引擎、二维工具、生产管理系统、资产提供器、性能分析器和工作室自研宿主接入可发现、可路由的 MCP 与 REST 能力。Agent 可以面对实时场景状态、受作用域约束的工具目录、结构化结果、视口诊断、审计日志，以及能适应真实生产约束的工作流。
