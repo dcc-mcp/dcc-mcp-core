@@ -215,6 +215,15 @@ pub(crate) fn mcp_url(entry: &ServiceEntry) -> String {
         .unwrap_or_else(|| format!("http://{}:{}/mcp", entry.host, entry.port))
 }
 
+pub(crate) fn discovery_mcp_url(entry: &ServiceEntry) -> String {
+    entry
+        .metadata
+        .get("discovery_mcp_url")
+        .filter(|url| !url.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| mcp_url(entry))
+}
+
 pub(crate) fn readyz_url(entry: &ServiceEntry) -> String {
     let mcp = mcp_url(entry);
     let trimmed = mcp.trim_end_matches('/');

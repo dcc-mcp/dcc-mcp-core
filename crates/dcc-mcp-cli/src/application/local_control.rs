@@ -39,10 +39,11 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
         .map(str::to_string);
 
     for entry in &entries {
+        let discovery_mcp_url = local_instance::discovery_mcp_url(entry);
         let payload = if let Some(query) = query.as_deref() {
             let search_result = mcp_call_tool(
                 &gateway,
-                &local_instance::mcp_url(entry),
+                &discovery_mcp_url,
                 "search_tools",
                 json!({
                     "query": query,
@@ -62,7 +63,7 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
             })?;
             call_result_payload(&search_result).unwrap_or(search_result)
         } else {
-            let tools = list_mcp_tools(&gateway, &local_instance::mcp_url(entry))
+            let tools = list_mcp_tools(&gateway, &discovery_mcp_url)
                 .await
                 .with_context(|| {
                     format!(
@@ -93,8 +94,8 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
 pub async fn describe_local(registry_dir: PathBuf, tool_slug: String) -> anyhow::Result<Value> {
     let route = resolve_tool_route(&registry_dir, &tool_slug, None, None)?;
     let gateway = HttpGateway::default();
-    let mcp_url = local_instance::mcp_url(&route.entry);
-    let endpoint = Endpoint::from_mcp_url(&mcp_url);
+    let discovery_mcp_url = local_instance::discovery_mcp_url(&route.entry);
+    let endpoint = Endpoint::from_mcp_url(&discovery_mcp_url);
     let tool = match gateway
         .post_json(
             &endpoint.path("/v1/describe"),
@@ -109,7 +110,7 @@ pub async fn describe_local(registry_dir: PathBuf, tool_slug: String) -> anyhow:
             "annotations": described.get("annotations").cloned().unwrap_or_else(|| json!({})),
             "_meta": described.get("metadata").cloned().unwrap_or(Value::Null),
         }),
-        Err(describe_error) => list_mcp_tools(&gateway, &mcp_url)
+        Err(describe_error) => list_mcp_tools(&gateway, &discovery_mcp_url)
             .await
             .with_context(|| {
                 format!(
@@ -463,15 +464,36 @@ pub async fn call_local(
     )?;
     enforce_active_instance_lease(&route.entry, meta.as_ref())?;
     let gateway = HttpGateway::with_timeout(timeout);
-    let result = mcp_call_tool(
+    let dispatch_mcp_url = local_instance::mcp_url(&route.entry);
+    let mut result = mcp_call_tool(
         &gateway,
-        &local_instance::mcp_url(&route.entry),
+        &dispatch_mcp_url,
         &route.backend_tool,
         arguments.clone(),
-        meta,
+        meta.clone(),
     )
     .await
     .with_context(|| format!("calling local tool {}", route.tool_slug))?;
+
+    if should_retry_local_call_via_discovery(&result) {
+        let discovery_mcp_url = local_instance::discovery_mcp_url(&route.entry);
+        if discovery_mcp_url != dispatch_mcp_url {
+            result = mcp_call_tool(
+                &gateway,
+                &discovery_mcp_url,
+                &route.backend_tool,
+                arguments.clone(),
+                meta,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "calling local discovery tool {} after sidecar returned unknown-action",
+                    route.tool_slug
+                )
+            })?;
+        }
+    }
 
     Ok(json!({
         "success": !result.get("isError").and_then(Value::as_bool).unwrap_or(false),
@@ -484,6 +506,16 @@ pub async fn call_local(
         "result": result,
         "source": "local_mcp",
     }))
+}
+
+fn should_retry_local_call_via_discovery(result: &Value) -> bool {
+    (result.get("success").and_then(Value::as_bool) == Some(false)
+        && result.get("error").and_then(Value::as_str) == Some("unknown-action"))
+        || (result.get("isError").and_then(Value::as_bool) == Some(true)
+            && result
+                .pointer("/structuredContent/error")
+                .and_then(Value::as_str)
+                == Some("unknown-action"))
 }
 
 fn enforce_active_instance_lease(entry: &ServiceEntry, meta: Option<&Value>) -> anyhow::Result<()> {
@@ -1245,6 +1277,18 @@ mod tests {
             Some(local_instance::instance_short(&entry).as_str())
         );
         assert_eq!(parsed.backend_tool, "maya_scene__get_session_info");
+    }
+
+    #[test]
+    fn local_call_retries_only_after_structured_unknown_sidecar_action() {
+        assert!(should_retry_local_call_via_discovery(&json!({
+            "success": false,
+            "error": "unknown-action"
+        })));
+        assert!(!should_retry_local_call_via_discovery(&json!({
+            "isError": true,
+            "structuredContent": {"error": "dispatch-failed"}
+        })));
     }
 
     #[test]
