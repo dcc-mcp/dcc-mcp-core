@@ -5,6 +5,10 @@ community skill packages. It resolves human-readable names from one or more
 catalog sources, downloads or clones the matching package, and registers it so
 the DCC adapter discovers it on the next restart or `reload_skill_paths` call.
 
+> Browse installable packages, DCC filters, and showcase media in the
+> [official DCC-MCP Marketplace](https://dcc-mcp.github.io/marketplace).
+> This guide documents the CLI and installation contract behind that catalog.
+
 ## Architecture
 
 ```

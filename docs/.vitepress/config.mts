@@ -50,6 +50,7 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: 'Guide', link: '/guide/what-is-dcc-mcp-core' },
+          { text: 'Marketplace', link: 'https://dcc-mcp.github.io/marketplace' },
           { text: 'API', link: '/api/models' },
           { text: 'RFCs', link: '/rfcs/' },
           {
@@ -236,6 +237,7 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
+          { text: '技能市场', link: 'https://dcc-mcp.github.io/zh/marketplace' },
           { text: 'API', link: '/zh/api/models' },
           {
             text: 'v0.19.86', // x-release-please-version

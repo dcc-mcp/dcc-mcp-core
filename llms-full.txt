@@ -18,6 +18,10 @@ for the task, then use its workflow:
 | Create or modernize a complete DCC-MCP adapter | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | Shared core adapter contracts |
 | Create or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | Skill scaffold, validation, and packaging |
 
+Browse installable packages and showcase media in the
+[official DCC-MCP Marketplace](https://dcc-mcp.github.io/marketplace) before
+running inspect or install commands.
+
 OpenClaw uses `openclaw skills install @loonghao/<slug>`. Direct ClawHub CLI uses
 `npx --yes clawhub@0.23.1 install @loonghao/<slug>`.
 Start a new agent turn after installation. Continue to the API guide only when

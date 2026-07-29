@@ -2,6 +2,9 @@
 
 Marketplace 是一个 CLI 优先的发现和安装系统，用于官方和社区技能包。它将人类可读的名称从一个或多个目录源中解析，下载或克隆匹配的包，并注册到系统中，使得 DCC 适配器能够在下次重启或调用 `reload_skill_paths` 时发现它们。
 
+> 在[官方 DCC-MCP 技能市场](https://dcc-mcp.github.io/zh/marketplace)浏览可安装软件包、
+> DCC 筛选和展示素材。本指南说明该目录背后的 CLI 与安装契约。
+
 ## 架构
 
 ```

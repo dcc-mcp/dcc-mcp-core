@@ -19,8 +19,8 @@ hero:
       text: 安装 dcc-mcp Skill
       link: https://clawhub.ai/loonghao/skills/dcc-mcp
     - theme: alt
-      text: GitHub
-      link: https://github.com/dcc-mcp/dcc-mcp-core
+      text: 浏览技能市场
+      link: https://dcc-mcp.github.io/zh/marketplace
 
 features:
   - icon: 🤖
