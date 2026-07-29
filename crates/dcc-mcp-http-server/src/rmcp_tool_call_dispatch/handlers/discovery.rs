@@ -87,6 +87,24 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
     } else {
         Vec::new()
     };
+    let loaded_skill_search: std::collections::HashMap<_, _> = state
+        .catalog
+        .list_skills(Some("loaded"))
+        .into_iter()
+        .map(|summary| {
+            (
+                summary.name,
+                format!(
+                    "{} {} {} {}",
+                    summary.description,
+                    summary.search_hint,
+                    summary.tags.join(" "),
+                    summary.tool_names.join(" ")
+                )
+                .to_lowercase(),
+            )
+        })
+        .collect();
 
     let mut tool_hits: Vec<Value> = Vec::new();
     for meta in state.registry.list_actions(dcc) {
@@ -98,13 +116,20 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
         }
         let schema_props = schema_property_names(&meta.input_schema);
         let has_schema = schema_has_constraints(&meta.input_schema);
+        let skill_search = meta
+            .skill_name
+            .as_ref()
+            .and_then(|name| loaded_skill_search.get(name))
+            .map(String::as_str)
+            .unwrap_or_default();
         let haystack = format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {}",
             meta.name,
             meta.description,
             meta.category,
             meta.tags.join(" "),
-            schema_props.join(" ")
+            schema_props.join(" "),
+            skill_search,
         )
         .to_lowercase();
         if !matches_phrase(&haystack, &query, &query_words) {

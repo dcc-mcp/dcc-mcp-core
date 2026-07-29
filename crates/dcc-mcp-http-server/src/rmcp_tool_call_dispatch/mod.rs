@@ -302,6 +302,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn search_tools_keeps_loaded_skill_search_hints_discoverable() {
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        catalog.add_skill(SkillMetadata {
+            name: "zbrush-subtool".to_string(),
+            description: "Bounded ZBrush subtool operations".to_string(),
+            dcc: "zbrush".to_string(),
+            search_hint: "zremesh, reduce polygon count, wireframe".to_string(),
+            tools: vec![ToolDeclaration {
+                name: "remesh_active_subtool".to_string(),
+                description: "Create a lower-density active subtool copy".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        catalog
+            .load_skill("zbrush-subtool")
+            .expect("test skill should load");
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_tools",
+            Some(json!({"query": "reduce polygon count", "dcc": "zbrush"})),
+            None,
+        )
+        .await
+        .expect("loaded skill search should dispatch");
+        let payload = result_text_json(&result);
+
+        assert_eq!(payload["total"], 1);
+        assert_eq!(
+            payload["tools"][0]["name"],
+            "zbrush_subtool__remesh_active_subtool"
+        );
+        assert_eq!(payload["skill_candidates"], json!([]));
+    }
+
+    #[tokio::test]
     async fn targeted_load_activates_only_the_requested_tool_group() {
         let registry = Arc::new(ToolRegistry::new());
         let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));

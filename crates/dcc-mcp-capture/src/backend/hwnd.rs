@@ -131,7 +131,11 @@ mod imp {
     use image::codecs::jpeg::JpegEncoder;
     use image::{ImageBuffer, ImageFormat, Rgba};
     use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::UI::HiDpi::GetDpiForWindow;
+    use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow};
+    use windows::Win32::UI::HiDpi::{
+        DPI_AWARENESS_UNAWARE, GetAwarenessFromDpiAwarenessContext, GetDpiForMonitor,
+        GetDpiForWindow, GetWindowDpiAwarenessContext, MDT_EFFECTIVE_DPI,
+    };
     use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
     use crate::backend::win_dpi::ThreadDpiAwareness;
@@ -172,14 +176,15 @@ mod imp {
         let w = (rect.right - rect.left).max(1);
         let h = (rect.bottom - rect.top).max(1);
         source_buffer_len(w, h)?;
+        let (capture_w, capture_h) = dpi_virtualized_capture_size(hwnd, w, h);
 
         // PrintWindow is synchronous and unbounded. Keep same-thread windows
         // on a local, non-message BitBlt path; every other target is captured
         // by the killable worker process so timeout_ms is enforceable.
         let raw_bgra = if window_is_same_thread(info.handle) {
-            capture_same_thread_bgra(info.handle, w, h)?
+            capture_same_thread_bgra(info.handle, capture_w, capture_h)?
         } else {
-            capture_via_worker(info.handle, w, h, config.timeout_ms)?
+            capture_via_worker(info.handle, capture_w, capture_h, config.timeout_ms)?
         };
 
         let timestamp_ms = SystemTime::now()
@@ -196,8 +201,20 @@ mod imp {
             chunk[3] = u8::MAX;
         }
         let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::from_raw(w as u32, h as u32, rgba)
+            ImageBuffer::from_raw(capture_w as u32, capture_h as u32, rgba)
                 .ok_or_else(|| CaptureError::Internal("from_raw failed".to_string()))?;
+        // DPI-unaware applications paint PrintWindow at logical resolution.
+        // Restore those pixels to the physical window rect used by SendInput.
+        let img = if (capture_w, capture_h) != (w, h) {
+            image::imageops::resize(
+                &img,
+                w as u32,
+                h as u32,
+                image::imageops::FilterType::Triangle,
+            )
+        } else {
+            img
+        };
 
         // Apply scale.
         let (out_w, out_h) = if (config.scale - 1.0).abs() > 1e-4 {
@@ -251,6 +268,40 @@ mod imp {
             window_title: Some(info.title),
         })
     }
+
+    fn dpi_virtualized_capture_size(hwnd: HWND, width: i32, height: i32) -> (i32, i32) {
+        let awareness =
+            unsafe { GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(hwnd)) };
+        if awareness != DPI_AWARENESS_UNAWARE {
+            return (width, height);
+        }
+
+        let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+        let mut dpi_x = 0_u32;
+        let mut dpi_y = 0_u32;
+        if monitor.is_invalid()
+            || unsafe {
+                GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y)
+            }
+            .is_err()
+        {
+            return (width, height);
+        }
+
+        (
+            dpi_virtualized_extent(width, dpi_x),
+            dpi_virtualized_extent(height, dpi_y),
+        )
+    }
+
+    fn dpi_virtualized_extent(extent: i32, effective_dpi: u32) -> i32 {
+        if effective_dpi <= 96 {
+            return extent;
+        }
+        ((i64::from(extent) * 96 + i64::from(effective_dpi) / 2) / i64::from(effective_dpi))
+            .clamp(1, i64::from(i32::MAX)) as i32
+    }
+
     fn source_buffer_len(w: i32, h: i32) -> CaptureResult<usize> {
         let width = usize::try_from(w)
             .map_err(|_| CaptureError::InvalidConfig(format!("invalid source window width {w}")))?;
@@ -285,6 +336,14 @@ mod imp {
                 source_buffer_len(-1, 100),
                 Err(CaptureError::InvalidConfig(_))
             ));
+        }
+
+        #[test]
+        fn dpi_virtualized_extent_uses_logical_pixels() {
+            assert_eq!(dpi_virtualized_extent(3132, 192), 1566);
+            assert_eq!(dpi_virtualized_extent(2092, 192), 1046);
+            assert_eq!(dpi_virtualized_extent(1920, 144), 1280);
+            assert_eq!(dpi_virtualized_extent(1920, 96), 1920);
         }
     }
 }
