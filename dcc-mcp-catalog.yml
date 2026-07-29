@@ -251,7 +251,7 @@ entries:
     dcc: ["marmoset"]
     url: "https://github.com/dcc-mcp/dcc-mcp-marmoset"
     tags: ["adapter", "marmoset", "toolbag", "official", "pip", "pbr", "rendering"]
-    version: "0.1.0"
+    version: "0.1.1"
     min_core_version: "0.19.86"
     maintainer: "dcc-mcp"
     install:

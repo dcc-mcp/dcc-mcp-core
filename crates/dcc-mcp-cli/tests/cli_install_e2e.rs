@@ -216,7 +216,7 @@ fn bundled_catalog_reports_marmoset_adapter() {
     );
 
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-marmoset");
-    assert_eq!(plan["adapter"]["version"], "0.1.0");
+    assert_eq!(plan["adapter"]["version"], "0.1.1");
     assert_eq!(plan["adapter"]["min_core_version"], "0.19.86");
 }
 
