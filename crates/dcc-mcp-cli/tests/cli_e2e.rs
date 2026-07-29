@@ -777,6 +777,56 @@ fn local_search_without_query_lists_tools_for_dcc_filter() {
 }
 
 #[test]
+fn local_search_and_describe_use_sidecar_discovery_mcp_url() {
+    let fixture = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 9);
+    let instance_short = entry.instance_id.to_string()[..8].to_string();
+    entry.status = ServiceStatus::Available;
+    entry
+        .metadata
+        .insert("dcc_mcp_role".to_string(), "per-dcc-sidecar".to_string());
+    entry
+        .metadata
+        .insert("dispatch_status".to_string(), "ready".to_string());
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), "http://127.0.0.1:9/mcp".to_string());
+    entry
+        .metadata
+        .insert("discovery_mcp_url".to_string(), fixture.mcp_url());
+    file_registry.register(entry).unwrap();
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles_s = registry
+        .path()
+        .join("gateway-profiles.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
+    ];
+
+    let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
+    assert_eq!(search["source"], "local_mcp");
+    assert!(
+        search["hits"]
+            .as_array()
+            .is_some_and(|hits| !hits.is_empty()),
+        "sidecar discovery search should use discovery_mcp_url: {search}"
+    );
+
+    let slug = format!("maya.{instance_short}.dynamic__run");
+    let describe = run_json_with_env(&["describe", &slug], &envs);
+    assert_eq!(describe["tool"]["name"], "dynamic__run");
+}
+
+#[test]
 fn local_describe_prefers_exact_rest_lookup() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();
