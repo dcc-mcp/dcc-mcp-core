@@ -464,7 +464,7 @@ pub async fn call_local(
     )?;
     enforce_active_instance_lease(&route.entry, meta.as_ref())?;
     let gateway = HttpGateway::with_timeout(timeout);
-    let dispatch_mcp_url = local_instance::mcp_url(&route.entry);
+    let dispatch_mcp_url = local_dispatch_mcp_url(&route.entry, &route.backend_tool);
     let mut result = mcp_call_tool(
         &gateway,
         &dispatch_mcp_url,
@@ -516,6 +516,13 @@ fn should_retry_local_call_via_discovery(result: &Value) -> bool {
                 .pointer("/structuredContent/error")
                 .and_then(Value::as_str)
                 == Some("unknown-action"))
+}
+
+fn local_dispatch_mcp_url(entry: &ServiceEntry, backend_tool: &str) -> String {
+    if backend_tool.starts_with("ui_control__") {
+        return local_instance::discovery_mcp_url(entry);
+    }
+    local_instance::mcp_url(entry)
 }
 
 fn enforce_active_instance_lease(entry: &ServiceEntry, meta: Option<&Value>) -> anyhow::Result<()> {
@@ -1289,6 +1296,24 @@ mod tests {
             "isError": true,
             "structuredContent": {"error": "dispatch-failed"}
         })));
+    }
+
+    #[test]
+    fn ui_control_calls_use_the_discovery_executor() {
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18080);
+        entry.metadata.insert(
+            "discovery_mcp_url".to_string(),
+            "http://127.0.0.1:18081/mcp".to_string(),
+        );
+
+        assert_eq!(
+            local_dispatch_mcp_url(&entry, "ui_control__snapshot"),
+            "http://127.0.0.1:18081/mcp"
+        );
+        assert_eq!(
+            local_dispatch_mcp_url(&entry, "maya_scene__get_session_info"),
+            "http://127.0.0.1:18080/mcp"
+        );
     }
 
     #[test]
