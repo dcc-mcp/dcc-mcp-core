@@ -208,6 +208,19 @@ fn bundled_catalog_reports_current_unity_adapter_version() {
 }
 
 #[test]
+fn bundled_catalog_reports_marmoset_adapter() {
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "marmoset"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-marmoset");
+    assert_eq!(plan["adapter"]["version"], "0.1.0");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.19.86");
+}
+
+#[test]
 fn install_prefers_adapter_over_same_dcc_skill_pack() {
     let plan = run_json_with_env_removed(
         &["install", "--dcc-type", "photoshop"],
