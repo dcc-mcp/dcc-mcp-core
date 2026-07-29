@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.87](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.86...v0.19.87) (2026-07-29)
+
+
+### Features
+
+* add Marmoset adapter catalog entry ([#2112](https://github.com/dcc-mcp/dcc-mcp-core/issues/2112)) ([f3c4f5f](https://github.com/dcc-mcp/dcc-mcp-core/commit/f3c4f5fef6492292ab3bed33f0a985478d934a33))
+
+
+### Bug Fixes
+
+* **cli:** route local discovery through discovery MCP URL ([58a4021](https://github.com/dcc-mcp/dcc-mcp-core/commit/58a40217f1e6c7802b06f94e5ced70fd21a2bf2d))
+* **runtime:** preserve DCC discovery and capture fidelity ([#2114](https://github.com/dcc-mcp/dcc-mcp-core/issues/2114)) ([4489f0f](https://github.com/dcc-mcp/dcc-mcp-core/commit/4489f0f8b334990c0cbc298dcf0fa57bcdf47148))
+
+
+### Documentation
+
+* link unified website ([a4365a0](https://github.com/dcc-mcp/dcc-mcp-core/commit/a4365a06d8e00f8afa6cfe80b661ed8e2cd02746))
+* publish agent indexes ([#2108](https://github.com/dcc-mcp/dcc-mcp-core/issues/2108)) ([39f4ae9](https://github.com/dcc-mcp/dcc-mcp-core/commit/39f4ae9b0b934fa774d5a2ca940468577f282a61))
+
 ## [0.19.86](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.85...v0.19.86) (2026-07-28)
 
 
