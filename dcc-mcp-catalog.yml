@@ -246,6 +246,19 @@ entries:
       pip_package: "dcc-mcp-unity"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unity/main/install.md"
 
+  - name: "dcc-mcp-marmoset"
+    description: "Marmoset Toolbag adapter and typed PBR scene/rendering skills for DCC-MCP"
+    dcc: ["marmoset"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-marmoset"
+    tags: ["adapter", "marmoset", "toolbag", "official", "pip", "pbr", "rendering"]
+    version: "0.1.1"
+    min_core_version: "0.19.86"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-marmoset"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-marmoset/main/install.md"
+
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
     dcc: ["shotgrid"]
