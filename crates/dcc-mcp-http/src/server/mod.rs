@@ -546,7 +546,20 @@ impl McpHttpServer {
         let invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> = std::sync::Arc::new(
             dcc_mcp_http_server::JobAwareInvoker::new(base_invoker, jobs.clone()),
         );
+        let live_meta = self.live_meta.clone();
+        let dcc = self.config.instance.dcc_type.clone();
         let rest_service = dcc_mcp_skill_rest::SkillRestService::new(catalog_source, invoker)
+            .with_context_provider(std::sync::Arc::new(move || {
+                let live = live_meta.read();
+                dcc_mcp_skill_rest::ContextSnapshot {
+                    scene: live.scene.clone(),
+                    version: live.version.clone(),
+                    dcc: dcc.clone(),
+                    display_name: live.display_name.clone(),
+                    documents: live.documents.clone(),
+                    ..Default::default()
+                }
+            }))
             .with_resources(std::sync::Arc::new(
                 crate::rest_providers::ResourceRegistryAdapter::new(
                     resources.clone(),

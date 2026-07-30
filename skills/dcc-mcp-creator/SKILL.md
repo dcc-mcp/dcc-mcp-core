@@ -167,6 +167,11 @@ does not replace a running server binary.
    Once an instance is selected, reuse `gateway://instances/{instance_id}` or
    `GET /v1/instances/{instance_id}/context` for live process/machine
    performance, scene/documents, loaded skills, and canonical follow-up routes.
+   These reads fetch the backend context on demand, but scene freshness remains
+   adapter-owned: publish changes from a host event/main-thread callback with
+   `DccServerBase.update_gateway_metadata(...)`, and publish rich snapshots with
+   `set_scene_resource(...)`. Never claim scene awareness when the adapter has
+   not installed a publisher; `scene=null` / `no_scene_published` is explicit.
    For agent observability, read `gateway://experiments/{experiment_id}` for
    runs, Session DAG links, metrics, and Judge evidence; read
    `gateway://governance` for the effective policy boundary. Keep Admin memory

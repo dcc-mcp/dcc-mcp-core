@@ -32,6 +32,7 @@ pub(crate) struct InstanceContext {
     pub scene: Option<String>,
     pub documents: Vec<String>,
     pub loaded_skills: Vec<String>,
+    pub loaded_skill_count: usize,
     pub action_count: usize,
     pub process: ProcessMetrics,
     pub machine: MachineMetrics,
@@ -69,14 +70,16 @@ pub(crate) async fn collect(
     backend_contexts
         .into_iter()
         .map(|(entry, backend)| {
+            let instance_loaded_skills: Vec<_> = loaded_skills
+                .remove(&entry.instance_id)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
             let mut context = InstanceContext {
                 scene: entry.scene.clone(),
                 documents: entry.documents.clone(),
-                loaded_skills: loaded_skills
-                    .remove(&entry.instance_id)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect(),
+                loaded_skill_count: instance_loaded_skills.len(),
+                loaded_skills: instance_loaded_skills,
                 action_count: action_counts.remove(&entry.instance_id).unwrap_or_default(),
                 process: entry
                     .pid
@@ -86,25 +89,33 @@ pub(crate) async fn collect(
                 backend_context_error: None,
             };
             match backend {
-                Ok(value) => {
-                    context.scene = value
-                        .get("scene")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned)
-                        .or(context.scene);
-                    if let Some(documents) = value.get("documents").and_then(Value::as_array) {
-                        context.documents = documents
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .collect();
-                    }
-                }
+                Ok(value) => apply_backend_context(&mut context, &value),
                 Err(error) => context.backend_context_error = Some(error),
             }
             (entry.instance_id, context)
         })
         .collect()
+}
+
+fn apply_backend_context(context: &mut InstanceContext, value: &Value) {
+    context.scene = value
+        .get("scene")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or_else(|| context.scene.clone());
+    if let Some(documents) = value.get("documents").and_then(Value::as_array) {
+        context.documents = documents
+            .iter()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned)
+            .collect();
+    }
+    if let Some(count) = value.get("loaded_skill_count").and_then(Value::as_u64) {
+        context.loaded_skill_count = usize::try_from(count).unwrap_or(usize::MAX);
+    }
+    if let Some(count) = value.get("action_count").and_then(Value::as_u64) {
+        context.action_count = usize::try_from(count).unwrap_or(usize::MAX);
+    }
 }
 
 pub(crate) async fn build_payload(gs: &GatewayState, entry: ServiceEntry) -> Value {
@@ -154,7 +165,7 @@ pub(crate) fn performance_json(context: &InstanceContext) -> Value {
 pub(crate) fn skills_json(context: &InstanceContext) -> Value {
     json!({
         "loaded": context.loaded_skills,
-        "loaded_count": context.loaded_skills.len(),
+        "loaded_count": context.loaded_skill_count,
         "action_count": context.action_count,
     })
 }
@@ -221,6 +232,26 @@ fn sample_metrics(pids: Vec<u32>) -> (HashMap<u32, ProcessMetrics>, MachineMetri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backend_context_overrides_live_counts_and_scene() {
+        let mut context = InstanceContext {
+            scene: Some("RegistryMap".into()),
+            ..Default::default()
+        };
+        apply_backend_context(
+            &mut context,
+            &json!({
+                "scene": "LiveMap",
+                "loaded_skill_count": 18,
+                "action_count": 116
+            }),
+        );
+
+        assert_eq!(context.scene.as_deref(), Some("LiveMap"));
+        assert_eq!(context.loaded_skill_count, 18);
+        assert_eq!(context.action_count, 116);
+    }
 
     #[test]
     fn sampling_reports_current_process_and_machine_memory() {

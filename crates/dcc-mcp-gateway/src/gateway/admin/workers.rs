@@ -150,7 +150,7 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState, context: &InstanceC
         "scene":                context.scene,
         "documents":            context.documents,
         "loaded_skills":        context.loaded_skills,
-        "loaded_skill_count":   context.loaded_skills.len(),
+        "loaded_skill_count":   context.loaded_skill_count,
         "action_count":         context.action_count,
         "performance":          crate::gateway::instance_context::performance_json(context),
         "failure_reason":       e.metadata.get("failure_reason").cloned(),

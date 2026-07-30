@@ -21,6 +21,35 @@ async fn instance_id_is_none_when_gateway_registration_is_disabled() {
     handle.shutdown().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_endpoint_reads_live_instance_metadata() {
+    let mut config = McpHttpConfig::default();
+    config.server.port = 0;
+    config.gateway.gateway_port = 0;
+    config.instance.dcc_type = Some("unreal".to_string());
+
+    let server = McpHttpServer::new(Arc::new(ToolRegistry::new()), config);
+    server.update_live_scene(
+        Some("/Game/Maps/LiveMap".to_string()),
+        Some("5.8".to_string()),
+        None,
+        None,
+    );
+    let handle = server.start().await.unwrap();
+    let context: serde_json::Value =
+        reqwest::get(format!("http://127.0.0.1:{}/v1/context", handle.port))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+    assert_eq!(context["dcc"], "unreal");
+    assert_eq!(context["scene"], "/Game/Maps/LiveMap");
+    assert_eq!(context["version"], "5.8");
+    handle.shutdown().await;
+}
+
 #[cfg(feature = "auto-gateway")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn instance_id_matches_the_registered_service_key() {
