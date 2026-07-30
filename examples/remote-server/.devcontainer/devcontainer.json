@@ -1,0 +1,23 @@
+{
+  "name": "DCC-MCP internal service lab",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  "forwardPorts": [8765, 6274, 6277],
+  "portsAttributes": {
+    "8765": {
+      "label": "MCP service"
+    },
+    "6274": {
+      "label": "MCP Inspector proxy"
+    },
+    "6277": {
+      "label": "MCP Inspector UI"
+    }
+  },
+  "postCreateCommand": "python -m pip install --disable-pip-version-check dcc-mcp-core",
+  "remoteUser": "vscode"
+}
