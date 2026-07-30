@@ -76,7 +76,7 @@ pub struct Args {
         default_value = "10"
     )]
     auto_gateway_timeout_secs: u64,
-    /// Output format: human, json, or ndjson. Auto-detects from TTY when omitted.
+    /// Output format: human, json, ndjson, or toon. Auto-detects from TTY when omitted.
     #[arg(
         long,
         global = true,

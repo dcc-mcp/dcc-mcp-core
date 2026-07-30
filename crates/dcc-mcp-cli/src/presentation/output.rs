@@ -1,8 +1,8 @@
 //! ADR 018 CLI output contract: unified error envelope, semantic exit codes,
-//! three-channel output (human/json/ndjson), and stdout/stderr separation.
+//! four-channel output (human/json/ndjson/toon), and stdout/stderr separation.
 //!
 //! ## Normative layers
-//! 1. `OutputFormat` — `Human`, `Json`, `Ndjson` + TTY auto-detection
+//! 1. `OutputFormat` — `Human`, `Json`, `Ndjson`, `Toon` + TTY auto-detection
 //! 2. `OutputWriter` — stdout=data, stderr=diagnostics
 //! 3. `ExitCode` — semantic 0-7 per ADR 018
 //! 4. `ErrorEnvelope` — unified structured error payload
@@ -16,7 +16,7 @@ use serde_json::Value;
 // OutputFormat
 // ---------------------------------------------------------------------------
 
-/// Three-channel output format per ADR 018 § Output Format.
+/// Output format for humans, scripts, streams, and token-efficient agents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     /// Human-readable (default when TTY detected).
@@ -25,6 +25,8 @@ pub enum OutputFormat {
     Json,
     /// Newline-delimited JSON stream on stdout.
     Ndjson,
+    /// Compact TOON for token-efficient agent consumption.
+    Toon,
 }
 
 impl OutputFormat {
@@ -34,8 +36,9 @@ impl OutputFormat {
             "human" | "pretty" => Ok(Self::Human),
             "json" => Ok(Self::Json),
             "ndjson" => Ok(Self::Ndjson),
+            "toon" => Ok(Self::Toon),
             other => Err(format!(
-                "invalid output format '{other}'; expected human, json, or ndjson"
+                "invalid output format '{other}'; expected human, json, ndjson, or toon"
             )),
         }
     }
@@ -158,6 +161,7 @@ impl ErrorEnvelope {
 /// - **Human mode**: pretty-printed data on stdout, errors on stderr.
 /// - **Json mode**: compact JSON on stdout, errors on stderr.
 /// - **Ndjson mode**: one JSON object per line on stdout, errors on stderr.
+/// - **Toon mode**: compact TOON on stdout and stderr for agent consumption.
 pub struct OutputWriter {
     format: OutputFormat,
 }
@@ -171,18 +175,9 @@ impl OutputWriter {
     pub fn write_data(&self, value: &Value) -> anyhow::Result<()> {
         let mut stdout = std::io::stdout().lock();
         match self.format {
-            OutputFormat::Human => {
-                if is_list_payload(value) {
-                    print_list_pretty(value);
-                } else {
-                    writeln!(stdout, "{}", serde_json::to_string_pretty(value)?)?;
-                }
-            }
-            OutputFormat::Json => {
-                writeln!(stdout, "{}", serde_json::to_string(value)?)?;
-            }
-            OutputFormat::Ndjson => {
-                writeln!(stdout, "{}", serde_json::to_string(value)?)?;
+            OutputFormat::Human if is_list_payload(value) => print_list_pretty(value),
+            format => {
+                writeln!(stdout, "{}", serialize_value(format, value)?)?;
             }
         }
         stdout.flush()?;
@@ -196,7 +191,10 @@ impl OutputWriter {
     /// stderr so consuming tooling can capture it separately from data on
     /// stdout.
     pub fn write_error(&self, envelope: &ErrorEnvelope) -> anyhow::Result<()> {
-        let payload = serde_json::to_string(&envelope)?;
+        let payload = match self.format {
+            OutputFormat::Toon => toon_format::encode_default(&serde_json::to_value(envelope)?)?,
+            _ => serde_json::to_string(&envelope)?,
+        };
         let mut stderr = std::io::stderr().lock();
         match self.format {
             OutputFormat::Human => {
@@ -213,7 +211,7 @@ impl OutputWriter {
                     )?;
                 }
             }
-            OutputFormat::Json | OutputFormat::Ndjson => {
+            OutputFormat::Json | OutputFormat::Ndjson | OutputFormat::Toon => {
                 writeln!(stderr, "{payload}")?;
             }
         }
@@ -231,6 +229,14 @@ impl OutputWriter {
 
     pub fn format(&self) -> OutputFormat {
         self.format
+    }
+}
+
+fn serialize_value(format: OutputFormat, value: &Value) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Human => Ok(serde_json::to_string_pretty(value)?),
+        OutputFormat::Json | OutputFormat::Ndjson => Ok(serde_json::to_string(value)?),
+        OutputFormat::Toon => Ok(toon_format::encode_default(value)?),
     }
 }
 

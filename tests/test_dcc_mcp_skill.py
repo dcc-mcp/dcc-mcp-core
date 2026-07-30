@@ -125,6 +125,15 @@ class TestDccMcpSkill:
         assert "`--wait-timeout-secs`" in body
         assert "manual gateway polling is only the fallback" in body
 
+    def test_cli_contract_avoids_routine_help_probes(self) -> None:
+        body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8")
+        assert "do not preflight them with" in body
+        assert "targeted subcommand help at most once per" in body
+        assert "Do not request `--output json`" in body
+        assert "dcc-mcp-cli reload-skills --instance-id <instance-id> --output toon" in body
+        assert "dcc-mcp-cli load-skill <skill-name> --instance-id <instance-id> --output toon" in body
+        assert "dcc-mcp-cli stop-instance --dcc-type <dcc-type> --instance-id <instance-id> --output toon" in body
+
     def test_openclaw_metadata_does_not_require_gateway_env(self) -> None:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None

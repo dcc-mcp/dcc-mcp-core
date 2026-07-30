@@ -45,9 +45,28 @@ Local direct calls are excluded from Gateway stats. For evidence or Skill
 reflection, add `--require-gateway --agent-session-id <task-id>` from the first
 call; this route fails closed without direct fallback.
 
-The CLI returns JSON by default. The bundled Python fallback is gateway-REST
-only and sends `Accept: application/json` because the gateway REST API itself
-now defaults to compact TOON for agent-facing routes.
+The compatibility default remains JSON for scripts. Agents should pass
+`--output toon` to reduce the command result's context-token cost; use JSON
+only when another program must parse it. The bundled Python fallback is
+gateway-REST only and sends `Accept: application/json` because it must parse
+the response internally.
+
+## CLI Invocation Contract
+
+Run documented commands directly; do not preflight them with
+`dcc-mcp-cli <command> --help`. Follow CLI-returned `next_step.command` and
+`next_step.arguments` unchanged. Use targeted subcommand help at most once per
+CLI version only after the documented syntax is rejected or when an option is
+not covered here. Do not request `--output json` for agent-readable output.
+
+```bash
+dcc-mcp-cli reload-skills --instance-id <instance-id> --output toon
+dcc-mcp-cli load-skill <skill-name> --instance-id <instance-id> --output toon
+dcc-mcp-cli stop-instance --dcc-type <dcc-type> --instance-id <instance-id> --output toon
+```
+
+`stop-instance` is only for a test-owned instance that advertises a safe-stop
+hook. Its `--dcc-type` and `--instance-id` flags are both required.
 
 ## Marketplace Intent — Search Unless the Exact ID Is Known
 

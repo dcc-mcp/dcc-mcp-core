@@ -32,6 +32,7 @@ sha2 = "0.11"
 tempfile = "3"
 thiserror.workspace = true
 tokio.workspace = true
+toon-format.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
