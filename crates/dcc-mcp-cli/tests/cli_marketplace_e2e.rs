@@ -1,6 +1,8 @@
 mod support;
 
 use dcc_mcp_skills::parse_skill_md;
+use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use dcc_mcp_transport::discovery::types::ServiceEntry;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -508,6 +510,92 @@ fn marketplace_install_list_and_uninstall_path_package() {
 
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
     assert_eq!(listed["count"], 0);
+}
+
+#[test]
+fn marketplace_install_exact_name_infers_dcc_and_reloads_running_dcc() {
+    let tmp = TempDir::new().unwrap();
+    let fixture = spawn_local_mcp_fixture();
+    let registry_path = tmp.path().join("registry");
+    let registry = FileRegistry::new(&registry_path).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), fixture.mcp_url());
+    registry.register(entry).unwrap();
+
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: dcc-mcp-maya-mgear\ndescription: mGear tools\n---\n",
+    );
+    let catalog_path = tmp.path().join("marketplace.json");
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&json!({
+            "version": "1",
+            "entries": [{
+                "name": "dcc-mcp-maya-mgear",
+                "description": "mGear tools for Maya",
+                "dcc": ["maya"],
+                "tags": ["rigging"],
+                "version": "0.1.0",
+                "install": {"type": "path", "url": skill_dir.to_string_lossy()}
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let sources_file = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let registry_dir = registry_path.to_string_lossy().to_string();
+    let profiles_file = tmp
+        .path()
+        .join("gateway-profiles.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", sources_file.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+        ("DCC_MCP_REGISTRY_DIR", registry_dir.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_file.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "dcc-mcp-maya-mgear",
+            "--source",
+            &source,
+            "--reload",
+        ],
+        &envs,
+    );
+
+    assert_eq!(installed["installed"], true);
+    assert_eq!(installed["dcc"], "maya");
+    assert_eq!(installed["reload_required"], false);
+    assert_eq!(installed["reload"]["reloaded"], true);
+    assert_eq!(installed["reload"]["count"], 1);
+    assert_eq!(
+        installed["reload"]["results"][0]["backend_tool"],
+        "dcc_admin__reload_skills"
+    );
 }
 
 #[test]

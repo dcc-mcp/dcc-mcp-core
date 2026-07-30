@@ -111,12 +111,13 @@ supervisor 写入 registry 的 stdout/stderr 日志路径。`doctor` 会把不�
 汇总到 `local.inventory.direct_control.not_ready_instances`。
 
 Agent 控制命令（`list`、`search`、`describe`、`load-skill`、`call`、
-`wait-ready`、`reload-skills`、`stop-instance`）以及仍需要本机 gateway 的
+`wait-ready`、`reload-skills`、`stop-instance`，以及 marketplace
+`install --reload`）和仍需要本机 gateway 的
 endpoint 级命令（`health`、`stats`、`update`，以及未显式传 `--url` 的 `smoke`）只会
 对 loopback HTTP 目标（`http://127.0.0.1:<port>` 或
 `http://localhost:<port>`）执行 auto-ensure。单次禁用可传
-`--no-auto-gateway`。只操作本地文件的命令（`install`、`marketplace`、
-`lint`）、显式生命周期命令（`gateway ...`），以及带显式 `--url` 的 smoke
+`--no-auto-gateway`。只操作本地文件的命令（`install`、未带 `--reload` 的
+marketplace 命令、`lint`）、显式生命周期命令（`gateway ...`），以及带显式 `--url` 的 smoke
 check 不会自动启动 gateway。
 启动状态不清楚时，先运行 `dcc-mcp-cli doctor`。它会输出当前 profile
 配置、选中的模式、registry 目录和 inventory、direct-control readiness 汇总、
@@ -148,8 +149,7 @@ dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Au
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
 dcc-mcp-cli marketplace search --query hunyuan --dcc maya
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
-dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
+dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya --reload
 dcc-mcp-cli marketplace list-installed --dcc maya
 dcc-mcp-cli marketplace outdated --dcc maya
 dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
@@ -184,7 +184,8 @@ dcc-mcp-cli lint path/to/skills
 | `reload-skills [--dcc-type <dcc>] [--instance-id <id>]` | 本地 MCP `tools/call dcc_admin__reload_skills`，或远程 `POST /v1/dcc/{dcc}/instances/{id}/call` | marketplace 安装或 skill path 变更后，让正在运行的 adapter 重新扫描 skill 搜索路径。 |
 | `stop-instance --dcc-type <dcc> --instance-id <id>` | 本地 `safe_stop_url` 或远程 `POST /v1/dcc/{dcc}/instances/{id}/stop` | 对声明了 `safe_stop_url` 的实例发起带保护条件的 safe-stop 请求。 |
 | `install --dcc-type <dcc> [--version <v>] [--python <path>] [--execute]` | catalog-backed local plan / executor | 解析匹配的 adapter 并输出可审计安装计划；加 `--execute` 后会在确认后执行 package 安装步骤、失败回滚并做 package/path 验证。Live DCC 检查保留在返回的 `next_steps` 中。 |
-| `marketplace search/install/update/...` | marketplace catalog + local installed state | 搜索、安装、卸载和更新本地 marketplace skill 包。 |
+| `marketplace install <name> [--dcc <dcc>] [--reload]` | marketplace catalog + local installed state；可选控制运行中的 DCC | 安装本地 marketplace skill 包；`--reload` 会让匹配的运行中 adapter 重新扫描 skill path，并把刷新结果写入安装 JSON。 |
+| `marketplace search/update/...` | marketplace catalog + local installed state | 搜索、卸载和更新本地 marketplace skill 包。 |
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | 生成 marketplace 发布 ZIP 并输出 SHA-256 摘要。 |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | 根据 `SKILL.md` 元数据和 CLI 覆盖字段创建或更新 `marketplace.json` 条目。 |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | 检查 gateway update manifest。默认检查 CLI 自身；检查 Admin 面板里的实例版本时，传 `--binary dcc-mcp-server` 和对应 server 版本。 |
@@ -195,6 +196,10 @@ dcc-mcp-cli lint path/to/skills
 | `gateway daemon start/restart/stop/status` | local process | 显式管理本机 machine-wide gateway daemon 生命周期；`start` 和 `restart` 的启动阶段默认传 `--gateway-idle-timeout-secs 0`，无 backend 时也保持存活；`status` 会输出 registry dir、PID file、health URL 和 CLI version 等诊断字段。 |
 | `gateway ensure/start/stop/status` | local process | 旧脚本兼容 alias；面向用户文档优先使用 `gateway daemon ...`。 |
 | `lint [PATH ...]` | local filesystem validator | 默认递归校验每个路径下两层内的 SKILL.md 包。 |
+
+`marketplace install` 会直接解析准确的包名，因此已知 ID 时可以省略
+`inspect`。当 catalog 条目只声明一个 DCC 时也可以省略 `--dcc`；多 DCC
+条目仍需显式指定。
 
 ### 错误自查与 Bug 上报
 
@@ -242,8 +247,9 @@ contact Pipeline TD to deploy {adapter} for {dcc_type}.” 的内部提示。
 `~/.dcc-mcp/marketplace/<dcc>/<name>/`，可用
 `DCC_MCP_MARKETPLACE_INSTALL_ROOT` 覆盖。DCC adapter 会把
 `~/.dcc-mcp/marketplace/<dcc>` 加入 skill 搜索路径，因此新安装的 skill 会在
-adapter 启动时，或下一次
-`dcc-mcp-cli reload-skills --dcc-type <dcc>` 后被发现。刷新后，如果 adapter
+adapter 启动时被发现。要让运行中的 adapter 立即看到准确包名对应的 skill，使用
+`dcc-mcp-cli marketplace install <name> --dcc <dcc> --reload`；否则单独运行
+`dcc-mcp-cli reload-skills --dcc-type <dcc>`。刷新后，如果 adapter
 没有自动加载该 skill，再运行
 `dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc> --instance-id <id>`。
 

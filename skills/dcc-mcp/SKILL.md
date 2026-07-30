@@ -49,11 +49,12 @@ The CLI returns JSON by default. The bundled Python fallback is gateway-REST
 only and sends `Accept: application/json` because the gateway REST API itself
 now defaults to compact TOON for agent-facing routes.
 
-## Marketplace Intent — Search Before Recommending
+## Marketplace Intent — Search Unless the Exact ID Is Known
 
-Any request to find, compare, recommend, install, or update a DCC-MCP
-marketplace Skill must start with the official CLI catalog, even when the user
-says “Skill store”, “marketplace”, or “商城” without naming DCC-MCP:
+Requests to find, compare, or recommend a DCC-MCP marketplace Skill must start
+with the official CLI catalog, even when the user says “Skill store”,
+“marketplace”, or “商城” without naming DCC-MCP. Install/update requests without
+an exact package ID follow the same discovery path:
 
 ```bash
 dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
@@ -66,9 +67,10 @@ Use the user's capability words first. If there are no results, retry once with
 a shorter capability query or without the DCC filter; never invent a package
 name or substitute a web recommendation for the CLI result.
 
-Installing or updating changes local state. Inspect the exact returned package
-and obtain user consent before `marketplace install` or `update`; then run
-`reload-skills` and, only when needed, `load-skill`. The Python REST fallback
+Installing or updating changes local state. Inspect unfamiliar packages and
+obtain user consent before `marketplace install` or `update`. When the exact ID
+is already known, install it directly with `--reload`; then use `load-skill`
+only when needed. The Python REST fallback
 does not implement marketplace commands, so a missing CLI follows the
 consent-gated official CLI installation path below.
 
@@ -262,7 +264,7 @@ Then run `dcc-mcp-cli list`. If the CLI is missing, ask permission before the bu
 
 | Situation | You MUST |
 |-----------|----------|
-| **Marketplace/Skill store intent** | Run `dcc-mcp-cli marketplace search` first, then inspect the exact returned name before any recommendation or consent-gated mutation; live inventory is not required |
+| **Marketplace/Skill store intent** | Search the official catalog before recommendations or when no exact package ID was supplied; an exact known ID may go directly to consent-gated `marketplace install --reload`; live inventory is not required |
 | **Starting any local DCC task** | Run `dcc-mcp-cli list`; it ensures the local gateway, then reads the local FileRegistry |
 | **Startup state is ambiguous** | Run `dcc-mcp-cli doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
 | **Starting any remote DCC task** | Select or override a profile with `dcc-mcp-cli gateway set <name>` or `dcc-mcp-cli list --gateway <name>` |
@@ -436,18 +438,19 @@ dcc-mcp-cli update check
 dcc-mcp-cli update apply
 ```
 
-For marketplace Skills, preserve the mandatory search-first sequence:
+For marketplace Skills, search first when the exact package ID is not known:
 
 ```bash
 dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
 dcc-mcp-cli marketplace inspect <package_name>
-dcc-mcp-cli marketplace install <package_name> --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
+dcc-mcp-cli marketplace install <package_name> --dcc maya --reload
 ```
 
 `--query "maya rigging"` remains supported for scripts. Search and inspect are
-read-only; install/update require consent. After either mutation, run
-`reload-skills`, then `load-skill` only if the adapter did not auto-load it.
+read-only; install/update require consent. Inspect is optional when the exact
+package ID is already known, and `--dcc` is optional for single-DCC packages.
+After updates or installs without `--reload`, run `reload-skills`; then use
+`load-skill` only if the adapter did not auto-load it.
 Package authors use `marketplace pack` and `marketplace publish`; full commands
 live in the CLI cheatsheet.
 
