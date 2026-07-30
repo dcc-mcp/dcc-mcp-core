@@ -448,6 +448,27 @@ class TestDccServerBase:
         assert h1 is h2
         server.stop()
 
+    def test_start_failure_is_captured_and_restores_hooks(self, tmp_path):
+        server = self._make_server(tmp_path)
+        capture = MagicMock()
+        server._host_error_capture = capture
+
+        def fail_start():
+            raise RuntimeError("listener bind failed")
+
+        server._server.start = fail_start
+        with pytest.raises(RuntimeError, match="listener bind failed"):
+            server.start(install_atexit_hook=False)
+
+        capture.install.assert_called_once_with()
+        capture.report_exception.assert_called_once()
+        assert capture.report_exception.call_args.kwargs == {
+            "source": "dcc_server.start",
+            "phase": "startup",
+        }
+        capture.close.assert_called_once_with()
+        assert server._handle is None
+
     def test_resources_returns_public_inner_handle(self, tmp_path):
         server = self._make_server(tmp_path)
         assert server.resources() is server._server._resources

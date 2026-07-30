@@ -184,6 +184,10 @@ class DccServerBase:
 
         # Create the inner skill manager (embedded _core or sidecar binary).
         self._server: Any = create_adapter_server(options.dcc_name, self._config, options)
+        self._host_error_capture = self._get_observability().init_host_error_capture(
+            core_version=_package_version(),
+            adapter_version=options.sidecar.adapter_version,
+        )
         self._register_builtin_skills(options)
 
         # Wire execution bridge / dispatcher
@@ -290,6 +294,24 @@ class DccServerBase:
 
     def _init_telemetry(self) -> None:
         self._get_observability().init_telemetry()
+
+    def report_host_error(
+        self,
+        message: str,
+        *,
+        source: str = "host",
+        stream: str = "stderr",
+        exception: BaseException | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Capture a host console/callback error in logs and MCP resources."""
+        return self._get_observability().report_host_error(
+            message,
+            source=source,
+            stream=stream,
+            exception=exception,
+            metadata=metadata,
+        )
 
     # --- readiness publication (#1206) -------------------------------------------
 

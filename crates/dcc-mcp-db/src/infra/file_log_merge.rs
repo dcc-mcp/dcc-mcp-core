@@ -39,7 +39,8 @@ pub fn parse_gateway_file_log_line(line: &str) -> Option<Value> {
         .map_or((None, body), |(target, message)| {
             (Some(target.trim()), message.trim())
         });
-    if let Ok(payload) = serde_json::from_str::<Value>(message)
+    let payload = serde_json::from_str::<Value>(message).ok();
+    if let Some(payload) = payload.as_ref()
         && payload.get("event").and_then(Value::as_str) == Some("ui_control_operation")
     {
         return Some(json!({
@@ -60,6 +61,35 @@ pub fn parse_gateway_file_log_line(line: &str) -> Option<Value> {
             "artifacts": payload.get("artifacts").cloned().unwrap_or(Value::Null),
             "action_id": payload.get("action_id").cloned().unwrap_or(Value::Null),
             "state_delta": payload.get("state_delta").cloned().unwrap_or(Value::Null),
+        }));
+    }
+    if let Some(payload) = payload.as_ref()
+        && payload.get("event").and_then(Value::as_str) == Some("dcc_host_error")
+    {
+        return Some(json!({
+            "timestamp": ts,
+            "level": payload.get("level").and_then(Value::as_str).unwrap_or(level.as_str()),
+            "message": payload.get("message").and_then(Value::as_str).unwrap_or("DCC host error"),
+            "source": "file",
+            "event": "dcc_host_error",
+            "target": target,
+            "thread": thread,
+            "dcc_type": payload.get("dcc_type").cloned().unwrap_or(Value::Null),
+            "instance_id": payload.get("instance_id").cloned().unwrap_or(Value::Null),
+            "request_id": null,
+            "tool": null,
+            "success": false,
+            "detail": {
+                "dcc_pid": payload.get("dcc_pid").cloned().unwrap_or(Value::Null),
+                "phase": payload.get("phase").cloned().unwrap_or(Value::Null),
+                "source": payload.get("source").cloned().unwrap_or(Value::Null),
+                "stream": payload.get("stream").cloned().unwrap_or(Value::Null),
+                "adapter_version": payload.get("adapter_version").cloned().unwrap_or(Value::Null),
+                "min_core_version": payload.get("min_core_version").cloned().unwrap_or(Value::Null),
+                "core_version": payload.get("core_version").cloned().unwrap_or(Value::Null),
+                "python_version": payload.get("python_version").cloned().unwrap_or(Value::Null),
+            },
+            "reason": payload.get("exception_type").cloned().unwrap_or(Value::Null),
         }));
     }
     Some(json!({
@@ -211,6 +241,21 @@ mod tests {
         assert_eq!(v["artifacts"][0]["uri"], "artefact://sha256/abc");
         assert_eq!(v["action_id"], "action:abc");
         assert_eq!(v["state_delta"]["paths"][0], "/focus");
+    }
+
+    #[test]
+    fn dcc_host_error_is_structured_without_exposing_local_paths() {
+        let line = r#"2026-07-31T01:33:21Z ERROR dcc_mcp_core.host_errors: {"event":"dcc_host_error","message":"cannot import name 'UiControlAuditRecord'","dcc_type":"3dsmax","dcc_pid":4242,"instance_id":"3dsmax-4242","phase":"bootstrap","source":"adapter_bootstrap","stream":"stderr","level":"error","exception_type":"builtins.ImportError","traceback":"C:\\Users\\artist\\adapter.py","adapter_version":"0.3.0","min_core_version":"0.18.0","core_version":"0.17.2","core_path":"C:\\Users\\artist\\site-packages","python_version":"3.10.13","python_executable":"C:\\Python310\\python.exe"}"#;
+        let v = parse_gateway_file_log_line(line).expect("parsable host error");
+        assert_eq!(v["event"], "dcc_host_error");
+        assert_eq!(v["dcc_type"], "3dsmax");
+        assert_eq!(v["instance_id"], "3dsmax-4242");
+        assert_eq!(v["success"], false);
+        assert_eq!(v["reason"], "builtins.ImportError");
+        assert_eq!(v["detail"]["phase"], "bootstrap");
+        assert_eq!(v["detail"]["core_version"], "0.17.2");
+        assert!(!v.to_string().contains("artist"));
+        assert!(!v.to_string().contains("python.exe"));
     }
 
     #[test]

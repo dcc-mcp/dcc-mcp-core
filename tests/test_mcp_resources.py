@@ -238,6 +238,66 @@ def test_dcc_server_base_registers_custom_resource_producer(tmp_path):
         server.stop()
 
 
+def test_dcc_server_base_exposes_host_errors_through_mcp_resources(tmp_path, monkeypatch):
+    """Host console errors are readable through the existing MCP resources."""
+    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path / "logs"))
+
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    opts = DccServerOptions.from_env(
+        "photoshop",
+        skills_dir,
+        port=0,
+        enable_gateway_failover=False,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    server = DccServerBase(opts)
+    server.report_host_error(
+        "generator callback failed",
+        source="photoshop.console",
+        metadata={"document": "poster.psd"},
+    )
+
+    handle = server.start(install_atexit_hook=False)
+    try:
+        _, listed = _post_json(
+            handle.mcp_url(),
+            {"jsonrpc": "2.0", "id": 30, "method": "resources/list"},
+        )
+        uris = {item["uri"] for item in listed["result"]["resources"]}
+        output_uri = next(uri for uri in uris if uri.startswith("output://instance/photoshop-"))
+        events_uri = next(uri for uri in uris if uri.startswith("events://session/photoshop-"))
+
+        _, output = _post_json(
+            handle.mcp_url(),
+            {
+                "jsonrpc": "2.0",
+                "id": 31,
+                "method": "resources/read",
+                "params": {"uri": output_uri},
+            },
+        )
+        assert "generator callback failed" in output["result"]["contents"][0]["text"]
+
+        _, events = _post_json(
+            handle.mcp_url(),
+            {
+                "jsonrpc": "2.0",
+                "id": 32,
+                "method": "resources/read",
+                "params": {"uri": events_uri},
+            },
+        )
+        payload = json.loads(events["result"]["contents"][0]["text"])
+        assert payload["events"][0]["source"] == "photoshop.console"
+        assert payload["events"][0]["level"] == "error"
+        assert payload["events"][0]["metadata"]["details"]["document"] == "poster.psd"
+    finally:
+        server.stop()
+
+
 class TestResourcesDisabled:
     def test_disabled_config_hides_capability_and_methods(self):
         reg = ToolRegistry()

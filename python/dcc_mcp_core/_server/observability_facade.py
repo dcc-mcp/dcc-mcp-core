@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import re
 from typing import Any
 from typing import Callable
 
@@ -41,6 +42,71 @@ class ObservabilityFacade:
         manager = FileLoggingManager(dcc_name, enabled=owner._enable_file_logging)
         return manager.init()
 
+    # -- host errors ---------------------------------------------------------
+
+    def init_host_error_capture(self, *, core_version: str, adapter_version: str | None = None) -> Any:
+        """Wire shared output/event resources and process-level error hooks."""
+        from dcc_mcp_core.host_errors import _HostErrorCapture
+
+        owner = self._owner
+        resource_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", owner._dcc_name).strip("._-") or "dcc"
+        resource_id = f"{resource_id}-{owner._dcc_pid}"
+        output_capture = None
+        session_events = None
+        try:
+            from dcc_mcp_core import OutputCapture
+            from dcc_mcp_core import SessionEventBuffer
+
+            resources = self.resources()
+            if OutputCapture is not None and hasattr(resources, "register_output_buffer"):
+                output_capture = OutputCapture(resource_id)
+                resources.register_output_buffer(output_capture)
+            if SessionEventBuffer is not None and hasattr(resources, "register_session_event_buffer"):
+                session_events = SessionEventBuffer(resource_id)
+                resources.register_session_event_buffer(session_events)
+        except Exception as exc:
+            logger.debug("[%s] Host error resources unavailable: %s", owner._dcc_name, exc)
+
+        return _HostErrorCapture(
+            owner._dcc_name,
+            owner._dcc_pid,
+            instance_id=resource_id,
+            core_version=core_version,
+            adapter_version=adapter_version,
+            log_dir=owner._log_dir or None,
+            persist_to_file=owner._enable_file_logging,
+            output_capture=output_capture,
+            session_events=session_events,
+            notify_updated=self.notify_resource_updated,
+        )
+
+    def report_host_error(
+        self,
+        message: str,
+        *,
+        source: str = "host",
+        stream: str = "stderr",
+        exception: BaseException | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Publish one host-native console or callback error."""
+        capture = self._owner._host_error_capture
+        if exception is not None:
+            return capture.report_exception(
+                type(exception),
+                exception,
+                exception.__traceback__,
+                source=source,
+                message=message,
+                metadata=metadata,
+            )
+        return capture.report(
+            message,
+            source=source,
+            stream=stream,
+            metadata=metadata,
+        )
+
     # -- job persistence ------------------------------------------------------
 
     def init_job_persistence(self, dcc_name: str) -> None:
@@ -65,12 +131,16 @@ class ObservabilityFacade:
     @property
     def observability_summary(self) -> dict[str, Any]:
         owner = self._owner
+        capture = getattr(owner, "_host_error_capture", None)
         return {
             "file_logging": owner._enable_file_logging,
             "log_dir": owner._log_dir or None,
             "job_persistence": owner._enable_job_persistence,
             "job_db": getattr(owner._config, "job_storage_path", None),
             "telemetry": owner._enable_telemetry,
+            "host_error_capture": capture is not None,
+            "host_output_resource": getattr(capture, "output_resource_uri", None),
+            "host_events_resource": getattr(capture, "events_resource_uri", None),
         }
 
     # -- resources ------------------------------------------------------------
