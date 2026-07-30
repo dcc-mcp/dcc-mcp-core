@@ -1090,6 +1090,7 @@ filters:
         let _ = stop.send(());
 
         assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["adoption_scope"], "gateway_routed");
         assert_eq!(body["health"]["searched_skills"], 2, "{body}");
         assert_eq!(body["health"]["used_skills"], 1);
         assert_eq!(body["health"]["low_adoption_skills"], 1);

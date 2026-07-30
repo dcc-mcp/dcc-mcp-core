@@ -201,6 +201,7 @@ pub(super) async fn build_skill_inventory_payload(
         "loaded": loaded,
         "unloaded": skills.len().saturating_sub(loaded),
         "action_count": action_count,
+        "adoption_scope": "gateway_routed",
         "health": health,
         "skills": skills,
     })
@@ -442,14 +443,18 @@ impl AdoptionIndex {
         if let Some(key) = self.tool_to_skill.get(action) {
             return Some(key.clone());
         }
-        let backend = action
-            .rsplit_once("__")
-            .map(|(_, suffix)| suffix)
-            .unwrap_or(action)
-            .to_ascii_lowercase();
+        let backend = backend_action_name(action);
         let dcc = dcc_type?.to_ascii_lowercase();
         self.backend_to_skill.get(&(dcc, backend)).cloned()
     }
+}
+
+fn backend_action_name(action: &str) -> String {
+    action
+        .splitn(3, '.')
+        .nth(2)
+        .unwrap_or(action)
+        .to_ascii_lowercase()
 }
 
 fn build_skill_path_rows(state: &AdminState) -> Vec<Value> {
@@ -729,5 +734,17 @@ mod skill_path_display_tests {
         let display = row["display_path"].as_str().unwrap();
         assert!(!display.contains("G:/studio"));
         assert!(display.starts_with("Bundled"));
+    }
+
+    #[test]
+    fn historical_instance_prefix_preserves_full_backend_tool() {
+        assert_eq!(
+            backend_action_name("unreal.deadbeef.unreal_actors__spawn_actor"),
+            "unreal_actors__spawn_actor"
+        );
+        assert_eq!(
+            backend_action_name("maya_render__capture_viewport"),
+            "maya_render__capture_viewport"
+        );
     }
 }

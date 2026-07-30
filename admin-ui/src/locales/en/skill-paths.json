@@ -1,6 +1,6 @@
 {
   "title": "Skills & paths",
-  "description": "Current loaded skills come from the live gateway capability index. Search paths show the directories used for skill discovery (CLI, environment variables, local developer defaults, bundled data dir, and optional SQLite-backed custom entries).",
+  "description": "Current loaded skills come from the live gateway capability index. Adoption counts include gateway-routed searches and calls only; direct per-DCC MCP traffic is not included. Search paths show the directories used for skill discovery.",
   "metric.loadedSkills": "Loaded skills",
   "metric.actions": "Actions",
   "metric.searchPaths": "Search paths",

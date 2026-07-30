@@ -1024,6 +1024,7 @@ export type SkillPayload = {
   loaded?: number;
   unloaded?: number;
   action_count?: number;
+  adoption_scope?: 'gateway_routed';
   health?: {
     searched_skills?: number;
     used_skills?: number;
