@@ -910,6 +910,40 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
     assert!(
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
+            &Command::Marketplace {
+                action: MarketplaceAction::Install {
+                    name: "dcc-mcp-maya-mgear".to_string(),
+                    dcc: Some("maya".to_string()),
+                    reload: true,
+                    sources: Vec::new(),
+                    force: false,
+                    skip_validation: false,
+                },
+            },
+            &local,
+        )
+        .is_some()
+    );
+    assert!(
+        gateway_endpoint_for_command(
+            DEFAULT_BASE_URL,
+            &Command::Marketplace {
+                action: MarketplaceAction::Install {
+                    name: "dcc-mcp-maya-mgear".to_string(),
+                    dcc: Some("maya".to_string()),
+                    reload: false,
+                    sources: Vec::new(),
+                    force: false,
+                    skip_validation: false,
+                },
+            },
+            &local,
+        )
+        .is_none()
+    );
+    assert!(
+        gateway_endpoint_for_command(
+            DEFAULT_BASE_URL,
             &Command::Gateway {
                 action: Some(GatewayAction::Status(GatewayStatusArgs {
                     host: "127.0.0.1".to_string(),

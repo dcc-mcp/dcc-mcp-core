@@ -67,7 +67,7 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | `marketplace list`                        | 列出已配置的源            |
 | `marketplace search --query <q>`          | 跨源搜索条目              |
 | `marketplace inspect <name>`              | 显示完整条目元数据        |
-| `marketplace install <name> --dcc <dcc>`  | 安装技能包                |
+| `marketplace install <name> --dcc <dcc> --reload` | 安装技能包并刷新运行中的 adapter |
 | `marketplace list-installed --dcc <dcc>`  | 列出已安装的包            |
 | `marketplace uninstall <name> --dcc <dcc>`| 移除已安装的包            |
 | `marketplace outdated [name] --dcc <dcc>` | 检查是否有更新版本        |
@@ -273,16 +273,17 @@ Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过
 | 方面 | CLI | Admin UI |
 |------|-----|----------|
 | 目录搜索 | `marketplace search --query <q>` | 浏览标签页，支持搜索 + DCC 筛选 |
-| 安装 | `marketplace install <name> --dcc <dcc>` | 卡片或详情弹窗上的 Install 按钮 |
+| 安装 | `marketplace install <name> --dcc <dcc> --reload` | 卡片或详情弹窗上的 Install 按钮 |
 | 卸载 | `marketplace uninstall <name> --dcc <dcc>` | 已安装标签页的 Uninstall 按钮 |
 | 列出已安装 | `marketplace list-installed --dcc <dcc>` | 已安装标签页 |
 | 添加来源 | `marketplace add <source>` | 面板中的来源管理界面 |
 | 更新 | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
-| 刷新运行中的 adapter | 安装/更新/卸载后运行 `reload-skills --dcc-type <dcc>` | 后端报告 `reload_required` 时自动刷新 |
+| 刷新运行中的 adapter | 安装时由 `--reload` 合并完成；更新/卸载后单独运行 | 后端报告 `reload_required` 时自动刷新 |
 
-两种界面共享同一套已安装包状态，但运行中的 adapter 只有在启动时，或显式运行
-`dcc-mcp-cli reload-skills --dcc-type <dcc>` 后，才会看到 CLI 新安装的包。
-Admin UI 在后端报告 `reload_required` 时会自动触发该刷新。
+两种界面共享同一套已安装包状态。已知准确 ID 时，CLI 用户可用
+`marketplace install <name> --dcc <dcc> --reload` 一次完成安装和运行时刷新；
+单 DCC 包还可省略 `--dcc`。Admin UI 在后端报告 `reload_required` 时会自动触发
+相同刷新。更新和卸载如需立即生效，仍单独运行 `reload-skills`。
 
 ## 参见
 

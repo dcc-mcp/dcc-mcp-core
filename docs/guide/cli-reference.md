@@ -127,12 +127,13 @@ stdout/stderr log paths when the DCC supervisor records them in the registry.
 `local.inventory.direct_control.not_ready_instances`.
 
 Agent-control commands (`list`, `search`, `describe`, `load-skill`, `call`,
-`wait-ready`, `reload-skills`, and `stop-instance`) and endpoint-level commands
+`wait-ready`, `reload-skills`, `stop-instance`, and marketplace
+`install --reload`) and endpoint-level commands
 that need a local gateway (`health`, `stats`, `update`, and `smoke` without an explicit
 `--url`) auto-ensure only loopback HTTP targets (`http://127.0.0.1:<port>` or
 `http://localhost:<port>`). Disable this for one invocation with
 `--no-auto-gateway`. Commands that operate only on local files (`install`,
-`dcc-types`, `marketplace`, `lint`), explicit lifecycle commands
+`dcc-types`, marketplace commands without `--reload`, `lint`), explicit lifecycle commands
 (`gateway ...`), and smoke checks against an explicit `--url` do not
 auto-start the gateway.
 Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
@@ -168,8 +169,7 @@ dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Au
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
 dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
-dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
+dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya --reload
 dcc-mcp-cli marketplace list-installed --dcc maya
 dcc-mcp-cli marketplace outdated --dcc maya
 dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
@@ -209,7 +209,7 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
 | `marketplace search [-q\|--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Fuzzy-rank Skill packages across configured or explicit sources using the shared search engine; the query flag works with released builds, while current builds also accept positional words as an alternative. Deduplicate by package name before applying `--limit`; `--dcc-type` is an alias for `--dcc`. |
 | `marketplace inspect <name> [--source <source>]` | marketplace catalog JSON/YAML | Print exact entry metadata including version and install fields. |
-| `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force]` | marketplace catalog + local filesystem/git | Install a skill package to `~/.dcc-mcp/marketplace/<dcc>/<name>/`. |
+| `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force] [--reload]` | marketplace catalog + local filesystem/git; optional running DCC control | Install a skill package to `~/.dcc-mcp/marketplace/<dcc>/<name>/`; `--reload` asks matching running adapters to re-scan skill paths and includes the reload result in the install JSON. |
 | `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. |
 | `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
 | `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
@@ -227,6 +227,10 @@ dcc-mcp-cli lint path/to/skills
 | `gateway daemon status [--port <port>]` | local process | Report gateway daemon health, PID, process liveness, registry dir, PID file, health URL, and CLI version. |
 | `gateway ensure/start/stop/status` | local process | Backward-compatible aliases for older scripts; prefer `gateway daemon ...` in user-facing docs. |
 | `lint [PATH ...]` | local filesystem validator | Recursively validate SKILL.md packages two levels below each path by default. |
+
+`marketplace install` resolves an exact package name directly, so `inspect` is
+optional when the ID is already known. `--dcc` may also be omitted when the
+catalog entry declares exactly one DCC; multi-DCC entries still require it.
 
 `dcc-types` describes release-catalog support, not currently running sessions;
 use `list` for live inventory. The core still accepts unknown/custom DCC names,
@@ -312,8 +316,10 @@ supports `install.type: git`, `install.type: path`, and `install.type: zip`.
 Archive installs verify `install.sha256` when present and reject entries that
 escape the install root. DCC adapters include
 `~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
-are discovered on adapter startup or the next
-`dcc-mcp-cli reload-skills --dcc-type <dcc>`. After a reload, run
+are discovered on adapter startup. To expose an exact package to running
+adapters immediately, use
+`dcc-mcp-cli marketplace install <name> --dcc <dcc> --reload`; otherwise run
+`dcc-mcp-cli reload-skills --dcc-type <dcc>` separately. After a reload, run
 `dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc> --instance-id <id>` when
 the adapter has not auto-loaded that skill yet.
 

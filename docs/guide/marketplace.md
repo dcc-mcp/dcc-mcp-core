@@ -74,7 +74,7 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace list`                        | List configured sources                        |
 | `marketplace search --query <q>`           | Fuzzy-rank entries across all sources; current builds also accept positional query words |
 | `marketplace inspect <name>`              | Show full entry metadata                       |
-| `marketplace install <name> --dcc <dcc>`  | Install a skill package                        |
+| `marketplace install <name> --dcc <dcc> --reload` | Install a skill package and refresh running adapters |
 | `marketplace list-installed --dcc <dcc>`  | List installed packages                        |
 | `marketplace uninstall <name> --dcc <dcc>`| Remove an installed package                    |
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
@@ -365,18 +365,20 @@ future phase.
 | Aspect | CLI | Admin UI |
 |--------|-----|----------|
 | Catalog search | `marketplace search --query <q>` | Browse tab with search + DCC filter |
-| Install | `marketplace install <name> --dcc <dcc>` | Install button on card or detail modal |
+| Install | `marketplace install <name> --dcc <dcc> --reload` | Install button on card or detail modal |
 | Uninstall | `marketplace uninstall <name> --dcc <dcc>` | Uninstall button in Installed tab |
 | List installed | `marketplace list-installed --dcc <dcc>` | Installed tab |
 | Add source | `marketplace add <source>` | Source management in panel |
 | Direct GitHub install | `marketplace add-repo <repo> --dcc <dcc>` | Admin API (planned) |
 | Update | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
-| Live adapter refresh | `reload-skills --dcc-type <dcc>` after install/update/uninstall | Automatic when the backend reports `reload_required` |
+| Live adapter refresh | Bundled with install `--reload`; standalone after update/uninstall | Automatic when the backend reports `reload_required` |
 
-Both interfaces share the same installed package state, but live adapters only
-see newly installed CLI packages after startup or an explicit
-`dcc-mcp-cli reload-skills --dcc-type <dcc>`. The Admin UI triggers that reload
-automatically when its backend reports `reload_required`.
+Both interfaces share the same installed package state. For a known exact ID,
+CLI users can install and refresh running adapters in one command with
+`marketplace install <name> --dcc <dcc> --reload`; `--dcc` is optional for a
+single-DCC package. The Admin UI triggers the same refresh automatically when
+its backend reports `reload_required`. Updates and uninstalls still use the
+standalone `reload-skills` command when a live refresh is needed.
 
 ## See Also
 

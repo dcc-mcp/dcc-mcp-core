@@ -131,7 +131,7 @@ paths, or full tool payloads.
 | `dcc-mcp-cli install --dcc-type maya --version 2026 --python "<mayapy>" --execute` | Execute package install after consent; rolls back on failure and verifies pip/path outputs |
 | `dcc-mcp-cli marketplace search --query "maya rigging" --limit 20` | Find installable Skill packages with released and current CLI builds |
 | `dcc-mcp-cli marketplace inspect <package_name>` | Inspect the selected skill package metadata before installing |
-| `dcc-mcp-cli marketplace install <package_name> --dcc maya` | Install a skill package into the local marketplace root |
+| `dcc-mcp-cli marketplace install <package_name> --dcc maya --reload` | Install an exact package ID and ask running Maya adapters to re-scan skill paths |
 | `dcc-mcp-cli reload-skills --dcc-type maya` | Ask running Maya adapters to re-scan installed skill paths |
 | `dcc-mcp-cli marketplace update <package_name> --dcc maya` | Update an installed skill package from the catalog |
 
@@ -150,10 +150,10 @@ any log paths, then run `wait-ready` or `doctor` before calling tools.
 Marketplace search and inspect do not require a live DCC instance. Always query
 the CLI before recommending a marketplace Skill. If the first query is empty,
 retry once with fewer capability words or without the DCC filter; never invent
-a package name. Inspect the selected package before a consent-gated install or
-update.
-After installing or updating marketplace skills, run `reload-skills`, then use
-`load-skill` if the adapter has not auto-loaded the new skill.
+a package name. Inspect unfamiliar packages before a consent-gated mutation;
+an exact known ID can be installed directly, and `--dcc` can be omitted for a
+single-DCC package. Prefer install `--reload`; after updates or installs without
+that flag, run `reload-skills`, then use `load-skill` if needed.
 
 ## Example: inventory
 

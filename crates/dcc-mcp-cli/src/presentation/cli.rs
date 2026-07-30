@@ -419,8 +419,12 @@ enum MarketplaceAction {
     /// Install a marketplace skill package to the local marketplace root.
     Install {
         name: String,
+        /// Target DCC; inferred when the package declares exactly one.
         #[arg(long)]
         dcc: Option<String>,
+        /// Ask running instances of the installed DCC to re-scan skill paths.
+        #[arg(long)]
+        reload: bool,
         /// Use this source for the query instead of configured sources.
         #[arg(long = "source")]
         sources: Vec<String>,
@@ -1010,14 +1014,46 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 MarketplaceAction::Install {
                     name,
                     dcc,
+                    reload,
                     sources,
                     force,
                     skip_validation,
-                } => to_json(
-                    service
+                } => {
+                    let installed = service
                         .install(name, dcc, sources, force, skip_validation)
-                        .await?,
-                )?,
+                        .await?;
+                    let installed_dcc = installed.dcc.clone();
+                    let mut value = to_json(installed)?;
+                    if reload {
+                        match control
+                            .reload_skills(ReloadSkillsRequest {
+                                dcc_type: Some(installed_dcc),
+                                instance_id: None,
+                            })
+                            .await
+                        {
+                            Ok(result) => {
+                                let reloaded =
+                                    result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                                value["reload_required"] = Value::Bool(!reloaded);
+                                value["reload"] = result;
+                                if !reloaded {
+                                    failed = true;
+                                    exit_code = ExitCode::Unavailable;
+                                }
+                            }
+                            Err(err) => {
+                                value["reload"] = serde_json::json!({
+                                    "ok": false,
+                                    "error": err.to_string(),
+                                });
+                                failed = true;
+                                exit_code = ExitCode::Unavailable;
+                            }
+                        }
+                    }
+                    value
+                }
                 MarketplaceAction::Uninstall { name, dcc } => {
                     to_json(service.uninstall(&name, &dcc)?)?
                 }
@@ -1166,6 +1202,9 @@ fn gateway_endpoint_for_command(
         | Command::WaitReady { .. }
         | Command::ReloadSkills { .. }
         | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
+        Command::Marketplace {
+            action: MarketplaceAction::Install { reload: true, .. },
+        } => Some(Endpoint::new(base_url)),
         // Local mode still executes these commands through FileRegistry/direct
         // MCP where that is the richer path, but the CLI owns gateway
         // lifecycle by default so agents can rely on the admin/control plane.
