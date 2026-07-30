@@ -1,6 +1,6 @@
 use std::io::Read;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 #[cfg(test)]
@@ -30,6 +30,7 @@ use crate::domain::rest::{
 use crate::infra::http::HttpGateway;
 
 mod image_artifacts;
+mod job_progress;
 mod lint;
 mod record_replay;
 mod ui_control_output;
@@ -37,6 +38,7 @@ mod ui_control_output;
 #[cfg(test)]
 use image_artifacts::{BASE64_STANDARD, MATERIALIZED_IMAGE_PLACEHOLDER, prune_image_artifacts};
 use image_artifacts::{default_image_artifact_root, materialize_call_images};
+use job_progress::JobProgressReporter;
 use record_replay::{RecordReplayAction, run_record_replay};
 use ui_control_output::compact_ui_control_result;
 
@@ -819,8 +821,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 let meta = attach_agent_session_id(meta, agent_session_id.as_deref())?;
                 let request_timeout = Duration::from_secs(effective_timeout.max(1));
                 if wait {
+                    let mut progress = JobProgressReporter::default();
                     control
-                        .call_and_wait(
+                        .call_and_wait_with_progress(
                             tool_slug,
                             dcc_type,
                             instance_id,
@@ -828,6 +831,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                             meta,
                             request_timeout,
                             Duration::from_secs(wait_timeout_secs.max(1)),
+                            |update| {
+                                if let Some(line) = progress.next_line(update, Instant::now()) {
+                                    let _ = writer.diagnostic(&line);
+                                }
+                            },
                         )
                         .await?
                 } else {

@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
 use axum::extract::{Json, Path, Query, State};
@@ -88,6 +90,7 @@ pub(crate) fn json_or_compact_fixture_response(
 }
 
 pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
+    let async_polls = Arc::new(AtomicUsize::new(0));
     let app = Router::new()
         .route(
             "/health",
@@ -361,38 +364,76 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
         )
         .route(
             "/v1/call",
-            post(|Json(body): Json<Value>| async move {
-                if body["tool_slug"] == "jobs_get_status" {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({
-                            "kind": "bad-request",
-                            "message": "invalid tool slug 'jobs_get_status' — expected '<dcc>.<skill>.<action>' or bare action name"
-                        })),
-                    );
-                }
-                if body["tool_slug"] == "maya.abc12345.domain_failure" {
-                    return (
+            post(move |Json(body): Json<Value>| {
+                let async_polls = Arc::clone(&async_polls);
+                async move {
+                    if body["tool_slug"] == "jobs_get_status" {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({
+                                "kind": "bad-request",
+                                "message": "invalid tool slug 'jobs_get_status' — expected '<dcc>.<skill>.<action>' or bare action name"
+                            })),
+                        );
+                    }
+                    if body["tool_slug"] == "maya.abc12345.domain_failure" {
+                        return (
+                            StatusCode::OK,
+                            Json(json!({
+                                "slug": body["tool_slug"],
+                                "output": {
+                                    "success": false,
+                                    "message": "tool domain failure"
+                                },
+                                "validation_skipped": false,
+                                "request_id": "fixture-domain-failure"
+                            })),
+                        );
+                    }
+                    if body["tool_slug"] == "maya.abc12345.long_render" {
+                        return (
+                            StatusCode::OK,
+                            Json(json!({
+                                "slug": body["tool_slug"],
+                                "output": {
+                                    "job_id": "job-progress-42",
+                                    "status": "pending"
+                                }
+                            })),
+                        );
+                    }
+                    if body["tool_slug"] == "maya.abc12345.jobs_get_status" {
+                        let poll = async_polls.fetch_add(1, Ordering::SeqCst);
+                        let (status, current, message) = if poll == 0 {
+                            ("running", 45, "rendering frame 45")
+                        } else {
+                            ("completed", 100, "render complete")
+                        };
+                        return (
+                            StatusCode::OK,
+                            Json(json!({
+                                "slug": body["tool_slug"],
+                                "output": {
+                                    "job_id": "job-progress-42",
+                                    "status": status,
+                                    "progress": {
+                                        "current": current,
+                                        "total": 100,
+                                        "message": message
+                                    }
+                                }
+                            })),
+                        );
+                    }
+                    (
                         StatusCode::OK,
                         Json(json!({
-                            "slug": body["tool_slug"],
-                            "output": {
-                                "success": false,
-                                "message": "tool domain failure"
-                            },
-                            "validation_skipped": false,
-                            "request_id": "fixture-domain-failure"
+                            "success": true,
+                            "tool_slug": body["tool_slug"],
+                            "arguments": body["arguments"]
                         })),
-                    );
+                    )
                 }
-                (
-                    StatusCode::OK,
-                    Json(json!({
-                        "success": true,
-                        "tool_slug": body["tool_slug"],
-                        "arguments": body["arguments"]
-                    })),
-                )
             }),
         )
         .route(

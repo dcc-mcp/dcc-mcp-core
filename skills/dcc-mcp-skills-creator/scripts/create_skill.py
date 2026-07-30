@@ -104,6 +104,13 @@ def create_skill(
 
     title = name.replace("-", " ").title()
     script_file = f"scripts/{tool_name}.py"
+    job_strategy_line = "    job_strategy: monolithic\n" if execution == "async" else ""
+    deferred_hint = "true" if execution == "async" else "false"
+    default_prompt = f"Use ${name} to complete this DCC-MCP workflow."
+    if execution == "async":
+        default_prompt += (
+            " Start it once, follow typed job progress to a terminal state, and do not relaunch on timeout."
+        )
 
     skill_md = skill_dir / "SKILL.md"
     skill_md.write_text(
@@ -148,7 +155,7 @@ adding small Python dependencies to DCC hosts.
         f'''interface:
   display_name: "{title}"
   short_description: "Run a structured DCC-MCP workflow"
-  default_prompt: "Use ${name} to complete this DCC-MCP workflow."
+  default_prompt: "{default_prompt}"
 ''',
         encoding="utf-8",
     )
@@ -180,7 +187,7 @@ adding small Python dependencies to DCC hosts.
         context:
           type: object
     execution: {execution}
-    affinity: {affinity}
+{job_strategy_line}    affinity: {affinity}
     enforce_thread_affinity: true
     timeout_hint_secs: 30
     annotations:
@@ -188,7 +195,7 @@ adding small Python dependencies to DCC hosts.
       destructive_hint: false
       idempotent_hint: true
       open_world_hint: false
-      deferred_hint: false
+      deferred_hint: {deferred_hint}
     next-tools:
       on-success: []
       on-failure: []

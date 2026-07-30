@@ -168,15 +168,18 @@ or when the user explicitly chooses that integration.
 5. **Zero instances** — stop, explain, ask consent before bootstrap; see
    [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md).
 
-### CLI installation
+### CLI/MCP preflight and installation
 
-If `dcc-mcp-cli` is missing, obtain the user's consent before installing the
-latest official release. The bundled installer is fixed to the official
-repository, validates the release-manifest URL and version, and verifies the
-binary SHA-256 before atomically replacing any existing CLI. A missing or
-invalid manifest, unexpected URL, or digest mismatch fails closed. Exact
-commands, update semantics, and development fallbacks live in
-[`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md).
+Run `dcc-mcp-cli list` first. If the process launches, the CLI is installed;
+`list` ensures the local gateway and enumerates DCC/MCP instances. A health or
+inventory error means the CLI exists: run `dcc-mcp-cli doctor`. Do not reinstall
+it, probe `import dcc_mcp_core`, or read server internals to infer availability.
+Only a shell-level command-not-found result means the CLI is missing. Ask for
+user consent, then immediately run `python scripts/check_cli.py --ensure-cli
+--pretty` from the loaded `dcc-mcp` Skill directory. The same approval covers
+this one verified install attempt; the helper installs the official release,
+rechecks health/inventory, and fails closed on manifest, URL, or SHA-256 errors.
+See the [CLI cheatsheet](references/CLI_CHEATSHEET.md).
 
 ### DCC UI Control fallback
 
@@ -275,7 +278,7 @@ npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 
 The published package is [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp). Install it with the command for the current agent host, start a new agent turn, and invoke `$dcc-mcp` explicitly if automatic routing is uncertain. A checkout may load this directory directly.
 
-Then run `dcc-mcp-cli list`. If the CLI is missing, ask permission before the bundled verified installer downloads the official release. Preserve the existing CLI and use the Python REST fallback if manifest or SHA-256 verification fails.
+Then follow the CLI/MCP preflight above.
 
 `dcc-mcp` supersedes `dcc-cli-gateway`; do not load both names in one agent.
 
@@ -288,8 +291,8 @@ Then run `dcc-mcp-cli list`. If the CLI is missing, ask permission before the bu
 | **Startup state is ambiguous** | Run `dcc-mcp-cli doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
 | **Starting any remote DCC task** | Select or override a profile with `dcc-mcp-cli gateway set <name>` or `dcc-mcp-cli list --gateway <name>` |
 | **Task needs gateway stats or Skill reflection** | Add `--require-gateway --agent-session-id <task-id>` before the first tool call and keep the same task ID for all calls; do not mix direct and measured routes |
-| `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; it must verify the official manifest and SHA-256, and Python REST fallback is allowed if verification or download fails |
-| CLI auto-ensure fails | Stop; explain the result; do not run agent-control or gateway endpoint commands until the gateway is reachable |
+| Shell reports `dcc-mcp-cli` command-not-found | Ask permission, then run `python scripts/check_cli.py --ensure-cli --pretty`; the approved helper installs and rechecks health/inventory without another confirmation |
+| CLI runs but gateway auto-ensure fails | Run `dcc-mcp-cli doctor`; do not reinstall the CLI or inspect Python-package/server internals |
 | Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
 | Remote gateway unreachable | Stop; explain; ask user permission before troubleshooting |
 | User has not agreed to setup | Do not install packages, edit env files, launch GUI apps, or write configs |
@@ -301,8 +304,8 @@ Then run `dcc-mcp-cli list`. If the CLI is missing, ask permission before the bu
 Run this first when local work begins or a DCC adapter restarts:
 
 ```bash
-dcc-mcp-cli dcc-types
 dcc-mcp-cli list
+# Only when startup or readiness is unclear:
 dcc-mcp-cli doctor
 ```
 
@@ -380,10 +383,11 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
   --json '{"radius":2.0}'
 ```
 
-For asynchronous tools, add `--wait`; the CLI polls `jobs_get_status` on the same route
-and returns the terminal result. The default is 600 seconds; use `--wait-timeout-secs` to override.
-Without `--wait`, REST returns `pending` plus `job_id`; manual gateway polling is only the fallback.
-During a host reload, keep that job ID: status stays routable while readiness is red. Never resubmit.
+For asynchronous render/cook tools, add `--wait`; the CLI polls `jobs_get_status` at most once per second until terminal state and writes a 5%-step progress bar plus a 30-second stalled-job heartbeat to stderr while keeping the final result on stdout. Use `--wait-timeout-secs` for longer runs.
+The bar uses `progress.current`, `progress.total`, and `progress.message`; do not repeatedly scan output files when typed progress exists.
+Native MCP/REST clients may subscribe to `/v1/jobs/{job_id}/events`; otherwise keep the returned `job_id` and use bounded status polling.
+Do not create a scheduled task by default. After an explicit cross-session monitoring request, schedule only a one-shot status check for that ID and stop it at terminal state.
+During a host reload, keep the ID because status stays routable while readiness is red; never resubmit the render or cook.
 
 Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside
 the `--json` object. Do not pass them as top-level CLI flags unless the CLI adds

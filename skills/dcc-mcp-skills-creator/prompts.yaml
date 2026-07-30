@@ -40,6 +40,16 @@ prompts:
           Aggregate stats are supporting evidence, not proof of root cause. If
           total_calls is zero or validation is missing, return no_change.
 
+          For render, cook, bake, simulation, export, or other long-running work,
+          verify that the proposal starts one typed job, declares an honest
+          monolithic, chunked, or isolated strategy, and reports monotonic
+          status plus progress.current/progress.total/progress.message. Prefer
+          CLI --wait or the declared status tool over repeated shell/file scans.
+          A timeout must query the existing job id, never relaunch the work.
+          Do not propose scheduled polling unless the task evidence records an
+          explicit cross-session monitoring request; then require a read-only,
+          one-shot check that self-stops at terminal state.
+
           Return only this JSON shape:
           {
             "decision": "no_change|update_existing|create_new",

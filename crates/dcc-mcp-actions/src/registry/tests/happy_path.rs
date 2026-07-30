@@ -68,6 +68,22 @@ fn test_registry_list_actions_for_dcc_names() {
 }
 
 #[test]
+fn test_any_dcc_actions_are_available_to_specific_hosts() {
+    let reg = ToolRegistry::new();
+    reg.register_action(make_action("universal", "any"));
+    reg.register_action(make_action("universal", "maya"));
+
+    for (dcc, expected_owner) in [("maya", "maya"), ("studio-host", "any")] {
+        assert_eq!(
+            reg.get_action("universal", Some(dcc)).unwrap().dcc,
+            expected_owner
+        );
+        assert_eq!(reg.list_actions(Some(dcc)).len(), 1);
+        assert_eq!(reg.list_actions_for_dcc(dcc), vec!["universal"]);
+    }
+}
+
+#[test]
 fn test_registry_get_all_dccs() {
     let reg = ToolRegistry::new();
     reg.register_action(make_action("a", "maya"));

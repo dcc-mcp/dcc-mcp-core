@@ -122,8 +122,21 @@ class TestDccMcpSkill:
     def test_async_calls_prefer_one_cli_wait_over_agent_polling(self) -> None:
         body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8")
         assert "add `--wait`" in body
-        assert "`--wait-timeout-secs`" in body
-        assert "manual gateway polling is only the fallback" in body
+        assert "polls `jobs_get_status` at most once per second" in body
+        assert "30-second stalled-job heartbeat" in body
+        assert "final result on stdout" in body
+        assert "progress.current" in body
+        assert "/v1/jobs/{job_id}/events" in body
+        assert "do not repeatedly scan output files" in body.lower()
+        assert "do not create a scheduled task by default" in body.lower()
+        assert "never resubmit the render or cook" in body.lower()
+
+        prompt = dcc_mcp_core.yaml_loads(
+            (Path(DCC_MCP_SKILL_DIR) / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        )["interface"]["default_prompt"]
+        assert "start once with --wait" in prompt
+        assert "follow typed progress to a terminal state" in prompt
+        assert "never resubmit or schedule polling by default" in prompt
 
     def test_cli_contract_avoids_routine_help_probes(self) -> None:
         body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8")
@@ -133,6 +146,18 @@ class TestDccMcpSkill:
         assert "dcc-mcp-cli reload-skills --instance-id <instance-id> --output toon" in body
         assert "dcc-mcp-cli load-skill <skill-name> --instance-id <instance-id> --output toon" in body
         assert "dcc-mcp-cli stop-instance --dcc-type <dcc-type> --instance-id <instance-id> --output toon" in body
+
+    def test_cli_preflight_separates_missing_cli_from_offline_mcp(self) -> None:
+        body = (Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8")
+        creator_body = (REPO_ROOT / "skills" / "dcc-mcp-skills-creator" / "SKILL.md").read_text(encoding="utf-8")
+
+        for guidance in (body, creator_body):
+            assert "dcc-mcp-cli list" in guidance
+            assert "shell-level command-not-found" in guidance
+            assert "python scripts/check_cli.py --ensure-cli --pretty" in guidance
+            assert "do not reinstall" in guidance.lower()
+            assert "import dcc_mcp_core" in guidance
+        assert "dcc-mcp-cli lint /path/to/my-skill" in creator_body
 
     def test_openclaw_metadata_does_not_require_gateway_env(self) -> None:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)

@@ -292,6 +292,38 @@ fn call_and_call_batch_exit_one_on_tool_failure_after_http_success() {
 }
 
 #[test]
+fn call_wait_streams_progress_to_stderr_and_keeps_stdout_json() {
+    let fixture = spawn_gateway_fixture();
+    let output = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "--output",
+            "json",
+            "call",
+            "maya.abc12345.long_render",
+            "--json",
+            "{}",
+            "--wait",
+            "--wait-timeout-secs",
+            "10",
+        ])
+        .output()
+        .expect("run long tool call");
+
+    assert!(output.status.success());
+    let body: Value = serde_json::from_slice(&output.stdout).expect("final JSON output");
+    assert_eq!(body["output"]["status"], "completed");
+    assert_eq!(body["output"]["progress"]["current"], 100);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("progress job-progress-42 pending"));
+    assert!(stderr.contains("[#########-----------]  45% (45/100) running: rendering frame 45"));
+    assert!(stderr.contains("[####################] 100% (100/100) completed: render complete"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("progress job-progress"));
+}
+
+#[test]
 fn call_falls_back_to_mcp_for_core_tool_missing_from_rest_catalog() {
     let fixture = spawn_gateway_fixture();
 
