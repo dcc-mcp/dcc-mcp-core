@@ -95,3 +95,8 @@ def test_dcc_mcp_skills_creator_exposes_improvement_prompt() -> None:
         "validation_summary",
         "existing_skill",
     }
+    content = "\n".join(message["content"] for message in prompt["messages"])
+    assert "starts one typed job" in content
+    assert "progress.current/progress.total/progress.message" in content
+    assert "explicit cross-session monitoring request" in content
+    assert "never relaunch the work" in content

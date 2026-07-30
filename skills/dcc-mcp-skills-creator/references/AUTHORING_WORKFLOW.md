@@ -35,6 +35,12 @@ When modernizing a skill, migrate top-level `dcc`, `version`, `tags`, `tools`,
 under `metadata.dcc-mcp.*`, then run creator validation against the actual
 installable skill directory.
 
+Set `metadata.dcc-mcp.dcc` to the concrete host that owns the implementation.
+Use `dcc: any` only for genuinely host-neutral tools whose scripts and runtime
+dependencies work in every adapter. A concrete-host tool with the same loaded
+tool name overrides the `any` entry for that host. This target is independent
+of `tools.yaml` `affinity: any`, which only controls execution thread affinity.
+
 ### Dependency-Aware Skills
 
 Use machine-readable dependencies whenever one skill must run after another.
@@ -139,3 +145,8 @@ from the script's `if __name__ == "__main__"` block.
 import avoidable dependencies covered by `skills_helper`. New generated and
 reference skills should ship without those warnings; legacy production skills
 can migrate one helper category at a time while their existing tests stay green.
+
+For an async skill, keep `agents/openai.yaml` aligned with the tool contract:
+tell the Agent to start the operation once, follow typed job progress to a
+terminal state, and query the existing job id after timeout. Do not prompt it to
+relaunch work, scan output directories repeatedly, or schedule polling by default.

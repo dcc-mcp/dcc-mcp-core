@@ -30,3 +30,29 @@ def test_creator_scaffold_includes_codex_interface_metadata(tmp_path: Path) -> N
         "short_description": "Run a structured DCC-MCP workflow",
         "default_prompt": "Use $maya-rigging-tools to complete this DCC-MCP workflow.",
     }
+
+
+def test_creator_scaffold_marks_async_job_strategy_and_deferred_hint(tmp_path: Path) -> None:
+    module = _load_creator_scaffold()
+
+    skill_dir = Path(
+        module.create_skill(
+            "houdini-cook-tools",
+            str(tmp_path),
+            dcc="houdini",
+            execution="async",
+            affinity="main",
+        )
+    )
+    tool = dcc_mcp_core.yaml_loads((skill_dir / "tools.yaml").read_text(encoding="utf-8"))["tools"][0]
+
+    assert tool["execution"] == "async"
+    assert tool["job_strategy"] == "monolithic"
+    assert tool["annotations"]["deferred_hint"] is True
+    prompt = dcc_mcp_core.yaml_loads((skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8"))["interface"][
+        "default_prompt"
+    ]
+    assert "Start it once" in prompt
+    assert "typed job progress" in prompt
+    assert "do not relaunch on timeout" in prompt
+    assert dcc_mcp_core.validate_skill(str(skill_dir)).is_clean

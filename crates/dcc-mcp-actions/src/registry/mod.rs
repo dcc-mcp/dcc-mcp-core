@@ -10,6 +10,7 @@ use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
 
 use dashmap::DashMap;
 use dcc_mcp_models::registry::{Registry, SearchQuery};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use dcc_mcp_naming::validate_tool_name;
@@ -34,6 +35,8 @@ mod meta;
 mod python;
 
 pub use meta::ToolMeta;
+
+const ANY_DCC: &str = "any";
 
 /// Thread-safe Action registry.
 ///
@@ -94,24 +97,33 @@ impl ToolRegistry {
     }
 
     /// Get action metadata by name.
+    ///
+    /// A DCC-specific action wins over an action registered for `any`.
     #[must_use]
     pub fn get_action(&self, name: &str, dcc_name: Option<&str>) -> Option<ToolMeta> {
         if let Some(dcc) = dcc_name {
-            if let Some(dcc_map) = self.dcc_actions.get(dcc) {
-                return dcc_map.get(name).map(|r| r.value().clone());
+            let exact = self
+                .dcc_actions
+                .get(dcc)
+                .and_then(|dcc_map| dcc_map.get(name).map(|r| r.value().clone()));
+            if exact.is_some() || dcc == ANY_DCC {
+                return exact;
             }
-            return None;
+            return self
+                .dcc_actions
+                .get(ANY_DCC)
+                .and_then(|dcc_map| dcc_map.get(name).map(|r| r.value().clone()));
         }
         self.actions.get(name).map(|r| r.value().clone())
     }
 
-    /// List all actions for a DCC.
+    /// List all actions for a DCC, including actions registered for `any`.
     #[must_use]
     pub fn list_actions_for_dcc(&self, dcc_name: &str) -> Vec<String> {
-        self.dcc_actions
-            .get(dcc_name)
-            .map(|dcc_map| dcc_map.iter().map(|r| r.key().clone()).collect())
-            .unwrap_or_default()
+        self.list_actions(Some(dcc_name))
+            .into_iter()
+            .map(|meta| meta.name)
+            .collect()
     }
 
     /// List all registered DCC names.
@@ -121,14 +133,30 @@ impl ToolRegistry {
     }
 
     /// Get all actions as metadata list.
+    ///
+    /// A scoped lookup includes actions registered for `any`; DCC-specific
+    /// metadata wins when both scopes contain the same action name.
     #[must_use]
     pub fn list_actions(&self, dcc_name: Option<&str>) -> Vec<ToolMeta> {
         if let Some(dcc) = dcc_name {
-            return self
-                .dcc_actions
-                .get(dcc)
-                .map(|dcc_map| dcc_map.iter().map(|r| r.value().clone()).collect())
-                .unwrap_or_default();
+            let mut actions = HashMap::new();
+            if let Some(any_map) = self.dcc_actions.get(ANY_DCC) {
+                actions.extend(
+                    any_map
+                        .iter()
+                        .map(|entry| (entry.key().clone(), entry.value().clone())),
+                );
+            }
+            if dcc != ANY_DCC
+                && let Some(dcc_map) = self.dcc_actions.get(dcc)
+            {
+                actions.extend(
+                    dcc_map
+                        .iter()
+                        .map(|entry| (entry.key().clone(), entry.value().clone())),
+                );
+            }
+            return actions.into_values().collect();
         }
         self.actions.iter().map(|r| r.value().clone()).collect()
     }

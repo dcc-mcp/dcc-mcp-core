@@ -192,6 +192,12 @@ dcc-mcp-cli gateway daemon status
 dcc-mcp-cli lint path/to/skills
 ```
 
+`call --wait` polls the routed `jobs_get_status` tool to terminal state. When
+the job reports `progress.current` and `progress.total`, the CLI writes a
+20-cell progress bar to stderr at 5% steps, polls at most once per second, and
+emits a 30-second heartbeat when progress stalls. The final response remains
+the only stdout payload, including for JSON, NDJSON, and TOON output.
+
 ### Commands
 
 | Command | REST/API contract | Meaning |

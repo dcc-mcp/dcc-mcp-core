@@ -196,6 +196,56 @@ def test_unknown_action_from_resolver_returns_unknown_action() -> None:
     assert result["context"]["action"] == "maya__missing"
 
 
+@pytest.mark.parametrize("dcc_name", ["maya", "studio-host"])
+def test_any_dcc_action_resolves_for_sidecar(dcc_name: str, tmp_path: Path) -> None:
+    script = tmp_path / "dna_session.py"
+    script.write_text("def main(): return None\n", encoding="utf-8")
+    registry = dcc_mcp_core.ToolRegistry()
+    registry.register(name="dna_io__dna_session", dcc="any", source_file=str(script))
+
+    dispatcher = SidecarActionDispatcher(
+        dcc_name,
+        server_provider=lambda: object(),
+        action_resolver=lambda action: registry.get_action(action, dcc_name=dcc_name),
+        executor=lambda request: {
+            "success": True,
+            "message": "resolved",
+            "context": {"script_path": request.script_path},
+        },
+    )
+
+    result = dispatcher.dispatch_payload({"action": "dna_io__dna_session", "args": {}})
+
+    assert result == {
+        "success": True,
+        "message": "resolved",
+        "context": {"script_path": str(script)},
+    }
+
+
+def test_any_dcc_builtin_without_source_uses_server_handler() -> None:
+    class Server:
+        def call_tool(self, action: str, args: Mapping[str, Any]) -> Mapping[str, Any]:
+            return {"success": True, "message": "called", "context": {"action": action, "args": args}}
+
+    server = Server()
+    registry = dcc_mcp_core.ToolRegistry()
+    registry.register(name="get_instance_info", dcc="any")
+    dispatcher = SidecarActionDispatcher(
+        "maya",
+        server_provider=lambda: server,
+        action_resolver=lambda action: registry.get_action(action, dcc_name="maya"),
+    )
+
+    result = dispatcher.dispatch_payload({"action": "get_instance_info", "args": {}})
+
+    assert result == {
+        "success": True,
+        "message": "called",
+        "context": {"action": "get_instance_info", "args": {}},
+    }
+
+
 def test_resolved_action_without_source_returns_no_source_file() -> None:
     dispatcher = SidecarActionDispatcher(
         "maya",

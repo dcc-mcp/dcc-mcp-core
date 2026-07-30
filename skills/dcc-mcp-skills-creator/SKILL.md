@@ -55,11 +55,19 @@ installation instructions for an agent host.
 ## CLI-First Control Path
 
 Use the `dcc-mcp` skill and `dcc-mcp-cli` for skill discovery, loading,
-validation, and live calls whenever the agent can run shell commands. If the
-CLI is missing, follow the consent-gated official installation instructions in
-`dcc-mcp`. Keep it current with `dcc-mcp-cli update check`, then
-`dcc-mcp-cli update apply`; the apply step stages the next CLI launch and does
-not replace a running server binary.
+validation, and live calls whenever the agent can run shell commands. Start a
+live validation with `dcc-mcp-cli list`: if the process launches, the CLI is
+installed and the result checks the gateway plus DCC/MCP inventory. Diagnose a
+failed health/inventory result with `dcc-mcp-cli doctor`; do not reinstall the
+CLI, probe `import dcc_mcp_core`, or read server internals to infer readiness.
+
+Only a shell-level command-not-found result means the CLI is missing. Ask for
+consent; after explicit approval, immediately run the verified `dcc-mcp` helper
+`python scripts/check_cli.py --ensure-cli --pretty` from that Skill's directory.
+It installs the official CLI and rechecks health/inventory in the same attempt,
+without a second confirmation. Keep it current with `dcc-mcp-cli update check`,
+then `dcc-mcp-cli update apply`; apply stages the next CLI launch and does not
+replace a running server binary.
 
 ## Quick Start
 
@@ -78,15 +86,8 @@ not replace a running server binary.
 
 ### Validate an existing skill
 
-```python
-from dcc_mcp_core import validate_skill
-
-report = validate_skill("/path/to/my-skill")
-if report.has_errors:
-    for issue in report.issues:
-        print(f"[{issue.severity}] {issue.category}: {issue.message}")
-else:
-    print("Skill is valid!")
+```bash
+dcc-mcp-cli lint /path/to/my-skill
 ```
 
 ### Get a SKILL.md template
@@ -117,6 +118,9 @@ Generated `tools.yaml` entries follow the modern contract:
 - Loaded tools are published as `<skill-name>__<tool_name>` when namespacing is needed.
 - Skill package version metadata lives at `metadata.dcc-mcp.version` in
   `SKILL.md`; a top-level `version` key is rejected by the strict loader.
+- Set `metadata.dcc-mcp.dcc` to the concrete host. Use `dcc: any` only when the
+  same implementation is safe in every host; concrete-host tools override a
+  same-named `any` tool during scoped lookup.
 - Inter-skill dependencies live at `metadata.dcc-mcp.depends` as skill names,
   not repo names or prose-only instructions. Use it when one skill must be
   discovered or loaded before another, for example `depends: ["qt-ui-inspector"]`.
@@ -188,10 +192,30 @@ poll and cancel tools in `next-tools` and in the result recovery context.
 Status must remain readable after a transport disconnect or adapter restart;
 state cancellation ownership honestly when it cannot be reconstructed.
 
+Render and cook status tools should reuse the Core progress vocabulary:
+`status`, `progress.current`, `progress.total`, and `progress.message`.
+`current` and `total` are monotonic work-unit counts such as completed/total
+frames; clients derive the percentage and render one progress bar. Prefer the
+renderer or cook service's native counters. If files are the only source, keep
+that counting inside the typed status tool instead of making the agent run
+repeated directory scans.
+
+During an active turn, agents should start once and use CLI `--wait`, REST job
+events, or the declared status tool. Do not create an OS or DCC-MCP scheduled
+workflow merely to poll one running operation. Only after the user explicitly
+requests cross-session monitoring may an agent create a one-shot follow-up that
+stores the existing job/operation id, performs read-only status checks, and
+self-stops at a terminal state; it must never relaunch the render or cook.
+Mirror this contract in `agents/openai.yaml`: tell the Agent to start once,
+follow typed progress to a terminal state, and query the same job id after a
+timeout instead of relaunching work.
+
 For one indivisible DCC-native call, keep `job_strategy: monolithic`. Prefer
 `execution: async` so the initial transport returns a core job id, then poll
 the instance-routable `jobs_get_status`. A transport timeout is not completion
 or cancellation: rediscover the instance and query the job before retrying.
+The creator scaffold deliberately emits `monolithic` for async tools; change it
+only with the matching chunked runner or isolated status/cancel implementation.
 
 ### Computer Use Fallback Contract
 

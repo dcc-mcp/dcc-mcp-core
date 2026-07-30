@@ -114,6 +114,7 @@ python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tes
 | `traces/core-record-replay-lifecycle.jsonl` | No | Caller-scoped start -> redacted capture -> stop -> review lifecycle rejects cross-session access and preserves no reusable approval authority. |
 | `traces/core-1652-load-skill-backend-failure.jsonl` | Yes (affected Maya/backend) | Gateway `load_skill` must surface backend `unknown-action` / `success:false` as a failure instead of decorating it as `loaded:true`. |
 | `traces/core-1659-load-skill-indexes-mgear-tools.jsonl` | Yes (Maya + maya-mgear) | Gateway `load_skill` must index the mGear tools returned by the backend response so `/v1/search` and `/v1/call` work even if the refresh route cannot rebuild the index. |
+| `traces/core-any-dcc-skill-sidecar-dispatch.jsonl` | Yes (Maya + dna-io) | A skill declared with `metadata.dcc-mcp.dcc: any` must resolve and execute through a concrete Maya sidecar instead of returning `unknown-action`. |
 | `traces/gateway-multi-instance-stress.jsonl` | Yes (≥3 live instances) | Skips unless `GET /v1/instances` reports `total >= 3`; then bursts health/instances/readyz/context/search to catch registry/probe regressions under load. |
 
 ## CI policy (recommended)

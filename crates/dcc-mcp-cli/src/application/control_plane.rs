@@ -22,8 +22,17 @@ use crate::domain::rest::{
 use crate::infra::http::HttpGateway;
 
 const RELOAD_SKILLS_TOOL: &str = "dcc_admin__reload_skills";
-const JOB_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const JOB_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const TERMINAL_JOB_STATUSES: &[&str] = &["completed", "failed", "cancelled", "interrupted"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct JobWaitProgress {
+    pub(crate) job_id: String,
+    pub(crate) status: String,
+    pub(crate) current: Option<u64>,
+    pub(crate) total: Option<u64>,
+    pub(crate) message: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct DccControlPlane {
@@ -169,6 +178,34 @@ impl DccControlPlane {
         request_timeout: Duration,
         wait_timeout: Duration,
     ) -> anyhow::Result<Value> {
+        self.call_and_wait_with_progress(
+            tool_slug,
+            dcc_type,
+            instance_id,
+            arguments,
+            meta,
+            request_timeout,
+            wait_timeout,
+            |_| {},
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn call_and_wait_with_progress<F>(
+        &self,
+        tool_slug: String,
+        dcc_type: Option<String>,
+        instance_id: Option<String>,
+        arguments: Value,
+        meta: Option<Value>,
+        request_timeout: Duration,
+        wait_timeout: Duration,
+        mut on_progress: F,
+    ) -> anyhow::Result<Value>
+    where
+        F: FnMut(&JobWaitProgress),
+    {
         let status_tool = job_status_tool(&tool_slug, dcc_type.as_deref(), instance_id.as_deref())?;
         let poll_meta = job_poll_meta(meta.clone());
         let mut result = self
@@ -181,11 +218,12 @@ impl DccControlPlane {
                 request_timeout,
             )
             .await?;
-        let Some((job_id, mut status)) = job_identity(&result, 0)
-            .map(|(job_id, status)| (job_id.to_string(), status.to_string()))
-        else {
+        let Some(initial) = job_wait_progress(&result, 0) else {
             return Ok(result);
         };
+        on_progress(&initial);
+        let job_id = initial.job_id;
+        let mut status = initial.status;
         if is_terminal_job_status(&status) {
             return Ok(result);
         }
@@ -213,15 +251,17 @@ impl DccControlPlane {
                     request_timeout,
                 )
                 .await?;
-            let Some((reported_job_id, reported_status)) = job_identity(&result, 0) else {
+            let Some(update) = job_wait_progress(&result, 0) else {
                 anyhow::bail!("jobs_get_status returned no job envelope for {job_id}");
             };
-            if reported_job_id != job_id {
+            if update.job_id != job_id {
                 anyhow::bail!(
-                    "jobs_get_status returned job {reported_job_id} while waiting for {job_id}"
+                    "jobs_get_status returned job {} while waiting for {job_id}",
+                    update.job_id
                 );
             }
-            status = reported_status.to_string();
+            status = update.status.clone();
+            on_progress(&update);
             if is_terminal_job_status(&status) {
                 return Ok(result);
             }
@@ -362,7 +402,7 @@ fn job_status_tool(
     Ok(format!("{dcc}.{instance}.jobs_get_status"))
 }
 
-fn job_identity(value: &Value, depth: u8) -> Option<(&str, &str)> {
+fn job_wait_progress(value: &Value, depth: u8) -> Option<JobWaitProgress> {
     if depth > 4 {
         return None;
     }
@@ -370,7 +410,21 @@ fn job_identity(value: &Value, depth: u8) -> Option<(&str, &str)> {
         value.get("job_id").and_then(Value::as_str),
         value.get("status").and_then(Value::as_str),
     ) {
-        return Some((job_id, status));
+        let progress = value.get("progress");
+        return Some(JobWaitProgress {
+            job_id: job_id.to_string(),
+            status: status.to_string(),
+            current: progress
+                .and_then(|progress| progress.get("current"))
+                .and_then(Value::as_u64),
+            total: progress
+                .and_then(|progress| progress.get("total"))
+                .and_then(Value::as_u64),
+            message: progress
+                .and_then(|progress| progress.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        });
     }
     [
         "output",
@@ -380,7 +434,7 @@ fn job_identity(value: &Value, depth: u8) -> Option<(&str, &str)> {
     ]
     .iter()
     .filter_map(|key| value.get(*key))
-    .find_map(|nested| job_identity(nested, depth + 1))
+    .find_map(|nested| job_wait_progress(nested, depth + 1))
 }
 
 fn is_terminal_job_status(status: &str) -> bool {
@@ -533,10 +587,16 @@ mod tests {
             };
             if slug.ends_with(".jobs_get_status") {
                 let status = if poll == 0 { "running" } else { "completed" };
+                let current = if poll == 0 { 45 } else { 90 };
                 return Json(json!({
                     "structuredContent": {
                         "job_id": "job-42",
                         "status": status,
+                        "progress": {
+                            "current": current,
+                            "total": 90,
+                            "message": format!("frame {current}")
+                        },
                         "result": (status == "completed").then(|| json!({
                             "success": true,
                             "message": "done"
@@ -565,8 +625,9 @@ mod tests {
             true,
         );
 
+        let mut progress = Vec::new();
         let result = control
-            .call_and_wait(
+            .call_and_wait_with_progress(
                 "unity.abc12345.run_tests".to_string(),
                 None,
                 None,
@@ -578,7 +639,8 @@ mod tests {
                     "progressToken": "progress-9"
                 })),
                 Duration::from_secs(2),
-                Duration::from_secs(2),
+                Duration::from_secs(5),
+                |update| progress.push(update.clone()),
             )
             .await
             .unwrap();
@@ -593,6 +655,17 @@ mod tests {
         assert!(poll_meta.get("progressToken").is_none());
         assert_eq!(result["structuredContent"]["status"], "completed");
         assert_eq!(result["structuredContent"]["result"]["message"], "done");
+        assert_eq!(
+            progress
+                .iter()
+                .map(|update| (update.status.as_str(), update.current, update.total))
+                .collect::<Vec<_>>(),
+            vec![
+                ("pending", None, None),
+                ("running", Some(45), Some(90)),
+                ("completed", Some(90), Some(90)),
+            ]
+        );
         server.abort();
     }
 

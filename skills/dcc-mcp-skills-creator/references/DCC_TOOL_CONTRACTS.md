@@ -87,6 +87,32 @@ diagnostic or observation tools, such as screenshots, audit logs, or scene
 snapshots. Infrastructure tools can omit failure chains when they are already
 the recovery target.
 
+## Long-Running Progress
+
+Use `execution: async` for render, cook, bake, simulation, and export work that
+outlives one request. Choose `job_strategy: chunked` for bounded host-main
+steps and `job_strategy: isolated` when a renderer, farm, subprocess, or service
+owns a durable operation. Do not claim cancellation or resumability for a
+monolithic native call that cannot provide them.
+
+Every status surface should reuse the Core job vocabulary:
+
+- `status`: `pending`, `running`, `completed`, `failed`, `cancelled`, or `interrupted`.
+- `progress.current`: monotonic completed work units.
+- `progress.total`: monotonic total work units using the same unit.
+- `progress.message`: optional bounded phase/frame/node description.
+
+For frame rendering, use completed frames and requested frames. Prefer native
+renderer/cook counters; if verified output files are the only available source,
+derive the count inside the typed status tool and report missing/failed units.
+The agent must not reconstruct progress with repeated shell directory scans.
+
+Declare read-only status and mutating cancel tools in `next-tools`. An agent may
+create a one-shot cross-session status check only after explicit user consent;
+the check keeps the existing job/operation id, never launches work, and removes
+itself at terminal state. Core `schedules.yaml` is for predefined cron/webhook
+workflows, not ad-hoc polling of one render.
+
 ## Call Examples
 
 For high-frequency or parameter-rich tools, add `call_examples` so agents can
