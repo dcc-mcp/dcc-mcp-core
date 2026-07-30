@@ -1,6 +1,7 @@
-# Adapter Workflow
+# Adapter And Service Workflow
 
-Use this reference to build a new adapter or simplify an existing one.
+Use this reference to build a new adapter, expose an internal standalone
+service, or simplify an existing integration.
 
 ## 1. Choose the Runtime Shape
 
@@ -12,6 +13,7 @@ Use the smallest shape that can honestly run the host API:
 | Embedded Python, headless | mayapy, Blender background, Houdini hython | `DccServerBase` with inline or blocking dispatcher |
 | External bridge | ZBrush, Photoshop, Unity, proprietary tools | `DccServerBase` plus IPC/WebSocket/HTTP bridge helpers |
 | Editor/game engine | Unreal, Unity | Adapter-owned plugin bridge plus typed skill tools; keep Python optional |
+| Standalone internal service | Asset/review/render APIs, private CLI tools | `DccServerBase` with `instance_type="standalone"`, no DCC PID, and inline typed tools |
 
 ## 2. Build the Composition Root
 
@@ -58,6 +60,11 @@ fixed direct endpoint is required.
 For `HostUiDispatcherBase` subclasses, the bridge creates and attaches the
 native HTTP main-affinity queue automatically. Keep the host timer calling the
 subclass's `drain_queue()`; do not wire a second queue in the adapter.
+
+For a non-DCC standalone service, keep the same composition root but omit
+`HostExecutionBridge`, pass `instance_type="standalone"`, and leave `dcc_pid`
+unset. Follow [INTERNAL_SERVICE_WORKFLOW.md](INTERNAL_SERVICE_WORKFLOW.md); a
+public repository and public catalog entry are not required.
 
 ## 3. Add Progressive Skills
 

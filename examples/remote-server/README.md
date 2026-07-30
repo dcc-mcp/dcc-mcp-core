@@ -1,56 +1,86 @@
-# Remote MCP Server Example
+# Standalone Internal MCP Service Example
 
-Minimal example of a publicly reachable MCP server using `dcc-mcp-core`.
+Minimal non-DCC service using `dcc-mcp-core`. It discovers the bundled
+`hello-world` Skill, marks the runtime as `standalone`, and requires no DCC
+process, public catalog entry, or GitHub repository.
+
+The `remote-server` directory name is retained for stable links. Local
+development binds to loopback; remote or intranet exposure is an explicit
+operator choice.
 
 ## Quick Start
 
 ```bash
-# Install dependency
 pip install dcc-mcp-core
-
-# Run with optional API key
-DCC_MCP_API_KEY=secret python server.py
+python server.py
 ```
 
-The server binds to `0.0.0.0:8765` and prints its MCP URL.
+Expected output includes:
 
-## Docker
+```text
+MCP service listening at http://127.0.0.1:8765/mcp
+  identity: studio-service
+  lifetime: standalone
+```
+
+Validate the bundled Skill before starting:
 
 ```bash
-docker build -t remote-mcp .
-docker run -p 8765:8765 -e DCC_MCP_API_KEY=secret remote-mcp
+dcc-mcp-cli lint skills
 ```
 
-## Docker Compose
+## Play With The Open-Source Inspector
+
+Start the official [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
 
 ```bash
-DCC_MCP_API_KEY=secret docker-compose up
+npx @modelcontextprotocol/inspector@latest
 ```
 
-## Connect from MCP Clients
+Choose Streamable HTTP and connect to `http://127.0.0.1:8765/mcp`. Search for
+`hello-world`, load it, then call `hello_world__greet` with:
 
-**Claude Desktop** (`claude_desktop_config.json`):
 ```json
-{
-  "mcpServers": {
-    "remote-mcp": {
-      "url": "http://localhost:8765/mcp",
-      "headers": { "Authorization": "Bearer secret" }
-    }
-  }
-}
+{"name":"Agent"}
 ```
+
+The response message is `Hello, Agent! (from the internal MCP service)`.
+
+Agents can exercise the same registered service without guessing tool slugs:
+
+```bash
+dcc-mcp-cli list --output toon
+dcc-mcp-cli load-skill hello-world --dcc-type studio-service --output toon
+dcc-mcp-cli describe <tool-slug-returned-by-load> --output toon
+dcc-mcp-cli call <tool-slug-returned-by-load> --json '{"name":"Agent"}' --wait --output toon
+```
+
+Follow the returned `next_step`; do not guess the instance-qualified tool slug.
+
+## Intranet Or Container Use
+
+Set `DCC_MCP_HOST=0.0.0.0` only inside a trusted network boundary. The example
+does not implement application-layer authentication. Put intranet or public
+traffic behind operator-owned TLS, authentication, firewall/origin policy, and
+audit controls.
+
+```bash
+docker build -t internal-mcp .
+docker run --rm -p 127.0.0.1:8765:8765 internal-mcp
+```
+
+Do not expose the MCP Inspector proxy to an untrusted network.
 
 ## Environment Variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `DCC_MCP_HOST` | `0.0.0.0` | Bind address |
-| `DCC_MCP_PORT` | `8765` | TCP port |
-| `DCC_MCP_API_KEY` | _(none)_ | Bearer token auth (dev mode if unset) |
-| `DCC_MCP_SKILL_PATHS` | _(none)_ | Extra skill directories |
+|---|---|---|
+| `DCC_MCP_HOST` | `127.0.0.1` | Bind address; keep loopback for local development |
+| `DCC_MCP_PORT` | `8765` | MCP service port |
+| `DCC_MCP_SKILL_PATHS` | _(none)_ | Optional additional private Skill directories |
 
 ## See Also
 
-- [Remote-First MCP Server Design Guide](../../docs/guide/remote-server.md)
-- [Production Deployment](../../docs/guide/production-deployment.md)
+- [Internal standalone service workflow](../../skills/dcc-mcp-creator/references/INTERNAL_SERVICE_WORKFLOW.md)
+- [Remote-first deployment guide](../../docs/guide/remote-server.md)
+- [Production deployment](../../docs/guide/production-deployment.md)

@@ -1,63 +1,53 @@
-"""Minimal remote-accessible MCP server example.
-
-Starts a publicly reachable MCP server on 0.0.0.0 with CORS and
-optional API-key auth from environment variables.
-
-Usage:
-    DCC_MCP_API_KEY=secret python server.py
-    # then connect from any MCP client at http://<host>:8765/mcp
-"""
+"""Minimal standalone MCP service for private or local development."""
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import signal
 import time
 
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 
+HOST = os.environ.get("DCC_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DCC_MCP_PORT", "8765"))
-HOST = os.environ.get("DCC_MCP_HOST", "0.0.0.0")
-API_KEY = os.environ.get("DCC_MCP_API_KEY", "")
-SKILL_PATHS = os.environ.get("DCC_MCP_SKILL_PATHS", "")
+SKILLS_DIR = Path(__file__).parent / "skills"
 
-cfg = McpHttpConfig(
+config = McpHttpConfig(
     port=PORT,
-    server_name="remote-mcp",
-    enable_cors=True,
+    server_name="studio-service-mcp",
+    enable_cors=HOST != "127.0.0.1",
 )
-cfg.host = HOST
+config.host = HOST
+config.dcc_type = "studio-service"
+config.instance_metadata = {"dcc_mcp_instance_type": "standalone"}
 
-if API_KEY:
-    cfg.api_key = API_KEY
-
-if SKILL_PATHS:
-    os.environ["DCC_MCP_SKILL_PATHS"] = SKILL_PATHS
-
-server = create_skill_server("generic", cfg)
+server = create_skill_server(
+    "studio-service",
+    config,
+    extra_paths=[str(SKILLS_DIR)],
+)
 handle = server.start()
 
-print(f"MCP server listening at {handle.mcp_url()}")
-print(f"  host:     {HOST}")
-print(f"  port:     {PORT}")
-print(f"  auth:     {'api-key' if API_KEY else 'none (dev mode)'}")
-print("  cors:     enabled")
+print(f"MCP service listening at {handle.mcp_url()}")
+print("  identity: studio-service")
+print("  lifetime: standalone")
 print("Press Ctrl+C to stop.")
 
-_running = True
+running = True
 
 
-def _stop(sig, frame):
-    global _running
-    _running = False
+def _stop(_signal_number, _frame):
+    global running
+    running = False
 
 
 signal.signal(signal.SIGINT, _stop)
 signal.signal(signal.SIGTERM, _stop)
 
-while _running:
+while running:
     time.sleep(1)
 
 handle.shutdown()
-print("Server stopped.")
+print("Service stopped.")
