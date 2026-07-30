@@ -71,6 +71,13 @@ dcc-mcp-cli lint skills
 For hermetic tests, set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` so operator
 Skill directories cannot change discovery results.
 
+When the owner needs a reproducible development environment, prefer the open
+Development Container specification and its open-source CLI over a bespoke
+sandbox. Reuse an existing `.devcontainer/devcontainer.json`; the runnable
+example includes one under `examples/remote-server`. Keep credentials outside
+the image and do not mount a host container socket unless the workflow truly
+needs nested container control.
+
 ## 4. Play and Debug Locally
 
 Start on loopback and print the resolved MCP URL. Then run the official
@@ -93,6 +100,13 @@ order:
 Use `dcc-mcp-cli list`, `load-skill`, `describe`, and `call --wait` as
 the agent smoke once the local service is registered. Keep the returned slug
 and `request_id`; do not guess names or retry before diagnosis.
+
+For a hosted multi-user teaching portal, Educates is the open-source upgrade
+path: it provides per-user isolated sessions, Markdown instructions, browser
+terminals, and an embedded editor. Treat its Kubernetes, ingress, identity,
+resource quota, image registry, and session-cleanup requirements as an
+operator-owned deployment project. A local Dev Container remains the default
+until that operational need exists.
 
 ## 5. Expose and Deliver Privately
 
