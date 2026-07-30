@@ -1,8 +1,8 @@
 ---
 name: hello-world
 description: >-
-  Example skill — minimal greeting tool. Use only for testing remote server
-  connectivity and skill discovery. Not for production use.
+  Example skill - minimal greeting tool. Use only for testing standalone
+  internal service connectivity and Skill discovery. Not for production use.
 license: MIT
 metadata:
   dcc-mcp:
@@ -14,7 +14,7 @@ metadata:
 
 # Hello World
 
-Minimal skill bundled with the remote-server example.
+Minimal Skill bundled with the standalone internal-service example.
 
 After loading with `load_skill("hello-world")`, the tool `hello_world__greet`
 is available.
