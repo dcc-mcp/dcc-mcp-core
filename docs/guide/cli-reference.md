@@ -78,6 +78,11 @@ it does not host skills and does not replace the runtime binary
 - named remote profiles: route the same control workflow through the selected
   remote gateway base URL.
 
+Shell agents should pass `--output toon` to reduce command-result context-token
+cost. The default remains JSON for backward-compatible scripts; use
+`--output json` only when a downstream program requires JSON, `--output ndjson`
+for streams, and `--output human` for interactive display.
+
 Register and select remote profiles with:
 
 ```bash

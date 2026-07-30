@@ -16,6 +16,7 @@ fn output_format_parsing() {
         OutputFormat::from_flag("ndjson").unwrap(),
         OutputFormat::Ndjson
     );
+    assert_eq!(OutputFormat::from_flag("toon").unwrap(), OutputFormat::Toon);
     assert!(OutputFormat::from_flag("xml").is_err());
     assert!(OutputFormat::from_flag("").is_err());
 }
@@ -31,6 +32,23 @@ fn output_format_case_insensitive() {
         OutputFormat::from_flag("HUMAN").unwrap(),
         OutputFormat::Human
     );
+    assert_eq!(OutputFormat::from_flag("TOON").unwrap(), OutputFormat::Toon);
+}
+
+#[test]
+fn toon_output_round_trips() {
+    let expected = json!({
+        "total": 2,
+        "instances": [
+            {"dcc_type": "unreal", "scene": "DemoMap"},
+            {"dcc_type": "maya", "scene": "shot_010"},
+        ],
+    });
+
+    let encoded = serialize_value(OutputFormat::Toon, &expected).unwrap();
+    let decoded: serde_json::Value = toon_format::decode_default(&encoded).unwrap();
+
+    assert_eq!(decoded, expected);
 }
 
 #[test]

@@ -1160,6 +1160,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "toon-format",
  "workspace-hack",
  "zip",
 ]
