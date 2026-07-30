@@ -37,6 +37,40 @@ In other words, heartbeat keeps instance registration fresh; guardian recovery
 restarts the gateway daemon after `/health` disappears. Do not describe
 gateway recovery as "the next heartbeat restarts the gateway".
 
+## Capture Startup And Host Console Errors
+
+Wrap the full adapter import/start block so failures that happen before the MCP
+server exists still reach the shared log directory:
+
+```python
+from dcc_mcp_core import capture_bootstrap_errors
+
+with capture_bootstrap_errors(
+    "3dsmax",
+    adapter_version="0.3.0",
+    min_core_version="0.19.0",
+):
+    from dcc_mcp_3dsmax.max_bootstrap import main
+
+    main()
+```
+
+The helper uses only the standard library, writes a bounded rotating
+`dcc-mcp-<dcc>.<pid>.host-errors.log` entry, and re-raises the exception so the
+DCC's native error dialog remains visible. The local file retains the
+traceback, loaded core path, Python executable, and version evidence needed to
+diagnose mixed installs. Gateway Admin exposes only the sanitized error
+summary, DCC/PID, phase, source, and versions; it does not return those local
+paths.
+
+`DccServerBase` automatically captures `logging.ERROR`, `sys.excepthook`,
+`threading.excepthook`, and `sys.unraisablehook` while the server is running.
+It publishes the same error through the existing `output://instance/<dcc-pid>`
+and `events://session/<dcc-pid>` resources. A host-native script editor,
+console, or SDK callback still belongs to the adapter; forward it through
+`server.report_host_error(message, source="3dsmax.listener")`. Do not replace
+`sys.stdout` or `sys.stderr` process-wide.
+
 ## Rez Or Filesystem Deployment Layout
 
 Pipeline teams can use the same bootstrap script before packages are formally

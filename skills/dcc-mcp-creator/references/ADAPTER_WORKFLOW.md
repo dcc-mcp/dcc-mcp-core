@@ -61,6 +61,14 @@ For `HostUiDispatcherBase` subclasses, the bridge creates and attaches the
 native HTTP main-affinity queue automatically. Keep the host timer calling the
 subclass's `drain_queue()`; do not wire a second queue in the adapter.
 
+Guard the adapter's outer startup import with
+`capture_bootstrap_errors(dcc_name, adapter_version=..., min_core_version=...)`.
+It records pre-server failures and re-raises them for the host's native error
+UI. `DccServerBase` captures Python logging and uncaught runtime exceptions
+into the shared log plus `output://` / `events://`; forward host-native console
+callbacks with `server.report_host_error(...)`. Do not install a second sink or
+replace process-wide stdout/stderr.
+
 For a non-DCC standalone service, keep the same composition root but omit
 `HostExecutionBridge`, pass `instance_type="standalone"`, and leave `dcc_pid`
 unset. Follow [INTERNAL_SERVICE_WORKFLOW.md](INTERNAL_SERVICE_WORKFLOW.md); a

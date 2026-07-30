@@ -85,19 +85,35 @@ class LifecycleController:
             )
             return owner._handle
 
-        owner._get_execution().prepare_start()
-        self._lifecycle_ctrl().prepare_start(
-            install_atexit_hook=install_atexit_hook,
-            stop_from_atexit=LifecycleController._stop_from_atexit,
-            atexit_register=atexit.register,
-        )
+        host_error_capture = getattr(owner, "_host_error_capture", None)
+        if host_error_capture is not None:
+            host_error_capture.install()
 
-        # Initialise in-process metrics just before start.
-        owner._init_telemetry()
+        try:
+            owner._get_execution().prepare_start()
+            self._lifecycle_ctrl().prepare_start(
+                install_atexit_hook=install_atexit_hook,
+                stop_from_atexit=LifecycleController._stop_from_atexit,
+                atexit_register=atexit.register,
+            )
 
-        self._runtime_ctrl().ensure_gateway_daemon_if_needed()
-        owner._stage_gateway_runtime_metadata()
-        owner._handle = owner._server.start()
+            # Initialise in-process metrics just before start.
+            owner._init_telemetry()
+
+            self._runtime_ctrl().ensure_gateway_daemon_if_needed()
+            owner._stage_gateway_runtime_metadata()
+            owner._handle = owner._server.start()
+        except Exception as exc:
+            if host_error_capture is not None:
+                host_error_capture.report_exception(
+                    type(exc),
+                    exc,
+                    exc.__traceback__,
+                    source="dcc_server.start",
+                    phase="startup",
+                )
+                host_error_capture.close()
+            raise
         server_version = getattr(owner._config, "server_version", _PKG_VERSION)
         logger.info(
             "[%s] MCP server v%s started at %s",
@@ -125,6 +141,9 @@ class LifecycleController:
             with contextlib.suppress(Exception):
                 owner._hot_reloader.disable()
         self._runtime_ctrl().shutdown_server_handle()
+        host_error_capture = getattr(owner, "_host_error_capture", None)
+        if host_error_capture is not None:
+            host_error_capture.close()
 
     # -- gateway runtime metadata ---------------------------------------------
 
