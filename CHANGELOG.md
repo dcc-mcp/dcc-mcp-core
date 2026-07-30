@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.88](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.87...v0.19.88) (2026-07-30)
+
+
+### Features
+
+* add marketplace install reload option ([08c7aa0](https://github.com/dcc-mcp/dcc-mcp-core/commit/08c7aa009fec8e477bb6dc7a37e5918e7e4c2970))
+* add token-efficient CLI TOON output ([9bc3b0d](https://github.com/dcc-mcp/dcc-mcp-core/commit/9bc3b0de47ea2de34b1873b3d549907dcd342545))
+* capture DCC host errors ([5ac9465](https://github.com/dcc-mcp/dcc-mcp-core/commit/5ac9465224a53073cd5b9f723ba6ff5ce51d0327))
+* refresh live DCC instance context ([ccb7fd0](https://github.com/dcc-mcp/dcc-mcp-core/commit/ccb7fd0c40391d1974dc1bcbb6979be67924948f))
+
+
+### Bug Fixes
+
+* improve cross-DCC skill dispatch and job progress ([1b735d4](https://github.com/dcc-mcp/dcc-mcp-core/commit/1b735d40acbf971fb6485d3f0785477867931626))
+* report gateway skill adoption accurately ([ca07208](https://github.com/dcc-mcp/dcc-mcp-core/commit/ca07208dba00161b857e21864253b681f180c50a))
+
+
+### Documentation
+
+* add an open container MCP lab ([1d99cac](https://github.com/dcc-mcp/dcc-mcp-core/commit/1d99cac35af41dfe4be86a59d545bff07ac7832b))
+* support private standalone MCP services ([58c1814](https://github.com/dcc-mcp/dcc-mcp-core/commit/58c1814d5bf862eb977af7c91dbd645f0cdb2f6d))
+
 ## [0.19.87](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.86...v0.19.87) (2026-07-29)
 
 
