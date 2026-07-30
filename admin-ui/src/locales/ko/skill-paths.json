@@ -1,6 +1,6 @@
 {
   "title": "스킬 및 경로",
-  "description": "현재 로드된 스킬은 라이브 게이트웨이 capability index에서 가져옵니다. 검색 경로는 스킬 발견에 사용되는 디렉터리(CLI, 환경 변수, 로컬 개발 기본값, 번들 데이터 디렉터리, 선택적 SQLite 사용자 항목)를 보여줍니다.",
+  "description": "현재 로드된 스킬은 라이브 게이트웨이 capability index에서 가져옵니다. 채택 수에는 게이트웨이를 경유한 검색과 호출만 포함되며 DCC MCP 직접 연결 트래픽은 포함되지 않습니다. 검색 경로는 스킬 발견에 사용되는 디렉터리를 보여줍니다.",
   "metric.loadedSkills": "로드된 스킬",
   "metric.actions": "작업",
   "metric.searchPaths": "검색 경로",

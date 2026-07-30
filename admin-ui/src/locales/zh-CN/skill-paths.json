@@ -1,6 +1,6 @@
 {
   "title": "技能与路径",
-  "description": "当前已加载技能来自实时网关能力索引。搜索路径显示用于技能发现的目录（CLI、环境变量、本地开发默认值、内置数据目录，以及可选的 SQLite 自定义条目）。",
+  "description": "当前已加载技能来自实时网关能力索引。采用数据仅统计经过网关的搜索与调用，不包含直连各 DCC MCP 的流量。搜索路径显示用于技能发现的目录。",
   "metric.loadedSkills": "已加载技能",
   "metric.actions": "动作",
   "metric.searchPaths": "搜索路径",
