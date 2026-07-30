@@ -1083,6 +1083,7 @@ pub struct SkillRestService {
     prompts: Arc<dyn PromptProvider>,
     jobs: Arc<dyn JobController>,
     context: Arc<RwLock<ContextSnapshot>>,
+    context_provider: Option<Arc<dyn Fn() -> ContextSnapshot + Send + Sync>>,
 }
 
 impl SkillRestService {
@@ -1108,6 +1109,7 @@ impl SkillRestService {
             prompts: Arc::new(EmptyPromptProvider),
             jobs: Arc::new(EmptyJobController),
             context: Arc::new(RwLock::new(ContextSnapshot::default())),
+            context_provider: None,
         }
     }
 
@@ -1130,6 +1132,16 @@ impl SkillRestService {
     #[must_use]
     pub fn with_jobs(mut self, jobs: Arc<dyn JobController>) -> Self {
         self.jobs = jobs;
+        self
+    }
+
+    /// Read live DCC context from the embedder when `/v1/context` is requested.
+    #[must_use]
+    pub fn with_context_provider(
+        mut self,
+        provider: Arc<dyn Fn() -> ContextSnapshot + Send + Sync>,
+    ) -> Self {
+        self.context_provider = Some(provider);
         self
     }
 
@@ -1157,7 +1169,10 @@ impl SkillRestService {
     /// simply `None`.
     #[must_use]
     pub fn context_snapshot(&self) -> ContextSnapshot {
-        let mut snap = self.context.read().clone();
+        let mut snap = self
+            .context_provider
+            .as_ref()
+            .map_or_else(|| self.context.read().clone(), |provider| provider());
         let actions = self.catalog.list_actions();
         snap.action_count = actions.len();
         snap.loaded_skill_count = actions

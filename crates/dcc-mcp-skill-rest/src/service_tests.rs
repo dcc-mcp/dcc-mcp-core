@@ -822,6 +822,22 @@ fn context_snapshot_counts_loaded_skills() {
     assert_eq!(snap.loaded_skill_count, 2);
 }
 
+#[test]
+fn context_snapshot_reads_provider_on_each_request() {
+    let (svc, _) = build_service(vec![sphere_action(true)]);
+    let scene = Arc::new(Mutex::new("FirstMap".to_string()));
+    let provider_scene = scene.clone();
+    let svc = svc.with_context_provider(Arc::new(move || ContextSnapshot {
+        scene: Some(provider_scene.lock().unwrap().clone()),
+        dcc: Some("unreal".into()),
+        ..Default::default()
+    }));
+
+    assert_eq!(svc.context_snapshot().scene.as_deref(), Some("FirstMap"));
+    *scene.lock().unwrap() = "SecondMap".to_string();
+    assert_eq!(svc.context_snapshot().scene.as_deref(), Some("SecondMap"));
+}
+
 /// Regression guard against token-budget bloat on /v1/search. A
 /// single hit must fit inside a strict byte budget so agents can
 /// page through hundreds of tools per turn without blowing the

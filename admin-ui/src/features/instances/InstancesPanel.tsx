@@ -126,7 +126,7 @@ export function InstancesPanel({
                             <div className="instance-state-strip" aria-label={t('instances.state.aria')}>
                               <span>
                                 <small title={instance.loaded_skills?.join(', ')}>
-                                  {t('instances.field.status')} · {t('instances.skills.count', { count: instance.loaded_skills?.length ?? 0 })}
+                                  {t('instances.field.status')} · {t('instances.skills.count', { count: instance.loaded_skill_count ?? instance.loaded_skills?.length ?? 0 })}
                                 </small>
                                 <StatusBadge value={instance.status} />
                               </span>

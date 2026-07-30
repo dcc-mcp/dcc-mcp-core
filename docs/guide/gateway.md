@@ -572,6 +572,15 @@ families; it does not enumerate every instance-specific URI. Backend
 capability indexes refresh on demand before gateway `search` / `describe`,
 so instances registered after gateway startup are picked up without a restart.
 
+Instance detail reads (`gateway://instances/{id}` and
+`GET /v1/instances/{id}/context`) fetch the backend's `/v1/context` on demand;
+the Admin Instances panel polls the same data every five seconds. The backend
+returns its current `LiveMeta`, so adapters must publish scene changes from a
+host event or main-thread callback with `DccServerBase.update_gateway_metadata`
+(and use `set_scene_resource` for the richer `scene://current` snapshot). Core
+does not infer a DCC scene: without that adapter publication, `scene` remains
+null and `scene://current` reports `no_scene_published`.
+
 Rows also include a normalized `dispatch` object. For sidecars this tells
 clients whether dispatch readiness has been reported (`reported`), whether the
 backend is callable (`ready`), the current `status` (`ready`, `unavailable`, or
