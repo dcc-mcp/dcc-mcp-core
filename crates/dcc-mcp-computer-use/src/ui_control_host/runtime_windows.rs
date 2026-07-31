@@ -1,11 +1,12 @@
 use std::cell::RefCell;
 use std::io::ErrorKind;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::windows::fs::{symlink_dir, symlink_file};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use dcc_mcp_capture::{
     CaptureError, CaptureTarget, WindowFinder, WindowRecordingConfig, record_window_jpeg_sequence,
@@ -50,12 +51,184 @@ mod confirmation;
 pub(super) use confirmation::WindowsConfirmationSurface;
 
 const UIA_TIMEOUT: Duration = Duration::from_secs(30);
+const UIA_STDERR_LIMIT: u64 = 64 * 1024;
 const UIA_SCRIPT: &str = include_str!(
     "../../../../python/dcc_mcp_core/skills/ui-control/scripts/_windows_uia_backend.ps1"
 );
 const UIA_HELPERS: &str = include_str!(
     "../../../../python/dcc_mcp_core/skills/ui-control/scripts/_windows_uia_helpers.ps1"
 );
+
+struct UiaWorker {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    responses: Receiver<Vec<u8>>,
+    stdout_reader: Option<JoinHandle<()>>,
+    stderr_reader: Option<JoinHandle<Vec<u8>>>,
+    stderr: Vec<u8>,
+    script_path: PathBuf,
+}
+
+impl UiaWorker {
+    fn start() -> Result<Self, HostFailure> {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+        let script = UIA_SCRIPT.replace("# DCC_MCP_UIA_HELPERS", UIA_HELPERS);
+        let script_path = std::env::temp_dir().join(format!(
+            "dcc-mcp-ui-control-host-{}.ps1",
+            Uuid::new_v4().simple()
+        ));
+        std::fs::write(&script_path, script).map_err(|error| {
+            HostFailure::new(
+                UiControlHostErrorCode::BackendUnavailable,
+                format!("materialize the Windows UI Automation helper: {error}"),
+            )
+        })?;
+        let child = Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&script_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+        let mut child = match child {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = std::fs::remove_file(&script_path);
+                return Err(HostFailure::new(
+                    UiControlHostErrorCode::BackendUnavailable,
+                    format!("start the Windows UI Automation helper: {error}"),
+                ));
+            }
+        };
+        let stdin = child.stdin.take().expect("piped UIA worker stdin");
+        let stdout = child.stdout.take().expect("piped UIA worker stdout");
+        let stderr = child.stderr.take().expect("piped UIA worker stderr");
+        let (response_tx, responses) = mpsc::channel();
+        let stdout_reader = thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            loop {
+                let mut response = Vec::new();
+                match reader.read_until(b'\n', &mut response) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        while response
+                            .last()
+                            .is_some_and(|byte| matches!(byte, b'\r' | b'\n'))
+                        {
+                            response.pop();
+                        }
+                        if response_tx.send(response).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        let stderr_reader = thread::spawn(move || read_bounded(stderr, UIA_STDERR_LIMIT));
+        Ok(Self {
+            child: Some(child),
+            stdin: Some(stdin),
+            responses,
+            stdout_reader: Some(stdout_reader),
+            stderr_reader: Some(stderr_reader),
+            stderr: Vec::new(),
+            script_path,
+        })
+    }
+
+    fn request(&mut self, payload: &Value) -> Result<Value, HostFailure> {
+        if self.child.is_none() {
+            return Err(HostFailure::new(
+                UiControlHostErrorCode::BackendUnavailable,
+                "the Windows UI Automation worker is unavailable; reopen the UI Control session",
+            ));
+        }
+        let exited = match self
+            .child
+            .as_mut()
+            .expect("active UIA worker child")
+            .try_wait()
+        {
+            Ok(exited) => exited,
+            Err(error) => {
+                return Err(self.fail(format!("poll the Windows UI Automation worker: {error}")));
+            }
+        };
+        if let Some(status) = exited {
+            return Err(self.fail(format!(
+                "Windows UI Automation worker exited before the request with status {status}"
+            )));
+        }
+        let stdin = self.stdin.as_mut().expect("active UIA worker stdin");
+        if let Err(error) = writeln!(stdin, "{payload}").and_then(|()| stdin.flush()) {
+            return Err(self.fail(format!(
+                "send the Windows UI Automation worker request: {error}"
+            )));
+        }
+        let response = match self.responses.recv_timeout(UIA_TIMEOUT) {
+            Ok(response) => response,
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(self.fail("Windows UI Automation timed out after 30 seconds"));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(self.fail("Windows UI Automation worker closed without a response"));
+            }
+        };
+        match serde_json::from_slice(&response) {
+            Ok(value) => Ok(value),
+            Err(error) => Err(self.fail(format!(
+                "decode the Windows UI Automation response: {error}"
+            ))),
+        }
+    }
+
+    fn fail(&mut self, message: impl Into<String>) -> HostFailure {
+        self.shutdown();
+        let mut message = message.into();
+        let stderr = String::from_utf8_lossy(&self.stderr);
+        if !stderr.trim().is_empty() {
+            message.push_str(": ");
+            message.push_str(stderr.trim());
+        }
+        HostFailure::new(UiControlHostErrorCode::BackendUnavailable, message)
+    }
+
+    fn shutdown(&mut self) {
+        self.stdin = None;
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(reader) = self.stdout_reader.take() {
+            let _ = reader.join();
+        }
+        if let Some(reader) = self.stderr_reader.take() {
+            self.stderr = reader.join().unwrap_or_default();
+        }
+        let _ = std::fs::remove_file(&self.script_path);
+    }
+
+    #[cfg(test)]
+    fn process_id(&self) -> u32 {
+        self.child.as_ref().map(Child::id).unwrap_or_default()
+    }
+}
+
+impl Drop for UiaWorker {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
 
 pub(super) struct WindowsHostRuntime;
 
@@ -382,6 +555,7 @@ impl HostRuntime for WindowsHostRuntime {
             window_generation,
             started: false,
             image_buffer: None,
+            uia_worker: None,
         }))
     }
 }
@@ -392,6 +566,39 @@ struct WindowsRuntimeSession {
     window_generation: WindowGenerationGuard,
     started: bool,
     image_buffer: Option<SharedBuffer>,
+    uia_worker: Option<UiaWorker>,
+}
+
+impl WindowsRuntimeSession {
+    fn uia_worker(&mut self) -> Result<&mut UiaWorker, HostFailure> {
+        if self.uia_worker.is_none() {
+            self.uia_worker = Some(UiaWorker::start()?);
+        }
+        Ok(self
+            .uia_worker
+            .as_mut()
+            .expect("UIA worker was initialized"))
+    }
+
+    fn query_accessibility_state(
+        &mut self,
+        max_depth: u32,
+        max_nodes: u32,
+        allow_owned_standard_menu_popup: bool,
+    ) -> Result<RuntimeAccessibilityState, HostFailure> {
+        let target = self.target.clone();
+        query_accessibility_state(
+            self.uia_worker()?,
+            &target,
+            max_depth,
+            max_nodes,
+            allow_owned_standard_menu_popup,
+        )
+    }
+
+    fn run_uia(&mut self, payload: Value) -> Result<Value, HostFailure> {
+        self.uia_worker()?.request(&payload)
+    }
 }
 
 impl HostRuntimeSession for WindowsRuntimeSession {
@@ -462,7 +669,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
             window_handle: screenshot.observation.window_handle,
             window_title: screenshot.observation.window_title.clone(),
         };
-        let accessibility = query_accessibility_state(&self.target, max_depth, max_nodes, true)?;
+        let accessibility = self.query_accessibility_state(max_depth, max_nodes, true)?;
 
         let buffer_id = Uuid::new_v4().simple().to_string()[..16].to_owned();
         let buffer =
@@ -591,12 +798,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
         allow_owned_standard_menu_popup: bool,
     ) -> Result<RuntimeAccessibilityState, HostFailure> {
         self.window_generation.verify()?;
-        query_accessibility_state(
-            &self.target,
-            max_depth,
-            max_nodes,
-            allow_owned_standard_menu_popup,
-        )
+        self.query_accessibility_state(max_depth, max_nodes, allow_owned_standard_menu_popup)
     }
 
     fn execute(
@@ -610,9 +812,18 @@ impl HostRuntimeSession for WindowsRuntimeSession {
         let result = match action.input_kind {
             UiControlInputKind::RawInput => {
                 let request = native_action(action, observation_id);
+                if self.uia_worker.is_none() {
+                    self.uia_worker = Some(UiaWorker::start()?);
+                }
+                let target = self.target.clone();
+                let worker = self
+                    .uia_worker
+                    .as_mut()
+                    .expect("UIA worker was initialized");
                 let mut pre_input_fence = || {
                     let live = query_accessibility_state(
-                        &self.target,
+                        worker,
+                        &target,
                         fence.max_depth,
                         fence.max_nodes,
                         allows_owned_standard_menu_popup(action),
@@ -622,7 +833,8 @@ impl HostRuntimeSession for WindowsRuntimeSession {
                         .map_err(map_host_failure_to_computer_use_error)?;
                     Ok(())
                 };
-                self.session
+                let session = &mut self.session;
+                session
                     .perform_with_pre_input_fence(&request, &mut pre_input_fence)
                     .map_err(map_computer_use_error)?;
                 Ok(RuntimeActionResult {
@@ -639,7 +851,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
                 self.session
                     .prepare_semantic_action(observation_id)
                     .map_err(map_computer_use_error)?;
-                let raw = run_uia(json!({
+                let raw = self.run_uia(json!({
                     "mode": "act",
                     "scope": exact_scope(&self.target),
                     "max_depth": fence.max_depth,
@@ -706,6 +918,9 @@ impl HostRuntimeSession for WindowsRuntimeSession {
 
     fn stop(&mut self) -> bool {
         self.image_buffer = None;
+        if let Some(mut worker) = self.uia_worker.take() {
+            worker.shutdown();
+        }
         if !self.started {
             return false;
         }
@@ -873,12 +1088,13 @@ fn accessibility_scope(target: &UiControlTarget, allow_owned_standard_menu_popup
 }
 
 fn query_accessibility_state(
+    worker: &mut UiaWorker,
     target: &UiControlTarget,
     max_depth: u32,
     max_nodes: u32,
     allow_owned_standard_menu_popup: bool,
 ) -> Result<RuntimeAccessibilityState, HostFailure> {
-    let raw = run_uia(json!({
+    let raw = worker.request(&json!({
         "mode": "snapshot",
         "scope": accessibility_scope(target, allow_owned_standard_menu_popup),
         "max_depth": max_depth,
@@ -959,107 +1175,8 @@ fn native_action(action: &UiControlAction, observation_id: &str) -> ComputerUseA
     }
 }
 
-fn run_uia(payload: Value) -> Result<Value, HostFailure> {
-    let script = UIA_SCRIPT.replace("# DCC_MCP_UIA_HELPERS", UIA_HELPERS);
-    let script_path = std::env::temp_dir().join(format!(
-        "dcc-mcp-ui-control-host-{}.ps1",
-        Uuid::new_v4().simple()
-    ));
-    std::fs::write(&script_path, script).map_err(|error| {
-        HostFailure::new(
-            UiControlHostErrorCode::BackendUnavailable,
-            format!("materialize the Windows UI Automation helper: {error}"),
-        )
-    })?;
-
-    let result = run_uia_child(&script_path, &payload);
-    let _ = std::fs::remove_file(script_path);
-    result
-}
-
-fn run_uia_child(script_path: &std::path::Path, payload: &Value) -> Result<Value, HostFailure> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    let mut child = Command::new("powershell.exe")
-        .args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-        ])
-        .arg(script_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|error| {
-            HostFailure::new(
-                UiControlHostErrorCode::BackendUnavailable,
-                format!("start the Windows UI Automation helper: {error}"),
-            )
-        })?;
-    let mut stdin = child.stdin.take().ok_or_else(|| {
-        HostFailure::new(
-            UiControlHostErrorCode::BackendUnavailable,
-            "the Windows UI Automation helper has no stdin",
-        )
-    })?;
-    stdin
-        .write_all(payload.to_string().as_bytes())
-        .map_err(|error| {
-            HostFailure::new(
-                UiControlHostErrorCode::BackendUnavailable,
-                format!("send the Windows UI Automation request: {error}"),
-            )
-        })?;
-    drop(stdin);
-
-    let stdout = child.stdout.take().expect("piped stdout");
-    let stderr = child.stderr.take().expect("piped stderr");
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let deadline = Instant::now() + UIA_TIMEOUT;
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|error| {
-            HostFailure::new(
-                UiControlHostErrorCode::BackendUnavailable,
-                format!("poll the Windows UI Automation helper: {error}"),
-            )
-        })? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(HostFailure::new(
-                UiControlHostErrorCode::BackendUnavailable,
-                "Windows UI Automation timed out after 30 seconds",
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    let stdout = stdout_reader.join().unwrap_or_default();
-    let stderr = stderr_reader.join().unwrap_or_default();
-    if !status.success() {
-        let message = String::from_utf8_lossy(if stderr.is_empty() { &stdout } else { &stderr });
-        return Err(HostFailure::new(
-            UiControlHostErrorCode::BackendUnavailable,
-            format!("Windows UI Automation helper failed: {}", message.trim()),
-        ));
-    }
-    serde_json::from_slice(&stdout).map_err(|error| {
-        HostFailure::new(
-            UiControlHostErrorCode::BackendUnavailable,
-            format!("decode the Windows UI Automation response: {error}"),
-        )
-    })
-}
-
-fn read_all(mut reader: impl Read) -> Vec<u8> {
+fn read_bounded(reader: impl Read, limit: u64) -> Vec<u8> {
+    let mut reader = reader.take(limit);
     let mut output = Vec::new();
     let _ = reader.read_to_end(&mut output);
     output

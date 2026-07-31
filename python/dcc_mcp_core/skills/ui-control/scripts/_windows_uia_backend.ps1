@@ -1,11 +1,4 @@
 $ErrorActionPreference = "Stop"
-$rawInput = [Console]::In.ReadToEnd()
-if ([string]::IsNullOrWhiteSpace($rawInput)) {
-  $payload = @{}
-} else {
-  $payload = $rawInput | ConvertFrom-Json
-}
-
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 # DCC_MCP_UIA_HELPERS
@@ -432,80 +425,89 @@ function Invoke-Action($element) {
   return @{ok = $false; error = "unsupported_action"; message = "unsupported Windows UIA action"}
 }
 
-try {
-  $script:scopeError = $null
-  $root = Find-Scoped-Root
-  if ($null -eq $root) {
-    $scopeErrorCode = if ($null -eq $script:scopeError) { "missing_window" } else { "invalid_target" }
-    $scopeMessage = if ($null -eq $script:scopeError) {
-      "No scoped Windows UIA window matched the supplied policy."
-    } else {
-      $script:scopeError
+function Invoke-UiaRequest($requestPayload) {
+  $script:payload = $requestPayload
+  try {
+    $script:scopeError = $null
+    $root = Find-Scoped-Root
+    if ($null -eq $root) {
+      $scopeErrorCode = if ($null -eq $script:scopeError) { "missing_window" } else { "invalid_target" }
+      $scopeMessage = if ($null -eq $script:scopeError) {
+        "No scoped Windows UIA window matched the supplied policy."
+      } else {
+        $script:scopeError
+      }
+      return @{ok = $false; error = $scopeErrorCode; message = $scopeMessage}
     }
-    @{ok = $false; error = $scopeErrorCode; message = $scopeMessage} |
-      ConvertTo-Json -Depth 64 -Compress
-    exit 0
-  }
-  $deniedTargetReason = Denied-Target-Reason $root
-  if ($null -ne $deniedTargetReason) {
-    @{ok = $false; error = "permission_denied"; message = $deniedTargetReason} |
-      ConvertTo-Json -Depth 64 -Compress
-    exit 0
-  }
-  $script:nodeCount = 0
-  if ($payload.mode -eq "act") {
-    $target = Find-By-Id $root ([string]$payload.action.control_id) 0 "0"
-    if ($null -eq $target) {
-      @{ok = $false; error = "not_found"; message = "Control not found in scoped Windows UIA window."} |
-        ConvertTo-Json -Depth 64 -Compress
-      exit 0
+    $deniedTargetReason = Denied-Target-Reason $root
+    if ($null -ne $deniedTargetReason) {
+      return @{ok = $false; error = "permission_denied"; message = $deniedTargetReason}
     }
-    $beforeFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
-    if (-not (Matches-Expected-Fence $target $payload.expected_fence)) {
-      @{ok = $false; error = "stale_observation"; message = "The action-time UI Automation target changed after confirmation."} |
-        ConvertTo-Json -Depth 64 -Compress
-      exit 0
-    }
-    $deniedActionTargetReason = Denied-Action-Target-Reason $root $target
-    if ($null -ne $deniedActionTargetReason) {
-      @{ok = $false; error = "permission_denied"; message = $deniedActionTargetReason} |
-        ConvertTo-Json -Depth 64 -Compress
-      exit 0
-    }
-    $actionResult = Invoke-Action $target
-    if (-not [bool]$actionResult.ok) {
-      @{
-        ok = $false
-        error = $actionResult.error
+    $script:nodeCount = 0
+    if ($payload.mode -eq "act") {
+      $target = Find-By-Id $root ([string]$payload.action.control_id) 0 "0"
+      if ($null -eq $target) {
+        return @{ok = $false; error = "not_found"; message = "Control not found in scoped Windows UIA window."}
+      }
+      $beforeFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
+      if (-not (Matches-Expected-Fence $target $payload.expected_fence)) {
+        return @{ok = $false; error = "stale_observation"; message = "The action-time UI Automation target changed after confirmation."}
+      }
+      $deniedActionTargetReason = Denied-Action-Target-Reason $root $target
+      if ($null -ne $deniedActionTargetReason) {
+        return @{ok = $false; error = "permission_denied"; message = $deniedActionTargetReason}
+      }
+      $actionResult = Invoke-Action $target
+      if (-not [bool]$actionResult.ok) {
+        return @{
+          ok = $false
+          error = $actionResult.error
+          message = $actionResult.message
+          before_focus_runtime_id = $beforeFocus
+        }
+      }
+      $afterFocus = $null
+      try {
+        $afterFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
+      } catch {}
+      $control = $null
+      try {
+        $control = Element-Raw $target 0 "target"
+      } catch {}
+      return @{
+        ok = $true
         message = $actionResult.message
         before_focus_runtime_id = $beforeFocus
-      } | ConvertTo-Json -Depth 64 -Compress
-      exit 0
+        after_focus_runtime_id = $afterFocus
+        control = $control
+      }
     }
-    $afterFocus = $null
-    try {
-      $afterFocus = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
-    } catch {}
-    $control = $null
-    try {
-      $control = Element-Raw $target 0 "target"
-    } catch {}
-    @{
+    return @{
       ok = $true
-      message = $actionResult.message
-      before_focus_runtime_id = $beforeFocus
-      after_focus_runtime_id = $afterFocus
-      control = $control
-    } | ConvertTo-Json -Depth 64 -Compress
-    exit 0
+      root = Element-Raw $root 0 "0"
+      focus_runtime_id = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
+      node_count = $script:nodeCount
+    }
+  } catch {
+    return @{ok = $false; error = "backend_error"; message = $_.Exception.Message}
+  } finally {
+    $script:payload = $null
   }
-  @{
-    ok = $true
-    root = Element-Raw $root 0 "0"
-    focus_runtime_id = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement)
-    node_count = $script:nodeCount
-  } | ConvertTo-Json -Depth 64 -Compress
-} catch {
-  @{ok = $false; error = "backend_error"; message = $_.Exception.Message} |
-    ConvertTo-Json -Depth 64 -Compress
+}
+
+while ($true) {
+  $rawInput = [Console]::In.ReadLine()
+  if ($null -eq $rawInput) { break }
+  try {
+    $requestPayload = if ([string]::IsNullOrWhiteSpace($rawInput)) {
+      @{}
+    } else {
+      $rawInput | ConvertFrom-Json
+    }
+    $response = Invoke-UiaRequest $requestPayload
+  } catch {
+    $response = @{ok = $false; error = "backend_error"; message = $_.Exception.Message}
+  }
+  [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 64 -Compress))
+  [Console]::Out.Flush()
 }

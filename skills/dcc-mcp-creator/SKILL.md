@@ -128,8 +128,9 @@ does not replace a running server binary.
      banner, Esc stop token, input owner, confirmation, and native input.
      `ui-control` declares `requires_in_process: true` while keeping
      `affinity: any`; register `HostExecutionBridge` before skill loading.
-     Never weaken this into per-call subprocess execution or route it onto a
-     blocked DCC UI thread.
+     The Host lazily owns one UIA worker per exact runtime session and reaps it
+     on stop or failure without replaying mutations. Never weaken this into
+     per-call subprocess execution or route it onto a blocked DCC UI thread.
      A minimized or hidden exact HWND is recovered only through the host-owned
      `get_window_state` / `restore_window` / `show_window` /
      `activate_window` actions. They need no snapshot, must retain the existing

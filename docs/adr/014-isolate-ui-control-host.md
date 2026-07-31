@@ -93,6 +93,10 @@ used only for the synchronous `PrintWindow` call. The UI Control host owns the
 deadline, kills and waits for a timed-out child, and validates the versioned
 shared-memory response before accepting pixels. Screenshot isolation is not
 merged into the long-lived host because a stuck window must remain killable.
+Windows UI Automation uses one lazily started PowerShell worker per exact Host
+runtime session. Snapshot, accessibility polling, and semantic actions reuse
+that worker; session stop, worker failure, or timeout reaps it without retrying
+or replaying a mutation.
 
 ```mermaid
 flowchart LR
@@ -170,7 +174,7 @@ environment variables cannot resolve confirmation.
   window capabilities, two observation fences, shared-image descriptors,
   action descriptors, permission tiers, and stable errors.
 - `dcc-mcp-ui-control-host.exe` owns window resolution, `ComputerUseSession`,
-  UIA snapshot/action children, the killable capture helper, shared-memory PNGs,
+  the session-scoped UIA worker, the killable capture helper, shared-memory PNGs,
   visible overlays, input ownership, stop latch, trusted confirmation, and
   redacted audit.
 - the Windows `app_ui` backend is a thin named-pipe proxy. Host absence,
