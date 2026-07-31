@@ -142,7 +142,9 @@ Vercel's `agent-browser` CLI, which exposes its DevTools URL through
 
 Set `DCC_MCP_UI_CONTROL_BACKEND=windows-uia` on Windows to use the reference
 Windows UI Automation backend. It uses the OS UIAutomationClient API through a
-PowerShell helper and stays behind the same contract. The backend refuses
+PowerShell worker that is reused only within one exact Host runtime session and
+reaped on stop or failure. It stays behind the same contract and never retries
+an uncertain mutation. The backend refuses
 unscoped whole-desktop access: provide an allowed window title, process id, or
 process name through the call policy or `DCC_MCP_UI_CONTROL_UIA_*` environment
 variables. It maps UIA control types into normalized ui_control roles and returns

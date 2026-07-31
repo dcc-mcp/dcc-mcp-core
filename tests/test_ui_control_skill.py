@@ -1145,7 +1145,11 @@ def test_ui_control_windows_uia_post_state_is_optional_after_semantic_success() 
 
     assert invoke < reject_failure < optional_control < success
     assert "ok = $false" in source[reject_failure:optional_control]
-    assert 'try {\n      $control = Element-Raw $target 0 "target"\n    } catch {}' in post_read
+    assert (
+        post_read.index("try {")
+        < post_read.index('$control = Element-Raw $target 0 "target"')
+        < post_read.index("} catch {}")
+    )
     assert "control = $control" in source[success:]
 
 

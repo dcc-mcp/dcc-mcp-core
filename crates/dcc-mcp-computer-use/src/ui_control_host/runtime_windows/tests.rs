@@ -308,6 +308,53 @@ fn owned_standard_menu_popup_scope_stays_bound_to_the_exact_root() {
 }
 
 #[test]
+fn uia_worker_reuses_one_process_for_multiple_requests() {
+    let window = SemanticCloseWindow::spawn();
+    let target = UiControlTarget {
+        process_id: unsafe { GetCurrentProcessId() },
+        window_handle: window.hwnd.0 as usize as u64,
+        window_title: "DCC MCP persistent UIA worker test".to_owned(),
+    };
+    let mut worker = UiaWorker::start().unwrap();
+    let worker_process_id = worker.process_id();
+
+    let first = query_accessibility_state(&mut worker, &target, 5, 100, false).unwrap();
+    let second = query_accessibility_state(&mut worker, &target, 5, 100, false).unwrap();
+
+    assert!(first.node_count > 1);
+    assert!(second.node_count > 1);
+    assert_eq!(worker.process_id(), worker_process_id);
+}
+
+#[test]
+fn uia_worker_shutdown_reaps_process_and_script() {
+    let mut worker = UiaWorker::start().unwrap();
+    let script_path = worker.script_path.clone();
+
+    assert_ne!(worker.process_id(), 0);
+    assert!(script_path.is_file());
+    worker.shutdown();
+
+    assert_eq!(worker.process_id(), 0);
+    assert!(!script_path.exists());
+}
+
+#[test]
+fn failed_uia_worker_is_not_restarted_or_replayed() {
+    let mut worker = UiaWorker::start().unwrap();
+    let worker_process_id = worker.process_id();
+    let child = worker.child.as_mut().unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+
+    let failure = worker.request(&json!({"mode": "snapshot"})).unwrap_err();
+
+    assert_eq!(failure.code, UiControlHostErrorCode::BackendUnavailable);
+    assert_eq!(worker.process_id(), 0);
+    assert_ne!(worker_process_id, 0);
+}
+
+#[test]
 fn semantic_invoke_that_destroys_the_target_reports_mutation_success() {
     let window = SemanticCloseWindow::spawn();
     let target = UiControlTarget {
@@ -315,7 +362,8 @@ fn semantic_invoke_that_destroys_the_target_reports_mutation_success() {
         window_handle: window.hwnd.0 as usize as u64,
         window_title: "DCC MCP semantic Invoke close test".to_owned(),
     };
-    let accessibility = query_accessibility_state(&target, 5, 100, false).unwrap();
+    let mut worker = UiaWorker::start().unwrap();
+    let accessibility = query_accessibility_state(&mut worker, &target, 5, 100, false).unwrap();
     let button = find_control_by_name(&accessibility.root, "Close test window")
         .expect("standard button must be present in the scoped UIA tree");
     let runtime_id = button
@@ -347,20 +395,21 @@ fn semantic_invoke_that_destroys_the_target_reports_mutation_success() {
         policy_tier: UiControlPolicyTier::TaskGrant,
     };
 
-    let raw = run_uia(json!({
-        "mode": "act",
-        "scope": exact_scope(&target),
-        "max_depth": 5,
-        "max_nodes": 100,
-        "expected_fence": control_fence_json(&expected),
-        "action": {
-            "control_id": control_id,
-            "action": "click",
-            "text": "",
-            "checked": false,
-        },
-    }))
-    .unwrap();
+    let raw = worker
+        .request(&json!({
+            "mode": "act",
+            "scope": exact_scope(&target),
+            "max_depth": 5,
+            "max_nodes": 100,
+            "expected_fence": control_fence_json(&expected),
+            "action": {
+                "control_id": control_id,
+                "action": "click",
+                "text": "",
+                "checked": false,
+            },
+        }))
+        .unwrap();
 
     assert_eq!(raw.get("ok").and_then(Value::as_bool), Some(true), "{raw}");
     assert_eq!(
