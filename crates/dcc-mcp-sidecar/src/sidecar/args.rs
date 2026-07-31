@@ -121,8 +121,8 @@ pub struct SidecarArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_NAME")]
     pub gateway_name: Option<String>,
 
-    /// Remote/LAN gateway host/interface to bind.
-    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
+    /// Secondary gateway interface. Use 0.0.0.0 or a LAN IP to opt into LAN access.
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "127.0.0.1")]
     pub gateway_remote_host: String,
 
     /// Remote/LAN gateway port. ``0`` disables the remote listener.

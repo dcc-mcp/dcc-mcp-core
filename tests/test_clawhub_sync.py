@@ -1244,7 +1244,9 @@ class TestClawhubSync:
         steps = {step["name"]: step for step in workflow["jobs"]["sync-skills"]["steps"] if "name" in step}
         dry_run = steps["Dry-run ClawHub publish"]
         publish = steps["Publish skills to ClawHub"]
-        assert steps["Set up Rust"]["uses"] == "dtolnay/rust-toolchain@stable"
+        assert steps["Set up Rust"]["uses"] == "dtolnay/rust-toolchain@master"
+        assert steps["Set up Rust"]["with"]["toolchain"] == "1.95.0"
+        assert steps["Set up Rust"]["with"]["components"] == "clippy, rustfmt"
         assert "cargo-clippy" in steps["Remove pre-installed Rust component shims"]["run"]
         assert dry_run["run"] == "python scripts/clawhub_sync.py --dry-run"
         assert dry_run["if"] == "${{ !inputs.publish }}"

@@ -275,7 +275,7 @@ pub async fn ensure_local_gateway_for_endpoint(
             .or_else(|| Some("dcc-mcp-cli-gateway".to_string())),
         registry_dir,
         remote_host: env_string("DCC_MCP_GATEWAY_REMOTE_HOST")
-            .unwrap_or_else(|| "0.0.0.0".to_string()),
+            .unwrap_or_else(|| "127.0.0.1".to_string()),
         remote_port: env_u16("DCC_MCP_GATEWAY_REMOTE_PORT").unwrap_or(59765),
         gateway_idle_timeout_secs: env_u64("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").unwrap_or(30),
         gateway_bin,

@@ -187,10 +187,20 @@ fn build_unloaded_records(
 /// Drop every record for `instance_id`. Safe to call even if the
 /// instance was never indexed.
 pub fn remove_instance(index: &Arc<CapabilityIndex>, instance_id: Uuid) -> bool {
-    let removed = index.remove_instance(instance_id);
+    remove_instance_with_status(index, instance_id, "deregistered")
+}
+
+/// Drop every record and retain the last known lifecycle state.
+pub fn remove_instance_with_status(
+    index: &Arc<CapabilityIndex>,
+    instance_id: Uuid,
+    previous_status: &str,
+) -> bool {
+    let removed = index.remove_instance_with_status(instance_id, previous_status);
     if removed {
         tracing::info!(
             instance = %instance_id,
+            previous_status,
             "capability index: dropped instance",
         );
     }

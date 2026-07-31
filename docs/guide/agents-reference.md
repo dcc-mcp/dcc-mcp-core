@@ -196,12 +196,15 @@ tools with `execution: async` and poll `jobs_get_status`.
 3. If the same instance returns, call its indexed `jobs_get_status`. The
    server-local status tool remains routable while DCC readiness is temporarily
    red during a host reload; keep polling the original job instead of resubmitting.
+   `dcc-mcp-cli call --wait` performs this bounded gateway-reconnect loop and
+   reports `control_plane_reconnecting` / `wait_recovery`.
 4. If owner death removes the row, wait for an explicitly restarted DCC,
    rediscover by DCC type plus scene/project metadata, and use the new slug.
    Never reuse coordinates, URLs, or slugs from the crashed instance.
 5. Query persisted core jobs on the replacement adapter; recovered in-flight
    rows report `interrupted`. Query adapter durable-operation tools for
-   isolated jobs that survive the request transport.
+   isolated jobs that survive the request transport. A worker that outlives
+   its DCC/sidecar must own that typed status surface independently.
 
 **`McpHttpServer` — register ALL handlers BEFORE `.start()`.**
 This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —

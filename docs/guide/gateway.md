@@ -123,6 +123,10 @@ dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
 dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 ```
 
+The secondary listener is loopback-only by default, so normal local startup
+does not request inbound LAN access. Pass `--remote-host 0.0.0.0` or a concrete
+LAN IP only when remote peers must connect.
+
 `--daemon` re-executes the current binary as a detached gateway child and then
 exits the parent; it does not fork inside the async runtime. `--pidfile`
 implies daemon mode, records that detached child PID, and fails before the
@@ -136,7 +140,7 @@ variable):
 | `--host` | `DCC_MCP_GATEWAY_HOST` | `127.0.0.1` |
 | `--port` | `DCC_MCP_GATEWAY_PORT` | `9765` |
 | `--name` | `DCC_MCP_GATEWAY_NAME` | `gateway-<host>-pid<n>` |
-| `--remote-host` | `DCC_MCP_GATEWAY_REMOTE_HOST` | `0.0.0.0` |
+| `--remote-host` | `DCC_MCP_GATEWAY_REMOTE_HOST` | `127.0.0.1` |
 | `--remote-port` | `DCC_MCP_GATEWAY_REMOTE_PORT` | `59765` (0 = disabled) |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | OS default |
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | admin enabled |
@@ -1150,6 +1154,22 @@ returns a JSON-RPC `-32000` error identifying the backend and the
 `job_id`. The job itself is not cancelled — a subsequent restart of
 the backend may surface it as `interrupted` (issue #328) when the
 persisted job store rehydrates.
+
+If the **gateway process** restarts while the backend still owns the job,
+reconnect and poll the same instance-scoped `jobs_get_status` slug with the
+same `job_id`. `dcc-mcp-cli call --wait` does this automatically for transient
+connection, 404, 429, 502, 503, and 504 responses until its total wait timeout;
+it emits `control_plane_reconnecting` and never resubmits the original tool.
+After recovery the final payload includes `wait_recovery`. A 410 response means
+the owning DCC/sidecar exited, so the CLI returns `tracking_status=owner_exited`
+instead of guessing that the worker stopped.
+
+The in-memory `JobRoute` cache below is only for SSE/cancel correlation. It is
+not required for status resumption because the durable correlation keys are
+the instance slug and `job_id`. If an external renderer outlives both the DCC
+and sidecar, its `job_strategy: isolated` status tool must be owned by that
+worker/service; a restarted gateway cannot reconstruct a status API that no
+live owner exposes.
 
 ## Job-to-backend routing cache (#322)
 

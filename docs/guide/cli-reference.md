@@ -197,6 +197,11 @@ the job reports `progress.current` and `progress.total`, the CLI writes a
 20-cell progress bar to stderr at 5% steps, polls at most once per second, and
 emits a 30-second heartbeat when progress stalls. The final response remains
 the only stdout payload, including for JSON, NDJSON, and TOON output.
+Transient gateway loss keeps the same `job_id` and emits
+`control_plane_reconnecting`; recovery adds `wait_recovery` to the terminal
+payload without resubmitting work. If the owning DCC/sidecar has exited, the
+CLI returns `tracking_status=owner_exited` and points isolated operations to
+their worker-owned status tool.
 
 ### Commands
 

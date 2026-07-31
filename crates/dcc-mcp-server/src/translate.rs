@@ -218,7 +218,7 @@ pub struct TranslateArgs {
     pub gateway_host: Option<String>,
 
     /// Remote/LAN gateway host/interface to bind.
-    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "127.0.0.1")]
     pub gateway_remote_host: String,
 
     /// Remote/LAN gateway port. 0 disables the remote listener.
@@ -885,7 +885,7 @@ mod tests {
             max_restarts: 10,
             gateway_port: 9765,
             gateway_host: None,
-            gateway_remote_host: "0.0.0.0".to_string(),
+            gateway_remote_host: "127.0.0.1".to_string(),
             gateway_remote_port: 59765,
             no_admin: false,
             admin_path: "/admin".to_string(),
@@ -944,7 +944,7 @@ mod tests {
             Some("gateway-for-translate-filesystem")
         );
         assert_eq!(opts.registry_dir, PathBuf::from("C:/dcc-mcp/registry"));
-        assert_eq!(opts.remote_host, "0.0.0.0");
+        assert_eq!(opts.remote_host, "127.0.0.1");
         assert_eq!(opts.remote_port, 59765);
     }
 

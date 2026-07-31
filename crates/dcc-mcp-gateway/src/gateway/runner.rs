@@ -956,7 +956,7 @@ async fn bind_remote_gateway_listener(
     if remote_gateway_port == 0 {
         return None;
     }
-    let host = remote_host.unwrap_or_else(|| "0.0.0.0".to_string());
+    let host = remote_host.unwrap_or_else(|| "127.0.0.1".to_string());
     match try_bind_port_opt(&host, remote_gateway_port).await {
         Some(listener) => {
             tracing::info!(

@@ -1013,6 +1013,8 @@ fn gateway_daemon_start_defaults_to_persistent_daemon() {
     };
 
     assert_eq!(start.gateway_idle_timeout_secs, 0);
+    assert_eq!(start.remote_host, "127.0.0.1");
+    assert_eq!(start.remote_port, 59765);
 }
 
 #[test]
@@ -1039,7 +1041,7 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         host: "127.0.0.1".to_string(),
         port: 9765,
         name: None,
-        remote_host: "0.0.0.0".to_string(),
+        remote_host: "127.0.0.1".to_string(),
         remote_port: 59765,
         registry_dir: None,
         no_admin: false,

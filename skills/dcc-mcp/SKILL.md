@@ -387,7 +387,7 @@ For asynchronous render/cook tools, add `--wait`; the CLI polls `jobs_get_status
 The bar uses `progress.current`, `progress.total`, and `progress.message`; do not repeatedly scan output files when typed progress exists.
 Native MCP/REST clients may subscribe to `/v1/jobs/{job_id}/events`; otherwise keep the returned `job_id` and use bounded status polling.
 Do not create a scheduled task by default. After an explicit cross-session monitoring request, schedule only a one-shot status check for that ID and stop it at terminal state.
-During a host reload, keep the ID because status stays routable while readiness is red; never resubmit the render or cook.
+During a host reload or gateway restart, keep the ID because status stays routable; `--wait` reports `control_plane_reconnecting` then `wait_recovery` and returns `tracking_status=owner_exited` when the DCC/sidecar owner is gone; never resubmit the render or cook.
 
 Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside
 the `--json` object. Do not pass them as top-level CLI flags unless the CLI adds

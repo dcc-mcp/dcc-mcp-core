@@ -532,7 +532,8 @@ impl GatewayState {
             .write()
             .prune_expired(std::time::SystemTime::now());
         for instance_id in expired {
-            self.capability_index.remove_instance(instance_id);
+            self.capability_index
+                .remove_instance_with_status(instance_id, "heartbeat-timeout");
         }
     }
 }

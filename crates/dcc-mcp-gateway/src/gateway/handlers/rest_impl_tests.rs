@@ -1058,7 +1058,7 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
         .await,
     )
     .await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(status, StatusCode::GONE);
     assert_trace_headers(&response_headers);
     assert_body_metadata(&describe);
 
@@ -1084,7 +1084,7 @@ async fn gateway_rest_workflow_responses_expose_trace_and_index_metadata() {
         .await,
     )
     .await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(status, StatusCode::GONE);
     assert_trace_headers(&response_headers);
     assert!(
         call.get("request_id").is_none(),
@@ -1950,7 +1950,7 @@ async fn gateway_rest_v1_call_single_tool_slug_accepts_params_alias() {
     let mut gs = test_gateway_state("1.2.3");
     gs.middleware_chain =
         Arc::new(MiddlewareChain::new().with_after(Arc::new(AuditMiddleware::new(sink.clone()))));
-    // Without a live backend single-call returns SERVICE_UNAVAILABLE,
+    // Without a live backend single-call reports the prior owner as gone,
     // but the dispatch path must still be exercised (backward compat).
     seed_unloaded_render_capability(&gs);
     let slug = "maya.00000000-0000-0000-0000-000000000000.render";
@@ -1964,8 +1964,11 @@ async fn gateway_rest_v1_call_single_tool_slug_accepts_params_alias() {
         .await,
     )
     .await;
-    // Backend unreachable → 503 SERVICE_UNAVAILABLE (not 400).
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    // The indexed owner no longer exists → 410 GONE (not a retryable 503).
+    assert_eq!(status, StatusCode::GONE);
+    assert_eq!(body["error"]["previous_status"], "exited");
+    assert_eq!(body["error"]["retryable"], false);
+    assert!(body["error"]["recommended_next_action"].is_string());
     // Error envelope is the single-call shape, not the batch envelope.
     assert!(
         body.get("error").is_some(),
