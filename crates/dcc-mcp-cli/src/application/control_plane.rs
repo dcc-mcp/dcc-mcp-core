@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::application::client::DccMcpClient;
+use crate::application::client::{ClientError, DccMcpClient};
 use crate::application::gateway_profile::GatewayTarget;
 use crate::application::instance_selection::{
     InstanceSelectionError, instance_field, select_instances,
@@ -19,7 +19,7 @@ use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest,
     ReloadSkillsRequest, SearchRequest, StatsRequest, StopInstanceRequest, WaitReadyRequest,
 };
-use crate::infra::http::HttpGateway;
+use crate::infra::http::{HttpError, HttpGateway};
 
 const RELOAD_SKILLS_TOOL: &str = "dcc_admin__reload_skills";
 const JOB_POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -222,8 +222,11 @@ impl DccControlPlane {
             return Ok(result);
         };
         on_progress(&initial);
-        let job_id = initial.job_id;
-        let mut status = initial.status;
+        let job_id = initial.job_id.clone();
+        let mut status = initial.status.clone();
+        let mut last_progress = initial;
+        let mut control_plane_disruptions = 0_u64;
+        let mut last_poll_error: Option<String> = None;
         if is_terminal_job_status(&status) {
             return Ok(result);
         }
@@ -237,11 +240,16 @@ impl DccControlPlane {
                     "job_id": job_id,
                     "status": status,
                     "wait_timed_out": true,
+                    "tracking_status": last_poll_error.as_ref().map(|_| "control_plane_unavailable"),
+                    "control_plane_disruptions": control_plane_disruptions,
+                    "last_poll_error": last_poll_error,
+                    "job_not_resubmitted": true,
+                    "recommended_next_action": "Continue querying the same job ID later; restore the gateway first only if it is unavailable. Do not submit the operation again.",
                     "last_result": result,
                 }));
             }
             tokio::time::sleep(JOB_POLL_INTERVAL).await;
-            result = self
+            match self
                 .call(
                     status_tool.clone(),
                     dcc_type.clone(),
@@ -250,7 +258,41 @@ impl DccControlPlane {
                     poll_meta.clone(),
                     request_timeout,
                 )
-                .await?;
+                .await
+            {
+                Ok(value) => {
+                    result = value;
+                    last_poll_error = None;
+                }
+                Err(error) if !self.uses_direct_local() && job_poll_error_is_retryable(&error) => {
+                    control_plane_disruptions = control_plane_disruptions.saturating_add(1);
+                    let outage_started = last_poll_error.is_none();
+                    last_poll_error = Some(error.to_string());
+                    if outage_started {
+                        let mut reconnecting = last_progress.clone();
+                        reconnecting.status = "control_plane_reconnecting".to_string();
+                        reconnecting.message = Some(format!(
+                            "last_job_status={status}; gateway unavailable, retrying the same job"
+                        ));
+                        on_progress(&reconnecting);
+                    }
+                    continue;
+                }
+                Err(error) if job_poll_owner_exited(&error) => {
+                    return Ok(json!({
+                        "success": false,
+                        "error": "job tracking owner exited; the job was not resubmitted",
+                        "job_id": job_id,
+                        "status": status,
+                        "tracking_status": "owner_exited",
+                        "control_plane_error": job_poll_error_value(&error),
+                        "job_not_resubmitted": true,
+                        "recommended_next_action": "Use the isolated worker's typed status tool if one was returned; otherwise restore the owning adapter before querying this job again.",
+                        "last_result": result,
+                    }));
+                }
+                Err(error) => return Err(error),
+            }
             let Some(update) = job_wait_progress(&result, 0) else {
                 anyhow::bail!("jobs_get_status returned no job envelope for {job_id}");
             };
@@ -262,7 +304,9 @@ impl DccControlPlane {
             }
             status = update.status.clone();
             on_progress(&update);
+            last_progress = update;
             if is_terminal_job_status(&status) {
+                attach_wait_recovery(&mut result, &job_id, control_plane_disruptions);
                 return Ok(result);
             }
         }
@@ -359,6 +403,68 @@ impl DccControlPlane {
 
     fn gateway_client(&self) -> DccMcpClient {
         DccMcpClient::new(self.endpoint.clone())
+    }
+}
+
+fn job_poll_http_error(error: &anyhow::Error) -> Option<&HttpError> {
+    match error.downcast_ref::<ClientError>()? {
+        ClientError::Http(error) => Some(error),
+        ClientError::Protocol(_) => None,
+    }
+}
+
+fn job_poll_error_is_retryable(error: &anyhow::Error) -> bool {
+    match job_poll_http_error(error) {
+        Some(HttpError::Request(error)) => {
+            error.is_connect()
+                || error.is_timeout()
+                || error.is_request()
+                || error.is_body()
+                || error.is_decode()
+        }
+        Some(HttpError::Status { status, .. }) => matches!(
+            *status,
+            reqwest::StatusCode::NOT_FOUND
+                | reqwest::StatusCode::TOO_MANY_REQUESTS
+                | reqwest::StatusCode::BAD_GATEWAY
+                | reqwest::StatusCode::SERVICE_UNAVAILABLE
+                | reqwest::StatusCode::GATEWAY_TIMEOUT
+        ),
+        None => false,
+    }
+}
+
+fn job_poll_owner_exited(error: &anyhow::Error) -> bool {
+    matches!(
+        job_poll_http_error(error),
+        Some(HttpError::Status { status, .. }) if *status == reqwest::StatusCode::GONE
+    )
+}
+
+fn job_poll_error_value(error: &anyhow::Error) -> Value {
+    match job_poll_http_error(error) {
+        Some(HttpError::Status { status, body }) => json!({
+            "http_status": status.as_u16(),
+            "body": serde_json::from_str::<Value>(body).unwrap_or_else(|_| json!(body)),
+        }),
+        _ => json!({"message": error.to_string()}),
+    }
+}
+
+fn attach_wait_recovery(result: &mut Value, job_id: &str, disruptions: u64) {
+    if disruptions == 0 {
+        return;
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert(
+            "wait_recovery".to_string(),
+            json!({
+                "job_id": job_id,
+                "control_plane_disruptions": disruptions,
+                "resumed": true,
+                "job_resubmitted": false,
+            }),
+        );
     }
 }
 
@@ -501,6 +607,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use axum::extract::{Query, State};
+    use axum::http::StatusCode;
+    use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use tempfile::tempdir;
@@ -665,6 +773,154 @@ mod tests {
                 ("running", Some(45), Some(90)),
                 ("completed", Some(90), Some(90)),
             ]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_for_async_call_resumes_after_gateway_unavailable() {
+        async fn call(State(polls): State<Arc<Mutex<u32>>>, Json(body): Json<Value>) -> Response {
+            if body["tool_slug"]
+                .as_str()
+                .is_some_and(|slug| slug.ends_with(".jobs_get_status"))
+            {
+                let attempt = {
+                    let mut polls = polls.lock().unwrap();
+                    let attempt = *polls;
+                    *polls += 1;
+                    attempt
+                };
+                if attempt < 2 {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({
+                            "error": {
+                                "kind": "instance-offline",
+                                "previous_status": "unreachable",
+                                "retryable": true
+                            }
+                        })),
+                    )
+                        .into_response();
+                }
+                return Json(json!({
+                    "structuredContent": {
+                        "job_id": "job-houdini-42",
+                        "status": "completed",
+                        "result": {"success": true}
+                    }
+                }))
+                .into_response();
+            }
+            Json(json!({
+                "output": {"job_id": "job-houdini-42", "status": "running"}
+            }))
+            .into_response()
+        }
+
+        let polls = Arc::new(Mutex::new(0));
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .with_state(polls.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            true,
+        );
+
+        let mut progress = Vec::new();
+        let result = control
+            .call_and_wait_with_progress(
+                "houdini.04fccb17.render".to_string(),
+                None,
+                None,
+                json!({}),
+                None,
+                Duration::from_secs(2),
+                Duration::from_secs(5),
+                |update| progress.push(update.clone()),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result["structuredContent"]["status"], "completed");
+        assert_eq!(result["wait_recovery"]["control_plane_disruptions"], 2);
+        assert_eq!(result["wait_recovery"]["resumed"], true);
+        assert_eq!(result["wait_recovery"]["job_resubmitted"], false);
+        assert_eq!(
+            progress
+                .iter()
+                .filter(|update| update.status == "control_plane_reconnecting")
+                .count(),
+            1,
+            "one outage should emit one reconnecting transition"
+        );
+        assert_eq!(*polls.lock().unwrap(), 3);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_for_async_call_reports_exited_owner_without_resubmitting() {
+        async fn call(Json(body): Json<Value>) -> Response {
+            if body["tool_slug"]
+                .as_str()
+                .is_some_and(|slug| slug.ends_with(".jobs_get_status"))
+            {
+                return (
+                    StatusCode::GONE,
+                    Json(json!({
+                        "error": {
+                            "kind": "instance-offline",
+                            "previous_status": "exited",
+                            "retryable": false,
+                            "recommended_next_action": "Refresh instances and search for a replacement."
+                        }
+                    })),
+                )
+                    .into_response();
+            }
+            Json(json!({
+                "output": {"job_id": "job-maya-42", "status": "running"}
+            }))
+            .into_response()
+        }
+
+        let app = Router::new().route("/v1/call", post(call));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            true,
+        );
+
+        let result = control
+            .call_and_wait(
+                "maya.abcdef01.render".to_string(),
+                None,
+                None,
+                json!({}),
+                None,
+                Duration::from_secs(2),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result["tracking_status"], "owner_exited");
+        assert_eq!(result["job_id"], "job-maya-42");
+        assert_eq!(result["job_not_resubmitted"], true);
+        assert_eq!(
+            result["control_plane_error"]["body"]["error"]["previous_status"],
+            "exited"
         );
         server.abort();
     }

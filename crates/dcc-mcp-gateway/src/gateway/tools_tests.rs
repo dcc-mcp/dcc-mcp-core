@@ -234,6 +234,10 @@ fn calls_refresh_only_after_route_index_errors() {
         "instance-offline",
         "live instance not indexed yet",
     )));
+    assert!(!call_error_needs_refresh(
+        &ServiceError::new("instance-offline", "instance exited")
+            .with_instance_provenance("exited", Some(Uuid::from_u128(1)))
+    ));
     assert!(!call_error_needs_refresh(&ServiceError::new(
         "backend-error",
         "tool execution failed",

@@ -167,6 +167,13 @@ dcc-mcp-cli gateway daemon status
 dcc-mcp-cli lint path/to/skills
 ```
 
+`call --wait` 会轮询路由后的 `jobs_get_status` 工具直到终态，并将进度
+写入 stderr。Gateway 短暂中断时会保留同一 `job_id` 并输出
+`control_plane_reconnecting`；恢复后的终态 payload 带 `wait_recovery`，
+且不会重新提交任务。如果拥有 Job 的 DCC/sidecar 已退出，CLI 返回
+`tracking_status=owner_exited`，并引导 isolated 操作改查 worker 自己
+持有的状态工具。
+
 ### 命令
 
 | 命令 | REST/API 契约 | 说明 |

@@ -231,7 +231,11 @@ packet，再获取 `/v1/debug/issue-reports/{request_id}`。默认结果为 publ
 - `ambiguous-instance` (502) —— **仅网关 skill lifecycle** —— DCC / instance 选择不唯一。
 - `throttled` (429) —— gateway 中间件限流或并发控制在路由到 backend 前拒绝了请求；按 backoff 重试。
 - `policy-denied` (403) —— **仅网关** —— gateway policy 在路由到 backend 前拒绝了该操作。查看 `policy.reason`。
-- `instance-offline` (503) —— **仅网关** —— `<id8>` 对应的实例已不在线。
+- `instance-offline` —— **仅网关** —— 读取 `previous_status`、`retryable`
+  和 `recommended_next_action`：`never-registered` 返回 404，已知但暂时
+  不可路由的实例返回 503，`exited` / `host-died` /
+  `heartbeat-timeout` 返回 410 Gone。网关保留有界的进程内墓碑，刷新
+  索引时不会再把明确退出降级成 `never-registered`。
 - `schema-unavailable` (502) —— **仅网关** —— 拥有者 DCC 在 discovery 和 call 之间失联。
 - `internal` (500) —— REST 层自身失败；查服务端日志。
 

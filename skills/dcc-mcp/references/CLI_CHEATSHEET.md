@@ -101,6 +101,13 @@ treated as deletion. When the same instance becomes ready, query the core job.
 For an `isolated` operation, rediscover its typed status tool and query the
 operation ID even after adapter restart.
 
+`call --wait` keeps polling the same job across transient gateway connection,
+404, 429, 502, 503, and 504 failures until the total wait timeout. It emits
+`control_plane_reconnecting` and adds `wait_recovery` after recovery; neither
+path resubmits work. A 410 lifecycle response becomes
+`tracking_status=owner_exited`. Read `previous_status`, `retryable`, and
+`recommended_next_action` instead of treating every missing route as 503.
+
 If owner death or remote TTL expiry removes the row, wait for an explicitly
 authorized DCC restart, then use the replacement instance and fresh
 `search`/`describe` results. Old instance IDs, slugs, direct URLs, and core jobs
@@ -219,5 +226,6 @@ python scripts/dcc_gateway.py call maya.a1b2c3d4.maya_primitives__create_sphere 
 | `total == 0` | Start a DCC adapter, then re-run `dcc-mcp-cli list` |
 | Listed row is booting or `dispatch_status=unavailable` | Read `direct_control.recommended_next_action` and `direct_control.diagnostics`, then run `dcc-mcp-cli wait-ready --dcc-type <dcc> --instance-id <id>` or `dcc-mcp-cli doctor`; do not call tools until `direct_control.ready=true` |
 | `unknown-slug` | Re-run `search`; the instance may have restarted |
+| `instance-offline` | Read `previous_status`: `never-registered` is 404, temporary unroutability is 503, and `exited` / `host-died` / `heartbeat-timeout` is 410. Preserve any job ID and never replay a mutation blindly |
 | `invalid-params` | Fix the JSON object per `describe` output |
 | `instance-leased` / `lease-owner-mismatch` | Pass the exact workflow owner with `--meta-json`, or select another instance; do not guess another owner's value |

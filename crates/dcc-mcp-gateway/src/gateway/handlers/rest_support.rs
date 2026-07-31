@@ -393,7 +393,11 @@ pub(super) fn service_error_status(err: &ServiceError) -> StatusCode {
     match err.kind.as_str() {
         "unknown-slug" => StatusCode::NOT_FOUND,
         "ambiguous" | "instance-leased" | "lease-owner-mismatch" => StatusCode::CONFLICT,
-        "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
+        "instance-offline" => match err.previous_status.as_deref() {
+            Some("exited" | "deregistered" | "host-died" | "heartbeat-timeout") => StatusCode::GONE,
+            Some("never-registered") => StatusCode::NOT_FOUND,
+            _ => StatusCode::SERVICE_UNAVAILABLE,
+        },
         "policy-denied" => StatusCode::FORBIDDEN,
         "throttled" => StatusCode::TOO_MANY_REQUESTS,
         "host-busy" => StatusCode::SERVICE_UNAVAILABLE,
@@ -419,4 +423,29 @@ pub(super) fn service_error_response_with_metadata(
         metadata,
         include_body_metadata,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instance_lifecycle_errors_use_actionable_http_statuses() {
+        let never_registered = ServiceError::new("instance-offline", "missing")
+            .with_instance_provenance("never-registered", None);
+        let exited = ServiceError::new("instance-offline", "gone")
+            .with_instance_provenance("exited", Some(uuid::Uuid::from_u128(1)));
+        let unreachable = ServiceError::new("instance-offline", "offline")
+            .with_instance_provenance("unreachable", Some(uuid::Uuid::from_u128(2)));
+
+        assert_eq!(
+            service_error_status(&never_registered),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(service_error_status(&exited), StatusCode::GONE);
+        assert_eq!(
+            service_error_status(&unreachable),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
 }

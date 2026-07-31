@@ -54,6 +54,9 @@ dcc-mcp-server gateway --host 127.0.0.1 --port 9765 \
 dcc-mcp-server gateway --remote-host 0.0.0.0 --remote-port 59765
 ```
 
+第二监听器默认只绑定回环地址，普通本机启动不会申请 LAN 入站访问。只有远程
+主机确实需要连接时，才显式传入 `--remote-host 0.0.0.0` 或具体的 LAN IP。
+
 `--daemon` 会重新执行当前 binary，启动 detached gateway child，然后父进程退出；
 它不会在 async runtime 内直接 fork。`--pidfile` 隐式开启 daemon mode，记录
 detached child PID；如果 child 无法启动或 pidfile 无法写入，会在父进程退出前失败。
@@ -65,7 +68,7 @@ detached child PID；如果 child 无法启动或 pidfile 无法写入，会在�
 | `--host` | `DCC_MCP_GATEWAY_HOST` | `127.0.0.1` |
 | `--port` | `DCC_MCP_GATEWAY_PORT` | `9765` |
 | `--name` | `DCC_MCP_GATEWAY_NAME` | `gateway-<host>-pid<n>` |
-| `--remote-host` | `DCC_MCP_GATEWAY_REMOTE_HOST` | `0.0.0.0` |
+| `--remote-host` | `DCC_MCP_GATEWAY_REMOTE_HOST` | `127.0.0.1` |
 | `--remote-port` | `DCC_MCP_GATEWAY_REMOTE_PORT` | `59765`（`0` 关闭） |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | OS 默认 |
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | admin 默认开启 |
@@ -425,6 +428,20 @@ Gateway 会返回**最后观察到的**作业信封，并标注
 JSON-RPC `-32000` 错误，标识后端和 `job_id`。作业本身不会被
 取消 — 后端的后续重启可能将其表面为 `interrupted`
 （issue #328），当持久化作业存储重新水合时。
+
+如果是 **Gateway 进程**重启、但后端仍持有 Job，请用同一
+instance-scoped `jobs_get_status` slug 和同一 `job_id` 重连轮询。
+`dcc-mcp-cli call --wait` 会在总等待超时内自动重试连接中断以及
+404、429、502、503、504，输出 `control_plane_reconnecting`，且绝不
+重新提交原工具。恢复后最终 payload 带 `wait_recovery`。410 表示拥有
+Job 的 DCC/sidecar 已退出，CLI 会返回 `tracking_status=owner_exited`，
+而不是猜测外部 worker 也已停止。
+
+下面的进程内 `JobRoute` 缓存只服务 SSE/cancel 关联；续跟踪依赖的持久
+关联键是 instance slug 和 `job_id`，不需要持久化该缓存。如果外部渲染
+进程同时活过 DCC 与 sidecar，它的 `job_strategy: isolated` 状态工具必须
+由该 worker/service 自己持有；重启后的 Gateway 无法重建一个已经没有
+在线 owner 暴露的状态 API。
 
 ## 作业到后端路由缓存 (#322)
 

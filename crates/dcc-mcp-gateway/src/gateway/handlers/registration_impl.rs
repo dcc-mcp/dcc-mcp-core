@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use axum::http::HeaderMap;
 
-use crate::gateway::capability::remove_instance;
+use crate::gateway::capability::remove_instance_with_status;
 use crate::gateway::http_registration::{
     HttpInstanceDeregisterRequest, HttpInstanceHeartbeatRequest, HttpInstanceRegistrationRequest,
     RegistrationError, RegistrationOutcome, unix_secs,
@@ -66,7 +66,7 @@ pub async fn handle_v1_instances_deregister(
     };
     match removed {
         Ok(Some(entry)) => {
-            remove_instance(&gs.capability_index, entry.instance_id);
+            remove_instance_with_status(&gs.capability_index, entry.instance_id, "exited");
             broadcast_resource_list_changed(&gs);
             Json(json!({
                 "ok": true,

@@ -72,6 +72,7 @@ pub use record::{
     CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,
     SCHEMA_AVAILABLE, parse_slug, tool_slug,
 };
+pub(crate) use refresh::remove_instance_with_status;
 pub use refresh::{RefreshReason, refresh_instance, remove_instance};
 pub use search::{
     DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,

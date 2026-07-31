@@ -130,6 +130,9 @@ class TestDccMcpSkill:
         assert "do not repeatedly scan output files" in body.lower()
         assert "do not create a scheduled task by default" in body.lower()
         assert "never resubmit the render or cook" in body.lower()
+        assert "control_plane_reconnecting" in body
+        assert "wait_recovery" in body
+        assert "tracking_status=owner_exited" in body
 
         prompt = dcc_mcp_core.yaml_loads(
             (Path(DCC_MCP_SKILL_DIR) / "agents" / "openai.yaml").read_text(encoding="utf-8")

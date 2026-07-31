@@ -392,6 +392,8 @@ fn annotate_service_error_policy(schemas: &mut Map<String, Value>) {
                     "candidates": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
                     "previous_status": {"type": "string"},
                     "previous_instance_id": {"type": "string"},
+                    "retryable": {"type": "boolean"},
+                    "recommended_next_action": {"type": "string"},
                     "backend": {"type": "object", "additionalProperties": true},
                     "policy": {"$ref": "#/components/schemas/GatewayPolicyDenial"}
                 },

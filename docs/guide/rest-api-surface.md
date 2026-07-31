@@ -394,7 +394,12 @@ Error-kind vocabulary (HTTP status in parentheses):
 - `backend-error` (502) — the owning DCC process responded but the tool failed.
 - `policy-denied` (403) — **gateway only** — gateway policy rejected the
   operation before routing it to a backend. Inspect `policy.reason`.
-- `instance-offline` (503) — **gateway only** — the `<id8>` prefix resolves to an instance that is no longer live.
+- `instance-offline` — **gateway only** — inspect `previous_status`,
+  `retryable`, and `recommended_next_action`: `never-registered` returns 404,
+  a known but temporarily unroutable instance returns 503, and
+  `exited` / `host-died` / `heartbeat-timeout` returns 410 Gone. The gateway
+  keeps a bounded in-process tombstone so a refresh cannot downgrade a known
+  exit to `never-registered`.
 - `schema-unavailable` (502) — **gateway only** — the owning DCC stopped answering `tools/list` between discovery and call.
 - `internal` (500) — the REST layer itself failed; check server logs.
 

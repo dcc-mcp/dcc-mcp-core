@@ -530,7 +530,7 @@ struct GatewayStartArgs {
     name: Option<String>,
     #[arg(long)]
     registry_dir: Option<PathBuf>,
-    #[arg(long, default_value = "0.0.0.0")]
+    #[arg(long, default_value = "127.0.0.1")]
     remote_host: String,
     #[arg(long, default_value = "59765")]
     remote_port: u16,

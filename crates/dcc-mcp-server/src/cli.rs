@@ -126,8 +126,8 @@ pub(crate) struct ServerArgs {
     #[arg(long, env = "DCC_MCP_GATEWAY_NAME")]
     pub(crate) gateway_name: Option<String>,
 
-    /// Remote/LAN gateway host/interface to bind.
-    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "0.0.0.0")]
+    /// Secondary gateway interface. Use 0.0.0.0 or a LAN IP to opt into LAN access.
+    #[arg(long, env = "DCC_MCP_GATEWAY_REMOTE_HOST", default_value = "127.0.0.1")]
     pub(crate) gateway_remote_host: String,
 
     /// Remote/LAN gateway port. 0 disables the remote listener.
@@ -280,6 +280,8 @@ mod tests {
         assert!(parsed.command.is_none());
         assert_eq!(parsed.server.app, "maya");
         assert_eq!(parsed.server.gateway_port, 9765);
+        assert_eq!(parsed.server.gateway_remote_host, "127.0.0.1");
+        assert_eq!(parsed.server.gateway_remote_port, 59765);
     }
 
     #[test]

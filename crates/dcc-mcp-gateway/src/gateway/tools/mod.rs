@@ -631,7 +631,12 @@ pub async fn tool_call_tool(
 pub(super) fn call_error_needs_refresh(
     err: &crate::gateway::capability_service::ServiceError,
 ) -> bool {
-    matches!(err.kind.as_str(), "unknown-slug" | "instance-offline")
+    err.kind == "unknown-slug"
+        || (err.kind == "instance-offline"
+            && err
+                .previous_status
+                .as_deref()
+                .is_none_or(|status| status == "never-registered"))
 }
 
 /// Maximum number of backend invocations allowed in one `call_tools` /

@@ -24,7 +24,10 @@ use uuid::Uuid;
 
 use dcc_mcp_gateway_core::policy::{GatewayPolicy, GatewayPolicyDenial, GatewayPolicyOperation};
 use dcc_mcp_jsonrpc::McpTool;
-use dcc_mcp_transport::discovery::{file_registry::FileRegistry, types::ServiceEntry};
+use dcc_mcp_transport::discovery::{
+    file_registry::FileRegistry,
+    types::{InstanceStatus, ServiceEntry},
+};
 
 use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::http_registration::{
@@ -40,7 +43,7 @@ use super::backend_client::{
 use super::capability::{
     CapabilityIndex, CapabilityRecord, IndexSnapshot, RANKER_VERSION, RefreshReason, SearchHit,
     SearchMode, SearchQuery, backend_job_status_tool, is_backend_job_tool, parse_slug,
-    refresh_instance, remove_instance, search,
+    refresh_instance, search,
 };
 use super::request_meta::meta_with_agent_context;
 use super::state::{GatewayState, ResolveInstanceError};
@@ -89,6 +92,12 @@ pub struct ServiceError {
     /// Last known instance UUID when `kind = instance-offline`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_instance_id: Option<String>,
+    /// Whether retrying the same route can recover without a new instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
+    /// Machine-readable next step for agents and CLI callers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_next_action: Option<String>,
     /// Backend identity + readiness/dispatcher diagnostics (#1076).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend: Option<Box<Value>>,
@@ -106,6 +115,8 @@ impl ServiceError {
             candidates: Vec::new(),
             previous_status: None,
             previous_instance_id: None,
+            retryable: None,
+            recommended_next_action: None,
             backend: None,
             policy: None,
         }
@@ -137,6 +148,17 @@ impl ServiceError {
     ) -> Self {
         self.previous_status = Some(previous_status.into());
         self.previous_instance_id = previous_instance_id.map(|id| id.to_string());
+        self
+    }
+
+    /// Attach stable retry guidance to a lifecycle error.
+    pub fn with_actionability(
+        mut self,
+        retryable: bool,
+        recommended_next_action: impl Into<String>,
+    ) -> Self {
+        self.retryable = Some(retryable);
+        self.recommended_next_action = Some(recommended_next_action.into());
         self
     }
 }
@@ -440,11 +462,31 @@ pub fn describe_service(
         .filter(|r| record_matches_slug(r, dcc, instance_hint, tool))
         .collect();
     match matches.as_slice() {
-        [] => Err(ServiceError::new(
-            "instance-offline",
-            format!("no capability registered with slug {slug:?}"),
-        )
-        .with_instance_provenance("never-registered", parse_instance_uuid(instance_hint))),
+        [] => {
+            if let Some(previous) = index.instance_tombstone(dcc, instance_hint) {
+                return Err(ServiceError::new(
+                    "instance-offline",
+                    format!(
+                        "instance {} ({}) referenced by slug {slug:?} is now {}",
+                        previous.instance_id, previous.dcc_type, previous.previous_status,
+                    ),
+                )
+                .with_instance_provenance(
+                    previous.previous_status,
+                    Some(previous.instance_id),
+                )
+                .with_actionability(
+                    false,
+                    "Refresh instances and search for a replacement; do not replay a non-idempotent call.",
+                ));
+            }
+            Err(ServiceError::new(
+                "instance-offline",
+                format!("no capability registered with slug {slug:?}"),
+            )
+            .with_instance_provenance("never-registered", parse_instance_uuid(instance_hint))
+            .with_actionability(false, "Run search and use a returned tool slug."))
+        }
         [one] => Ok((*one).clone()),
         many => {
             let candidates: Vec<CapabilityRecord> = many.iter().map(|r| (*r).clone()).collect();
@@ -458,6 +500,47 @@ pub fn describe_service(
             .with_candidates(candidates))
         }
     }
+}
+
+fn unroutable_instance_error(
+    gs: &GatewayState,
+    record: &CapabilityRecord,
+    known_entry: Option<&ServiceEntry>,
+) -> ServiceError {
+    if let Some(entry) = known_entry {
+        let status = InstanceStatus::from_entry(
+            entry,
+            entry.is_stale(gs.stale_timeout),
+            entry_uses_sidecar_dispatch(entry),
+        );
+        return ServiceError::new(
+            "instance-offline",
+            format!(
+                "instance {} ({}) is {}; {}",
+                record.instance_id, record.dcc_type, status.status, status.recommended_next_action,
+            ),
+        )
+        .with_instance_provenance(status.status.to_string(), Some(record.instance_id))
+        .with_actionability(status.retryable, status.recommended_next_action);
+    }
+
+    let previous_status = gs
+        .capability_index
+        .instance_tombstone(&record.dcc_type, &record.instance_id.to_string())
+        .map(|row| row.previous_status)
+        .unwrap_or_else(|| "exited".to_string());
+    ServiceError::new(
+        "instance-offline",
+        format!(
+            "instance {} ({}) has exited or deregistered",
+            record.instance_id, record.dcc_type,
+        ),
+    )
+    .with_instance_provenance(previous_status, Some(record.instance_id))
+    .with_actionability(
+        false,
+        "Refresh instances and search for a replacement; do not replay a non-idempotent call.",
+    )
 }
 
 fn record_matches_slug(
@@ -494,14 +577,11 @@ pub async fn describe_tool_full(
     let reg = gs.registry.read().await;
     let all = gs.live_instances(&reg);
     let Some(entry) = all.iter().find(|e| e.instance_id == record.instance_id) else {
-        return Err(ServiceError::new(
-            "instance-offline",
-            format!(
-                "instance {} ({}) is no longer live; refresh and retry",
-                record.instance_id, record.dcc_type,
-            ),
-        )
-        .with_instance_provenance("deregistered", Some(record.instance_id)));
+        let known = gs
+            .all_instances(&reg)
+            .into_iter()
+            .find(|entry| entry.instance_id == record.instance_id);
+        return Err(unroutable_instance_error(gs, &record, known.as_ref()));
     };
     if is_backend_job_tool(&record.backend_tool) {
         drop(reg);
@@ -617,14 +697,11 @@ pub async fn call_service(
     let reg = gs.registry.read().await;
     let all = gs.live_instances(&reg);
     let Some(entry) = all.iter().find(|e| e.instance_id == record.instance_id) else {
-        return Err(ServiceError::new(
-            "instance-offline",
-            format!(
-                "instance {} ({}) is no longer live; refresh and retry",
-                record.instance_id, record.dcc_type,
-            ),
-        )
-        .with_instance_provenance("deregistered", Some(record.instance_id)));
+        let known = gs
+            .all_instances(&reg)
+            .into_iter()
+            .find(|entry| entry.instance_id == record.instance_id);
+        return Err(unroutable_instance_error(gs, &record, known.as_ref()));
     };
     super::lease_guard::check_call_owner(entry, meta.as_ref()).map_err(|error| {
         ServiceError::new(
@@ -975,16 +1052,27 @@ async fn remove_missing_capability_instances(
         let gate = gs.capability_index.refresh_gate(instance_id);
         let _refresh_guard = gate.lock().await;
         let reg = gs.registry.read().await;
-        let still_missing = !gs.live_instances(&reg).iter().any(|entry| {
-            entry.instance_id == instance_id
-                && !matches!(
+        let all = gs.all_instances(&reg);
+        let previous_status = match all.iter().find(|entry| entry.instance_id == instance_id) {
+            Some(entry)
+                if matches!(
                     entry.status,
-                    dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
-                )
-        });
+                    dcc_mcp_transport::discovery::types::ServiceStatus::Available
+                        | dcc_mcp_transport::discovery::types::ServiceStatus::Busy
+                ) =>
+            {
+                None
+            }
+            Some(entry) => Some(entry.status.to_string()),
+            None => Some("exited".to_string()),
+        };
         drop(reg);
-        if still_missing {
-            remove_instance(&gs.capability_index, instance_id);
+        if let Some(previous_status) = previous_status {
+            super::capability::remove_instance_with_status(
+                &gs.capability_index,
+                instance_id,
+                &previous_status,
+            );
         }
     }
 }
@@ -1169,6 +1257,8 @@ pub fn service_error_to_json(err: &ServiceError) -> Value {
         "candidates": err.candidates,
         "previous_status": err.previous_status,
         "previous_instance_id": err.previous_instance_id,
+        "retryable": err.retryable,
+        "recommended_next_action": err.recommended_next_action,
     });
     if let Some(backend) = &err.backend {
         error["backend"] = (**backend).clone();
@@ -1308,7 +1398,8 @@ async fn evict_host_died_instance(
     http_registry: &Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     entry: &ServiceEntry,
 ) -> HostDiedEviction {
-    let capability_records_removed = remove_instance(index, entry.instance_id);
+    let capability_records_removed =
+        super::capability::remove_instance_with_status(index, entry.instance_id, "host-died");
     let file_registry_row_removed = {
         let reg = registry.read().await;
         match reg.deregister(&entry.key()) {
@@ -1414,6 +1505,30 @@ mod unit_tests {
         let err = describe_service(&idx, "maya.abcdef01.create_sphere").unwrap_err();
         assert_eq!(err.kind, "instance-offline");
         assert_eq!(err.previous_status.as_deref(), Some("never-registered"));
+        assert_eq!(err.retryable, Some(false));
+        assert_eq!(
+            err.recommended_next_action.as_deref(),
+            Some("Run search and use a returned tool slug.")
+        );
+    }
+
+    #[test]
+    fn describe_preserves_exited_houdini_instance_provenance() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("04fccb1762e24e7d88f0000000005ad0").unwrap();
+        push(&idx, "houdini", iid, "get_render_job", true);
+        idx.remove_instance_with_status(iid, "exited");
+
+        let err =
+            describe_service(&idx, "houdini.04fccb17.get_render_job").expect_err("instance exited");
+
+        assert_eq!(err.kind, "instance-offline");
+        assert_eq!(err.previous_status.as_deref(), Some("exited"));
+        assert_eq!(
+            err.previous_instance_id.as_deref(),
+            Some(iid.to_string().as_str())
+        );
+        assert_eq!(err.retryable, Some(false));
     }
 
     #[test]

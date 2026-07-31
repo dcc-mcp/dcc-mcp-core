@@ -21,7 +21,7 @@
 //! `crate::gateway::capability::index::{InstanceFingerprint,
 //! IndexSnapshot}` paths working unchanged.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -34,6 +34,15 @@ use uuid::Uuid;
 use super::record::CapabilityRecord;
 
 pub use dcc_mcp_gateway_core::capability::index::{IndexSnapshot, InstanceFingerprint};
+
+const MAX_INSTANCE_TOMBSTONES: usize = 256;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InstanceTombstone {
+    pub(crate) instance_id: Uuid,
+    pub(crate) dcc_type: String,
+    pub(crate) previous_status: String,
+}
 
 /// The canonical gateway-scoped capability index.
 ///
@@ -75,6 +84,11 @@ pub struct CapabilityIndex {
 #[derive(Default)]
 struct InnerState {
     per_instance: BTreeMap<Uuid, InstanceSlice>,
+    /// Bounded lifecycle provenance for slugs whose instance was removed.
+    ///
+    /// ponytail: linear lookup is bounded at 256 rows; add a secondary map
+    /// only if high-churn gateways make this measurable.
+    tombstones: VecDeque<InstanceTombstone>,
     /// Records built from unloaded skill metadata (discovered but not
     /// yet loaded). These are indexed so `search_tools` can find
     /// skills that aren't connected yet.
@@ -132,6 +146,9 @@ impl CapabilityIndex {
             }
             return previous;
         }
+        guard
+            .tombstones
+            .retain(|row| row.instance_id != instance_id);
         if let Some(current) = guard.per_instance.get(&instance_id)
             && current.fingerprint == fingerprint
             && current.records.as_ref() == records.as_slice()
@@ -163,6 +180,69 @@ impl CapabilityIndex {
         drop(guard);
         self.search_refresh_completed.write().remove(&instance_id);
         removed
+    }
+
+    /// Drop one instance while retaining bounded lifecycle provenance.
+    pub(crate) fn remove_instance_with_status(
+        &self,
+        instance_id: Uuid,
+        previous_status: &str,
+    ) -> bool {
+        let mut guard = self.inner.write();
+        let removed = guard.per_instance.remove(&instance_id);
+        let dcc_type = removed
+            .as_ref()
+            .and_then(|slice| slice.records.first())
+            .map(|record| record.dcc_type.clone())
+            .or_else(|| {
+                guard
+                    .tombstones
+                    .iter()
+                    .find(|row| row.instance_id == instance_id)
+                    .map(|row| row.dcc_type.clone())
+            });
+        if let Some(dcc_type) = dcc_type {
+            guard
+                .tombstones
+                .retain(|row| row.instance_id != instance_id);
+            if guard.tombstones.len() == MAX_INSTANCE_TOMBSTONES {
+                guard.tombstones.pop_front();
+            }
+            guard.tombstones.push_back(InstanceTombstone {
+                instance_id,
+                dcc_type,
+                previous_status: previous_status.to_string(),
+            });
+            self.bump_revision();
+        }
+        drop(guard);
+        self.search_refresh_completed.write().remove(&instance_id);
+        removed.is_some()
+    }
+
+    /// Resolve the most recent lifecycle row by DCC and UUID/prefix.
+    pub(crate) fn instance_tombstone(
+        &self,
+        dcc_type: &str,
+        instance_hint: &str,
+    ) -> Option<InstanceTombstone> {
+        let guard = self.inner.read();
+        let exact = Uuid::parse_str(instance_hint).ok();
+        let prefix = instance_hint.to_ascii_lowercase();
+        let mut matches = guard.tombstones.iter().rev().filter(|row| {
+            row.dcc_type.eq_ignore_ascii_case(dcc_type)
+                && exact.map_or_else(
+                    || {
+                        row.instance_id
+                            .simple()
+                            .to_string()
+                            .starts_with(prefix.as_str())
+                    },
+                    |id| row.instance_id == id,
+                )
+        });
+        let row = matches.next()?.clone();
+        matches.next().is_none().then_some(row)
     }
 
     /// Return indexed instance ids without cloning or sorting capability rows.
@@ -462,6 +542,66 @@ mod unit_tests {
         let snap = idx.snapshot();
         assert_eq!(snap.records.len(), 1);
         assert_eq!(snap.records[0].dcc_type, "blender");
+    }
+
+    #[test]
+    fn removed_houdini_instance_keeps_exit_provenance_until_it_returns() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::from_u128(0x04fc_cb17_62e2_4e7d_88f0_0000_0000_5ad0);
+        idx.upsert_instance(
+            iid,
+            vec![rec("houdini", iid, "get_render_job", true)],
+            InstanceFingerprint(1),
+        );
+
+        assert!(idx.remove_instance_with_status(iid, "exited"));
+        assert_eq!(
+            idx.instance_tombstone("houdini", "04fccb17"),
+            Some(InstanceTombstone {
+                instance_id: iid,
+                dcc_type: "houdini".to_string(),
+                previous_status: "exited".to_string(),
+            })
+        );
+        assert!(!idx.remove_instance_with_status(iid, "host-died"));
+        assert_eq!(
+            idx.instance_tombstone("houdini", "04fccb17")
+                .map(|row| row.previous_status),
+            Some("host-died".to_string()),
+            "later lifecycle evidence must replace a stale tombstone"
+        );
+
+        idx.upsert_instance(
+            iid,
+            vec![rec("houdini", iid, "get_render_job", true)],
+            InstanceFingerprint(2),
+        );
+        assert!(
+            idx.instance_tombstone("houdini", "04fccb17").is_none(),
+            "re-registering the same worker clears its exit tombstone"
+        );
+    }
+
+    #[test]
+    fn tombstone_prefix_must_be_unique_across_same_dcc_instances() {
+        let idx = CapabilityIndex::new();
+        let a = Uuid::parse_str("abcd0000000000000000000000000001").unwrap();
+        let b = Uuid::parse_str("abcd0000000000000000000000000002").unwrap();
+        for id in [a, b] {
+            idx.upsert_instance(
+                id,
+                vec![rec("maya", id, "jobs_get_status", true)],
+                InstanceFingerprint(1),
+            );
+            assert!(idx.remove_instance_with_status(id, "host-died"));
+        }
+
+        assert!(idx.instance_tombstone("maya", "abcd").is_none());
+        assert_eq!(
+            idx.instance_tombstone("maya", &a.to_string())
+                .map(|row| row.instance_id),
+            Some(a)
+        );
     }
 
     #[test]
