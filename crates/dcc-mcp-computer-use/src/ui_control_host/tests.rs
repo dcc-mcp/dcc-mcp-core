@@ -1800,6 +1800,56 @@ fn confirmation_round_trip_hard_denies_password_focus_before_input() {
 }
 
 #[test]
+fn full_dcc_grant_preapproves_tier_two_actions() {
+    let state = RuntimeAccessibilityState {
+        root: json!({
+            "runtime_id": "42.root",
+            "name": "Unreal Editor",
+            "children": [{
+                "runtime_id": "42.login",
+                "name": "Login",
+                "is_password": false,
+                "children": []
+            }]
+        }),
+        focus_runtime_id: None,
+        node_count: 2,
+    };
+    let mut host = host_with_accessibility_states(state.clone(), vec![state]);
+    host.confirmation = Box::new(DenyConfirmation);
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = host.open_session("preapproved".to_owned(), grant(true))
+    else {
+        panic!("session not opened");
+    };
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        ..
+    } = host.snapshot("preapproved", "grant-1", &window_capability, 5, 250)
+    else {
+        panic!("snapshot failed");
+    };
+
+    assert!(matches!(
+        host.execute_action(
+            "preapproved",
+            "grant-1",
+            &window_capability,
+            &observation_id,
+            &accessibility_state_id,
+            action(Some("uia:42.login"), UiControlInputKind::Semantic),
+        ),
+        UiControlHostResponse::ActionCompleted {
+            success: true,
+            policy_tier: UiControlPolicyTier::PreApproval,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn confirmation_denial_leaves_the_host_available_for_following_requests() {
     let snapshot = keyboard_accessibility_state("42.ordinary");
     let live = keyboard_accessibility_state("42.ordinary");

@@ -130,10 +130,11 @@ with four enforcement tiers:
    escape the selected process/window scope.
 
 An explicit “full DCC control” grant enables raw pointer and keyboard actions
-inside the selected DCC window for that task. It does not bypass tiers 3 or 4.
-The native host itself is the trusted confirmation surface. If it cannot show
-that surface, or the user declines, actions in tiers 2 and 3 fail closed with a
-structured `approval_required` result.
+and satisfies tier 2 pre-approval inside the selected DCC window for that task.
+It does not bypass tiers 3 or 4. The native host itself is the trusted
+confirmation surface. If it cannot show that surface, or the user declines,
+ungranted tier 2 and all tier 3 actions fail closed with a structured
+`approval_required` result.
 
 ### Protocol and lifecycle
 
@@ -163,7 +164,8 @@ snapshot; input is never retried from stale state.
 
 The protocol does not contain `confirmed`, `approved`, or equivalent client
 booleans. The host starts a prominent non-modal notice for the initial
-exact-window grant and confirms every tier 2/3 action. An optional `intent` is a lower-bound classification hint: the
+exact-window grant. That grant can satisfy tier 2 pre-approval; the host
+confirms all tier 3 actions. An optional `intent` is a lower-bound classification hint: the
 host independently classifies UIA controls, pointed/focused controls, and
 keyboard chords, and may only raise the tier. Agent-controlled arguments and
 environment variables cannot resolve confirmation.
