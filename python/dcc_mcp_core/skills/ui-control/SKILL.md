@@ -247,9 +247,11 @@ denial on `keypress`.
 `ui_control__act` advertises a destructive annotation and accepts an optional
 `intent` consequence hint. The native host independently classifies the UIA
 control, focused/pointed control, keyboard chord, and requested intent; the hint
-can only raise the tier. Tier 2/3 operations use a trusted host-owned Windows
-confirmation dialog. There is no `confirmed`, `approved`, or environment-based
-approval field. A missing or denied confirmation returns `approval_required`.
+can only raise the tier. An explicit full DCC control grant satisfies tier 2
+pre-approval for that exact window and task; otherwise tier 2 and every tier 3
+operation use a trusted host-owned Windows confirmation dialog. There is no
+agent-supplied `confirmed` or `approved` field. A missing or denied required
+confirmation returns `approval_required`.
 
 With that operator-bound exact scope, `ui_control__snapshot` returns a bounded PNG
 through versioned shared memory plus a UIA tree, even when raw input is

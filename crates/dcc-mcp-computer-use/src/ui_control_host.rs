@@ -799,7 +799,9 @@ impl UiControlHost {
         if policy_tier == UiControlPolicyTier::HardDeny {
             return hard_deny_action(session, &action);
         }
-        if policy_tier >= UiControlPolicyTier::PreApproval {
+        if policy_tier >= UiControlPolicyTier::ActionConfirmation
+            || (policy_tier == UiControlPolicyTier::PreApproval && !session.grant.allow_raw_input)
+        {
             let confirmed_tier = policy_tier;
             match confirmation.confirm(
                 ConfirmationKind::ConsequentialAction(policy_tier),
