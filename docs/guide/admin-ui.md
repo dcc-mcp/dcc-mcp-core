@@ -1150,8 +1150,8 @@ Use the dashboard as an operations surface, not as a static report:
    current server/adapter version and posts a check-only request to
    `POST /admin/api/instances/{instance_id}/update`. Apply is fail-closed because
    the gateway cannot prove a selected instance's executable root. Run
-   `dcc-mcp-server update apply` in that exact server environment; Windows then
-   stages the server and UI Control host as one transaction.
+   `dcc-mcp-server update apply` in that exact server environment; it stages
+   only the server binary. The standalone `dcc-mcp-cua` CLI updates separately.
 3. **Use Skills and Marketplace for capability changes.** The Skills panel shows
    live gateway inventory and custom path state; Marketplace installs, updates,
    and uninstalls packages through `/admin/api/marketplace/*`. After a package

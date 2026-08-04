@@ -64,7 +64,6 @@ _LAZY: dict[str, str] = {
     "CaptureResult": "dcc_mcp_core._core",
     "CaptureTarget": "dcc_mcp_core._core",
     "Capturer": "dcc_mcp_core._core",
-    "ComputerUseSession": "dcc_mcp_core._core",
     "DccCapabilities": "dcc_mcp_core._py37_fallback",
     "DccError": "dcc_mcp_core._core",
     "DccErrorCode": "dcc_mcp_core._core",

@@ -1,4 +1,4 @@
-"""Windows ui-control proxy for the isolated native UI Control host."""
+"""Agent-friendly ui-control policy wrapper for the standalone CUA Host."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from typing import Callable
 from typing import Dict
 from typing import Optional
 from typing import Tuple
-import uuid
 
 from dcc_mcp_core.adapter_contracts import UiActionKind
 from dcc_mcp_core.adapter_contracts import UiActionRequest
@@ -37,16 +36,15 @@ def _load_sibling(name: str) -> Any:
     return module
 
 
-_SUPPORT = _load_sibling("_windows_uia_support")
-_HOST = _load_sibling("_ui_control_host_client")
+_SUPPORT = _load_sibling("_cua_support")
+_HOST = _load_sibling("_cua_cli_host_client")
 UiControlHostError = _HOST.UiControlHostError
 _HostClient = _HOST.UiControlHostClient
-_execute_system_operation = _HOST.execute_system_operation
 
 _policy_from_params = _SUPPORT._policy_from_params
 _scope_from_params = _SUPPORT._scope_from_params
 _scope_is_trusted_native_target = _SUPPORT._scope_is_trusted_native_target
-_node_from_uia_dict = _SUPPORT._node_from_uia_dict
+_node_from_cua_dict = _SUPPORT._node_from_cua_dict
 _find_by_id = _SUPPORT._find_by_id
 _find_controls = _SUPPORT._find_controls
 _validate_action_limits = _SUPPORT._validate_action_limits
@@ -107,7 +105,7 @@ def _serialize_session_call(func: Callable[..., Dict[str, Any]]) -> Callable[...
                     return skill_error(
                         "ui_control Windows host proxy is stopping.",
                         UiErrorCode.BACKEND_UNAVAILABLE,
-                        backend="windows-ui-control-host",
+                        backend="dcc-mcp-cua",
                     )
                 return func(raw)
             finally:
@@ -171,7 +169,7 @@ def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return skill_error(
             (
                 "Isolated DCC UI Control requires an operator-bound process id or window handle. "
-                "Set DCC_MCP_UI_CONTROL_UIA_PROCESS_ID or DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE "
+                "Set DCC_MCP_UI_CONTROL_PROCESS_ID or DCC_MCP_UI_CONTROL_WINDOW_HANDLE "
                 "in the adapter environment."
             ),
             UiErrorCode.PERMISSION_DENIED,
@@ -193,7 +191,7 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
     window_handles = scope.get("window_handles") or []
     process_id = int(process_ids[0]) if len(process_ids) == 1 else None
     window_handle = int(window_handles[0]) if len(window_handles) == 1 else None
-    allow_raw_input = str(os.environ.get("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT") or "").strip().lower() in {
+    allow_raw_input = str(os.environ.get("DCC_MCP_CUA_ALLOW_RAW_INPUT") or "").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -292,57 +290,8 @@ def _host_error(exc: Exception) -> Dict[str, Any]:
         message,
         mapped_code,
         error_code=mapped_code,
-        backend="windows-ui-control-host",
+        backend="dcc-mcp-cua",
         **recovery,
-    )
-
-
-def _system_operation_id(params: Dict[str, Any]) -> str:
-    operation_id = params.get("operation_id")
-    if (
-        not isinstance(operation_id, str)
-        or not operation_id.strip()
-        or len(operation_id.encode("utf-8")) > 256
-        or not operation_id.isprintable()
-    ):
-        raise UiControlHostError("invalid_request", "operation_id must be an explicit non-sensitive identifier")
-    return operation_id
-
-
-@_serialize_session_call
-def system_operation_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Execute one exact typed operation from an operator-owned host grant."""
-    params = dict(params or {})
-    if set(params) - {"session_id", "operation_id"}:
-        return skill_error(
-            "The typed system operation request contains unsupported fields.",
-            "invalid_request",
-            backend="windows-ui-control-host",
-        )
-    logical_session_id = _safe_session_id(params.get("session_id"))
-    system_grant_id = str(os.environ.get("DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID") or "").strip()
-    if not system_grant_id:
-        return skill_error(
-            "No operator-owned UI Control system grant ID is configured.",
-            "system_operation_not_granted",
-            backend="windows-ui-control-host",
-        )
-    try:
-        operation_id = _system_operation_id(params)
-        raw = _execute_system_operation(
-            session_id=f"system:{uuid.uuid4().hex}",
-            system_grant_id=system_grant_id,
-            operation_id=operation_id,
-        )
-    except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
-    return skill_success(
-        "Completed an operator-granted typed system operation.",
-        session_id=logical_session_id,
-        operation_type=str(raw.get("operation_type") or ""),
-        outcome=str(raw.get("outcome") or ""),
-        policy_tier=str(raw.get("policy_tier") or ""),
-        host_message=str(raw.get("message") or ""),
     )
 
 
@@ -355,26 +304,26 @@ def _capture_snapshot(
         client, entry = _client_for(session_id, params, policy)
         if params.get("resume_computer_use"):
             client.resume()
-        max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_UI_CONTROL_UIA_MAX_DEPTH", "5"))))
-        max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_UI_CONTROL_UIA_MAX_NODES", "250"))))
+        max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_CUA_MAX_DEPTH", "5"))))
+        max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_CUA_MAX_NODES", "250"))))
         raw = client.snapshot(max_depth=max_depth, max_nodes=max_nodes)
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc)
 
     snapshot_id = str(raw["accessibility_state_id"])
     state_delta = _state_delta_event(raw, snapshot_id)
-    root = _node_from_uia_dict(raw["root"], snapshot_id)
+    root = _node_from_cua_dict(raw["root"], snapshot_id)
     focus_runtime_id = str(raw.get("focus_runtime_id") or "")
     snapshot = UiSnapshot(
         root=root,
         session_id=session_id,
-        focus_id=f"uia:{focus_runtime_id}" if focus_runtime_id else None,
+        focus_id=f"cua:{focus_runtime_id}" if focus_runtime_id else None,
         truncated=int(raw.get("node_count") or 0) >= max_nodes,
         node_count=int(raw.get("node_count") or 1),
         metadata={
             "snapshot_id": snapshot_id,
             "ui_control": {
-                "backend": "windows-ui-control-host",
+                "backend": "dcc-mcp-cua",
                 "scope": entry["scope"],
                 "target": raw.get("target") or client.target,
                 "max_depth": max_depth,
@@ -405,25 +354,25 @@ def _capture_accessibility_snapshot(
 ) -> Dict[str, Any]:
     try:
         client, entry = _client_for(session_id, params, policy)
-        max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_UI_CONTROL_UIA_MAX_DEPTH", "5"))))
-        max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_UI_CONTROL_UIA_MAX_NODES", "250"))))
+        max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_CUA_MAX_DEPTH", "5"))))
+        max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_CUA_MAX_NODES", "250"))))
         raw = client.accessibility_snapshot(max_depth=max_depth, max_nodes=max_nodes)
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc)
     snapshot_id = str(raw["accessibility_state_id"])
     state_delta = _state_delta_event(raw, snapshot_id)
-    root = _node_from_uia_dict(raw["root"], snapshot_id)
+    root = _node_from_cua_dict(raw["root"], snapshot_id)
     focus_runtime_id = str(raw.get("focus_runtime_id") or "")
     snapshot = UiSnapshot(
         root=root,
         session_id=session_id,
-        focus_id=f"uia:{focus_runtime_id}" if focus_runtime_id else None,
+        focus_id=f"cua:{focus_runtime_id}" if focus_runtime_id else None,
         truncated=int(raw.get("node_count") or 0) >= max_nodes,
         node_count=int(raw.get("node_count") or 1),
         metadata={
             "snapshot_id": snapshot_id,
             "ui_control": {
-                "backend": "windows-ui-control-host",
+                "backend": "dcc-mcp-cua",
                 "scope": entry["scope"],
                 "target": raw.get("target") or client.target,
                 "max_depth": max_depth,
@@ -447,7 +396,7 @@ def _state_delta_event(raw: Dict[str, Any], state_id: str) -> Optional[Dict[str,
     delta = raw.get("state_delta")
     if not isinstance(delta, dict):
         return None
-    event = {"source": "uia", "state_id": state_id, "delta": delta}
+    event = {"source": "cua-accessibility", "state_id": state_id, "delta": delta}
     if raw.get("cause_action_id"):
         event["cause_action_id"] = str(raw["cause_action_id"])
     return event
@@ -464,7 +413,7 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not capture.get("success"):
         return capture
     return skill_success(
-        "Captured isolated Windows UI Control snapshot.",
+        "Captured scoped CUA application snapshot.",
         prompt="Use ui_control__find or perform one scoped ui_control__act with this snapshot_id, then snapshot again.",
         session_id=session_id,
         snapshot_id=capture["snapshot_id"],
@@ -481,26 +430,9 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
-def _recording_integer(
-    params: Dict[str, Any],
-    name: str,
-    *,
-    minimum: int,
-    maximum: int,
-    default: Optional[int] = None,
-) -> int:
-    value = params.get(name, default)
-    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-        raise UiControlHostError(
-            "invalid_request",
-            f"{name} must be an integer in {minimum}..={maximum}.",
-        )
-    return value
-
-
 @_serialize_session_call
-def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Record a bounded host-owned frame sequence from the exact Windows target."""
+def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Start CUA trajectory recording for the exact target session."""
     params = dict(params or {})
     allowed = {
         "session_id",
@@ -508,43 +440,31 @@ def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "window_handle",
         "window_title",
         "process_name",
-        "duration_ms",
-        "frames_per_second",
-        "jpeg_quality",
+        "output_dir",
+        "record_video",
         "policy",
     }
     if set(params) - allowed:
         return skill_error(
-            "The exact-window recording request contains unsupported fields.",
+            "The trajectory recording request contains unsupported fields.",
             "invalid_request",
-            backend="windows-ui-control-host",
+            backend="dcc-mcp-cua",
         )
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     if not policy.allow_snapshot:
         return skill_error("ui_control recording disabled by policy", UiErrorCode.POLICY_DISABLED)
     try:
-        duration_ms = _recording_integer(params, "duration_ms", minimum=1_000, maximum=180_000)
-        frames_per_second = _recording_integer(
-            params,
-            "frames_per_second",
-            minimum=1,
-            maximum=60,
-            default=30,
-        )
-        jpeg_quality = _recording_integer(
-            params,
-            "jpeg_quality",
-            minimum=70,
-            maximum=100,
-            default=92,
-        )
+        output_dir = str(params.get("output_dir") or "").strip()
+        output_path = Path(output_dir).expanduser()
+        if not output_dir or not output_path.is_absolute():
+            raise UiControlHostError("invalid_request", "output_dir must be an absolute path.")
+        output_dir = str(output_path.resolve())
+        record_video = params.get("record_video", False)
+        if type(record_video) is not bool:
+            raise UiControlHostError("invalid_request", "record_video must be a boolean.")
         client, entry = _client_for(session_id, params, policy)
-        raw = client.record_clip(
-            duration_ms=duration_ms,
-            frames_per_second=frames_per_second,
-            jpeg_quality=jpeg_quality,
-        )
+        recording = client.recording_start(output_dir=output_dir, record_video=record_video)
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc)
     finally:
@@ -552,16 +472,64 @@ def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if entry is not None:
             entry["snapshot_id"] = None
     return skill_success(
-        "Recorded an exact-window JPEG sequence through the isolated UI Control host.",
+        "Started CUA trajectory recording for the exact target.",
         prompt=(
-            "Copy and verify the host-owned artifact through a recording workflow, then call "
-            "ui_control__stop_computer_use when this exact-window capture session is complete."
+            "Perform scoped ui_control actions, inspect ui_control__recording_state when needed, "
+            "then call ui_control__recording_stop before rendering with dcc-mcp-cua recording render."
         ),
         session_id=session_id,
-        target=raw.get("target") or client.target,
-        artifact=raw.get("artifact") or {},
-        audio_captured=False,
-        capture_scope="exact_window",
+        target=client.target,
+        output_dir=output_dir,
+        recording=recording,
+        policy=policy.to_dict(),
+    )
+
+
+@_serialize_session_call
+def recording_stop_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Finalize CUA trajectory recording for the exact target session."""
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    if not policy.allow_snapshot:
+        return skill_error("ui_control recording disabled by policy", UiErrorCode.POLICY_DISABLED)
+    try:
+        client, entry = _client_for(session_id, params, policy)
+        recording = client.recording_stop()
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+    finally:
+        entry = _CLIENTS.get(session_id)
+        if entry is not None:
+            entry["snapshot_id"] = None
+    return skill_success(
+        "Finalized CUA trajectory recording.",
+        prompt="Render the output directory with dcc-mcp-cua recording render when MP4 evidence is needed.",
+        session_id=session_id,
+        target=client.target,
+        recording=recording,
+        policy=policy.to_dict(),
+    )
+
+
+@_serialize_session_call
+def recording_state_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Read CUA trajectory recording state for the exact target session."""
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    if not policy.allow_snapshot:
+        return skill_error("ui_control recording disabled by policy", UiErrorCode.POLICY_DISABLED)
+    try:
+        client, _entry = _client_for(session_id, params, policy)
+        recording = client.recording_state()
+    except (UiControlHostError, OSError, ValueError) as exc:
+        return _host_error(exc)
+    return skill_success(
+        "Read CUA trajectory recording state.",
+        session_id=session_id,
+        target=client.target,
+        recording=recording,
         policy=policy.to_dict(),
     )
 
@@ -588,7 +556,7 @@ def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return capture
     matches = _find_controls(capture["snapshot"], params)
     return skill_success(
-        f"Found {len(matches)} isolated Windows UI Control(s).",
+        f"Found {len(matches)} scoped CUA control(s).",
         prompt="Use ui_control__act with a returned control id and snapshot_id.",
         session_id=session_id,
         snapshot_id=capture["snapshot_id"],
@@ -602,11 +570,14 @@ def _intent(params: Dict[str, Any]) -> str:
     return requested if requested in _INTENTS else "ordinary_edit"
 
 
-def _action_payload(params: Dict[str, Any], native: bool) -> Dict[str, Any]:
+def _action_payload(
+    params: Dict[str, Any],
+    native: bool,
+    control: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     action = str(params.get("action") or "")
     payload = {
-        "action": action,
-        "control_id": str(params.get("control_id") or "") or None,
+        "action": "click" if action == UiActionKind.RAW_COORDINATE_CLICK else action,
         "input_kind": "raw_input" if native else "semantic",
         "intent": _intent(params),
         "x": params.get("x"),
@@ -620,6 +591,13 @@ def _action_payload(params: Dict[str, Any], native: bool) -> Dict[str, Any]:
         "checked": params.get("checked"),
         "duration_ms": params.get("duration_ms"),
     }
+    metadata = (control or {}).get("metadata") or {}
+    locator = metadata.get("ui_control") if isinstance(metadata, dict) else None
+    if not native and isinstance(locator, dict):
+        if locator.get("element_token"):
+            payload["element_token"] = locator["element_token"]
+        elif type(locator.get("element_index")) is int:
+            payload["element_index"] = locator["element_index"]
     return {key: value for key, value in payload.items() if value is not None}
 
 
@@ -644,7 +622,7 @@ def _audit_record(
         message=message,
         session_id=session_id,
         redacted_fields=redacted,
-        metadata={"backend": "windows-ui-control-host", "host_enforced": True},
+        metadata={"backend": "dcc-mcp-cua", "host_enforced": True},
     ).to_dict()
 
 
@@ -674,7 +652,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             raw = client.window_state()
         except (UiControlHostError, OSError, ValueError) as exc:
             return _host_error(exc)
-        message = "Read exact scoped window state from the isolated UI Control host."
+        message = "Read exact scoped application state from the CUA Host."
         return skill_success(
             message,
             prompt=(
@@ -709,15 +687,13 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             requested_snapshot_id=requested_snapshot_id,
             current_snapshot_id=current_snapshot_id,
         )
-    control = None
-    if not _is_native_action(action, params):
-        # The host resolves and validates the real UIA node again. This local lookup
-        # only improves the portable audit/result envelope.
-        control_id = str(params.get("control_id") or "")
-        if not control_id:
-            return skill_error("control_id is required for semantic actions", UiErrorCode.INVALID_ACTION)
+    native = _is_native_action(action, params)
+    control_id = str(params.get("control_id") or "")
+    control = _find_by_id(entry["snapshot"], control_id) if control_id and entry.get("snapshot") else None
+    if not native and control is None:
+        return skill_error("control_id is required for semantic actions", UiErrorCode.INVALID_ACTION)
     try:
-        raw = client.execute(_action_payload(params, _is_native_action(action, params)))
+        raw = client.execute(_action_payload(params, native, control))
     except (UiControlHostError, OSError, ValueError) as exc:
         entry["snapshot_id"] = None
         return _host_error(exc)
@@ -756,7 +732,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             audit=audit,
         )
     return skill_success(
-        f"Completed isolated Windows UI Control action {action!r}.",
+        f"Completed scoped CUA action {action!r}.",
         prompt=(
             "The exact target window closed after the completed action. Explicitly bind the intended new PID/HWND "
             "before starting another UI Control session; no replacement window was followed."
@@ -831,14 +807,14 @@ def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         last_snapshot_id = capture["snapshot_id"]
         if _condition_matches(capture["snapshot"], condition):
             return skill_success(
-                "Windows UI Control wait condition satisfied.",
+                "CUA wait condition satisfied.",
                 session_id=session_id,
                 snapshot_id=last_snapshot_id,
                 condition=condition.to_dict(),
             )
         if time.monotonic() >= deadline:
             return skill_error(
-                "Timed out waiting for the Windows UI Control condition.",
+                "Timed out waiting for the CUA condition.",
                 UiErrorCode.TIMEOUT,
                 session_id=session_id,
                 snapshot_id=last_snapshot_id,
@@ -862,8 +838,3 @@ def cleanup() -> None:
     request_stop()
     with _CLIENTS_LOCK:
         _CLIENTS.clear()
-
-
-def _dedent_for_tests() -> str:
-    """Return the UIA script embedded by the native host for contract tests."""
-    return Path(__file__).with_name("_windows_uia_backend.ps1").read_text(encoding="utf-8")

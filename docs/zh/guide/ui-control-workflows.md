@@ -1,282 +1,73 @@
-# UI Control 代理工作流
+# UI Control 工作流
 
-`ui_control` 是用于仅界面工作的有界回退。首先优先使用原生 DCC 技能：它们通常携带更强的架构、更好的撤销语义和宿主感知的分发。当您需要的状态仅存在于窗口、模态对话框、webview、启动器、许可证工具或设置面板中时，使用 `ui_control__*`。
+UI Control 只用于类型化 DCC 工具无法完成的应用界面操作，不替代 adapter API。
 
-## 决策规则
+## 路由顺序
 
-在以下情况下使用原生 DCC 工具：
+1. 优先调用类型化 DCC-MCP 工具。
+2. 浏览器或 webview 内容优先使用 `chrome`/`edge` CDP 后端。
+3. 原生应用界面使用独立的 `dcc-mcp-cua` 后端。
 
-- 宿主 API 直接暴露状态或操作。
-- 操作会更改场景数据、文件、包、渲染或项目状态。
-- 您需要可靠的批处理执行、撤销集成或主线程宿主语义。
+CDP 的 DOM 语义和 selector 更稳定，也能在无需前台可见时工作。CUA 用于浏览器
+外框、原生对话框、纯 Canvas 内容和非浏览器软件。
 
-在以下情况下使用 `ui_control`：
+## 独立 CUA 配置
 
-- 类型化 DCC 工具返回 `unsupported` 或 `capability_missing`，且唯一剩余控制路径是可见 UI。
-- 需要处理没有类型化宿主能力的 DCC 自有模态框、向导、webview 或伴生进程控件。
+单独安装 `dcc-mcp-cua` 并加入 `PATH`，或把 `DCC_MCP_CUA_BINARY` 设置为绝对
+可执行文件路径，然后配置：
 
-不要将 `ui_control` 用作缺少类型化工具的快捷方式。如果工作流常见且稳定，请首先添加原生技能/API，并将 `ui_control` 保留为诊断或紧急路径。
-
-策略拒绝、用户中断、锁屏/断连、身份验证和安全边界都是停止条件，不能作为尝试另一条 UI 路径的理由。
-
-## 标准循环
-
-每个工作流应保持相同的形状：
-
-1. `ui_control__snapshot` 观察有界窗口并返回 `snapshot_id`。
-2. `ui_control__find` 通过标签、文本、角色或对象名称解析控件 ID。
-3. `ui_control__act` 执行一个操作。传递 `snapshot_id` 以便在操作前检测过时的控件。
-4. `ui_control__wait_for` 在一次工具调用内轮询，直到 UI 达到预期状态或返回结构化的 `timeout`。
-5. `ui_control__snapshot` 验证最终状态。
-6. `ui_control__stop_computer_use` 释放原生输入所有权、移除可见的 DCC UI Control 效果，并使最终 observation 失效。
-
-Windows 代理还会在连续五分钟没有工具调用后停止该会话，作为最终的泄漏恢复保护；它不能替代工作流在所有退出路径中显式调用 `stop_computer_use`。
-
-将第 6 步视为 `finally`。工作流成功、任一工具失败、代理或用户放弃工作流时都必须调用它。停止工具是幂等的，并且在桌面不可用时仍可安全调用。若返回 `cleanup_pending=true`，表示 Windows 尚未确认所有待释放按键或鼠标按钮；应重试清理且不得启动新会话。全局输入所有权会跨适配器进程保持占用，直到重连后释放事件全部排空。
-
-对于网关客户端，在调用前发现和检查工具：
-
-```json
-{"name": "search", "arguments": {"query": "ui_control snapshot", "dcc_type": "maya"}}
-{"name": "describe", "arguments": {"tool_slug": "<slug from search>"}}
+```text
+DCC_MCP_UI_CONTROL_BACKEND=cua
+DCC_MCP_UI_CONTROL_PROCESS_ID=<pid>
+DCC_MCP_UI_CONTROL_WINDOW_HANDLE=<native-handle>
 ```
 
-REST 客户端通过 `/v1/search`、`/v1/describe` 和 `/v1/call` 使用相同的序列。
+原生鼠标键盘还必须显式设置：
 
-## DCC UI Control 回退
-
-**DCC UI Control** 是对外统一的跨平台能力名。Shell Agent 使用
-`dcc-mcp-cli ui-control`；MCP 原生客户端使用规范的 `ui_control__*` 命名空间。
-不要把这项 DCC 范围内的能力称为通用 Computer Use。
-
-本次版本执行硬切换：旧技能名、工具前缀、环境变量前缀以及 Python/Rust
-契约名均不再接受。升级前必须迁移到 `ui-control`、`ui_control__*` 和
-`DCC_MCP_UI_CONTROL_*`，并重新发现、替换已保存的工具 slug。参见
-[ADR-016](../../adr/016-unify-ui-control-naming.md)。
-
-CLI 契约不绑定平台：
-
-```bash
-dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
-dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
-dcc-mcp-cli ui-control record-clip --instance-id <id> --json '{"session_id":"pv","process_id":1234,"duration_ms":5000,"frames_per_second":30,"jpeg_quality":92}'
-dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
+```text
+DCC_MCP_CUA_ALLOW_RAW_INPUT=true
 ```
 
-路由身份分为两层：必须先选择目标 DCC 的 `instance_id`，`session_id` 只在该
-adapter 连接内部表示逻辑会话。两个 Unity、Unreal、Maya 或其他 DCC 实例都可以
-使用 `session_id="default"`；Host 会为每条连接创建不透明命名空间，能力、观察、
-录制以及断连清理不会互相碰撞。存在多个同类就绪实例时不得省略
-`--instance-id`，动作前还要核对返回的路由与精确 PID/HWND。
+Core 会校验 `dcc-mcp-cua manifest`、确保共享 Host，并保持持久 JSONL bridge。
+带原生扩展的 Core 优先共享内存截图；Python 3.7 pure wheel 使用有界二进制附件。
+目标边框/banner/agent 鼠标、平台无障碍、输入队列和 Escape 广播都由 CUA Host
+负责。
 
-同一个 Windows 登录会话可以同时保留多个精确窗口 session。它们共享一个 Host
-输入协调器、一个跨进程 input owner 和同一个全局 Esc 栅栏；请求与原生输入动作
-仍会串行执行，因此并发 Agent 不会同时向不同窗口注入输入。普通 stop 只释放选中
-的逻辑 session；按下 Esc 才会全局停止所有 session，并在用户批准恢复前保持锁存。
+## 观察与操作
 
-该封装默认输出紧凑的机器可读 JSON：保留路由标识、消息或错误、观察标识、有限快照元数据、语义匹配结果和已落盘图片路径，省略重复 MCP 信封与完整 UIA 树。只有排查原始协议或控件树时，才对单个子命令添加 `--full-output`。
+1. 调用 `ui_control__snapshot`。
+2. 有语义控件时调用 `ui_control__find`。
+3. 使用最新 `snapshot_id` 调用一次 `ui_control__act`。
+4. 调用 `ui_control__wait_for` 或重新截图。
+5. 完成后调用 `ui_control__stop_computer_use`。
 
-当前 Windows 提供原生范围窗口覆盖层和输入参考后端。macOS/Linux 适配器应保持同一
-CLI 和工具契约，并分别使用平台 API 实现截图、可访问性、安全提示和用户中断。
+每次动作都由 CUA observation 与 accessibility state 双重 fence。任何修改后都要
+重新截图。优先使用语义 element token；坐标输入只作为自绘界面的受控回退。
 
-仅当类型化 DCC 工具返回 `unsupported` 或 `capability_missing` 时才进入 `ui_control`。始终将操作限定到准确的 DCC 窗口。执行 Windows UIA 写操作前，适配器或运维人员必须通过 `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` 或 `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE` 绑定目标；请求参数只能缩小该范围，不能扩大范围。宿主会先显示显著、非模态的控制提示再开始常规会话，不弹出启动确认对话框。即使执行语义 UIA，该绑定会话也会提供可见横幅、截图和用户中断监控。原生鼠标和键盘输入还有第二道门槛：运维人员必须同时设置 `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`。
+多个 agent 可以并行控制不同应用。session grant、window capability、observation、
+录制状态和清理互相隔离；共享 Host 串行化原生输入，Escape 对所有活动 session
+广播中断。
 
-原生会话会把绑定的 PID/HWND 作为独立授权范围：没有绑定时拒绝创建，并在显示横幅、每次截图及每次动作前重新校验真实进程与窗口。仅标题或进程名的范围不能授权原生输入。
+## 录制
 
-`ui_control__record_clip` 是游戏玩法等时序证据的精确窗口录制路径。它通过单个
-Windows.Graphics.Capture 会话生成 Host 自有的 JPEG 序列，并在清单中记录每帧
-SHA-256。时长限制为 1–180 秒，输出为 1–60 FPS，请求不能指定目录。Esc、停止、
-桌面不可用、目标替换、窗口尺寸变化或写入未完成都会删除不完整产物。该工具不录
-音频，也不等于成片：用 `game-pv-capture` Skill 生成镜头来源与哈希，再由
-HyperFrames 完成剪辑、字幕、原创或许可音频与最终编码。不得改用全桌面录屏、
-标题匹配录制器或 GPT/OpenAI Computer Use。
+录制应包围真实动作，而不是同步等待固定时长：
 
-仅当语义 UIA 返回 `unsupported_action` 时，才能改用原生坐标输入。Host、UIA 或截图不可用都不能触发其他输入路径。遇到 `policy_disabled`、`permission_denied`、`invalid_target`、`missing_window`、`user_interrupted` 或 `desktop_unavailable` 时不得回退。
-
-Windows 后端会硬拒绝原生 `type`。非敏感文本只能通过当前 UIA 观察返回的精确 `control_id` 执行语义化 `set_text`；密码、验证码及其他身份验证材料必须交由用户或 Host 自有的安全凭据流程。mock/CDP 后端可以保留其专用 `type`，但它不是可移植的 Windows 操作。
-
-Windows `keypress` 同样拒绝普通可打印字符、Shift 修饰文本和 AltGr 文本；它只用于导航键、控制键、功能键或真正的 Ctrl/Alt 快捷键，不能作为逐字符文本输入旁路。
-
-使用以下循环：
-
-1. 对准确的 PID 或 HWND 调用 `ui_control__snapshot`，检查返回的截图和 `snapshot_id`。
-2. 优先使用 `ui_control__find` 和语义控件操作。只有不存在稳定语义控件时才使用截图坐标。
-3. 使用最新的 `snapshot_id` 执行且只执行一次 `ui_control__act`。
-4. 操作后立即重新调用 `ui_control__snapshot`。绝不复用旧截图中的坐标、控件 ID 或 observation ID。
-5. 每次只执行一个操作并重复观察；无论成功、失败、取消还是放弃，都必须调用 `ui_control__stop_computer_use`。
-
-可见角标、底部胶囊和鼠标效果属于适配器宿主的交互式 Windows 登录会话。用户按下 `Esc` 即可停止所有活动 session，工具返回 `user_interrupted`；请立即停止。中断后不要重试、改变 `session_id` 或启动新会话。只有用户明确要求恢复后，才能设置 `resume_computer_use=true`。
-
-### 锁屏、RDP 与显示变化
-
-- 将 `desktop_unavailable` 视为暂停。此时 Windows 已锁定、远程会话已断开或正在显示安全桌面，因此不会运行 UIA 或原生输入。停止发送 UI 调用，请用户解锁或重新连接，且不得自动轮询。保留逻辑 `session_id`；仅在宿主仍就绪时继续使用非 UI 工具。
-- 解锁或重新连接 RDP 后，丢弃此前所有 snapshot、observation、控件 ID 和坐标。操作前先对准确目标获取新快照；成功快照会恢复可见的 DCC UI Control 效果。
-- DCC UI Control 在拥有 DCC 的交互式 Windows 登录会话和适配器宿主上运行。网关只负责路由调用。绝不复用在网关、其他宿主或其他 Windows 会话中捕获的坐标。
-- 截图只覆盖有界目标窗口，绝不覆盖整个桌面。该窗口可以跨越具有负数虚拟桌面原点或不同 DPI 的显示器。显示器拓扑、分辨率、DPI/缩放、窗口位置或窗口大小的任何变化都会使 observation 失效，此时必须获取新快照。坐标相对于返回的 PNG，而不是全局桌面坐标。
-
-绝不能将 LockApp、Windows 安全中心、凭据/身份验证/密码管理器窗口、Windows“运行”对话框、终端、PowerShell 或 `cmd` 作为目标。这些是后端强制执行的边界，不能改用其他 UI 自动化方式绕过。绑定 DCC 进程内部的脚本编辑器不属于终端目标。
-
-`ui_control__act` 会向调用宿主声明 destructive 注解，由宿主执行自己的确认策略。不得新增或信任模型传入的 `confirmed=true` 参数，也不得把环境变量当成单次操作批准。若宿主策略要求确认但当前无法取得确认，应停止操作，不能切换到另一种自动化方式。未来可以加入由可信宿主签发的一次性批准能力，而无需削弱当前的目标范围和原生输入门槛。
-
-## 强类型 Windows 系统配置
-
-只有插件安装无法通过 DCC API 或应用内控件完成时，才使用
-`ui_control__system_operation`。它与 `ui_control__act` 不同：每次调用都会打开一个
-短生命周期、无窗口的 system session，不需要 PID、HWND 或快照。UI Control
-Host 启动前，运维人员必须通过
-`DCC_MCP_UI_CONTROL_SYSTEM_GRANTS_FILE` 提供精确授权清单，并用
-`DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID` 选择其中一项授权。
-
-```bash
-dcc-mcp-cli ui-control system-operation --instance-id <id> \
-  --json '{"operation_id":"enable-remote-control"}'
+```text
+ui_control__recording_start(output_dir=<绝对路径>, record_video=true)
+ui_control__act(...)
+ui_control__recording_state()
+ui_control__recording_stop()
+dcc-mcp-cua recording render <input-dir> <output.mp4>
 ```
 
-Agent 只提交非敏感 `operation_id`；Host 从运维清单中解析具体强类型操作，
-因此值与路径不会进入模型上下文、工具参数或 Host pipe。原生确认框会显示解析后
-的目标并请求批准；成功时返回 `created`、`updated` 或 `unchanged`。该工具仅支持
-HKCU String/DWORD 值和文件/目录软链接，不能执行命令、删除或覆盖对象、使用其他
-注册表 hive、提权或处理凭据。遇到 `elevation_required`、`approval_required` 或
-`system_operation_not_granted` 必须停止；不得退回 PowerShell、终端或 UAC
-自动化。详见 [ADR-015](../../adr/015-bounded-ui-control-system-operations.md)。
+录制格式和渲染器由独立 CUA runtime 负责，Core 不重复实现。
 
-完成系统配置后，应使用语义化 `set_checked`/`click`，并将 `intent` 设置为
-`account_or_access_change`，以开启应用自身的 remote-control 开关。Host 会独立
-识别相关标签并始终弹出确认。当前应用内的非敏感账号字段只能通过精确
-`control_id` 的语义化 `set_text` 填写；密码和验证码仍由用户或 Host 安全流程
-接管，也可以使用应用自身的 OAuth/浏览器流程。Windows 不支持原生 `type`。
+## 安全与证据
 
-## 示例：自绘 DCC 控件与捏脸
+- 每个 session 必须绑定准确进程/窗口。
+- 不自动处理凭据、认证提示或 secure desktop。
+- `user_interrupted`、`permission_denied`、`policy_disabled` 都是硬停止。
+- 截图作为证据时必须保留 `capture_provenance`。
+- 审计日志会脱敏输入文本和敏感动作参数。
 
-优先使用原生骨骼/参数工具，然后通过 `ui_control__find` 查找语义化滑块或手柄。
-只有自绘画布或视口操纵器没有稳定语义控件时，才由运维人员开启 raw
-input，并使用最新有界截图中的 `path` 执行一次带 observation 栅栏的拖拽。
-当 DCC 需要指针修饰键时，`keys` 可按住 Ctrl、Shift 或 Alt。
-
-```json
-{
-  "session_id": "face-shape",
-  "action": "drag",
-  "button": "left",
-  "keys": ["Shift"],
-  "path": [{"x": 612, "y": 428}, {"x": 628, "y": 424}, {"x": 646, "y": 419}],
-  "duration_ms": 350,
-  "snapshot_id": "<latest-snapshot-id>"
-}
-```
-
-拖拽后必须立即获取新快照，验证结果后再生成下一条路径；不得复用已消耗的
-observation。
-
-## 示例：模态对话框
-
-当 DCC 原生操作打开了没有宿主 API 等效项的确认对话框时，使用此方法。
-
-调用 `ui_control__snapshot` 并验证根窗口是预期的对话框。然后找到确认按钮：
-
-```json
-{"session_id": "maya-confirm-export", "label": "Overwrite", "role": "button"}
-```
-
-仅对解析的控件 ID 和当前快照执行操作：
-
-```json
-{
-  "session_id": "maya-confirm-export",
-  "control_id": "overwrite",
-  "action": "click",
-  "snapshot_id": "<snapshot_id>"
-}
-```
-
-等待模态框消失或状态文本更改：
-
-```json
-{
-  "session_id": "maya-confirm-export",
-  "condition": {
-    "kind": "control_missing",
-    "control_id": "overwrite",
-    "timeout_ms": 5000,
-    "interval_ms": 100
-  }
-}
-```
-
-最后在存在时使用原生 DCC 验证工具。例如，通过类型化技能验证导出的文件或场景状态已更改，而不仅仅是通过 UI。
-
-## 示例：设置面板
-
-当设置仅存在于首选项面板或 webview 中时，使用此方法。
-
-1. 快照有界的应用程序窗口。
-2. 通过可见标签而不是索引查找设置。
-3. 设置文本、复选框或选择。
-4. 单击面板的 apply/save 控件。
-5. 等待稳定的状态消息。
-6. 再次快照并验证设置值。
-
-模拟后端载荷镜像预期的真实工作流：
-
-```json
-{"session_id": "settings-demo", "label": "Project name"}
-```
-
-```json
-{
-  "session_id": "settings-demo",
-  "control_id": "project-name",
-  "action": "set_text",
-  "text": "Hero",
-  "snapshot_id": "<snapshot_id>"
-}
-```
-
-```json
-{
-  "session_id": "settings-demo",
-  "condition": {
-    "kind": "value_equals",
-    "control_id": "project-name",
-    "value": "Hero",
-    "timeout_ms": 1000,
-    "interval_ms": 50
-  }
-}
-```
-
-键入的文本应在审计记录中脱敏，除非适配器策略明确允许记录敏感值。
-
-## 示例：等待 UI 状态
-
-优先使用 `ui_control__wait_for` 而不是代理端轮询循环。它将重试保持在后端附近，避免重复的 MCP 往返，并在状态永不出现时返回一个结构化的超时信封。
-
-良好的等待条件是稳定的和语义化的：
-
-- 在状态标签（如 `Applied` 或 `Complete`）上使用 `text_equals`。
-- 在编辑后在文本字段上使用 `value_equals`。
-- 在复选框上使用 `checked_equals`。
-- 对于模态框生命周期使用 `control_exists` 或 `control_missing`。
-- 对于工作后变得可操作的控件使用 `enabled` 或 `disabled`。
-
-避免等待屏幕坐标、像素颜色或视觉顺序，除非后端没有可访问性树且适配器明确记录了该回退。
-
-## 恢复示例
-
-`stale_control`：从 `ui_control__snapshot` 重新开始，然后使用新的 `snapshot_id` 重复 `find` 和 `act`。永远不要盲目重试相同的过时控件 ID。
-
-`missing_window`：验证预期的 DCC/应用程序进程是否仍在运行，以及后端是否限定到正确的窗口标题或进程 ID。如果窗口因工作流完成而消失，请切换到原生验证工具。
-
-`policy_disabled`：停止 UI 操作。优先使用原生技能，或要求用户进行更窄的策略更改，如允许一个窗口的文本输入。不要静默扩展到全桌面访问。
-
-`timeout`：获取新的快照并检查最后观察到的 UI 状态。如果状态仍在进行中，请使用合理的超时再调用 `wait_for` 一次。如果状态被阻止，请向用户显示当前控件/状态文本或切换到宿主诊断技能。
-
-## 验证
-
-对于涉及 `ui_control` 的代码更改，请包含至少一个可执行路径：
-
-- 用于契约映射和结构化错误的单元测试。
-- 用于 snapshot -> find -> act -> wait -> verify 的模拟后端工作流测试。
-- 当涉及网关 `/v1/*` 路由或 REST 信封时的 VRS 跟踪。
-
-VRS 跟踪 `tests/vrs/traces/core-1134-ui-control-mock-workflow.jsonl` 固定了模拟后端工作流和恢复信封，用于实时网关运行。当没有注册 `ui_control__snapshot` 能力时，它会干净地跳过。
+所有权边界见 [ADR-020](../../adr/020-external-cua-runtime.md)。

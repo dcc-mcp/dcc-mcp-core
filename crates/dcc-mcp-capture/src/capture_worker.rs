@@ -9,10 +9,7 @@
 
 use std::ffi::OsString;
 
-/// Canonical Windows UI Control host that also exposes the hidden worker mode.
-pub const UI_CONTROL_HOST_BINARY_NAME: &str = "dcc-mcp-ui-control-host.exe";
-
-/// Standalone server fallback that exposes the hidden worker mode.
+/// Standalone server that exposes the hidden worker mode.
 pub const SERVER_BINARY_NAME: &str = "dcc-mcp-server.exe";
 
 /// Exact protocol version shared by the parent and capture worker.
@@ -20,7 +17,7 @@ pub const CAPTURE_WORKER_PROTOCOL_VERSION: u32 = 1;
 
 /// Canonical hidden argv marker used when the UI Control host or standalone
 /// server re-enters the capture-worker protocol in a separately spawned process.
-pub const CAPTURE_WORKER_ARG: &str = "--dcc-mcp-ui-control-capture-worker";
+pub const CAPTURE_WORKER_ARG: &str = "--dcc-mcp-capture-worker";
 
 #[cfg(target_os = "windows")]
 const RESPONSE_MAGIC: &[u8; 8] = b"DCCPWBG1";
@@ -114,7 +111,7 @@ mod windows_impl {
 
     use super::{
         CAPTURE_WORKER_ARG, CAPTURE_WORKER_PROTOCOL_VERSION, RESPONSE_HEADER_LEN, RESPONSE_MAGIC,
-        SERVER_BINARY_NAME, UI_CONTROL_HOST_BINARY_NAME, WorkerRunError,
+        SERVER_BINARY_NAME, WorkerRunError,
     };
     use crate::error::{CaptureError, CaptureResult};
 
@@ -388,7 +385,7 @@ mod windows_impl {
     }
 
     fn discover_worker() -> CaptureResult<PathBuf> {
-        if let Some(override_path) = std::env::var_os("DCC_MCP_UI_CONTROL_HOST") {
+        if let Some(override_path) = std::env::var_os("DCC_MCP_CAPTURE_WORKER") {
             let path = PathBuf::from(override_path);
             return if path.is_file() {
                 Ok(path)
@@ -406,7 +403,7 @@ mod windows_impl {
             append_executable_candidate(&executable, &mut candidates);
             append_directory_candidates(executable.parent(), &mut candidates);
         }
-        if let Some(path) = find_on_path(UI_CONTROL_HOST_BINARY_NAME) {
+        if let Some(path) = find_on_path(SERVER_BINARY_NAME) {
             candidates.push(path);
         }
 
@@ -420,8 +417,8 @@ mod windows_impl {
 
     fn append_directory_candidates(directory: Option<&Path>, candidates: &mut Vec<PathBuf>) {
         if let Some(directory) = directory {
-            candidates.push(directory.join(UI_CONTROL_HOST_BINARY_NAME));
-            candidates.push(directory.join("bin").join(UI_CONTROL_HOST_BINARY_NAME));
+            candidates.push(directory.join(SERVER_BINARY_NAME));
+            candidates.push(directory.join("bin").join(SERVER_BINARY_NAME));
         }
     }
 
@@ -437,8 +434,7 @@ mod windows_impl {
             .and_then(OsStr::to_str)
             .is_some_and(|name| {
                 let lower = name.to_ascii_lowercase();
-                name.eq_ignore_ascii_case(UI_CONTROL_HOST_BINARY_NAME)
-                    || name.eq_ignore_ascii_case(SERVER_BINARY_NAME)
+                name.eq_ignore_ascii_case(SERVER_BINARY_NAME)
                     || (lower.starts_with("dcc-mcp-server-") && lower.ends_with(".exe"))
             })
     }
@@ -457,7 +453,7 @@ mod windows_impl {
             .collect::<Vec<_>>()
             .join(", ");
         CaptureError::Platform(format!(
-            "Windows capture worker was not found; searched [{searched}]. Reinstall the Windows wheel or set DCC_MCP_UI_CONTROL_HOST to {UI_CONTROL_HOST_BINARY_NAME}"
+            "Windows capture worker was not found; searched [{searched}]. Install dcc-mcp-server or set DCC_MCP_CAPTURE_WORKER to {SERVER_BINARY_NAME}"
         ))
     }
 
@@ -696,8 +692,8 @@ mod windows_impl {
 
         impl HostOverride {
             fn set(path: &Path) -> Self {
-                let previous = std::env::var_os("DCC_MCP_UI_CONTROL_HOST");
-                unsafe { std::env::set_var("DCC_MCP_UI_CONTROL_HOST", path) };
+                let previous = std::env::var_os("DCC_MCP_CAPTURE_WORKER");
+                unsafe { std::env::set_var("DCC_MCP_CAPTURE_WORKER", path) };
                 Self(previous)
             }
         }
@@ -705,9 +701,9 @@ mod windows_impl {
         impl Drop for HostOverride {
             fn drop(&mut self) {
                 if let Some(previous) = self.0.take() {
-                    unsafe { std::env::set_var("DCC_MCP_UI_CONTROL_HOST", previous) };
+                    unsafe { std::env::set_var("DCC_MCP_CAPTURE_WORKER", previous) };
                 } else {
-                    unsafe { std::env::remove_var("DCC_MCP_UI_CONTROL_HOST") };
+                    unsafe { std::env::remove_var("DCC_MCP_CAPTURE_WORKER") };
                 }
             }
         }
@@ -773,12 +769,12 @@ mod windows_impl {
         }
 
         #[test]
-        fn missing_host_override_is_actionable() {
+        fn missing_worker_override_is_actionable() {
             let _serial = HOST_ENV_LOCK
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             let temp = tempfile::tempdir().unwrap();
-            let missing = temp.path().join("missing-ui-control-host.exe");
+            let missing = temp.path().join("missing-capture-worker.exe");
             let _override = HostOverride::set(&missing);
             let error = capture_via_worker(0, 1, 1, 100).unwrap_err().to_string();
             assert!(error.contains("capture worker"));
@@ -791,7 +787,7 @@ mod windows_impl {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             let temp = tempfile::tempdir().unwrap();
-            let executable = temp.path().join(UI_CONTROL_HOST_BINARY_NAME);
+            let executable = temp.path().join(SERVER_BINARY_NAME);
             std::fs::write(&executable, b"MZ").unwrap();
             let _override = HostOverride::set(&executable);
             assert_eq!(discover_worker().unwrap(), executable);
@@ -803,11 +799,8 @@ mod windows_impl {
             let mut candidates = Vec::new();
             append_directory_candidates(Some(root), &mut candidates);
 
-            assert_eq!(candidates[0], root.join(UI_CONTROL_HOST_BINARY_NAME));
-            assert_eq!(
-                candidates[1],
-                root.join("bin").join(UI_CONTROL_HOST_BINARY_NAME)
-            );
+            assert_eq!(candidates[0], root.join(SERVER_BINARY_NAME));
+            assert_eq!(candidates[1], root.join("bin").join(SERVER_BINARY_NAME));
         }
 
         #[test]
@@ -820,7 +813,7 @@ mod windows_impl {
             assert_eq!(candidates[0], server);
             assert_eq!(
                 candidates[1],
-                Path::new(r"C:\dcc-mcp-test").join(UI_CONTROL_HOST_BINARY_NAME)
+                Path::new(r"C:\dcc-mcp-test").join(SERVER_BINARY_NAME)
             );
         }
 

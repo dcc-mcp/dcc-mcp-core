@@ -18,9 +18,9 @@ Consumers in `dcc-mcp-http` re-export the types under their historical
 paths so existing call sites keep compiling while the migration is in
 flight.
 
-Application UI observation/action contracts intentionally live in
-`dcc-mcp-ui-control`, not here. That keeps the `ui_control` schema independent from the
-HTTP wire/config layer and from any host-specific UI automation backend.
+Application UI policy intentionally lives in the Python `ui-control` skill,
+while the standalone `dcc-mcp-cua` CLI owns automation and Host IPC. That keeps
+the HTTP wire/config layer independent from any platform automation backend.
 
 ## Stability
 

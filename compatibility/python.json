@@ -87,17 +87,13 @@
             "manylinux2014_x86_64"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
         },
         "windows-x86_64": {
           "allowed_platform_tags": [
             "win_amd64"
           ],
-          "versioned_required_members": {
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
-          },
           "forbidden_members": [
             "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
@@ -116,8 +112,7 @@
             "any"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
         }
       }
@@ -135,17 +130,13 @@
             "manylinux2014_x86_64"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
         },
         "windows-x86_64": {
           "allowed_platform_tags": [
             "win_amd64"
           ],
-          "versioned_required_members": {
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
-          },
           "forbidden_members": [
             "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
@@ -160,8 +151,7 @@
             "macosx_*_arm64"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
         },
         "macos-native": {
@@ -170,8 +160,7 @@
             "macosx_*_arm64"
           ],
           "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
+            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
         }
       }

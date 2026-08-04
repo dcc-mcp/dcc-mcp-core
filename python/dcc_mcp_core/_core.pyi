@@ -54,7 +54,6 @@ __all__ = [
     "CaptureResult",
     "CaptureTarget",
     "Capturer",
-    "ComputerUseSession",
     "DccCapabilities",
     "DccError",
     "DccErrorCode",
@@ -513,54 +512,6 @@ class Capturer:
             (window not found, crop out of bounds, decode error, ...).
         """
     def __repr__(self) -> builtins.str: ...
-
-@typing.final
-class ComputerUseSession:
-    r"""
-    Native, scoped DCC MCP Computer Use session.
-    """
-    def __new__(cls, *, process_id: typing.Optional[builtins.int] = None, window_handle: typing.Optional[builtins.int] = None, window_title: typing.Optional[builtins.str] = None, app_name: typing.Optional[builtins.str] = None) -> ComputerUseSession:
-        r"""
-        Create a session for exactly one application window.
-        """
-    @staticmethod
-    def process_user_interrupted() -> builtins.bool:
-        r"""
-        Return whether Esc stopped Computer Use in this Windows logon session.
-        """
-    @staticmethod
-    def desktop_interactive() -> builtins.bool:
-        r"""
-        Return whether this process can currently observe the interactive Windows desktop.
-        """
-    def start(self) -> builtins.str:
-        r"""
-        Start the visible banner and reserve Esc for the stop action.
-        """
-    def screenshot(self) -> tuple[builtins.str, typing.Optional[bytes]]:
-        r"""
-        Return `(metadata_json, png_bytes_or_none)` for the scoped window.
-        """
-    def act(self, request_json: builtins.str) -> builtins.str:
-        r"""
-        Perform one JSON-encoded native action.
-        """
-    def request_stop(self) -> None:
-        r"""
-        Request an immediate stop without waiting for the active action.
-        """
-    def stop(self) -> builtins.str:
-        r"""
-        Stop the session and remove the banner.
-        """
-    def resume_after_user_approval(self) -> builtins.str:
-        r"""
-        Clear the Windows-logon-session stop latch after explicit user approval.
-        """
-    def status(self) -> builtins.str:
-        r"""
-        Return the current session state as JSON.
-        """
 
 @typing.final
 class DccCapabilities:

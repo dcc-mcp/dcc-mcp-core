@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import json
 import os
 from pathlib import Path
@@ -16,6 +15,8 @@ from typing import Sequence
 from dcc_mcp_core import HostExecutionBridge
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
+from dcc_mcp_core.cua_cli import inspect_cua_contract
+from dcc_mcp_core.cua_cli import resolve_cua_command
 
 
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -24,7 +25,8 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--process-id", required=True, type=int)
     parser.add_argument("--window-handle", required=True, type=int)
-    parser.add_argument("--host-exe", required=True, type=Path)
+    parser.add_argument("--cua-binary", type=Path)
+    parser.add_argument("--application-label", default="DCC")
     parser.add_argument("--skill-root", required=True, type=Path)
     parser.add_argument("--registry-dir", required=True, type=Path)
     parser.add_argument("--ready-file", required=True, type=Path)
@@ -34,38 +36,9 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _validate_target(process_id: int, window_handle: int) -> str:
-    if sys.platform != "win32":
-        raise RuntimeError("UI Control target validation requires Windows")
-
+def _validate_target_scope(process_id: int, window_handle: int) -> None:
     if process_id <= 0 or window_handle <= 0:
         raise ValueError("process-id and window-handle must be positive")
-
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    hwnd = ctypes.c_void_p(window_handle)
-    if not user32.IsWindow(hwnd):
-        raise RuntimeError("window-handle is not a live native window")
-
-    actual_process_id = ctypes.c_uint32()
-    if not user32.GetWindowThreadProcessId(hwnd, ctypes.byref(actual_process_id)):
-        raise RuntimeError("could not resolve the window owner process")
-    if actual_process_id.value != process_id:
-        raise RuntimeError(
-            f"window target mismatch: expected PID {process_id}, resolved PID {actual_process_id.value}",
-        )
-
-    length = user32.GetWindowTextLengthW(hwnd)
-    title_buffer = ctypes.create_unicode_buffer(length + 1)
-    user32.GetWindowTextW(hwnd, title_buffer, len(title_buffer))
-    return title_buffer.value
-
-
-def _validate_host_executable(path: Path) -> None:
-    if not path.is_file():
-        raise FileNotFoundError(f"UI Control Host not found: {path}")
-    with path.open("rb") as stream:
-        if stream.read(2) != b"MZ":
-            raise ValueError(f"UI Control Host is not a Windows PE executable: {path}")
 
 
 def _write_ready(path: Path, payload: dict) -> None:
@@ -98,25 +71,27 @@ def _shutdown(bridge, handle) -> None:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run until SIGINT or SIGTERM requests an orderly shutdown."""
     args = _parse_args(argv)
-    host_exe = args.host_exe.resolve()
     skill_root = args.skill_root.resolve()
     registry_dir = args.registry_dir.resolve()
     ready_file = args.ready_file.resolve()
-    _validate_host_executable(host_exe)
     if not skill_root.is_dir():
         raise FileNotFoundError(f"Skill root not found: {skill_root}")
-    target_title = _validate_target(args.process_id, args.window_handle)
+    _validate_target_scope(args.process_id, args.window_handle)
+    configured_binary = str(args.cua_binary.resolve()) if args.cua_binary is not None else None
+    cua_command = resolve_cua_command(configured_binary)
+    cua_contract = inspect_cua_contract(cua_command)
 
-    os.environ["DCC_MCP_UI_CONTROL_BACKEND"] = "windows-uia"
-    os.environ["DCC_MCP_UI_CONTROL_HOST"] = str(host_exe)
-    os.environ["DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE"] = str(args.window_handle)
-    os.environ.pop("DCC_MCP_UI_CONTROL_UIA_PROCESS_ID", None)
+    os.environ["DCC_MCP_UI_CONTROL_BACKEND"] = "cua"
+    os.environ["DCC_MCP_CUA_BINARY"] = cua_command[0]
+    os.environ["DCC_MCP_UI_CONTROL_DCC_TYPE"] = str(args.application_label)
+    os.environ["DCC_MCP_UI_CONTROL_WINDOW_HANDLE"] = str(args.window_handle)
+    os.environ["DCC_MCP_UI_CONTROL_PROCESS_ID"] = str(args.process_id)
     os.environ["DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"] = "1"
     os.environ["DCC_MCP_DISABLE_ACCUMULATED_SKILLS"] = "1"
     if args.allow_raw_input:
-        os.environ["DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT"] = "true"
+        os.environ["DCC_MCP_CUA_ALLOW_RAW_INPUT"] = "true"
     else:
-        os.environ.pop("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", None)
+        os.environ.pop("DCC_MCP_CUA_ALLOW_RAW_INPUT", None)
 
     registry_dir.mkdir(parents=True, exist_ok=True)
     config = McpHttpConfig(
@@ -158,14 +133,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "launcher_pid": os.getpid(),
             "target_process_id": args.process_id,
             "target_window_handle": args.window_handle,
-            "target_window_title": target_title,
             "backend_port": handle.port,
             "backend_mcp_url": handle.mcp_url(),
             "gateway_port": args.gateway_port,
             "gateway_mcp_url": f"http://127.0.0.1:{args.gateway_port}/mcp",
             "is_gateway": handle.is_gateway,
             "loaded_actions": list(loaded_actions),
-            "host_exe": str(host_exe),
+            "cua_binary": cua_command[0],
+            "cua_version": cua_contract.version,
             "raw_input_enabled": bool(args.allow_raw_input),
         }
         _write_ready(ready_file, payload)

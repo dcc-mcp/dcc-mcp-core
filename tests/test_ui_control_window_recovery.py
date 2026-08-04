@@ -1,4 +1,4 @@
-"""Regression coverage for ui-control window recovery."""
+"""Regression coverage for CUA exact-window session stability."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import ClassVar
 
 from conftest import REPO_ROOT
 
-_BACKEND_PATH = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control" / "scripts" / "_windows_uia_backend.py"
+_BACKEND_PATH = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control" / "scripts" / "_cua_backend.py"
 
 
 def _load_backend() -> Any:
@@ -94,9 +94,9 @@ def test_process_scoped_host_session_ignores_transient_uia_root(monkeypatch: Any
             self.stopped = True
             return {"type": "session_stopped", "cleanup_pending": False}
 
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
-    monkeypatch.setenv("DCC_MCP_UI_CONTROL_UIA_PROCESS_ID", "1234")
-    monkeypatch.delenv("DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE", raising=False)
+    monkeypatch.setenv("DCC_MCP_CUA_ALLOW_RAW_INPUT", "true")
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_PROCESS_ID", "1234")
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
     monkeypatch.setattr(backend, "_HostClient", FakeHostClient)
 
     policy = {"allow_keyboard_shortcuts": True}

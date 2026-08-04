@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; capture executable packaging superseded by [ADR-015](./015-bounded-ui-control-system-operations.md)
+Superseded by [ADR-020](./020-external-cua-runtime.md)
 
 ## Context
 

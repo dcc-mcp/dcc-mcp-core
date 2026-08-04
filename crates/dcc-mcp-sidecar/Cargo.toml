@@ -23,6 +23,7 @@ sysinfo.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 default = ["gateway-auto", "gateway-daemon"]
