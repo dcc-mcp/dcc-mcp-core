@@ -92,13 +92,8 @@ is already known, install it directly with `--reload`; then use `load-skill`
 only when needed. The Python REST fallback
 does not implement marketplace commands, so a missing CLI follows the
 consent-gated official CLI installation path below.
-
-Every CLI invocation performs a short best-effort marketplace update check. If
-it reports newer installed Skills, show the package names to the user and ask
-for confirmation before running `marketplace update`; the check never changes
-local state. `marketplace uninstall <name> --reload` removes the package and
-refreshes the matching adapter. Omit `--dcc` only when installed state contains
-that package for one DCC; an ambiguous package must specify the target DCC.
+Each CLI invocation performs a short read-only marketplace update check; report updates and ask confirmation before `marketplace update`.
+`uninstall --reload` removes and refreshes; omit `--dcc` only for a package installed on one DCC.
 
 ## DCC Intent Routing — Use This Skill First
 
@@ -481,21 +476,14 @@ read-only; install/update require consent. Inspect is optional when the exact
 package ID is already known, and `--dcc` is optional for single-DCC packages.
 After updates or installs without `--reload`, run `reload-skills`; then use
 `load-skill` only if the adapter did not auto-load it.
-Package authors use `marketplace pack` and `marketplace publish`; full commands
-live in the CLI cheatsheet.
 
 Use `install` for adapter plans, never for marketplace Skills:
 
 ```bash
 dcc-mcp-cli install --dcc-type maya --version 2026
-# If the host is not found automatically, ask for its absolute path:
-dcc-mcp-cli install --dcc-type maya --dcc-path "C:\Program Files\Autodesk\Maya2026\bin\maya.exe"
 ```
-
 Ask before `--execute`, follow the returned `next_steps`, and do not treat
-package installation as live registration. If no standard DCC installation is
-found, ask the user for an absolute executable or application path and pass it
-with `--dcc-path`. If auto-install is disabled, show
+package installation as live registration. If no standard DCC is found, ask for an absolute path and pass `--dcc-path`. If auto-install is disabled, show
 the returned policy prompt and hand off to the named deployment owner.
 
 ## What This Skill Does Not Use
