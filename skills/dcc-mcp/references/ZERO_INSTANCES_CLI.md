@@ -62,6 +62,9 @@ execution:
 dcc-mcp-cli install --dcc-type <dcc> --python "<dcc-python>" --execute
 ```
 
+If the DCC is installed outside standard locations, ask the user for its
+absolute executable or application path and pass `--dcc-path "<dcc-path>"`.
+
 Execution installs/verifies packages only. The online registration signal is
 still `dcc-mcp-cli list`: the DCC plugin or sidecar must start, stay alive, and
 self-register in the FileRegistry or selected gateway.

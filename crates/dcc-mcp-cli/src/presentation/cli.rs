@@ -21,6 +21,7 @@ use crate::application::gateway_ctrl;
 use crate::application::gateway_ensure;
 use crate::application::gateway_profile::{self, GatewayTarget};
 use crate::application::install::InstallService;
+use crate::application::marketplace::check_marketplace_updates;
 use crate::application::marketplace::new_service;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{
@@ -298,6 +299,9 @@ enum Command {
         /// Python interpreter used for pip-based adapter package installs.
         #[arg(long, env = "DCC_MCP_INSTALL_PYTHON")]
         python: Option<String>,
+        /// Absolute DCC executable or application path for non-standard installs.
+        #[arg(long, env = "DCC_MCP_DCC_PATH")]
+        dcc_path: Option<PathBuf>,
         /// Execute the install plan with consent gating.
         #[arg(long, short = 'x')]
         execute: bool,
@@ -440,8 +444,12 @@ enum MarketplaceAction {
     /// Remove an installed marketplace skill package.
     Uninstall {
         name: String,
+        /// Target DCC; inferred from installed state when omitted.
         #[arg(long)]
-        dcc: String,
+        dcc: Option<String>,
+        /// Ask the running adapter to re-scan skill paths after removal.
+        #[arg(long)]
+        reload: bool,
     },
     /// List installed marketplace skill packages.
     ListInstalled {
@@ -649,6 +657,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     // Resolve output format: explicit flag > env > TTY auto-detect.
     let output = output.unwrap_or_else(OutputFormat::auto_detect);
     let writer = OutputWriter::new(output);
+    let marketplace_update_check = tokio::spawn(check_marketplace_updates());
 
     // Deprecation warning for per-command timeout when global timeout is set.
     if global_timeout_secs.is_some() && command_has_per_timeout(&command) {
@@ -682,7 +691,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
 
     let mut failed = false;
     let mut exit_code = ExitCode::GeneralError;
-    let value = match command {
+    let mut value = match command {
         Command::Smoke {
             url,
             query,
@@ -976,6 +985,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             version,
             catalog,
             python,
+            dcc_path,
             execute,
         } => {
             let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
@@ -984,6 +994,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 version,
                 catalog_path: catalog,
                 python,
+                dcc_path,
             };
             if execute {
                 to_json(service.execute(req, non_interactive)?)?
@@ -1062,8 +1073,39 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     }
                     value
                 }
-                MarketplaceAction::Uninstall { name, dcc } => {
-                    to_json(service.uninstall(&name, &dcc)?)?
+                MarketplaceAction::Uninstall { name, dcc, reload } => {
+                    let installed_dcc = service.resolve_installed_dcc(&name, dcc.as_deref())?;
+                    let result = service.uninstall(&name, &installed_dcc)?;
+                    let mut value = to_json(result)?;
+                    if reload {
+                        match control
+                            .reload_skills(ReloadSkillsRequest {
+                                dcc_type: Some(installed_dcc),
+                                instance_id: None,
+                            })
+                            .await
+                        {
+                            Ok(result) => {
+                                let reloaded =
+                                    result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                                value["reload_required"] = Value::Bool(!reloaded);
+                                value["reload"] = result;
+                                if !reloaded {
+                                    failed = true;
+                                    exit_code = ExitCode::Unavailable;
+                                }
+                            }
+                            Err(err) => {
+                                value["reload"] = serde_json::json!({
+                                    "ok": false,
+                                    "error": err.to_string(),
+                                });
+                                failed = true;
+                                exit_code = ExitCode::Unavailable;
+                            }
+                        }
+                    }
+                    value
                 }
                 MarketplaceAction::ListInstalled { dcc } => {
                     to_json(service.list_installed(dcc.as_deref())?)?
@@ -1141,6 +1183,21 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
     };
 
+    if let Ok(Ok(Some(updates))) =
+        tokio::time::timeout(Duration::from_millis(750), marketplace_update_check).await
+    {
+        if let Some(object) = value.as_object_mut() {
+            object.insert(
+                "marketplace_updates".into(),
+                serde_json::json!(updates.clone()),
+            );
+        }
+        eprintln!(
+            "info: marketplace updates available for {}. Review and run `dcc-mcp-cli marketplace update` after confirmation.",
+            updates.join(", ")
+        );
+    }
+
     writer.write_data(&value)?;
     if failed {
         let envelope = ErrorEnvelope::new(
@@ -1212,6 +1269,9 @@ fn gateway_endpoint_for_command(
         | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
         Command::Marketplace {
             action: MarketplaceAction::Install { reload: true, .. },
+        }
+        | Command::Marketplace {
+            action: MarketplaceAction::Uninstall { reload: true, .. },
         } => Some(Endpoint::new(base_url)),
         // Local mode still executes these commands through FileRegistry/direct
         // MCP where that is the richer path, but the CLI owns gateway

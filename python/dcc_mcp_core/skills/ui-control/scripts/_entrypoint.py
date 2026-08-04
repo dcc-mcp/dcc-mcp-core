@@ -61,8 +61,18 @@ def _import_sibling(name: str) -> Any:
     return importlib.import_module(name)
 
 
+def _default_backend() -> str:
+    """Return the platform-native UI backend used when no override is set."""
+    return "windows-uia" if sys.platform == "win32" else "chrome-cdp"
+
+
+def _selected_backend() -> str:
+    value = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "").strip().lower()
+    return value or _default_backend()
+
+
 def _load_backend() -> Any:
-    backend = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "mock").strip().lower()
+    backend = _selected_backend()
     if backend in {"", "mock"}:
         return _import_sibling("_backend")
     if backend in {"chrome", "chrome-cdp", "cdp"}:
@@ -107,7 +117,7 @@ def _canonical_backend(result: Dict[str, Any]) -> str:
                 return str(ui_control["backend"])
     if context.get("backend"):
         return str(context["backend"])
-    selected = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "mock").strip().lower()
+    selected = _selected_backend()
     if selected in {"windows-uia", "windows_uia", "uia", "win-uia", "win32-uia"}:
         return "windows-ui-control-host"
     if selected in {
@@ -409,7 +419,7 @@ def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     call_params = dict(params) if params is not None else _read_subprocess_params()
     backend = _load_backend()
     if backend is None:
-        selected = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "mock")
+        selected = _selected_backend()
         result = skill_error(
             f"Unsupported ui_control backend {selected!r}.",
             "backend_unavailable",

@@ -49,6 +49,12 @@ pub enum MarketplaceError {
     #[error("marketplace entry '{name}' targets multiple DCCs; pass --dcc")]
     AmbiguousDcc { name: String },
 
+    #[error("installed package '{name}' targets multiple DCCs; pass --dcc")]
+    AmbiguousInstalledDcc { name: String },
+
+    #[error("installed marketplace package '{0}' was not found")]
+    InstalledPackageNotFound(String),
+
     #[error("marketplace entry '{name}' does not target DCC '{dcc}'")]
     DccMismatch { name: String, dcc: String },
 

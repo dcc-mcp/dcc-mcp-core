@@ -126,9 +126,11 @@ Safety expectations:
   Sensitive typed text and screenshot bytes should be redacted or returned only
   as artefact/resource references.
 
-The bundled `ui-control` skill defaults to a deterministic mock backend for tests
-and adapter authoring. Set `DCC_MCP_UI_CONTROL_BACKEND=chrome` to use the
-experimental CDP backend and drive browser or webview search through the same
+The bundled `ui-control` skill selects the platform-native backend by default:
+Windows uses the isolated Windows UI Automation host and other platforms use the
+CDP backend. Tests may explicitly select the deterministic mock backend with
+`DCC_MCP_UI_CONTROL_BACKEND=mock`. The CDP backend drives browser or webview
+search through the same
 `ui_control__snapshot`, `ui_control__find`, `ui_control__act`, and `ui_control__wait_for`
 tools. The CDP backend supports presets: `reuse` attaches to an existing
 DevTools endpoint first so current browser tokens can be reused, `isolated`
@@ -140,8 +142,8 @@ Vercel's `agent-browser` CLI, which exposes its DevTools URL through
 `agent-browser get cdp-url` and can be provisioned in CI with
 `agent-browser install`.
 
-Set `DCC_MCP_UI_CONTROL_BACKEND=windows-uia` on Windows to use the reference
-Windows UI Automation backend. It uses the OS UIAutomationClient API through a
+On Windows the reference Windows UI Automation backend is selected automatically.
+It uses the OS UIAutomationClient API through a
 PowerShell worker that is reused only within one exact Host runtime session and
 reaped on stop or failure. It stays behind the same contract and never retries
 an uncertain mutation. The backend refuses

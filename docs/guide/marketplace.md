@@ -76,7 +76,7 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace inspect <name>`              | Show full entry metadata                       |
 | `marketplace install <name> --dcc <dcc> --reload` | Install a skill package and refresh running adapters |
 | `marketplace list-installed --dcc <dcc>`  | List installed packages                        |
-| `marketplace uninstall <name> --dcc <dcc>`| Remove an installed package                    |
+| `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| Remove an installed package and optionally refresh the adapter |
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
 | `marketplace update [name] --all`         | Upgrade installed packages                     |
 | `marketplace add-repo <repo> [--dcc]`     | Install directly from a GitHub repo            |
@@ -366,7 +366,7 @@ future phase.
 |--------|-----|----------|
 | Catalog search | `marketplace search --query <q>` | Browse tab with search + DCC filter |
 | Install | `marketplace install <name> --dcc <dcc> --reload` | Install button on card or detail modal |
-| Uninstall | `marketplace uninstall <name> --dcc <dcc>` | Uninstall button in Installed tab |
+| Uninstall | `marketplace uninstall <name> [--dcc <dcc>] [--reload]` | Uninstall button in Installed tab |
 | List installed | `marketplace list-installed --dcc <dcc>` | Installed tab |
 | Add source | `marketplace add <source>` | Source management in panel |
 | Direct GitHub install | `marketplace add-repo <repo> --dcc <dcc>` | Admin API (planned) |
@@ -378,7 +378,10 @@ CLI users can install and refresh running adapters in one command with
 `marketplace install <name> --dcc <dcc> --reload`; `--dcc` is optional for a
 single-DCC package. The Admin UI triggers the same refresh automatically when
 its backend reports `reload_required`. Updates and uninstalls still use the
-standalone `reload-skills` command when a live refresh is needed.
+standalone `reload-skills` command when a live refresh is needed, unless CLI
+uninstall uses `--reload`. The CLI also performs a short read-only update check
+on startup and reports available Skill updates; applying them remains
+consent-gated through `marketplace update`.
 
 ## See Also
 

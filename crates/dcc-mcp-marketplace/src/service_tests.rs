@@ -1,5 +1,51 @@
 use super::*;
 
+fn installed_package(name: &str, dcc: &str) -> InstalledMarketplacePackage {
+    InstalledMarketplacePackage {
+        name: name.into(),
+        dcc: dcc.into(),
+        version: Some("1.0.0".into()),
+        path: format!("/tmp/{name}-{dcc}"),
+        source_name: "local-test".into(),
+        source_url: "https://example.invalid/catalog.json".into(),
+        install_type: "git".into(),
+        install_url: None,
+        install_ref: None,
+        resolved_commit: None,
+        installed_at_ms: 1,
+    }
+}
+
+#[test]
+fn resolve_installed_dcc_infers_the_only_matching_host() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = MarketplaceService::new(temp.path().to_path_buf());
+    service
+        .upsert_installed(installed_package("maya-tools", "maya"))
+        .unwrap();
+
+    assert_eq!(
+        service.resolve_installed_dcc("maya-tools", None).unwrap(),
+        "maya"
+    );
+}
+
+#[test]
+fn resolve_installed_dcc_requires_a_host_for_ambiguous_packages() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = MarketplaceService::new(temp.path().to_path_buf());
+    for dcc in ["maya", "blender"] {
+        service
+            .upsert_installed(installed_package("shared-tools", dcc))
+            .unwrap();
+    }
+
+    assert!(matches!(
+        service.resolve_installed_dcc("shared-tools", None),
+        Err(MarketplaceError::AmbiguousInstalledDcc { name }) if name == "shared-tools"
+    ));
+}
+
 #[tokio::test]
 async fn outdated_fetches_each_catalog_once() {
     use std::io::{Read, Write};

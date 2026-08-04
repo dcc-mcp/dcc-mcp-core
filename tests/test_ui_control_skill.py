@@ -51,6 +51,19 @@ def _load_entrypoint_module() -> Any:
     return module
 
 
+def test_ui_control_defaults_to_native_backend_without_environment_override(monkeypatch: Any) -> None:
+    entrypoint = _load_entrypoint_module()
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_BACKEND", raising=False)
+    monkeypatch.setattr(entrypoint.sys, "platform", "win32")
+    assert entrypoint._selected_backend() == "windows-uia"
+
+    monkeypatch.setattr(entrypoint.sys, "platform", "linux")
+    assert entrypoint._selected_backend() == "chrome-cdp"
+
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "")
+    assert entrypoint._selected_backend() == "chrome-cdp"
+
+
 def test_ui_control_entrypoint_imports_without_native_core(monkeypatch: Any) -> None:
     monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", None)
     entrypoint = _load_entrypoint_module()

@@ -36,12 +36,13 @@ when that path reports `unsupported` or `capability_missing`. Policy denial,
 user interruption, authentication, or desktop unavailability are stop
 conditions, not fallback signals.
 
-The default backend is deterministic mock state for CI and adapter authoring.
-Set `DCC_MCP_UI_CONTROL_BACKEND=chrome` to use the experimental CDP backend through
-the same `ui_control__*` contract.
+The default backend is the platform-native UI backend: Windows uses the isolated
+Windows UI Automation host, while other platforms use the CDP backend. The mock
+backend remains available only when a test or adapter explicitly sets
+`DCC_MCP_UI_CONTROL_BACKEND=mock`.
 
-Set `DCC_MCP_UI_CONTROL_BACKEND=windows-uia` on Windows to use the isolated
-`dcc-mcp-ui-control-host.exe`. Bind it at adapter startup with exactly one
+On Windows, the isolated `dcc-mcp-ui-control-host.exe` is selected automatically.
+Bind it at adapter startup with exactly one
 `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`;
 request parameters may narrow that scope but cannot create or widen it.
 Whole-desktop and title/process-name-only native sessions are disabled.

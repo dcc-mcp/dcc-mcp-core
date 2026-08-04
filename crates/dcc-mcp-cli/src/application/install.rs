@@ -345,7 +345,8 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
         InstallStepAction::RegisterDcc {
             dcc_type,
             entry_point,
-        } => execute_register_dcc(dcc_type, entry_point.as_deref()),
+            dcc_path,
+        } => execute_register_dcc(dcc_type, entry_point.as_deref(), dcc_path.as_deref()),
         InstallStepAction::Verify => Err(InstallError::StepFailed {
             step: "verify".into(),
             message: "verify requires the full install plan".into(),
@@ -558,19 +559,31 @@ fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>,
 }
 
 fn execute_register_dcc(
-    _dcc_type: &str,
+    dcc_type: &str,
     _entry_point: Option<&str>,
+    dcc_path: Option<&Path>,
 ) -> Result<Option<StepRollback>, InstallError> {
     // Registration is owned by the DCC plugin's sidecar. The CLI can install
     // packages, but it must not pretend a host process is registered until the
     // plugin starts, stays alive, and advertises itself in the registry.
     eprintln!();
-    eprint!("    └─ note: start or enable the '{_dcc_type}' plugin, ");
+    if let Some(path) = dcc_path {
+        eprintln!("    └─ host path: {}", path.display());
+    }
+    eprint!("    └─ note: start or enable the '{dcc_type}' plugin, ");
     eprintln!("then re-run `dcc-mcp-cli list` to confirm self-registration.");
     Ok(None)
 }
 
 fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallError> {
+    if let Some(path) = &plan.dcc_path {
+        if !path.exists() {
+            return Err(InstallError::StepFailed {
+                step: "verify".into(),
+                message: format!("DCC path does not exist: {}", path.display()),
+            });
+        }
+    }
     for step in &plan.steps {
         let Some(action) = &step.action else {
             continue;
@@ -728,6 +741,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             })
             .unwrap();
 
@@ -747,6 +761,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             })
             .unwrap();
 
@@ -800,6 +815,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             })
             .unwrap();
 
@@ -826,6 +842,7 @@ mod tests {
                     version: None,
                     catalog_path: None,
                     python: Some("/__nonexistent__/python".into()),
+                    dcc_path: None,
                 },
                 true,
             )
@@ -875,7 +892,7 @@ mod tests {
 
     #[test]
     fn register_dcc_is_noop() {
-        let result = execute_register_dcc("maya", Some("dcc_mcp_maya.cli:main"));
+        let result = execute_register_dcc("maya", Some("dcc_mcp_maya.cli:main"), None);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
@@ -927,6 +944,7 @@ mod tests {
         InstallPlan {
             dcc_type: "maya".into(),
             version: None,
+            dcc_path: None,
             adapter: dcc_mcp_catalog::CatalogEntry {
                 name: "dcc-mcp-maya".into(),
                 description: "Maya adapter".into(),
