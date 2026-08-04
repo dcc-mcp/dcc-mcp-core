@@ -576,13 +576,13 @@ fn execute_register_dcc(
 }
 
 fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallError> {
-    if let Some(path) = &plan.dcc_path {
-        if !path.exists() {
-            return Err(InstallError::StepFailed {
-                step: "verify".into(),
-                message: format!("DCC path does not exist: {}", path.display()),
-            });
-        }
+    if let Some(path) = &plan.dcc_path
+        && !path.exists()
+    {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!("DCC path does not exist: {}", path.display()),
+        });
     }
     for step in &plan.steps {
         let Some(action) = &step.action else {
