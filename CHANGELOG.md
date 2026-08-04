@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.91](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.90...v0.19.91) (2026-08-04)
+
+
+### Features
+
+* improve UI control and skill lifecycle ([0ef63b3](https://github.com/dcc-mcp/dcc-mcp-core/commit/0ef63b35e79a67a704eed6333c1e650cda077ab6))
+
+
+### Bug Fixes
+
+* honor UI Control task preapproval ([8a54d61](https://github.com/dcc-mcp/dcc-mcp-core/commit/8a54d61d24605c627aab76aaf214aef870402a2e))
+* keep CLI presentation files within size limits ([be0d6bb](https://github.com/dcc-mcp/dcc-mcp-core/commit/be0d6bbe1b5aa3b34797d7f755f57d2e1da89d63))
+* keep DCC skill guide within size limit ([d4896e1](https://github.com/dcc-mcp/dcc-mcp-core/commit/d4896e10ae68f903efcf3a379ae4d403ea6aace7))
+* satisfy clippy install verification ([196b151](https://github.com/dcc-mcp/dcc-mcp-core/commit/196b1518024f365da87928ae3bbb0b1a1602ed73))
+
 ## [0.19.90](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.89...v0.19.90) (2026-07-31)
 
 
