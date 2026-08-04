@@ -10,12 +10,16 @@ pub struct InstallRequest {
     pub version: Option<String>,
     pub catalog_path: Option<PathBuf>,
     pub python: Option<String>,
+    /// Optional absolute DCC executable or application path supplied by the user.
+    pub dcc_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstallPlan {
     pub dcc_type: String,
     pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcc_path: Option<PathBuf>,
     pub adapter: CatalogEntry,
     pub steps: Vec<InstallStep>,
     #[serde(default)]
@@ -124,6 +128,9 @@ pub enum InstallStepAction {
         /// Optional Python entry point for the adapter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         entry_point: Option<String>,
+        /// Optional user-provided DCC executable/application path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dcc_path: Option<PathBuf>,
     },
     /// Verify local install artefacts. Live DCC readiness is a next step.
     Verify,
@@ -171,6 +178,7 @@ impl InstallPlanner {
 
         let dcc_type = request.dcc_type.clone();
         let version = request.version.clone();
+        let dcc_path = request.dcc_path.clone();
 
         let steps = match &adapter.install {
             Some(install) => Self::build_executable_steps(
@@ -179,16 +187,18 @@ impl InstallPlanner {
                 &dcc_type,
                 version.clone(),
                 request.python.clone(),
+                dcc_path.clone(),
             ),
             None => Self::build_info_steps(),
         };
 
-        let next_steps = Self::build_next_steps(&adapter, &dcc_type);
+        let next_steps = Self::build_next_steps(&adapter, &dcc_type, dcc_path.as_deref());
 
         Ok(InstallPlan {
             next_steps,
             dcc_type,
             version,
+            dcc_path,
             adapter,
             steps,
             install_policy: InstallPolicy::enabled(),
@@ -202,6 +212,7 @@ impl InstallPlanner {
         dcc_type: &str,
         version: Option<String>,
         python_override: Option<String>,
+        dcc_path: Option<PathBuf>,
     ) -> Vec<InstallStep> {
         let adapter_dir = default_adapter_dir().join(&entry.name);
 
@@ -275,6 +286,7 @@ impl InstallPlanner {
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: dcc_type.to_string(),
                 entry_point: install.entry_point.clone(),
+                dcc_path,
             }),
         });
 
@@ -321,7 +333,11 @@ impl InstallPlanner {
         ]
     }
 
-    fn build_next_steps(entry: &CatalogEntry, dcc_type: &str) -> Vec<InstallNextStep> {
+    fn build_next_steps(
+        entry: &CatalogEntry,
+        dcc_type: &str,
+        dcc_path: Option<&std::path::Path>,
+    ) -> Vec<InstallNextStep> {
         let mut steps = Vec::new();
 
         if let Some(url) = install_instructions_url(entry) {
@@ -439,6 +455,22 @@ impl InstallPlanner {
                 requires_live_instance: true,
             },
         ]);
+
+        steps.push(InstallNextStep {
+            name: "resolve-dcc-path".into(),
+            description: match dcc_path {
+                Some(path) => format!(
+                    "Use the supplied DCC path '{}' and verify the host plugin starts there.",
+                    path.display()
+                ),
+                None => format!(
+                    "If no {dcc_type} host is found, ask the user for its absolute executable or application path and rerun with --dcc-path."
+                ),
+            },
+            url: None,
+            command: None,
+            requires_live_instance: false,
+        });
 
         steps
     }
@@ -569,6 +601,7 @@ mod tests {
                 version: Some("2026".into()),
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -582,6 +615,34 @@ mod tests {
     }
 
     #[test]
+    fn planner_keeps_custom_dcc_path_in_plan_and_next_steps() {
+        let dcc_path = PathBuf::from(r"C:\Custom\Maya\maya.exe");
+        let plan = InstallPlanner::plan(
+            &[catalog_entry("dcc-mcp-maya", &["maya"], None)],
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+                dcc_path: Some(dcc_path.clone()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.dcc_path, Some(dcc_path.clone()));
+        let path_step = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "resolve-dcc-path")
+            .expect("resolve-dcc-path next step");
+        assert!(
+            path_step
+                .description
+                .contains(&dcc_path.display().to_string())
+        );
+    }
+
+    #[test]
     fn planner_rejects_unknown_dcc() {
         let err = InstallPlanner::plan(
             &[],
@@ -590,6 +651,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap_err();
@@ -619,6 +681,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -672,6 +735,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -758,6 +822,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -793,6 +858,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -829,6 +895,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -851,6 +918,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -881,6 +949,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: Some("/custom/mayapy".into()),
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -919,6 +988,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();
@@ -940,6 +1010,7 @@ mod tests {
                 version: None,
                 catalog_path: None,
                 python: None,
+                dcc_path: None,
             },
         )
         .unwrap();

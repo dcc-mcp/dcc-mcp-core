@@ -136,11 +136,13 @@ paths, or full tool payloads.
 |---------|---------|
 | `dcc-mcp-cli install --dcc-type maya --version 2026` | Build an auditable adapter install plan with machine-readable `next_steps`, without changing local state |
 | `dcc-mcp-cli install --dcc-type maya --version 2026 --python "<mayapy>" --execute` | Execute package install after consent; rolls back on failure and verifies pip/path outputs |
+| `dcc-mcp-cli install --dcc-type maya --dcc-path "<maya-executable>"` | Supply a non-standard DCC executable/application path when the host is not found automatically |
 | `dcc-mcp-cli marketplace search --query "maya rigging" --limit 20` | Find installable Skill packages with released and current CLI builds |
 | `dcc-mcp-cli marketplace inspect <package_name>` | Inspect the selected skill package metadata before installing |
 | `dcc-mcp-cli marketplace install <package_name> --dcc maya --reload` | Install an exact package ID and ask running Maya adapters to re-scan skill paths |
 | `dcc-mcp-cli reload-skills --dcc-type maya` | Ask running Maya adapters to re-scan installed skill paths |
 | `dcc-mcp-cli marketplace update <package_name> --dcc maya` | Update an installed skill package from the catalog |
+| `dcc-mcp-cli marketplace uninstall <package_name> --reload` | Remove an installed skill package; infer its DCC when it is installed for one DCC and refresh the adapter |
 
 After adapter package install, follow the plan's `next_steps`: read the
 adapter-maintained `install.md` when `read-install-instructions` is present,

@@ -494,13 +494,7 @@ fn marketplace_install_list_and_uninstall_path_package() {
     assert_eq!(listed["packages"][0]["install_type"], "path");
 
     let uninstalled = run_json_with_env(
-        &[
-            "marketplace",
-            "uninstall",
-            "dcc-asset-hunyuan-download",
-            "--dcc",
-            "maya",
-        ],
+        &["marketplace", "uninstall", "dcc-asset-hunyuan-download"],
         &envs,
     );
     assert_eq!(uninstalled["uninstalled"], true);

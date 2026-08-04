@@ -69,7 +69,7 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | `marketplace inspect <name>`              | 显示完整条目元数据        |
 | `marketplace install <name> --dcc <dcc> --reload` | 安装技能包并刷新运行中的 adapter |
 | `marketplace list-installed --dcc <dcc>`  | 列出已安装的包            |
-| `marketplace uninstall <name> --dcc <dcc>`| 移除已安装的包            |
+| `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| 移除已安装的包并可刷新适配器 |
 | `marketplace outdated [name] --dcc <dcc>` | 检查是否有更新版本        |
 | `marketplace update [name] --all`         | 升级已安装的包            |
 | `marketplace pack <path> --out dist/`     | 生成 zip 包和 SHA-256 摘要 |
@@ -274,7 +274,7 @@ Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过
 |------|-----|----------|
 | 目录搜索 | `marketplace search --query <q>` | 浏览标签页，支持搜索 + DCC 筛选 |
 | 安装 | `marketplace install <name> --dcc <dcc> --reload` | 卡片或详情弹窗上的 Install 按钮 |
-| 卸载 | `marketplace uninstall <name> --dcc <dcc>` | 已安装标签页的 Uninstall 按钮 |
+| 卸载 | `marketplace uninstall <name> [--dcc <dcc>] [--reload]` | 已安装标签页的 Uninstall 按钮 |
 | 列出已安装 | `marketplace list-installed --dcc <dcc>` | 已安装标签页 |
 | 添加来源 | `marketplace add <source>` | 面板中的来源管理界面 |
 | 更新 | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |

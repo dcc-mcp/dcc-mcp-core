@@ -16,6 +16,24 @@ pub fn new_service() -> Result<MarketplaceService, MarketplaceError> {
     Ok(MarketplaceService::new(root).with_config_path(config_path))
 }
 
+/// Check installed Skill packages without making update changes.
+///
+/// This is intentionally best-effort: a catalog/network failure must never
+/// make an unrelated CLI command fail.
+pub async fn check_marketplace_updates() -> Option<Vec<String>> {
+    let service = new_service().ok()?;
+    if service.list_installed(None).ok()?.count == 0 {
+        return None;
+    }
+    let outdated = service.outdated(None, Vec::new()).await.ok()?;
+    let updates = outdated
+        .packages
+        .into_iter()
+        .map(|package| format!("{} ({})", package.name, package.dcc))
+        .collect::<Vec<_>>();
+    (!updates.is_empty()).then_some(updates)
+}
+
 /// Test-only constructor with a custom config path.
 #[cfg(test)]
 pub fn service_with_config_path(config_path: std::path::PathBuf) -> MarketplaceService {

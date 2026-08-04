@@ -366,6 +366,33 @@ impl MarketplaceService {
         })
     }
 
+    /// Resolve an installed package's DCC so callers do not need to repeat it.
+    pub fn resolve_installed_dcc(
+        &self,
+        name: &str,
+        requested_dcc: Option<&str>,
+    ) -> Result<String, MarketplaceError> {
+        let name = path_component("package name", name)?;
+        if let Some(dcc) = requested_dcc {
+            return Ok(path_component("DCC name", dcc)?.to_lowercase());
+        }
+
+        let mut dccs = self
+            .load_installed_state()?
+            .packages
+            .into_iter()
+            .filter(|package| package.name == name)
+            .map(|package| package.dcc.to_lowercase())
+            .collect::<Vec<_>>();
+        dccs.sort();
+        dccs.dedup();
+        match dccs.as_slice() {
+            [dcc] => Ok(dcc.clone()),
+            [] => Err(MarketplaceError::InstalledPackageNotFound(name)),
+            _ => Err(MarketplaceError::AmbiguousInstalledDcc { name }),
+        }
+    }
+
     // ── installed state ──────────────────────────────────────────────────────
 
     pub fn list_installed(
