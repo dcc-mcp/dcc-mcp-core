@@ -33,6 +33,7 @@ use crate::infra::http::HttpGateway;
 mod image_artifacts;
 mod job_progress;
 mod lint;
+mod marketplace_output;
 mod record_replay;
 mod ui_control_output;
 
@@ -40,6 +41,7 @@ mod ui_control_output;
 use image_artifacts::{BASE64_STANDARD, MATERIALIZED_IMAGE_PLACEHOLDER, prune_image_artifacts};
 use image_artifacts::{default_image_artifact_root, materialize_call_images};
 use job_progress::JobProgressReporter;
+use marketplace_output::reload_marketplace_value;
 use record_replay::{RecordReplayAction, run_record_replay};
 use ui_control_output::compact_ui_control_result;
 
@@ -1044,31 +1046,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     let installed_dcc = installed.dcc.clone();
                     let mut value = to_json(installed)?;
                     if reload {
-                        match control
-                            .reload_skills(ReloadSkillsRequest {
-                                dcc_type: Some(installed_dcc),
-                                instance_id: None,
-                            })
-                            .await
-                        {
-                            Ok(result) => {
-                                let reloaded =
-                                    result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-                                value["reload_required"] = Value::Bool(!reloaded);
-                                value["reload"] = result;
-                                if !reloaded {
-                                    failed = true;
-                                    exit_code = ExitCode::Unavailable;
-                                }
-                            }
-                            Err(err) => {
-                                value["reload"] = serde_json::json!({
-                                    "ok": false,
-                                    "error": err.to_string(),
-                                });
-                                failed = true;
-                                exit_code = ExitCode::Unavailable;
-                            }
+                        let (reloaded_value, reload_failed) =
+                            reload_marketplace_value(&control, value, installed_dcc).await;
+                        value = reloaded_value;
+                        if reload_failed {
+                            failed = true;
+                            exit_code = ExitCode::Unavailable;
                         }
                     }
                     value
@@ -1078,31 +1061,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     let result = service.uninstall(&name, &installed_dcc)?;
                     let mut value = to_json(result)?;
                     if reload {
-                        match control
-                            .reload_skills(ReloadSkillsRequest {
-                                dcc_type: Some(installed_dcc),
-                                instance_id: None,
-                            })
-                            .await
-                        {
-                            Ok(result) => {
-                                let reloaded =
-                                    result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-                                value["reload_required"] = Value::Bool(!reloaded);
-                                value["reload"] = result;
-                                if !reloaded {
-                                    failed = true;
-                                    exit_code = ExitCode::Unavailable;
-                                }
-                            }
-                            Err(err) => {
-                                value["reload"] = serde_json::json!({
-                                    "ok": false,
-                                    "error": err.to_string(),
-                                });
-                                failed = true;
-                                exit_code = ExitCode::Unavailable;
-                            }
+                        let (reloaded_value, reload_failed) =
+                            reload_marketplace_value(&control, value, installed_dcc).await;
+                        value = reloaded_value;
+                        if reload_failed {
+                            failed = true;
+                            exit_code = ExitCode::Unavailable;
                         }
                     }
                     value
