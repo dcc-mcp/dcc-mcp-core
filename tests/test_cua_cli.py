@@ -146,7 +146,7 @@ def test_cua_shared_image_reader_opens_the_cross_platform_named_mapping() -> Non
     memory = bytearray().join(value.to_bytes(8, byteorder=sys.byteorder) for value in fields) + pixels
     mapping = shared_memory.SharedMemory(name=f"cua_{image_id}", create=True, size=len(memory))
     try:
-        mapping.buf[:] = memory
+        mapping.buf[: len(memory)] = memory
         assert _read_shared_image({"name": mapping.name, "id": image_id, "length": len(pixels)}) == pixels
     finally:
         mapping.close()

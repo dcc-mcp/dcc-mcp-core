@@ -239,7 +239,7 @@ _WORKER_PROBE = textwrap.dedent(
             response_len = 32 + width * height * 4
             buffer = dcc_mcp_core.PySharedBuffer.create(response_len)
             worker = os.environ.get("DCC_MCP_CAPTURE_WORKER") or "dcc-mcp-server.exe"
-            worker_command = [worker, "--dcc-mcp-capture-worker"]
+            worker_command = [worker, "--dcc-mcp-ui-control-capture-worker"]
             result = subprocess.run(
                 worker_command
                 + [

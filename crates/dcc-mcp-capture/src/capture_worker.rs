@@ -15,9 +15,9 @@ pub const SERVER_BINARY_NAME: &str = "dcc-mcp-server.exe";
 /// Exact protocol version shared by the parent and capture worker.
 pub const CAPTURE_WORKER_PROTOCOL_VERSION: u32 = 1;
 
-/// Canonical hidden argv marker used when the UI Control host or standalone
-/// server re-enters the capture-worker protocol in a separately spawned process.
-pub const CAPTURE_WORKER_ARG: &str = "--dcc-mcp-capture-worker";
+/// Stable hidden argv marker used when the standalone server re-enters the
+/// capture-worker protocol in a separately spawned process.
+pub const CAPTURE_WORKER_ARG: &str = "--dcc-mcp-ui-control-capture-worker";
 
 #[cfg(target_os = "windows")]
 const RESPONSE_MAGIC: &[u8; 8] = b"DCCPWBG1";
@@ -686,11 +686,11 @@ mod windows_impl {
 
         use super::*;
 
-        static HOST_ENV_LOCK: Mutex<()> = Mutex::new(());
+        static WORKER_ENV_LOCK: Mutex<()> = Mutex::new(());
 
-        struct HostOverride(Option<OsString>);
+        struct WorkerOverride(Option<OsString>);
 
-        impl HostOverride {
+        impl WorkerOverride {
             fn set(path: &Path) -> Self {
                 let previous = std::env::var_os("DCC_MCP_CAPTURE_WORKER");
                 unsafe { std::env::set_var("DCC_MCP_CAPTURE_WORKER", path) };
@@ -698,7 +698,7 @@ mod windows_impl {
             }
         }
 
-        impl Drop for HostOverride {
+        impl Drop for WorkerOverride {
             fn drop(&mut self) {
                 if let Some(previous) = self.0.take() {
                     unsafe { std::env::set_var("DCC_MCP_CAPTURE_WORKER", previous) };
@@ -746,13 +746,13 @@ mod windows_impl {
                 return;
             }
 
-            let _serial = HOST_ENV_LOCK
+            let _serial = WORKER_ENV_LOCK
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             let temp = tempfile::tempdir().unwrap();
             let blocker = temp.path().join("capture-blocker.cmd");
             std::fs::write(&blocker, b"@echo off\r\n:loop\r\ngoto loop\r\n").unwrap();
-            let _override = HostOverride::set(&blocker);
+            let _override = WorkerOverride::set(&blocker);
             let children_before = direct_child_process_ids();
             let gdi_before = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
 
@@ -770,12 +770,12 @@ mod windows_impl {
 
         #[test]
         fn missing_worker_override_is_actionable() {
-            let _serial = HOST_ENV_LOCK
+            let _serial = WORKER_ENV_LOCK
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             let temp = tempfile::tempdir().unwrap();
             let missing = temp.path().join("missing-capture-worker.exe");
-            let _override = HostOverride::set(&missing);
+            let _override = WorkerOverride::set(&missing);
             let error = capture_via_worker(0, 1, 1, 100).unwrap_err().to_string();
             assert!(error.contains("capture worker"));
             assert!(error.contains("was not found"));
@@ -783,18 +783,18 @@ mod windows_impl {
 
         #[test]
         fn host_override_selects_the_exact_configured_executable() {
-            let _serial = HOST_ENV_LOCK
+            let _serial = WORKER_ENV_LOCK
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             let temp = tempfile::tempdir().unwrap();
             let executable = temp.path().join(SERVER_BINARY_NAME);
             std::fs::write(&executable, b"MZ").unwrap();
-            let _override = HostOverride::set(&executable);
+            let _override = WorkerOverride::set(&executable);
             assert_eq!(discover_worker().unwrap(), executable);
         }
 
         #[test]
-        fn discovery_uses_only_the_ui_control_host_name() {
+        fn discovery_uses_only_the_server_name() {
             let root = Path::new(r"C:\dcc-mcp-test");
             let mut candidates = Vec::new();
             append_directory_candidates(Some(root), &mut candidates);
@@ -804,7 +804,7 @@ mod windows_impl {
         }
 
         #[test]
-        fn worker_capable_server_precedes_a_sibling_host() {
+        fn current_server_precedes_sibling_candidates() {
             let server = Path::new(r"C:\dcc-mcp-test\dcc-mcp-server.exe");
             let mut candidates = Vec::new();
             append_executable_candidate(server, &mut candidates);
