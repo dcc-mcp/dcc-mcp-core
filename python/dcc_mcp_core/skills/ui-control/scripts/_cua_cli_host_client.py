@@ -1,4 +1,4 @@
-"""Core-facing adapter for the standalone ``dcc-mcp-cua`` Host."""
+"""Core-facing adapter for the standalone ``dcc-cua`` Host."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ class UiControlHostClient:
         image = response.get("image")
         if not isinstance(image, dict):
             self._invalidate_observation()
-            raise UiControlHostError("capture_failed", "dcc-mcp-cua returned no screenshot.")
+            raise UiControlHostError("capture_failed", "dcc-cua returned no screenshot.")
         try:
             pixels = self._bridge.read_image(response)
         except Exception as exc:
@@ -88,7 +88,7 @@ class UiControlHostClient:
     def change_window_state(self, operation: str) -> Dict[str, Any]:
         """Activate the exact target; CUA intentionally exposes no restore/show aliases."""
         if operation != "activate":
-            raise UiControlHostError("unsupported", "dcc-mcp-cua only supports exact-window activation.")
+            raise UiControlHostError("unsupported", "dcc-cua only supports exact-window activation.")
         try:
             return self._call(
                 "change_window_state",
@@ -179,7 +179,7 @@ class UiControlHostClient:
 
     def _authority(self) -> Dict[str, Any]:
         if self._window_capability is None:
-            raise UiControlHostError("backend_unavailable", "The dcc-mcp-cua session is closed.")
+            raise UiControlHostError("backend_unavailable", "The dcc-cua session is closed.")
         return {
             "session_id": self.session_id,
             "task_grant_id": self.task_grant_id,
@@ -195,7 +195,7 @@ class UiControlHostClient:
         if response.get("type") != expected_type:
             raise UiControlHostError(
                 "protocol_mismatch",
-                f"dcc-mcp-cua returned {response.get('type')!r} for {method!r}.",
+                f"dcc-cua returned {response.get('type')!r} for {method!r}.",
             )
         return response
 
@@ -203,14 +203,14 @@ class UiControlHostClient:
     def _tool_result(response: Dict[str, Any], method: str) -> Dict[str, Any]:
         result = response.get("result")
         if not isinstance(result, dict):
-            raise UiControlHostError("protocol_mismatch", f"dcc-mcp-cua returned no result for {method!r}.")
+            raise UiControlHostError("protocol_mismatch", f"dcc-cua returned no result for {method!r}.")
         return result
 
 
 def _legacy_accessibility_tree(raw: Any) -> tuple[Dict[str, Any], str]:
     """Convert CUA's compact depth-first element list for Core's existing finder."""
     if not isinstance(raw, dict) or not isinstance(raw.get("elements"), list):
-        raise UiControlHostError("protocol_mismatch", "dcc-mcp-cua returned invalid accessibility data.")
+        raise UiControlHostError("protocol_mismatch", "dcc-cua returned invalid accessibility data.")
     roots = []
     stack = []
     nodes_by_index = {}
@@ -218,13 +218,13 @@ def _legacy_accessibility_tree(raw: Any) -> tuple[Dict[str, Any], str]:
     uses_parent_indices = any(isinstance(element, dict) and "parent_index" in element for element in raw["elements"])
     for fallback_index, element in enumerate(raw["elements"]):
         if not isinstance(element, dict):
-            raise UiControlHostError("protocol_mismatch", "dcc-mcp-cua returned an invalid accessibility element.")
+            raise UiControlHostError("protocol_mismatch", "dcc-cua returned an invalid accessibility element.")
         try:
             depth = int(element.get("depth") or 0)
         except (TypeError, ValueError):
-            raise UiControlHostError("protocol_mismatch", "dcc-mcp-cua returned an invalid element depth.") from None
+            raise UiControlHostError("protocol_mismatch", "dcc-cua returned an invalid element depth.") from None
         if depth < 0 or (not uses_parent_indices and depth > len(stack)):
-            raise UiControlHostError("protocol_mismatch", "dcc-mcp-cua returned a malformed accessibility tree.")
+            raise UiControlHostError("protocol_mismatch", "dcc-cua returned a malformed accessibility tree.")
         token = str(element.get("element_token") or "")
         runtime_id = token or f"cua:{element.get('element_index', fallback_index)}"
         bounds = element.get("bounds") or element.get("frame")
@@ -258,7 +258,7 @@ def _legacy_accessibility_tree(raw: Any) -> tuple[Dict[str, Any], str]:
             elif isinstance(parent_index, int) and parent_index in nodes_by_index:
                 nodes_by_index[parent_index]["children"].append(node)
             else:
-                raise UiControlHostError("protocol_mismatch", "dcc-mcp-cua returned an invalid parent index.")
+                raise UiControlHostError("protocol_mismatch", "dcc-cua returned an invalid parent index.")
         else:
             del stack[depth:]
             if stack:
@@ -268,7 +268,7 @@ def _legacy_accessibility_tree(raw: Any) -> tuple[Dict[str, Any], str]:
             stack.append(node)
         element_index = element.get("element_index", fallback_index)
         if not isinstance(element_index, int) or element_index in nodes_by_index:
-            raise UiControlHostError("protocol_mismatch", "dcc-mcp-cua returned an invalid element index.")
+            raise UiControlHostError("protocol_mismatch", "dcc-cua returned an invalid element index.")
         nodes_by_index[element_index] = node
         if node["focused"]:
             focus_runtime_id = runtime_id

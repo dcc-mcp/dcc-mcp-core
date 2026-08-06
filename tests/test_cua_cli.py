@@ -24,7 +24,7 @@ command = sys.argv[1]
 if command == "manifest":
     print(json.dumps({
         "schema_version": 1,
-        "name": "dcc-mcp-cua",
+        "name": "dcc-cua",
         "version": "0.0.0-test",
         "host": {
             "protocol_version": 1,
@@ -34,6 +34,10 @@ if command == "manifest":
         },
         "core_bridge": {
             "command": ["host-jsonl"],
+        },
+        "runtime": {
+            "backend": "cua-driver-sdk",
+            "separate_driver_required": False,
         },
     }))
 elif command == "host-ensure":
@@ -95,7 +99,18 @@ def test_manifest_drives_the_core_bridge_commands(tmp_path: Path) -> None:
     assert contract.ensure_command == ("host-ensure",)
     assert contract.bridge_command == ("host-jsonl",)
     assert contract.snapshot_transports == ("binary_frame", "shared_memory")
+    assert contract.capabilities == ("parallel_discovery_requests",)
     assert contract.parallel_discovery is True
+
+
+def test_manifest_rejects_a_separate_driver_dependency(tmp_path: Path) -> None:
+    script = tmp_path / "driver_dependent_cua.py"
+    script.write_text(
+        _FAKE_CLI.replace('"separate_driver_required": False', '"separate_driver_required": True'),
+        encoding="utf-8",
+    )
+    with pytest.raises(CuaCliError, match="must embed its CUA runtime"):
+        inspect_cua_contract([sys.executable, str(script)])
 
 
 def test_persistent_jsonl_bridge_correlates_errors_and_closes_on_eof(
@@ -118,8 +133,8 @@ def test_persistent_jsonl_bridge_correlates_errors_and_closes_on_eof(
 
 def test_configured_binary_must_be_absolute(tmp_path: Path) -> None:
     with pytest.raises(CuaCliError, match="absolute path"):
-        resolve_cua_command("relative/dcc-mcp-cua")
-    missing = tmp_path / "missing-dcc-mcp-cua"
+        resolve_cua_command("relative/dcc-cua")
+    missing = tmp_path / "missing-dcc-cua"
     with pytest.raises(CuaCliError, match="does not name a file"):
         resolve_cua_command(str(missing.resolve()))
 

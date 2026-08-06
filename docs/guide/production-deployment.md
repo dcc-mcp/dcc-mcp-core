@@ -55,15 +55,17 @@ GitHub Releases attach deployable bundles named
 A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published alongside
 the server bundle for environments that only need the CLI binary. Native
 application control is installed separately from the
-`dcc-mcp/dcc-mcp-computer-use` project as `dcc-mcp-cua`; Core validates its
-machine manifest at runtime and does not package or update it.
+`dcc-mcp/dcc-cua` project as `dcc-cua`; Core validates its
+machine manifest at runtime and does not package or update it. The manifest must
+declare `runtime.separate_driver_required=false`, so deployment never adds a
+standalone `cua-driver` asset.
 
 ### Server self-update transaction
 
 Run `dcc-mcp-server update apply` from the exact target installation. On every
 platform it verifies and stages only the server binary. The next server launch
 applies that installation-bound update with rollback/journal recovery and then
-starts the new server image. `dcc-mcp-cua` has its own release lifecycle.
+starts the new server image. `dcc-cua` has its own release lifecycle.
 
 The Admin Instances panel is check-only. A gateway cannot prove the selected
 local or remote instance's executable directory, so it never stages a

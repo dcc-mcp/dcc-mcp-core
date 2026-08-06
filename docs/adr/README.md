@@ -24,7 +24,7 @@ Decision / Consequences / Alternatives considered.
 | 017 | [Codex-style Record & Replay with visual closed-loop execution](./017-codex-record-replay-visual-closed-loop.md) | Accepted |
 | 018 | [Instance Status Vocabulary Unification & Actionability](./018-cli-interaction-contract-workflow-consistency.md) | Proposed |
 | 019 | [Build reproducible agent experiments on the session timeline](./019-reproducible-agent-experiments.md) | Proposed |
-| 020 | [Consume application control through standalone dcc-mcp-cua](./020-external-cua-runtime.md) | Accepted |
+| 020 | [Consume application control through standalone dcc-cua](./020-external-cua-runtime.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any

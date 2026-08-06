@@ -170,11 +170,14 @@ def test_main_registers_executor_before_load_and_shuts_down_in_order(
     monkeypatch.setattr(ui_control_server, "McpHttpConfig", Config)
     monkeypatch.setattr(ui_control_server, "HostExecutionBridge", Bridge)
     monkeypatch.setattr(ui_control_server, "create_skill_server", create_server)
-    monkeypatch.setattr(ui_control_server, "resolve_cua_command", lambda configured=None: ["C:/tools/dcc-mcp-cua.exe"])
+    monkeypatch.setattr(ui_control_server, "resolve_cua_command", lambda configured=None: ["C:/tools/dcc-cua.exe"])
     monkeypatch.setattr(
         ui_control_server,
         "inspect_cua_contract",
-        lambda _command: SimpleNamespace(version="0.0.0-test"),
+        lambda _command: SimpleNamespace(
+            version="0.0.0-test",
+            capabilities=("trusted_confirmation_grants", "semantic_profile_extensions"),
+        ),
     )
     monkeypatch.setattr(ui_control_server.threading, "Event", StoppedEvent)
     monkeypatch.setattr(ui_control_server.signal, "signal", lambda *_args: None)
@@ -208,8 +211,9 @@ def test_main_registers_executor_before_load_and_shuts_down_in_order(
     assert ready["status"] == "ready"
     assert ready["target_process_id"] == 42
     assert ready["target_window_handle"] == 84
-    assert ready["cua_binary"] == "C:/tools/dcc-mcp-cua.exe"
+    assert ready["cua_binary"] == "C:/tools/dcc-cua.exe"
     assert ready["cua_version"] == "0.0.0-test"
+    assert ready["cua_capabilities"] == ["trusted_confirmation_grants", "semantic_profile_extensions"]
     assert ready["raw_input_enabled"] is False
 
 

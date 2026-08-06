@@ -54,8 +54,10 @@ GitHub Release 会附带可直接解压部署的
 
 同时还会发布仅含 CLI 的 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
 供仅需 CLI 二进制的环境使用。原生应用控制由
-`dcc-mcp/dcc-mcp-computer-use` 项目单独发布为 `dcc-mcp-cua`；Core 运行时校验其
-machine manifest，但不再打包或更新它。`dcc-mcp-server update apply` 在所有平台
+`dcc-mcp/dcc-cua` 项目单独发布为 `dcc-cua`；Core 运行时校验其
+machine manifest，但不再打包或更新它。manifest 必须声明
+`runtime.separate_driver_required=false`，因此部署不会再添加独立的 `cua-driver`
+资产。`dcc-mcp-server update apply` 在所有平台
 都只校验并暂存 server binary，CUA 保持独立发布生命周期。
 
 ### 安装路径

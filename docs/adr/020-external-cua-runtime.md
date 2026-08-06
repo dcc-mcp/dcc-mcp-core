@@ -1,4 +1,4 @@
-# ADR-020: Consume application control through standalone dcc-mcp-cua
+# ADR-020: Consume application control through standalone dcc-cua
 
 ## Status
 
@@ -15,7 +15,7 @@ duplicated capabilities now supplied by the CUA SDK and CLI.
 ## Decision
 
 Move native application control to the independently versioned
-`dcc-mcp/dcc-mcp-computer-use` project and its `dcc-mcp-cua` executable. Core
+`dcc-mcp/dcc-cua` project and its `dcc-cua` executable. Core
 consumes its machine-readable manifest and persistent `host-jsonl` bridge.
 
 Core keeps:
@@ -31,11 +31,13 @@ The standalone CUA project owns:
 - shared Host lifecycle and IPC;
 - session capabilities, input queueing, and Escape broadcast;
 - capture, shared-memory/binary image transport, visible control markers;
-- trajectory recording/rendering and application-specific adapters.
+- trajectory recording and application-specific profiles.
 
 Core neither embeds nor releases the CUA executable. It resolves
-`DCC_MCP_CUA_BINARY` or `dcc-mcp-cua` on `PATH`, validates `manifest`, prefers
+`DCC_MCP_CUA_BINARY` or `dcc-cua` on `PATH`, validates `manifest`, prefers
 shared memory when available, and falls back to bounded binary attachments.
+The manifest must declare `runtime.separate_driver_required=false`; Core rejects
+a runtime that would require a separately distributed `cua-driver`.
 The previous synchronous `record_clip` and Core-specific system-operation tools
 are removed rather than emulated.
 

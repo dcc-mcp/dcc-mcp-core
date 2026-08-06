@@ -51,8 +51,12 @@ def _import_sibling(name: str) -> Any:
     return importlib.import_module(name)
 
 
+def _selected_backend() -> str:
+    return os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "mock").strip().lower() or "mock"
+
+
 def _load_backend() -> Any:
-    backend = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "mock").strip().lower()
+    backend = _selected_backend()
     if backend in {"", "mock"}:
         return _import_sibling("_backend")
     if backend in {"chrome", "chrome-cdp", "cdp"}:
@@ -63,7 +67,7 @@ def _load_backend() -> Any:
     if backend in {"agent-browser", "agent_browser", "agentbrowser"}:
         os.environ.setdefault("DCC_MCP_UI_CONTROL_CDP_PRESET", "agent-browser")
         return _import_sibling("_chrome_backend")
-    if backend in {"cua", "dcc-mcp-cua"}:
+    if backend in {"cua", "dcc-cua"}:
         return _import_sibling("_cua_backend")
     return None
 
@@ -97,9 +101,9 @@ def _canonical_backend(result: Dict[str, Any]) -> str:
                 return str(ui_control["backend"])
     if context.get("backend"):
         return str(context["backend"])
-    selected = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "mock").strip().lower()
-    if selected in {"cua", "dcc-mcp-cua"}:
-        return "dcc-mcp-cua"
+    selected = _selected_backend()
+    if selected in {"cua", "dcc-cua"}:
+        return "dcc-cua"
     if selected in {
         "chrome",
         "chrome-cdp",

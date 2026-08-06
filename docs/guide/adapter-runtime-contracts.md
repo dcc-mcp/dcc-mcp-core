@@ -63,9 +63,9 @@ capability is intentionally broader than a DCC-only UI namespace: the same
 contract can describe a DCC preferences dialog, an external launcher, a license
 utility, or another adapter-owned application window.
 
-The Rust schema lives in the `dcc-mcp-ui-control` crate so UI automation contracts
-can evolve independently from the HTTP server layer. Python adapters continue
-to import the matching dataclasses from `dcc_mcp_core.adapter_contracts`.
+The Core-facing schema lives in `dcc_mcp_core.adapter_contracts`; native
+automation is supplied by the standalone `dcc-cua` manifest and Host protocol.
+This keeps UI automation independent from the HTTP server layer.
 
 Core shapes include:
 
@@ -140,7 +140,7 @@ Vercel's `agent-browser` CLI, which exposes its DevTools URL through
 `agent-browser get cdp-url` and can be provisioned in CI with
 `agent-browser install`.
 
-Set `DCC_MCP_UI_CONTROL_BACKEND=cua` to use the standalone `dcc-mcp-cua`
+Set `DCC_MCP_UI_CONTROL_BACKEND=cua` to use the standalone `dcc-cua`
 CLI/Host for native applications on Windows, Linux, and macOS. Install it on
 `PATH` or set `DCC_MCP_CUA_BINARY` to an absolute executable path. Bind the
 exact application with `DCC_MCP_UI_CONTROL_PROCESS_ID` and

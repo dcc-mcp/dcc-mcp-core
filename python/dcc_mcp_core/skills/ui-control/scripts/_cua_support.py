@@ -292,7 +292,7 @@ def _node_from_cua_dict(raw: Dict[str, Any], snapshot_id: str) -> UiControlNode:
     runtime_id = str(raw.get("runtime_id") or "")
     metadata = {
         "ui_control": {
-            "backend": "dcc-mcp-cua",
+            "backend": "dcc-cua",
             "snapshot_id": snapshot_id,
             "runtime_id": runtime_id,
             "fallback_path": raw.get("fallback_path"),

@@ -19,7 +19,7 @@ paths so existing call sites keep compiling while the migration is in
 flight.
 
 Application UI policy intentionally lives in the Python `ui-control` skill,
-while the standalone `dcc-mcp-cua` CLI owns automation and Host IPC. That keeps
+while the standalone `dcc-cua` CLI owns automation and Host IPC. That keeps
 the HTTP wire/config layer independent from any platform automation backend.
 
 ## Stability

@@ -267,7 +267,7 @@ manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 存在。`update apply` 只暂存 CLI binary。Admin 实例页只检查 server 是否有更新；
 gateway 无法证明本机或远端实例的实际安装目录，因此不会代替实例暂存 server。
 请在目标 server 环境运行 `dcc-mcp-server update apply`。所有平台都只校验和暂存
-server 自身；独立的 `dcc-mcp-cua` CLI 单独更新。
+server 自身；独立的 `dcc-cua` CLI 单独更新。
 
 `lint` 复用生产 `dcc-mcp-skills` validator，因此本地检查与运行时加载会因同一类
 结构问题失败。CI 也通过 `just lint-skills` 显式传入仓库 skill roots，跑同一条

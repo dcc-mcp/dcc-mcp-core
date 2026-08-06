@@ -6,14 +6,14 @@ UI Control 只用于类型化 DCC 工具无法完成的应用界面操作，不�
 
 1. 优先调用类型化 DCC-MCP 工具。
 2. 浏览器或 webview 内容优先使用 `chrome`/`edge` CDP 后端。
-3. 原生应用界面使用独立的 `dcc-mcp-cua` 后端。
+3. 原生应用界面使用独立的 `dcc-cua` 后端。
 
 CDP 的 DOM 语义和 selector 更稳定，也能在无需前台可见时工作。CUA 用于浏览器
 外框、原生对话框、纯 Canvas 内容和非浏览器软件。
 
 ## 独立 CUA 配置
 
-单独安装 `dcc-mcp-cua` 并加入 `PATH`，或把 `DCC_MCP_CUA_BINARY` 设置为绝对
+单独安装 `dcc-cua` 并加入 `PATH`，或把 `DCC_MCP_CUA_BINARY` 设置为绝对
 可执行文件路径，然后配置：
 
 ```text
@@ -28,7 +28,7 @@ DCC_MCP_UI_CONTROL_WINDOW_HANDLE=<native-handle>
 DCC_MCP_CUA_ALLOW_RAW_INPUT=true
 ```
 
-Core 会校验 `dcc-mcp-cua manifest`、确保共享 Host，并保持持久 JSONL bridge。
+Core 会校验 `dcc-cua manifest`、确保共享 Host，并保持持久 JSONL bridge。
 带原生扩展的 Core 优先共享内存截图；Python 3.7 pure wheel 使用有界二进制附件。
 目标边框/banner/agent 鼠标、平台无障碍、输入队列和 Escape 广播都由 CUA Host
 负责。
@@ -57,10 +57,18 @@ ui_control__recording_start(output_dir=<绝对路径>, record_video=true)
 ui_control__act(...)
 ui_control__recording_state()
 ui_control__recording_stop()
-dcc-mcp-cua recording render <input-dir> <output.mp4>
 ```
 
-录制格式和渲染器由独立 CUA runtime 负责，Core 不重复实现。
+保留 CUA 返回的最终工件和结构化状态；Core 不重复实现 CUA 的录制格式。
+
+## 语义 Profile 与可信人工接管
+
+先运行 `dcc-cua profiles`，再用 `dcc-cua profile --id <id>` 检查目标应用。
+Profile、surface 和 target 的稳定 ID 不随界面语言变化；本地化别名只用于匹配可见
+文本。`browser_dom` surface 必须走 `dcc-cua` 的精确浏览器绑定，不能切换到 in-app
+Browser skill。`ue/fab/download` 回退到 `fab/launcher_download` 时，需要把 Epic
+Games Launcher 作为新目标重新绑定并重新观察。即使 Agent 拥有完全访问权限，
+Cloudflare 真人验证、登录、购买和系统安全确认仍必须由可信真人处理。
 
 ## 安全与证据
 

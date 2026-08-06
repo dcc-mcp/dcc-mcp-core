@@ -355,7 +355,7 @@ The Admin Instances panel checks server availability but does not stage an
 update because the gateway cannot prove a selected local or remote instance's
 installation root. Run `dcc-mcp-server update apply` in the exact server
 environment. On every platform that command validates and stages only the
-server binary. The standalone `dcc-mcp-cua` CLI is updated independently.
+server binary. The standalone `dcc-cua` CLI is updated independently.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command

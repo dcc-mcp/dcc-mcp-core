@@ -141,6 +141,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "loaded_actions": list(loaded_actions),
             "cua_binary": cua_command[0],
             "cua_version": cua_contract.version,
+            "cua_capabilities": list(cua_contract.capabilities),
             "raw_input_enabled": bool(args.allow_raw_input),
         }
         _write_ready(ready_file, payload)

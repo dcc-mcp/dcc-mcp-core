@@ -105,7 +105,7 @@ def _serialize_session_call(func: Callable[..., Dict[str, Any]]) -> Callable[...
                     return skill_error(
                         "ui_control Windows host proxy is stopping.",
                         UiErrorCode.BACKEND_UNAVAILABLE,
-                        backend="dcc-mcp-cua",
+                        backend="dcc-cua",
                     )
                 return func(raw)
             finally:
@@ -290,7 +290,7 @@ def _host_error(exc: Exception) -> Dict[str, Any]:
         message,
         mapped_code,
         error_code=mapped_code,
-        backend="dcc-mcp-cua",
+        backend="dcc-cua",
         **recovery,
     )
 
@@ -323,7 +323,7 @@ def _capture_snapshot(
         metadata={
             "snapshot_id": snapshot_id,
             "ui_control": {
-                "backend": "dcc-mcp-cua",
+                "backend": "dcc-cua",
                 "scope": entry["scope"],
                 "target": raw.get("target") or client.target,
                 "max_depth": max_depth,
@@ -372,7 +372,7 @@ def _capture_accessibility_snapshot(
         metadata={
             "snapshot_id": snapshot_id,
             "ui_control": {
-                "backend": "dcc-mcp-cua",
+                "backend": "dcc-cua",
                 "scope": entry["scope"],
                 "target": raw.get("target") or client.target,
                 "max_depth": max_depth,
@@ -448,7 +448,7 @@ def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
         return skill_error(
             "The trajectory recording request contains unsupported fields.",
             "invalid_request",
-            backend="dcc-mcp-cua",
+            backend="dcc-cua",
         )
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
@@ -475,7 +475,7 @@ def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "Started CUA trajectory recording for the exact target.",
         prompt=(
             "Perform scoped ui_control actions, inspect ui_control__recording_state when needed, "
-            "then call ui_control__recording_stop before rendering with dcc-mcp-cua recording render."
+            "then call ui_control__recording_stop to finalize CUA-owned artifacts."
         ),
         session_id=session_id,
         target=client.target,
@@ -504,7 +504,7 @@ def recording_stop_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, An
             entry["snapshot_id"] = None
     return skill_success(
         "Finalized CUA trajectory recording.",
-        prompt="Render the output directory with dcc-mcp-cua recording render when MP4 evidence is needed.",
+        prompt="Preserve the finalized CUA output directory and structured recording state as evidence.",
         session_id=session_id,
         target=client.target,
         recording=recording,
@@ -622,7 +622,7 @@ def _audit_record(
         message=message,
         session_id=session_id,
         redacted_fields=redacted,
-        metadata={"backend": "dcc-mcp-cua", "host_enforced": True},
+        metadata={"backend": "dcc-cua", "host_enforced": True},
     ).to_dict()
 
 

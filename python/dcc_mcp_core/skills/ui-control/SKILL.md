@@ -4,7 +4,7 @@ description: >-
   Infrastructure skill for application UI observation, scoped action, waits,
   and CUA trajectory recording when a typed DCC tool cannot expose the needed
   interface. Prefer typed DCC tools first and CDP for browsers; use the
-  standalone dcc-mcp-cua backend for native applications.
+  standalone dcc-cua backend for native applications.
 license: MIT
 metadata:
   dcc-mcp:
@@ -28,12 +28,12 @@ interruption, authentication, and desktop unavailability are stop conditions.
 2. For Chrome, Edge, launchers, and embedded webviews with DevTools access, set
    `DCC_MCP_UI_CONTROL_BACKEND=chrome` (or `edge`) and use CDP.
 3. For native application UI, set `DCC_MCP_UI_CONTROL_BACKEND=cua` and use the
-   standalone `dcc-mcp-cua` CLI/Host.
+   standalone `dcc-cua` CLI/Host.
 4. `mock` is deterministic test state only.
 
-Core does not package an automation Host. Install `dcc-mcp-cua` separately so
+Core does not package an automation Host. Install `dcc-cua` separately so
 it is on `PATH`, or set `DCC_MCP_CUA_BINARY` to an absolute executable path.
-Core validates `dcc-mcp-cua manifest`, ensures the shared Host, and keeps one
+Core validates `dcc-cua manifest`, ensures the shared Host, and keeps one
 persistent JSONL bridge per active UI session. It prefers shared-memory image
 transport when the native Core extension is present and otherwise uses bounded
 binary attachments.
@@ -90,11 +90,22 @@ Trajectory recording is session-scoped and intentionally asynchronous:
 2. Perform the UI actions that should become evidence.
 3. Optionally call `ui_control__recording_state`.
 4. Call `ui_control__recording_stop` to finalize the trajectory.
-5. Render finalized evidence with
-   `dcc-mcp-cua recording render INPUT_DIR OUTPUT_MP4`.
+5. Preserve the finalized artifacts and structured state returned by CUA.
 
 This replaces the removed synchronous JPEG-sequence `record_clip` contract.
-Core does not duplicate CUA's renderer or recording format.
+Core does not duplicate CUA's recording format.
+
+## Semantic profiles and trusted handoff
+
+Run `dcc-cua profiles`, then inspect the chosen application with
+`dcc-cua profile --id <id>`. Profile target IDs stay stable across languages;
+localized aliases are matching inputs, not translated identifiers. Dispatch a
+`browser_dom` surface through the exact-bound `dcc-cua` browser route, never the
+in-app Browser skill. A fallback such as `ue/fab/download` to
+`fab/launcher_download` requires a new Epic Games Launcher binding and fresh
+observation. Cloudflare challenges, authentication, purchases, and operating
+system security confirmations require trusted human action; full agent access
+does not bypass them.
 
 ## Browser control
 
@@ -111,7 +122,7 @@ Treat these as recoverable only when the stated precondition can be restored:
 - `stale_observation`: take a fresh snapshot.
 - `missing_window` or `invalid_target`: rediscover and rebind the exact app.
 - `desktop_unavailable`: wait for the interactive desktop to return.
-- `backend_unavailable`: install/configure `dcc-mcp-cua` or restore CDP.
+- `backend_unavailable`: install/configure `dcc-cua` or restore CDP.
 - `user_interrupted`: stop until the operator explicitly resumes.
 - `policy_disabled` or `permission_denied`: do not bypass policy.
 

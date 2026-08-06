@@ -147,8 +147,7 @@ tools:
   - name: recording_stop
     description: >-
       Finalize CUA trajectory recording for this exact application session.
-      Render the resulting directory with dcc-mcp-cua recording render when an
-      MP4 artifact is required.
+      Preserve the finalized output directory and structured recording state.
     input_schema:
       type: object
       additionalProperties: false

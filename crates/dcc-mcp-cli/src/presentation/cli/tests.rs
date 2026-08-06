@@ -382,7 +382,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
                 "root": {"id": "desktop", "children": [{"text": "bulk"}]},
                 "metadata": {
                     "snapshot_id": "snapshot-7",
-                    "backend": "dcc-mcp-cua",
+                    "backend": "dcc-cua",
                     "computer_use": {"raw": "bulk"}
                 }
             },
@@ -394,7 +394,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
             },
             "capture_provenance": {
                 "tool": "ui_control__snapshot",
-                "backend": "dcc-mcp-cua",
+                "backend": "dcc-cua",
                 "session_id": "fab",
                 "snapshot_id": "snapshot-7",
                 "pixels_captured": true,
@@ -429,7 +429,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
     assert_eq!(compact["snapshot_id"], "snapshot-7");
     assert_eq!(compact["snapshot"]["node_count"], 501);
     assert_eq!(compact["observation"]["observation_id"], "observation-7");
-    assert_eq!(compact["capture_provenance"]["backend"], "dcc-mcp-cua");
+    assert_eq!(compact["capture_provenance"]["backend"], "dcc-cua");
     assert_eq!(compact["capture_provenance"]["pixels_captured"], true);
     assert_eq!(
         compact["__rich__"]["artifact_path"],

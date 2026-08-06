@@ -1,4 +1,4 @@
-"""Persistent process bridge to the standalone ``dcc-mcp-cua`` CLI."""
+"""Persistent process bridge to the standalone ``dcc-cua`` CLI."""
 
 from __future__ import annotations
 
@@ -57,11 +57,12 @@ class CuaCliContract(NamedTuple):
     ensure_command: Tuple[str, ...]
     bridge_command: Tuple[str, ...]
     snapshot_transports: Tuple[str, ...]
+    capabilities: Tuple[str, ...]
     parallel_discovery: bool
 
 
 def resolve_cua_command(configured: Optional[str] = None) -> List[str]:
-    """Resolve one explicit binary or the installed ``dcc-mcp-cua`` command."""
+    """Resolve one explicit binary or the installed ``dcc-cua`` command."""
     value = (configured if configured is not None else os.environ.get(CUA_BINARY_ENV, "")).strip()
     if value:
         candidate = Path(value).expanduser()
@@ -70,11 +71,11 @@ def resolve_cua_command(configured: Optional[str] = None) -> List[str]:
         if not candidate.is_file():
             raise CuaCliError("backend_unavailable", f"{CUA_BINARY_ENV} does not name a file.")
         return [str(candidate.resolve())]
-    discovered = shutil.which("dcc-mcp-cua")
+    discovered = shutil.which("dcc-cua")
     if not discovered:
         raise CuaCliError(
             "backend_unavailable",
-            f"Install dcc-mcp-cua or set {CUA_BINARY_ENV} to its absolute path.",
+            f"Install dcc-cua or set {CUA_BINARY_ENV} to its absolute path.",
         )
     return [str(Path(discovered).resolve())]
 
@@ -82,14 +83,17 @@ def resolve_cua_command(configured: Optional[str] = None) -> List[str]:
 def inspect_cua_contract(command: Sequence[str]) -> CuaCliContract:
     """Read and validate the CLI-owned Core integration contract."""
     if not command or any(not isinstance(part, str) or not part for part in command):
-        raise CuaCliError("backend_unavailable", "The dcc-mcp-cua command is invalid.")
+        raise CuaCliError("backend_unavailable", "The dcc-cua command is invalid.")
     result = _run_json_command([*command, "manifest"], _MANIFEST_TIMEOUT_SECONDS)
-    if result.get("name") != "dcc-mcp-cua" or result.get("schema_version") != 1:
-        raise CuaCliError("protocol_mismatch", "dcc-mcp-cua returned an unsupported manifest.")
+    if result.get("name") != "dcc-cua" or result.get("schema_version") != 1:
+        raise CuaCliError("protocol_mismatch", "dcc-cua returned an unsupported manifest.")
     host = result.get("host")
     bridge = result.get("core_bridge")
-    if not isinstance(host, dict) or not isinstance(bridge, dict):
-        raise CuaCliError("protocol_mismatch", "dcc-mcp-cua manifest is missing Host commands.")
+    runtime = result.get("runtime")
+    if not isinstance(host, dict) or not isinstance(bridge, dict) or not isinstance(runtime, dict):
+        raise CuaCliError("protocol_mismatch", "dcc-cua manifest is missing Core integration fields.")
+    if runtime.get("separate_driver_required") is not False:
+        raise CuaCliError("protocol_mismatch", "dcc-cua must embed its CUA runtime.")
     protocol_version = host.get("protocol_version")
     ensure_command = _string_command(host.get("ensure_command"), "host.ensure_command")
     bridge_command = _string_command(bridge.get("command"), "core_bridge.command")
@@ -100,8 +104,10 @@ def inspect_cua_contract(command: Sequence[str]) -> CuaCliContract:
         or bridge_command != ("host-jsonl",)
         or not set(snapshot_transports).issubset({"binary_frame", "shared_memory"})
     ):
-        raise CuaCliError("protocol_mismatch", "dcc-mcp-cua Host protocol is incompatible with Core.")
+        raise CuaCliError("protocol_mismatch", "dcc-cua Host protocol is incompatible with Core.")
     capabilities = host.get("capabilities")
+    if not isinstance(capabilities, list) or any(not isinstance(item, str) or not item for item in capabilities):
+        raise CuaCliError("protocol_mismatch", "dcc-cua manifest capabilities are invalid.")
     return CuaCliContract(
         command=tuple(command),
         version=str(result.get("version") or ""),
@@ -109,7 +115,8 @@ def inspect_cua_contract(command: Sequence[str]) -> CuaCliContract:
         ensure_command=ensure_command,
         bridge_command=bridge_command,
         snapshot_transports=snapshot_transports,
-        parallel_discovery=isinstance(capabilities, list) and "parallel_discovery_requests" in capabilities,
+        capabilities=tuple(capabilities),
+        parallel_discovery="parallel_discovery_requests" in capabilities,
     )
 
 
@@ -134,7 +141,7 @@ class CuaCliBridge:
         preferred_transport = "shared_memory" if os.name in {"nt", "posix"} else "binary_frame"
         self.snapshot_transport = snapshot_transport or preferred_transport
         if self.snapshot_transport not in self.contract.snapshot_transports:
-            raise CuaCliError("protocol_mismatch", "dcc-mcp-cua does not support the required snapshot transport.")
+            raise CuaCliError("protocol_mismatch", "dcc-cua does not support the required snapshot transport.")
         self._output_directory = None
         self.host_status: Optional[Dict[str, Any]] = None
 
@@ -145,7 +152,7 @@ class CuaCliBridge:
             self.snapshot_transport,
         ]
         if self.snapshot_transport == "binary_frame":
-            self._output_directory = tempfile.TemporaryDirectory(prefix="dcc-mcp-cua-core-")
+            self._output_directory = tempfile.TemporaryDirectory(prefix="dcc-cua-core-")
             bridge_command.extend(["--output-dir", self._output_directory.name])
         if shared_host:
             self.host_status = self._ensure_host()
@@ -158,7 +165,7 @@ class CuaCliBridge:
         self._process = self._start_bridge(bridge_command)
         self._reader = threading.Thread(
             target=self._read_responses,
-            name="dcc-mcp-cua-jsonl-reader",
+            name="dcc-cua-jsonl-reader",
             daemon=True,
         )
         self._reader.start()
@@ -167,10 +174,10 @@ class CuaCliBridge:
         """Read and validate one image returned by the negotiated transport."""
         image = response.get("image")
         if not isinstance(image, dict) or image.get("encoding") != self.snapshot_transport:
-            raise CuaCliError("capture_failed", "dcc-mcp-cua returned an invalid image descriptor.")
+            raise CuaCliError("capture_failed", "dcc-cua returned an invalid image descriptor.")
         expected_length = image.get("length")
         if not isinstance(expected_length, int) or not 0 < expected_length <= _MAX_IMAGE_BYTES:
-            raise CuaCliError("capture_failed", "dcc-mcp-cua returned an invalid image length.")
+            raise CuaCliError("capture_failed", "dcc-cua returned an invalid image length.")
         if self.snapshot_transport == "shared_memory":
             try:
                 pixels = _read_shared_image(image)
@@ -205,25 +212,25 @@ class CuaCliBridge:
                 self._process.stdin.flush()
             except (AttributeError, OSError, ValueError):
                 self._close_process()
-                raise CuaCliError("transport_error", "Cannot write to the dcc-mcp-cua bridge.") from None
+                raise CuaCliError("transport_error", "Cannot write to the dcc-cua bridge.") from None
             try:
                 response = self._responses.get(timeout=timeout)
             except queue.Empty:
                 self._close_process()
-                raise CuaCliError("timeout", f"dcc-mcp-cua did not answer {method!r} in time.") from None
+                raise CuaCliError("timeout", f"dcc-cua did not answer {method!r} in time.") from None
             if response is _EOF:
                 self._close_process()
-                raise CuaCliError("transport_error", "dcc-mcp-cua closed the JSONL bridge.")
+                raise CuaCliError("transport_error", "dcc-cua closed the JSONL bridge.")
             if isinstance(response, CuaCliError):
                 self._close_process()
                 raise response
             if response.get("request_id") != correlation:
                 self._close_process()
-                raise CuaCliError("protocol_mismatch", "dcc-mcp-cua returned a mismatched request_id.")
+                raise CuaCliError("protocol_mismatch", "dcc-cua returned a mismatched request_id.")
             if response.get("type") == "error":
                 raise CuaCliError(
                     str(response.get("code") or "backend_unavailable"),
-                    str(response.get("message") or "dcc-mcp-cua rejected the request."),
+                    str(response.get("message") or "dcc-cua rejected the request."),
                 )
             return response
 
@@ -265,7 +272,7 @@ class CuaCliBridge:
             or response.get("status") not in {"started", "existing"}
             or response.get("protocol_version") != self.contract.protocol_version
         ):
-            raise CuaCliError("protocol_mismatch", "dcc-mcp-cua did not establish a compatible Host.")
+            raise CuaCliError("protocol_mismatch", "dcc-cua did not establish a compatible Host.")
         return response
 
     def _start_bridge(self, command: Sequence[str]) -> Any:
@@ -283,7 +290,7 @@ class CuaCliBridge:
                 creationflags=_no_window_flags(),
             )
         except (OSError, ValueError):
-            raise CuaCliError("backend_unavailable", "Cannot start the dcc-mcp-cua JSONL bridge.") from None
+            raise CuaCliError("backend_unavailable", "Cannot start the dcc-cua JSONL bridge.") from None
 
     def _read_responses(self) -> None:
         try:
@@ -291,10 +298,10 @@ class CuaCliBridge:
                 try:
                     response = json.loads(line)
                 except (TypeError, ValueError):
-                    self._responses.put(CuaCliError("protocol_mismatch", "dcc-mcp-cua returned invalid JSONL."))
+                    self._responses.put(CuaCliError("protocol_mismatch", "dcc-cua returned invalid JSONL."))
                     return
                 if not isinstance(response, dict):
-                    self._responses.put(CuaCliError("protocol_mismatch", "dcc-mcp-cua returned a non-object."))
+                    self._responses.put(CuaCliError("protocol_mismatch", "dcc-cua returned a non-object."))
                     return
                 self._responses.put(response)
         except (OSError, ValueError):
@@ -308,7 +315,7 @@ class CuaCliBridge:
 
     def _require_running(self) -> None:
         if self._closed or self._process.poll() is not None:
-            raise CuaCliError("transport_error", "The dcc-mcp-cua JSONL bridge is not running.")
+            raise CuaCliError("transport_error", "The dcc-cua JSONL bridge is not running.")
 
     def _close_process(self) -> None:
         if self._closed:
@@ -325,11 +332,11 @@ class CuaCliBridge:
             raise CuaCliError("capture_failed", "The CUA binary output directory is unavailable.")
         raw_path = response.get("_dcc_mcp_binary_output")
         if not isinstance(raw_path, str):
-            raise CuaCliError("capture_failed", "dcc-mcp-cua returned no binary image output.")
+            raise CuaCliError("capture_failed", "dcc-cua returned no binary image output.")
         output_root = Path(self._output_directory.name).resolve()
         output_path = Path(raw_path).resolve()
         if output_path.parent != output_root or not _BINARY_OUTPUT_NAME.fullmatch(output_path.name):
-            raise CuaCliError("capture_failed", "dcc-mcp-cua returned an unsafe binary image path.")
+            raise CuaCliError("capture_failed", "dcc-cua returned an unsafe binary image path.")
         try:
             return output_path.read_bytes()
         except OSError as exc:
@@ -346,7 +353,7 @@ class CuaCliBridge:
 
 def _string_command(value: Any, field: str) -> Tuple[str, ...]:
     if not isinstance(value, list) or not value or any(not isinstance(item, str) or not item for item in value):
-        raise CuaCliError("protocol_mismatch", f"dcc-mcp-cua manifest field {field} is invalid.")
+        raise CuaCliError("protocol_mismatch", f"dcc-cua manifest field {field} is invalid.")
     return tuple(value)
 
 
@@ -371,15 +378,15 @@ def _run_json_command(
             creationflags=_no_window_flags(),
         )
     except (OSError, subprocess.TimeoutExpired, UnicodeError, ValueError):
-        raise CuaCliError("backend_unavailable", f"Cannot run dcc-mcp-cua command {command[-1]!r}.") from None
+        raise CuaCliError("backend_unavailable", f"Cannot run dcc-cua command {command[-1]!r}.") from None
     if result.returncode != 0 or len(result.stdout.encode("utf-8")) > _MAX_MANIFEST_BYTES:
-        raise CuaCliError("backend_unavailable", f"dcc-mcp-cua command {command[-1]!r} failed.")
+        raise CuaCliError("backend_unavailable", f"dcc-cua command {command[-1]!r} failed.")
     try:
         value = json.loads(result.stdout)
     except (TypeError, ValueError):
-        raise CuaCliError("protocol_mismatch", f"dcc-mcp-cua command {command[-1]!r} returned invalid JSON.") from None
+        raise CuaCliError("protocol_mismatch", f"dcc-cua command {command[-1]!r} returned invalid JSON.") from None
     if not isinstance(value, dict):
-        raise CuaCliError("protocol_mismatch", f"dcc-mcp-cua command {command[-1]!r} returned a non-object.")
+        raise CuaCliError("protocol_mismatch", f"dcc-cua command {command[-1]!r} returned a non-object.")
     return value
 
 

@@ -436,8 +436,7 @@ Control after the fact.
   remain active. The standalone Host serializes native input and broadcasts
   `Esc`, while ordinary stop releases only the selected session.
 - **Trajectory recording** — start and stop CUA recording around the actions to
-  preserve semantic evidence; render finalized output with
-  `dcc-mcp-cua recording render`.
+  preserve the finalized CUA artifacts and structured recording state.
 - **Audit trail** — every snapshot, recording, action, wait, stop, and rejected operation
   appends a redacted `ui_control_operation` event to the shared log directory,
   visible in the Admin Logs panel without exposing entered text or screenshot

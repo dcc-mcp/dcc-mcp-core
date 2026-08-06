@@ -7,7 +7,7 @@ tool cannot perform. It is not a replacement for adapter APIs.
 
 1. Call the typed DCC-MCP tool.
 2. For browser or webview content, use the `chrome`/`edge` CDP backend.
-3. For native application UI, use the standalone `dcc-mcp-cua` backend.
+3. For native application UI, use the standalone `dcc-cua` backend.
 
 CDP remains first for browser content because DOM semantics and selectors are
 more stable and can work without foreground visibility. CUA covers browser
@@ -15,7 +15,7 @@ chrome, native dialogs, canvas-only content, and non-browser applications.
 
 ## Standalone CUA setup
 
-Install `dcc-mcp-cua` separately and expose it on `PATH`, or set
+Install `dcc-cua` separately and expose it on `PATH`, or set
 `DCC_MCP_CUA_BINARY` to an absolute executable path. Then configure:
 
 ```text
@@ -30,7 +30,7 @@ Raw mouse and keyboard input additionally require:
 DCC_MCP_CUA_ALLOW_RAW_INPUT=true
 ```
 
-Core validates `dcc-mcp-cua manifest`, ensures the shared Host, and keeps a
+Core validates `dcc-cua manifest`, ensures the shared Host, and keeps a
 persistent JSONL bridge. Native Core builds prefer shared-memory screenshots;
 Python 3.7 pure wheels use bounded binary attachments. The CUA Host owns the
 visible target border/banner/cursor, native accessibility, input queue, and
@@ -63,11 +63,22 @@ ui_control__recording_start(output_dir=<absolute-path>, record_video=true)
 ui_control__act(...)
 ui_control__recording_state()
 ui_control__recording_stop()
-dcc-mcp-cua recording render <input-dir> <output.mp4>
 ```
 
-The standalone CUA runtime owns the recording format and renderer. Core does
-not duplicate them.
+Preserve the finalized artifacts and structured state returned by CUA. Core
+does not duplicate its recording format.
+
+## Semantic profiles and trusted handoff
+
+Run `dcc-cua profiles`, then inspect the selected application with
+`dcc-cua profile --id <id>`. Stable profile, surface, and target IDs do not
+change with the UI language; localized aliases only match visible text. Route a
+`browser_dom` surface through the exact-bound `dcc-cua` browser path instead of
+the in-app Browser skill. When `ue/fab/download` falls back to
+`fab/launcher_download`, bind Epic Games Launcher as a new exact target and take
+a fresh observation. Cloudflare challenges, authentication, purchases, and OS
+security confirmations require trusted human action even under full agent
+access.
 
 ## Safety and evidence
 

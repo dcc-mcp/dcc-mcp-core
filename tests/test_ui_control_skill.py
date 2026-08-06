@@ -51,17 +51,16 @@ def _load_entrypoint_module() -> Any:
     return module
 
 
-def test_ui_control_defaults_to_native_backend_without_environment_override(monkeypatch: Any) -> None:
+def test_ui_control_defaults_to_mock_until_the_server_selects_cua(monkeypatch: Any) -> None:
     entrypoint = _load_entrypoint_module()
     monkeypatch.delenv("DCC_MCP_UI_CONTROL_BACKEND", raising=False)
-    monkeypatch.setattr(entrypoint.sys, "platform", "win32")
-    assert entrypoint._selected_backend() == "windows-uia"
-
-    monkeypatch.setattr(entrypoint.sys, "platform", "linux")
-    assert entrypoint._selected_backend() == "chrome-cdp"
+    assert entrypoint._selected_backend() == "mock"
 
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "")
-    assert entrypoint._selected_backend() == "chrome-cdp"
+    assert entrypoint._selected_backend() == "mock"
+
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "cua")
+    assert entrypoint._selected_backend() == "cua"
 
 
 def test_ui_control_entrypoint_imports_without_native_core(monkeypatch: Any) -> None:
@@ -404,7 +403,7 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
                     "snapshot_id": "accessibility:1",
                     "snapshot": {
                         "metadata": {
-                            "ui_control": {"backend": "dcc-mcp-cua"},
+                            "ui_control": {"backend": "dcc-cua"},
                         }
                     },
                     "observation": {
@@ -434,7 +433,7 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
     provenance = result["context"]["capture_provenance"]
     assert provenance == {
         "tool": "ui_control__snapshot",
-        "backend": "dcc-mcp-cua",
+        "backend": "dcc-cua",
         "session_id": "evidence",
         "snapshot_id": "accessibility:1",
         "observation_id": "obs-1",
@@ -448,7 +447,7 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
         "source_height": 1080,
         "downscaled": True,
     }
-    assert "dcc-mcp-cua" in result["message"]
+    assert "dcc-cua" in result["message"]
     assert "1600x900" in result["message"]
     assert "downscaled from 1920x1080" in result["message"]
     screenshot = result["context"]["artifacts"][0]
@@ -976,7 +975,7 @@ def test_ui_control_cua_host_maps_snapshot_and_shared_image(monkeypatch: Any) ->
     assert context["snapshot_id"] == "accessibility:1"
     assert context["snapshot"]["root"]["id"] == "cua:42.1"
     assert context["snapshot"]["root"]["children"][0]["role"] == "button"
-    assert context["snapshot"]["metadata"]["ui_control"]["backend"] == "dcc-mcp-cua"
+    assert context["snapshot"]["metadata"]["ui_control"]["backend"] == "dcc-cua"
     assert context["snapshot"]["metadata"]["computer_use"]["observation_id"] == "obs-1"
     assert context["state_delta"]["source"] == "cua-accessibility"
     assert context["state_delta"]["delta"]["baseline"] is True

@@ -248,7 +248,7 @@ only with the matching chunked runner or isolated status/cancel implementation.
   path with `ui_control__stop_computer_use`. Screenshot coordinates belong to that
   observation only.
 - Preserve `capture_provenance` with saved evidence. A live
-  `backend=dcc-mcp-cua` snapshot plus `pixels_captured=true` proves native
+  `backend=dcc-cua` snapshot plus `pixels_captured=true` proves native
   application capture; keep the logical UI Control `session_id`
   distinct from the gateway agent session used for stats attribution.
 - Stateful UI tools must declare `requires_in_process: true` independently of

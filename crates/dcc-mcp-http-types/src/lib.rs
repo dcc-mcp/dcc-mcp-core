@@ -69,7 +69,7 @@
 //! | [`session::SessionLogMessage`] |                                |
 //!
 //! `ui_control` policy lives in the Python skill, while the standalone
-//! `dcc-mcp-cua` CLI owns application automation and Host IPC. Neither belongs
+//! `dcc-cua` CLI owns application automation and Host IPC. Neither belongs
 //! in the HTTP wire layer.
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
