@@ -144,6 +144,7 @@ fn pinned_git_revision_marks_unchanged_version_as_outdated() {
         tags: vec![],
         version: Some("1.0.0".into()),
         min_core_version: None,
+        package: None,
         install: Some(CatalogInstall {
             install_type: "git".into(),
             url: Some("https://example.invalid/skill".into()),
@@ -224,6 +225,7 @@ fn core_version_gate_rejects_too_new_or_invalid_requirements() {
         version: None,
         min_core_version: Some("999.0.0".into()),
         install: None,
+        package: None,
         maintainer: None,
         category: None,
         policy: None,
@@ -258,6 +260,7 @@ fn install_policy_rejects_unavailable_entries() {
         version: None,
         min_core_version: None,
         install: None,
+        package: None,
         maintainer: None,
         category: None,
         policy: Some(dcc_mcp_catalog::CatalogPolicy {

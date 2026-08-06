@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { InterpolationValues, MessageKey } from '../../i18n';
-import type { MarketplaceEntry } from '../../admin-types';
+import {
+  marketplacePackageFormat,
+  marketplacePackageSkills,
+  type MarketplaceEntry,
+} from '../../admin-types';
 import { resolveDccIcon } from '../../platform';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
@@ -63,6 +67,8 @@ export function MarketplaceDetailModal({
     ...(entry.requires?.python ?? []).map((value) => `${value} · python`),
     ...(entry.requires?.skills ?? []).map((value) => `${value} · skill`),
   ];
+  const packageSkills = marketplacePackageSkills(entry);
+  const packageFormat = marketplacePackageFormat(entry);
 
   // Compatibility check: warn if min_core_version > current core version
   const compatWarning =
@@ -228,6 +234,28 @@ export function MarketplaceDetailModal({
                 {entry.tags.map((tag) => (
                   <code key={tag} className="marketplace-card-chip marketplace-card-chip-tag">
                     {tag}
+                  </code>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {packageSkills.length > 0 && packageFormat ? (
+            <div className="marketplace-detail-section">
+              <h4>
+                {t('marketplace.detail.includedSkills')}
+                {' · '}
+                {t(
+                  packageFormat === 'agent-plugin'
+                    ? 'marketplace.card.agentPlugin'
+                    : 'marketplace.card.skillBundle',
+                  { count: packageSkills.length },
+                )}
+              </h4>
+              <div className="marketplace-detail-chip-row">
+                {packageSkills.map((skill) => (
+                  <code key={skill} className="marketplace-card-chip marketplace-card-chip-tag">
+                    {skill}
                   </code>
                 ))}
               </div>

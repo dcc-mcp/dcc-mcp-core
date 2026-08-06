@@ -229,6 +229,7 @@
   align-items: center;
   bottom: 0.65rem;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.35rem;
   left: 0.7rem;
   position: absolute;
@@ -254,6 +255,11 @@
   background: rgba(5, 92, 70, 0.82);
   border-color: rgba(110, 231, 183, 0.34);
   margin-left: auto;
+}
+
+.marketplace-card-package {
+  background: rgba(30, 64, 175, 0.82);
+  border-color: rgba(147, 197, 253, 0.38);
 }
 
 .marketplace-card-state-outdated {

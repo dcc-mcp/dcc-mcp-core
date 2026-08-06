@@ -58,7 +58,7 @@
   "cli.loadSkill": "加载技能",
   "cli.loadSkillDetail": "激活已发现的技能",
   "cli.marketplace": "应用市场",
-  "cli.marketplaceDetail": "查找可安装技能",
+  "cli.marketplaceDetail": "查找可安装的 Plugin 与 Skill",
   "cli.marketplaceInstall": "安装包",
   "cli.marketplaceInstallDetail": "下载到本机技能根目录",
   "cli.marketplaceUpdate": "更新包",
@@ -70,6 +70,6 @@
   "aside.gateway": "网关目标",
   "aside.extend": "技能和应用市场",
   "aside.skillsDetail": "管理已加载技能和路径",
-  "aside.marketplaceDetail": "安装和更新技能包",
+  "aside.marketplaceDetail": "安装和更新商城包",
   "aside.runtime": "运行时"
 }

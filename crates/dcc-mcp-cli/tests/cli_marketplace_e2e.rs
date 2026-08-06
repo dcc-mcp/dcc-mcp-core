@@ -507,6 +507,94 @@ fn marketplace_install_list_and_uninstall_path_package() {
 }
 
 #[test]
+fn marketplace_installs_agent_plugin_as_one_multi_skill_package() {
+    let tmp = TempDir::new().unwrap();
+    let plugin_dir = tmp.path().join("rig-plugin");
+    std::fs::create_dir_all(plugin_dir.join("skills/inspect")).unwrap();
+    std::fs::create_dir_all(plugin_dir.join("skills/act")).unwrap();
+    std::fs::write(
+        plugin_dir.join("plugin.json"),
+        r#"{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"rig-plugin","version":"1.0.0","description":"Rig workflows"}"#,
+    )
+    .unwrap();
+    for name in ["inspect", "act"] {
+        std::fs::write(
+            plugin_dir.join(format!("skills/{name}/SKILL.md")),
+            format!(
+                "---\nname: {name}\ndescription: {name} rig data\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n"
+            ),
+        )
+        .unwrap();
+    }
+    let catalog_path = tmp.path().join("marketplace.json");
+    std::fs::write(
+        &catalog_path,
+        json!({
+            "version": "1",
+            "entries": [{
+                "name": "rig-plugin",
+                "description": "Rig workflows",
+                "dcc": ["maya"],
+                "tags": ["rigging"],
+                "version": "1.0.0",
+                "package": {
+                    "format": "agent-plugin",
+                    "skills": ["inspect", "act"]
+                },
+                "install": {
+                    "type": "path",
+                    "url": plugin_dir.to_string_lossy()
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let source = catalog_path.to_string_lossy().to_string();
+    let sources_file = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp.path().join("marketplace-root");
+    let install_root_value = install_root.to_string_lossy().to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", sources_file.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        (
+            "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+            install_root_value.as_str(),
+        ),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "rig-plugin",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+
+    assert_eq!(installed["entry"]["package"]["format"], "agent-plugin");
+    assert!(install_root.join("maya/inspect/SKILL.md").is_file());
+    assert!(install_root.join("maya/act/SKILL.md").is_file());
+    assert!(installed["path"].as_str().unwrap().contains(".packages"));
+
+    let removed = run_json_with_env(
+        &["marketplace", "uninstall", "rig-plugin", "--dcc", "maya"],
+        &envs,
+    );
+    assert_eq!(removed["removed_files"], true);
+    assert!(!install_root.join("maya/inspect").exists());
+    assert!(!install_root.join("maya/act").exists());
+}
+
+#[test]
 fn marketplace_install_exact_name_infers_dcc_and_reloads_running_dcc() {
     let tmp = TempDir::new().unwrap();
     let fixture = spawn_local_mcp_fixture();

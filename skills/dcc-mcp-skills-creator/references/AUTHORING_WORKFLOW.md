@@ -150,3 +150,14 @@ For an async skill, keep `agents/openai.yaml` aligned with the tool contract:
 tell the Agent to start the operation once, follow typed job progress to a
 terminal state, and query the existing job id after timeout. Do not prompt it to
 relaunch work, scan output directories repeatedly, or schedule polling by default.
+
+## 5. Package Related Skills
+
+Keep `SKILL.md` as the runtime contract. When related Skills must install,
+update, and uninstall together, package them as an Agent Plugin 1.0 with root
+`plugin.json` and immediate `skills/<name>/SKILL.md` children. Use marketplace
+`package.format: agent-plugin` and list the component names in
+`package.skills`. For an existing multi-root layout, use `skill-bundle`.
+
+Do not bundle Skills that have independent versions, credentials, supported
+DCCs, or user intent. A shared repository is insufficient evidence.

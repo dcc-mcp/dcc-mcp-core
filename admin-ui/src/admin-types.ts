@@ -1303,14 +1303,31 @@ export type MarketplaceEntry = {
   } | null;
   icon?: string | null;
   showcase?: string | null;
+  package?: {
+    format: 'agent-plugin' | 'skill-bundle';
+    skills: string[];
+  } | null;
   source_name?: string;
   source_url?: string;
   install?: {
     type: string;
     url?: string | null;
     ref?: string | null;
+    skillRoots?: string[] | null;
   } | null;
 };
+
+export function marketplacePackageSkills(entry: MarketplaceEntry): string[] {
+  if (entry.package?.skills.length) return entry.package.skills;
+  return (entry.install?.skillRoots ?? []).map((root) => root.split(/[\\/]/).at(-1)!).filter(Boolean);
+}
+
+export function marketplacePackageFormat(
+  entry: MarketplaceEntry,
+): 'agent-plugin' | 'skill-bundle' | null {
+  if (entry.package?.format) return entry.package.format;
+  return marketplacePackageSkills(entry).length > 1 ? 'skill-bundle' : null;
+}
 
 /// Installed marketplace package — mirrors CLI domain InstalledMarketplacePackage.
 export type InstalledMarketplacePackage = {

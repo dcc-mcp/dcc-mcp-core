@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import './MarketplaceCard.css';
 import type { InterpolationValues, MessageKey } from '../../i18n';
-import type { MarketplaceEntry, InstalledMarketplacePackage } from '../../admin-types';
+import {
+  marketplacePackageFormat,
+  marketplacePackageSkills,
+  type MarketplaceEntry,
+  type InstalledMarketplacePackage,
+} from '../../admin-types';
 import { resolveDccIcon } from '../../platform';
 
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
@@ -47,6 +52,8 @@ export function MarketplaceCard({
   const dccIcon = entry.dcc.length === 1 ? resolveDccIcon(entry.dcc[0]) : null;
   const icon = entry.icon && !iconFailed ? entry.icon : dccIcon;
   const showcase = entry.showcase && !showcaseFailed ? entry.showcase : null;
+  const packageSkills = marketplacePackageSkills(entry);
+  const packageFormat = marketplacePackageFormat(entry);
 
   return (
     <article
@@ -90,6 +97,16 @@ export function MarketplaceCard({
         <div className="marketplace-card-media-shade" aria-hidden="true" />
         <div className="marketplace-card-media-meta">
           <span className="marketplace-card-version">v{version}</span>
+          {packageFormat ? (
+            <span className="marketplace-card-state marketplace-card-package">
+              {t(
+                packageFormat === 'agent-plugin'
+                  ? 'marketplace.card.agentPlugin'
+                  : 'marketplace.card.skillBundle',
+                { count: packageSkills.length },
+              )}
+            </span>
+          ) : null}
           {installedDccs.size > 0 ? (
             <span className="marketplace-card-state marketplace-card-state-installed">
               {t('marketplace.tab.installed')} {installedDccs.size}/{entry.dcc.length}

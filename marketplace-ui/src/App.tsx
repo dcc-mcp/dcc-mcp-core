@@ -13,6 +13,18 @@ function requirementLabels(entry: any | null): string[] {
   ];
 }
 
+function packageSkills(entry: any | null): string[] {
+  if (entry?.package?.skills?.length) return entry.package.skills;
+  return (entry?.install?.skillRoots || [])
+    .map((root: string) => root.split(/[\\/]/).at(-1))
+    .filter((skill: string | undefined): skill is string => Boolean(skill));
+}
+
+function packageFormat(entry: any | null): 'agent-plugin' | 'skill-bundle' | null {
+  if (entry?.package?.format) return entry.package.format;
+  return packageSkills(entry).length > 1 ? 'skill-bundle' : null;
+}
+
 export default function App() {
   const [lang, setLang] = useState<Lang>(() => {
     const navLang = navigator.language;
@@ -214,7 +226,8 @@ export default function App() {
     if (q) {
       result = result.filter((entry) =>
         entry.name.toLowerCase().includes(q) ||
-        (entry.description && entry.description.toLowerCase().includes(q))
+        (entry.description && entry.description.toLowerCase().includes(q)) ||
+        packageSkills(entry).some((skill) => skill.toLowerCase().includes(q))
       );
     }
     return result;
@@ -381,6 +394,8 @@ export default function App() {
   }
 
   const detailRequirements = requirementLabels(detailEntry);
+  const detailPackageSkills = packageSkills(detailEntry);
+  const detailPackageFormat = packageFormat(detailEntry);
 
   return (
     <div className="marketplace-container">
@@ -579,6 +594,14 @@ export default function App() {
                       <div className="marketplace-card-meta">
                         <span>{t('card.version', { version: entry.version || t('card.noVersion') })}</span>
                         {entry.maintainer && <span>{t('card.author', { author: entry.maintainer })}</span>}
+                        {packageFormat(entry) && (
+                          <span>
+                            {t(
+                              packageFormat(entry) === 'agent-plugin' ? 'card.agentPlugin' : 'card.skillBundle',
+                              { count: packageSkills(entry).length },
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -795,6 +818,21 @@ export default function App() {
                   ))}
                 </div>
               </div>
+              {detailPackageFormat && detailPackageSkills.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    {t('detail.includedSkills')} · {t(
+                      detailPackageFormat === 'agent-plugin' ? 'card.agentPlugin' : 'card.skillBundle',
+                      { count: detailPackageSkills.length },
+                    )}
+                  </h4>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {detailPackageSkills.map((skill: string) => (
+                      <code key={skill} className="px-2.5 py-1 rounded bg-slate-100 text-slate-700 text-xs">{skill}</code>
+                    ))}
+                  </div>
+                </div>
+              )}
               {detailRequirements.length > 0 && (
                 <div>
                   <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t('detail.requirements')}</h4>
