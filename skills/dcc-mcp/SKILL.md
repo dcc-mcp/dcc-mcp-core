@@ -198,6 +198,12 @@ when structured DCC capabilities cannot reach the required semantic UI:
 3. `ui_control__snapshot` after every action before choosing the next action.
 4. `ui_control__stop_computer_use` when the fallback completes, fails, or is abandoned.
 
+The runtime consumes standalone `dcc-cua`; inspect `dcc-cua profiles` and
+`dcc-cua profile --id <id>` before binding the exact PID/window. Keep
+`browser_dom` inside `dcc-cua`, and use `fab/launcher_download` when UE's Fab
+surface is unavailable. Cloudflare, authentication, purchase, and security
+confirmations remain trusted human boundaries even with full agent access.
+
 The UI Control `session_id` identifies its scoped UI session, not stats
 attribution. Use `--agent-session-id <task-id>` for `_meta.agent_context.session_id`.
 
@@ -213,9 +219,6 @@ security, confirmation, `desktop_unavailable`, or `user_interrupted` results;
 the user or environment must resolve them first. Never widen scope, reuse stale
 coordinates, or resume without an explicit request. Load the runtime Skill for
 the complete target-binding, system-operation, capture, and artifact contract.
-
-Internal studios can fork this skill once and reuse the same CLI+REST workflow across
-agents without maintaining per-host MCP server lists.
 
 ## Gateway Profiles And Local-First Inventory
 
@@ -490,13 +493,6 @@ dcc-mcp-cli install --dcc-type maya --version 2026
 Ask before `--execute`, follow the returned `next_steps`, and do not treat
 package installation as live registration. If no standard DCC is found, ask for an absolute path and pass `--dcc-path`. If auto-install is disabled, show
 the returned policy prompt and hand off to the named deployment owner.
-
-## What This Skill Does Not Use
-
-- Native MCP `tools/list`, `tools/call`, or `resources/read` on the agent host
-  (IDE users should use MCP instead of this skill)
-- Raw `curl` workflows except when debugging the gateway itself
-- Direct Maya/Blender/Houdini scripting
 
 The CLI is the **default agent-facing control plane**. The Python fallback uses
 the same gateway REST endpoints only when the CLI is unavailable after a

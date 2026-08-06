@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-020](./020-external-cua-runtime.md)
 
 ## Context
 

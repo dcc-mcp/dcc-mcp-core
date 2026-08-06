@@ -100,7 +100,7 @@ def _policy_from_params(params: Dict[str, Any]) -> UiControlPolicy:
     raw = params.get("policy") or {}
     if not isinstance(raw, dict):
         raw = {}
-    ceiling = _env_flag("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT")
+    ceiling = _env_flag("DCC_MCP_CUA_ALLOW_RAW_INPUT")
     return UiControlPolicy(
         allow_raw_coordinates=ceiling,
         allow_keyboard_shortcuts=ceiling,
@@ -141,7 +141,7 @@ def _process_name_key(value: str) -> str:
 
 def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[str, Any]:
     invalid_reason = None
-    trusted_title = str(os.environ.get("DCC_MCP_UI_CONTROL_UIA_WINDOW_TITLE") or "").strip()
+    trusted_title = str(os.environ.get("DCC_MCP_UI_CONTROL_WINDOW_TITLE") or "").strip()
     requested_title = str(params.get("window_title") or "").strip()
     effective_title = _intersect_title_constraints(trusted_title, requested_title)
     if trusted_title and requested_title and effective_title is None:
@@ -162,7 +162,7 @@ def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[
     titles = [effective_title] if effective_title else allowed_titles
 
     allowed_process_ids = {int(item) for item in policy.allowed_process_ids if int(item) > 0}
-    raw_trusted_pid = os.environ.get("DCC_MCP_UI_CONTROL_UIA_PROCESS_ID")
+    raw_trusted_pid = os.environ.get("DCC_MCP_UI_CONTROL_PROCESS_ID")
     trusted_process_id = _positive_int(raw_trusted_pid)
     if raw_trusted_pid and trusted_process_id is None:
         invalid_reason = invalid_reason or "the runtime DCC process id scope is invalid"
@@ -177,7 +177,7 @@ def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[
         invalid_reason = invalid_reason or "the requested process id is outside the policy allowlist"
     process_ids = [effective_process_id] if effective_process_id else sorted(allowed_process_ids)
 
-    trusted_process_name = str(os.environ.get("DCC_MCP_UI_CONTROL_UIA_PROCESS_NAME") or "").strip()
+    trusted_process_name = str(os.environ.get("DCC_MCP_UI_CONTROL_PROCESS_NAME") or "").strip()
     requested_process_name = str(params.get("process_name") or "").strip()
     if (
         trusted_process_name
@@ -192,7 +192,7 @@ def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[
         )
     process_names = [effective_process_name] if effective_process_name else []
 
-    raw_trusted_handle = os.environ.get("DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE")
+    raw_trusted_handle = os.environ.get("DCC_MCP_UI_CONTROL_WINDOW_HANDLE")
     trusted_window_handle = _positive_int(raw_trusted_handle)
     if raw_trusted_handle and trusted_window_handle is None:
         invalid_reason = invalid_reason or "the runtime DCC window handle scope is invalid"
@@ -281,18 +281,18 @@ def _bounds_from_raw(raw: Dict[str, Any]) -> Optional[UiBounds]:
 def _control_id(raw: Dict[str, Any]) -> str:
     runtime_id = str(raw.get("runtime_id") or "").strip()
     if runtime_id:
-        return f"uia:{runtime_id}"
-    return f"uia:path:{raw.get('fallback_path') or '0'}"
+        return f"cua:{runtime_id}"
+    return f"cua:path:{raw.get('fallback_path') or '0'}"
 
 
-def _node_from_uia_dict(raw: Dict[str, Any], snapshot_id: str) -> UiControlNode:
+def _node_from_cua_dict(raw: Dict[str, Any], snapshot_id: str) -> UiControlNode:
     children = [
-        _node_from_uia_dict(child, snapshot_id) for child in raw.get("children", []) or [] if isinstance(child, dict)
+        _node_from_cua_dict(child, snapshot_id) for child in raw.get("children", []) or [] if isinstance(child, dict)
     ]
     runtime_id = str(raw.get("runtime_id") or "")
     metadata = {
         "ui_control": {
-            "backend": "windows-uia",
+            "backend": "dcc-cua",
             "snapshot_id": snapshot_id,
             "runtime_id": runtime_id,
             "fallback_path": raw.get("fallback_path"),
@@ -300,6 +300,8 @@ def _node_from_uia_dict(raw: Dict[str, Any], snapshot_id: str) -> UiControlNode:
             "class_name": raw.get("class_name"),
             "native_window_handle": raw.get("native_window_handle"),
             "control_type": raw.get("control_type"),
+            "element_index": raw.get("element_index"),
+            "element_token": raw.get("element_token"),
         }
     }
     value = raw.get("value")

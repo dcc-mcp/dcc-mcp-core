@@ -111,21 +111,21 @@ fn sibling_target_rejects_windows_ads_and_ambiguous_names() {
             "unsafe sibling target was accepted: {file_name:?}"
         );
     }
-    validate_sibling_name("dcc-mcp-ui-control-host.exe").unwrap();
+    validate_sibling_name("dcc-mcp-cli.exe").unwrap();
 }
 
 #[test]
-fn update_set_applies_server_and_host_together() {
+fn update_set_applies_server_and_cli_together() {
     let temp = tempfile::tempdir().unwrap();
     let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
-    let host = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
+    let host = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
     let server_download = write_fixture(temp.path(), "server.download", b"new-server");
-    let host_download = write_fixture(temp.path(), "host.download", b"new-host");
+    let host_download = write_fixture(temp.path(), "cli.download", b"new-cli");
     let server_sha = sha256_file(&server_download).unwrap();
     let host_sha = sha256_file(&host_download).unwrap();
     let current_target = UpdateTarget::CurrentExecutable;
     let host_target = UpdateTarget::Sibling {
-        file_name: "dcc-mcp-ui-control-host.exe".into(),
+        file_name: "dcc-mcp-cli.exe".into(),
     };
     let binary_name = unique_name("apply");
     stage_update_set_for(
@@ -147,7 +147,7 @@ fn update_set_applies_server_and_host_together() {
     .unwrap();
     assert!(apply_staged_update_set_for(&binary_name, &current).unwrap());
     assert_eq!(std::fs::read(&current).unwrap(), b"new-server");
-    assert_eq!(std::fs::read(&host).unwrap(), b"new-host");
+    assert_eq!(std::fs::read(&host).unwrap(), b"new-cli");
     assert!(
         !installation_root(&binary_name, &current)
             .join(PENDING_SET_DIR)
@@ -159,14 +159,14 @@ fn update_set_applies_server_and_host_together() {
 fn update_set_rolls_back_first_component_when_second_replace_fails() {
     let temp = tempfile::tempdir().unwrap();
     let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
-    let host = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
+    let host = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
     let server_download = write_fixture(temp.path(), "server.download", b"new-server");
-    let host_download = write_fixture(temp.path(), "host.download", b"new-host");
+    let host_download = write_fixture(temp.path(), "cli.download", b"new-cli");
     let server_sha = sha256_file(&server_download).unwrap();
     let host_sha = sha256_file(&host_download).unwrap();
     let current_target = UpdateTarget::CurrentExecutable;
     let host_target = UpdateTarget::Sibling {
-        file_name: "dcc-mcp-ui-control-host.exe".into(),
+        file_name: "dcc-mcp-cli.exe".into(),
     };
     let binary_name = unique_name("rollback");
     stage_update_set_for(
@@ -188,15 +188,15 @@ fn update_set_rolls_back_first_component_when_second_replace_fails() {
     .unwrap();
 
     // A directory at the deterministic server backup path forces the
-    // second replacement to fail after the sibling host was installed.
-    // The transaction must restore the already-replaced host.
+    // second replacement to fail after the sibling CLI was installed.
+    // The transaction must restore the already-replaced CLI.
     let blocking_backup = current.with_file_name("dcc-mcp-server.exe.dcc-mcp-backup");
     std::fs::create_dir(&blocking_backup).unwrap();
     let error = apply_staged_update_set_for(&binary_name, &current).unwrap_err();
     assert!(matches!(error, UpdateError::Stage(_)));
     assert!(error.to_string().contains("not a regular file"));
     assert_eq!(std::fs::read(&current).unwrap(), b"old-server");
-    assert_eq!(std::fs::read(&host).unwrap(), b"old-host");
+    assert_eq!(std::fs::read(&host).unwrap(), b"old-cli");
     assert!(
         installation_root(&binary_name, &current)
             .join(PENDING_SET_DIR)
@@ -209,15 +209,9 @@ fn update_set_rolls_back_first_component_when_second_replace_fails() {
 #[test]
 fn rollback_preserves_original_before_first_rename() {
     let temp = tempfile::tempdir().unwrap();
-    let target = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
-    let prepared = write_fixture(
-        temp.path(),
-        "dcc-mcp-ui-control-host.exe.dcc-mcp-new",
-        b"new-host",
-    );
-    let backup = temp
-        .path()
-        .join("dcc-mcp-ui-control-host.exe.dcc-mcp-backup");
+    let target = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
+    let prepared = write_fixture(temp.path(), "dcc-mcp-cli.exe.dcc-mcp-new", b"new-cli");
+    let backup = temp.path().join("dcc-mcp-cli.exe.dcc-mcp-backup");
     let original_sha256 = sha256_file(&target).unwrap();
     let expected_sha256 = sha256_file(&prepared).unwrap();
     let journal = UpdateJournal {
@@ -234,22 +228,16 @@ fn rollback_preserves_original_before_first_rename() {
 
     rollback(&journal).unwrap();
 
-    assert_eq!(std::fs::read(target).unwrap(), b"old-host");
+    assert_eq!(std::fs::read(target).unwrap(), b"old-cli");
     assert!(!prepared.exists());
 }
 
 #[test]
 fn rollback_recovers_rename_before_backup_state_is_journaled() {
     let temp = tempfile::tempdir().unwrap();
-    let target = write_fixture(temp.path(), "dcc-mcp-ui-control-host.exe", b"old-host");
-    let prepared = write_fixture(
-        temp.path(),
-        "dcc-mcp-ui-control-host.exe.dcc-mcp-new",
-        b"new-host",
-    );
-    let backup = temp
-        .path()
-        .join("dcc-mcp-ui-control-host.exe.dcc-mcp-backup");
+    let target = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
+    let prepared = write_fixture(temp.path(), "dcc-mcp-cli.exe.dcc-mcp-new", b"new-cli");
+    let backup = temp.path().join("dcc-mcp-cli.exe.dcc-mcp-backup");
     let original_sha256 = sha256_file(&target).unwrap();
     let expected_sha256 = sha256_file(&prepared).unwrap();
     std::fs::rename(&target, &backup).unwrap();
@@ -267,8 +255,8 @@ fn rollback_recovers_rename_before_backup_state_is_journaled() {
 
     rollback(&journal).unwrap();
 
-    assert_eq!(std::fs::read(target).unwrap(), b"old-host");
-    assert_eq!(std::fs::read(backup).unwrap(), b"old-host");
+    assert_eq!(std::fs::read(target).unwrap(), b"old-cli");
+    assert_eq!(std::fs::read(backup).unwrap(), b"old-cli");
     assert!(!prepared.exists());
 }
 
@@ -860,18 +848,18 @@ fn bootstrap_replaces_missing_or_stale_sibling_after_hash_check() {
         &binary_name,
         &current,
         &host_download,
-        "dcc-mcp-ui-control-host.exe",
+        "dcc-mcp-cli.exe",
         &host_sha,
     )
     .unwrap();
-    let host = temp.path().join("dcc-mcp-ui-control-host.exe");
+    let host = temp.path().join("dcc-mcp-cli.exe");
     assert_eq!(std::fs::read(&host).unwrap(), b"new-host");
     std::fs::write(&host, b"stale-host").unwrap();
     install_verified_sibling(
         &binary_name,
         &current,
         &host_download,
-        "dcc-mcp-ui-control-host.exe",
+        "dcc-mcp-cli.exe",
         &host_sha,
     )
     .unwrap();

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted naming; native Host design superseded by [ADR-020](./020-external-cua-runtime.md)
 
 ## Context
 

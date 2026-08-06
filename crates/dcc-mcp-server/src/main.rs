@@ -872,14 +872,6 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         );
     }
 
-    #[cfg(windows)]
-    if let Err(error) = update::reconcile_ui_control_host(args.gateway_port).await {
-        tracing::warn!(
-            %error,
-            "UI Control host reconciliation failed; UI Control remains unavailable until the version-matched host is installed"
-        );
-    }
-
     #[cfg(feature = "gateway-auto")]
     let embedded_gateway_election = {
         #[cfg(feature = "gateway-daemon")]

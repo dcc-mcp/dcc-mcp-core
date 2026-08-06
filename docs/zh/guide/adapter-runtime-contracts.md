@@ -44,7 +44,8 @@ descriptor = DebugSessionDescriptor.listening("debugpy", "127.0.0.1", 5678)
 
 `ui_control` 契约是架构和工作流，不是通用点击机器人。适配器可以使用 Qt、原生可访问性 API、webview 或 DCC 特定的 UI API 实现它。公共工具名称使用 `ui_control__*`，因为该能力有意比 DCC 专用的 UI 命名空间更广泛：相同的契约可以描述 DCC 偏好设置对话框、外部启动器、许可证实用程序或其他适配器拥有的应用程序窗口。
 
-Rust 架构位于 `dcc-mcp-ui-control` crate 中，因此 UI 自动化契约可以独立于 HTTP 服务器层演进。Python 适配器继续从 `dcc_mcp_core.adapter_contracts` 导入匹配的数据类。
+Core 侧架构位于 `dcc_mcp_core.adapter_contracts`；原生自动化由独立的 `dcc-cua`
+manifest 和 Host 协议提供，因此 UI 自动化契约可独立于 HTTP 服务器层演进。
 
 核心形状包括：
 
@@ -77,6 +78,6 @@ Rust 架构位于 `dcc-mcp-ui-control` crate 中，因此 UI 自动化契约可�
 - 原始坐标单击和键盘快捷键是高风险的。除非适配器明确选择加入并记录回退，否则保持禁用。
 - 审计记录应包括操作类型、目标控件 ID/角色/标签（安全时）、前后焦点 ID、成功/失败和结构化错误代码。敏感的键入文本和截图字节应被编辑或仅作为工件/资源引用返回。
 
-捆绑的 `ui-control` 技能默认选择平台原生后端：Windows 使用隔离的 Windows UI Automation 主机，其他平台使用 CDP 后端。测试可以显式设置 `DCC_MCP_UI_CONTROL_BACKEND=mock` 使用确定性模拟后端。CDP 后端通过相同的 `ui_control__snapshot`、`ui_control__find`、`ui_control__act` 和 `ui_control__wait_for` 工具驱动浏览器或 webview 搜索。CDP 后端支持预设：`reuse` 首先附加到现有 DevTools 端点以便可以重用当前浏览器令牌，`isolated` 启动临时 Chrome 配置文件，`auroraview` 使用 `DCC_MCP_UI_CONTROL_AURORAVIEW_CDP_PORT`、`AURORAVIEW_CDP_PORT`、`DCC_MCP_UI_CONTROL_CDP_PORT` 或端口 `9222` 附加到 AuroraView 的 CDP 端点。相同的运行时还支持 `edge` 用于 Microsoft Edge CDP 和 `agent-browser` 用于 Vercel 的 `agent-browser` CLI，该 CLI 通过 `agent-browser get cdp-url` 公开其 DevTools URL，并可以在 CI 中通过 `agent-browser install` 配置。
+捆绑的 `ui-control` 技能默认为测试和适配器创作的确定性模拟后端。设置 `DCC_MCP_UI_CONTROL_BACKEND=chrome` 以使用实验性 CDP 后端，并通过相同的 `ui_control__snapshot`、`ui_control__find`、`ui_control__act` 和 `ui_control__wait_for` 工具驱动浏览器或 webview 搜索。CDP 后端支持预设：`reuse` 首先附加到现有 DevTools 端点以便可以重用当前浏览器令牌，`isolated` 启动临时 Chrome 配置文件，`auroraview` 使用 `DCC_MCP_UI_CONTROL_AURORAVIEW_CDP_PORT`、`AURORAVIEW_CDP_PORT`、`DCC_MCP_UI_CONTROL_CDP_PORT` 或端口 `9222` 附加到 AuroraView 的 CDP 端点。相同的运行时还支持 `edge` 用于 Microsoft Edge CDP 和 `agent-browser` 用于 Vercel 的 `agent-browser` CLI，该 CLI 通过 `agent-browser get cdp-url` 公开其 DevTools URL，并可以在 CI 中通过 `agent-browser install` 配置。
 
-Windows 会自动选择参考 Windows UI Automation 后端。它通过 PowerShell 辅助程序使用 OS UIAutomationClient API，并保持在相同的契约之后。后端拒绝无作用域的全桌面访问：通过调用策略或 `DCC_MCP_UI_CONTROL_UIA_*` 环境变量提供允许的窗口标题、进程 ID 或进程名称。它将 UIA 控件类型映射到规范化的 ui_control 角色，并返回结构化的 `missing_window`、`not_found`、`unsupported_action`、`policy_disabled`、`stale_control` 和 `timeout` 错误。
+设置 `DCC_MCP_UI_CONTROL_BACKEND=cua`，通过独立的 `dcc-cua` CLI/Host 控制 Windows、Linux 和 macOS 原生应用。请把它安装到 `PATH`，或把 `DCC_MCP_CUA_BINARY` 设置为绝对可执行文件路径。使用 `DCC_MCP_UI_CONTROL_PROCESS_ID` 和 `DCC_MCP_UI_CONTROL_WINDOW_HANDLE` 绑定准确应用；请求只能缩小作用域，不能扩大。平台无障碍、截图、可见接管标记、输入队列和 Escape 中断均由 CUA Host 负责。

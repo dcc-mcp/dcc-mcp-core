@@ -114,37 +114,24 @@ does not replace a running server binary.
 6. Keep service identity data-driven: `dcc_name`/custom service id, `server_name`, env-var prefix, skill names, and gateway metadata.
    Leave the instance port unset so core resolves `DCC_MCP_<DCC>_PORT` or asks the OS for a free port.
 7. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers. Python `DccServerBase.collect_skill_search_paths()` includes marketplace-installed skills under `~/.dcc-mcp/marketplace/<dcc>` (or `DCC_MCP_MARKETPLACE_INSTALL_ROOT/<dcc>`) when the directory exists, so adapters should not add a second marketplace path convention. Hermetic adapter tests should set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`; this excludes implicit local/platform defaults, marketplace installs, and Admin custom paths while explicit, bundled, and environment-provided skill paths remain active.
-   - For Windows visual UI fallback, reuse the bundled `ui-control` skill and the
-     isolated `dcc-mcp-ui-control-host.exe`; do not instantiate
-     `ComputerUseSession` or add adapter-local screenshot/`SendInput` wrappers.
-     Keep `ui_control__snapshot` and `ui_control__act` in the same long-lived adapter
-     process so one thin named-pipe client retains the opaque host capability.
-     Preserve `capture_provenance` when snapshots or recordings become
-     evidence. Native Windows pixels require
-     `backend=windows-ui-control-host` and `pixels_captured=true`; use one
-     logical UI Control `session_id` plus one stable gateway
-     `agent_context.session_id` for attributable acceptance runs.
-     The per-logon-session host owns the screenshot/UIA observations, visible
-     banner, Esc stop token, input owner, confirmation, and native input.
-     `ui-control` declares `requires_in_process: true` while keeping
+   - For native visual UI fallback, reuse the bundled `ui-control` skill with
+     the standalone `dcc-cua` CLI/Host; do not add adapter-local capture,
+     accessibility, or raw-input wrappers. Keep stateful UI calls in one
+     long-lived adapter process so each logical session retains its persistent
+     CUA bridge and window capability. Preserve `capture_provenance` with
+     evidence. The shared CUA Host owns platform accessibility, capture,
+     banner/border/cursor markers, Escape interruption, input serialization,
+     and recording. `ui-control` remains `requires_in_process: true` with
      `affinity: any`; register `HostExecutionBridge` before skill loading.
-     The Host lazily owns one UIA worker per exact runtime session and reaps it
-     on stop or failure without replaying mutations. Never weaken this into
-     per-call subprocess execution or route it onto a blocked DCC UI thread.
-     A minimized or hidden exact HWND is recovered only through the host-owned
-     `get_window_state` / `restore_window` / `show_window` /
-     `activate_window` actions. They need no snapshot, must retain the existing
-     capability-bound PID/HWND, and must never become desktop discovery or
-     adapter-local Win32/input fallbacks.
    - Keep structured DCC skills, host APIs, and adapter scripts ahead of
      `ui-control`. Agents should make an explicit, agent-directed transition into the scoped
      `snapshot` → one `act` → `snapshot` loop only when an operation is
      unsupported, no suitable tool exists, or semantic UI Automation cannot
      reach the required control. Re-observe after every action.
    - Keep raw pointer and keyboard input operator-controlled. The adapter may
-     document `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT`, but it must not enable the
+     document `DCC_MCP_CUA_ALLOW_RAW_INPUT`, but it must not enable the
       ceiling itself. Before raw input can start, the adapter/operator must set
-      `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE` to
+      `DCC_MCP_UI_CONTROL_PROCESS_ID` or `DCC_MCP_UI_CONTROL_WINDOW_HANDLE` to
       the adapter's own DCC target; request scope may only narrow that trusted
       PID/HWND. Require a visible unlocked desktop and matching Windows
       integrity level, preserve the click-through border/banner/pointer feedback, and preserve
@@ -160,14 +147,6 @@ does not replace a running server binary.
       `intent` may only raise the native host's independent UIA/input
       classification. Do not introduce a model-supplied `confirmed`/`approved`
       flag or environment bypass.
-   - For plug-in setup outside a window, reuse
-     `ui_control__system_operation` instead of adding adapter-local PowerShell,
-     `reg.exe`, `mklink`, or generic file-system tools. The host catalog named
-     by `DCC_MCP_UI_CONTROL_SYSTEM_GRANTS_FILE` is operator-owned, and the
-     adapter selects only its grant id through
-     `DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID`. Keep operations exact, typed,
-     idempotent, confirmation-gated, and free of credentials. Do not treat
-     `elevation_required` as permission to automate UAC or another shell path.
 8. Use CLI profiles (`dcc-mcp-cli gateway ...`, `list/search/describe/call`) as the user UX; treat `dcc-mcp-server` modes as runtime plumbing. Read `docs/guide/gateway.md` before changing daemon, guardian, sentinel, registry, or idle-timeout behavior.
    Gateway discovery reuses a recent capability snapshot across adjacent
    queries. Route adapter catalog changes through the existing
