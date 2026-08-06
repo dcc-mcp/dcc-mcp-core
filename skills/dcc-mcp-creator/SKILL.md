@@ -24,7 +24,7 @@ metadata:
     skill-reference-docs:
       - "references/*.md"
   openclaw:
-    homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp-creator/SKILL.md
+    homepage: https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-creator/SKILL.md
 ---
 
 # DCC-MCP Creator

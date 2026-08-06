@@ -325,20 +325,6 @@ preflight: check clippy fmt-check test-rust
 # Full local CI pipeline: compatibility contract → preflight → wheel → tests → lint
 ci: check-python-support preflight install test lint-py
 
-# ── ClawHub (https://clawhub.ai/) ─────────────────────────────────────────────
-
-# Package skills from .github/clawhub-skills.json (zip under dist/skills/).
-package-clawhub-skills:
-    python scripts/package_openclaw_skill.py .github/clawhub-skills.json dist/skills --manifest
-
-# Validate publish commands without uploading (PR / local).
-clawhub-sync-dry-run:
-    python scripts/clawhub_sync.py --dry-run
-
-# Publish manifest skills to ClawHub (requires CLAWHUB_TOKEN + login).
-clawhub-sync:
-    python scripts/clawhub_sync.py
-
 # Run the UI Control desktop automation test harness (mock backend, no desktop needed)
 test-ui-control-automation:
     pytest tests/test_ui_control_desktop_automation.py -v --tb=short --show-capture=no

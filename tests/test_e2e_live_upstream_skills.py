@@ -18,15 +18,12 @@ Two ecosystems are covered:
    file that touches upstream content is gated behind
    ``DCC_MCP_E2E_LIVE_FORGECAD=1``. Default CI never hits the network.
 
-2. **ClawHub / OpenClaw** — no canonical public skill repository exists
-   today (``clawhub.ai`` is a commercial marketplace; ``docs.openclaw.ai``
-   is docs only). The in-repo fixture at
+2. **ClawHub / OpenClaw** — the canonical DCC-MCP Agent Skill repository is
+   https://github.com/dcc-mcp/dcc-mcp-agent-plugins. The in-repo fixture at
    ``examples/skills/clawhub-compat/`` already carries the full
    ``metadata.openclaw.*`` surface (``requires``, ``primaryEnv``,
    ``emoji``, ``homepage``, ``install``). Reusing that fixture is the
-   strongest available proof that our parser accepts the ClawHub format
-   unmodified. When a public ClawHub mirror appears the ``LIVE_CLAWHUB``
-   env var (reserved below) can be wired up without rewriting tests.
+   hermetic proof that our parser accepts the ClawHub format unmodified.
 
 CI impact
 ---------
@@ -88,8 +85,6 @@ CLONE_TIMEOUT_S = 60.0
 CLAWHUB_SKILL_DIR = str(REPO_ROOT / "examples" / "skills" / "clawhub-compat")
 
 LIVE_FORGECAD = os.environ.get("DCC_MCP_E2E_LIVE_FORGECAD") == "1"
-# Reserved for a future public ClawHub mirror; no live fetch today.
-LIVE_CLAWHUB = os.environ.get("DCC_MCP_E2E_LIVE_CLAWHUB") == "1"
 
 SKIP_LIVE_REASON = (
     f"Live upstream test requires DCC_MCP_E2E_LIVE_FORGECAD=1 (clones {UPSTREAM_REPO_URL} into tests/_cache/)"
@@ -431,16 +426,14 @@ class TestLiveUpstreamForgeCAD:
 def test_clawhub_local_fixture_auto_infers_and_registers(tmp_path: Path) -> None:
     """The ClawHub-format fixture is accepted and registered unmodified.
 
-    No canonical public ClawHub skill repository exists to clone at the
-    time of writing. The in-repo ``examples/skills/clawhub-compat``
-    fixture faithfully reproduces the ClawHub / OpenClaw frontmatter
+    The in-repo ``examples/skills/clawhub-compat`` fixture faithfully
+    reproduces the ClawHub / OpenClaw frontmatter
     shape (``metadata.openclaw.requires``, ``primaryEnv``, ``emoji``,
     ``homepage``, ``install``) so scanning it exercises exactly the same
     auto-inference path a live ClawHub clone would.
 
-    If a public ClawHub skills repo appears later, mirror the ForgeCAD
-    ``_ensure_*_clone`` helper and gate new tests with
-    ``DCC_MCP_E2E_LIVE_CLAWHUB=1``.
+    The public DCC-MCP Agent Skill repository is tested in its own CI; Core
+    keeps this parser test network-free.
     """
     skills, skipped = scan_and_load(extra_paths=[CLAWHUB_SKILL_DIR])
     assert skipped == [], f"ClawHub fixture should parse cleanly; skipped={skipped}"
@@ -493,21 +486,3 @@ def test_clawhub_local_fixture_auto_infers_and_registers(tmp_path: Path) -> None
         assert "clawhub-compat" in _tool_text(info)
     finally:
         handle.shutdown()
-
-
-@pytest.mark.skipif(
-    not LIVE_CLAWHUB,
-    reason=(
-        "No canonical public ClawHub skills repository exists today. Set "
-        "DCC_MCP_E2E_LIVE_CLAWHUB=1 only once a mirror is configured — see "
-        "test module docstring."
-    ),
-)
-def test_live_clawhub_placeholder() -> None:  # pragma: no cover - reserved gate
-    """Placeholder for a future live ClawHub mirror.
-
-    When a public ClawHub / OpenClaw skill repository becomes available,
-    add an ``_ensure_clawhub_clone`` helper mirroring the ForgeCAD one
-    above and move real assertions here.
-    """
-    pytest.skip("Live ClawHub mirror not yet configured; see module docstring.")
