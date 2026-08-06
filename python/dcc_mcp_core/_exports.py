@@ -608,6 +608,9 @@ _LAZY: dict[str, str] = {
     "ImportWarningCode": "dcc_mcp_core.asset_import",
     "MaterialMode": "dcc_mcp_core.asset_import",
     "PlacementHint": "dcc_mcp_core.asset_import",
+    # Cross-DCC spatial interchange
+    "SpatialConvention": "dcc_mcp_core.spatial",
+    "plan_spatial_conversion": "dcc_mcp_core.spatial",
     "SceneStats": "dcc_mcp_core.verifier",
     "UnitHint": "dcc_mcp_core.asset_import",
     "WorkflowTask": "dcc_mcp_core.workflow_yaml",
