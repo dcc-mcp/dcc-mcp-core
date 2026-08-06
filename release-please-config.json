@@ -50,23 +50,6 @@
         },
         {
           "type": "generic",
-          "path": "skills/dcc-mcp/SKILL.md"
-        },
-        {
-          "type": "generic",
-          "path": "skills/dcc-mcp-creator/SKILL.md"
-        },
-        {
-          "type": "generic",
-          "path": "skills/dcc-mcp-skills-creator/SKILL.md"
-        },
-        {
-          "type": "json",
-          "path": ".github/clawhub-skills.json",
-          "jsonpath": "$.skills[*].version"
-        },
-        {
-          "type": "generic",
           "path": "docs/.vitepress/config.mts"
         },
         {

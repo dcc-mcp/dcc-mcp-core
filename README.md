@@ -205,9 +205,9 @@ work; install a creator Skill only when the task reaches that boundary:
 
 | Agent task | Public Skill | Source |
 |---|---|---|
-| Operate a live DCC, discover tools, or search the Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) | [`skills/dcc-mcp`](skills/dcc-mcp/) |
-| Create or modernize a complete DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | [`skills/dcc-mcp-creator`](skills/dcc-mcp-creator/) |
-| Create, validate, or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | [`skills/dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) |
+| Operate a live DCC, discover tools, or search the Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) | [`dcc-mcp`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp) |
+| Create or modernize a complete DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | [`dcc-mcp-creator`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-creator) |
+| Create, validate, or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | [`dcc-mcp-skills-creator`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator) |
 
 OpenClaw installs into the active workspace by default; add `--global` only
 when every local OpenClaw agent should share the Skill:
@@ -232,13 +232,11 @@ requests should trigger `dcc-mcp`; hosts with explicit Skill invocation can use
 `$dcc-mcp`, `$dcc-mcp-creator`, or `$dcc-mcp-skills-creator` respectively.
 
 All three packages carry Codex `agents/openai.yaml` metadata while preserving
-their DCC-MCP and ClawHub contracts. Their immutable ClawHub releases are
-versioned independently in
-[`.github/clawhub-skills.json`](.github/clawhub-skills.json), so Skill updates
-do not collide with an already-published core version. The sync workflow
-publishes the manifest versions and verifies their packaged files. Bump both
-the manifest entry and the matching `SKILL.md` metadata version for every new
-immutable Skill release.
+their DCC-MCP and ClawHub contracts. Their source, vendor manifests, immutable
+versions, and publication workflows now live in
+[`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins).
+The copies under this repository's `skills/` directory remain frozen
+compatibility mirrors for existing Core consumers.
 
 Keep an official build current through the release manifest:
 

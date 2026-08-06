@@ -115,7 +115,6 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "publish-core-pypi",
         "publish-server-pypi",
         "publish-semantic-pypi",
-        "publish-clawhub-skills",
         "publish-github-release-assets",
     ]
     assert "always()" in summary["if"]
@@ -123,7 +122,6 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
     assert "needs.publish-core-pypi.result" in run
     assert "needs.publish-server-pypi.result" in run
     assert "needs.publish-semantic-pypi.result" in run
-    assert "needs.publish-clawhub-skills.result" in run
     assert "needs.publish-github-release-assets.result" in run
 
 
