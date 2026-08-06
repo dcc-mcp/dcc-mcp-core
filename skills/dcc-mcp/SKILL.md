@@ -86,17 +86,13 @@ Use the user's capability words first. If there are no results, retry once with
 a shorter capability query or without the DCC filter; never invent a package
 name or substitute a web recommendation for the CLI result.
 
-Catalog entries may represent one Skill, a legacy multi-Skill bundle, or an
-Agent Plugin. Read `entry.package.format` and `entry.package.skills` from
-search/inspect output when present; one install still updates and uninstalls
-the whole package. Do not install each listed component separately.
+Catalog entries may be a Skill, legacy multi-Skill bundle, or Agent Plugin. When present, read
+`entry.package.format` and `entry.package.skills`; install, update, and uninstall the package once, not each component.
 
-Installing or updating changes local state. Inspect unfamiliar packages and
-obtain user consent before `marketplace install` or `update`. When the exact ID
-is already known, install it directly with `--reload`; then use `load-skill`
-only when needed. The Python REST fallback
-does not implement marketplace commands, so a missing CLI follows the
-consent-gated official CLI installation path below.
+Installing or updating changes local state. Inspect unfamiliar packages and obtain user consent before
+`marketplace install` or `update`. For a known exact ID, install directly with `--reload`, then use
+`load-skill` only when needed. The Python REST fallback does not implement marketplace commands, so
+a missing CLI follows the consent-gated official CLI installation path below.
 Each CLI invocation performs a short read-only marketplace update check; report updates and ask confirmation before `marketplace update`.
 `uninstall --reload` removes and refreshes; omit `--dcc` only for a package installed on one DCC.
 
