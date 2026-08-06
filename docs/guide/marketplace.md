@@ -1,7 +1,7 @@
-# Marketplace: Skill Package Catalog & Installer
+# Marketplace: Plugin, Bundle, and Skill Catalog
 
 The marketplace is a CLI-first discovery and installation system for official and
-community skill packages. It resolves human-readable names from one or more
+community packages. It resolves human-readable names from one or more
 catalog sources, downloads or clones the matching package, and registers it so
 the DCC adapter discovers it on the next restart or `reload_skill_paths` call.
 
@@ -74,7 +74,7 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace list`                        | List configured sources                        |
 | `marketplace search --query <q>`           | Fuzzy-rank entries across all sources; current builds also accept positional query words |
 | `marketplace inspect <name>`              | Show full entry metadata                       |
-| `marketplace install <name> --dcc <dcc> --reload` | Install a skill package and refresh running adapters |
+| `marketplace install <name> --dcc <dcc> --reload` | Install a plugin, bundle, or Skill and refresh running adapters |
 | `marketplace list-installed --dcc <dcc>`  | List installed packages                        |
 | `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| Remove an installed package and optionally refresh the adapter |
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
@@ -84,6 +84,21 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace publish <path> --catalog <file>` | Upsert a catalog entry for a package       |
 
 Full argument reference: [cli-reference.md](cli-reference.md#marketplace).
+
+## Package Shapes
+
+The install command accepts all existing single-Skill packages and bundles.
+It also recognizes [Agent Plugins 1.0](https://agent-plugins.org/specification)
+when the package has a root `plugin.json`. Agent Plugin Skills are discovered
+only from immediate `skills/<name>/SKILL.md` children; the manifest schema,
+plugin name, and resolved path containment are validated before install.
+
+`package.format: agent-plugin` advertises that portable layout.
+`package.format: skill-bundle` advertises the existing DCC-MCP layout with
+multiple `source.skillRoots`. In both cases `package.skills` provides the
+component names shown by the marketplace UI. DCC-MCP currently installs Skill
+components and ignores optional Agent Plugin `mcp.json` because DCC adapters
+already own the runtime MCP connection.
 
 ## Installation Types
 
@@ -178,10 +193,10 @@ jobs:
 
 ## Direct GitHub Install (`add-repo`)
 
-Inspired by `npx skills`, the `marketplace add-repo` command installs a skill
+Inspired by `npx skills`, the `marketplace add-repo` command installs a Skill or Agent Plugin
 directly from a GitHub repository without requiring a `marketplace.json` catalog
-entry. It clones the repo, discovers `SKILL.md` files, and copies the matching
-skill to the marketplace install root.
+entry. It clones the repo, validates a root `plugin.json` when present, and
+installs either the complete plugin or the matching Skill.
 
 ### Usage
 
@@ -206,16 +221,15 @@ dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya --force
 
 1. **Clone**: runs `git clone --depth 1` of the target repo to a temporary
    staging directory.
-2. **Discover**: scans the repo root and immediate subdirectories for
-   `SKILL.md` files.
-3. **Parse**: extracts `name`, `description`, and `dcc` (from
-   `metadata.dcc-mcp.dcc`) from the YAML frontmatter.
-4. **Select**: if the repo contains exactly one skill, it is installed
-   automatically. If multiple skills exist, `--dcc` is required to select one.
-5. **Install**: copies the skill directory to
-   `~/.dcc-mcp/marketplace/<dcc>/<name>/`.
-6. **Record**: the installation is persisted in `installed.json` and discoverable
-   via `list-installed`.
+2. **Discover**: validates root `plugin.json` and its immediate `skills/*`
+   components when present; otherwise scans for `SKILL.md` files.
+3. **Parse**: reads plugin metadata plus each Skill's `name`, `description`, and
+   optional `metadata.dcc-mcp.dcc`.
+4. **Select**: installs every valid Skill in an Agent Plugin as one package. A
+   multi-Skill plugin needs `--dcc` unless all Skills declare the same DCC.
+5. **Install**: copies each Skill to
+   `~/.dcc-mcp/marketplace/<dcc>/<skill-name>/` and writes one package manifest
+   under `.packages/<plugin-name>/`.
 
 ### SKILL.md Discovery
 
@@ -253,7 +267,9 @@ Installed packages land under:
 ├── installed.json            # installed-package state
 ├── maya/
 │   ├── dcc-mcp-maya-skills/  # installed git clone
-│   └── my-custom-skill/      # installed path copy
+│   ├── my-custom-skill/      # installed path copy
+│   └── .packages/
+│       └── rig-plugin/       # one manifest for unified bundle uninstall
 └── blender/
     └── dcc-blender-skills/
 ```
@@ -281,6 +297,8 @@ so installed skills appear on adapter startup or `reload_skill_paths`.
   and reject mismatches without modifying existing packages.
 - **Archive escape detection**: Zip extraction rejects entries that escape the
   install root directory.
+- **Plugin containment**: Agent Plugin manifests and fixed Skill components
+  must resolve inside the plugin root; unsupported manifest schemas are rejected.
 - **Force mode**: `--force` re-attempts install on failure but preserves the
   existing package when the replacement itself fails.
 
@@ -315,6 +333,9 @@ falling back to the local `dcc-mcp-catalog.yml` when offline. Set
     url: "https://github.com/..."
     ref: "v1.2.0"                    # tag/branch/commit (git type)
     sha256: "a1b2c3..."              # content hash (zip type)
+  package:
+    format: agent-plugin              # agent-plugin | skill-bundle
+    skills: [maya-rig, rig-review]    # displayed package components
   maintainer: "team@example.com"     # optional contact
 ```
 
@@ -336,7 +357,7 @@ displays the Browse tab by default.
    tags. Use the DCC type Chip row to filter by application type. Search and
    DCC filter can be combined.
 2. **Inspect**: click any package card to open the detail modal, which shows
-   full metadata including version, DCC type, tags, maintainer, project URL,
+   full metadata including version, included Skills, DCC type, tags, maintainer, project URL,
    source, install type, and `min_core_version` compatibility information.
 3. **Install**: click the **Install** button on a card or in the detail modal.
    On success, an inline notice appears with a **View in Skills** deep link

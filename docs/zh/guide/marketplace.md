@@ -1,6 +1,6 @@
-# Marketplace：技能包目录与安装器
+# Marketplace：Plugin、Bundle 与 Skill 目录
 
-Marketplace 是一个 CLI 优先的发现和安装系统，用于官方和社区技能包。它将人类可读的名称从一个或多个目录源中解析，下载或克隆匹配的包，并注册到系统中，使得 DCC 适配器能够在下次重启或调用 `reload_skill_paths` 时发现它们。
+Marketplace 是一个 CLI 优先的发现和安装系统，用于官方和社区 Plugin、Bundle 与 Skill。它将人类可读的名称从一个或多个目录源中解析，下载或克隆匹配的包，并注册到系统中，使得 DCC 适配器能够在下次重启或调用 `reload_skill_paths` 时发现它们。
 
 ## 架构
 
@@ -67,7 +67,7 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | `marketplace list`                        | 列出已配置的源            |
 | `marketplace search --query <q>`          | 跨源搜索条目              |
 | `marketplace inspect <name>`              | 显示完整条目元数据        |
-| `marketplace install <name> --dcc <dcc> --reload` | 安装技能包并刷新运行中的 adapter |
+| `marketplace install <name> --dcc <dcc> --reload` | 安装 Plugin、Bundle 或 Skill 并刷新运行中的 adapter |
 | `marketplace list-installed --dcc <dcc>`  | 列出已安装的包            |
 | `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| 移除已安装的包并可刷新适配器 |
 | `marketplace outdated [name] --dcc <dcc>` | 检查是否有更新版本        |
@@ -76,6 +76,22 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | `marketplace publish <path> --catalog <file>` | 更新 marketplace catalog 条目 |
 
 完整参数参考：[cli-reference.md](cli-reference.md#marketplace)。
+
+## 包结构
+
+安装命令继续兼容单 Skill 包和已有 Bundle；当包根目录存在 `plugin.json`
+时，也会按 [Agent Plugins 1.0](https://agent-plugins.org/specification) 识别。
+Agent Plugin 只从 `skills/<name>/SKILL.md` 的直接子目录发现 Skill，并在安装前
+校验 manifest schema、插件名称及解析后路径边界。
+
+`package.format: agent-plugin` 表示标准 Agent Plugin；
+`package.format: skill-bundle` 表示由多个 `source.skillRoots` 组成的既有
+DCC-MCP Bundle。两者都用 `package.skills` 向商城展示包含的组件。当前
+DCC-MCP 客户端只安装 Skill 组件；可选 `mcp.json` 暂不加载，因为 DCC adapter
+已经拥有运行时 MCP 连接。
+
+`marketplace add-repo <owner/repo> --dcc <dcc>` 也会识别根目录
+`plugin.json`，因此无需 catalog 即可直接安装一个完整 Agent Plugin。
 
 ## 安装类型
 
@@ -172,7 +188,9 @@ jobs:
 ├── installed.json            # 已安装包的状态
 ├── maya/
 │   ├── dcc-mcp-maya-skills/  # 已安装的 git 克隆
-│   └── my-custom-skill/      # 已安装的路径复制
+│   ├── my-custom-skill/      # 已安装的路径复制
+│   └── .packages/
+│       └── rig-plugin/       # Bundle 统一卸载 manifest
 └── blender/
     └── dcc-blender-skills/
 ```
@@ -199,6 +217,8 @@ DCC 适配器会自动将 `~/.dcc-mcp/marketplace/<dcc>` 加入其技能搜索�
 - **SHA256 校验**：ZIP 安装会验证 `install.sha256`（如果存在），在哈希不匹配
   时拒绝安装，且不会修改已有包。
 - **压缩包逃逸检测**：ZIP 解压会拒绝逃脱安装根目录的条目。
+- **Plugin 路径边界**：Agent Plugin manifest 和固定 Skill 组件必须解析在
+  plugin 根目录内；不支持的 manifest schema 会被拒绝。
 - **强制模式**：`--force` 会在安装失败时重试，但当替换本身失败时会保留
   现有包。
 
@@ -233,6 +253,9 @@ result = client.resources_read("gateway://catalog/dcc-mcp-physics-sim")
     url: "https://github.com/..."
     ref: "v1.2.0"                    # 标签/分支/提交（git 类型）
     sha256: "a1b2c3..."              # 内容哈希（zip 类型）
+  package:
+    format: agent-plugin              # agent-plugin | skill-bundle
+    skills: [maya-rig, rig-review]    # 商城展示的组件
   maintainer: "team@example.com"     # 可选联系方式
 ```
 

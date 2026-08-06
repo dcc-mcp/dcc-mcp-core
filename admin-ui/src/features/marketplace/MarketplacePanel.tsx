@@ -25,6 +25,7 @@ import type {
   InstalledMarketplacePackage,
   MarketplaceSourceEntry,
 } from '../../admin-types';
+import { marketplacePackageSkills } from '../../admin-types';
 import { MarketplaceCard } from './MarketplaceCard';
 import { MarketplaceDetailModal } from './MarketplaceDetailModal';
 import { MarketplaceInstalledDetailPanel } from './MarketplaceInstalledDetailPanel';
@@ -279,6 +280,7 @@ export function MarketplacePanel({
             ...entry.tags,
             entry.maintainer ?? '',
             entry.version ?? '',
+            ...marketplacePackageSkills(entry),
           ),
         ),
       );

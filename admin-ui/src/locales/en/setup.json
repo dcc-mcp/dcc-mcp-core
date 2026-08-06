@@ -58,7 +58,7 @@
   "cli.loadSkill": "Load skill",
   "cli.loadSkillDetail": "activate a discovered skill",
   "cli.marketplace": "Marketplace",
-  "cli.marketplaceDetail": "find installable skills",
+  "cli.marketplaceDetail": "find installable plugins and Skills",
   "cli.marketplaceInstall": "Install package",
   "cli.marketplaceInstallDetail": "download into the local skill root",
   "cli.marketplaceUpdate": "Update package",
@@ -70,6 +70,6 @@
   "aside.gateway": "Gateway target",
   "aside.extend": "Skills and marketplace",
   "aside.skillsDetail": "Manage loaded skills and search paths",
-  "aside.marketplaceDetail": "Install and update skill packages",
+  "aside.marketplaceDetail": "Install and update marketplace packages",
   "aside.runtime": "Runtime"
 }

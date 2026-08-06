@@ -60,6 +60,9 @@ pub struct CatalogEntry {
     /// and marketplace.json (`source`) install metadata.
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "source")]
     pub install: Option<CatalogInstall>,
+    /// Portable package metadata used to display Agent Plugins and multi-skill bundles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<CatalogPackage>,
     /// Maintainer or publishing organization.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maintainer: Option<String>,
@@ -79,6 +82,16 @@ pub struct CatalogEntry {
     /// or an absolute URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub showcase: Option<String>,
+}
+
+/// Portable package shape advertised by a marketplace entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CatalogPackage {
+    /// Package format. `agent-plugin` follows agent-plugins.org; `skill-bundle`
+    /// is the legacy DCC-MCP multi-skill layout.
+    pub format: String,
+    /// Agent Skill names included in the package.
+    pub skills: Vec<String>,
 }
 
 /// Installation policy attached to a marketplace package.
@@ -267,6 +280,9 @@ fn catalog_search_tokens(entry: &CatalogEntry) -> Vec<String> {
         tokens.extend(requires.python.iter().cloned());
         tokens.extend(requires.skills.iter().cloned());
     }
+    if let Some(package) = &entry.package {
+        tokens.extend(package.skills.iter().cloned());
+    }
 
     if let Some(install) = &entry.install {
         tokens.push(install.install_type.clone());
@@ -409,6 +425,24 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
           "type": "string",
           "pattern": "^(https?://[^\\s]+|[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*\\.(png|jpg|jpeg|webp|avif|gif))$"
         },
+        "package": {
+          "type": "object",
+          "required": ["format", "skills"],
+          "properties": {
+            "format": { "type": "string", "enum": ["agent-plugin", "skill-bundle"] },
+            "skills": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            }
+          },
+          "allOf": [{
+            "if": { "properties": { "format": { "const": "skill-bundle" } } },
+            "then": { "properties": { "skills": { "minItems": 2 } } }
+          }],
+          "additionalProperties": false
+        },
         "install": {
           "type": "object",
           "required": ["type"],
@@ -543,6 +577,20 @@ entries:
     }
 
     #[test]
+    fn test_search_by_packaged_skill() {
+        let mut entry = make_entry("maya-mgear", "Maya rigging bundle");
+        entry.package = Some(CatalogPackage {
+            format: "skill-bundle".into(),
+            skills: vec!["maya-mgear".into(), "mgear-import-to-scene".into()],
+        });
+
+        let results = search(&[entry], "mgear-import-to-scene");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "maya-mgear");
+    }
+
+    #[test]
     fn test_search_empty_returns_all() {
         let entries = sample_entries();
         let results = search(&entries, "");
@@ -627,6 +675,7 @@ entries:
             version: None,
             min_core_version: None,
             install: None,
+            package: None,
             maintainer: None,
             category: None,
             policy: None,
@@ -737,6 +786,10 @@ entries:
       "ref": "0123456789012345678901234567890123456789",
       "skillRoots": ["skill/maya-rig-tools"]
     },
+    "package": {
+      "format": "agent-plugin",
+      "skills": ["maya-rig-tools", "rig-review"]
+    },
     "policy": { "installation": "available" },
     "requires": {
       "env": ["RIG_TOKEN"],
@@ -752,6 +805,13 @@ entries:
         let entry = entries.first().unwrap();
         assert_eq!(entry.min_core_version.as_deref(), Some("0.19.0"));
         assert_eq!(entry.category.as_deref(), Some("Skills"));
+        assert_eq!(
+            entry
+                .package
+                .as_ref()
+                .map(|package| package.skills.as_slice()),
+            Some(["maya-rig-tools".to_string(), "rig-review".to_string()].as_slice())
+        );
         assert_eq!(
             entry
                 .policy
@@ -809,6 +869,7 @@ entries:
             version: None,
             min_core_version: None,
             install: None,
+            package: None,
             maintainer: None,
             category: None,
             policy: None,
@@ -822,6 +883,16 @@ entries:
     fn test_validate_entry_minimal_valid() {
         let entry = make_entry("my-skill", "A useful skill");
         assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_validate_entry_rejects_single_skill_bundle() {
+        let mut entry = make_entry("my-bundle", "A bundle");
+        entry.package = Some(CatalogPackage {
+            format: "skill-bundle".into(),
+            skills: vec!["only-one".into()],
+        });
+        assert!(validate_entry(&entry).is_err());
     }
 
     #[test]
@@ -854,6 +925,7 @@ entries:
             tags: vec!["test".into()],
             version: Some("0.1.0".into()),
             min_core_version: Some("0.17.0".into()),
+            package: None,
             maintainer: Some("dcc-mcp".into()),
             category: None,
             policy: None,
@@ -886,6 +958,7 @@ entries:
             tags: vec!["pip".into(), "maya".into()],
             version: Some("0.3.0".into()),
             min_core_version: Some("0.18.0".into()),
+            package: None,
             maintainer: Some("dcc-mcp".into()),
             category: None,
             policy: None,
@@ -966,6 +1039,7 @@ entries:
             tags: vec![],
             version: None,
             min_core_version: None,
+            package: None,
             maintainer: None,
             category: None,
             policy: None,
@@ -999,6 +1073,7 @@ entries:
             version: None,
             min_core_version: None,
             install: None,
+            package: None,
             maintainer: None,
             category: None,
             policy: None,

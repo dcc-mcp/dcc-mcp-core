@@ -231,6 +231,7 @@ mod tests {
             version: None,
             min_core_version: None,
             install: None,
+            package: None,
             maintainer: None,
             category: None,
             policy: None,

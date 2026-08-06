@@ -560,7 +560,7 @@ impl MarketplaceService {
         crate::add_repo::list_repo_skills(repo_ref)
     }
 
-    /// Install a skill directly from a GitHub repo (no marketplace.json needed).
+    /// Install a Skill or Agent Plugin directly from GitHub (no catalog needed).
     pub fn add_repo(
         &self,
         repo_ref: &str,

@@ -35,8 +35,8 @@ For marketplace and live-DCC operations, use the `dcc-mcp` skill and
 `update check` → `update apply` contract is the single source of truth; do not
 invent a package-local CLI bootstrap path.
 
-Publish (register or update) a dcc-mcp extension package to a marketplace
-catalog (`marketplace.json`).
+Publish (register or update) a DCC-MCP Skill, bundle, or Agent Plugin package
+to a marketplace catalog (`marketplace.json`).
 
 Prefer the CLI for local and CI publishing:
 
@@ -75,8 +75,9 @@ push the change.
 
 ## Workflow
 
-1. Point the tool at a local extension directory containing `SKILL.md`.
-2. The tool reads the SKILL.md frontmatter and any accompanying metadata.
+1. Point the tool at a local Skill directory containing `SKILL.md`, or an Agent
+   Plugin directory containing root `plugin.json` and `skills/*/SKILL.md`.
+2. The CLI reads Skill frontmatter or Agent Plugin manifest metadata.
 3. Additional CLI-supplied fields (install url, ref, skill roots, tags,
    maintainer, icon, and `showcase`) are merged in. Use a repository-relative
    16:9 PNG, JPEG, WebP, AVIF, or animated GIF path; the marketplace resolves
@@ -95,6 +96,10 @@ push the change.
 - Declare every installed skill directory with `--skill-root`. The installer
   only loads declared roots, so multi-skill repositories do not accidentally
   expose examples or development-only skills.
+- Agent Plugins must target the supported 1.0 manifest schema and keep every
+  Skill at an immediate `skills/<name>/SKILL.md` path. Publishing records
+  `package.format: agent-plugin`; legacy multi-root packages use
+  `skill-bundle`.
 - Zip sources require a 64-character SHA-256 digest. When the archive URL
   changes, provide the new digest rather than reusing old metadata.
 - The publisher preserves v1 curation fields such as `requires` and `policy`

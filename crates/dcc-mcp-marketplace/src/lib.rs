@@ -16,6 +16,7 @@ pub(crate) mod bundle;
 pub mod error;
 pub mod package;
 pub mod path;
+pub(crate) mod plugin;
 pub mod service;
 pub mod source;
 pub mod types;

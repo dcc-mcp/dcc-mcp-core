@@ -58,7 +58,7 @@
   "cli.loadSkill": "Load skill",
   "cli.loadSkillDetail": "검색된 스킬 활성화",
   "cli.marketplace": "마켓플레이스",
-  "cli.marketplaceDetail": "설치 가능한 스킬 찾기",
+  "cli.marketplaceDetail": "설치 가능한 Plugin 및 Skill 찾기",
   "cli.marketplaceInstall": "Install package",
   "cli.marketplaceInstallDetail": "로컬 스킬 루트로 다운로드",
   "cli.marketplaceUpdate": "Update package",
@@ -70,6 +70,6 @@
   "aside.gateway": "게이트웨이 대상",
   "aside.extend": "스킬 및 마켓플레이스",
   "aside.skillsDetail": "로드된 스킬과 경로 관리",
-  "aside.marketplaceDetail": "스킬 패키지 설치 및 업데이트",
+  "aside.marketplaceDetail": "마켓플레이스 패키지 설치 및 업데이트",
   "aside.runtime": "런타임"
 }

@@ -12,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::MarketplaceError;
 use crate::git_command;
 use crate::path_component;
+use crate::plugin::load_agent_plugin;
 use crate::types::{RepoInstallResult, RepoSkillInfo, RepoSkillList};
 
 /// Parse a repo reference into a clone URL and optional subpath.
@@ -239,8 +240,11 @@ pub fn list_repo_skills(repo_ref: &str) -> Result<RepoSkillList, MarketplaceErro
         )));
     }
 
+    let skill_dirs = load_agent_plugin(&search_root)?
+        .map(|plugin| plugin.skill_dirs)
+        .unwrap_or_else(|| collect_skill_dirs(&search_root));
     let mut skills = Vec::new();
-    for dir in collect_skill_dirs(&search_root) {
+    for dir in skill_dirs {
         if let Some(mut skill) = extract_skill_frontmatter(&dir) {
             skill.subpath = relative_skill_subpath(&search_root, &dir);
             skills.push(skill);
@@ -257,7 +261,7 @@ pub fn list_repo_skills(repo_ref: &str) -> Result<RepoSkillList, MarketplaceErro
     })
 }
 
-/// Install a skill directly from a GitHub repo into the marketplace.
+/// Install a Skill or Agent Plugin directly from a GitHub repo into the marketplace.
 ///
 /// `repo_ref`: owner/repo, full URL, or @subpath variant.
 /// `dcc`: explicit DCC override (required when SKILL.md doesn't declare one).
@@ -290,6 +294,54 @@ pub fn install_from_repo(
         }
         None => clone_dir.clone(),
     };
+
+    if let Some(plugin) = load_agent_plugin(&search_root)? {
+        let final_dcc = match dcc {
+            Some(explicit) => path_component("DCC name", explicit)?.to_lowercase(),
+            None => {
+                let mut declared = plugin
+                    .skill_dirs
+                    .iter()
+                    .filter_map(|dir| extract_skill_frontmatter(dir)?.dcc)
+                    .collect::<Vec<_>>();
+                declared.sort();
+                declared.dedup();
+                match declared.as_slice() {
+                    [only] => path_component("DCC name", only)?.to_lowercase(),
+                    _ => {
+                        return Err(MarketplaceError::CommandFailed(
+                            "Agent Plugin targets multiple or unspecified DCCs; use --dcc <DCC>"
+                                .into(),
+                        ));
+                    }
+                }
+            }
+        };
+        let package_name = path_component("package name", &plugin.manifest.name)?;
+        let description = plugin.manifest.description.clone();
+        let dcc_root = root.join(&final_dcc);
+        std::fs::create_dir_all(&dcc_root)
+            .map_err(|err| MarketplaceError::ConfigIo(dcc_root.display().to_string(), err))?;
+        let installed = crate::bundle::install_staged_package(
+            &search_root,
+            &dcc_root.join(&package_name),
+            &dcc_root,
+            &package_name,
+            &final_dcc,
+            None,
+            force,
+        )?;
+        return Ok(RepoInstallResult {
+            installed: true,
+            name: package_name,
+            dcc: final_dcc,
+            repo_url: url,
+            path: installed.display().to_string(),
+            skill_search_path: dcc_root.display().to_string(),
+            skill_subpath: subpath,
+            description,
+        });
+    }
 
     let skill_dirs = collect_skill_dirs(&search_root);
     if skill_dirs.is_empty() {

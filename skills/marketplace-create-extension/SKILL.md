@@ -38,6 +38,11 @@ Scaffold a new marketplace extension package with the standard dcc-mcp
 skill layout and MIT-0 licensing. Follows the same patterns as
 `dcc-mcp-skills-creator`.
 
+The scaffold tool creates one Skill. To distribute several generated Skills
+together, place them under `skills/` in an Agent Plugins 1.0 package with a root
+`plugin.json`; keep them separate when they do not share one release and
+uninstall boundary.
+
 ## Tools
 
 ### `marketplace_create_extension__create`

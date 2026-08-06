@@ -2,7 +2,9 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
-use dcc_mcp_catalog::{CatalogEntry, CatalogInstall, CatalogPolicy, CatalogRequirements};
+use dcc_mcp_catalog::{
+    CatalogEntry, CatalogInstall, CatalogPackage, CatalogPolicy, CatalogRequirements,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -10,6 +12,7 @@ use zip::write::SimpleFileOptions;
 
 use crate::error::MarketplaceError;
 use crate::path_component;
+use crate::plugin::load_agent_plugin;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MarketplacePackOptions {
@@ -75,6 +78,7 @@ pub fn pack_marketplace_package(
             std::io::Error::new(std::io::ErrorKind::NotFound, "source directory not found"),
         ));
     }
+    let _ = load_agent_plugin(&source_dir)?;
 
     let package_name = path_component(
         "package name",
@@ -102,12 +106,14 @@ pub fn pack_marketplace_package(
 pub fn publish_marketplace_package(
     options: MarketplacePublishOptions,
 ) -> Result<MarketplacePublishResult, MarketplaceError> {
+    let plugin = load_agent_plugin(&options.package_dir)?;
     let skill_meta = read_skill_frontmatter(&options.package_dir)?;
     let requirements = requirements_from_options(&options);
     let name = required_value(
         "name",
         options
             .name
+            .or_else(|| plugin.as_ref().map(|plugin| plugin.manifest.name.clone()))
             .or_else(|| string_at(&skill_meta, &["name"]))
             .filter(|value| !value.trim().is_empty()),
     )?;
@@ -115,6 +121,11 @@ pub fn publish_marketplace_package(
         "description",
         options
             .description
+            .or_else(|| {
+                plugin
+                    .as_ref()
+                    .and_then(|plugin| plugin.manifest.description.clone())
+            })
             .or_else(|| string_at(&skill_meta, &["description"]))
             .filter(|value| !value.trim().is_empty()),
     )?;
@@ -123,18 +134,31 @@ pub fn publish_marketplace_package(
         dcc = list_or_csv_at(&skill_meta, &["metadata", "dcc-mcp", "dcc"]);
     }
     let tags = merge_unique(
-        list_or_csv_at(&skill_meta, &["metadata", "dcc-mcp", "tags"]),
+        plugin
+            .as_ref()
+            .and_then(|plugin| plugin.manifest.keywords.clone())
+            .unwrap_or_else(|| list_or_csv_at(&skill_meta, &["metadata", "dcc-mcp", "tags"])),
         options.tags,
     );
+    let package = package_metadata(plugin.as_ref(), &options.skill_roots);
 
     let entry = CatalogEntry {
         name: path_component("package name", &name)?,
         description,
         dcc,
-        url: options.homepage_url,
+        url: options.homepage_url.or_else(|| {
+            plugin
+                .as_ref()
+                .and_then(|plugin| plugin.manifest.homepage.clone())
+        }),
         tags,
         version: options
             .version
+            .or_else(|| {
+                plugin
+                    .as_ref()
+                    .and_then(|plugin| plugin.manifest.version.clone())
+            })
             .or_else(|| string_at(&skill_meta, &["metadata", "dcc-mcp", "version"])),
         min_core_version: options.min_core_version,
         install: Some(CatalogInstall {
@@ -149,8 +173,12 @@ pub fn publish_marketplace_package(
             entry_point: None,
             instructions_url: None,
         }),
+        package,
         maintainer: options.maintainer.or_else(|| {
-            string_at(&skill_meta, &["metadata", "dcc-mcp", "maintainer"])
+            plugin
+                .as_ref()
+                .and_then(|plugin| plugin.manifest.author.as_ref()?.name.clone())
+                .or_else(|| string_at(&skill_meta, &["metadata", "dcc-mcp", "maintainer"]))
                 .or_else(|| string_at(&skill_meta, &["maintainer"]))
         }),
         category: Some("Skills".into()),
@@ -171,6 +199,31 @@ pub fn publish_marketplace_package(
         entry,
         action,
         count,
+    })
+}
+
+fn package_metadata(
+    plugin: Option<&crate::plugin::AgentPluginPackage>,
+    skill_roots: &[String],
+) -> Option<CatalogPackage> {
+    if let Some(plugin) = plugin {
+        let skills = plugin
+            .skill_dirs
+            .iter()
+            .filter_map(|dir| crate::add_repo::extract_skill_frontmatter(dir))
+            .map(|skill| skill.name)
+            .collect();
+        return Some(CatalogPackage {
+            format: "agent-plugin".into(),
+            skills,
+        });
+    }
+    (skill_roots.len() > 1).then(|| CatalogPackage {
+        format: "skill-bundle".into(),
+        skills: skill_roots
+            .iter()
+            .filter_map(|root| Path::new(root).file_name()?.to_str().map(String::from))
+            .collect(),
     })
 }
 
@@ -383,6 +436,9 @@ fn marketplace_v1_entry_value(entry: &CatalogEntry) -> Result<Value, Marketplace
     if let Some(showcase) = entry.showcase.as_ref() {
         object.insert("showcase".into(), Value::String(showcase.clone()));
     }
+    if let Some(package) = entry.package.as_ref() {
+        object.insert("package".into(), serde_json::to_value(package).unwrap());
+    }
     Ok(value)
 }
 
@@ -436,6 +492,7 @@ fn preserve_marketplace_v1_metadata(entry: &mut Value, existing: &Value) {
         "docs",
         "icon",
         "showcase",
+        "package",
         "license",
         "lifecycle",
         "replacedBy",
@@ -757,6 +814,62 @@ mod tests {
         assert!(text.contains("\"skillRoots\": ["));
         assert!(text.contains("\"showcase\": \"docs/images/showcase.webp\""));
         assert!(text.contains("\"MY_SKILL_TOKEN\""));
+    }
+
+    #[test]
+    fn publish_reads_agent_plugin_manifest_and_components() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("rig-plugin");
+        fs::create_dir_all(src.join("skills/inspect")).unwrap();
+        fs::create_dir_all(src.join("skills/act")).unwrap();
+        fs::write(
+            src.join("plugin.json"),
+            format!(
+                r#"{{"$schema":"{}","name":"rig-plugin","version":"1.2.0","description":"Rig workflows","author":{{"name":"dcc-mcp"}},"keywords":["rigging"]}}"#,
+                crate::plugin::AGENT_PLUGIN_SCHEMA_V1
+            ),
+        )
+        .unwrap();
+        for name in ["inspect", "act"] {
+            fs::write(
+                src.join(format!("skills/{name}/SKILL.md")),
+                format!("---\nname: {name}\ndescription: {name} rig data\n---\n"),
+            )
+            .unwrap();
+        }
+
+        let result = publish_marketplace_package(MarketplacePublishOptions {
+            package_dir: src,
+            catalog_path: tmp.path().join("marketplace.json"),
+            install_url: "https://example.com/rig-plugin.zip".into(),
+            install_type: "zip".into(),
+            install_ref: None,
+            skill_roots: vec!["skills/inspect".into(), "skills/act".into()],
+            sha256: Some(format!("sha256:{}", "a".repeat(64))),
+            name: None,
+            description: None,
+            dcc: vec!["maya".into()],
+            version: None,
+            maintainer: None,
+            tags: Vec::new(),
+            min_core_version: Some("0.19.0".into()),
+            homepage_url: None,
+            icon: None,
+            showcase: None,
+            requires_env: Vec::new(),
+            requires_bin: Vec::new(),
+            requires_python: Vec::new(),
+            requires_skill: Vec::new(),
+        })
+        .unwrap();
+
+        assert_eq!(result.entry.name, "rig-plugin");
+        assert_eq!(result.entry.version.as_deref(), Some("1.2.0"));
+        assert_eq!(result.entry.maintainer.as_deref(), Some("dcc-mcp"));
+        assert_eq!(result.entry.tags, vec!["rigging"]);
+        let package = result.entry.package.unwrap();
+        assert_eq!(package.format, "agent-plugin");
+        assert_eq!(package.skills, vec!["act", "inspect"]);
     }
 
     #[test]

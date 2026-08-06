@@ -58,7 +58,7 @@
   "cli.loadSkill": "Load skill",
   "cli.loadSkillDetail": "検出済みスキルを有効化",
   "cli.marketplace": "マーケットプレイス",
-  "cli.marketplaceDetail": "インストール可能なスキルを探す",
+  "cli.marketplaceDetail": "インストール可能な Plugin と Skill を探す",
   "cli.marketplaceInstall": "Install package",
   "cli.marketplaceInstallDetail": "ローカルスキルルートへダウンロード",
   "cli.marketplaceUpdate": "Update package",
@@ -70,6 +70,6 @@
   "aside.gateway": "ゲートウェイ対象",
   "aside.extend": "スキルとマーケットプレイス",
   "aside.skillsDetail": "読み込み済みスキルとパスを管理",
-  "aside.marketplaceDetail": "スキルパッケージをインストール・更新",
+  "aside.marketplaceDetail": "マーケットプレイスパッケージをインストール・更新",
   "aside.runtime": "ランタイム"
 }

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::add_repo::collect_skill_dirs;
 use crate::error::MarketplaceError;
+use crate::plugin::load_agent_plugin;
 use crate::service::{
     copy_dir_recursive, path_component, promote_single_nested_skill_directory, remove_path,
     write_atomic,
@@ -27,6 +28,25 @@ pub(crate) fn install_staged_package(
     skill_roots: Option<&[String]>,
     force: bool,
 ) -> Result<PathBuf, MarketplaceError> {
+    if let Some(plugin) = load_agent_plugin(staging)? {
+        if plugin.manifest.name != package_name {
+            return Err(MarketplaceError::CommandFailed(format!(
+                "Agent Plugin name '{}' does not match marketplace package '{}'",
+                plugin.manifest.name, package_name
+            )));
+        }
+        if plugin.skill_dirs.is_empty() {
+            return Err(MarketplaceError::MissingSkill(format!(
+                "Agent Plugin '{}' contains no valid skills/*/SKILL.md components",
+                plugin.manifest.name
+            )));
+        }
+        let bundle_dest =
+            install_skill_bundle(&plugin.skill_dirs, dcc_root, package_name, dcc, force)?;
+        remove_path(staging)?;
+        return Ok(bundle_dest);
+    }
+
     let all_skill_dirs = collect_skill_dirs(staging);
     if let Some(skill_roots) = skill_roots {
         let skill_dirs = select_configured_skill_dirs(staging, skill_roots)?;
@@ -336,5 +356,39 @@ mod tests {
     #[test]
     fn skill_roots_reject_parent_traversal() {
         assert!(safe_relative_skill_root("../examples").is_err());
+    }
+
+    #[test]
+    fn agent_plugin_installs_all_immediate_skills_as_one_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        let staging = tmp.path().join("staging");
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(
+            staging.join("plugin.json"),
+            format!(
+                r#"{{"$schema":"{}","name":"test-plugin"}}"#,
+                crate::plugin::AGENT_PLUGIN_SCHEMA_V1
+            ),
+        )
+        .unwrap();
+        write_skill(&staging.join("skills/inspect"));
+        write_skill(&staging.join("skills/act"));
+        let dcc_root = tmp.path().join("marketplace/maya");
+        fs::create_dir_all(&dcc_root).unwrap();
+
+        let installed = install_staged_package(
+            &staging,
+            &dcc_root.join("test-plugin"),
+            &dcc_root,
+            "test-plugin",
+            "maya",
+            None,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(installed, bundle_package_dir(&dcc_root, "test-plugin"));
+        assert!(dcc_root.join("inspect/SKILL.md").is_file());
+        assert!(dcc_root.join("act/SKILL.md").is_file());
     }
 }

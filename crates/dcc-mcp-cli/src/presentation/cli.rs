@@ -424,7 +424,7 @@ enum MarketplaceAction {
         #[arg(long)]
         skip_validation: bool,
     },
-    /// Install a marketplace skill package to the local marketplace root.
+    /// Install a marketplace plugin, bundle, or Skill package.
     Install {
         name: String,
         /// Target DCC; inferred when the package declares exactly one.
@@ -443,7 +443,7 @@ enum MarketplaceAction {
         #[arg(long)]
         skip_validation: bool,
     },
-    /// Remove an installed marketplace skill package.
+    /// Remove an installed marketplace package.
     Uninstall {
         name: String,
         /// Target DCC; inferred from installed state when omitted.
@@ -453,7 +453,7 @@ enum MarketplaceAction {
         #[arg(long)]
         reload: bool,
     },
-    /// List installed marketplace skill packages.
+    /// List installed marketplace packages.
     ListInstalled {
         #[arg(long)]
         dcc: Option<String>,
@@ -477,7 +477,7 @@ enum MarketplaceAction {
         #[arg(long)]
         dcc: Option<String>,
     },
-    /// Install a skill directly from a GitHub repo (no marketplace.json needed).
+    /// Install a Skill or Agent Plugin directly from a GitHub repo.
     ///
     /// Clones the repo, discovers SKILL.md files, and installs to the
     /// marketplace root. Supports owner/repo, full URL, and @subpath syntax.
