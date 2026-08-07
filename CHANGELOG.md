@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.92](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.91...v0.19.92) (2026-08-07)
+
+
+### Features
+
+* add spatial interchange skill ([68803b7](https://github.com/dcc-mcp/dcc-mcp-core/commit/68803b7942c55ddcc0e1da3cc5af03d31f6b9dad))
+* support agent plugin marketplace packages ([dfcec56](https://github.com/dcc-mcp/dcc-mcp-core/commit/dfcec56b0a597d176af512f70daa9fe8a279115d))
+
+
+### Bug Fixes
+
+* keep dcc-mcp skill within size limit ([973295f](https://github.com/dcc-mcp/dcc-mcp-core/commit/973295fefb0ddff29a742e1ce9fc2b9ead70d55f))
+* recover interrupted gateway recordings ([1c5742a](https://github.com/dcc-mcp/dcc-mcp-core/commit/1c5742a4d00d21c67b5c1fa0adceeaed05a8cac6))
+
 ## [0.19.91](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.90...v0.19.91) (2026-08-04)
 
 
