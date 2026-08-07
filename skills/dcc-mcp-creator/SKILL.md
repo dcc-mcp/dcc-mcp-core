@@ -212,9 +212,11 @@ does not replace a running server binary.
     `agent_context.session_id`, keep UI Control logical ids connection/caller
     scoped, and write only redacted recording projections to existing
     `session_events`. Do not add adapter-local recorder state, a second
-    database, or a replay authority flag. Generated workflows re-resolve
-    current tools and schemas; semantic UI replay resolves fresh control ids;
-    raw/visual fallback requires exact-window calibration and drift guards.
+    database, or a replay authority flag. Persist calls incrementally; after a
+    gateway restart, project unfinished recordings as `interrupted` without
+    restoring capture authority. Generated workflows re-resolve current tools
+    and schemas; semantic UI replay resolves fresh control ids; raw/visual
+    fallback requires exact-window calibration and drift guards.
 22. Record reproducible experiment definitions, run states, Session DAG links,
     metrics, and judge evidence through the gateway `/v1/experiments` APIs.
     Reuse `session_events`, workflow/recording identifiers, and artifact

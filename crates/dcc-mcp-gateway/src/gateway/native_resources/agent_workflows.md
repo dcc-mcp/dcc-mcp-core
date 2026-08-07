@@ -189,7 +189,10 @@ demonstration. It is a semantic compiler, not raw timing playback:
 2. Demonstrate through normal `search` -> `describe` -> `call`; use scoped UI
    Control only when structured tools cannot reach the semantic UI.
 3. Stop and review the caller-scoped, redacted timeline. Another session
-   cannot read or stop it.
+   cannot read or stop it. Calls are appended to the existing Admin
+   `session_events` timeline as they occur; after a gateway restart, an
+   unfinished recording is reviewable as `interrupted` and is never resumed
+   automatically.
 4. Compile only with explicit `reviewed=true`. The compiler resolves current
    tools and schemas, removes failed exploration and recorded approvals, and
    emits a local Skill plus `WorkflowSpec`.

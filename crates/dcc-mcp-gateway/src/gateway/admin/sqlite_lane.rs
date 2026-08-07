@@ -146,6 +146,27 @@ impl AdminSqliteReader {
             .collect()
     }
 
+    pub fn list_recording_events(
+        &self,
+        session_id: &str,
+        recording_id: &str,
+        limit: usize,
+    ) -> Vec<serde_json::Value> {
+        self.inner
+            .list_recording_events_json(session_id, recording_id, limit)
+            .into_iter()
+            .filter_map(|value| serde_json::from_str(&value).ok())
+            .collect()
+    }
+
+    pub fn list_unfinished_recording_starts(&self, limit: usize) -> Vec<serde_json::Value> {
+        self.inner
+            .list_unfinished_recording_starts_json(limit)
+            .into_iter()
+            .filter_map(|value| serde_json::from_str(&value).ok())
+            .collect()
+    }
+
     pub fn list_experiments(&self, limit: usize) -> Vec<serde_json::Value> {
         self.inner
             .list_experiments_json(limit)
@@ -445,6 +466,19 @@ impl AdminSqliteReader {
     }
 
     pub fn list_session_events(&self, _session_id: &str, _limit: usize) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn list_recording_events(
+        &self,
+        _session_id: &str,
+        _recording_id: &str,
+        _limit: usize,
+    ) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
+    pub fn list_unfinished_recording_starts(&self, _limit: usize) -> Vec<serde_json::Value> {
         vec![]
     }
 

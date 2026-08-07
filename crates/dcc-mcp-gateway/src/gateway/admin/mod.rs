@@ -144,6 +144,8 @@ mod handlers;
 mod instance_update_tests;
 #[cfg(all(test, feature = "admin"))]
 mod integration_tests;
+#[cfg(all(test, feature = "admin-persist-sqlite"))]
+mod recordings_tests;
 #[cfg(feature = "admin")]
 mod router;
 #[cfg(all(test, feature = "admin"))]

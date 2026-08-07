@@ -1834,6 +1834,9 @@ return `Result<T, DccMcpError>` rather than introducing yet another error type.
 Use `dcc-mcp-cli record-replay` only for operator-reviewed demonstration-to-Skill
 workflows. Recording is caller-session scoped and captures post-redaction gateway
 traffic; it never records prompts, secrets, approvals, or reusable authority.
+Calls are persisted incrementally in the existing Admin `session_events` timeline.
+After a gateway restart, unfinished recordings are reviewable as `interrupted`
+and capture authority is not restored.
 Compilation emits a `WorkflowSpec`, `SKILL.md`, replay contract, and
 `replay.guard.json`. Replay requires a separate current approval and validates
 every current tool schema guard before execution. UI fallback must resolve fresh
