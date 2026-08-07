@@ -698,11 +698,16 @@ impl AdminState {
             return;
         }
         let store = self.recordings.clone();
-        *subscription = Some(
-            self.gateway
-                .traffic_capture
-                .subscribe_redacted_frames(move |frame| store.capture_frame(frame)),
-        );
+        let lane = self.admin_sqlite_lane.clone();
+        *subscription = Some(self.gateway.traffic_capture.subscribe_redacted_frames(
+            move |frame| {
+                if let Some(event) = store.capture_frame(frame)
+                    && let Some(lane) = &lane
+                {
+                    lane.try_persist_session_event(&event);
+                }
+            },
+        ));
     }
 
     /// Release traffic projection when the last demonstration stops.
@@ -754,7 +759,78 @@ impl AdminState {
         lane: Option<crate::gateway::admin::sqlite_lane::AdminSqliteLane>,
     ) -> Self {
         self.admin_sqlite_lane = lane;
+        self.recover_interrupted_recordings();
         self
+    }
+
+    pub fn recording_for_caller(
+        &self,
+        session_id: &str,
+        recording_id: &str,
+    ) -> Option<crate::gateway::record_replay::RecordingDraft> {
+        if let Some(draft) = self.recordings.get(session_id, recording_id) {
+            return Some(draft);
+        }
+        let lane = self.admin_sqlite_lane.as_ref()?;
+        let rows = lane.reader().list_recording_events(
+            session_id,
+            recording_id,
+            crate::gateway::record_replay::MAX_RECORDING_EVENTS * 2 + 4,
+        );
+        let (draft, newly_interrupted) =
+            crate::gateway::record_replay::recover_recording(recording_id, &rows)?;
+        if draft.session_id != session_id {
+            return None;
+        }
+        if newly_interrupted {
+            lane.try_persist_session_event(
+                &crate::gateway::record_replay::recording_session_event(
+                    "recording.interrupted",
+                    &draft,
+                    Some(serde_json::json!({"reason": "gateway_restart"})),
+                ),
+            );
+        }
+        self.recordings.restore(draft.clone());
+        Some(draft)
+    }
+
+    fn recover_interrupted_recordings(&self) {
+        let Some(lane) = &self.admin_sqlite_lane else {
+            return;
+        };
+        let reader = lane.reader();
+        for started in reader.list_unfinished_recording_starts(1_000) {
+            let Some(session_id) = started
+                .get("session_id")
+                .and_then(serde_json::Value::as_str)
+            else {
+                continue;
+            };
+            let Some(recording_id) = started
+                .get("recording_id")
+                .and_then(serde_json::Value::as_str)
+            else {
+                continue;
+            };
+            let rows = reader.list_recording_events(
+                session_id,
+                recording_id,
+                crate::gateway::record_replay::MAX_RECORDING_EVENTS * 2 + 4,
+            );
+            let Some((draft, true)) =
+                crate::gateway::record_replay::recover_recording(recording_id, &rows)
+            else {
+                continue;
+            };
+            lane.try_persist_session_event(
+                &crate::gateway::record_replay::recording_session_event(
+                    "recording.interrupted",
+                    &draft,
+                    Some(serde_json::json!({"reason": "gateway_restart"})),
+                ),
+            );
+        }
     }
 
     /// Hook invoked after SQLite-backed custom skill paths change (add/delete).

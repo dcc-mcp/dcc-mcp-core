@@ -91,9 +91,6 @@ pub async fn handle_recording_stop(
     };
     let response = match state.recordings.stop(&session_id, &body.recording_id) {
         Ok(draft) => {
-            for event in &draft.events {
-                persist_recording_event(&state, "recording.tool_call", &draft, Some(json!(event)));
-            }
             persist_recording_event(&state, "recording.stopped", &draft, None);
             (StatusCode::OK, Json(json!(draft))).into_response()
         }
@@ -116,7 +113,7 @@ pub async fn handle_recording_review(
             "A bounded x-dcc-mcp-agent-session-id header is required.",
         );
     };
-    match state.recordings.get(&session_id, &recording_id) {
+    match state.recording_for_caller(&session_id, &recording_id) {
         Some(draft) => (StatusCode::OK, Json(json!(draft))).into_response(),
         None => error_response(
             StatusCode::NOT_FOUND,
@@ -139,7 +136,7 @@ pub async fn handle_recording_review_body(
             "A bounded x-dcc-mcp-agent-session-id header is required.",
         );
     };
-    match state.recordings.get(&session_id, &body.recording_id) {
+    match state.recording_for_caller(&session_id, &body.recording_id) {
         Some(draft) => (StatusCode::OK, Json(json!(draft))).into_response(),
         None => error_response(
             StatusCode::NOT_FOUND,
@@ -169,7 +166,7 @@ pub async fn handle_recording_compile(
             "Review the stopped recording and set reviewed=true before compilation.",
         );
     }
-    let Some(draft) = state.recordings.get(&session_id, &body.recording_id) else {
+    let Some(draft) = state.recording_for_caller(&session_id, &body.recording_id) else {
         return error_response(
             StatusCode::NOT_FOUND,
             "recording_not_found",
@@ -471,18 +468,7 @@ fn persist_recording_event(
     let Some(lane) = &state.admin_sqlite_lane else {
         return;
     };
-    let created_at_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(i64::MAX as u128) as i64;
-    lane.try_persist_session_event(&json!({
-        "session_id": draft.session_id,
-        "event_type": event_type,
-        "created_at_ms": created_at_ms,
-        "recording_id": draft.recording_id,
-        "dcc_type": draft.dcc_type,
-        "status": draft.status,
-        "payload": payload,
-    }));
+    lane.try_persist_session_event(&crate::gateway::record_replay::recording_session_event(
+        event_type, draft, payload,
+    ));
 }

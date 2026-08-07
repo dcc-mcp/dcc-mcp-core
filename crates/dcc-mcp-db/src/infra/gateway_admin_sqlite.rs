@@ -273,6 +273,61 @@ impl GatewayAdminSqliteReader {
         rows.filter_map(|r| r.ok()).collect()
     }
 
+    /// Read one recording's ordered projection from the shared session timeline.
+    pub fn list_recording_events_json(
+        &self,
+        session_id: &str,
+        recording_id: &str,
+        limit: usize,
+    ) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut stmt = match conn.prepare_cached(
+            "SELECT event_json FROM session_events \
+             WHERE session_id = ?1 AND event_type LIKE 'recording.%' \
+             AND json_extract(event_json, '$.recording_id') = ?2 \
+             ORDER BY id ASC LIMIT ?3",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(
+            params![session_id, recording_id, limit.clamp(1, 2_000) as i64],
+            |row| row.get(0),
+        );
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(Result::ok).collect()
+    }
+
+    /// Return recording starts whose latest lifecycle event is still `started`.
+    pub fn list_unfinished_recording_starts_json(&self, limit: usize) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut stmt = match conn.prepare_cached(
+            "SELECT current.event_json FROM session_events AS current \
+             JOIN ( \
+               SELECT json_extract(event_json, '$.recording_id') AS recording_id, MAX(id) AS latest_id \
+               FROM session_events \
+               WHERE event_type IN ('recording.started', 'recording.stopped', 'recording.interrupted') \
+               GROUP BY recording_id \
+             ) AS latest ON latest.latest_id = current.id \
+             WHERE current.event_type = 'recording.started' \
+             ORDER BY current.id DESC LIMIT ?1",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params![limit.clamp(1, 1_000) as i64], |row| row.get(0));
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(Result::ok).collect()
+    }
+
     /// List experiment definitions from the existing session event timeline.
     pub fn list_experiments_json(&self, limit: usize) -> Vec<String> {
         let Some(conn) = self.open_ro() else {

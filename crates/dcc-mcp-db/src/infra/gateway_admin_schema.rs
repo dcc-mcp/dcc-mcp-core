@@ -122,4 +122,5 @@ CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_dcc ON sessions(dcc_type, started_at_ms);
 CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id, created_at_ms);
+CREATE INDEX IF NOT EXISTS idx_session_events_type ON session_events(event_type, created_at_ms);
 "#;

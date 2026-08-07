@@ -1,6 +1,6 @@
 //! Gateway-owned, caller-scoped demonstration capture over redacted traffic frames.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -54,7 +54,7 @@ pub struct RecordingDraft {
     /// Review-only demonstrated instance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
-    /// `recording`, `stopped`, or `truncated`.
+    /// `recording`, `stopped`, `interrupted`, or `truncated`.
     pub status: String,
     /// Start timestamp.
     pub started_at_ms: u64,
@@ -160,8 +160,8 @@ impl RecordReplayStore {
     }
 
     /// Consume one post-redaction traffic frame when its trusted session is recording.
-    pub fn capture_frame(&self, envelope: &EventEnvelope) {
-        let Some(session_id) = envelope
+    pub fn capture_frame(&self, envelope: &EventEnvelope) -> Option<Value> {
+        let session_id = envelope
             .attributes
             .get("session_id")
             .and_then(Value::as_str)
@@ -170,36 +170,35 @@ impl RecordReplayStore {
                     .correlation
                     .get("session_id")
                     .and_then(Value::as_str)
-            })
-        else {
-            return;
-        };
+            })?;
         let mut state = self.inner.lock();
-        let Some(recording_id) = state.active_by_session.get(session_id).cloned() else {
-            return;
-        };
-        let Some(draft) = state.recordings.get_mut(&recording_id) else {
-            return;
-        };
+        let recording_id = state.active_by_session.get(session_id).cloned()?;
+        let draft = state.recordings.get_mut(&recording_id)?;
         if let Some((request_id, success)) = captured_outcome(envelope) {
-            if let Some(event) = draft
+            let updated = draft
                 .events
                 .iter_mut()
                 .rev()
                 .find(|event| event.request_id.as_deref() == Some(request_id))
-            {
-                event.success = Some(success);
+                .map(|event| {
+                    event.success = Some(success);
+                    event.clone()
+                });
+            if let Some(event) = updated {
+                return Some(recording_session_event(
+                    "recording.tool_call",
+                    draft,
+                    Some(serde_json::json!(event)),
+                ));
             }
-            return;
+            return None;
         }
-        let Some((tool_slug, arguments)) = captured_call(envelope) else {
-            return;
-        };
+        let (tool_slug, arguments) = captured_call(envelope)?;
         if draft.events.len() >= MAX_RECORDING_EVENTS {
             draft.status = "truncated".to_owned();
-            return;
+            return None;
         }
-        draft.events.push(CapturedToolCall {
+        let event = CapturedToolCall {
             sequence: draft.events.len() as u64 + 1,
             tool_slug,
             arguments,
@@ -209,8 +208,116 @@ impl RecordReplayStore {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
             success: None,
-        });
+        };
+        draft.events.push(event.clone());
+        Some(recording_session_event(
+            "recording.tool_call",
+            draft,
+            Some(serde_json::json!(event)),
+        ))
     }
+
+    /// Restore a stopped or interrupted draft without reopening capture authority.
+    pub fn restore(&self, draft: RecordingDraft) {
+        self.inner
+            .lock()
+            .recordings
+            .insert(draft.recording_id.clone(), draft);
+    }
+}
+
+/// Rebuild one recording from its ordered session-event projection.
+pub(crate) fn recover_recording(
+    recording_id: &str,
+    rows: &[Value],
+) -> Option<(RecordingDraft, bool)> {
+    let mut draft = None;
+    let mut calls = BTreeMap::new();
+    let mut terminal = false;
+
+    for row in rows
+        .iter()
+        .filter(|row| row.get("recording_id").and_then(Value::as_str) == Some(recording_id))
+    {
+        match row.get("event_type").and_then(Value::as_str) {
+            Some("recording.started") => {
+                let created_at_ms = row
+                    .get("created_at_ms")
+                    .and_then(Value::as_i64)
+                    .and_then(|value| u64::try_from(value).ok())
+                    .unwrap_or_else(now_ms);
+                draft = Some(RecordingDraft {
+                    recording_id: recording_id.to_owned(),
+                    session_id: row.get("session_id")?.as_str()?.to_owned(),
+                    dcc_type: row.get("dcc_type")?.as_str()?.to_owned(),
+                    instance_id: row
+                        .get("instance_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    status: "recording".to_owned(),
+                    started_at_ms: row
+                        .get("started_at_ms")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(created_at_ms),
+                    stopped_at_ms: None,
+                    events: Vec::new(),
+                });
+            }
+            Some("recording.tool_call") => {
+                if let Some(payload) = row.get("payload")
+                    && let Ok(event) = serde_json::from_value::<CapturedToolCall>(payload.clone())
+                {
+                    calls.insert(event.sequence, event);
+                }
+            }
+            Some("recording.stopped") | Some("recording.interrupted") => {
+                let recovered = draft.as_mut()?;
+                recovered.status = row
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("interrupted")
+                    .to_owned();
+                recovered.stopped_at_ms =
+                    row.get("stopped_at_ms")
+                        .and_then(Value::as_u64)
+                        .or_else(|| {
+                            row.get("created_at_ms")
+                                .and_then(Value::as_i64)
+                                .and_then(|value| u64::try_from(value).ok())
+                        });
+                terminal = true;
+            }
+            _ => {}
+        }
+    }
+
+    let mut draft = draft?;
+    draft.events = calls.into_values().collect();
+    if !terminal {
+        draft.status = "interrupted".to_owned();
+        draft.stopped_at_ms = Some(now_ms());
+    }
+    Some((draft, !terminal))
+}
+
+pub(crate) fn recording_session_event(
+    event_type: &str,
+    draft: &RecordingDraft,
+    payload: Option<Value>,
+) -> Value {
+    let created_at_ms = now_ms();
+    serde_json::json!({
+        "session_id": draft.session_id,
+        "event_type": event_type,
+        "created_at_ms": created_at_ms.min(i64::MAX as u64) as i64,
+        "recording_id": draft.recording_id,
+        "dcc_type": draft.dcc_type,
+        "instance_id": draft.instance_id,
+        "status": draft.status,
+        "started_at_ms": draft.started_at_ms,
+        "stopped_at_ms": draft.stopped_at_ms,
+        "payload": payload,
+    })
 }
 
 fn validate_label(value: &str, name: &'static str) -> Result<(), RecordingStoreError> {
