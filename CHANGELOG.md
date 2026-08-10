@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.93](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.92...v0.19.93) (2026-08-10)
+
+
+### Features
+
+* catalog new production adapters ([#2135](https://github.com/dcc-mcp/dcc-mcp-core/issues/2135)) ([573e60e](https://github.com/dcc-mcp/dcc-mcp-core/commit/573e60e6ce9c0e07963058143d592e29c665f7f9))
+
 ## [0.19.92](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.91...v0.19.92) (2026-08-07)
 
 
