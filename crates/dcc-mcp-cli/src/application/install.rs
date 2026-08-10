@@ -786,17 +786,25 @@ mod tests {
                 .count(),
             1
         );
-        for expected in ["godot", "renderdoc", "unity"] {
+        for (expected_type, expected_adapter) in [
+            ("c4d", "dcc-mcp-cinema4d"),
+            ("freecad", "dcc-mcp-freecad"),
+            ("godot", "dcc-mcp-godot"),
+            ("mari", "dcc-mcp-mari"),
+            ("openscad", "dcc-mcp-openscad"),
+            ("renderdoc", "dcc-mcp-renderdoc"),
+            ("unity", "dcc-mcp-unity"),
+        ] {
             let entry = catalog
                 .dcc_types
                 .iter()
-                .find(|entry| entry.dcc_type == expected)
-                .unwrap_or_else(|| panic!("missing cataloged DCC type {expected}"));
+                .find(|entry| entry.dcc_type == expected_type)
+                .unwrap_or_else(|| panic!("missing cataloged DCC type {expected_type}"));
             assert!(
                 entry
                     .adapters
                     .iter()
-                    .any(|adapter| adapter.name == format!("dcc-mcp-{expected}"))
+                    .any(|adapter| adapter.name == expected_adapter)
             );
         }
     }

@@ -259,6 +259,58 @@ entries:
       pip_package: "dcc-mcp-marmoset"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-marmoset/main/install.md"
 
+  - name: "dcc-mcp-openscad"
+    description: "OpenSCAD adapter for deterministic model validation, export, and rendering"
+    dcc: ["openscad"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-openscad"
+    tags: ["adapter", "openscad", "official", "pip", "cad", "modeling"]
+    version: "0.1.1"
+    min_core_version: "0.19.91"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-openscad"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscad/main/README.md"
+
+  - name: "dcc-mcp-freecad"
+    description: "FreeCAD adapter for typed parametric modeling, document validation, and CAD exchange"
+    dcc: ["freecad"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-freecad"
+    tags: ["adapter", "freecad", "official", "pip", "cad", "parametric-modeling"]
+    version: "0.1.1"
+    min_core_version: "0.19.91"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-freecad"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-freecad/main/README.md"
+
+  - name: "dcc-mcp-cinema4d"
+    description: "Cinema 4D adapter for typed headless modeling, interchange, inspection, and rendering"
+    dcc: ["c4d", "cinema4d"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-cinema4d"
+    tags: ["adapter", "cinema4d", "cinema-4d", "official", "pip", "modeling", "rendering"]
+    version: "0.1.2"
+    min_core_version: "0.19.91"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-cinema4d"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cinema4d/main/README.md"
+
+  - name: "dcc-mcp-mari"
+    description: "Mari adapter for typed project, geometry, channel, node-graph, layer, shader, image, and export workflows"
+    dcc: ["mari"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-mari"
+    tags: ["adapter", "mari", "official", "pip", "texturing", "lookdev"]
+    version: "0.2.1"
+    min_core_version: "0.19.91"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-mari"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-mari/main/README.md"
+
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
     dcc: ["shotgrid"]

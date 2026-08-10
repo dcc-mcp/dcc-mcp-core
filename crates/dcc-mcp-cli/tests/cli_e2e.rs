@@ -1737,11 +1737,15 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    assert_eq!(types.len(), 20);
+    assert_eq!(types.len(), 24);
     for expected in [
+        "c4d",
+        "freecad",
         "godot",
+        "mari",
         "marmoset",
         "openusd",
+        "openscad",
         "renderdoc",
         "shotgrid",
         "unity",
