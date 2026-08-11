@@ -58,14 +58,14 @@ Capture the current screen or a specific window as a PNG/JPEG image.
 Backed by the `dcc_mcp_core.Capturer` class which uses:
 
 - **Windows display**: DXGI Desktop Duplication API
-- **Windows window**: Windows.Graphics.Capture with bounded GDI fallback
+- **Windows window**: Windows.Graphics.Capture
 - **Linux**: X11 XShmGetImage
 - **Fallback**: Mock synthetic backend (headless/CI)
 
 Successful DCC-window results include `window_handle`, `window_title`,
-`capture_backend`, `fallback_from`, and `capture_health`. Treat
+`capture_backend` and `capture_health`. Treat
 `capture_health=unverified` as pixels without semantic content validation and
-`degraded` as a backend fallback. `unusable_capture` and
+`unusable_capture` and
 `desktop_unavailable` are structured failures; do not retry them through
 another desktop or input path.
 

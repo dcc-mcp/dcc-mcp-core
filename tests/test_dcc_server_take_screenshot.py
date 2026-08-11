@@ -131,9 +131,9 @@ def test_take_screenshot_uses_resolver_when_no_explicit_handle():
         # On Windows, the resolver is called. On other platforms the mock
         # backend ignores the handle, so the call may succeed — accept both.
         assert "success" in data
-        # If Windows HwndBackend was used, resolver must have been invoked.
+        # If the Windows window backend was used, resolver must have been invoked.
         if not data["success"]:
-            assert calls, "resolver should have been invoked for HwndBackend"
+            assert calls, "resolver should have been invoked for window capture"
     finally:
         mod._instance_context.update(original)
 
@@ -175,10 +175,10 @@ class _WindowCapturer:
         return frame
 
     def backend_name(self) -> str:
-        return "GDI PrintWindow"
+        return "Windows.Graphics.Capture"
 
 
-def test_take_screenshot_exposes_exact_window_and_fallback_metadata(monkeypatch):
+def test_take_screenshot_exposes_exact_window_metadata(monkeypatch):
     import dcc_mcp_core.dcc_server as mod
 
     capturer = _WindowCapturer(health="degraded")
@@ -190,8 +190,8 @@ def test_take_screenshot_exposes_exact_window_and_fallback_metadata(monkeypatch)
     assert data["success"] is True
     assert data["window_handle"] == 0x1234
     assert data["window_title"] == "Houdini FX"
-    assert data["capture_backend"] == "GDI PrintWindow"
-    assert data["fallback_from"] == "Windows.Graphics.Capture"
+    assert data["capture_backend"] == "Windows.Graphics.Capture"
+    assert "fallback_from" not in data
     assert data["capture_health"] == "degraded"
     assert capturer.arguments["window_handle"] == 0x1234
 

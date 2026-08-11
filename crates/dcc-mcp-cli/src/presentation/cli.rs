@@ -337,10 +337,12 @@ enum UiControlAction {
     Find(UiControlArgs),
     /// Perform one scoped semantic, pointer, or keyboard action.
     Act(UiControlArgs),
-    /// Perform one typed, policy-gated operating-system configuration operation.
-    SystemOperation(UiControlArgs),
-    /// Record the exact scoped window into a host-owned, hash-verified JPEG sequence.
-    RecordClip(UiControlArgs),
+    /// Start trajectory recording for the exact scoped window.
+    RecordingStart(UiControlArgs),
+    /// Read trajectory recording state for the exact scoped window.
+    RecordingState(UiControlArgs),
+    /// Finalize trajectory recording for the exact scoped window.
+    RecordingStop(UiControlArgs),
     /// Wait for one semantic UI condition inside the scoped DCC window.
     Wait(UiControlArgs),
     /// Stop the scoped session and release its visible effects and input owner.
@@ -353,8 +355,9 @@ impl UiControlAction {
             Self::Snapshot(args) => ("ui_control__snapshot", args),
             Self::Find(args) => ("ui_control__find", args),
             Self::Act(args) => ("ui_control__act", args),
-            Self::SystemOperation(args) => ("ui_control__system_operation", args),
-            Self::RecordClip(args) => ("ui_control__record_clip", args),
+            Self::RecordingStart(args) => ("ui_control__recording_start", args),
+            Self::RecordingState(args) => ("ui_control__recording_state", args),
+            Self::RecordingStop(args) => ("ui_control__recording_stop", args),
             Self::Wait(args) => ("ui_control__wait_for", args),
             Self::Stop(args) => ("ui_control__stop_computer_use", args),
         }

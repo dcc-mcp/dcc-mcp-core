@@ -32,7 +32,7 @@ capturer = Capturer.new_auto()
 |--------|---------|-------------|
 | `capture(format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, process_id=None, window_title=None)` | `CaptureFrame` | Capture a frame (display or, when `process_id`/`window_title` is set, the matching window) |
 | `capture_window(*, process_id=None, window_handle=None, window_title=None, format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, include_decorations=True)` | `CaptureFrame` | Capture a single window. At least one of `process_id` / `window_handle` / `window_title` must be provided |
-| `backend_name()` | `str` | Name of the active backend (e.g. `"DXGI Desktop Duplication"`, `"HWND PrintWindow"`) |
+| `backend_name()` | `str` | Name of the active backend (e.g. `"DXGI Desktop Duplication"`, `"Windows.Graphics.Capture"`) |
 | `backend_kind()` | `CaptureBackendKind` | Enum form of the active backend |
 | `stats()` | `tuple[int, int, int]` | Running statistics: `(capture_count, total_bytes, error_count)` |
 
@@ -164,7 +164,7 @@ Resolves a `CaptureTarget` to a concrete `WindowInfo` without raising when no ma
 | Backend | Platform | Kind | Description |
 |---------|----------|------|-------------|
 | `dxgi` | Windows | `DxgiDesktopDuplication` | DXGI Desktop Duplication API — full-screen / display |
-| `hwnd` | Windows | `HwndPrintWindow` | GDI `PrintWindow` + `BitBlt` fallback — single window |
+| `wgc` | Windows | `WindowsGraphicsCapture` | Windows.Graphics.Capture — single window |
 | `x11` | Linux | `X11Xshm` | X11 `XShmGetImage` — full-screen |
 | `pipewire` | Linux | `PipeWire` | PipeWire screencast (Wayland) — reserved |
 | `screencapturekit` | macOS | `ScreenCaptureKit` | ScreenCaptureKit — reserved |
@@ -183,7 +183,7 @@ branching on the backend without parsing `backend_name()`:
 from dcc_mcp_core import Capturer, CaptureBackendKind
 
 cap = Capturer.new_window_auto()
-if cap.backend_kind() == CaptureBackendKind.HwndPrintWindow:
+if cap.backend_kind() == CaptureBackendKind.WindowsGraphicsCapture:
     ...  # Windows window capture path
 ```
 

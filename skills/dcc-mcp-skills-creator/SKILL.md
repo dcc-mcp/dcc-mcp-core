@@ -242,35 +242,32 @@ only with the matching chunked runner or isolated status/cancel implementation.
 - Reuse the bundled `ui-control` skill instead of creating another screenshot,
   pointer, keyboard, or Windows `SendInput` tool set. Declare
   `metadata.dcc-mcp.depends: ["ui-control"]` only when it is a hard workflow
-  dependency.
+  dependency. Native UI Control requires standalone `dcc-cua` 0.4.0 or newer;
+  do not preserve or add a legacy Core Host fallback.
 - Keep the visual loop as `ui_control__snapshot` -> `ui_control__act` ->
   `ui_control__snapshot`, and pass the latest `snapshot_id` unchanged. End every
   path with `ui_control__stop_computer_use`. Screenshot coordinates belong to that
   observation only.
-- Preserve `capture_provenance` with saved evidence. Only
-  `backend=windows-ui-control-host` plus `pixels_captured=true` proves native
-  Windows screenshot capture; keep the logical UI Control `session_id`
+- Preserve `capture_provenance` with saved evidence. A live
+  `backend=dcc-cua` snapshot plus `pixels_captured=true` proves native
+  application capture; keep the logical UI Control `session_id`
   distinct from the gateway agent session used for stats attribution.
-- When the exact HWND is minimized or hidden before the first snapshot, use
-  only `get_window_state` followed by the necessary `restore_window`,
-  `show_window`, and `activate_window` host actions, then take a fresh
-  snapshot. Never substitute desktop enumeration or open-ended input.
 - Stateful UI tools must declare `requires_in_process: true` independently of
   `affinity`; keep UI Control at `affinity: any` so it does not block the DCC
-  UI thread while preserving one named-pipe client. On Windows, the isolated
-  per-logon-session host owns observations, Esc interruption, confirmation, and the
-  cross-adapter input owner; skill scripts must not instantiate an in-process
-  `ComputerUseSession` fallback.
+  UI thread while preserving one persistent CUA bridge. The shared standalone
+  Host owns observations, Esc interruption, markers, and cross-session input
+  serialization; skill scripts must not instantiate another automation stack.
 - Prefer a `control_id` and semantic UI Automation action. Use raw coordinates
   only when the UI does not expose a stable semantic control.
 - For custom-drawn canvases, viewport manipulators, or face controls, use one
   `drag` path from the latest snapshot. `keys` may hold Ctrl, Shift, or Alt for
   pointer-modified drags; snapshot again immediately before deriving another
   path.
-- Never set `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT` from a skill script. It is an
-  operator-owned environment ceiling. Native input also requires the
-  adapter/operator to bind its DCC with `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or
-  `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`; a skill request may only narrow that
+- Never set `DCC_MCP_CUA_ALLOW_RAW_INPUT` from a skill script. Native input is
+  enabled by default, and the operator-owned `false` setting disables it.
+  Native input also requires the
+  adapter/operator to bind its DCC with `DCC_MCP_UI_CONTROL_PROCESS_ID` or
+  `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`; a skill request may only narrow that
   trusted scope. Propagate `user_interrupted` immediately;
   do not retry the action or fall back to another input path after Esc interrupts a session.
 - Never enter or retry another UI/input path after a policy, authorization,

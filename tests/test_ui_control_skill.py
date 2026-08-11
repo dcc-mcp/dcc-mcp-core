@@ -18,10 +18,31 @@ from typing import ClassVar
 import pytest
 
 from conftest import REPO_ROOT
+from dcc_mcp_core import parse_skill_md
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
 
 _SKILL_DIR = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control"
 _SCRIPTS = _SKILL_DIR / "scripts"
+
+
+def test_ui_control_skill_triggers_on_cua_ui_control_and_dcc_cua() -> None:
+    metadata = parse_skill_md(str(_SKILL_DIR))
+    assert metadata is not None
+    description = (metadata.description or "").lower()
+    search_hint = (metadata.search_hint or "").lower()
+    for phrase in ("cua", "ui control", "dcc-cua"):
+        assert phrase in description
+        assert phrase in search_hint
+    assert "dcc-cua 0.4.0+" in (metadata.compatibility or "")
+
+    from dcc_mcp_core import SkillCatalog
+    from dcc_mcp_core import ToolRegistry
+
+    catalog = SkillCatalog(ToolRegistry())
+    catalog.discover(extra_paths=[str(_SKILL_DIR.parent)])
+    for phrase in ("cua", "ui control", "dcc-cua"):
+        names = {result.name for result in catalog.search_skills(phrase)}
+        assert "ui-control" in names
 
 
 def _load_cdp_runtime_module() -> Any:
@@ -33,8 +54,8 @@ def _load_cdp_runtime_module() -> Any:
     return module
 
 
-def _load_windows_uia_module() -> Any:
-    spec = importlib.util.spec_from_file_location("_test_ui_control_windows_uia", _SCRIPTS / "_windows_uia_backend.py")
+def _load_cua_module() -> Any:
+    spec = importlib.util.spec_from_file_location("_test_ui_control_cua", _SCRIPTS / "_cua_backend.py")
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -51,17 +72,16 @@ def _load_entrypoint_module() -> Any:
     return module
 
 
-def test_ui_control_defaults_to_native_backend_without_environment_override(monkeypatch: Any) -> None:
+def test_ui_control_defaults_to_dcc_cua_and_keeps_mock_explicit(monkeypatch: Any) -> None:
     entrypoint = _load_entrypoint_module()
     monkeypatch.delenv("DCC_MCP_UI_CONTROL_BACKEND", raising=False)
-    monkeypatch.setattr(entrypoint.sys, "platform", "win32")
-    assert entrypoint._selected_backend() == "windows-uia"
-
-    monkeypatch.setattr(entrypoint.sys, "platform", "linux")
-    assert entrypoint._selected_backend() == "chrome-cdp"
+    assert entrypoint._selected_backend() == "cua"
 
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "")
-    assert entrypoint._selected_backend() == "chrome-cdp"
+    assert entrypoint._selected_backend() == "cua"
+
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "mock")
+    assert entrypoint._selected_backend() == "mock"
 
 
 def test_ui_control_entrypoint_imports_without_native_core(monkeypatch: Any) -> None:
@@ -115,9 +135,9 @@ def _run_tool(
     return json.loads(result.stdout)
 
 
-def test_ui_control_windows_uia_spec_loads_isolated_host_client_state() -> None:
-    first = _load_windows_uia_module()
-    second = _load_windows_uia_module()
+def test_ui_control_cua_spec_loads_isolated_host_client_state() -> None:
+    first = _load_cua_module()
+    second = _load_cua_module()
 
     first._CLIENTS["isolated"] = {"client": object()}
 
@@ -136,8 +156,9 @@ def test_ui_control_skill_metadata_and_tool_names() -> None:
         "snapshot",
         "find",
         "act",
-        "record_clip",
-        "system_operation",
+        "recording_start",
+        "recording_state",
+        "recording_stop",
         "stop_computer_use",
         "wait_for",
     }
@@ -150,8 +171,9 @@ def test_ui_control_skill_metadata_and_tool_names() -> None:
     catalog.load_skill("ui-control")
     action_names = {action["name"] for action in registry.list_actions()}
     assert "ui_control__snapshot" in action_names
-    assert "ui_control__record_clip" in action_names
-    assert "ui_control__system_operation" in action_names
+    assert "ui_control__recording_start" in action_names
+    assert "ui_control__recording_state" in action_names
+    assert "ui_control__recording_stop" in action_names
     assert "ui_control__wait_for" in action_names
     assert "ui_control__stop_computer_use" in action_names
 
@@ -235,42 +257,26 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     assert tools["act"].timeout_hint_secs is None
     assert tools["find"].timeout_hint_secs == 2
     assert tools["wait_for"].timeout_hint_secs == 65
-    record_schema = json.loads(tools["record_clip"].input_schema)
-    assert record_schema["required"] == ["duration_ms"]
+    record_schema = json.loads(tools["recording_start"].input_schema)
+    assert record_schema["required"] == ["output_dir"]
     assert record_schema["additionalProperties"] is False
-    assert record_schema["properties"]["duration_ms"]["minimum"] == 1_000
-    assert record_schema["properties"]["duration_ms"]["maximum"] == 180_000
-    assert record_schema["properties"]["frames_per_second"]["minimum"] == 1
-    assert record_schema["properties"]["frames_per_second"]["maximum"] == 60
-    assert record_schema["properties"]["jpeg_quality"]["minimum"] == 70
-    assert record_schema["properties"]["jpeg_quality"]["maximum"] == 100
-    assert not {"output", "output_path", "directory", "path"} & set(record_schema["properties"])
-    assert tools["record_clip"].timeout_hint_secs == 185
-    assert tools["record_clip"].read_only is False
-    assert tools["record_clip"].destructive is False
-    assert tools["record_clip"].requires_in_process is True
+    assert record_schema["properties"]["output_dir"]["minLength"] == 1
+    assert record_schema["properties"]["output_dir"]["maxLength"] == 4096
+    assert record_schema["properties"]["record_video"]["type"] == "boolean"
+    assert tools["recording_start"].read_only is False
+    assert tools["recording_state"].read_only is True
+    assert tools["recording_state"].idempotent is True
+    assert tools["recording_stop"].read_only is False
+    assert all(tools[name].requires_in_process for name in ("recording_start", "recording_state", "recording_stop"))
     assert not (tools["act"].next_tools or {}).get("on_failure")
     assert not (tools["wait_for"].next_tools or {}).get("on_failure")
     wait_schema = json.loads(tools["wait_for"].input_schema)
     assert wait_schema["properties"]["condition"]["properties"]["timeout_ms"]["maximum"] == 60_000
     assert tools["stop_computer_use"].requires_in_process is True
-    system_schema = json.loads(tools["system_operation"].input_schema)
-    assert system_schema["required"] == ["operation_id"]
-    assert system_schema["additionalProperties"] is False
-    operation_id_schema = system_schema["properties"]["operation_id"]
-    assert operation_id_schema["type"] == "string"
-    assert operation_id_schema["minLength"] == 1
-    assert operation_id_schema["maxLength"] == 256
-    assert not {"operation", "command", "allowlist", "system_grant_id", "value", "path"} & set(
-        system_schema["properties"]
-    )
-    assert "Values, paths, commands, grants" in operation_id_schema["description"]
-    assert tools["system_operation"].idempotent is True
-    assert tools["system_operation"].requires_in_process is True
 
 
 def test_ui_control_windows_game_navigation_contract_is_fail_closed() -> None:
-    backend = _load_windows_uia_module()
+    backend = _load_cua_module()
 
     for keys in (
         ["W"],
@@ -389,8 +395,6 @@ def test_ui_control_entrypoints_accept_inprocess_parameters(
 
 def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, monkeypatch: Any) -> None:
     entrypoint = _load_entrypoint_module()
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text('{"frame_count": 90}', encoding="utf-8")
     stored: list[dict[str, Any]] = []
 
     class FileRef:
@@ -409,22 +413,18 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
         stored.append(kwargs)
         return FileRef(**{key: kwargs[key] for key in ("mime", "display_name", "session_id", "correlation_id")})
 
-    def put_file(_path: str, **kwargs: Any) -> FileRef:
-        stored.append(kwargs)
-        return FileRef(**{key: kwargs[key] for key in ("mime", "display_name", "session_id", "correlation_id")})
-
     class Backend:
         @staticmethod
         def snapshot_tool(_params: dict[str, Any]) -> dict[str, Any]:
             return {
                 "success": True,
-                "message": "Captured isolated Windows UI Control snapshot.",
+                "message": "Captured scoped CUA application snapshot.",
                 "context": {
                     "session_id": "evidence",
                     "snapshot_id": "accessibility:1",
                     "snapshot": {
                         "metadata": {
-                            "ui_control": {"backend": "windows-ui-control-host"},
+                            "ui_control": {"backend": "dcc-cua"},
                         }
                     },
                     "observation": {
@@ -444,29 +444,9 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
                 },
             }
 
-        @staticmethod
-        def record_clip_tool(_params: dict[str, Any]) -> dict[str, Any]:
-            return {
-                "success": True,
-                "message": "Recorded an exact-window JPEG sequence.",
-                "context": {
-                    "session_id": "evidence",
-                    "target": {"process_id": 1234, "window_handle": 500},
-                    "artifact": {
-                        "recording_id": "clip-1",
-                        "manifest_path": str(manifest),
-                        "frame_count": 90,
-                        "width": 1280,
-                        "height": 720,
-                        "manifest_sha256": "a" * 64,
-                    },
-                },
-            }
-
     monkeypatch.setattr(entrypoint, "_load_backend", lambda: Backend)
     monkeypatch.setattr(entrypoint, "_artefact_put_bytes", put_bytes)
-    monkeypatch.setattr(entrypoint, "_artefact_put_file", put_file)
-    monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "windows-uia")
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "cua")
     monkeypatch.setenv("DCC_MCP_DISABLE_FILE_LOGGING", "1")
 
     result = entrypoint.snapshot_tool({"session_id": "evidence"})
@@ -474,7 +454,7 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
     provenance = result["context"]["capture_provenance"]
     assert provenance == {
         "tool": "ui_control__snapshot",
-        "backend": "windows-ui-control-host",
+        "backend": "dcc-cua",
         "session_id": "evidence",
         "snapshot_id": "accessibility:1",
         "observation_id": "obs-1",
@@ -488,7 +468,7 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
         "source_height": 1080,
         "downscaled": True,
     }
-    assert "windows-ui-control-host" in result["message"]
+    assert "dcc-cua" in result["message"]
     assert "1600x900" in result["message"]
     assert "downscaled from 1920x1080" in result["message"]
     screenshot = result["context"]["artifacts"][0]
@@ -497,24 +477,7 @@ def test_ui_control_entrypoint_reports_real_snapshot_provenance(tmp_path: Path, 
     assert screenshot["session_id"] == "evidence"
     assert result["context"]["__rich__"]["artifact_uri"] == screenshot["uri"]
 
-    clip = entrypoint.record_clip_tool({"session_id": "evidence"})
-    assert clip["context"]["capture_provenance"] == {
-        "tool": "ui_control__record_clip",
-        "backend": "windows-ui-control-host",
-        "session_id": "evidence",
-        "pixels_captured": True,
-        "process_id": 1234,
-        "window_handle": 500,
-        "recording_id": "clip-1",
-        "frame_count": 90,
-        "width": 1280,
-        "height": 720,
-        "manifest_sha256": "a" * 64,
-    }
-    recording = clip["context"]["artifacts"][0]
-    assert recording["kind"] == "ui_control_recording_manifest"
-    assert recording["display_name"] == "ui-control-recording-evidence-clip-1.json"
-    assert [item["ttl_secs"] for item in stored] == [86_400, 86_400]
+    assert [item["ttl_secs"] for item in stored] == [86_400]
 
 
 def test_ui_control_subprocess_forwards_action_to_windows_backend_without_host(tmp_path: Path) -> None:
@@ -534,7 +497,7 @@ def test_ui_control_subprocess_forwards_action_to_windows_backend_without_host(t
         },
         tmp_path,
         {
-            "DCC_MCP_UI_CONTROL_BACKEND": "windows-uia",
+            "DCC_MCP_UI_CONTROL_BACKEND": "cua",
             "DCC_MCP_DISABLE_FILE_LOGGING": "1",
         },
     )
@@ -588,7 +551,7 @@ def test_ui_control_admin_audit_links_state_delta_to_action(tmp_path: Path, monk
                 "session_id": "delta",
                 "snapshot_id": "accessibility:2",
                 "state_delta": {
-                    "source": "uia",
+                    "source": "cua-accessibility",
                     "state_id": "accessibility:2",
                     "cause_action_id": "action:test",
                     "delta": {
@@ -834,7 +797,7 @@ def test_ui_control_backend_router_reports_unknown_backend(tmp_path: Path) -> No
         "cdp",
         "edge",
         "agent-browser",
-        "windows-uia",
+        "cua",
     ]
 
 
@@ -842,14 +805,14 @@ def test_ui_control_backend_router_reports_unknown_backend(tmp_path: Path) -> No
     ("backend", "reported_backend"),
     [("mock", "mock"), ("chrome", "chrome-cdp")],
 )
-def test_ui_control_non_native_backends_reject_exact_window_recording(
+def test_ui_control_non_cua_backends_reject_trajectory_recording(
     tmp_path: Path,
     backend: str,
     reported_backend: str,
 ) -> None:
     result = _run_tool(
-        "record_clip",
-        {"session_id": "no-recording-fallback", "duration_ms": 1_000},
+        "recording_start",
+        {"session_id": "no-recording-fallback", "output_dir": str(tmp_path)},
         tmp_path,
         extra_env={"DCC_MCP_UI_CONTROL_BACKEND": backend},
     )
@@ -866,7 +829,7 @@ class _FakeHostClient:
         self.kwargs = kwargs
         self.executed: list[dict[str, Any]] = []
         self.window_operations: list[str] = []
-        self.recordings: list[dict[str, int]] = []
+        self.recordings: list[dict[str, Any]] = []
         self.snapshot_calls = 0
         self.accessibility_snapshot_calls = 0
         self.resumed = False
@@ -909,6 +872,8 @@ class _FakeHostClient:
                     {
                         "runtime_id": "42.2",
                         "fallback_path": "0.0",
+                        "element_index": 1,
+                        "element_token": "dcc-wuia:snapshot:1",
                         "name": "Apply",
                         "automation_id": "applyButton",
                         "class_name": "Button",
@@ -961,31 +926,17 @@ class _FakeHostClient:
             "message": "completed",
         }
 
-    def record_clip(self, *, duration_ms: int, frames_per_second: int, jpeg_quality: int) -> dict[str, Any]:
-        self.recordings.append(
-            {
-                "duration_ms": duration_ms,
-                "frames_per_second": frames_per_second,
-                "jpeg_quality": jpeg_quality,
-            }
-        )
-        return {
-            "type": "clip_recorded",
-            "target": self.target,
-            "artifact": {
-                "recording_id": "clip-test",
-                "directory": "C:/host-owned/clip-test",
-                "manifest_path": "C:/host-owned/clip-test/manifest.json",
-                "frame_pattern": "frame-%06d.jpg",
-                "frame_count": 36,
-                "width": 1280,
-                "height": 720,
-                "frames_per_second": frames_per_second,
-                "started_at_ms": 1000,
-                "ended_at_ms": 2200,
-                "manifest_sha256": "a" * 64,
-            },
-        }
+    def recording_start(self, *, output_dir: str, record_video: bool) -> dict[str, Any]:
+        self.recordings.append({"operation": "start", "output_dir": output_dir, "record_video": record_video})
+        return {"structuredContent": {"enabled": True, "next_turn": 1}}
+
+    def recording_state(self) -> dict[str, Any]:
+        self.recordings.append({"operation": "state"})
+        return {"structuredContent": {"enabled": True, "next_turn": 2}}
+
+    def recording_stop(self) -> dict[str, Any]:
+        self.recordings.append({"operation": "stop"})
+        return {"structuredContent": {"enabled": False, "next_turn": 2}}
 
     def window_state(self) -> dict[str, Any]:
         return {
@@ -1023,19 +974,19 @@ class _FakeHostClient:
         return {"type": "session_stopped", "cleanup_pending": False}
 
 
-def _configure_fake_host(backend: Any, monkeypatch: Any, *, raw: bool = False) -> None:
+def _configure_fake_host(backend: Any, monkeypatch: Any, *, raw: Optional[bool] = None) -> None:
     _FakeHostClient.instances.clear()
     monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
-    monkeypatch.setenv("DCC_MCP_UI_CONTROL_UIA_PROCESS_ID", "1234")
-    monkeypatch.delenv("DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE", raising=False)
-    if raw:
-        monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "1")
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_PROCESS_ID", "1234")
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
+    if raw is None:
+        monkeypatch.delenv("DCC_MCP_CUA_ALLOW_RAW_INPUT", raising=False)
     else:
-        monkeypatch.delenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", raising=False)
+        monkeypatch.setenv("DCC_MCP_CUA_ALLOW_RAW_INPUT", "true" if raw else "false")
 
 
-def test_ui_control_windows_host_maps_snapshot_and_shared_image(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_maps_snapshot_and_shared_image(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
 
     result = backend.snapshot_tool({"session_id": "godot", "app_name": "Godot"})
@@ -1043,43 +994,48 @@ def test_ui_control_windows_host_maps_snapshot_and_shared_image(monkeypatch: Any
     assert result["success"] is True
     context = result["context"]
     assert context["snapshot_id"] == "accessibility:1"
-    assert context["snapshot"]["root"]["id"] == "uia:42.1"
+    assert context["snapshot"]["root"]["id"] == "cua:42.1"
     assert context["snapshot"]["root"]["children"][0]["role"] == "button"
-    assert context["snapshot"]["metadata"]["ui_control"]["backend"] == "windows-ui-control-host"
+    assert context["snapshot"]["metadata"]["ui_control"]["backend"] == "dcc-cua"
     assert context["snapshot"]["metadata"]["computer_use"]["observation_id"] == "obs-1"
-    assert context["state_delta"]["source"] == "uia"
+    assert context["state_delta"]["source"] == "cua-accessibility"
     assert context["state_delta"]["delta"]["baseline"] is True
     assert base64.b64decode(context["__rich__"]["data"]) == b"png"
-    assert _FakeHostClient.instances[0].kwargs["allow_raw_input"] is False
+    assert _FakeHostClient.instances[0].kwargs["allow_raw_input"] is True
 
 
-def test_ui_control_windows_host_records_exact_window_clip_without_output_path(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_controls_trajectory_recording(tmp_path: Path, monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
 
-    result = backend.record_clip_tool(
+    started = backend.recording_start_tool(
         {
             "session_id": "pv",
-            "duration_ms": 1_200,
-            "frames_per_second": 30,
-            "jpeg_quality": 92,
+            "output_dir": str(tmp_path),
+            "record_video": True,
         }
     )
+    state = backend.recording_state_tool({"session_id": "pv"})
+    stopped = backend.recording_stop_tool({"session_id": "pv"})
 
-    assert result["success"] is True
-    assert result["context"]["target"]["window_handle"] == 500
-    assert result["context"]["artifact"]["manifest_sha256"] == "a" * 64
+    assert started["success"] is True
+    assert started["context"]["target"]["window_handle"] == 500
+    assert started["context"]["recording"]["structuredContent"]["enabled"] is True
+    assert state["context"]["recording"]["structuredContent"]["next_turn"] == 2
+    assert stopped["context"]["recording"]["structuredContent"]["enabled"] is False
     assert _FakeHostClient.instances[0].recordings == [
-        {"duration_ms": 1_200, "frames_per_second": 30, "jpeg_quality": 92}
+        {"operation": "start", "output_dir": str(tmp_path), "record_video": True},
+        {"operation": "state"},
+        {"operation": "stop"},
     ]
 
 
-def test_ui_control_windows_host_requires_operator_bound_scope(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_requires_operator_bound_scope(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _FakeHostClient.instances.clear()
     monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
-    monkeypatch.delenv("DCC_MCP_UI_CONTROL_UIA_PROCESS_ID", raising=False)
-    monkeypatch.delenv("DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_ID", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
 
     result = backend.snapshot_tool({"session_id": "untrusted", "process_id": 1234})
 
@@ -1088,8 +1044,8 @@ def test_ui_control_windows_host_requires_operator_bound_scope(monkeypatch: Any)
     assert not _FakeHostClient.instances
 
 
-def test_ui_control_windows_host_scope_cannot_be_widened(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_scope_cannot_be_widened(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
 
     result = backend.snapshot_tool({"session_id": "wrong", "process_id": 7})
@@ -1099,9 +1055,9 @@ def test_ui_control_windows_host_scope_cannot_be_widened(monkeypatch: Any) -> No
     assert not _FakeHostClient.instances
 
 
-def test_ui_control_windows_host_raw_input_is_runtime_ceiling(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    _configure_fake_host(backend, monkeypatch)
+def test_ui_control_cua_host_raw_input_is_runtime_ceiling(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
+    _configure_fake_host(backend, monkeypatch, raw=False)
 
     denied = backend.snapshot_tool(
         {
@@ -1113,15 +1069,15 @@ def test_ui_control_windows_host_raw_input_is_runtime_ceiling(monkeypatch: Any) 
     assert denied["context"]["policy"]["allow_raw_coordinates"] is False
     assert _FakeHostClient.instances[-1].kwargs["allow_raw_input"] is False
 
-    enabled_backend = _load_windows_uia_module()
-    _configure_fake_host(enabled_backend, monkeypatch, raw=True)
+    enabled_backend = _load_cua_module()
+    _configure_fake_host(enabled_backend, monkeypatch)
     enabled = enabled_backend.snapshot_tool({"session_id": "enabled"})
     assert enabled["context"]["policy"]["allow_raw_coordinates"] is True
     assert _FakeHostClient.instances[-1].kwargs["allow_raw_input"] is True
 
 
-def test_ui_control_windows_host_semantic_action_is_thin_proxy(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_semantic_action_is_thin_proxy(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
     snapshot = backend.snapshot_tool({"session_id": "semantic"})
     snapshot_id = snapshot["context"]["snapshot_id"]
@@ -1130,7 +1086,7 @@ def test_ui_control_windows_host_semantic_action_is_thin_proxy(monkeypatch: Any)
         {
             "session_id": "semantic",
             "snapshot_id": snapshot_id,
-            "control_id": "uia:42.2",
+            "control_id": "cua:42.2",
             "action": "click",
             "intent": "external_communication",
         }
@@ -1140,34 +1096,17 @@ def test_ui_control_windows_host_semantic_action_is_thin_proxy(monkeypatch: Any)
     assert result["context"]["action_id"] == "action:test"
     payload = _FakeHostClient.instances[0].executed[0]
     assert payload["input_kind"] == "semantic"
-    assert payload["control_id"] == "uia:42.2"
+    assert payload["element_token"] == "dcc-wuia:snapshot:1"
+    assert "control_id" not in payload
     assert payload["intent"] == "external_communication"
-    source = (_SCRIPTS / "_windows_uia_backend.py").read_text(encoding="utf-8")
+    source = (_SCRIPTS / "_cua_backend.py").read_text(encoding="utf-8")
     assert "ComputerUseSession" not in source
     assert "subprocess" not in source
     assert "powershell" not in source.lower()
 
 
-def test_ui_control_windows_uia_post_state_is_optional_after_semantic_success() -> None:
-    source = (_SCRIPTS / "_windows_uia_backend.ps1").read_text(encoding="utf-8")
-    invoke = source.index("$actionResult = Invoke-Action $target")
-    reject_failure = source.index("if (-not [bool]$actionResult.ok)", invoke)
-    optional_control = source.index("$control = $null", reject_failure)
-    success = source.index("ok = $true", optional_control)
-    post_read = source[optional_control:success]
-
-    assert invoke < reject_failure < optional_control < success
-    assert "ok = $false" in source[reject_failure:optional_control]
-    assert (
-        post_read.index("try {")
-        < post_read.index('$control = Element-Raw $target 0 "target"')
-        < post_read.index("} catch {}")
-    )
-    assert "control = $control" in source[success:]
-
-
-def test_ui_control_windows_host_native_action_requires_fresh_snapshot(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_native_action_requires_fresh_snapshot(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch, raw=True)
 
     missing = backend.act_tool({"session_id": "raw", "action": "raw_coordinate_click", "x": 10, "y": 20})
@@ -1200,8 +1139,8 @@ def test_ui_control_windows_host_native_action_requires_fresh_snapshot(monkeypat
     assert replayed["error"] == "stale_observation"
 
 
-def test_ui_control_windows_host_restores_minimized_exact_window_without_snapshot(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_restores_minimized_exact_window_without_snapshot(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
 
     state = backend.act_tool({"session_id": "minimized", "action": "get_window_state"})
@@ -1216,8 +1155,8 @@ def test_ui_control_windows_host_restores_minimized_exact_window_without_snapsho
     assert state["context"]["audit"]["metadata"]["host_enforced"] is True
 
 
-def test_ui_control_windows_host_reports_closed_target_success_and_requires_explicit_rebind(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_reports_closed_target_success_and_requires_explicit_rebind(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
 
     class ClosingTargetHost(_FakeHostClient):
         def execute(self, action: dict[str, Any]) -> dict[str, Any]:
@@ -1237,7 +1176,7 @@ def test_ui_control_windows_host_reports_closed_target_success_and_requires_expl
         {
             "session_id": "transition",
             "snapshot_id": snapshot["context"]["snapshot_id"],
-            "control_id": "uia:42.2",
+            "control_id": "cua:42.2",
             "action": "click",
         }
     )
@@ -1252,8 +1191,8 @@ def test_ui_control_windows_host_reports_closed_target_success_and_requires_expl
     assert backend._CLIENTS == {}
 
 
-def test_ui_control_windows_host_invalid_snapshot_target_exposes_scoped_recovery() -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_invalid_snapshot_target_exposes_scoped_recovery() -> None:
+    backend = _load_cua_module()
 
     result = backend._host_error(backend.UiControlHostError("invalid_target", "window is not capturable"))
 
@@ -1269,8 +1208,8 @@ def test_ui_control_windows_host_invalid_snapshot_target_exposes_scoped_recovery
     assert "cannot change the authorized PID/HWND scope" in result["prompt"]
 
 
-def test_ui_control_windows_host_protected_system_ui_requires_manual_operator_recovery() -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_protected_system_ui_requires_manual_operator_recovery() -> None:
+    backend = _load_cua_module()
 
     result = backend._host_error(
         backend.UiControlHostError(
@@ -1288,8 +1227,8 @@ def test_ui_control_windows_host_protected_system_ui_requires_manual_operator_re
     assert "fresh ui_control__snapshot" in result["prompt"]
 
 
-def test_ui_control_windows_host_propagates_trusted_confirmation_denial(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_propagates_trusted_confirmation_denial(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
 
     class DenyingHost(_FakeHostClient):
         def execute(self, action: dict[str, Any]) -> dict[str, Any]:
@@ -1309,7 +1248,7 @@ def test_ui_control_windows_host_propagates_trusted_confirmation_denial(monkeypa
         {
             "session_id": "confirm",
             "snapshot_id": snapshot["context"]["snapshot_id"],
-            "control_id": "uia:42.2",
+            "control_id": "cua:42.2",
             "action": "click",
         }
     )
@@ -1319,18 +1258,18 @@ def test_ui_control_windows_host_propagates_trusted_confirmation_denial(monkeypa
     assert result["context"]["result"]["metadata"]["policy_tier"] == "action_confirmation"
 
 
-def test_ui_control_windows_host_find_wait_stop_and_cleanup(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_find_wait_stop_and_cleanup(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
 
     found = backend.find_tool({"session_id": "workflow", "role": "button"})
     assert found["success"] is True
-    assert found["context"]["matches"][0]["id"] == "uia:42.2"
+    assert found["context"]["matches"][0]["id"] == "cua:42.2"
 
     waited = backend.wait_for_tool(
         {
             "session_id": "workflow",
-            "condition": {"kind": "control_exists", "control_id": "uia:42.2", "timeout_ms": 50},
+            "condition": {"kind": "control_exists", "control_id": "cua:42.2", "timeout_ms": 50},
         }
     )
     assert waited["success"] is True
@@ -1346,7 +1285,7 @@ def test_ui_control_windows_host_find_wait_stop_and_cleanup(monkeypatch: Any) ->
 
 
 def test_ui_control_windows_find_reuses_latest_unconsumed_snapshot(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
 
     snapshot = backend.snapshot_tool({"session_id": "cached"})
@@ -1359,7 +1298,7 @@ def test_ui_control_windows_find_reuses_latest_unconsumed_snapshot(monkeypatch: 
 
 
 def test_ui_control_windows_expires_idle_session_without_touching_active_call(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
     clock = iter([0.0, 0.0, 10.0, 10.0])
     monkeypatch.setattr(backend, "_IDLE_LEASE_SECONDS", 5.0)
@@ -1375,7 +1314,7 @@ def test_ui_control_windows_expires_idle_session_without_touching_active_call(mo
 
 
 def test_ui_control_windows_expires_idle_session_without_another_tool_call(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
     monkeypatch.setattr(backend, "_IDLE_LEASE_SECONDS", 0.02)
 
@@ -1390,8 +1329,8 @@ def test_ui_control_windows_expires_idle_session_without_another_tool_call(monke
     assert "idle" not in backend._CLIENTS
 
 
-def test_ui_control_windows_host_retries_pending_cleanup(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_retries_pending_cleanup(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
 
     class PendingCleanupHost(_FakeHostClient):
         def __init__(self, **kwargs: Any) -> None:
@@ -1419,671 +1358,14 @@ def test_ui_control_windows_host_retries_pending_cleanup(monkeypatch: Any) -> No
     assert backend._CLIENTS == {}
 
 
-def test_ui_control_windows_host_resume_always_round_trips_to_trusted_surface(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
+def test_ui_control_cua_host_resume_always_round_trips_to_trusted_surface(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
 
     result = backend.snapshot_tool({"session_id": "resume", "resume_computer_use": True})
 
     assert result["success"] is True
     assert _FakeHostClient.instances[0].resumed is True
-
-
-def test_ui_control_windows_uia_script_retains_hard_target_boundaries() -> None:
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests()
-
-    assert "Denied-Target-Reason" in script
-    assert "Denied-Action-Target-Reason" in script
-    assert "$currentInfo.IsPassword" in script
-    assert "is_password = [bool]$current.IsPassword" in script
-    assert "Cross-process descendant controls are not allowed" in script
-    assert "Windows Run dialog is not an allowed" in script
-    assert "value_pattern_available = $valuePattern.available" in script
-    assert "text_pattern_available = $textPatternAvailable" in script
-    assert "return $null" in script
-
-
-def test_ui_control_windows_uia_script_limits_owned_standard_menu_popups() -> None:
-    backend = _load_windows_uia_module()
-    script = backend._dedent_for_tests()
-    helpers = (_SCRIPTS / "_windows_uia_helpers.ps1").read_text(encoding="utf-8")
-
-    assert "Find-Owned-Standard-Menu-Popup $handleMatches[0]" in script
-    assert "$authorizedRoot.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)" in helpers
-    assert "$matches.Count -ne 1" in helpers
-    assert '([string]$popupInfo.ClassName) -cne "#32768"' in helpers
-    assert "[uint32]$popupInfo.ProcessId -ne $rootProcessId" in helpers
-    assert "IsActiveOwnedStandardMenuPopup" in helpers
-    assert "popupThreadId != rootThreadId" in helpers
-    assert "rootProcessId != expectedProcessId || popupProcessId != expectedProcessId" in helpers
-    assert "!IsWindowVisible(popup) || GetWindow(popup, GetWindowOwner) != authorizedRoot" in helpers
-    assert "(info.Flags & GuiInMenuMode) != 0" in helpers
-    assert "info.ActiveWindow == authorizedRoot" in helpers
-    assert "info.MenuOwnerWindow == authorizedRoot" in helpers
-
-
-def test_ui_control_host_client_wire_has_no_approval_boolean() -> None:
-    import io
-    import struct
-
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-
-    def frame(value: dict[str, Any]) -> bytes:
-        body = json.dumps(value).encode("utf-8")
-        return struct.pack(">I", len(body)) + body
-
-    class ScriptedPipe:
-        def __init__(self) -> None:
-            self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
-                + frame(
-                    {
-                        "type": "session_opened",
-                        "session_id": "wire",
-                        "window_capability": "window:opaque",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
-                    }
-                )
-            )
-            self.requests = bytearray()
-
-        def read(self, length: int) -> bytes:
-            return self.responses.read(length)
-
-        def write(self, data: bytes) -> int:
-            self.requests.extend(data)
-            return len(data)
-
-        def close(self) -> None:
-            return None
-
-    stream = ScriptedPipe()
-    client = client_module.UiControlHostClient(
-        session_id="wire",
-        task_grant_id="grant",
-        dcc_type="unreal",
-        process_id=42,
-        window_handle=500,
-        allow_raw_input=True,
-        stream=stream,
-    )
-
-    assert client.target["window_handle"] == 500
-    wire = bytes(stream.requests).decode("utf-8", errors="ignore").lower()
-    assert "approved" not in wire
-    assert "confirmed" not in wire
-    assert "window:opaque" not in wire
-
-
-def test_ui_control_host_client_keeps_screenshot_but_rejects_actions_without_uia(
-    monkeypatch: Any,
-) -> None:
-    import io
-    import struct
-
-    import dcc_mcp_core
-
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-
-    def frame(value: dict[str, Any]) -> bytes:
-        body = json.dumps(value).encode("utf-8")
-        return struct.pack(">I", len(body)) + body
-
-    class Buffer:
-        def read(self) -> bytes:
-            return b"png"
-
-    class SharedBuffer:
-        @staticmethod
-        def open(name: str, buffer_id: str) -> Buffer:
-            assert name == "test"
-            assert buffer_id == "test-id"
-            return Buffer()
-
-    class ScriptedPipe:
-        def __init__(self) -> None:
-            self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
-                + frame(
-                    {
-                        "type": "session_opened",
-                        "session_id": "screenshot-only",
-                        "window_capability": "window:opaque",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
-                    }
-                )
-                + frame(
-                    {
-                        "type": "snapshot",
-                        "observation_id": "obs-1",
-                        "accessibility_state_id": "accessibility:unusable",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
-                        "observation": {
-                            "observation_id": "obs-1",
-                            "accessibility": {
-                                "available": False,
-                                "error": "backend_unavailable",
-                            },
-                        },
-                        "root": {
-                            "runtime_id": "accessibility-unavailable",
-                            "name": "Scoped DCC window",
-                            "enabled": False,
-                            "children": [],
-                        },
-                        "node_count": 0,
-                        "image": {
-                            "name": "test",
-                            "id": "test-id",
-                            "length": 3,
-                            "mime_type": "image/png",
-                        },
-                    }
-                )
-            )
-
-        def read(self, length: int) -> bytes:
-            return self.responses.read(length)
-
-        def write(self, data: bytes) -> int:
-            return len(data)
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr(dcc_mcp_core, "PySharedBuffer", SharedBuffer)
-    client = client_module.UiControlHostClient(
-        session_id="screenshot-only",
-        task_grant_id="grant",
-        dcc_type="houdini",
-        process_id=42,
-        window_handle=500,
-        allow_raw_input=False,
-        stream=ScriptedPipe(),
-    )
-
-    response = client.snapshot(max_depth=5, max_nodes=250)
-
-    assert response["image_bytes"] == b"png"
-    assert client._latest_observation_id == "obs-1"
-    assert client._latest_accessibility_state_id is None
-    with pytest.raises(client_module.UiControlHostError, match="fresh ui_control snapshot"):
-        client.execute({"action": "click"})
-
-
-def test_ui_control_host_client_uses_versioned_binary_identity_pipe(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-    digest = "a" * 64
-    monkeypatch.setattr(client_module, "_windows_session_id", lambda: 42)
-    monkeypatch.setattr(client_module, "_host_version", lambda: "0.19.65")
-    monkeypatch.setattr(client_module, "_host_binary", lambda: Path("host.exe"))
-    monkeypatch.setattr(client_module, "_host_identity", lambda _binary: digest)
-
-    assert client_module._PROTOCOL_VERSION == 3
-    assert client_module._pipe_path() == (
-        rf"\\.\pipe\dcc-mcp-ui-control-host-v3-version-0.19.65-sha256-{digest}-session-42"
-    )
-
-
-def test_ui_control_host_client_recording_wire_has_no_output_path_and_consumes_observation() -> None:
-    import io
-    import struct
-
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-
-    def frame(value: dict[str, Any]) -> bytes:
-        body = json.dumps(value).encode("utf-8")
-        return struct.pack(">I", len(body)) + body
-
-    class ScriptedPipe:
-        def __init__(self) -> None:
-            self.responses = io.BytesIO(
-                frame(
-                    {
-                        "type": "hello",
-                        "protocol_version": 3,
-                        "capabilities": ["exact_window_recording"],
-                    }
-                )
-                + frame(
-                    {
-                        "type": "session_opened",
-                        "session_id": "pv",
-                        "window_capability": "window:opaque",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "Game"},
-                    }
-                )
-                + frame(
-                    {
-                        "type": "clip_recorded",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "Game"},
-                        "artifact": {
-                            "recording_id": "clip-1",
-                            "directory": "C:/host-owned/clip-1",
-                            "manifest_path": "C:/host-owned/clip-1/manifest.json",
-                            "frame_pattern": "frame-%06d.jpg",
-                            "frame_count": 30,
-                            "width": 1280,
-                            "height": 720,
-                            "frames_per_second": 30,
-                            "started_at_ms": 1000,
-                            "ended_at_ms": 2000,
-                            "manifest_sha256": "a" * 64,
-                        },
-                    }
-                )
-            )
-            self.requests = bytearray()
-
-        def read(self, length: int) -> bytes:
-            return self.responses.read(length)
-
-        def write(self, data: bytes) -> int:
-            self.requests.extend(data)
-            return len(data)
-
-        def close(self) -> None:
-            return None
-
-    stream = ScriptedPipe()
-    client = client_module.UiControlHostClient(
-        session_id="pv",
-        task_grant_id="grant",
-        dcc_type="unity",
-        process_id=42,
-        window_handle=500,
-        allow_raw_input=False,
-        stream=stream,
-    )
-    client._latest_observation_id = "obs-before-recording"
-    client._latest_accessibility_state_id = "accessibility-before-recording"
-
-    response = client.record_clip(duration_ms=1_000, frames_per_second=30, jpeg_quality=92)
-
-    assert response["artifact"]["frame_count"] == 30
-    assert client._latest_observation_id is None
-    assert client._latest_accessibility_state_id is None
-    raw = bytes(stream.requests)
-    requests = []
-    offset = 0
-    while offset < len(raw):
-        length = struct.unpack(">I", raw[offset : offset + 4])[0]
-        offset += 4
-        requests.append(json.loads(raw[offset : offset + length]))
-        offset += length
-    recording = next(request for request in requests if request["method"] == "record_clip")
-    assert set(recording["params"]) == {
-        "session_id",
-        "task_grant_id",
-        "window_capability",
-        "duration_ms",
-        "frames_per_second",
-        "format",
-        "jpeg_quality",
-    }
-    assert recording["params"]["format"] == "jpeg_sequence"
-    assert not any("path" in key or "directory" in key for key in recording["params"])
-
-
-def test_ui_control_host_client_rejects_recording_on_an_older_host() -> None:
-    import io
-    import struct
-
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-
-    def frame(value: dict[str, Any]) -> bytes:
-        body = json.dumps(value).encode("utf-8")
-        return struct.pack(">I", len(body)) + body
-
-    class ScriptedPipe:
-        def __init__(self) -> None:
-            self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
-                + frame(
-                    {
-                        "type": "session_opened",
-                        "session_id": "old",
-                        "window_capability": "window:old",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "Game"},
-                    }
-                )
-            )
-
-        def read(self, length: int) -> bytes:
-            return self.responses.read(length)
-
-        def write(self, data: bytes) -> int:
-            return len(data)
-
-        def close(self) -> None:
-            return None
-
-    stream = ScriptedPipe()
-    client = client_module.UiControlHostClient(
-        session_id="old",
-        task_grant_id="grant",
-        dcc_type="unity",
-        process_id=42,
-        window_handle=500,
-        allow_raw_input=False,
-        stream=stream,
-    )
-
-    with pytest.raises(client_module.UiControlHostError) as failure:
-        client.record_clip(duration_ms=1_000, frames_per_second=30, jpeg_quality=92)
-    assert failure.value.code == "unsupported"
-
-
-def test_ui_control_host_client_retains_capability_until_cleanup_completes() -> None:
-    import io
-    import struct
-
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-
-    def frame(value: dict[str, Any]) -> bytes:
-        body = json.dumps(value).encode("utf-8")
-        return struct.pack(">I", len(body)) + body
-
-    class ScriptedPipe:
-        def __init__(self) -> None:
-            self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
-                + frame(
-                    {
-                        "type": "session_opened",
-                        "session_id": "cleanup",
-                        "window_capability": "window:opaque",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
-                    }
-                )
-                + frame({"type": "session_stopped", "session_id": "cleanup", "cleanup_pending": True})
-                + frame({"type": "session_stopped", "session_id": "cleanup", "cleanup_pending": False})
-            )
-            self.closed = False
-
-        def read(self, length: int) -> bytes:
-            return self.responses.read(length)
-
-        def write(self, data: bytes) -> int:
-            return len(data)
-
-        def close(self) -> None:
-            self.closed = True
-
-    stream = ScriptedPipe()
-    client = client_module.UiControlHostClient(
-        session_id="cleanup",
-        task_grant_id="grant",
-        dcc_type="maya",
-        process_id=42,
-        window_handle=500,
-        allow_raw_input=False,
-        stream=stream,
-    )
-
-    assert client.stop()["cleanup_pending"] is True
-    assert client._window_capability == "window:opaque"
-    assert stream.closed is False
-
-    assert client.stop()["cleanup_pending"] is False
-    assert client._window_capability is None
-    assert stream.closed is True
-
-
-def test_ui_control_host_client_revokes_local_capability_when_exact_target_closes() -> None:
-    import io
-    import struct
-
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-
-    def frame(value: dict[str, Any]) -> bytes:
-        body = json.dumps(value).encode("utf-8")
-        return struct.pack(">I", len(body)) + body
-
-    class ScriptedPipe:
-        def __init__(self) -> None:
-            self.responses = io.BytesIO(
-                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
-                + frame(
-                    {
-                        "type": "session_opened",
-                        "session_id": "transition",
-                        "window_capability": "window:opaque",
-                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
-                    }
-                )
-                + frame(
-                    {
-                        "type": "action_completed",
-                        "success": True,
-                        "target_closed": True,
-                        "policy_tier": "task_grant",
-                        "message": "completed; the exact target window closed",
-                    }
-                )
-            )
-            self.requests = bytearray()
-            self.closed = False
-
-        def read(self, length: int) -> bytes:
-            return self.responses.read(length)
-
-        def write(self, data: bytes) -> int:
-            self.requests.extend(data)
-            return len(data)
-
-        def close(self) -> None:
-            self.closed = True
-
-    stream = ScriptedPipe()
-    client = client_module.UiControlHostClient(
-        session_id="transition",
-        task_grant_id="grant",
-        dcc_type="unity",
-        process_id=42,
-        window_handle=500,
-        allow_raw_input=False,
-        stream=stream,
-    )
-    client._latest_observation_id = "obs-1"
-    client._latest_accessibility_state_id = "accessibility:1"
-
-    response = client.execute({"action": "click"})
-
-    assert response["target_closed"] is True
-    assert client._window_capability is None
-    assert stream.closed is True
-    with pytest.raises(client_module.UiControlHostError, match="session is closed"):
-        client.window_state()
-
-
-def test_ui_control_system_operation_uses_only_operator_grant_and_redacts_result(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.setenv("DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID", "operator-plugin-setup")
-    calls: list[dict[str, Any]] = []
-
-    def execute(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return {
-            "type": "system_operation_completed",
-            "operation_type": "ensure_hkcu_registry_string",
-            "outcome": "updated",
-            "policy_tier": "action_confirmation",
-            "message": "Registry value is configured.",
-        }
-
-    monkeypatch.setattr(backend, "_execute_system_operation", execute)
-    result = backend.system_operation_tool(
-        {
-            "session_id": "plugin-setup",
-            "operation_id": "configure-plugin-mode",
-        }
-    )
-
-    assert result["success"] is True
-    assert calls[0]["system_grant_id"] == "operator-plugin-setup"
-    assert calls[0]["session_id"].startswith("system:")
-    assert calls[0]["session_id"] != "plugin-setup"
-    assert calls[0]["operation_id"] == "configure-plugin-mode"
-    serialized = json.dumps(result)
-    assert "configure-plugin-mode" not in serialized
-    assert "operator-plugin-setup" not in serialized
-    assert result["context"]["operation_type"] == "ensure_hkcu_registry_string"
-    assert result["context"]["outcome"] == "updated"
-    assert result["context"]["policy_tier"] == "action_confirmation"
-
-
-def test_ui_control_system_operation_rejects_untrusted_fields_and_missing_grant(monkeypatch: Any) -> None:
-    backend = _load_windows_uia_module()
-    monkeypatch.delenv("DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID", raising=False)
-
-    missing = backend.system_operation_tool({"operation_id": "enable-plugin"})
-    assert missing["error"] == "system_operation_not_granted"
-
-    monkeypatch.setenv("DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID", "operator-plugin-setup")
-    top_level = backend.system_operation_tool(
-        {
-            "system_grant_id": "agent-grant",
-            "operation_id": "enable-plugin",
-        }
-    )
-    assert top_level["error"] == "invalid_request"
-
-    rejected = backend.system_operation_tool({"operation_id": "enable-plugin", "command": "ignored.exe"})
-    assert rejected["error"] == "invalid_request"
-
-    value_injection = backend.system_operation_tool(
-        {"operation_id": "configure-plugin", "value": "must-not-cross-the-tool-boundary"}
-    )
-    assert value_injection["error"] == "invalid_request"
-
-    invalid_id = backend.system_operation_tool({"operation_id": "password\nvalue"})
-    assert invalid_id["error"] == "invalid_request"
-
-
-@pytest.mark.parametrize("backend", ["mock", "chrome"])
-def test_ui_control_system_operation_is_explicitly_unsupported_outside_windows(
-    backend: str,
-    tmp_path: Path,
-) -> None:
-    result = _run_tool(
-        "system_operation",
-        {"operation_id": "link-plugin"},
-        tmp_path,
-        extra_env={"DCC_MCP_UI_CONTROL_BACKEND": backend},
-    )
-
-    assert result["success"] is False
-    assert result["error"] == "unsupported"
-
-
-def test_ui_control_host_client_negotiates_typed_system_operations() -> None:
-    import io
-    import struct
-
-    backend = _load_windows_uia_module()
-    client_module = backend._HOST
-
-    def frame(value: dict[str, Any]) -> bytes:
-        body = json.dumps(value).encode("utf-8")
-        return struct.pack(">I", len(body)) + body
-
-    class ScriptedPipe:
-        def __init__(self) -> None:
-            self.responses = io.BytesIO(
-                frame(
-                    {
-                        "type": "hello",
-                        "protocol_version": 3,
-                        "capabilities": ["typed_system_operations"],
-                    }
-                )
-                + frame(
-                    {
-                        "type": "system_session_opened",
-                        "session_id": "system:wire",
-                        "system_capability": "system:opaque",
-                        "dcc_type": "photoshop",
-                    }
-                )
-                + frame(
-                    {
-                        "type": "system_operation_completed",
-                        "operation_type": "ensure_file_symlink",
-                        "outcome": "unchanged",
-                        "policy_tier": "action_confirmation",
-                        "message": "Symbolic link is configured.",
-                    }
-                )
-                + frame({"type": "system_session_stopped", "session_id": "system:wire"})
-            )
-            self.requests = bytearray()
-            self.closed = False
-
-        def read(self, length: int) -> bytes:
-            return self.responses.read(length)
-
-        def write(self, data: bytes) -> int:
-            self.requests.extend(data)
-            return len(data)
-
-        def close(self) -> None:
-            self.closed = True
-
-    stream = ScriptedPipe()
-    result = client_module.execute_system_operation(
-        session_id="system:wire",
-        system_grant_id="operator-grant",
-        operation_id="link-plugin",
-        stream=stream,
-    )
-
-    requests = []
-    raw = io.BytesIO(bytes(stream.requests))
-    prefix = raw.read(4)
-    while prefix:
-        requests.append(json.loads(raw.read(struct.unpack(">I", prefix)[0])))
-        prefix = raw.read(4)
-    assert [request["method"] for request in requests] == [
-        "hello",
-        "open_system_session",
-        "execute_system_operation",
-        "stop_system_session",
-    ]
-    assert requests[0]["params"]["protocol_version"] == 3
-    assert set(requests[1]["params"]) == {"session_id", "system_grant_id"}
-    assert set(requests[2]["params"]) == {
-        "session_id",
-        "system_grant_id",
-        "system_capability",
-        "operation_id",
-    }
-    wire = json.dumps(requests)
-    assert "command" not in wire
-    assert "C:/link" not in wire
-    assert "Software\\\\Vendor" not in wire
-    assert result["outcome"] == "unchanged"
-    assert stream.closed is True
-
-    unsupported = ScriptedPipe()
-    unsupported.responses = io.BytesIO(frame({"type": "hello", "protocol_version": 3, "capabilities": []}))
-    with pytest.raises(client_module.UiControlHostError) as exc_info:
-        client_module.execute_system_operation(
-            session_id="system:old-host",
-            system_grant_id="operator-grant",
-            operation_id="enable-plugin",
-            stream=unsupported,
-        )
-    assert exc_info.value.code == "unsupported"
-    assert unsupported.closed is True
 
 
 def test_ui_control_chrome_cdp_preset_aliases(monkeypatch: Any) -> None:

@@ -523,7 +523,7 @@ tools:
 - `Capturer.backend_name() -> str`, `.backend_kind() -> CaptureBackendKind`, `.stats() -> tuple[int, int, int]`
 - `CaptureFrame` — `.width`, `.height`, `.data`, `.format`, `.mime_type`, `.timestamp_ms`, `.dpi_scale`, `.window_rect` (tuple or None), `.window_title` (str or None), `.byte_len()`
 - `CaptureTarget` — factories: `.primary_display()`, `.monitor_index(i)`, `.process_id(pid)`, `.window_title(title)`, `.window_handle(handle)`
-- `CaptureBackendKind` — enum: `DxgiDesktopDuplication`, `WindowsGraphicsCapture`, `ScreenCaptureKit`, `X11Xshm`, `PipeWire`, `HwndPrintWindow`, `Mock`; window capture reports the backend that actually produced the latest frame when WGC falls back to GDI
+- `CaptureBackendKind` — enum: `DxgiDesktopDuplication`, `WindowsGraphicsCapture`, `ScreenCaptureKit`, `X11Xshm`, `PipeWire`, `Mock`; native UI Control screenshots are owned by `dcc-cua`
 - `WindowFinder()` — `.find(target) -> Optional[WindowInfo]`, `.enumerate() -> List[WindowInfo]`
 - `WindowInfo` — `.handle`, `.pid`, `.title`, `.rect`
 

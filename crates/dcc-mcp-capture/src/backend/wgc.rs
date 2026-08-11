@@ -1,8 +1,8 @@
 //! Windows.Graphics.Capture single-window backend.
 //!
-//! WGC captures DWM-composed windows while they are occluded. If WGC is not
-//! available, or a capture fails, [`WgcBackend`] delegates to the existing GDI
-//! `PrintWindow` / `BitBlt` backend.
+//! WGC captures DWM-composed windows while they are occluded. Native UI Control
+//! screenshots are owned by `dcc-cua`; this backend remains for Core's generic
+//! viewport and diagnostic capture API.
 
 use crate::capture::DccCapture;
 #[allow(unused_imports)]
@@ -33,51 +33,14 @@ where
     }
 }
 
-#[cfg(any(target_os = "windows", test))]
-fn capture_with_fallback<T, Primary, Fallback, Elapsed>(
-    config: &CaptureConfig,
-    primary: Primary,
-    fallback: Fallback,
-    elapsed: Elapsed,
-) -> CaptureResult<(T, bool)>
-where
-    Primary: FnOnce(&CaptureConfig) -> CaptureResult<T>,
-    Fallback: FnOnce(&CaptureConfig) -> CaptureResult<T>,
-    Elapsed: FnOnce() -> std::time::Duration,
-{
-    let timeout_ms = config.timeout_ms.max(1);
-    let fallback_reserve_ms = (timeout_ms / 5).max(1).min(timeout_ms.saturating_sub(1));
-    let mut primary_config = config.clone();
-    primary_config.timeout_ms = timeout_ms.saturating_sub(fallback_reserve_ms).max(1);
-    match primary(&primary_config) {
-        Ok(value) => Ok((value, false)),
-        Err(error) => {
-            tracing::warn!(%error, "WGC window capture failed; falling back to GDI");
-            let remaining = std::time::Duration::from_millis(timeout_ms)
-                .checked_sub(elapsed())
-                .filter(|duration| duration.as_millis() > 0)
-                .ok_or(CaptureError::Timeout(timeout_ms))?;
-            let mut fallback_config = config.clone();
-            fallback_config.timeout_ms = remaining.as_millis() as u64;
-            fallback(&fallback_config).map(|value| (value, true))
-        }
-    }
-}
-
 /// Windows.Graphics.Capture window-target backend.
 #[derive(Debug)]
-pub struct WgcBackend {
-    #[cfg(target_os = "windows")]
-    last_capture_was_wgc: std::sync::atomic::AtomicBool,
-}
+pub struct WgcBackend;
 
 impl WgcBackend {
     /// Create a new WGC backend instance.
     pub fn new() -> Self {
-        Self {
-            #[cfg(target_os = "windows")]
-            last_capture_was_wgc: std::sync::atomic::AtomicBool::new(true),
-        }
+        Self
     }
 }
 
@@ -90,14 +53,7 @@ impl Default for WgcBackend {
 #[cfg(target_os = "windows")]
 impl DccCapture for WgcBackend {
     fn backend_kind(&self) -> CaptureBackendKind {
-        if self
-            .last_capture_was_wgc
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            CaptureBackendKind::WindowsGraphicsCapture
-        } else {
-            CaptureBackendKind::HwndPrintWindow
-        }
+        CaptureBackendKind::WindowsGraphicsCapture
     }
 
     fn is_available(&self) -> bool {
@@ -118,16 +74,7 @@ impl DccCapture for WgcBackend {
                 "crop is not supported by Windows window capture".to_string(),
             ));
         }
-        let started = std::time::Instant::now();
-        let (frame, used_fallback) = capture_with_fallback(
-            config,
-            imp::capture,
-            |fallback_config| super::hwnd::HwndBackend::new().capture(fallback_config),
-            || started.elapsed(),
-        )?;
-        self.last_capture_was_wgc
-            .store(!used_fallback, std::sync::atomic::Ordering::Release);
-        Ok(frame)
+        imp::capture(config)
     }
 }
 
@@ -151,80 +98,6 @@ impl DccCapture for WgcBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn backend_kind_is_distinct_from_gdi_fallback() {
-        let backend = WgcBackend::new();
-        assert_eq!(
-            backend.backend_kind(),
-            CaptureBackendKind::WindowsGraphicsCapture
-        );
-        assert_ne!(backend.backend_kind(), CaptureBackendKind::HwndPrintWindow);
-        backend
-            .last_capture_was_wgc
-            .store(false, std::sync::atomic::Ordering::Release);
-        assert_eq!(backend.backend_kind(), CaptureBackendKind::HwndPrintWindow);
-    }
-
-    #[test]
-    fn gdi_fallback_uses_only_the_remaining_timeout_budget() {
-        let config = CaptureConfig::builder().timeout_ms(100).build();
-        let mut observed_timeout = None;
-        let result = capture_with_fallback(
-            &config,
-            |_| Err(CaptureError::Platform("primary failed".to_string())),
-            |fallback_config| {
-                observed_timeout = Some(fallback_config.timeout_ms);
-                Ok(())
-            },
-            || std::time::Duration::from_millis(37),
-        );
-
-        assert_eq!(result.unwrap(), ((), true));
-        assert_eq!(observed_timeout, Some(63));
-    }
-
-    #[test]
-    fn wgc_timeout_reserves_budget_for_gdi_fallback() {
-        let config = CaptureConfig::builder().timeout_ms(100).build();
-        let mut observed_primary_timeout = None;
-        let mut observed_fallback_timeout = None;
-        let result = capture_with_fallback(
-            &config,
-            |primary_config| {
-                observed_primary_timeout = Some(primary_config.timeout_ms);
-                Err(CaptureError::Timeout(primary_config.timeout_ms))
-            },
-            |fallback_config| {
-                observed_fallback_timeout = Some(fallback_config.timeout_ms);
-                Ok(())
-            },
-            || std::time::Duration::from_millis(80),
-        );
-
-        assert_eq!(result.unwrap(), ((), true));
-        assert_eq!(observed_primary_timeout, Some(80));
-        assert_eq!(observed_fallback_timeout, Some(20));
-    }
-
-    #[test]
-    fn gdi_fallback_is_skipped_when_the_shared_budget_is_exhausted() {
-        let config = CaptureConfig::builder().timeout_ms(100).build();
-        let mut fallback_started = false;
-        let result = capture_with_fallback(
-            &config,
-            |_| Err(CaptureError::Platform("primary failed".to_string())),
-            |_| {
-                fallback_started = true;
-                Ok(())
-            },
-            || std::time::Duration::from_millis(100),
-        );
-
-        assert!(matches!(result, Err(CaptureError::Timeout(100))));
-        assert!(!fallback_started);
-    }
 
     #[cfg(not(target_os = "windows"))]
     #[test]
@@ -298,7 +171,7 @@ mod imp {
     const MAX_SOURCE_PIXELS: usize = 16_777_216;
     // ponytail: one process-wide worker keeps timed-out GPU captures bounded;
     // use per-target worker state only if concurrent multi-window capture is needed.
-    static CAPTURE_WORKER_ACTIVE: AtomicBool = AtomicBool::new(false);
+    static CAPTURE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
     static WGC_SUPPORTED: OnceLock<bool> = OnceLock::new();
     static WGC_RUNTIME_ANCHOR: OnceLock<Result<(), String>> = OnceLock::new();
 
@@ -379,7 +252,7 @@ mod imp {
 
     pub(super) fn capture(config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
         ensure_runtime_anchor()?;
-        if CAPTURE_WORKER_ACTIVE
+        if CAPTURE_IN_PROGRESS
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
@@ -396,14 +269,14 @@ mod imp {
                 struct ActiveGuard;
                 impl Drop for ActiveGuard {
                     fn drop(&mut self) {
-                        CAPTURE_WORKER_ACTIVE.store(false, Ordering::Release);
+                        CAPTURE_IN_PROGRESS.store(false, Ordering::Release);
                     }
                 }
                 let _active = ActiveGuard;
                 let _ = sender.send(capture_inner(&owned_config));
             });
         if let Err(error) = worker {
-            CAPTURE_WORKER_ACTIVE.store(false, Ordering::Release);
+            CAPTURE_IN_PROGRESS.store(false, Ordering::Release);
             return Err(CaptureError::Internal(format!(
                 "failed to start WGC capture worker: {error}"
             )));
@@ -429,7 +302,7 @@ mod imp {
         IsCancelled: FnMut() -> bool,
     {
         ensure_runtime_anchor()?;
-        if CAPTURE_WORKER_ACTIVE
+        if CAPTURE_IN_PROGRESS
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
@@ -440,7 +313,7 @@ mod imp {
         struct ActiveGuard;
         impl Drop for ActiveGuard {
             fn drop(&mut self) {
-                CAPTURE_WORKER_ACTIVE.store(false, Ordering::Release);
+                CAPTURE_IN_PROGRESS.store(false, Ordering::Release);
             }
         }
         let _active = ActiveGuard;
@@ -1016,7 +889,7 @@ mod imp {
         }
 
         #[test]
-        fn capture_worker_uses_per_monitor_v2_and_restores_its_dpi_context() {
+        fn capture_thread_uses_per_monitor_v2_and_restores_its_dpi_context() {
             use windows::Win32::UI::HiDpi::{
                 AreDpiAwarenessContextsEqual, DPI_AWARENESS_CONTEXT_UNAWARE,
                 GetThreadDpiAwarenessContext,

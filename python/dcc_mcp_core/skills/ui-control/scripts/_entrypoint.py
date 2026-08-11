@@ -19,16 +19,6 @@ from typing import Optional
 
 from dcc_mcp_core.skill import skill_error
 
-try:
-    from dcc_mcp_core import artefact_put_bytes
-except ImportError:
-    artefact_put_bytes = None
-
-try:
-    from dcc_mcp_core import artefact_put_file
-except ImportError:
-    artefact_put_file = None
-
 _AUDIT_LOCK = threading.Lock()
 _CAPTURE_TTL_SECS = 24 * 60 * 60
 
@@ -61,14 +51,8 @@ def _import_sibling(name: str) -> Any:
     return importlib.import_module(name)
 
 
-def _default_backend() -> str:
-    """Return the platform-native UI backend used when no override is set."""
-    return "windows-uia" if sys.platform == "win32" else "chrome-cdp"
-
-
 def _selected_backend() -> str:
-    value = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "").strip().lower()
-    return value or _default_backend()
+    return os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "cua").strip().lower() or "cua"
 
 
 def _load_backend() -> Any:
@@ -83,8 +67,8 @@ def _load_backend() -> Any:
     if backend in {"agent-browser", "agent_browser", "agentbrowser"}:
         os.environ.setdefault("DCC_MCP_UI_CONTROL_CDP_PRESET", "agent-browser")
         return _import_sibling("_chrome_backend")
-    if backend in {"windows-uia", "windows_uia", "uia", "win-uia", "win32-uia"}:
-        return _import_sibling("_windows_uia_backend")
+    if backend in {"cua", "dcc-cua"}:
+        return _import_sibling("_cua_backend")
     return None
 
 
@@ -118,8 +102,8 @@ def _canonical_backend(result: Dict[str, Any]) -> str:
     if context.get("backend"):
         return str(context["backend"])
     selected = _selected_backend()
-    if selected in {"windows-uia", "windows_uia", "uia", "win-uia", "win32-uia"}:
-        return "windows-ui-control-host"
+    if selected in {"cua", "dcc-cua"}:
+        return "dcc-cua"
     if selected in {
         "chrome",
         "chrome-cdp",
@@ -166,12 +150,6 @@ def _artefact_put_bytes(data: bytes, **kwargs: Any) -> Any:
     return artefact_put_bytes(data, **kwargs)
 
 
-def _artefact_put_file(path: str, **kwargs: Any) -> Any:
-    from dcc_mcp_core import artefact_put_file
-
-    return artefact_put_file(path, **kwargs)
-
-
 def _attach_capture_artifact(
     operation: str,
     context: Dict[str, Any],
@@ -179,60 +157,36 @@ def _attach_capture_artifact(
 ) -> None:
     session_id = str(provenance["session_id"])
     dcc_type = os.environ.get("DCC_MCP_UI_CONTROL_DCC_TYPE") or os.environ.get("DCC_MCP_DCC_TYPE", "ui-control")
-    if operation == "snapshot":
-        rich = context.get("__rich__")
-        if not isinstance(rich, dict) or rich.get("kind") != "image":
-            return
-        mime = str(rich.get("mime") or "image/png").lower()
-        extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(mime)
-        if extension is None or artefact_put_bytes is None:
-            return
-        snapshot_id = str(provenance.get("snapshot_id") or "snapshot")
-        display_name = f"ui-control-snapshot-{_artifact_token(session_id)}-{_artifact_token(snapshot_id)}.{extension}"
-        reference = _artefact_put_bytes(
-            base64.b64decode(str(rich["data"]), validate=True),
-            mime=mime,
-            display_name=display_name,
-            session_id=session_id,
-            correlation_id=snapshot_id,
-            ttl_secs=_CAPTURE_TTL_SECS,
-        )
-        artifact = _artifact_dict(
-            reference,
-            kind="ui_control_snapshot",
-            operation=operation,
-            backend=provenance["backend"],
-            dcc_type=dcc_type,
-            snapshot_id=snapshot_id,
-        )
-        rich.update(
-            artifact_uri=artifact["uri"],
-            display_name=display_name,
-            digest=artifact.get("digest"),
-        )
-    else:
-        clip = context.get("artifact")
-        if not isinstance(clip, dict) or not clip.get("manifest_path") or artefact_put_file is None:
-            return
-        recording_id = str(clip.get("recording_id") or "recording")
-        display_name = f"ui-control-recording-{_artifact_token(session_id)}-{_artifact_token(recording_id)}.json"
-        reference = _artefact_put_file(
-            str(clip["manifest_path"]),
-            mime="application/json",
-            display_name=display_name,
-            session_id=session_id,
-            correlation_id=recording_id,
-            ttl_secs=_CAPTURE_TTL_SECS,
-        )
-        artifact = _artifact_dict(
-            reference,
-            kind="ui_control_recording_manifest",
-            operation=operation,
-            backend=provenance["backend"],
-            dcc_type=dcc_type,
-            recording_id=recording_id,
-            manifest_sha256=clip.get("manifest_sha256"),
-        )
+    rich = context.get("__rich__")
+    if not isinstance(rich, dict) or rich.get("kind") != "image":
+        return
+    mime = str(rich.get("mime") or "image/png").lower()
+    extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(mime)
+    if extension is None:
+        return
+    snapshot_id = str(provenance.get("snapshot_id") or "snapshot")
+    display_name = f"ui-control-snapshot-{_artifact_token(session_id)}-{_artifact_token(snapshot_id)}.{extension}"
+    reference = _artefact_put_bytes(
+        base64.b64decode(str(rich["data"]), validate=True),
+        mime=mime,
+        display_name=display_name,
+        session_id=session_id,
+        correlation_id=snapshot_id,
+        ttl_secs=_CAPTURE_TTL_SECS,
+    )
+    artifact = _artifact_dict(
+        reference,
+        kind="ui_control_snapshot",
+        operation=operation,
+        backend=provenance["backend"],
+        dcc_type=dcc_type,
+        snapshot_id=snapshot_id,
+    )
+    rich.update(
+        artifact_uri=artifact["uri"],
+        display_name=display_name,
+        digest=artifact.get("digest"),
+    )
     context["artifacts"] = [artifact]
 
 
@@ -242,7 +196,7 @@ def _attach_capture_provenance(
     result: Dict[str, Any],
 ) -> Dict[str, Any]:
     operation = name[:-5] if name.endswith("_tool") else name
-    if not result.get("success") or operation not in {"snapshot", "record_clip"}:
+    if not result.get("success") or operation != "snapshot":
         return result
     context = _result_context(result)
     if not context:
@@ -253,7 +207,7 @@ def _attach_capture_provenance(
         "tool": f"ui_control__{operation}",
         "backend": _canonical_backend(result),
         "session_id": session_id,
-        "pixels_captured": operation == "record_clip" or isinstance(context.get("__rich__"), dict),
+        "pixels_captured": isinstance(context.get("__rich__"), dict),
     }
     snapshot_id = context.get("snapshot_id")
     if snapshot_id:
@@ -288,12 +242,6 @@ def _attach_capture_provenance(
         for key in ("process_id", "window_handle"):
             if target.get(key) is not None:
                 provenance[key] = target[key]
-
-    artifact = context.get("artifact")
-    if operation == "record_clip" and isinstance(artifact, dict):
-        for key in ("recording_id", "frame_count", "width", "height", "manifest_sha256"):
-            if artifact.get(key) is not None:
-                provenance[key] = artifact[key]
 
     context["capture_provenance"] = provenance
     try:
@@ -419,7 +367,7 @@ def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     call_params = dict(params) if params is not None else _read_subprocess_params()
     backend = _load_backend()
     if backend is None:
-        selected = _selected_backend()
+        selected = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "cua")
         result = skill_error(
             f"Unsupported ui_control backend {selected!r}.",
             "backend_unavailable",
@@ -431,12 +379,22 @@ def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                 "cdp",
                 "edge",
                 "agent-browser",
-                "windows-uia",
+                "cua",
             ],
         )
         _record_operation(name, call_params, result)
         return result
-    func: Callable[[Optional[Dict[str, Any]]], Dict[str, Any]] = getattr(backend, name)
+    func: Optional[Callable[[Optional[Dict[str, Any]]], Dict[str, Any]]] = getattr(backend, name, None)
+    if func is None:
+        operation = name[:-5] if name.endswith("_tool") else name
+        selected_backend = _canonical_backend({})
+        result = skill_error(
+            f"The {selected_backend} backend does not support {operation!r}.",
+            "unsupported_action",
+            backend=selected_backend,
+        )
+        _record_operation(name, call_params, result)
+        return result
     try:
         result = func(call_params)
     except Exception as exc:
@@ -462,14 +420,19 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return _call("act_tool", params)
 
 
-def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Dispatch ui_control__record_clip to the selected backend."""
-    return _call("record_clip_tool", params)
+def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch ui_control__recording_start to the selected backend."""
+    return _call("recording_start_tool", params)
 
 
-def system_operation_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Dispatch ui_control__system_operation to the selected backend."""
-    return _call("system_operation_tool", params)
+def recording_stop_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch ui_control__recording_stop to the selected backend."""
+    return _call("recording_stop_tool", params)
+
+
+def recording_state_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch ui_control__recording_state to the selected backend."""
+    return _call("recording_state_tool", params)
 
 
 def wait_for_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

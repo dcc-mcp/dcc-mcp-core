@@ -671,13 +671,6 @@ fn parse_otlp_headers(raw: &str) -> HashMap<String, String> {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 fn main() -> anyhow::Result<()> {
-    // The raw standalone server is also a killable host for the versioned
-    // PrintWindow worker protocol. Handle that private mode before logging,
-    // CLI parsing, networking, or any DCC lifecycle work.
-    if let Some(exit_code) = dcc_mcp_capture::capture_worker::run_embedded_if_requested() {
-        std::process::exit(exit_code);
-    }
-
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -869,14 +862,6 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         tracing::info!(
             port = args.gateway_port,
             "standalone gateway ensured; this server will register as a backend"
-        );
-    }
-
-    #[cfg(windows)]
-    if let Err(error) = update::reconcile_ui_control_host(args.gateway_port).await {
-        tracing::warn!(
-            %error,
-            "UI Control host reconciliation failed; UI Control remains unavailable until the version-matched host is installed"
         );
     }
 

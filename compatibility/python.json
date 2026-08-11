@@ -85,21 +85,11 @@
           "allowed_platform_tags": [
             "manylinux_2_17_x86_64",
             "manylinux2014_x86_64"
-          ],
-          "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         },
         "windows-x86_64": {
           "allowed_platform_tags": [
             "win_amd64"
-          ],
-          "versioned_required_members": {
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
-          },
-          "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
         }
       }
@@ -114,10 +104,6 @@
         "any": {
           "allowed_platform_tags": [
             "any"
-          ],
-          "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         }
       }
@@ -133,21 +119,11 @@
           "allowed_platform_tags": [
             "manylinux_2_17_x86_64",
             "manylinux2014_x86_64"
-          ],
-          "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         },
         "windows-x86_64": {
           "allowed_platform_tags": [
             "win_amd64"
-          ],
-          "versioned_required_members": {
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe": "0.19.60"
-          },
-          "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe"
           ]
         },
         "macos-universal2": {
@@ -158,20 +134,12 @@
             "macosx_*_universal2",
             "macosx_*_x86_64",
             "macosx_*_arm64"
-          ],
-          "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         },
         "macos-native": {
           "allowed_platform_tag_patterns": [
             "macosx_*_x86_64",
             "macosx_*_arm64"
-          ],
-          "forbidden_members": [
-            "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe",
-            "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe"
           ]
         }
       }

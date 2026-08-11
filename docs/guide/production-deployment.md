@@ -50,43 +50,26 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 GitHub Releases attach deployable bundles named
 `dcc-mcp-server-<version>-<platform>.zip`, for example
 `dcc-mcp-server-0.18.12-linux-x86_64.zip`. Each zip contains
-`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows). Windows
-bundles also contain the required `dcc-mcp-ui-control-host.exe`; deploy all
-three files together in the same directory.
+`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows).
 
-A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published
-alongside the server bundle for environments that only need the CLI binary.
-Windows releases also publish a host-only ZIP
-(`dcc-mcp-ui-control-host-<version>-windows-x86_64.zip`) for direct
-deployment, plus
-`dcc-mcp-ui-control-host-windows-x86_64.exe` as a checksummed update asset.
-It is not an optional legacy helper: its manifest version must exactly match
-the server version.
+A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published alongside
+the server bundle for environments that only need the CLI binary. Native
+application control is installed separately from the
+`dcc-mcp/dcc-cua` project as `dcc-cua`; Core validates its
+machine manifest at runtime and does not package or update it. The manifest must
+declare `runtime.separate_driver_required=false`, so deployment never adds a
+standalone `cua-driver` asset.
 
 ### Server self-update transaction
 
-Run `dcc-mcp-server update apply` from the exact target installation. On
-Windows it downloads both the raw server and UI Control host entries, requires
-matching versions and SHA-256 digests, and writes one installation-bound
-transaction. The next server launch verifies both staged files, replaces the
-host and server with rollback/journal recovery, then immediately starts the
-new server image. Linux and macOS keep the single-server-binary update path.
+Run `dcc-mcp-server update apply` from the exact target installation. On every
+platform it verifies and stages only the server binary. The next server launch
+applies that installation-bound update with rollback/journal recovery and then
+starts the new server image. `dcc-cua` has its own release lifecycle.
 
 The Admin Instances panel is check-only. A gateway cannot prove the selected
 local or remote instance's executable directory, so it never stages a
 `dcc-mcp-server` update by binary name alone.
-
-The hard-cut upgrade from `0.19.62` is necessarily a two-restart bootstrap:
-that release's updater knows only the raw server, and its first restart swaps
-the file while the already-running process still executes the old image. The
-second restart runs the new server, verifies the sibling host against the
-same-version manifest SHA, and installs a missing or stale host before UI
-Control is used. Later paired updates return to one restart. UI Control host
-discovery binds its pipe/singleton to protocol v3, strict package SemVer, and
-the full binary SHA-256. Old versions and different same-version binaries can
-therefore coexist during replacement, while byte-identical copies reuse one
-Host. The version-neutral global input owner and Esc stop latch remain shared
-across the transition, preventing concurrent native input ownership.
 
 ### Install Location
 

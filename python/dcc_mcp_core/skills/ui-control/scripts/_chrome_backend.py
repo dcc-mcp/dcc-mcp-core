@@ -577,15 +577,6 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
 
 
-def record_clip_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    del params
-    return skill_error(
-        "Exact-window recording is available only through the Windows UI Control host.",
-        UiErrorCode.UNSUPPORTED_ACTION,
-        backend="chrome-cdp",
-    )
-
-
 def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Idempotent no-op for CDP, which does not own native input."""
     params = dict(params) if params is not None else _read_params()
@@ -596,16 +587,6 @@ def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str,
         active=False,
         was_active=False,
         user_interrupted=False,
-    )
-
-
-def system_operation_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Reject Windows-only system configuration on browser backends."""
-    del params
-    return skill_error(
-        "Typed system operations are only available through the Windows UI Control host.",
-        "unsupported",
-        backend="chrome-cdp",
     )
 
 

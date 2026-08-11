@@ -18,12 +18,13 @@ Decision / Consequences / Alternatives considered.
 | 011 | [Python 3.7 LTS Compatibility Contract](./011-python-37-lts-compatibility-contract.md)        | Accepted |
 | 012 | [Use OS-assigned ports for DCC instances](./012-os-assigned-dcc-instance-ports.md)             | Accepted |
 | 013 | [Persist tool-call analytics locally and export studio telemetry through OTLP](./013-persistent-tool-call-analytics.md) | Accepted |
-| 014 | [Isolate DCC UI Control behind a native session host](./014-isolate-ui-control-host.md)         | Accepted |
-| 015 | [Bound Windows system configuration to operator grants](./015-bounded-ui-control-system-operations.md) | Accepted |
-| 016 | [Unify application automation under UI Control naming](./016-unify-ui-control-naming.md) | Accepted |
+| 014 | [Isolate DCC UI Control behind a native session host](./014-isolate-ui-control-host.md)         | Superseded by ADR-020 |
+| 015 | [Bound Windows system configuration to operator grants](./015-bounded-ui-control-system-operations.md) | Superseded by ADR-020 |
+| 016 | [Unify application automation under UI Control naming](./016-unify-ui-control-naming.md) | Partly superseded by ADR-020 |
 | 017 | [Codex-style Record & Replay with visual closed-loop execution](./017-codex-record-replay-visual-closed-loop.md) | Accepted |
 | 018 | [Instance Status Vocabulary Unification & Actionability](./018-cli-interaction-contract-workflow-consistency.md) | Proposed |
 | 019 | [Build reproducible agent experiments on the session timeline](./019-reproducible-agent-experiments.md) | Proposed |
+| 020 | [Consume application control through standalone dcc-cua](./020-external-cua-runtime.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any

@@ -18,7 +18,6 @@ const MANIFEST_FILE: &str = "manifest.json";
 const JOURNAL_FILE: &str = "journal.json";
 const APPLIED_GENERATION_FILE: &str = "applied-generation.json";
 const TRANSACTION_LOCK_FILE: &str = "transaction.lock";
-const REMOVED_CAPTURE_HELPER: &str = "dcc-mcp-capture-helper.exe";
 const UPDATE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_LOCK_BACKOFF: Duration = Duration::from_millis(10);
 
@@ -982,7 +981,6 @@ fn validate_sibling_name(file_name: &str) -> Result<(), UpdateError> {
         .bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
     if file_name.is_empty()
-        || file_name.eq_ignore_ascii_case(REMOVED_CAPTURE_HELPER)
         || !has_only_portable_filename_bytes
         || file_name.ends_with('.')
         || file_name.contains(['/', '\\'])

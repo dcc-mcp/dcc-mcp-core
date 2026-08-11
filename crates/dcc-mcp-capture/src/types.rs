@@ -194,8 +194,6 @@ pub enum CaptureBackendKind {
     X11Xshm,
     /// Linux Wayland / PipeWire.
     PipeWire,
-    /// Windows GDI `PrintWindow` / `BitBlt` window-target backend.
-    HwndPrintWindow,
     /// In-process mock backend (testing / headless).
     Mock,
 }
@@ -208,7 +206,6 @@ impl std::fmt::Display for CaptureBackendKind {
             CaptureBackendKind::ScreenCaptureKit => "ScreenCaptureKit",
             CaptureBackendKind::X11Xshm => "X11 XShmGetImage",
             CaptureBackendKind::PipeWire => "PipeWire",
-            CaptureBackendKind::HwndPrintWindow => "GDI PrintWindow",
             CaptureBackendKind::Mock => "Mock",
         };
         write!(f, "{s}")

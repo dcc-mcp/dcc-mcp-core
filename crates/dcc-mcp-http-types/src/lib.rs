@@ -68,9 +68,9 @@
 //! | [`session::SessionLogLevel`] |                                  |
 //! | [`session::SessionLogMessage`] |                                |
 //!
-//! `ui_control` observation/action contracts live in the sibling
-//! `dcc-mcp-ui-control` crate so UI automation can evolve independently of the
-//! HTTP wire layer.
+//! `ui_control` policy lives in the Python skill, while the standalone
+//! `dcc-cua` CLI owns application automation and Host IPC. Neither belongs
+//! in the HTTP wire layer.
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.

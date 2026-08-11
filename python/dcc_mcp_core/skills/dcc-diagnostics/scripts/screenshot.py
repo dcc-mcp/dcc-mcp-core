@@ -87,7 +87,6 @@ def main(
                 for k in (
                     "capture_backend",
                     "capture_health",
-                    "fallback_from",
                     "native_error",
                     "window_handle",
                     "window_title",
@@ -126,7 +125,6 @@ def main(
                         "window_title",
                         "window_handle",
                         "capture_backend",
-                        "fallback_from",
                         "capture_health",
                         "image_base64",
                     )

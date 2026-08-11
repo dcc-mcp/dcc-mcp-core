@@ -827,7 +827,7 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 - **鲁棒 IPC** —— 基于 `ipckit` 的 DccLink 帧协议（Named Pipe / Unix Socket）：`IpcChannelAdapter`、`GracefulIpcChannelAdapter`、`SocketServerAdapter`。
 - **进程管理** —— 启动、监控、自动恢复 DCC 进程。
 - **沙箱安全** —— 基于策略的访问控制 + 审计日志、`ToolAnnotations` 安全提示、`ToolValidator` schema 校验。
-- **屏幕捕获** —— 全屏或单窗口（HWND `PrintWindow`）视口捕获，供 AI 视觉反馈。
+- **屏幕捕获** —— 全屏或单窗口（Windows.Graphics.Capture）视口捕获，供 AI 视觉反馈；UI Control 截图由 `dcc-cua` 提供。
 - **USD 集成** —— Universal Scene Description 读写桥。
 - **结构化遥测** —— 追踪、录制，可选 Prometheus `/metrics` 导出器。
 - **完整的公开 Python API** —— 通过顶层重导出提供；`_core.pyi` 是 stub-gen/dev 构建后的生成产物，不是手写源码。

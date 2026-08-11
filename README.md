@@ -370,8 +370,9 @@ groups, dependencies, testing, and migration rules.
 Desktop application automation for cases where native DCC APIs cannot observe
 or drive the interface state directly. Agents use `ui_control__snapshot`,
 `ui_control__find`, `ui_control__act`, `ui_control__wait_for`,
-`ui_control__record_clip`, and `ui_control__stop_computer_use` to observe,
-find, act on, and record exact target windows.
+`ui_control__recording_start`, `ui_control__recording_state`,
+`ui_control__recording_stop`, and `ui_control__stop_computer_use` to observe,
+find, act on, and record exact target applications.
 
 Use UI Control as a bounded fallback, not as the default DCC integration:
 
@@ -396,8 +397,8 @@ window is large and unobstructed.
 The agent receives three complementary signals:
 
 1. PNG pixels for visual recognition and spatial understanding.
-2. A Windows UI Automation (UIA) tree with labels, roles, and stable control
-   identifiers when the application exposes them.
+2. A CUA accessibility tree with labels, roles, and stable element tokens when
+   the application exposes them.
 3. Observation metadata for the exact PID, HWND, DPI, source rectangle,
    desktop generation, session, and snapshot.
 
@@ -406,7 +407,7 @@ coordinates are mapped back through the source rectangle and DPI. Every action
 must cite the latest `snapshot_id`; the host revalidates the window, desktop,
 geometry, and generation before sending input, and rejects stale observations.
 
-Successful snapshots and recordings include `capture_provenance`, including
+Successful snapshots include `capture_provenance`, including
 the backend, session, target PID/HWND, output and source dimensions, scaling,
 and native capture backend. Preserve that block with screenshots used as
 evidence. Older images without provenance cannot be reliably attributed to UI
@@ -420,26 +421,23 @@ Control after the fact.
   while the native host namespaces each adapter connection. Separate DCC
   instances may therefore reuse a logical `session_id` such as `default`
   without sharing capabilities or cleanup state.
-- **Semantic UIA + raw input fallback** — prefer stable semantic controls
+- **Semantic accessibility + raw input fallback** — prefer stable semantic controls
   (button, text field, checkbox) resolved by `ui_control__find`, then fall
   back to screenshot-relative coordinates when custom-drawn controls have no
   semantic node.
 - **Bounded security model** — every action is scoped by the
-  adapter/operator-bound PID/HWND. Raw input requires an explicit opt-in
-  (`DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`). Hard-denied: passwords,
+  adapter/operator-bound PID/HWND. Raw input is enabled inside that exact scope
+  by default and can be disabled with `DCC_MCP_CUA_ALLOW_RAW_INPUT=false`.
+  Hard-denied: passwords,
   authentication controls, LockApp, Windows Security, terminals, and
   credential manager windows.
-- **Visible capsule overlay** — while a native DCC UI Control session is active,
-  click-through corner brackets mark the target window and a bottom-center
-  capsule reads `DCC UI Control · <app> | Esc to stop`.
-  The user stops control at any time with `Esc`.
-- **One shared input safety owner** — multiple exact-window sessions may remain
-  active in one Windows logon session. Native input is still serialized through
-  one process coordinator and one cross-process owner; `Esc` latches every
-  session, while an ordinary stop only releases the selected session.
-- **Exact-window recording** — records a bounded, constant-frame-rate JPEG
-  sequence from the operator-bound PID/HWND. The host owns the directory,
-  hashes every frame, commits the manifest last, and deletes partial captures.
+- **Visible control markers** — the standalone CUA Host owns the target border,
+  banner, agent cursor, and `Esc` stop affordance.
+- **One shared input safety owner** — multiple exact-application sessions may
+  remain active. The standalone Host serializes native input and broadcasts
+  `Esc`, while ordinary stop releases only the selected session.
+- **Trajectory recording** — start and stop CUA recording around the actions to
+  preserve the finalized CUA artifacts and structured recording state.
 - **Audit trail** — every snapshot, recording, action, wait, stop, and rejected operation
   appends a redacted `ui_control_operation` event to the shared log directory,
   visible in the Admin Logs panel without exposing entered text or screenshot
@@ -449,13 +447,14 @@ Control after the fact.
 
 | Tool | Description |
 |------|-------------|
-| `ui_control__snapshot` | Capture a bounded PNG plus UIA tree from the scoped window |
+| `ui_control__snapshot` | Capture a bounded PNG plus accessibility tree from the scoped application |
 | `ui_control__find` | Locate semantic controls by query, role, label, or object name |
 | `ui_control__act` | Perform one scoped semantic or coordinate-based action |
-| `ui_control__record_clip` | Record a host-owned, hash-verified JPEG sequence from the exact window |
+| `ui_control__recording_start` | Start CUA trajectory/video recording in an absolute output directory |
+| `ui_control__recording_state` | Read current CUA recording state |
+| `ui_control__recording_stop` | Finalize CUA recording for later rendering |
 | `ui_control__wait_for` | Poll until a UI condition becomes true or times out |
 | `ui_control__stop_computer_use` | Release the capsule, hotkey, and global input owner |
-| `ui_control__system_operation` | Ensure a named Windows configuration item (operator-granted) |
 
 For detailed skill reference and agent workflows, see the
 [ui-control skill](python/dcc_mcp_core/skills/ui-control/SKILL.md).

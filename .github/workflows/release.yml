@@ -144,18 +144,15 @@ jobs:
 
   # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
-  # One job, one native cargo target/ (plus an isolated manylinux target/), six outputs:
+  # One job, one native cargo target/ (plus an isolated manylinux target/), four outputs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
   #   2. Raw binary `dcc-mcp-cli[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the same GitHub Release and consumed by scripts/install-cli.*.
   #   3. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
-  #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform,
-  #      plus `dcc-mcp-ui-control-host.exe` on Windows.
-  #   4. Deployable Windows UI Control host-only zip.
-  #   5. Raw Windows UI Control host used by the paired server self-updater.
-  #   6. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
+  #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform.
+  #   4. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
@@ -264,102 +261,15 @@ jobs:
           cp target/release/${{ matrix.cli_binary }} ${{ matrix.cli_artifact_name }}
         shell: bash
 
-      - name: Build and stage Windows UI Control host
-        id: windows-ui-control-host
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
-        run: |
-          vx just stage-ui-control-host
-          # Keep this stdlib-only gate inline: a manual backfill checks out an
-          # old tag that may not contain any helper added by the current workflow.
-          python - "$RELEASE_VERSION" "target/release/dcc-mcp-ui-control-host.exe" <<'PY'
-          import re
-          import subprocess
-          import sys
-
-          MAX_VERSION_CHARS = 64
-          MINIMUM_PROBE_VERSION = (0, 19, 65)
-          STABLE_VERSION = re.compile(
-              r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$",
-              re.ASCII,
-          )
-
-
-          class VerificationError(RuntimeError):
-              pass
-
-
-          def parse_stable_version(version):
-              if len(version) > MAX_VERSION_CHARS:
-                  raise VerificationError("release version is too long")
-              match = STABLE_VERSION.fullmatch(version)
-              if match is None:
-                  raise VerificationError("release version is not stable X.Y.Z")
-              return tuple(int(match.group(index)) for index in (1, 2, 3))
-
-
-          def requires_host_version_probe(version):
-              return parse_stable_version(version) >= MINIMUM_PROBE_VERSION
-
-
-          def verify_host_version(release_version, host_path, runner=subprocess.run):
-              if not requires_host_version_probe(release_version):
-                  return False
-              try:
-                  result = runner(
-                      [host_path, "--version"],
-                      stdin=subprocess.DEVNULL,
-                      stdout=subprocess.PIPE,
-                      stderr=subprocess.DEVNULL,
-                      timeout=10.0,
-                      check=False,
-                  )
-              except (OSError, subprocess.TimeoutExpired) as error:
-                  raise VerificationError("UI Control host version probe failed") from error
-              try:
-                  host_version = result.stdout.decode("utf-8").strip()
-              except (AttributeError, UnicodeDecodeError) as error:
-                  raise VerificationError("UI Control host returned an invalid version") from error
-              if result.returncode != 0 or host_version != release_version:
-                  raise VerificationError(
-                      f"UI Control host version {host_version!r} does not match release {release_version}"
-                  )
-              return True
-
-
-          if __name__ == "__main__":
-              try:
-                  probed = verify_host_version(sys.argv[1], sys.argv[2])
-              except VerificationError as error:
-                  print(f"::error::{error}")
-                  raise SystemExit(1) from None
-              if probed:
-                  print(f"Verified exact UI Control host version {sys.argv[1]}")
-              else:
-                  print(f"Skipping UI Control host --version probe for legacy backfill {sys.argv[1]}")
-          PY
-          host_asset="dcc-mcp-ui-control-host-windows-x86_64.exe"
-          cp target/release/dcc-mcp-ui-control-host.exe "$host_asset"
-          echo "host_asset=$host_asset" >> "$GITHUB_OUTPUT"
-
       - name: Create deployable server bundle
         id: server-bundle
         shell: bash
         run: |
-          host_args=()
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            host_args=(
-              --ui-control-host target/release/dcc-mcp-ui-control-host.exe
-            )
-          fi
           python scripts/release/build_server_bundle.py \
             --version "${{ needs.release-please.outputs.version }}" \
             --platform "${{ matrix.platform }}" \
             --server-bin "${{ matrix.artifact_name }}" \
             --cli-bin "${{ matrix.cli_artifact_name }}" \
-            "${host_args[@]}" \
             --out-dir .
 
       - name: Create standalone CLI zip
@@ -373,28 +283,10 @@ jobs:
             --binary-path "${{ matrix.cli_artifact_name }}" \
             --out-dir .
 
-      - name: Create standalone UI Control Host zip
-        id: ui-control-host-bundle
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: |
-          python scripts/release/build_standalone_bundle.py \
-            --version "${{ needs.release-please.outputs.version }}" \
-            --platform "${{ matrix.platform }}" \
-            --binary-name dcc-mcp-ui-control-host \
-            --binary-path "${{ steps.windows-ui-control-host.outputs.host_asset }}" \
-            --out-dir .
-
       - name: Generate update manifest
         id: update-manifest
         shell: bash
         run: |
-          host_args=()
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            host_args=(
-              --ui-control-host "${{ steps.windows-ui-control-host.outputs.host_asset }}"
-            )
-          fi
           python scripts/release/generate_update_manifest.py \
             --version "${{ needs.release-please.outputs.version }}" \
             --platform "${{ matrix.platform }}" \
@@ -402,7 +294,6 @@ jobs:
             --repo "${{ github.repository }}" \
             --server-bin "${{ matrix.artifact_name }}" \
             --cli-bin "${{ matrix.cli_artifact_name }}" \
-            "${host_args[@]}" \
             --out-dir .
 
       # ── PyPI wheel build ──────────────────────────────────────────
@@ -441,13 +332,6 @@ jobs:
           python -m pip install "maturin>=1.5,<2.0" "wheel>=0.46"
           maturin build --release --out wheels
 
-      - name: Inject Windows UI Control host into server wheel
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: >-
-          python scripts/release/inject_ui_control_host.py
-          --ui-control-host target/release/dcc-mcp-ui-control-host.exe
-
       - name: Retag server binary wheel as Python-version independent
         shell: bash
         run: |
@@ -465,10 +349,8 @@ jobs:
           path: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
-            ${{ steps.windows-ui-control-host.outputs.host_asset }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.cli-bundle.outputs.bundle_path }}
-            ${{ steps.ui-control-host-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
 
       - name: Upload server wheel artefact (for cross-job collection)
@@ -484,10 +366,8 @@ jobs:
           files: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
-            ${{ steps.windows-ui-control-host.outputs.host_asset }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.cli-bundle.outputs.bundle_path }}
-            ${{ steps.ui-control-host-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
@@ -969,8 +849,6 @@ jobs:
             '^dcc_mcp_core_semantic-.*\.whl$'
             '^dcc-mcp-server-'
             '^dcc-mcp-cli-'
-            '^dcc-mcp-ui-control-host-windows-x86_64\.exe$'
-            '^dcc-mcp-ui-control-host-[0-9A-Za-z.+-]+-windows-x86_64\.zip$'
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'

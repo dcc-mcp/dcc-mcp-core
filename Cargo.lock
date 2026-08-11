@@ -1103,7 +1103,6 @@ dependencies = [
 name = "dcc-mcp-capture"
 version = "0.19.94"
 dependencies = [
- "dcc-mcp-shm",
  "image",
  "libc",
  "pyo3",
@@ -1166,39 +1165,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "dcc-mcp-computer-use"
-version = "0.19.94"
-dependencies = [
- "dcc-mcp-artefact",
- "dcc-mcp-capture",
- "dcc-mcp-models",
- "dcc-mcp-paths",
- "dcc-mcp-shm",
- "dcc-mcp-ui-control",
- "pyo3",
- "pyo3-stub-gen",
- "pyo3-stub-gen-derive",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "thiserror",
- "time",
- "tracing",
- "uuid",
- "windows",
- "workspace-hack",
-]
-
-[[package]]
 name = "dcc-mcp-core"
 version = "0.19.94"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
  "dcc-mcp-capture",
- "dcc-mcp-computer-use",
  "dcc-mcp-gateway",
  "dcc-mcp-host",
  "dcc-mcp-http",
@@ -1797,6 +1769,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1961,16 +1934,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "workspace-hack",
-]
-
-[[package]]
-name = "dcc-mcp-ui-control"
-version = "0.19.94"
-dependencies = [
- "dcc-mcp-models",
- "serde",
- "serde_json",
  "workspace-hack",
 ]
 
@@ -8174,7 +8137,6 @@ dependencies = [
  "syn",
  "sync_wrapper",
  "time",
- "time-macros",
  "tokio",
  "tokio-stream",
  "tokio-util",

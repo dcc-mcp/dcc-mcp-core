@@ -46,13 +46,3 @@ def test_build_bundle_preserves_windows_exe_name(tmp_path: Path) -> None:
     with _build_bundle(tmp_path, "dcc-mcp-cli", "dcc-mcp-cli-windows-x86_64.exe") as bundle:
         assert bundle.namelist() == ["dcc-mcp-cli.exe"]
         assert bundle.read("dcc-mcp-cli.exe") == b"dcc-mcp-cli"
-
-
-def test_build_bundle_packages_ui_control_host(tmp_path: Path) -> None:
-    with _build_bundle(
-        tmp_path,
-        "dcc-mcp-ui-control-host",
-        "dcc-mcp-ui-control-host-windows-x86_64.exe",
-    ) as bundle:
-        assert bundle.namelist() == ["dcc-mcp-ui-control-host.exe"]
-        assert bundle.read("dcc-mcp-ui-control-host.exe") == b"dcc-mcp-ui-control-host"

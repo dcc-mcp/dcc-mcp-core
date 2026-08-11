@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-020](./020-external-cua-runtime.md)
 
 ## Context
 
@@ -136,20 +136,12 @@ an application-owned OAuth/browser flow, then takes a fresh snapshot before
 continuing. A future credential broker must use opaque grants or a host-owned
 secure prompt; it must not reuse `text` or registry string values.
 
-### Preserve the capture worker process boundary
+### Delegate native capture to dcc-cua
 
-The process executing synchronous `PrintWindow` remains a separate,
-short-lived, killable child, but it re-enters
-`dcc-mcp-ui-control-host.exe --dcc-mcp-ui-control-capture-worker` instead of
-requiring a second shipped executable. Windows core wheels, server wheels, and
-server bundles therefore package only `dcc-mcp-ui-control-host.exe`. The host
-process spawns a new copy for every bounded capture; the long-lived host never
-calls `PrintWindow` itself.
-
-There is no legacy worker compatibility. Discovery and the optional
-`DCC_MCP_UI_CONTROL_HOST` override select the current host, and only
-`--dcc-mcp-ui-control-capture-worker` enters capture-worker mode. The standalone
-server keeps the same one-file fallback for raw binary installations.
+ADR-020 retires the Core-owned native capture process boundary. The standalone
+`dcc-cua` runtime owns bounded application-window capture, timeout isolation,
+image transport, and native driver lifecycle. Core ships no UI Control capture
+binary or hidden capture mode.
 
 ## Consequences
 
@@ -160,7 +152,7 @@ server keeps the same one-file fallback for raw binary installations.
 - setup can run without manufacturing a window capability;
 - custom DCC face controls gain modifier-assisted drag without DCC-specific
   branches;
-- the capture deadline remains enforceable by process termination.
+- capture lifecycle and deadlines have one owner in `dcc-cua`.
 
 ### Negative
 
@@ -188,16 +180,15 @@ meaningful screenshot or UIA observation fences.
 Rejected because the agent could widen its own authority. The host-owned
 catalog is the source of truth.
 
-### Execute capture inside the long-lived host
+### Keep native capture in Core
 
-Rejected because the separate process provides the killable `PrintWindow`
-boundary. Reusing one executable reduces packaging surface without merging the
-runtime boundary.
+Rejected by ADR-020 because it duplicates the independently released CUA
+runtime and couples Core releases to platform automation internals.
 
 ## References
 
 - [ADR-014](./014-isolate-ui-control-host.md)
 - `crates/dcc-mcp-ui-control/src/host_protocol.rs`
 - `crates/dcc-mcp-computer-use/src/ui_control_host.rs`
-- `crates/dcc-mcp-capture/src/capture_worker.rs`
+- [ADR-020](./020-external-cua-runtime.md)
 - `python/dcc_mcp_core/skills/ui-control`

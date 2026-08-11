@@ -8,7 +8,8 @@ description: >-
   to operate or control something in a DCC app, even when they do not mention
   DCC-MCP. Interface-specific intent such as clicking a menu, dismissing a
   dialog, or controlling a window routes to DCC UI Control after structured
-  tools are checked. Also use this skill first for DCC-MCP Skill marketplace,
+  tools are checked. CUA, UI Control, and dcc-cua explicitly trigger this
+  scoped fallback. Also use this skill first for DCC-MCP Skill marketplace,
   catalog, recommendation, install, or update requests: query the marketplace
   through dcc-mcp-cli before recommending a package. OpenClaw and other shell
   agents use dcc-mcp-cli; MCP-native IDEs use the gateway MCP surface. Not for
@@ -21,8 +22,8 @@ metadata:
     layer: infrastructure
     compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; its consent-gated bootstrap accepts only the official release manifest and verifies SHA-256 before replacement. Local profile needs no gateway env. Use --require-gateway plus --agent-session-id when gateway stats are required evidence. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
     version: "0.19.91"  # x-release-please-version
-    search-hint: "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats marketplace skill catalog recommend install update 商城 技能 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
-    tags: "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, marketplace, skill-catalog, clawhub, openclaw"
+    search-hint: "dcc control operate UI control ui-control cua CUA dcc-cua dcc cua computer use ui automation menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats marketplace skill catalog recommend install update 商城 技能 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
+    tags: "dcc, dcc-ui-control, ui-control, cua, dcc-cua, computer-use, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, marketplace, skill-catalog, clawhub, openclaw"
   openclaw:
     emoji: "🖥️"
     homepage: https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp/SKILL.md
@@ -110,6 +111,8 @@ requested object is a menu, dialog, window, button, text field, pointer, or
 keyboard interaction, select the **DCC UI Control** fallback after inventory
 and structured-tool discovery. Do not confuse this product capability with a
 host agent's generic Computer Use feature.
+Treat `CUA`, `UI Control`, and `dcc-cua` as stable automation-control triggers
+for DCC tasks. Route them to `ui-control`, never generic Computer Use.
 
 | User intent | Target inventory filter | Typical capability search |
 |-------------|-------------------------|---------------------------|
@@ -193,6 +196,13 @@ when structured DCC capabilities cannot reach the required semantic UI:
 2. `ui_control__find` and one semantic `ui_control__act` when possible.
 3. `ui_control__snapshot` after every action before choosing the next action.
 4. `ui_control__stop_computer_use` when the fallback completes, fails, or is abandoned.
+The runtime defaults to `dcc-cua` 0.4.0+; `mock` is test-only, never a production fallback.
+
+The runtime consumes standalone `dcc-cua`; inspect `dcc-cua profiles` and
+`dcc-cua profile --id <id>` before binding the exact PID/window. Keep
+`browser_dom` inside `dcc-cua`, and use `fab/launcher_download` when UE's Fab
+surface is unavailable. Cloudflare, authentication, purchase, and security
+confirmations remain trusted human boundaries even with full agent access.
 
 The UI Control `session_id` identifies its scoped UI session, not stats
 attribution. Use `--agent-session-id <task-id>` for `_meta.agent_context.session_id`.
@@ -209,9 +219,6 @@ security, confirmation, `desktop_unavailable`, or `user_interrupted` results;
 the user or environment must resolve them first. Never widen scope, reuse stale
 coordinates, or resume without an explicit request. Load the runtime Skill for
 the complete target-binding, system-operation, capture, and artifact contract.
-
-Internal studios can fork this skill once and reuse the same CLI+REST workflow across
-agents without maintaining per-host MCP server lists.
 
 ## Gateway Profiles And Local-First Inventory
 
@@ -486,13 +493,6 @@ dcc-mcp-cli install --dcc-type maya --version 2026
 Ask before `--execute`, follow the returned `next_steps`, and do not treat
 package installation as live registration. If no standard DCC is found, ask for an absolute path and pass `--dcc-path`. If auto-install is disabled, show
 the returned policy prompt and hand off to the named deployment owner.
-
-## What This Skill Does Not Use
-
-- Native MCP `tools/list`, `tools/call`, or `resources/read` on the agent host
-  (IDE users should use MCP instead of this skill)
-- Raw `curl` workflows except when debugging the gateway itself
-- Direct Maya/Blender/Houdini scripting
 
 The CLI is the **default agent-facing control plane**. The Python fallback uses
 the same gateway REST endpoints only when the CLI is unavailable after a

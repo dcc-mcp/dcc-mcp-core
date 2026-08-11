@@ -93,7 +93,6 @@ dcc-mcp-core/
 │   ├── dcc-mcp-workflow/            # YAML declarative workflows
 │   ├── dcc-mcp-scheduler/           # cron / timers
 │   ├── dcc-mcp-artefact/            # file/data hand-off between tools
-│   ├── dcc-mcp-ui-control/              # DCC-agnostic ui_control contract types
 │   ├── dcc-mcp-http-types/          # pure HTTP wire/config/value types, McpHttpConfig (#852)
 │   ├── dcc-mcp-http-server/         # reusable HTTP runtime support (#852)
 │   ├── dcc-mcp-http-py/             # PyO3 binding boundary for HTTP APIs (#852)

@@ -309,7 +309,7 @@ full readiness dict so future core bits do not break stable contracts.
 # ✓ full-screen / display capture (DXGI on Windows, X11 on Linux)
 Capturer.new_auto().capture()
 
-# ✓ single-window capture (HWND PrintWindow on Windows; Mock elsewhere)
+# ✓ single-window diagnostic capture (WGC on Windows; Mock elsewhere)
 Capturer.new_window_auto().capture_window(window_title="Maya 2024")
 # ✗ .new_auto() then .capture_window() — may return an incorrect backend
 ```
@@ -1612,7 +1612,7 @@ ArtefactStore, ArtefactBody, ArtefactFilter, put_bytes, put_file, resolve}`.
 `McpHttpConfig.enable_resources` defaults to `True`. Built-in URIs:
 
 - `scene://current` — JSON; update via `server.resources().set_scene(...)` in Rust.
-- `capture://current_window` — PNG blob; Windows HWND `PrintWindow` backend only.
+- `capture://current_window` — PNG blob; Windows.Graphics.Capture backend only.
 - `audit://recent?limit=N` — JSON; wire via `server.resources().wire_audit_log(log)` in Rust.
 - `artefact://sha256/<hex>` — content-addressed artefact (#349); toggle via `enable_artefact_resources`.
 

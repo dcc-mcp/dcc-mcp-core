@@ -42,8 +42,6 @@
 
 pub mod backend;
 pub mod capture;
-#[doc(hidden)]
-pub mod capture_worker;
 pub mod capturer;
 pub mod error;
 pub mod recording;
