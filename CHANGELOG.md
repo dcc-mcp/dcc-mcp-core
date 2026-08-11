@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.94...v0.20.0) (2026-08-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* Native UI Control now requires dcc-cua 0.4.0 or newer. Raw input is enabled by default inside the exact bound PID/HWND scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false. The embedded UI Control Host, Computer Use crates, GDI PrintWindow capture backend, HwndPrintWindow enum, legacy recording calls, and Core-owned capture worker are removed.
+
+### Features
+
+* migrate UI Control to dcc-cua 0.4.0 ([810aafd](https://github.com/dcc-mcp/dcc-mcp-core/commit/810aafdb0abf037b8fd0638401e3345e895b208f))
+
 ## [0.19.94](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.93...v0.19.94) (2026-08-11)
 
 
