@@ -61,21 +61,15 @@ tools:
         - ui_control__act
         - ui_control__stop_computer_use
 
-  - name: record_clip
+  - name: recording_start
     description: >-
-      Record a bounded JPEG frame sequence from the exact PID/HWND bound to
-      this Windows UI Control session. The native host owns the output
-      directory, uses one continuous Windows.Graphics.Capture session, writes
-      per-frame SHA-256 values, and commits the manifest last. The request
-      cannot choose a path or broaden the window scope. Recording invalidates
-      any prior snapshot. Esc, target replacement, desktop lock/disconnect,
-      resolution change, or incomplete capture fails closed and removes the
-      partial artifact. This primitive records window video frames only; use a
-      dedicated gameplay-PV workflow to copy/hash shots, encode them, and add
-      licensed or original audio.
+      Start CUA trajectory recording for the exact application session. The
+      output directory must be absolute and is passed to the standalone CUA
+      Host. Continue with scoped UI actions, then call recording_stop. Set
+      record_video when the installed CUA driver should capture video evidence.
     input_schema:
       type: object
-      required: [duration_ms]
+      required: [output_dir]
       additionalProperties: false
       properties:
         session_id:
@@ -93,23 +87,15 @@ tools:
         process_name:
           type: string
           description: "Process-name constraint that may only narrow the operator-bound scope."
-        duration_ms:
-          type: integer
-          minimum: 1000
-          maximum: 180000
-          description: "Clip duration in milliseconds (1 to 180 seconds)."
-        frames_per_second:
-          type: integer
-          minimum: 1
-          maximum: 60
-          default: 30
-          description: "Constant output frame rate. Defaults to 30 FPS."
-        jpeg_quality:
-          type: integer
-          minimum: 70
-          maximum: 100
-          default: 92
-          description: "Per-frame JPEG quality. Defaults to 92."
+        output_dir:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: "Absolute destination owned by this task grant."
+        record_video:
+          type: boolean
+          default: false
+          description: "Ask the CUA driver to include video evidence."
         policy:
           type: object
           description: "Optional ui_control policy override for this call."
@@ -122,8 +108,66 @@ tools:
       open_world_hint: false
     execution: sync
     affinity: any
-    timeout_hint_secs: 185
-    source_file: scripts/record_clip.py
+    source_file: scripts/recording_start.py
+    requires_in_process: true
+    next-tools:
+      on-success:
+        - ui_control__act
+        - ui_control__recording_state
+        - ui_control__recording_stop
+
+  - name: recording_state
+    description: "Read the current CUA trajectory recording state for this exact application session."
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+          description: "ui_control session id. Defaults to 'default'."
+        policy:
+          type: object
+          description: "Optional ui_control policy override for this call."
+    read_only: true
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    source_file: scripts/recording_state.py
+    requires_in_process: true
+    next-tools:
+      on-success:
+        - ui_control__act
+        - ui_control__recording_stop
+
+  - name: recording_stop
+    description: >-
+      Finalize CUA trajectory recording for this exact application session.
+      Preserve the finalized output directory and structured recording state.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+          description: "ui_control session id. Defaults to 'default'."
+        policy:
+          type: object
+          description: "Optional ui_control policy override for this call."
+    read_only: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    source_file: scripts/recording_stop.py
     requires_in_process: true
     next-tools:
       on-success:
@@ -132,8 +176,8 @@ tools:
   - name: find
     description: >-
       Locate controls in the scoped ui_control snapshot by query, role, label, or
-      object name. Returns normalized UiControlNode matches. Live Windows UIA
-      pauses with desktop_unavailable while the desktop is locked,
+      object name. Returns normalized UiControlNode matches. Native CUA
+      pauses with desktop_unavailable while the interactive desktop is locked,
       disconnected, or secure.
     input_schema:
       type: object
@@ -193,11 +237,11 @@ tools:
     description: >-
       Perform one scoped semantic or DCC UI Control action. Supports control ids,
       snapshot coordinates, pointer paths, text, and key presses where the
-      selected backend supports them. Raw input is denied by default policy.
-      Every Windows mutation requires an adapter/operator-bound PID/HWND so
+      selected backend supports them. Request policy may narrow or deny raw
+      input. Every Windows mutation requires an adapter/operator-bound PID/HWND so
       the visible capsule and user interruption monitor cover semantic UIA as
-      well as raw input. Raw input additionally requires
-      DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true.
+      well as raw input. Raw input is enabled by default inside that exact
+      bound scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false.
       Windows hard-denies raw type: enter non-sensitive text only through
       semantic set_text with an exact control_id. Passwords, authentication
       codes, and other credential material require a user hand-off or a
@@ -386,69 +430,6 @@ tools:
         - ui_control__wait_for
         - ui_control__snapshot
         - ui_control__stop_computer_use
-
-  - name: system_operation
-    description: >-
-      Ensure one named Windows configuration item from an operator-owned UI
-      Control system grant. The agent supplies only a non-sensitive operation
-      id; registry values and symbolic-link paths are resolved inside the
-      native host and never enter tool arguments or the host pipe. Supported
-      catalog operations are HKCU registry string or DWORD values and file or
-      directory symbolic links. This tool has no shell, command, arbitrary
-      registry hive, overwrite, or elevation form. The host reads the grant
-      catalog only from DCC_MCP_UI_CONTROL_SYSTEM_GRANTS_FILE at startup; the
-      selected grant id comes only from
-      DCC_MCP_UI_CONTROL_SYSTEM_GRANT_ID. Restart the host after changing the
-      catalog. Every call requires trusted action-time confirmation.
-    input_schema:
-      type: object
-      required: [operation_id]
-      additionalProperties: false
-      properties:
-        session_id:
-          type: string
-          description: "Logical ui_control correlation id. Defaults to 'default'."
-        operation_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          description: >-
-            Non-sensitive identifier configured inside the selected operator
-            grant. Values, paths, commands, grants, hives, overwrite flags, and
-            elevation flags are never accepted from the agent.
-    output_schema:
-      type: object
-      properties:
-        success:
-          type: boolean
-        message:
-          type: string
-        context:
-          type: object
-          properties:
-            session_id:
-              type: string
-            operation_type:
-              type: string
-            outcome:
-              type: string
-              enum: [created, updated, unchanged]
-            policy_tier:
-              type: string
-              enum: [action_confirmation]
-            host_message:
-              type: string
-    read_only: false
-    idempotent: true
-    annotations:
-      read_only_hint: false
-      destructive_hint: true
-      idempotent_hint: true
-      open_world_hint: false
-    execution: sync
-    affinity: any
-    source_file: scripts/system_operation.py
-    requires_in_process: true
 
   - name: stop_computer_use
     description: >-

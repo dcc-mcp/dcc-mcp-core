@@ -63,9 +63,9 @@ capability is intentionally broader than a DCC-only UI namespace: the same
 contract can describe a DCC preferences dialog, an external launcher, a license
 utility, or another adapter-owned application window.
 
-The Rust schema lives in the `dcc-mcp-ui-control` crate so UI automation contracts
-can evolve independently from the HTTP server layer. Python adapters continue
-to import the matching dataclasses from `dcc_mcp_core.adapter_contracts`.
+The Core-facing schema lives in `dcc_mcp_core.adapter_contracts`; native
+automation is supplied by the standalone `dcc-cua` manifest and Host protocol.
+This keeps UI automation independent from the HTTP server layer.
 
 Core shapes include:
 
@@ -126,11 +126,10 @@ Safety expectations:
   Sensitive typed text and screenshot bytes should be redacted or returned only
   as artefact/resource references.
 
-The bundled `ui-control` skill selects the platform-native backend by default:
-Windows uses the isolated Windows UI Automation host and other platforms use the
-CDP backend. Tests may explicitly select the deterministic mock backend with
-`DCC_MCP_UI_CONTROL_BACKEND=mock`. The CDP backend drives browser or webview
-search through the same
+The bundled `ui-control` skill defaults to standalone `dcc-cua` 0.4.0 or newer.
+The deterministic mock backend is explicit test infrastructure only. Set
+`DCC_MCP_UI_CONTROL_BACKEND=chrome` to use the
+experimental CDP backend and drive browser or webview search through the same
 `ui_control__snapshot`, `ui_control__find`, `ui_control__act`, and `ui_control__wait_for`
 tools. The CDP backend supports presets: `reuse` attaches to an existing
 DevTools endpoint first so current browser tokens can be reused, `isolated`
@@ -142,13 +141,10 @@ Vercel's `agent-browser` CLI, which exposes its DevTools URL through
 `agent-browser get cdp-url` and can be provisioned in CI with
 `agent-browser install`.
 
-On Windows the reference Windows UI Automation backend is selected automatically.
-It uses the OS UIAutomationClient API through a
-PowerShell worker that is reused only within one exact Host runtime session and
-reaped on stop or failure. It stays behind the same contract and never retries
-an uncertain mutation. The backend refuses
-unscoped whole-desktop access: provide an allowed window title, process id, or
-process name through the call policy or `DCC_MCP_UI_CONTROL_UIA_*` environment
-variables. It maps UIA control types into normalized ui_control roles and returns
-structured `missing_window`, `not_found`, `unsupported_action`,
-`policy_disabled`, `stale_control`, and `timeout` errors.
+The default `DCC_MCP_UI_CONTROL_BACKEND=cua` uses the standalone `dcc-cua`
+CLI/Host for native applications on Windows, Linux, and macOS. Install version 0.4.0 or newer on
+`PATH` or set `DCC_MCP_CUA_BINARY` to an absolute executable path. Bind the
+exact application with `DCC_MCP_UI_CONTROL_PROCESS_ID` and
+`DCC_MCP_UI_CONTROL_WINDOW_HANDLE`; request arguments may narrow this scope but
+cannot widen it. The Host owns platform accessibility, capture, visible control
+markers, input serialization, and Escape interruption.

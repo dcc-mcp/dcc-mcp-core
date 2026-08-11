@@ -37,7 +37,7 @@ Resources 在 `initialize` 中通告为：
 | `artefact://sha256/<hex>` | 可变 | 内容寻址的制品存储 (#349)；body 以其声明的 MIME 作为 base64 blob 返回。由 `enable_artefact_resources` 门控。 | 无（轮询模型） |
 
 `capture://current_window` 仅在真实窗口捕获后端可用时列出
-（目前为 Windows `HWND PrintWindow`）。在其他平台上它会从
+（目前为 Windows.Graphics.Capture）。在其他平台上它会从
 `resources/list` 中隐藏。
 
 ## Gateway 原生 Resources

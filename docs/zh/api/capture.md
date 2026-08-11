@@ -30,7 +30,7 @@ count, total_bytes, errors = capturer.stats()
 | 方法 | 返回 | 描述 |
 |------|------|------|
 | `new_auto()` | `Capturer` | 使用最佳可用后端创建捕获器（Windows: DXGI, Linux: X11, 其他: Mock） |
-| `new_window_auto()` | `Capturer` | 创建配置为单窗口捕获的捕获器（Windows: HWND PrintWindow；其他平台回退到 Mock） |
+| `new_window_auto()` | `Capturer` | 创建配置为单窗口捕获的捕获器（Windows: Windows.Graphics.Capture；其他平台回退到 Mock） |
 | `new_mock(width=1920, height=1080)` | `Capturer` | 创建使用 Mock 合成后端的捕获器（用于 CI/无头环境） |
 
 ### 实例方法
@@ -39,7 +39,7 @@ count, total_bytes, errors = capturer.stats()
 |------|------|------|
 | `capture(format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, process_id=None, window_title=None)` | `CaptureFrame` | 捕获一帧（全屏，或当设置 `process_id`/`window_title` 时捕获匹配窗口） |
 | `capture_window(*, process_id=None, window_handle=None, window_title=None, format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, include_decorations=True)` | `CaptureFrame` | 捕获单个窗口。必须提供 `process_id`/`window_handle`/`window_title` 中的至少一个 |
-| `backend_name()` | `str` | 当前后端名称（如 `"DXGI Desktop Duplication"`、`"HWND PrintWindow"`） |
+| `backend_name()` | `str` | 当前后端名称（如 `"DXGI Desktop Duplication"`、`"Windows.Graphics.Capture"`） |
 | `backend_kind()` | `CaptureBackendKind` | 当前后端的枚举形式 |
 | `stats()` | `tuple[int, int, int]` | 运行统计：`(capture_count, total_bytes, error_count)` |
 

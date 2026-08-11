@@ -24,8 +24,6 @@ def _write_wheel(
     tags: list[str] | None = None,
     distribution: str = "dcc-mcp-core",
     extension_module: str = "dcc_mcp_core/_core",
-    with_removed_capture_helper: bool = False,
-    with_ui_control_host: bool | None = None,
     ui_control_contract: str = "canonical",
 ) -> None:
     root_is_pure = "true" if pure else "false"
@@ -67,31 +65,12 @@ def _write_wheel(
             archive.writestr("dcc_mcp_core/skills/app-ui/tools.yaml", "tools: []\n")
         if with_core:
             archive.writestr(f"{extension_module}.pyd", b"native")
-        if with_removed_capture_helper:
-            archive.writestr("dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", b"MZremoved")
-        if with_ui_control_host is None:
-            with_ui_control_host = distribution == "dcc-mcp-core" and with_core and "win_amd64" in path.name
-        if with_ui_control_host:
-            archive.writestr("dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", b"MZhost")
 
 
 def test_native_py37_wheel_requires_cp37_tag_and_core(tmp_path: Path) -> None:
     wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-win_amd64.whl"
     _write_wheel(wheel, pure=False, with_core=True)
     assert validate_wheel(wheel, "native_py37", "windows-x86_64", load_contract(_REPO_ROOT)) == []
-
-
-def test_windows_core_wheel_requires_ui_control_host_from_01960(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-0.19.60-cp38-abi3-win_amd64.whl"
-    _write_wheel(
-        wheel,
-        pure=False,
-        with_core=True,
-        version="0.19.60",
-        with_ui_control_host=False,
-    )
-    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
-    assert any("missing required member" in error and "ui-control-host.exe" in error for error in errors)
 
 
 def test_core_wheel_rejects_legacy_app_ui_skill_with_new_python_contracts(tmp_path: Path) -> None:
@@ -108,27 +87,6 @@ def test_core_wheel_rejects_legacy_app_ui_skill_with_new_python_contracts(tmp_pa
 
     assert any("missing required UI Control member" in error for error in errors)
     assert any("removed app-ui skill" in error for error in errors)
-
-
-def test_windows_core_wheel_rejects_removed_capture_helper(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
-    _write_wheel(wheel, pure=False, with_core=True, with_removed_capture_helper=True)
-    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
-    assert any("forbidden member" in error and "capture-helper.exe" in error for error in errors)
-
-
-def test_lite_wheel_rejects_staged_ui_control_host(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
-    _write_wheel(wheel, pure=True, with_core=False, with_ui_control_host=True)
-    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
-    assert any("forbidden member" in error and "ui-control-host.exe" in error for error in errors)
-
-
-def test_linux_native_wheel_rejects_staged_ui_control_host(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-manylinux2014_x86_64.whl"
-    _write_wheel(wheel, pure=False, with_core=True, with_ui_control_host=True)
-    errors = validate_wheel(wheel, "native_py37", "linux-x86_64", load_contract(_REPO_ROOT))
-    assert any("forbidden member" in error and "ui-control-host.exe" in error for error in errors)
 
 
 def test_lite_py37_wheel_rejects_compiled_core(tmp_path: Path) -> None:

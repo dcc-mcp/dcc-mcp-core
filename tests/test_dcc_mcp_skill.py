@@ -69,6 +69,25 @@ class TestDccMcpSkill:
             assert keyword in desc
         assert "use this skill first" in desc
 
+    def test_description_and_search_hint_trigger_dcc_cua_automation(self) -> None:
+        meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
+        assert meta is not None
+        description = (meta.description or "").lower()
+        search_hint = (meta.search_hint or "").lower()
+        for phrase in ("cua", "ui control", "dcc-cua"):
+            assert phrase in description
+            assert phrase in search_hint
+
+        body = " ".join((Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8").lower().split())
+        assert "stable automation-control triggers" in body
+        assert "generic computer use" in body
+
+        catalog = dcc_mcp_core.SkillCatalog(dcc_mcp_core.ToolRegistry())
+        catalog.discover(extra_paths=[str(Path(DCC_MCP_SKILL_DIR).parent)])
+        for phrase in ("cua", "ui control", "dcc-cua"):
+            names = {result.name for result in catalog.search_skills(phrase)}
+            assert "dcc-mcp" in names
+
     def test_marketplace_intent_is_cli_search_first(self) -> None:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None

@@ -36,7 +36,7 @@ Resources are advertised in `initialize` as:
 | `artefact://sha256/<hex>` | varies | Content-addressed artefact store (#349); bodies returned as base64 blobs with their declared MIME. Gated by `enable_artefact_resources`. | None (polling model) |
 
 `capture://current_window` is only listed when a real window-capture backend is available
-(currently Windows `HWND PrintWindow`). On other platforms it is hidden from `resources/list`.
+(currently Windows.Graphics.Capture). On other platforms it is hidden from `resources/list`.
 
 ## Gateway-Native Resources
 

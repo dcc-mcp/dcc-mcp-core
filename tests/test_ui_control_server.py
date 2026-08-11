@@ -11,8 +11,6 @@ from dcc_mcp_core import ui_control_server
 
 
 def _required_args(tmp_path: Path) -> list[str]:
-    host = tmp_path / "dcc-mcp-ui-control-host.exe"
-    host.write_bytes(b"MZhost")
     skill_root = tmp_path / "skills"
     skill_root.mkdir()
     return [
@@ -20,8 +18,6 @@ def _required_args(tmp_path: Path) -> list[str]:
         "42",
         "--window-handle",
         "84",
-        "--host-exe",
-        str(host),
         "--skill-root",
         str(skill_root),
         "--registry-dir",
@@ -33,51 +29,14 @@ def _required_args(tmp_path: Path) -> list[str]:
     ]
 
 
-def test_validate_target_rejects_non_windows_before_loading_user32(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ui_control_server.sys, "platform", "linux")
-    monkeypatch.setattr(
-        ui_control_server.ctypes,
-        "WinDLL",
-        lambda *_args, **_kwargs: pytest.fail("WinDLL must not load on non-Windows"),
-        raising=False,
-    )
-
-    with pytest.raises(RuntimeError, match="requires Windows"):
-        ui_control_server._validate_target(42, 84)
+@pytest.mark.parametrize(("process_id", "window_handle"), [(0, 84), (42, 0), (-1, 84)])
+def test_validate_target_scope_requires_positive_exact_ids(process_id: int, window_handle: int) -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        ui_control_server._validate_target_scope(process_id, window_handle)
 
 
-def test_validate_target_requires_live_window_owned_by_exact_process(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ui_control_server.sys, "platform", "win32")
-
-    class User32:
-        @staticmethod
-        def IsWindow(_hwnd):
-            return True
-
-        @staticmethod
-        def GetWindowThreadProcessId(_hwnd, process_id):
-            process_id._obj.value = 42
-            return 7
-
-        @staticmethod
-        def GetWindowTextLengthW(_hwnd):
-            return 12
-
-        @staticmethod
-        def GetWindowTextW(_hwnd, buffer, _length):
-            buffer.value = "Unity Player"
-            return 12
-
-    monkeypatch.setattr(
-        ui_control_server.ctypes,
-        "WinDLL",
-        lambda *_args, **_kwargs: User32(),
-        raising=False,
-    )
-
-    assert ui_control_server._validate_target(42, 84) == "Unity Player"
-    with pytest.raises(RuntimeError, match="expected PID 41, resolved PID 42"):
-        ui_control_server._validate_target(41, 84)
+def test_validate_target_scope_is_platform_neutral() -> None:
+    ui_control_server._validate_target_scope(42, 84)
 
 
 def test_only_ui_control_transform_rejects_other_skills() -> None:
@@ -85,19 +44,6 @@ def test_only_ui_control_transform_rejects_other_skills() -> None:
     assert ui_control_server._only_ui_control(metadata) is metadata
     with pytest.raises(RuntimeError, match="only the ui-control skill"):
         ui_control_server._only_ui_control(SimpleNamespace(name="other"))
-
-
-def test_validate_host_executable_requires_windows_pe(tmp_path: Path) -> None:
-    host = tmp_path / "dcc-mcp-ui-control-host.exe"
-    with pytest.raises(FileNotFoundError, match="Host not found"):
-        ui_control_server._validate_host_executable(host)
-
-    host.write_bytes(b"not-a-pe")
-    with pytest.raises(ValueError, match="not a Windows PE executable"):
-        ui_control_server._validate_host_executable(host)
-
-    host.write_bytes(b"MZvalid")
-    ui_control_server._validate_host_executable(host)
 
 
 def test_shutdown_always_clears_owned_host_state() -> None:
@@ -224,19 +170,27 @@ def test_main_registers_executor_before_load_and_shuts_down_in_order(
     monkeypatch.setattr(ui_control_server, "McpHttpConfig", Config)
     monkeypatch.setattr(ui_control_server, "HostExecutionBridge", Bridge)
     monkeypatch.setattr(ui_control_server, "create_skill_server", create_server)
-    monkeypatch.setattr(ui_control_server, "_validate_target", lambda process_id, hwnd: "Unity Player")
+    monkeypatch.setattr(ui_control_server, "resolve_cua_command", lambda configured=None: ["C:/tools/dcc-cua.exe"])
+    monkeypatch.setattr(
+        ui_control_server,
+        "inspect_cua_contract",
+        lambda _command: SimpleNamespace(
+            version="0.0.0-test",
+            capabilities=("trusted_confirmation_grants", "semantic_profile_extensions"),
+        ),
+    )
     monkeypatch.setattr(ui_control_server.threading, "Event", StoppedEvent)
     monkeypatch.setattr(ui_control_server.signal, "signal", lambda *_args: None)
     for name in (
         "DCC_MCP_UI_CONTROL_BACKEND",
-        "DCC_MCP_UI_CONTROL_HOST",
-        "DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE",
-        "DCC_MCP_UI_CONTROL_UIA_PROCESS_ID",
+        "DCC_MCP_CUA_BINARY",
+        "DCC_MCP_UI_CONTROL_WINDOW_HANDLE",
+        "DCC_MCP_UI_CONTROL_PROCESS_ID",
         "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS",
         "DCC_MCP_DISABLE_ACCUMULATED_SKILLS",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT", "true")
+    monkeypatch.setenv("DCC_MCP_CUA_ALLOW_RAW_INPUT", "true")
 
     args = _required_args(tmp_path)
     assert ui_control_server.main(args) == 0
@@ -252,14 +206,20 @@ def test_main_registers_executor_before_load_and_shuts_down_in_order(
         "server-shutdown",
         "clear-packages",
     ]
-    assert "DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT" not in os.environ
+    assert os.environ["DCC_MCP_CUA_ALLOW_RAW_INPUT"] == "true"
     ready = json.loads((tmp_path / "ready.json").read_text(encoding="utf-8"))
     assert ready["status"] == "ready"
     assert ready["target_process_id"] == 42
     assert ready["target_window_handle"] == 84
-    assert ready["raw_input_enabled"] is False
+    assert ready["cua_binary"] == "C:/tools/dcc-cua.exe"
+    assert ready["cua_version"] == "0.0.0-test"
+    assert ready["cua_capabilities"] == ["trusted_confirmation_grants", "semantic_profile_extensions"]
+    assert ready["raw_input_enabled"] is True
 
 
-def test_raw_input_requires_explicit_flag(tmp_path: Path) -> None:
-    args = ui_control_server._parse_args([*_required_args(tmp_path), "--allow-raw-input"])
-    assert args.allow_raw_input is True
+def test_raw_input_is_enabled_by_default_and_can_be_disabled(tmp_path: Path) -> None:
+    required = _required_args(tmp_path)
+    enabled = ui_control_server._parse_args(required)
+    disabled = ui_control_server._parse_args([*required, "--no-raw-input"])
+    assert enabled.allow_raw_input is True
+    assert disabled.allow_raw_input is False

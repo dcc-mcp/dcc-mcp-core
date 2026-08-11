@@ -552,13 +552,6 @@ impl PyCaptureBackendKind {
     }
     #[classattr]
     #[allow(non_snake_case)]
-    fn HwndPrintWindow() -> PyCaptureBackendKind {
-        PyCaptureBackendKind {
-            inner: CaptureBackendKind::HwndPrintWindow,
-        }
-    }
-    #[classattr]
-    #[allow(non_snake_case)]
     fn Mock() -> PyCaptureBackendKind {
         PyCaptureBackendKind {
             inner: CaptureBackendKind::Mock,

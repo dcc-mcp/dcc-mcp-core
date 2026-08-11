@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted; capture executable packaging superseded by [ADR-015](./015-bounded-ui-control-system-operations.md)
+Superseded by [ADR-020](./020-external-cua-runtime.md)
 
 ## Context
 
-DCC UI Control currently combines a portable `app_ui` contract, Python skill
-entry points, Windows UI Automation, native input, a visible stop overlay, and
-a short-lived capture helper. This works inside adapters, but a non-DCC target
+DCC UI Control previously combined a portable `app_ui` contract, Python skill
+entry points, Windows UI Automation, native input, and a visible stop overlay.
+This worked inside adapters, but a non-DCC target
 such as Epic Games Launcher needs a temporary operator process. Per-adapter
 native state also makes global interruption, input ownership, approval, and
 audit behavior harder to keep consistent.
@@ -26,7 +26,7 @@ its authority begins only after the runtime binds a PID or HWND.
 
 The relevant non-functional requirements are:
 
-- a hung `PrintWindow` call must never block a DCC, adapter, or UI Control host;
+- a native capture failure must never block a DCC, adapter, or UI Control host;
 - native input must stay in the interactive Windows logon session that owns the
   selected DCC window;
 - every mutation must target an opaque window object previously returned by
@@ -88,15 +88,10 @@ Adapters keep the public `app_ui__snapshot`, `find`, `act`, `wait_for`, and
 - redacted `ui_control_operation` audit events for the existing Admin Logs
   panel.
 
-The existing `dcc-mcp-capture-helper.exe` remains a separate short-lived child
-used only for the synchronous `PrintWindow` call. The UI Control host owns the
-deadline, kills and waits for a timed-out child, and validates the versioned
-shared-memory response before accepting pixels. Screenshot isolation is not
-merged into the long-lived host because a stuck window must remain killable.
-Windows UI Automation uses one lazily started PowerShell worker per exact Host
-runtime session. Snapshot, accessibility polling, and semantic actions reuse
-that worker; session stop, worker failure, or timeout reaps it without retrying
-or replaying a mutation.
+This Core-owned native capture design is retired. ADR-020 delegates native
+capture, timeout isolation, shared-memory transport, accessibility, and input
+to the independently released `dcc-cua` runtime. None of those native runtime
+components are shipped by Core.
 
 ```mermaid
 flowchart LR
@@ -104,9 +99,7 @@ flowchart LR
     GW --> ADAPTER["DCC adapter app_ui proxy"]
     ADAPTER -->|"versioned named pipe"| HOST["dcc-mcp-ui-control-host.exe"]
     HOST --> POLICY["Scope, approval, stop latch, input owner"]
-    HOST --> UIA["UIA, activation, input, overlays"]
-    HOST -->|"bounded request"| CAPTURE["dcc-mcp-capture-helper.exe"]
-    CAPTURE -->|"validated shared memory"| HOST
+    HOST --> UIA["UIA, capture, input, overlays"]
     HOST --> AUDIT["Redacted Admin log event"]
 ```
 
@@ -176,7 +169,7 @@ environment variables cannot resolve confirmation.
   window capabilities, two observation fences, shared-image descriptors,
   action descriptors, permission tiers, and stable errors.
 - `dcc-mcp-ui-control-host.exe` owns window resolution, `ComputerUseSession`,
-  the session-scoped UIA worker, the killable capture helper, shared-memory PNGs,
+  the session-scoped UIA worker, isolated capture, shared-memory PNGs,
   visible overlays, input ownership, stop latch, trusted confirmation, and
   redacted audit.
 - the Windows `app_ui` backend is a thin named-pipe proxy. Host absence,
@@ -189,9 +182,9 @@ environment variables cannot resolve confirmation.
   `show_window`, and `activate_window` without a snapshot prerequisite. This
   breaks the minimized-window deadlock while retaining the confirmed
   capability-bound PID/HWND and without using pointer or keyboard input.
-- raw input additionally requires the runtime ceiling
-  `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`; it does not alter confirmation
-  or hard-deny policy.
+- raw input is enabled by default inside the capability-bound PID/HWND and may
+  be disabled with `DCC_MCP_CUA_ALLOW_RAW_INPUT=false`; this does not alter
+  confirmation or hard-deny policy.
 - Windows wheel and server bundle checks require the host executable from the
   first release carrying this ADR.
 
@@ -259,10 +252,10 @@ Rejected for now because the protocol, packaging, and policy are still moving
 together. Separate repositories would add version skew before there is an
 independent consumer or release owner.
 
-### Put `PrintWindow` back in the long-lived host
+### Keep native capture inside Core
 
-Rejected because `PrintWindow` is synchronous and can hang indefinitely. A
-killable child process is the isolation boundary that makes its deadline real.
+Rejected by ADR-020 because the standalone `dcc-cua` runtime now owns native
+capture isolation and deadlines.
 
 ### Grant unrestricted desktop input once per session
 
@@ -274,6 +267,6 @@ optional agent guidance.
 
 - `crates/dcc-mcp-app-ui`
 - `crates/dcc-mcp-computer-use`
-- `crates/dcc-mcp-capture/src/capture_worker.rs`
+- [ADR-020](./020-external-cua-runtime.md)
 - `python/dcc_mcp_core/skills/app-ui`
 - `docs/guide/app-ui-workflows.md`

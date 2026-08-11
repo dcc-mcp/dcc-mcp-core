@@ -59,7 +59,7 @@ class TestCaptureWindowArgValidation:
 
     @pytest.mark.skipif(
         sys.platform != "win32",
-        reason="window-target lookup only enforced by HwndBackend; Mock accepts any target",
+        reason="window-target lookup only enforced by the Windows backend; Mock accepts any target",
     )
     def test_accepts_process_id_keyword(self) -> None:
         cap = dcc_mcp_core.Capturer.new_window_auto()
@@ -68,7 +68,7 @@ class TestCaptureWindowArgValidation:
 
     @pytest.mark.skipif(
         sys.platform != "win32",
-        reason="window-target lookup only enforced by HwndBackend; Mock accepts any target",
+        reason="window-target lookup only enforced by the Windows backend; Mock accepts any target",
     )
     def test_accepts_window_handle_keyword(self) -> None:
         cap = dcc_mcp_core.Capturer.new_window_auto()
@@ -77,7 +77,7 @@ class TestCaptureWindowArgValidation:
 
     @pytest.mark.skipif(
         sys.platform != "win32",
-        reason="window-target lookup only enforced by HwndBackend; Mock accepts any target",
+        reason="window-target lookup only enforced by the Windows backend; Mock accepts any target",
     )
     def test_accepts_window_title_keyword(self) -> None:
         cap = dcc_mcp_core.Capturer.new_window_auto()
@@ -109,8 +109,7 @@ class TestCaptureWindowArgValidation:
 def test_window_capture_apis_release_gil_while_target_paints(capture_api: str) -> None:
     """Window capture APIs must not deadlock a Python-backed target window.
 
-    ``PrintWindow`` synchronously asks the target thread to paint. A DCC host
-    can run Python callbacks while processing that message, so the capture
+    A DCC host can run Python callbacks while WGC captures its window, so the
     binding must release the GIL before entering the native backend.
     """
     script = textwrap.dedent(
@@ -349,16 +348,16 @@ class TestCaptureWindowPngStatic:
 
     @pytest.mark.skipif(
         sys.platform != "win32",
-        reason="unknown-PID => None semantics only enforced by HwndBackend; Mock backend has no PID awareness",
+        reason="unknown-PID => None semantics only enforced by the Windows backend; Mock has no PID awareness",
     )
     def test_unknown_pid_returns_none(self) -> None:
-        """On HwndBackend, an unresolvable PID must return ``None`` (not raise)."""
+        """On the Windows backend, an unresolvable PID returns ``None``."""
         result = dcc_mcp_core.Capturer.capture_window_png(pid=0x7FFFFFFF, timeout_ms=200)
         assert result is None
 
     @pytest.mark.skipif(
         sys.platform != "win32",
-        reason="unknown-PID => None semantics only enforced by HwndBackend; Mock backend has no PID awareness",
+        reason="unknown-PID => None semantics only enforced by the Windows backend; Mock has no PID awareness",
     )
     def test_region_unknown_pid_returns_none(self) -> None:
         result = dcc_mcp_core.Capturer.capture_region_png(pid=0x7FFFFFFF, x=0, y=0, w=10, h=10, timeout_ms=200)
@@ -381,5 +380,5 @@ class TestCaptureWindowPngStatic:
     def test_region_coords_are_positional(self) -> None:
         """Region coords (x, y, w, h) may be passed positionally — the call must not raise."""
         result = dcc_mcp_core.Capturer.capture_region_png(0x7FFFFFFF, 0, 0, 10, 10, timeout_ms=200)
-        # HwndBackend => None (unknown PID); Mock backend => synthetic PNG bytes.
+        # Windows backend => None (unknown PID); Mock => synthetic PNG bytes.
         assert result is None or isinstance(result, bytes)

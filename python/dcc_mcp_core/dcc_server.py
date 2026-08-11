@@ -314,11 +314,10 @@ def _handle_take_screenshot(params_json: str) -> str:
                 timeout_ms=timeout_ms,
             )
         capture_backend = cap.backend_name()
-        fallback_from = "Windows.Graphics.Capture" if not full_screen and capture_backend == "GDI PrintWindow" else None
         capture_health = getattr(
             frame,
             "capture_health",
-            "degraded" if fallback_from else "unverified",
+            "unverified",
         )
         if capture_health == "unusable":
             return json_dumps(
@@ -327,7 +326,6 @@ def _handle_take_screenshot(params_json: str) -> str:
                     "message": "Capture backend reported an unusable frame",
                     "error_kind": "unusable_capture",
                     "capture_backend": capture_backend,
-                    "fallback_from": fallback_from,
                     "capture_health": capture_health,
                     "window_handle": hwnd,
                     "window_title": frame.window_title,
@@ -347,7 +345,6 @@ def _handle_take_screenshot(params_json: str) -> str:
             "window_title": frame.window_title,
             "window_handle": hwnd,
             "capture_backend": capture_backend,
-            "fallback_from": fallback_from,
             "capture_health": capture_health,
             "timestamp_ms": int(time.time() * 1000),
             "source": "dcc-ipc",

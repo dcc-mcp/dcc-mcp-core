@@ -266,55 +266,27 @@ fn ui_control_contract_parses_a_stable_snapshot_command() {
 }
 
 #[test]
-fn ui_control_contract_parses_a_stable_system_operation_command() {
-    let args = Args::try_parse_from([
-        "dcc-mcp-cli",
-        "ui-control",
-        "system-operation",
-        "--instance-id",
-        "abc12345",
-        "--json",
-        r#"{"operation_id":"link-vendor-plugin"}"#,
-        "--full-output",
-    ])
-    .expect("parse ui-control system-operation");
-
-    let Command::UiControl {
-        action: UiControlAction::SystemOperation(operation),
-    } = args.command
-    else {
-        panic!("expected ui-control system-operation command");
-    };
-    assert_eq!(operation.instance_id.as_deref(), Some("abc12345"));
-    assert!(operation.full_output);
-    assert_eq!(
-        read_call_arguments(&operation.arguments_json, operation.json_file.as_deref()).unwrap(),
-        serde_json::json!({"operation_id": "link-vendor-plugin"})
-    );
-}
-
-#[test]
 fn ui_control_contract_parses_an_exact_window_recording_command() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
         "ui-control",
-        "record-clip",
+        "recording-start",
         "--dcc-type",
         "unity",
         "--instance-id",
         "abc12345",
         "--json",
-        r#"{"session_id":"pv","duration_ms":5000,"frames_per_second":30,"jpeg_quality":92}"#,
+        r#"{"session_id":"pv","output_dir":"C:/recording","record_video":true}"#,
         "--timeout-secs",
         "12",
     ])
-    .expect("parse ui-control record-clip");
+    .expect("parse ui-control recording-start");
 
     let Command::UiControl {
-        action: UiControlAction::RecordClip(recording),
+        action: UiControlAction::RecordingStart(recording),
     } = args.command
     else {
-        panic!("expected ui-control record-clip command");
+        panic!("expected ui-control recording-start command");
     };
     assert_eq!(recording.dcc_type.as_deref(), Some("unity"));
     assert_eq!(recording.instance_id.as_deref(), Some("abc12345"));
@@ -323,9 +295,8 @@ fn ui_control_contract_parses_an_exact_window_recording_command() {
         read_call_arguments(&recording.arguments_json, recording.json_file.as_deref()).unwrap(),
         serde_json::json!({
             "session_id": "pv",
-            "duration_ms": 5000,
-            "frames_per_second": 30,
-            "jpeg_quality": 92
+            "output_dir": "C:/recording",
+            "record_video": true
         })
     );
 }
@@ -349,12 +320,16 @@ fn ui_control_operations_map_to_canonical_ui_control_tools() {
         (UiControlAction::Find(args.clone()), "ui_control__find"),
         (UiControlAction::Act(args.clone()), "ui_control__act"),
         (
-            UiControlAction::SystemOperation(args.clone()),
-            "ui_control__system_operation",
+            UiControlAction::RecordingStart(args.clone()),
+            "ui_control__recording_start",
         ),
         (
-            UiControlAction::RecordClip(args.clone()),
-            "ui_control__record_clip",
+            UiControlAction::RecordingState(args.clone()),
+            "ui_control__recording_state",
+        ),
+        (
+            UiControlAction::RecordingStop(args.clone()),
+            "ui_control__recording_stop",
         ),
         (UiControlAction::Wait(args.clone()), "ui_control__wait_for"),
         (
@@ -407,7 +382,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
                 "root": {"id": "desktop", "children": [{"text": "bulk"}]},
                 "metadata": {
                     "snapshot_id": "snapshot-7",
-                    "backend": "windows-ui-control-host",
+                    "backend": "dcc-cua",
                     "computer_use": {"raw": "bulk"}
                 }
             },
@@ -419,7 +394,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
             },
             "capture_provenance": {
                 "tool": "ui_control__snapshot",
-                "backend": "windows-ui-control-host",
+                "backend": "dcc-cua",
                 "session_id": "fab",
                 "snapshot_id": "snapshot-7",
                 "pixels_captured": true,
@@ -454,10 +429,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
     assert_eq!(compact["snapshot_id"], "snapshot-7");
     assert_eq!(compact["snapshot"]["node_count"], 501);
     assert_eq!(compact["observation"]["observation_id"], "observation-7");
-    assert_eq!(
-        compact["capture_provenance"]["backend"],
-        "windows-ui-control-host"
-    );
+    assert_eq!(compact["capture_provenance"]["backend"], "dcc-cua");
     assert_eq!(compact["capture_provenance"]["pixels_captured"], true);
     assert_eq!(
         compact["__rich__"]["artifact_path"],
@@ -474,7 +446,7 @@ fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
 fn ui_control_compact_output_preserves_async_job_identity() {
     let value = serde_json::json!({
         "success": true,
-        "tool_slug": "unity.abc12345.ui_control__record_clip",
+        "tool_slug": "unity.abc12345.ui_control__act",
         "output": {
             "job_id": "job-42",
             "status": "pending",
@@ -484,7 +456,7 @@ fn ui_control_compact_output_preserves_async_job_identity() {
         }
     });
 
-    let compact = compact_ui_control_result("ui_control__record_clip", &value);
+    let compact = compact_ui_control_result("ui_control__act", &value);
 
     assert_eq!(compact["success"], true);
     assert_eq!(compact["job_id"], "job-42");

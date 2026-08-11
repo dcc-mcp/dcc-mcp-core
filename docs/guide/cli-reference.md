@@ -354,8 +354,8 @@ local gateway before the request. `update apply` stages only the CLI binary.
 The Admin Instances panel checks server availability but does not stage an
 update because the gateway cannot prove a selected local or remote instance's
 installation root. Run `dcc-mcp-server update apply` in the exact server
-environment. On Windows that command validates and stages the server and
-`dcc-mcp-ui-control-host.exe` as one installation-bound transaction.
+environment. On every platform that command validates and stages only the
+server binary. The standalone `dcc-cua` CLI is updated independently.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command
@@ -400,7 +400,7 @@ daemon can be re-ensured after a crash.
 | `dcc-mcp-server sidecar` | Per-DCC sidecar worker. | Ensures the standalone gateway daemon, registers a `per-dcc-sidecar` row, and dispatches through host RPC. Runtime is implemented by `dcc-mcp-sidecar`. |
 | `dcc-mcp-server translate` | External stdio MCP bridge. | Ensures the standalone gateway daemon and registers the bridge as a backend unless `--no-register` is set. |
 | `dcc-mcp-server gateway` | Machine-wide gateway daemon. | Hosts discovery, routing, resources/prompts, admin, and audit without running DCC tools inline. |
-| `dcc-mcp-server update check/apply` | Server runtime update helper. | Reads the gateway update manifest on `127.0.0.1:<gateway-port>`; Windows stages the server and version-matched UI Control host as one transaction, while other platforms stage the server binary. |
+| `dcc-mcp-server update check/apply` | Server runtime update helper. | Reads the gateway update manifest on `127.0.0.1:<gateway-port>` and stages only the server binary. |
 
 `auto` and `serve` share the server flags below. `gateway` has its own smaller
 flag surface and rejects server-only flags such as `--app`.

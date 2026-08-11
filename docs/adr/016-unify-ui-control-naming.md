@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted naming; native Host design superseded by [ADR-020](./020-external-cua-runtime.md)
 
 ## Context
 
@@ -26,23 +26,18 @@ Use one canonical vocabulary everywhere new code is written:
 | CLI | `dcc-mcp-cli ui-control` |
 | Environment | `DCC_MCP_UI_CONTROL_*` |
 | Python contracts | `UiControlPolicy`, `UiControlAuditRecord` |
-| Rust crate | `dcc-mcp-ui-control` |
 | Gateway diagnostics | `diagnostics.ui_control` |
 | Snapshot metadata | `metadata.ui_control` |
-| Native host | `dcc-mcp-ui-control-host.exe` |
+| Native runtime | `dcc-cua` |
 
 Do not ship aliases, environment promotion, compatibility skills, facade
 crates, gateway parsing, redirect pages, or VRS traces for the previous names.
 Historical changelog entries and ADR-014 remain unchanged as records, not
 runtime contracts.
 
-The native host executable name does not change. The wire protocol hard-cuts
-to version 2 for the system-operation capability and does not accept version 1.
-The same `dcc-mcp-ui-control-host.exe` also accepts the private
-`--dcc-mcp-ui-control-capture-worker` mode, so releases ship one executable
-while capture still runs in a separate, killable child process. No former
-capture executable or hidden argument is accepted; discovery uses only the
-current UI Control host and server fallback.
+ADR-020 supersedes the Core-owned native host. Core preserves the normalized
+`ui_control__*` contract and delegates native Host, capture, input, and session
+ownership to the independently released `dcc-cua` runtime.
 
 ## Consequences
 

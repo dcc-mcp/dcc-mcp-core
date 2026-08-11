@@ -2037,7 +2037,7 @@ PySceneDataKind.Arbitrary
 
 High-level DCC viewport / desktop capture. Platform-specific backends:
 - Windows (full-screen): DXGI Desktop Duplication (GPU framebuffer, < 16 ms/frame)
-- Windows (single window): Windows.Graphics.Capture (including occluded windows), with HWND `PrintWindow` + `BitBlt` as a runtime fallback
+- Windows (single window): Windows.Graphics.Capture (including occluded windows); native UI Control screenshots use `dcc-cua`
 - Linux: X11 XShmGetImage (full-screen) — PipeWire reserved for Wayland
 - macOS: ScreenCaptureKit (reserved)
 - Fallback: Mock synthetic checkerboard (CI / headless)
@@ -2090,7 +2090,7 @@ with open("screenshot.png", "wb") as f:
     f.write(frame.data)
 
 # Stats / backend introspection
-capturer.backend_name()                                 # "Windows.Graphics.Capture" | "GDI PrintWindow" | "DXGI Desktop Duplication" | "X11 XShmGetImage" | "Mock"
+capturer.backend_name()                                 # "Windows.Graphics.Capture" | "DXGI Desktop Duplication" | "X11 XShmGetImage" | "Mock"
 capturer.backend_kind() == CaptureBackendKind.WindowsGraphicsCapture  # actual backend used for the latest window frame
 count, total_bytes, errors = capturer.stats()
 ```

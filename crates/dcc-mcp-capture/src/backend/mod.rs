@@ -4,11 +4,9 @@
 //! |---------|----------|----------|
 //! | [`windows::DxgiBackend`] | Windows (full-screen) | 1st |
 //! | [`wgc::WgcBackend`] | Windows (window-target) | 1st |
-//! | [`hwnd::HwndBackend`] | Windows (window-target) | Fallback |
 //! | [`unix::X11Backend`] | Linux (X11) | 1st |
 //! | [`mock::MockBackend`] | All | Fallback |
 
-pub mod hwnd;
 pub mod mock;
 pub mod unix;
 pub mod wgc;
@@ -44,9 +42,8 @@ pub fn best_available() -> (Box<dyn DccCapture>, CaptureBackendKind) {
 /// a single top-level window rather than the whole desktop.
 ///
 /// Selection order:
-/// 1. Windows.Graphics.Capture with GDI fallback (Windows only)
-/// 2. GDI `PrintWindow` / `BitBlt` when WGC cannot initialise
-/// 3. Mock backend (other platforms — window capture pending)
+/// 1. Windows.Graphics.Capture (Windows only)
+/// 2. Mock backend (other platforms — window capture pending)
 pub fn best_window_capture() -> (Box<dyn DccCapture>, CaptureBackendKind) {
     #[cfg(target_os = "windows")]
     {
@@ -54,32 +51,9 @@ pub fn best_window_capture() -> (Box<dyn DccCapture>, CaptureBackendKind) {
         if wgc.is_available() {
             return (Box::new(wgc), CaptureBackendKind::WindowsGraphicsCapture);
         }
-        let hb = hwnd::HwndBackend::new();
-        if hb.is_available() {
-            return (Box::new(hb), CaptureBackendKind::HwndPrintWindow);
-        }
     }
     let mock = mock::MockBackend::new(1920, 1080);
     (Box::new(mock), CaptureBackendKind::Mock)
-}
-
-/// Create a backend for a deterministic, app-scoped static window snapshot.
-///
-/// On Windows this deliberately uses the HWND/GDI backend. Computer-use
-/// feedback is rendered in separate, display-affinity-excluded overlay
-/// windows; capturing the target HWND directly keeps those overlays out of
-/// the image without starting a concurrent Windows.Graphics.Capture session.
-/// The latter can outlive its timeout while DWM is applying display-affinity
-/// changes, which makes it unsuitable for the session's capture/action fence.
-pub fn best_static_window_capture() -> (Box<dyn DccCapture>, CaptureBackendKind) {
-    #[cfg(target_os = "windows")]
-    {
-        let backend = hwnd::HwndBackend::new();
-        if backend.is_available() {
-            return (Box::new(backend), CaptureBackendKind::HwndPrintWindow);
-        }
-    }
-    best_window_capture()
 }
 
 #[cfg(test)]
@@ -92,15 +66,6 @@ mod tests {
         // Whatever backend was selected, it must report itself as available.
         assert!(backend.is_available());
         assert_eq!(backend.backend_kind(), kind);
-    }
-
-    #[test]
-    fn test_best_static_window_capture_returns_an_available_backend() {
-        let (backend, kind) = best_static_window_capture();
-        assert!(backend.is_available());
-        assert_eq!(backend.backend_kind(), kind);
-        #[cfg(target_os = "windows")]
-        assert_eq!(kind, CaptureBackendKind::HwndPrintWindow);
     }
 
     #[test]

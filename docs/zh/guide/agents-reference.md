@@ -162,7 +162,7 @@ from dcc_mcp_core._core import DeferredExecutor   # 需要直接导入
 # ✓ 全屏 / 显示捕获（Windows 上 DXGI，Linux 上 X11）
 Capturer.new_auto().capture()
 
-# ✓ 单窗口捕获（Windows 上 HWND PrintWindow；其他平台为 Mock）
+# ✓ 单窗口诊断捕获（Windows 上使用 WGC；其他平台为 Mock）
 Capturer.new_window_auto().capture_window(window_title="Maya 2024")
 # ✗ .new_auto() 后调用 .capture_window() — 可能返回错误的后端
 ```

@@ -325,7 +325,6 @@ class TestCaptureBackendKindVariants:
             "ScreenCaptureKit",
             "X11Xshm",
             "PipeWire",
-            "HwndPrintWindow",
             "Mock",
         ],
     )
@@ -336,9 +335,9 @@ class TestCaptureBackendKindVariants:
         assert attr in repr(kind) or kind.name != ""
 
     def test_equality(self) -> None:
-        a = dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
-        b = dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
+        a = dcc_mcp_core.CaptureBackendKind.WindowsGraphicsCapture
+        b = dcc_mcp_core.CaptureBackendKind.WindowsGraphicsCapture
         assert a == b
 
     def test_inequality(self) -> None:
-        assert dcc_mcp_core.CaptureBackendKind.Mock != dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
+        assert dcc_mcp_core.CaptureBackendKind.Mock != dcc_mcp_core.CaptureBackendKind.WindowsGraphicsCapture

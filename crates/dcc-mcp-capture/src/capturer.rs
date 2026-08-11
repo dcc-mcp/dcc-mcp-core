@@ -87,23 +87,10 @@ impl Capturer {
     ///
     /// Uses [`backend::best_window_capture`] — typically
     /// [`CaptureBackendKind::WindowsGraphicsCapture`] on supported Windows
-    /// systems (with [`CaptureBackendKind::HwndPrintWindow`] fallback), and
-    /// [`CaptureBackendKind::Mock`] elsewhere (until X11/macOS window backends
+    /// systems, and [`CaptureBackendKind::Mock`] elsewhere (until X11/macOS window backends
     /// are implemented).
     pub fn new_window_auto() -> Self {
         let (backend, _) = backend::best_window_capture();
-        Capturer {
-            backend,
-            stats: Arc::new(CaptureStats::default()),
-        }
-    }
-
-    /// Create a capturer for deterministic app-scoped static screenshots.
-    ///
-    /// This is the preferred constructor when the caller also owns visible
-    /// feedback overlays that must never appear in the returned pixels.
-    pub fn new_window_static() -> Self {
-        let (backend, _) = backend::best_static_window_capture();
         Capturer {
             backend,
             stats: Arc::new(CaptureStats::default()),
@@ -151,26 +138,6 @@ mod tests {
     use crate::backend::mock::MockBackend;
     use crate::types::CaptureFormat;
 
-    struct DynamicKindBackend(Arc<std::sync::atomic::AtomicBool>);
-
-    impl DccCapture for DynamicKindBackend {
-        fn backend_kind(&self) -> CaptureBackendKind {
-            if self.0.load(Ordering::Acquire) {
-                CaptureBackendKind::WindowsGraphicsCapture
-            } else {
-                CaptureBackendKind::HwndPrintWindow
-            }
-        }
-
-        fn capture(&self, config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
-            MockBackend::new(1, 1).capture(config)
-        }
-
-        fn is_available(&self) -> bool {
-            true
-        }
-    }
-
     fn mock_capturer(w: u32, h: u32) -> Capturer {
         Capturer::with_backend(Box::new(MockBackend::new(w, h)))
     }
@@ -188,18 +155,6 @@ mod tests {
         let frame = c.capture(&CaptureConfig::default()).unwrap();
         assert_eq!(frame.width, 320);
         assert_eq!(frame.height, 240);
-    }
-
-    #[test]
-    fn backend_kind_reflects_runtime_fallback() {
-        let primary = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let capturer = Capturer::with_backend(Box::new(DynamicKindBackend(Arc::clone(&primary))));
-        assert_eq!(
-            capturer.backend_kind(),
-            CaptureBackendKind::WindowsGraphicsCapture
-        );
-        primary.store(false, Ordering::Release);
-        assert_eq!(capturer.backend_kind(), CaptureBackendKind::HwndPrintWindow);
     }
 
     #[test]
