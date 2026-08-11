@@ -1320,6 +1320,62 @@ fn focus_recovery_policy_attempts_all_cross_process_blockers() {
 }
 
 #[test]
+fn foreground_request_does_not_block_on_an_unresponsive_target_thread() {
+    use std::sync::mpsc;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
+    };
+    use windows::core::PCWSTR;
+
+    let (window_sender, window_receiver) = mpsc::sync_channel(1);
+    let target_thread = thread::spawn(move || {
+        let class = "STATIC\0".encode_utf16().collect::<Vec<_>>();
+        let title = "DCC MCP unresponsive foreground target\0"
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                PCWSTR(class.as_ptr()),
+                PCWSTR(title.as_ptr()),
+                WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 | WS_VISIBLE.0),
+                200,
+                200,
+                640,
+                480,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        .unwrap();
+        window_sender.send(hwnd.0 as usize as u64).unwrap();
+
+        // Deliberately do not pump this window's message queue. A synchronous
+        // raise request must not be able to stall the UI Control host.
+        thread::sleep(Duration::from_millis(1_500));
+        let _ = unsafe { DestroyWindow(hwnd) };
+    });
+    let handle = window_receiver.recv().unwrap();
+    let (result_sender, result_receiver) = mpsc::sync_channel(1);
+    let foreground_thread = thread::spawn(move || {
+        let started = Instant::now();
+        set_target_foreground(HWND(handle as *mut core::ffi::c_void));
+        let _ = result_sender.send(started.elapsed());
+    });
+
+    let prompt_result = result_receiver.recv_timeout(Duration::from_millis(500));
+    target_thread.join().unwrap();
+    foreground_thread.join().unwrap();
+    assert!(
+        prompt_result.is_ok(),
+        "foreground request blocked on the target UI thread"
+    );
+}
+
+#[test]
 fn point_recovery_failure_preserves_protected_ui_boundary() {
     let protected = point_recovery_failure(
         "PickerHost.exe",

@@ -306,12 +306,11 @@ fn pointer_effect_dwell(request: &ComputerUseAction) -> Duration {
 }
 
 pub(super) fn set_target_foreground(hwnd: HWND) {
-    // AttachThreadInput requires a USER message queue. Adapter worker threads
-    // often do not have one until they call PeekMessage at least once.
+    // Attaching to the current foreground owner lets Windows honor the focus
+    // request without synchronously coupling this worker to the target DCC.
     let mut queue_probe = MSG::default();
     let _ = unsafe { PeekMessageW(&mut queue_probe, None, 0, 0, PM_NOREMOVE) };
     let current_thread = unsafe { GetCurrentThreadId() };
-    let target_thread = unsafe { GetWindowThreadProcessId(hwnd, None) };
     let foreground = unsafe { GetForegroundWindow() };
     let foreground_thread = if foreground.0.is_null() {
         0
@@ -321,15 +320,25 @@ pub(super) fn set_target_foreground(hwnd: HWND) {
     let attached_foreground = foreground_thread != 0
         && foreground_thread != current_thread
         && unsafe { AttachThreadInput(current_thread, foreground_thread, true) }.as_bool();
-    let attached_target = target_thread != 0
-        && target_thread != current_thread
-        && unsafe { AttachThreadInput(current_thread, target_thread, true) }.as_bool();
 
-    let _ = unsafe { BringWindowToTop(hwnd) };
+    // BringWindowToTop synchronously sends window-position messages to the
+    // target UI thread. A DCC blocked in a modal callback can therefore stall
+    // the isolated UI Control host indefinitely. Queue the raise on the owner
+    // thread instead. In particular, never attach this worker to the target
+    // input queue. transition_scoped_window still verifies foreground state
+    // with its bounded deadline.
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOP),
+            0,
+            0,
+            0,
+            0,
+            SWP_ASYNCWINDOWPOS | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+        )
+    };
     let _ = unsafe { SetForegroundWindow(hwnd) };
-    if attached_target {
-        let _ = unsafe { AttachThreadInput(current_thread, target_thread, false) };
-    }
     if attached_foreground {
         let _ = unsafe { AttachThreadInput(current_thread, foreground_thread, false) };
     }
