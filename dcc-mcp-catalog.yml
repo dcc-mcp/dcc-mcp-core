@@ -143,17 +143,32 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-premiere/main/README.md"
 
   - name: "dcc-mcp-aftereffects"
-    description: "Adobe After Effects adapter for DCC-MCP"
-    dcc: ["aftereffects"]
+    description: "Adobe After Effects adapter with typed project, layer, render queue, and official DOM workflows"
+    dcc: ["aftereffects", "after-effects", "after effects"]
     url: "https://github.com/dcc-mcp/dcc-mcp-aftereffects"
-    tags: ["adapter", "aftereffects", "official", "pip", "motion-graphics"]
-    version: "0.5.0"
-    min_core_version: "0.19.45"
+    tags: ["adapter", "aftereffects", "after-effects", "official", "pip", "cep", "motion-graphics"]
+    version: "0.6.0"
+    min_core_version: "0.19.91"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-aftereffects"
+      entry_point: "dcc_mcp_aftereffects.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-aftereffects/main/README.md"
+
+  - name: "dcc-mcp-illustrator"
+    description: "Adobe Illustrator adapter with typed document, artwork, export, and official DOM workflows"
+    dcc: ["illustrator"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-illustrator"
+    tags: ["adapter", "illustrator", "official", "pip", "cep", "vector-graphics"]
+    version: "0.1.0"
+    min_core_version: "0.19.91"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-illustrator"
+      entry_point: "dcc_mcp_illustrator.cli:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-illustrator/main/README.md"
 
   - name: "dcc-mcp-katana"
     description: "Foundry Katana adapter for DCC-MCP"

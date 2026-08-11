@@ -1208,4 +1208,35 @@ entries:
             );
         }
     }
+
+    #[test]
+    fn bundled_adobe_adapters_expose_installable_entry_points() {
+        let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
+
+        for (name, dcc, entry_point) in [
+            (
+                "dcc-mcp-aftereffects",
+                "aftereffects",
+                "dcc_mcp_aftereffects.cli:main",
+            ),
+            (
+                "dcc-mcp-illustrator",
+                "illustrator",
+                "dcc_mcp_illustrator.cli:main",
+            ),
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.name == name)
+                .unwrap_or_else(|| panic!("bundled catalog is missing {name}"));
+            assert!(entry.dcc.iter().any(|candidate| candidate == dcc));
+
+            let install = entry
+                .install
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name} is missing install metadata"));
+            assert_eq!(install.pip_package.as_deref(), Some(name));
+            assert_eq!(install.entry_point.as_deref(), Some(entry_point));
+        }
+    }
 }
