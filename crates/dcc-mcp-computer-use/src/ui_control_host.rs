@@ -568,25 +568,35 @@ impl UiControlHost {
             Err(failure) => return failure.into_response(),
         };
         let accessibility_state_id = new_capability("accessibility");
-        let current_state = accessibility_state_value(
-            &snapshot.root,
-            snapshot.focus_runtime_id.as_deref(),
-            snapshot.node_count,
-        );
-        let state_delta = diff_json_state(
-            session.last_accessibility_state.as_ref(),
-            &current_state,
-            DEFAULT_STATE_DELTA_MAX_CHANGES,
-        );
-        session.last_accessibility_state = Some(current_state);
+        let accessibility_available = snapshot.node_count > 0;
+        let state_delta = accessibility_available.then(|| {
+            let current_state = accessibility_state_value(
+                &snapshot.root,
+                snapshot.focus_runtime_id.as_deref(),
+                snapshot.node_count,
+            );
+            let delta = diff_json_state(
+                session.last_accessibility_state.as_ref(),
+                &current_state,
+                DEFAULT_STATE_DELTA_MAX_CHANGES,
+            );
+            session.last_accessibility_state = Some(current_state);
+            delta
+        });
+        if !accessibility_available {
+            session.last_accessibility_state = None;
+        }
         let cause_action_id = session.pending_action_id.take();
         session.observation_id = Some(snapshot.observation_id.clone());
         session.observation = Some(snapshot.observation.clone());
-        session.accessibility_state_id = Some(accessibility_state_id.clone());
-        session.accessibility_root = Some(snapshot.root.clone());
-        session.focus_runtime_id = snapshot.focus_runtime_id.clone();
-        session.accessibility_max_depth = Some(max_depth);
-        session.accessibility_max_nodes = Some(max_nodes);
+        session.accessibility_state_id =
+            accessibility_available.then(|| accessibility_state_id.clone());
+        session.accessibility_root = accessibility_available.then(|| snapshot.root.clone());
+        session.focus_runtime_id = accessibility_available
+            .then(|| snapshot.focus_runtime_id.clone())
+            .flatten();
+        session.accessibility_max_depth = accessibility_available.then_some(max_depth);
+        session.accessibility_max_nodes = accessibility_available.then_some(max_nodes);
         UiControlHostResponse::Snapshot {
             observation_id: snapshot.observation_id,
             accessibility_state_id,
@@ -595,7 +605,7 @@ impl UiControlHost {
             root: snapshot.root,
             focus_runtime_id: snapshot.focus_runtime_id,
             node_count: snapshot.node_count,
-            state_delta: Some(state_delta),
+            state_delta,
             cause_action_id,
             image: Box::new(snapshot.image),
         }

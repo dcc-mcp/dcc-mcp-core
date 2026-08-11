@@ -51,6 +51,7 @@ mod confirmation;
 pub(super) use confirmation::WindowsConfirmationSurface;
 
 const UIA_TIMEOUT: Duration = Duration::from_secs(30);
+const UIA_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);
 const UIA_STDERR_LIMIT: u64 = 64 * 1024;
 const UIA_SCRIPT: &str = include_str!(
     "../../../../python/dcc_mcp_core/skills/ui-control/scripts/_windows_uia_backend.ps1"
@@ -147,6 +148,14 @@ impl UiaWorker {
     }
 
     fn request(&mut self, payload: &Value) -> Result<Value, HostFailure> {
+        self.request_with_timeout(payload, UIA_TIMEOUT)
+    }
+
+    fn request_with_timeout(
+        &mut self,
+        payload: &Value,
+        timeout: Duration,
+    ) -> Result<Value, HostFailure> {
         if self.child.is_none() {
             return Err(HostFailure::new(
                 UiControlHostErrorCode::BackendUnavailable,
@@ -175,10 +184,13 @@ impl UiaWorker {
                 "send the Windows UI Automation worker request: {error}"
             )));
         }
-        let response = match self.responses.recv_timeout(UIA_TIMEOUT) {
+        let response = match self.responses.recv_timeout(timeout) {
             Ok(response) => response,
             Err(RecvTimeoutError::Timeout) => {
-                return Err(self.fail("Windows UI Automation timed out after 30 seconds"));
+                return Err(self.fail(format!(
+                    "Windows UI Automation timed out after {} milliseconds",
+                    timeout.as_millis()
+                )));
             }
             Err(RecvTimeoutError::Disconnected) => {
                 return Err(self.fail("Windows UI Automation worker closed without a response"));
@@ -596,6 +608,24 @@ impl WindowsRuntimeSession {
         )
     }
 
+    fn query_accessibility_state_with_timeout(
+        &mut self,
+        max_depth: u32,
+        max_nodes: u32,
+        allow_owned_standard_menu_popup: bool,
+        timeout: Duration,
+    ) -> Result<RuntimeAccessibilityState, HostFailure> {
+        let target = self.target.clone();
+        query_accessibility_state_with_timeout(
+            self.uia_worker()?,
+            &target,
+            max_depth,
+            max_nodes,
+            allow_owned_standard_menu_popup,
+            timeout,
+        )
+    }
+
     fn run_uia(&mut self, payload: Value) -> Result<Value, HostFailure> {
         self.uia_worker()?.request(&payload)
     }
@@ -658,7 +688,7 @@ impl HostRuntimeSession for WindowsRuntimeSession {
         self.start_visible_notice()?;
         let screenshot = self.session.screenshot().map_err(map_computer_use_error)?;
         self.window_generation.verify()?;
-        let observation = serde_json::to_value(&screenshot.observation).map_err(|error| {
+        let mut observation = serde_json::to_value(&screenshot.observation).map_err(|error| {
             HostFailure::new(
                 UiControlHostErrorCode::CaptureFailed,
                 format!("serialize the native screenshot observation: {error}"),
@@ -669,7 +699,30 @@ impl HostRuntimeSession for WindowsRuntimeSession {
             window_handle: screenshot.observation.window_handle,
             window_title: screenshot.observation.window_title.clone(),
         };
-        let accessibility = self.query_accessibility_state(max_depth, max_nodes, true)?;
+        let accessibility = match self.query_accessibility_state_with_timeout(
+            max_depth,
+            max_nodes,
+            true,
+            UIA_SNAPSHOT_TIMEOUT,
+        ) {
+            Ok(accessibility) => accessibility,
+            Err(failure) if failure.code == UiControlHostErrorCode::BackendUnavailable => {
+                tracing::warn!(
+                    "Windows UI Automation is unavailable; returning a screenshot-only observation"
+                );
+                if let Some(object) = observation.as_object_mut() {
+                    object.insert(
+                        "accessibility".to_owned(),
+                        json!({
+                            "available": false,
+                            "error": "backend_unavailable",
+                        }),
+                    );
+                }
+                unavailable_accessibility_state(&self.target)
+            }
+            Err(failure) => return Err(failure),
+        };
 
         let buffer_id = Uuid::new_v4().simple().to_string()[..16].to_owned();
         let buffer =
@@ -1094,12 +1147,33 @@ fn query_accessibility_state(
     max_nodes: u32,
     allow_owned_standard_menu_popup: bool,
 ) -> Result<RuntimeAccessibilityState, HostFailure> {
-    let raw = worker.request(&json!({
-        "mode": "snapshot",
-        "scope": accessibility_scope(target, allow_owned_standard_menu_popup),
-        "max_depth": max_depth,
-        "max_nodes": max_nodes,
-    }))?;
+    query_accessibility_state_with_timeout(
+        worker,
+        target,
+        max_depth,
+        max_nodes,
+        allow_owned_standard_menu_popup,
+        UIA_TIMEOUT,
+    )
+}
+
+fn query_accessibility_state_with_timeout(
+    worker: &mut UiaWorker,
+    target: &UiControlTarget,
+    max_depth: u32,
+    max_nodes: u32,
+    allow_owned_standard_menu_popup: bool,
+    timeout: Duration,
+) -> Result<RuntimeAccessibilityState, HostFailure> {
+    let raw = worker.request_with_timeout(
+        &json!({
+            "mode": "snapshot",
+            "scope": accessibility_scope(target, allow_owned_standard_menu_popup),
+            "max_depth": max_depth,
+            "max_nodes": max_nodes,
+        }),
+        timeout,
+    )?;
     ensure_uia_ok(&raw, "Windows UI Automation snapshot failed")?;
     Ok(RuntimeAccessibilityState {
         root: raw.get("root").cloned().ok_or_else(|| {
@@ -1115,6 +1189,24 @@ fn query_accessibility_state(
             .and_then(|value| u32::try_from(value).ok())
             .unwrap_or(1),
     })
+}
+
+fn unavailable_accessibility_state(target: &UiControlTarget) -> RuntimeAccessibilityState {
+    RuntimeAccessibilityState {
+        root: json!({
+            "runtime_id": "accessibility-unavailable",
+            "name": "Scoped DCC window",
+            "control_type": "ControlType.Window",
+            "process_id": target.process_id,
+            "native_window_handle": target.window_handle,
+            "is_password": false,
+            "enabled": false,
+            "offscreen": false,
+            "children": [],
+        }),
+        focus_runtime_id: None,
+        node_count: 0,
+    }
 }
 
 fn target_from_status(status: &Value) -> Result<UiControlTarget, HostFailure> {

@@ -362,6 +362,7 @@ def _capture_snapshot(
         return _host_error(exc)
 
     snapshot_id = str(raw["accessibility_state_id"])
+    accessibility_available = int(raw.get("node_count") or 0) > 0
     state_delta = _state_delta_event(raw, snapshot_id)
     root = _node_from_uia_dict(raw["root"], snapshot_id)
     focus_runtime_id = str(raw.get("focus_runtime_id") or "")
@@ -379,6 +380,8 @@ def _capture_snapshot(
                 "target": raw.get("target") or client.target,
                 "max_depth": max_depth,
                 "max_nodes": max_nodes,
+                "accessibility_available": accessibility_available,
+                "accessibility_error": (None if accessibility_available else "backend_unavailable"),
             },
             "computer_use": raw.get("observation") or {},
             "state_delta": state_delta,
@@ -395,6 +398,7 @@ def _capture_snapshot(
         "observation": raw.get("observation") or {},
         "target": raw.get("target") or client.target,
         "state_delta": state_delta,
+        "accessibility_available": accessibility_available,
     }
 
 
@@ -463,14 +467,27 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     capture = _capture_snapshot(session_id, policy, params)
     if not capture.get("success"):
         return capture
+    accessibility_available = bool(capture.get("accessibility_available", True))
     return skill_success(
-        "Captured isolated Windows UI Control snapshot.",
-        prompt="Use ui_control__find or perform one scoped ui_control__act with this snapshot_id, then snapshot again.",
+        (
+            "Captured isolated Windows UI Control snapshot."
+            if accessibility_available
+            else "Captured screenshot-only Windows UI Control observation."
+        ),
+        prompt=(
+            "Use ui_control__find or perform one scoped ui_control__act with this snapshot_id, then snapshot again."
+            if accessibility_available
+            else (
+                "Windows UI Automation was unavailable for this frame. Inspect the pixels, but do not act "
+                "until a fresh snapshot returns accessibility_available=true."
+            )
+        ),
         session_id=session_id,
         snapshot_id=capture["snapshot_id"],
         snapshot=capture["snapshot"],
         observation=capture["observation"],
         state_delta=capture.get("state_delta"),
+        accessibility_available=accessibility_available,
         policy=policy.to_dict(),
         __rich__={
             "kind": "image",
