@@ -114,8 +114,7 @@ def _write_tool_skill(skill_root: Path, name: str, tool_name: str) -> None:
         encoding="utf-8",
     )
     (scripts_dir / f"{tool_name}.py").write_text(
-        "def main(**kwargs):\n"
-        f'    return {{"success": True, "tool": "{tool_name}"}}\n',
+        f'def main(**kwargs):\n    return {{"success": True, "tool": "{tool_name}"}}\n',
         encoding="utf-8",
     )
 
