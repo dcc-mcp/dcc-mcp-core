@@ -128,6 +128,7 @@ mod windows_impl {
         height: i32,
         shm_name: String,
         shm_id: String,
+        method: CaptureMethod,
     }
 
     pub(crate) fn window_is_same_thread(hwnd: u64) -> bool {
@@ -153,6 +154,68 @@ mod windows_impl {
         timeout_ms: u64,
     ) -> CaptureResult<Vec<u8>> {
         let started = Instant::now();
+        capture_with_bitblt_fallback(
+            timeout_ms,
+            |primary_timeout_ms| {
+                capture_via_worker_once(
+                    hwnd,
+                    width,
+                    height,
+                    primary_timeout_ms,
+                    CaptureMethod::PrintWindowThenBitBlt,
+                )
+            },
+            |fallback_timeout_ms| {
+                capture_via_worker_once(
+                    hwnd,
+                    width,
+                    height,
+                    fallback_timeout_ms,
+                    CaptureMethod::BitBltOnly,
+                )
+            },
+            || started.elapsed(),
+        )
+    }
+
+    fn capture_with_bitblt_fallback<T, Primary, Fallback, Elapsed>(
+        timeout_ms: u64,
+        primary: Primary,
+        fallback: Fallback,
+        elapsed: Elapsed,
+    ) -> CaptureResult<T>
+    where
+        Primary: FnOnce(u64) -> CaptureResult<T>,
+        Fallback: FnOnce(u64) -> CaptureResult<T>,
+        Elapsed: FnOnce() -> Duration,
+    {
+        let timeout_ms = timeout_ms.max(1);
+        let fallback_reserve_ms = (timeout_ms / 5).max(1).min(timeout_ms.saturating_sub(1));
+        let primary_timeout_ms = timeout_ms.saturating_sub(fallback_reserve_ms).max(1);
+        match primary(primary_timeout_ms) {
+            Ok(value) => Ok(value),
+            Err(primary_error) => {
+                tracing::warn!(%primary_error, "PrintWindow capture failed; falling back to BitBlt-only worker");
+                let remaining = Duration::from_millis(timeout_ms)
+                    .checked_sub(elapsed())
+                    .filter(|duration| duration.as_millis() > 0)
+                    .ok_or(CaptureError::Timeout(timeout_ms))?;
+                match fallback(remaining.as_millis().min(u128::from(u64::MAX)) as u64) {
+                    Err(CaptureError::Timeout(_)) => Err(CaptureError::Timeout(timeout_ms)),
+                    result => result,
+                }
+            }
+        }
+    }
+
+    fn capture_via_worker_once(
+        hwnd: u64,
+        width: i32,
+        height: i32,
+        timeout_ms: u64,
+        method: CaptureMethod,
+    ) -> CaptureResult<Vec<u8>> {
+        let started = Instant::now();
         let worker = discover_worker()?;
         let pixel_len = pixel_len(width, height)?;
         let response_len = RESPONSE_HEADER_LEN.checked_add(pixel_len).ok_or_else(|| {
@@ -176,6 +239,8 @@ mod windows_impl {
             .arg(buffer.name())
             .arg("--shm-id")
             .arg(&buffer.id)
+            .arg("--method")
+            .arg(method.as_arg())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -233,15 +298,8 @@ mod windows_impl {
     ) -> Result<(), WorkerRunError> {
         let request = parse_request(args)?;
         let hwnd = HWND(request.hwnd as *mut core::ffi::c_void);
-        let pixels = unsafe {
-            capture_bgra(
-                hwnd,
-                request.width,
-                request.height,
-                CaptureMethod::PrintWindowThenBitBlt,
-            )
-        }
-        .map_err(|error| WorkerRunError::Capture(error.to_string()))?;
+        let pixels = unsafe { capture_bgra(hwnd, request.width, request.height, request.method) }
+            .map_err(|error| WorkerRunError::Capture(error.to_string()))?;
         let response = encode_response(request.width, request.height, &pixels)
             .map_err(WorkerRunError::Capture)?;
         let buffer = SharedBuffer::open(&request.shm_name, &request.shm_id)
@@ -269,6 +327,7 @@ mod windows_impl {
         let mut height = None;
         let mut shm_name = None;
         let mut shm_id = None;
+        let mut method = None;
 
         while let Some(flag) = args.next() {
             let value = args.next().ok_or_else(|| {
@@ -281,6 +340,7 @@ mod windows_impl {
                 "--height" => height = Some(parse_number(&value, "height")?),
                 "--shm-name" => shm_name = Some(value.to_string_lossy().into_owned()),
                 "--shm-id" => shm_id = Some(value.to_string_lossy().into_owned()),
+                "--method" => method = Some(CaptureMethod::parse(&value)?),
                 other => return Err(WorkerRunError::Usage(format!("unknown argument {other}"))),
             }
         }
@@ -301,6 +361,7 @@ mod windows_impl {
             height,
             shm_name: required(shm_name, "--shm-name")?,
             shm_id: required(shm_id, "--shm-id")?,
+            method: method.unwrap_or(CaptureMethod::PrintWindowThenBitBlt),
         })
     }
 
@@ -535,10 +596,29 @@ mod windows_impl {
         }
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum CaptureMethod {
         PrintWindowThenBitBlt,
         BitBltOnly,
+    }
+
+    impl CaptureMethod {
+        fn as_arg(self) -> &'static str {
+            match self {
+                Self::PrintWindowThenBitBlt => "print-window",
+                Self::BitBltOnly => "bitblt",
+            }
+        }
+
+        fn parse(value: &OsStr) -> Result<Self, WorkerRunError> {
+            match value.to_string_lossy().as_ref() {
+                "print-window" => Ok(Self::PrintWindowThenBitBlt),
+                "bitblt" => Ok(Self::BitBltOnly),
+                other => Err(WorkerRunError::Usage(format!(
+                    "unsupported capture method {other}"
+                ))),
+            }
+        }
     }
 
     unsafe fn capture_bgra(
@@ -674,6 +754,7 @@ mod windows_impl {
 
     #[cfg(test)]
     mod tests {
+        use std::cell::Cell;
         use std::ffi::OsString;
         use std::path::Path;
         use std::sync::Mutex;
@@ -691,6 +772,54 @@ mod windows_impl {
         use super::*;
 
         static HOST_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+        #[test]
+        fn print_window_timeout_reserves_budget_for_bitblt_fallback() {
+            let primary_budget = Cell::new(0);
+            let fallback_budget = Cell::new(0);
+            let pixels = capture_with_bitblt_fallback(
+                100,
+                |budget| {
+                    primary_budget.set(budget);
+                    Err(CaptureError::Timeout(budget))
+                },
+                |budget| {
+                    fallback_budget.set(budget);
+                    Ok(vec![1, 2, 3, 4])
+                },
+                || Duration::from_millis(37),
+            )
+            .unwrap();
+
+            assert_eq!(primary_budget.get(), 80);
+            assert_eq!(fallback_budget.get(), 63);
+            assert_eq!(pixels, vec![1, 2, 3, 4]);
+        }
+
+        #[test]
+        fn bitblt_timeout_reports_the_original_capture_budget() {
+            let error = capture_with_bitblt_fallback::<(), _, _, _>(
+                100,
+                |budget| Err(CaptureError::Timeout(budget)),
+                |budget| Err(CaptureError::Timeout(budget)),
+                || Duration::from_millis(80),
+            )
+            .unwrap_err();
+
+            assert!(matches!(error, CaptureError::Timeout(100)));
+        }
+
+        #[test]
+        fn worker_capture_method_is_explicit_and_backward_compatible() {
+            assert_eq!(
+                CaptureMethod::parse(OsStr::new("bitblt")).unwrap(),
+                CaptureMethod::BitBltOnly
+            );
+            assert_eq!(
+                CaptureMethod::parse(OsStr::new("print-window")).unwrap(),
+                CaptureMethod::PrintWindowThenBitBlt
+            );
+        }
 
         struct HostOverride(Option<OsString>);
 
