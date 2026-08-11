@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.94](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.93...v0.19.94) (2026-08-11)
+
+
+### Features
+
+* catalog production Adobe adapters ([#2137](https://github.com/dcc-mcp/dcc-mcp-core/issues/2137)) ([c739e91](https://github.com/dcc-mcp/dcc-mcp-core/commit/c739e91772ebf46da08ee6ee67b4c3215ec1d0ed))
+
+
+### Bug Fixes
+
+* avoid blocking on hung DCC windows ([#2139](https://github.com/dcc-mcp/dcc-mcp-core/issues/2139)) ([5b8a3fc](https://github.com/dcc-mcp/dcc-mcp-core/commit/5b8a3fc19f7422fb11dc9e92e9c4a34414c2f90e))
+* fall back when PrintWindow hangs ([#2141](https://github.com/dcc-mcp/dcc-mcp-core/issues/2141)) ([4d46b58](https://github.com/dcc-mcp/dcc-mcp-core/commit/4d46b585c04337e14d871ef72894c579ae902bbd))
+* preserve screenshots when UIA stalls ([#2142](https://github.com/dcc-mcp/dcc-mcp-core/issues/2142)) ([8848ebb](https://github.com/dcc-mcp/dcc-mcp-core/commit/8848ebbeab4fff3ec9feb26adee3f556f35646eb))
+
 ## [0.19.93](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.92...v0.19.93) (2026-08-10)
 
 
