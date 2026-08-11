@@ -238,7 +238,11 @@ class SkillDiscoveryController:
             len(skill_paths),
         )
         try:
-            count = owner._server.discover(extra_paths=skill_paths)
+            rediscover = getattr(owner._server, "rediscover", None)
+            if callable(rediscover):
+                count = rediscover(extra_paths=skill_paths)
+            else:
+                count = owner._server.discover(extra_paths=skill_paths)
         except Exception as exc:
             logger.warning("[%s] reload_skill_paths failed: %s", owner._dcc_name, exc)
             return 0

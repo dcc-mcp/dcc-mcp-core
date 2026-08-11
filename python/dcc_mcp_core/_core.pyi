@@ -2503,6 +2503,11 @@ class SkillCatalog:
 
         Returns the number of newly discovered skills.
         """
+    def rediscover(self, extra_paths: typing.Optional[typing.Sequence[builtins.str]] = None, dcc_name: typing.Optional[builtins.str] = None) -> builtins.int:
+        r"""
+        Re-scan search paths, replace changed skill metadata, and refresh any
+        loaded tools whose declarations changed on disk.
+        """
     def set_in_process_executor(self, executor: typing.Optional[typing.Any]) -> None:
         r"""
         Register a Python callable as the in-process script executor.
