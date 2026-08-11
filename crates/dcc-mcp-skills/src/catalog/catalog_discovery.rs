@@ -354,6 +354,8 @@ impl SkillCatalog {
         let mut seen = std::collections::HashSet::new();
         self.skipped.clear();
         let mut added = 0usize;
+        let mut updated = 0usize;
+        let mut loaded_to_reload = Vec::new();
 
         for (skill, path_source) in result.skills {
             let name = skill.name.clone();
@@ -362,11 +364,19 @@ impl SkillCatalog {
             seen.insert(name.clone());
             if let Some(mut entry) = self.entries.get_mut(&name) {
                 let old_dcc = entry.metadata.dcc.clone();
-                entry.metadata = skill;
-                entry.path_source = path_source;
-                entry.refresh_tokens();
-                if entry.state != SkillState::Loaded {
-                    entry.state = SkillState::Discovered;
+                let metadata_changed = entry.metadata != skill;
+                let source_changed = entry.path_source != path_source;
+                if metadata_changed || source_changed {
+                    let was_loaded = entry.state == SkillState::Loaded;
+                    entry.metadata = skill;
+                    entry.path_source = path_source;
+                    entry.refresh_tokens();
+                    if !was_loaded {
+                        entry.state = SkillState::Discovered;
+                    } else if metadata_changed {
+                        loaded_to_reload.push(name.clone());
+                    }
+                    updated += 1;
                 }
                 // Update shard if dcc changed.
                 self.shard_move(&name, &old_dcc, &dcc);
@@ -399,7 +409,17 @@ impl SkillCatalog {
         }
         self.refresh_dependency_states();
 
-        if added + removed > 0 {
+        for name in loaded_to_reload {
+            if let Err(err) = self.unload_skill(&name) {
+                tracing::warn!(skill = %name, error = %err, "SkillCatalog: failed to unload changed skill during rediscovery");
+                continue;
+            }
+            if let Err(err) = self.load_skill(&name) {
+                tracing::warn!(skill = %name, error = %err, "SkillCatalog: failed to reload changed skill during rediscovery");
+            }
+        }
+
+        if added + updated + removed > 0 {
             self.inverted_index.write().invalidate();
         }
 
@@ -413,12 +433,13 @@ impl SkillCatalog {
         }
 
         tracing::info!(
-            "SkillCatalog: rediscovered skills (added {}, removed {}, total {})",
+            "SkillCatalog: rediscovered skills (added {}, updated {}, removed {}, total {})",
             added,
+            updated,
             removed,
             self.entries.len()
         );
-        added + removed
+        added + updated + removed
     }
 
     /// Add a single skill to the catalog (e.g. from SkillWatcher).

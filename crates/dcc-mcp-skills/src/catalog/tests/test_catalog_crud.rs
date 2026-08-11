@@ -18,6 +18,31 @@ fn write_skill_dir(root: &std::path::Path, name: &str, dcc: &str) {
     .unwrap();
 }
 
+fn write_tool_skill_dir(root: &std::path::Path, name: &str, dcc: &str, tool_name: &str) {
+    let dir = root.join(name);
+    let scripts = dir.join("scripts");
+    std::fs::create_dir_all(&scripts).unwrap();
+    std::fs::write(
+        dir.join(crate::constants::SKILL_METADATA_FILE),
+        format!(
+            "---\nname: {name}\ndescription: reload fixture\nmetadata:\n  dcc-mcp:\n    dcc: {dcc}\n    tools: tools.yaml\n---\n# {name}\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("tools.yaml"),
+        format!(
+            "tools:\n  - name: {tool_name}\n    description: reload fixture {tool_name}\n    source_file: scripts/{tool_name}.py\n    input_schema:\n      type: object\n      properties: {{}}\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        scripts.join(format!("{tool_name}.py")),
+        "def main(**kwargs):\n    return {'success': True}\n",
+    )
+    .unwrap();
+}
+
 #[test]
 fn test_catalog_new_is_empty() {
     let catalog = make_test_catalog();
@@ -166,6 +191,35 @@ fn test_rediscover_removes_missing_skill_and_registered_tools() {
     assert!(catalog.get_skill_info("stale-skill").is_none());
     assert!(!catalog.is_loaded("stale-skill"));
     assert_eq!(catalog.registry().len(), 0);
+}
+
+#[test]
+fn test_rediscover_refreshes_changed_loaded_skill_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_tool_skill_dir(tmp.path(), "lookdev-turntable", "maya", "old_preset");
+
+    let catalog = make_test_catalog();
+    let paths = vec![tmp.path().to_string_lossy().to_string()];
+    assert!(catalog.rediscover(Some(&paths), Some("maya")) >= 1);
+    catalog.load_skill("lookdev-turntable").unwrap();
+
+    write_tool_skill_dir(
+        tmp.path(),
+        "lookdev-turntable",
+        "maya",
+        "recommend_hdr_preset",
+    );
+    assert!(catalog.rediscover(Some(&paths), Some("maya")) >= 1);
+
+    let info = catalog.get_skill_info("lookdev-turntable").unwrap();
+    assert_eq!(info.state, "loaded");
+    assert_eq!(info.tools.len(), 1);
+    assert_eq!(info.tools[0].name, "recommend_hdr_preset");
+    assert_eq!(
+        info.registered_tools,
+        vec!["lookdev_turntable__recommend_hdr_preset"]
+    );
+    assert_eq!(catalog.registry().len(), 1);
 }
 
 #[test]
