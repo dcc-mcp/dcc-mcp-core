@@ -1517,6 +1517,103 @@ def test_ui_control_host_client_wire_has_no_approval_boolean() -> None:
     assert "window:opaque" not in wire
 
 
+def test_ui_control_host_client_keeps_screenshot_but_rejects_actions_without_uia(
+    monkeypatch: Any,
+) -> None:
+    import io
+    import struct
+
+    import dcc_mcp_core
+
+    backend = _load_windows_uia_module()
+    client_module = backend._HOST
+
+    def frame(value: dict[str, Any]) -> bytes:
+        body = json.dumps(value).encode("utf-8")
+        return struct.pack(">I", len(body)) + body
+
+    class Buffer:
+        def read(self) -> bytes:
+            return b"png"
+
+    class SharedBuffer:
+        @staticmethod
+        def open(name: str, buffer_id: str) -> Buffer:
+            assert name == "test"
+            assert buffer_id == "test-id"
+            return Buffer()
+
+    class ScriptedPipe:
+        def __init__(self) -> None:
+            self.responses = io.BytesIO(
+                frame({"type": "hello", "protocol_version": 3, "capabilities": []})
+                + frame(
+                    {
+                        "type": "session_opened",
+                        "session_id": "screenshot-only",
+                        "window_capability": "window:opaque",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
+                    }
+                )
+                + frame(
+                    {
+                        "type": "snapshot",
+                        "observation_id": "obs-1",
+                        "accessibility_state_id": "accessibility:unusable",
+                        "target": {"process_id": 42, "window_handle": 500, "window_title": "DCC"},
+                        "observation": {
+                            "observation_id": "obs-1",
+                            "accessibility": {
+                                "available": False,
+                                "error": "backend_unavailable",
+                            },
+                        },
+                        "root": {
+                            "runtime_id": "accessibility-unavailable",
+                            "name": "Scoped DCC window",
+                            "enabled": False,
+                            "children": [],
+                        },
+                        "node_count": 0,
+                        "image": {
+                            "name": "test",
+                            "id": "test-id",
+                            "length": 3,
+                            "mime_type": "image/png",
+                        },
+                    }
+                )
+            )
+
+        def read(self, length: int) -> bytes:
+            return self.responses.read(length)
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(dcc_mcp_core, "PySharedBuffer", SharedBuffer)
+    client = client_module.UiControlHostClient(
+        session_id="screenshot-only",
+        task_grant_id="grant",
+        dcc_type="houdini",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        stream=ScriptedPipe(),
+    )
+
+    response = client.snapshot(max_depth=5, max_nodes=250)
+
+    assert response["image_bytes"] == b"png"
+    assert client._latest_observation_id == "obs-1"
+    assert client._latest_accessibility_state_id is None
+    with pytest.raises(client_module.UiControlHostError, match="fresh ui_control snapshot"):
+        client.execute({"action": "click"})
+
+
 def test_ui_control_host_client_uses_versioned_binary_identity_pipe(monkeypatch: Any) -> None:
     backend = _load_windows_uia_module()
     client_module = backend._HOST

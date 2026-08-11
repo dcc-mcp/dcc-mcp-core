@@ -764,6 +764,87 @@ fn exact_target_capability_and_observation_are_required() {
 }
 
 #[test]
+fn screenshot_only_snapshot_never_mints_an_action_fence() {
+    let snapshot = RuntimeAccessibilityState {
+        root: json!({
+            "runtime_id": "accessibility-unavailable",
+            "name": "Scoped DCC window",
+            "enabled": false,
+            "children": [],
+        }),
+        focus_runtime_id: None,
+        node_count: 0,
+    };
+    let mut host = host_with_accessibility_states(snapshot, Vec::new());
+    let mut connection = UiControlHostConnection::default();
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::Hello(UiControlHostHello {
+                protocol_version: UI_CONTROL_HOST_PROTOCOL_VERSION,
+                client_name: "test".to_owned(),
+            }),
+        ),
+        UiControlHostResponse::Hello { .. }
+    ));
+    let opened = connection.handle(
+        &mut host,
+        UiControlHostRequest::OpenSession {
+            session_id: "screenshot-only".to_owned(),
+            grant: grant(false),
+        },
+    );
+    let UiControlHostResponse::SessionOpened {
+        window_capability, ..
+    } = opened
+    else {
+        panic!("session not opened: {opened:?}");
+    };
+    let response = connection.handle(
+        &mut host,
+        UiControlHostRequest::Snapshot {
+            session_id: "screenshot-only".to_owned(),
+            task_grant_id: "grant-1".to_owned(),
+            window_capability: window_capability.clone(),
+            max_depth: 5,
+            max_nodes: 250,
+        },
+    );
+    let UiControlHostResponse::Snapshot {
+        observation_id,
+        accessibility_state_id,
+        node_count,
+        ..
+    } = response
+    else {
+        panic!("snapshot failed: {response:?}");
+    };
+    assert_eq!(node_count, 0);
+
+    assert!(matches!(
+        connection.handle(
+            &mut host,
+            UiControlHostRequest::ExecuteAction {
+                session_id: "screenshot-only".to_owned(),
+                task_grant_id: "grant-1".to_owned(),
+                window_capability,
+                observation_id,
+                accessibility_state_id,
+                action: Box::new(action(
+                    Some("uia:accessibility-unavailable"),
+                    UiControlInputKind::Semantic
+                )),
+            },
+        ),
+        UiControlHostResponse::ActionCompleted {
+            success: false,
+            error: Some(UiControlHostErrorCode::StaleObservation),
+            ..
+        }
+    ));
+}
+
+#[test]
 fn accessibility_snapshot_refreshes_uia_without_pixel_observation() {
     let (mut host, mut connection) = negotiated();
     let capability = open_recording_session(&mut host, &mut connection, "uia-poll");

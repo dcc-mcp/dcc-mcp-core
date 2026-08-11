@@ -401,7 +401,9 @@ class UiControlHostClient:
             expected_type="snapshot",
         )
         self._latest_observation_id = str(response["observation_id"])
-        self._latest_accessibility_state_id = str(response["accessibility_state_id"])
+        self._latest_accessibility_state_id = (
+            str(response["accessibility_state_id"]) if int(response.get("node_count") or 0) > 0 else None
+        )
         self._target = dict(response.get("target") or self._target)
         image = response.get("image") or {}
         try:
