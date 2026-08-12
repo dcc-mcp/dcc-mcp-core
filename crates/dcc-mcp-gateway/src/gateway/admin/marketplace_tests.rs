@@ -225,6 +225,7 @@ async fn test_marketplace_uninstall_triggers_skill_paths_reload_hook() {
             "packages": [{
                 "name": "test-skill",
                 "dcc": "maya",
+                "target": { "kind": "dcc", "id": "maya" },
                 "version": "0.1.0",
                 "path": pkg_root.display().to_string(),
                 "source_name": "test",
@@ -611,6 +612,7 @@ async fn test_marketplace_update_triggers_skill_paths_reload_hook() {
             "packages": [{
                 "name": "test-update-skill",
                 "dcc": "maya",
+                "target": { "kind": "dcc", "id": "maya" },
                 "version": "0.1.0",
                 "path": marketplace_root.join("maya").join("test-update-skill")
                     .display().to_string(),
