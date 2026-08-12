@@ -1739,19 +1739,29 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
+    assert_eq!(types.len(), 34);
     for expected in [
         "aftereffects",
         "c4d",
+        "cache-inspector",
+        "comfyui",
         "freecad",
+        "gimp",
         "godot",
         "illustrator",
+        "krita",
         "mari",
         "marmoset",
+        "material-maker",
         "openusd",
         "openscad",
         "renderdoc",
         "shotgrid",
+        "sketchup",
+        "tiled",
+        "touchdesigner",
         "unity",
+        "wwise",
     ] {
         assert!(types.iter().any(|entry| entry["dcc_type"] == expected));
     }

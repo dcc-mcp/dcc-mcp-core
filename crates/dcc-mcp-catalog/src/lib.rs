@@ -1210,7 +1210,7 @@ entries:
     }
 
     #[test]
-    fn bundled_adobe_adapters_expose_installable_entry_points() {
+    fn bundled_sidecar_adapters_expose_installable_entry_points() {
         let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
 
         for (name, dcc, entry_point) in [
@@ -1224,6 +1224,26 @@ entries:
                 "illustrator",
                 "dcc_mcp_illustrator.cli:main",
             ),
+            ("dcc-mcp-comfyui", "comfyui", "dcc_mcp_comfyui.cli:main"),
+            (
+                "dcc-mcp-cache-inspector",
+                "cache-inspector",
+                "dcc_mcp_cache_inspector.server:CacheInspectorMcpServer",
+            ),
+            (
+                "dcc-mcp-touchdesigner",
+                "touchdesigner",
+                "dcc_mcp_touchdesigner:TouchDesignerMcpServer",
+            ),
+            ("dcc-mcp-krita", "krita", "dcc_mcp_krita.server:main"),
+            ("dcc-mcp-gimp", "gimp", "dcc_mcp_gimp.server:main"),
+            ("dcc-mcp-tiled", "tiled", "dcc_mcp_tiled.server:main"),
+            (
+                "dcc-mcp-material-maker",
+                "material-maker",
+                "dcc_mcp_material_maker.server:main",
+            ),
+            ("dcc-mcp-wwise", "wwise", "dcc_mcp_wwise.server:main"),
         ] {
             let entry = entries
                 .iter()
