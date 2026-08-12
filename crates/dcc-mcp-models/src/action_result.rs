@@ -8,6 +8,45 @@ use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyclass_enum};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Adapter-owned job discovered inside the terminal result of a Core job.
+///
+/// New adapters should return the explicit ``adapter_job`` or
+/// ``adapter_job_id`` shape. ``context.job_id`` remains supported because
+/// released adapters historically returned pollable operation ids there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedAdapterJob {
+    pub job_id: String,
+    pub source: &'static str,
+}
+
+/// Find an adapter-owned job id in a completed tool result.
+///
+/// The caller supplies the Core job id so a handler that echoes the outer id
+/// is never misclassified as a second operation. This helper deliberately
+/// inspects only one tool-result object; transport wrappers must be removed by
+/// the caller before invoking it.
+#[must_use]
+pub fn linked_adapter_job_from_result(
+    result: &serde_json::Value,
+    core_job_id: &str,
+) -> Option<LinkedAdapterJob> {
+    const CANDIDATES: &[(&str, &str)] = &[
+        ("/adapter_job/job_id", "result.adapter_job.job_id"),
+        ("/adapter_job_id", "result.adapter_job_id"),
+        ("/context/adapter_job_id", "result.context.adapter_job_id"),
+        ("/context/job_id", "result.context.job_id"),
+        ("/job_id", "result.job_id"),
+    ];
+
+    CANDIDATES.iter().find_map(|(pointer, source)| {
+        let job_id = result.pointer(pointer)?.as_str()?.trim();
+        (!job_id.is_empty() && job_id != core_job_id).then(|| LinkedAdapterJob {
+            job_id: job_id.to_string(),
+            source,
+        })
+    })
+}
+
 // RTK-inspired: limit context depth and array size to reduce token consumption
 fn compact_json_value(
     value: &serde_json::Value,

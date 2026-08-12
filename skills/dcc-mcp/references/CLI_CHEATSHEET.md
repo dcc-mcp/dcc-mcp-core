@@ -108,6 +108,13 @@ path resubmits work. A 410 lifecycle response becomes
 `tracking_status=owner_exited`. Read `previous_status`, `retryable`, and
 `recommended_next_action` instead of treating every missing route as 503.
 
+Async responses identify the wrapper as `core_job_id` with
+`job_id_owner=core`; legacy `job_id` is the same Core ID. A terminal Core call
+may expose a second `adapter_job_id`. `call --wait` resolves the Core wrapper
+and surfaces the adapter identity; if `adapter_job.poll` is present, call that
+typed read-only tool with the adapter ID. Never pass an adapter ID to
+`jobs_get_status`, and do not assume Core parent cancellation propagates to it.
+
 If owner death or remote TTL expiry removes the row, wait for an explicitly
 authorized DCC restart, then use the replacement instance and fresh
 `search`/`describe` results. Old instance IDs, slugs, direct URLs, and core jobs

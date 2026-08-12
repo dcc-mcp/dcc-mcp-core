@@ -64,13 +64,23 @@ pub(super) fn async_dispatch_config(
 fn build_pending_envelope(job_id: &str, parent_job_id: Option<String>) -> CallToolResult {
     let structured = json!({
         "job_id": job_id,
+        "core_job_id": job_id,
+        "job_id_owner": "core",
         "status": "pending",
         "parent_job_id": parent_job_id,
+        "core_poll": {
+            "owner": "core",
+            "tool": "jobs_get_status",
+            "arguments": {"job_id": job_id, "include_result": true},
+        },
     });
     let mut meta = serde_json::Map::new();
     meta.insert("status".to_string(), json!("pending"));
     let mut dcc_meta = serde_json::Map::new();
     dcc_meta.insert("jobId".to_string(), json!(job_id));
+    dcc_meta.insert("coreJobId".to_string(), json!(job_id));
+    dcc_meta.insert("jobOwner".to_string(), json!("core"));
+    dcc_meta.insert("pollTool".to_string(), json!("jobs_get_status"));
     dcc_meta.insert(
         "parentJobId".to_string(),
         parent_job_id
@@ -88,7 +98,9 @@ fn build_pending_envelope(job_id: &str, parent_job_id: Option<String>) -> CallTo
 
     CallToolResult {
         content: vec![ToolContent::Text {
-            text: format!("Job {job_id} queued"),
+            text: format!(
+                "Core job {job_id} queued; poll jobs_get_status with core_job_id={job_id}"
+            ),
         }],
         structured_content: Some(structured_with_meta),
         is_error: false,

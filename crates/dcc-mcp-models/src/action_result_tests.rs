@@ -189,3 +189,44 @@ fn test_action_result_model_clone_eq() {
     let cloned = model.clone();
     assert_eq!(model, cloned);
 }
+
+// ── Nested adapter-job identity ─────────────────────────────────────────────
+
+#[test]
+fn test_linked_adapter_job_prefers_explicit_contract() {
+    let result = serde_json::json!({
+        "success": true,
+        "adapter_job": {"job_id": "render-adapter-42"},
+        "context": {"job_id": "legacy-context-id"}
+    });
+
+    let link = linked_adapter_job_from_result(&result, "core-uuid").expect("adapter job link");
+
+    assert_eq!(link.job_id, "render-adapter-42");
+    assert_eq!(link.source, "result.adapter_job.job_id");
+}
+
+#[test]
+fn test_linked_adapter_job_accepts_legacy_action_result_context() {
+    let result = serde_json::json!({
+        "success": true,
+        "message": "Flipbook job launched",
+        "context": {"job_id": "flipbook-f0631aa83e07"}
+    });
+
+    let link = linked_adapter_job_from_result(&result, "core-uuid").expect("adapter job link");
+
+    assert_eq!(link.job_id, "flipbook-f0631aa83e07");
+    assert_eq!(link.source, "result.context.job_id");
+}
+
+#[test]
+fn test_linked_adapter_job_rejects_core_id_and_empty_ids() {
+    for result in [
+        serde_json::json!({"context": {"job_id": "core-uuid"}}),
+        serde_json::json!({"context": {"job_id": "  "}}),
+        serde_json::json!({"context": {}}),
+    ] {
+        assert!(linked_adapter_job_from_result(&result, "core-uuid").is_none());
+    }
+}

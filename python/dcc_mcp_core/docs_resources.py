@@ -114,13 +114,25 @@ When ``_meta.dcc.async=true`` or a ``progressToken`` is present:
 {
   "structuredContent": {
     "job_id": "<uuid>",
+    "core_job_id": "<same-uuid>",
+    "job_id_owner": "core",
     "status": "pending",
-    "parent_job_id": null
+    "parent_job_id": null,
+    "core_poll": {
+      "owner": "core",
+      "tool": "jobs_get_status",
+      "arguments": {"job_id": "<same-uuid>", "include_result": true}
+    }
   }
 }
 ```
 
-Poll status via the ``jobs_get_status`` built-in tool.
+``job_id`` remains a backward-compatible alias for ``core_job_id``. Poll that
+ID via the ``jobs_get_status`` built-in tool. If the terminal tool result starts
+a second adapter-owned operation, the status response also exposes
+``adapter_job_id`` and ``adapter_job``. Use ``adapter_job.poll`` when present;
+never pass an adapter ID back to ``jobs_get_status``. Core ``parent_job_id``
+and cancellation apply only to Core-owned jobs.
 
 ## _meta.dcc.raw_trace (when enable_error_raw_trace=True)
 

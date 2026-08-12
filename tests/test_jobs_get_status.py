@@ -267,3 +267,87 @@ def test_jobs_get_status_include_result_false_omits_result():
         assert "result" not in env, f"include_result=false must omit result: {env}"
     finally:
         handle.shutdown()
+
+
+def test_nested_adapter_job_identity_is_explicit_across_pending_and_terminal_results():
+    """Regression for #2153: Core UUID -> adapter-owned flipbook job id."""
+    reg = ToolRegistry()
+    reg.register(
+        "launch_flipbook",
+        description="Launch an adapter-owned 96-frame flipbook job",
+        category="test",
+        tags=[],
+        dcc="test",
+        version="1.0.0",
+        execution="sync",
+        timeout_hint_secs=30,
+    )
+    cfg = McpHttpConfig(port=0, server_name="nested-job-identity-test")
+    server = McpHttpServer(reg, cfg)
+    server.register_handler(
+        "launch_flipbook",
+        lambda _params: {
+            "success": True,
+            "message": "Flipbook job launched",
+            "context": {
+                "job_id": "flipbook-f0631aa83e07",
+                "progress": {"completed": 0, "total": 96},
+            },
+        },
+    )
+    handle = server.start()
+    try:
+        sid = _initialize_session(handle.mcp_url())
+        body = _post(
+            handle.mcp_url(),
+            {
+                "jsonrpc": "2.0",
+                "id": 8,
+                "method": "tools/call",
+                "params": {"name": "launch_flipbook", "arguments": {}},
+            },
+            sid=sid,
+        )
+        pending = body["result"]["structuredContent"]
+        core_job_id = pending["job_id"]
+        assert pending["core_job_id"] == core_job_id
+        assert pending["job_id_owner"] == "core"
+        assert pending["core_poll"] == {
+            "owner": "core",
+            "tool": "jobs_get_status",
+            "arguments": {"job_id": core_job_id, "include_result": True},
+        }
+
+        deadline = time.monotonic() + 5.0
+        terminal = None
+        while time.monotonic() < deadline:
+            poll = _post(
+                handle.mcp_url(),
+                {
+                    "jsonrpc": "2.0",
+                    "id": 9,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "jobs_get_status",
+                        "arguments": {"job_id": core_job_id, "include_result": True},
+                    },
+                },
+                sid=sid,
+            )
+            terminal = poll["result"]["structuredContent"]
+            if terminal["status"] == "completed":
+                break
+            time.sleep(0.05)
+
+        assert terminal is not None and terminal["status"] == "completed"
+        assert terminal["job_id"] == core_job_id
+        assert terminal["core_job_id"] == core_job_id
+        assert terminal["job_id_owner"] == "core"
+        assert terminal["adapter_job_id"] == "flipbook-f0631aa83e07"
+        assert terminal["adapter_job"]["owner"] == "adapter"
+        assert terminal["adapter_job"]["identity_source"] == "result.context.job_id"
+        assert terminal["adapter_job"]["core_job_id"] == core_job_id
+        assert terminal["adapter_job"]["cancellation"]["inherits_core_cancellation"] is False
+        assert "jobs_get_status" in terminal["adapter_job"]["hint"]
+    finally:
+        handle.shutdown()

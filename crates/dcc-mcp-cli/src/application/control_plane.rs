@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use dcc_mcp_models::{LinkedAdapterJob, linked_adapter_job_from_result};
+
 use crate::application::client::{ClientError, DccMcpClient};
 use crate::application::gateway_profile::GatewayTarget;
 use crate::application::instance_selection::{
@@ -245,6 +247,7 @@ impl DccControlPlane {
         let mut control_plane_disruptions = 0_u64;
         let mut last_poll_error: Option<String> = None;
         if is_terminal_job_status(&status) {
+            annotate_wait_result_job_identity(&mut result, &job_id, &status_tool);
             return Ok(result);
         }
 
@@ -323,6 +326,7 @@ impl DccControlPlane {
             on_progress(&update);
             last_progress = update;
             if is_terminal_job_status(&status) {
+                annotate_wait_result_job_identity(&mut result, &job_id, &status_tool);
                 attach_wait_recovery(&mut result, &job_id, control_plane_disruptions);
                 return Ok(result);
             }
@@ -483,6 +487,102 @@ fn attach_wait_recovery(result: &mut Value, job_id: &str, disruptions: u64) {
             }),
         );
     }
+}
+
+fn annotate_wait_result_job_identity(result: &mut Value, core_job_id: &str, status_tool: &str) {
+    let adapter_job = find_terminal_adapter_job(result, core_job_id, 0);
+    annotate_core_job_envelope(result, core_job_id, status_tool, adapter_job.as_ref(), 0);
+}
+
+fn find_terminal_adapter_job(
+    value: &Value,
+    core_job_id: &str,
+    depth: u8,
+) -> Option<LinkedAdapterJob> {
+    if depth > 4 {
+        return None;
+    }
+    if value.get("job_id").and_then(Value::as_str) == Some(core_job_id)
+        && value
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(is_terminal_job_status)
+        && let Some(result) = value.get("result")
+    {
+        return linked_adapter_job_from_result(result, core_job_id);
+    }
+    [
+        "output",
+        "result",
+        "structuredContent",
+        "structured_content",
+    ]
+    .iter()
+    .filter_map(|key| value.get(*key))
+    .find_map(|nested| find_terminal_adapter_job(nested, core_job_id, depth + 1))
+}
+
+fn annotate_core_job_envelope(
+    value: &mut Value,
+    core_job_id: &str,
+    status_tool: &str,
+    adapter_job: Option<&LinkedAdapterJob>,
+    depth: u8,
+) -> bool {
+    if depth > 4 {
+        return false;
+    }
+    if value.get("job_id").and_then(Value::as_str) == Some(core_job_id)
+        && value.get("status").and_then(Value::as_str).is_some()
+    {
+        let Some(object) = value.as_object_mut() else {
+            return false;
+        };
+        object
+            .entry("core_job_id")
+            .or_insert_with(|| Value::String(core_job_id.to_string()));
+        object
+            .entry("job_id_owner")
+            .or_insert_with(|| Value::String("core".to_string()));
+        object.entry("core_poll").or_insert_with(|| {
+            json!({
+                "owner": "core",
+                "tool": status_tool,
+                "arguments": {"job_id": core_job_id, "include_result": true},
+            })
+        });
+        if let Some(adapter_job) = adapter_job {
+            object
+                .entry("adapter_job_id")
+                .or_insert_with(|| Value::String(adapter_job.job_id.clone()));
+            object.entry("adapter_job").or_insert_with(|| {
+                json!({
+                    "job_id": adapter_job.job_id,
+                    "owner": "adapter",
+                    "identity_source": adapter_job.source,
+                    "core_job_id": core_job_id,
+                    "cancellation": {
+                        "owner": "adapter",
+                        "inherits_core_cancellation": false,
+                    },
+                    "hint": "Discover the adapter's typed status tool and pass adapter_job_id; do not pass this id to jobs_get_status.",
+                })
+            });
+        }
+        return true;
+    }
+    [
+        "output",
+        "result",
+        "structuredContent",
+        "structured_content",
+    ]
+    .iter()
+    .any(|key| {
+        value.get_mut(*key).is_some_and(|nested| {
+            annotate_core_job_envelope(nested, core_job_id, status_tool, adapter_job, depth + 1)
+        })
+    })
 }
 
 fn attach_call_route(mut value: Value, direct_local: bool) -> Value {
@@ -764,7 +864,11 @@ mod tests {
                         },
                         "result": (status == "completed").then(|| json!({
                             "success": true,
-                            "message": "done"
+                            "message": "Flipbook job launched",
+                            "context": {
+                                "job_id": "flipbook-f0631aa83e07",
+                                "progress": {"completed": 96, "total": 96}
+                            }
                         }))
                     }
                 }));
@@ -819,7 +923,20 @@ mod tests {
         assert!(poll_meta["dcc"].get("wait_for_terminal").is_none());
         assert!(poll_meta.get("progressToken").is_none());
         assert_eq!(result["structuredContent"]["status"], "completed");
-        assert_eq!(result["structuredContent"]["result"]["message"], "done");
+        assert_eq!(
+            result["structuredContent"]["result"]["message"],
+            "Flipbook job launched"
+        );
+        assert_eq!(result["structuredContent"]["core_job_id"], "job-42");
+        assert_eq!(result["structuredContent"]["job_id_owner"], "core");
+        assert_eq!(
+            result["structuredContent"]["adapter_job_id"],
+            "flipbook-f0631aa83e07"
+        );
+        assert_eq!(
+            result["structuredContent"]["adapter_job"]["owner"],
+            "adapter"
+        );
         assert_eq!(
             progress
                 .iter()

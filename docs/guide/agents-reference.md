@@ -35,7 +35,7 @@ result = dispatcher.dispatch("name", json_str)   # returns dict
 **Async `tools/call` dispatch (#318) — opt-in, non-blocking:**
 ```python
 # Any of these routes the call through JobManager and returns immediately
-# with {job_id, status: "pending"}:
+# with {job_id, core_job_id, job_id_owner: "core", status: "pending"}:
 #   1. Request carries _meta.dcc.async = true
 #   2. Request carries _meta.progressToken
 #   3. Tool's ToolMeta declares execution: async or timeout_hint_secs > 0
@@ -45,10 +45,23 @@ body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
     "arguments": {"start": 1, "end": 250},
     "_meta": {"dcc": {"async": True, "parentJobId": "<uuid-or-null>"}},
 }}
-# → result.structuredContent = {"job_id": "<uuid>", "status": "pending",
-#                               "parent_job_id": "<uuid>|null"}
-# Poll via jobs_get_status (#319); cancelling the parent cancels every child
-# whose _meta.dcc.parentJobId matches (CancellationToken child-token cascade).
+# → result.structuredContent = {"job_id": "<uuid>",
+#                               "core_job_id": "<same-uuid>",
+#                               "job_id_owner": "core", "status": "pending",
+#                               "parent_job_id": "<uuid>|null",
+#                               "core_poll": {"tool": "jobs_get_status", ...}}
+# `job_id` remains the backward-compatible alias for `core_job_id`. Poll it via
+# jobs_get_status (#319); cancelling the parent cancels every Core child whose
+# _meta.dcc.parentJobId matches (CancellationToken child-token cascade).
+#
+# A terminal Core result may launch a second, adapter-owned operation. In that
+# case jobs_get_status adds `adapter_job_id` and an `adapter_job` descriptor.
+# When the launching tool declares a read-only job_id follow-up in next-tools,
+# `adapter_job.poll` is machine-callable. Example: a completed Core flipbook
+# wrapper can expose `adapter_job_id: "flipbook-f0631aa83e07"` for the adapter
+# status tool, which then reports 96/96. Never pass an adapter job ID to
+# jobs_get_status. Core parent cancellation does not cancel adapter-owned work;
+# use the adapter's typed status/cancellation contract.
 ```
 
 **`ToolRegistry.register()` — keyword args only, no positional:**
