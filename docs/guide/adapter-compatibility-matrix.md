@@ -30,7 +30,7 @@ submit a PR updating this matrix before the release PR merges.
 | FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.1.2 | >=0.19.91,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
 | Cinema 4D | [dcc-mcp-cinema4d](https://github.com/dcc-mcp/dcc-mcp-cinema4d) | 0.1.3 | >=0.19.91,<1.0.0 | R21+ | External headless c4dpy subprocess | 2026-08 |
 | ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.0 | >=0.19.91,<1.0.0 | 0.31+ | Standalone sidecar + local REST workflow bridge | 2026-08 |
-| Shogun | [dcc-mcp-shogun](https://github.com/dcc-mcp/dcc-mcp-shogun) | 0.2.0 | >=0.19.91,<1.0.0 | Vicon Shogun Post | Typed scene and file workflows; Timeline and Offline processing are capability-gated | 2026-08 |
+| Shogun | [dcc-mcp-shogun](https://github.com/dcc-mcp/dcc-mcp-shogun) | 0.3.0 | >=0.19.86,<1.0.0 | Vicon Shogun Post | 36 typed Scene, file, Timeline, and Offline tools; newer SDK surfaces remain capability-gated | 2026-08 |
 | Mari | [dcc-mcp-mari](https://github.com/dcc-mcp/dcc-mcp-mari) | 0.2.1 | >=0.19.91,<1.0.0 | 5.0+ | Authenticated loopback sidecar + Qt UI timer | 2026-08 |
 | 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.40 | >=0.19.45,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-08 |
 | Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.43 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-08 |
