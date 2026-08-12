@@ -28,7 +28,7 @@ entries:
     dcc: ["maya"]
     url: "https://github.com/dcc-mcp/dcc-mcp-maya"
     tags: ["adapter", "maya", "official", "pip", "core"]
-    version: "0.9.15"
+    version: "0.9.22"
     min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
@@ -41,7 +41,7 @@ entries:
     dcc: ["blender"]
     url: "https://github.com/dcc-mcp/dcc-mcp-blender"
     tags: ["adapter", "blender", "official", "pip", "addon", "core"]
-    version: "0.1.36"
+    version: "0.1.43"
     min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
@@ -54,7 +54,7 @@ entries:
     dcc: ["houdini"]
     url: "https://github.com/dcc-mcp/dcc-mcp-houdini"
     tags: ["adapter", "houdini", "official", "pip", "core"]
-    version: "0.22.0"
+    version: "0.31.5"
     min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
@@ -68,7 +68,7 @@ entries:
     dcc: ["3dsmax", "3ds max", "3ds-max", "max"]
     url: "https://github.com/dcc-mcp/dcc-mcp-3dsmax"
     tags: ["adapter", "3dsmax", "3ds-max", "official", "pip", "core"]
-    version: "0.1.37"
+    version: "0.1.40"
     min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:

@@ -208,6 +208,25 @@ fn bundled_catalog_reports_current_unity_adapter_version() {
 }
 
 #[test]
+fn bundled_catalog_reports_current_core_adapter_versions() {
+    for (dcc_type, expected_version) in [
+        ("maya", "0.9.22"),
+        ("houdini", "0.31.5"),
+        ("blender", "0.1.43"),
+        ("3dsmax", "0.1.40"),
+        ("photoshop", "0.1.37"),
+    ] {
+        let plan = run_json_with_env_removed(
+            &["install", "--dcc-type", dcc_type],
+            &[],
+            &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+        );
+
+        assert_eq!(plan["adapter"]["version"], expected_version, "{dcc_type}");
+    }
+}
+
+#[test]
 fn bundled_catalog_reports_marmoset_adapter() {
     let plan = run_json_with_env_removed(
         &["install", "--dcc-type", "marmoset"],
