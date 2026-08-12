@@ -29,6 +29,22 @@ def test_removed_app_ui_skill_is_not_bundled() -> None:
     assert not (bundled / "app-ui").exists()
 
 
+def test_ui_control_metadata_uses_current_dcc_cua_scope_variables() -> None:
+    tools_path = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control" / "tools.yaml"
+    content = tools_path.read_text(encoding="utf-8")
+
+    assert "DCC_MCP_UI_CONTROL_PROCESS_ID" in content
+    assert "DCC_MCP_UI_CONTROL_WINDOW_HANDLE" in content
+    assert "DCC_MCP_UI_CONTROL_UIA_" not in content
+    assert "DCC_MCP_APP_UI_" not in content
+
+    agent_guidance = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "DCC_MCP_UI_CONTROL_PROCESS_ID" in agent_guidance
+    assert "DCC_MCP_UI_CONTROL_WINDOW_HANDLE" in agent_guidance
+    assert "DCC_MCP_UI_CONTROL_UIA_" not in agent_guidance
+    assert "DCC_MCP_APP_UI_" not in agent_guidance
+
+
 def test_bundled_api_keeps_root_contract_while_internal_discovery_ignores_upgrade_leftovers(
     tmp_path, monkeypatch
 ) -> None:
