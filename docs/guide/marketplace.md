@@ -1,4 +1,4 @@
-# Marketplace: Plugin, Bundle, and Skill Catalog
+# Marketplace: Typed Package Catalog
 
 The marketplace is a CLI-first discovery and installation system for official and
 community packages. It resolves human-readable names from one or more
@@ -75,7 +75,9 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace search --query <q>`           | Fuzzy-rank entries across all sources; current builds also accept positional query words |
 | `marketplace inspect <name>`              | Show full entry metadata                       |
 | `marketplace install <name> --dcc <dcc> --reload` | Install a plugin, bundle, or Skill and refresh running adapters |
+| `marketplace install <name> --target <kind:id>` | Install a generic package such as a CUA Profile |
 | `marketplace list-installed --dcc <dcc>`  | List installed packages                        |
+| `marketplace list-installed --target <kind:id>` | List packages for an application target |
 | `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| Remove an installed package and optionally refresh the adapter |
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
 | `marketplace update [name] --all`         | Upgrade installed packages                     |
@@ -99,6 +101,30 @@ multiple `source.skillRoots`. In both cases `package.skills` provides the
 component names shown by the marketplace UI. DCC-MCP currently installs Skill
 components and ignores optional Agent Plugin `mcp.json` because DCC adapters
 already own the runtime MCP connection.
+
+Catalog v2 also supports generic `targets` and typed `components`. Target kinds
+are `dcc`, `application`, `game`, and `web`; package formats are `skill`,
+`skill-bundle`, `agent-plugin`, `cua-profile`, and `composite`. A CUA Profile
+entry has one `cua-profile` component with a package-relative root:
+
+```json
+{
+  "name": "the-bazaar-profile",
+  "description": "The Bazaar semantic profile",
+  "targets": [{"kind": "game", "id": "the-bazaar"}],
+  "package": {
+    "format": "cua-profile",
+    "components": [
+      {"kind": "cua-profile", "id": "the-bazaar", "root": "."}
+    ]
+  }
+}
+```
+
+The Marketplace delegates Profile validation, installation, and removal to
+`dcc-cua profile validate|install|uninstall` with exact process arguments. Core
+does not parse the Profile schema. `DCC_MCP_CUA_BINARY` may select an explicit
+binary; otherwise the CLI checks its sibling directory and then `PATH`.
 
 ## Installation Types
 
@@ -163,6 +189,19 @@ dcc-mcp-cli marketplace publish . \
   --catalog ../marketplace/marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
   --sha256 sha256:<digest>
+```
+
+Publish a Profile package with explicit typed metadata:
+
+```bash
+dcc-mcp-cli marketplace publish . \
+  --catalog ../marketplace/marketplace.json \
+  --install-url https://example.com/the-bazaar-profile.zip \
+  --name the-bazaar-profile \
+  --description "The Bazaar semantic profile" \
+  --target game:the-bazaar \
+  --format cua-profile \
+  --component cua-profile:the-bazaar=.
 ```
 
 This is the recommended path for stable packages. Development packages can

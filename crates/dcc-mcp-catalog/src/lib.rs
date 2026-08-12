@@ -37,6 +37,9 @@ pub struct CatalogEntry {
     /// DCC application(s) this entry targets (e.g. `["maya", "blender"]`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dcc: Vec<String>,
+    /// Generic application targets for this package.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<CatalogTarget>,
     /// Canonical URL (GitHub repo, docs site, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -89,9 +92,73 @@ pub struct CatalogEntry {
 pub struct CatalogPackage {
     /// Package format. `agent-plugin` follows agent-plugins.org; `skill-bundle`
     /// is the legacy DCC-MCP multi-skill layout.
-    pub format: String,
+    pub format: CatalogPackageFormat,
     /// Agent Skill names included in the package.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
+    /// Typed installable components contained by this package.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub components: Vec<CatalogComponent>,
+}
+
+/// A generic marketplace target, independent from DCC adapters.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct CatalogTarget {
+    pub kind: CatalogTargetKind,
+    pub id: String,
+}
+
+impl std::fmt::Display for CatalogTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}:{}", self.kind, self.id)
+    }
+}
+
+/// Supported target namespaces.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "kebab-case")]
+pub enum CatalogTargetKind {
+    Dcc,
+    Application,
+    Game,
+    Web,
+}
+
+impl std::fmt::Display for CatalogTargetKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Dcc => "dcc",
+            Self::Application => "application",
+            Self::Game => "game",
+            Self::Web => "web",
+        })
+    }
+}
+
+/// Portable package formats with explicit install semantics.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CatalogPackageFormat {
+    Skill,
+    SkillBundle,
+    AgentPlugin,
+    CuaProfile,
+    Composite,
+}
+
+/// A typed package component and its safe package-relative root.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CatalogComponent {
+    pub kind: CatalogComponentKind,
+    pub id: String,
+    pub root: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CatalogComponentKind {
+    Skill,
+    CuaProfile,
 }
 
 /// Installation policy attached to a marketplace package.
@@ -266,6 +333,12 @@ impl SearchRecord for CatalogSearchRecord<'_> {
 
 fn catalog_search_tokens(entry: &CatalogEntry) -> Vec<String> {
     let mut tokens = entry.dcc.clone();
+    tokens.extend(
+        entry
+            .targets
+            .iter()
+            .flat_map(|target| [target.kind.to_string(), target.id.clone()]),
+    );
     tokens.extend(entry.url.iter().cloned());
     tokens.extend(entry.version.iter().cloned());
     tokens.extend(entry.min_core_version.iter().cloned());
@@ -282,6 +355,12 @@ fn catalog_search_tokens(entry: &CatalogEntry) -> Vec<String> {
     }
     if let Some(package) = &entry.package {
         tokens.extend(package.skills.iter().cloned());
+        tokens.extend(
+            package
+                .components
+                .iter()
+                .flat_map(|component| [component.id.clone(), component.root.clone()]),
+        );
     }
 
     if let Some(install) = &entry.install {
@@ -368,14 +447,14 @@ pub fn describe(entries: &[CatalogEntry], name: &str) -> Option<CatalogEntry> {
 
 // ── schema validation ─────────────────────────────────────────────────────────
 
-/// JSON Schema (Draft 2020-12) for marketplace-v1 catalog entries.
+/// JSON Schema (Draft 2020-12) for marketplace-v2 catalog entries.
 ///
 /// Each entry must declare at least `name` and `description`; all other
 /// fields are optional.  `additionalProperties: false` on both the top-level
 /// document and each entry catches typos early.
-const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
+const MARKETPLACE_V2_SCHEMA_JSON: &str = r##"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dcc-mcp.github.io/schemas/marketplace-v1.schema.json",
+  "$id": "https://dcc-mcp.github.io/schemas/marketplace-v2.schema.json",
   "title": "DCC-MCP Marketplace Catalog",
   "description": "Schema for marketplace.json catalog entries",
   "type": "object",
@@ -396,6 +475,20 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
         "name":        { "type": "string", "minLength": 1 },
         "description": { "type": "string", "minLength": 1 },
         "dcc":         { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["dcc", "application", "game", "web"] },
+              "id": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          },
+          "uniqueItems": true
+        },
         "url":         { "type": "string" },
         "tags":        { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "version":          { "type": "string" },
@@ -427,20 +520,42 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
         },
         "package": {
           "type": "object",
-          "required": ["format", "skills"],
+          "required": ["format"],
           "properties": {
-            "format": { "type": "string", "enum": ["agent-plugin", "skill-bundle"] },
+            "format": { "type": "string", "enum": ["skill", "agent-plugin", "skill-bundle", "cua-profile", "composite"] },
             "skills": {
               "type": "array",
-              "minItems": 1,
               "items": { "type": "string", "minLength": 1 },
               "uniqueItems": true
+            },
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["kind", "id", "root"],
+                "properties": {
+                  "kind": { "type": "string", "enum": ["skill", "cua-profile"] },
+                  "id": { "type": "string", "minLength": 1 },
+                  "root": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
             }
           },
-          "allOf": [{
-            "if": { "properties": { "format": { "const": "skill-bundle" } } },
-            "then": { "properties": { "skills": { "minItems": 2 } } }
-          }],
+          "allOf": [
+            {
+              "if": { "properties": { "format": { "enum": ["skill", "agent-plugin", "skill-bundle"] } } },
+              "then": { "required": ["skills"], "properties": { "skills": { "minItems": 1 } } }
+            },
+            {
+              "if": { "properties": { "format": { "const": "skill-bundle" } } },
+              "then": { "properties": { "skills": { "minItems": 2 } } }
+            },
+            {
+              "if": { "properties": { "format": { "const": "cua-profile" } } },
+              "then": { "required": ["components"], "properties": { "components": { "minItems": 1, "maxItems": 1 } } }
+            }
+          ],
           "additionalProperties": false
         },
         "install": {
@@ -466,7 +581,7 @@ const MARKETPLACE_V1_SCHEMA_JSON: &str = r##"{
   }
 }"##;
 
-/// Validate a single [`CatalogEntry`] against the marketplace-v1 JSON Schema.
+/// Validate a single [`CatalogEntry`] against the marketplace-v2 JSON Schema.
 ///
 /// Returns `Ok(())` if the entry is valid, or a
 /// [`CatalogValidationError::ValidationFailed`] with a human-readable message
@@ -490,7 +605,7 @@ pub fn validate_entry(entry: &CatalogEntry) -> Result<(), CatalogValidationError
     Ok(())
 }
 
-/// Validate a slice of [`CatalogEntry`] against the marketplace-v1 JSON Schema.
+/// Validate a slice of [`CatalogEntry`] against the marketplace-v2 JSON Schema.
 ///
 /// Returns `Ok(())` if all entries pass, or
 /// [`CatalogValidationError::MultipleFailures`] aggregating each failed entry.
@@ -511,7 +626,7 @@ pub fn validate_catalog_entries(entries: &[CatalogEntry]) -> Result<(), CatalogV
 
 /// Compile the entry sub-schema once from `$defs/entry`.
 fn entry_schema() -> Result<jsonschema::Validator, CatalogValidationError> {
-    let schema_value: serde_json::Value = serde_json::from_str(MARKETPLACE_V1_SCHEMA_JSON)
+    let schema_value: serde_json::Value = serde_json::from_str(MARKETPLACE_V2_SCHEMA_JSON)
         .map_err(|e| {
             CatalogValidationError::SchemaError(format!("invalid embedded schema: {e}"))
         })?;
@@ -580,8 +695,9 @@ entries:
     fn test_search_by_packaged_skill() {
         let mut entry = make_entry("maya-mgear", "Maya rigging bundle");
         entry.package = Some(CatalogPackage {
-            format: "skill-bundle".into(),
+            format: CatalogPackageFormat::SkillBundle,
             skills: vec!["maya-mgear".into(), "mgear-import-to-scene".into()],
+            components: vec![],
         });
 
         let results = search(&[entry], "mgear-import-to-scene");
@@ -670,6 +786,7 @@ entries:
             name: "maya-toolkit".into(),
             description: "Advanced Maya pipeline tools".into(),
             dcc: vec!["maya".into()],
+            targets: vec![],
             url: None,
             tags: vec!["maya".into(), "official".into()],
             version: None,
@@ -864,6 +981,7 @@ entries:
             name: name.into(),
             description: description.into(),
             dcc: vec![],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,
@@ -889,8 +1007,9 @@ entries:
     fn test_validate_entry_rejects_single_skill_bundle() {
         let mut entry = make_entry("my-bundle", "A bundle");
         entry.package = Some(CatalogPackage {
-            format: "skill-bundle".into(),
+            format: CatalogPackageFormat::SkillBundle,
             skills: vec!["only-one".into()],
+            components: vec![],
         });
         assert!(validate_entry(&entry).is_err());
     }
@@ -921,6 +1040,7 @@ entries:
             name: "zip-skill".into(),
             description: "A zip-installed skill".into(),
             dcc: vec!["maya".into()],
+            targets: vec![],
             url: Some("https://example.com/skill".into()),
             tags: vec!["test".into()],
             version: Some("0.1.0".into()),
@@ -954,6 +1074,7 @@ entries:
             name: "pip-skill".into(),
             description: "A pip-installed skill".into(),
             dcc: vec!["maya".into()],
+            targets: vec![],
             url: Some("https://pypi.org/project/dcc-mcp-maya".into()),
             tags: vec!["pip".into(), "maya".into()],
             version: Some("0.3.0".into()),
@@ -1035,6 +1156,7 @@ entries:
             name: "minimal-pip".into(),
             description: "A minimal pip-installed adapter".into(),
             dcc: vec![],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,
@@ -1068,6 +1190,7 @@ entries:
             name: "icon-skill".into(),
             description: "A skill with an icon".into(),
             dcc: vec![],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,

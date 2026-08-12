@@ -473,6 +473,7 @@ For marketplace Skills, search first when the exact package ID is not known:
 dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
 dcc-mcp-cli marketplace inspect <package_name>
 dcc-mcp-cli marketplace install <package_name> --dcc maya --reload
+dcc-mcp-cli marketplace install <profile_package_name> --target game:the-bazaar
 ```
 
 `--query "maya rigging"` remains supported for scripts. Search and inspect are

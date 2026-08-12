@@ -14,6 +14,7 @@
 pub mod add_repo;
 pub(crate) mod bundle;
 pub mod error;
+pub(crate) mod handler;
 pub mod package;
 pub mod path;
 pub(crate) mod plugin;
@@ -48,10 +49,11 @@ pub use path::{default_config_path, home_dir, marketplace_root, marketplace_root
 pub use service::{MarketplaceService, default_sources_disabled, env_sources, path_component};
 pub use source::{builtin_source, dedupe_sources, normalise_source, resolve_catalog_asset_url};
 pub use types::{
-    InstalledMarketplacePackage, MarketplaceHit, MarketplaceInspectResult,
+    InstalledMarketplacePackage, MarketplaceActivation, MarketplaceHit, MarketplaceInspectResult,
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig,
-    MarketplaceSourceOrigin, MarketplaceUninstallResult, MarketplaceUpdateResult,
-    OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, RepoInstallResult, RepoSkillInfo,
-    RepoSkillList, StoredMarketplaceSource, entry_targets_dcc,
+    MarketplaceSourceOrigin, MarketplaceTargetParseError, MarketplaceUninstallResult,
+    MarketplaceUpdateResult, OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage,
+    RepoInstallResult, RepoSkillInfo, RepoSkillList, StoredMarketplaceSource, entry_targets,
+    entry_targets_dcc, parse_target,
 };

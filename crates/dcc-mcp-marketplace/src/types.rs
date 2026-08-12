@@ -3,7 +3,9 @@
 //! These are the canonical types used by both the CLI and the Gateway admin
 //! panel. The Gateway maps them to HTTP response types in its own adapter layer.
 
-use dcc_mcp_catalog::CatalogEntry;
+use dcc_mcp_catalog::{
+    CatalogComponent, CatalogEntry, CatalogPackageFormat, CatalogTarget, CatalogTargetKind,
+};
 use serde::{Deserialize, Serialize};
 
 // ── source ────────────────────────────────────────────────────────────────────
@@ -52,6 +54,8 @@ pub struct MarketplaceHit {
 pub struct MarketplaceSearchResult {
     pub query: Option<String>,
     pub dcc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<CatalogTarget>,
     pub count: usize,
     pub hits: Vec<MarketplaceHit>,
 }
@@ -70,6 +74,7 @@ pub struct MarketplaceInstallResult {
     pub installed: bool,
     pub name: String,
     pub dcc: String,
+    pub target: CatalogTarget,
     pub version: Option<String>,
     pub path: String,
     pub skill_search_path: String,
@@ -80,6 +85,7 @@ pub struct MarketplaceInstallResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_commit: Option<String>,
     pub reload_required: bool,
+    pub activation: MarketplaceActivation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -87,10 +93,20 @@ pub struct MarketplaceUninstallResult {
     pub uninstalled: bool,
     pub name: String,
     pub dcc: String,
+    pub target: CatalogTarget,
     pub path: String,
     pub removed_state: bool,
     pub removed_files: bool,
     pub reload_required: bool,
+    pub activation: MarketplaceActivation,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketplaceActivation {
+    None,
+    SkillReload,
+    Restart,
 }
 
 // ── installed state ──────────────────────────────────────────────────────────
@@ -99,6 +115,11 @@ pub struct MarketplaceUninstallResult {
 pub struct InstalledMarketplacePackage {
     pub name: String,
     pub dcc: String,
+    pub target: CatalogTarget,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub components: Vec<CatalogComponent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_format: Option<CatalogPackageFormat>,
     pub version: Option<String>,
     pub path: String,
     pub source_name: String,
@@ -123,6 +144,8 @@ pub struct MarketplaceInstalledState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MarketplaceInstalledList {
     pub dcc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<CatalogTarget>,
     pub count: usize,
     pub packages: Vec<InstalledMarketplacePackage>,
 }
@@ -211,11 +234,46 @@ pub struct RepoInstallResult {
 /// `any` is the host-neutral wildcard used by Skills that can be loaded into a
 /// concrete adapter without owning a standalone DCC runtime.
 pub fn entry_targets_dcc(entry: &CatalogEntry, dcc: &str) -> bool {
+    entry_targets(entry).iter().any(|target| {
+        target.kind == CatalogTargetKind::Dcc
+            && (target.id.eq_ignore_ascii_case("any") || target.id.eq_ignore_ascii_case(dcc))
+    })
+}
+
+pub fn entry_targets(entry: &CatalogEntry) -> Vec<CatalogTarget> {
+    if !entry.targets.is_empty() {
+        return entry.targets.clone();
+    }
     entry
         .dcc
         .iter()
-        .any(|value| value.eq_ignore_ascii_case("any") || value.eq_ignore_ascii_case(dcc))
+        .map(|id| CatalogTarget {
+            kind: CatalogTargetKind::Dcc,
+            id: id.clone(),
+        })
+        .collect()
 }
+
+pub fn parse_target(value: &str) -> Result<CatalogTarget, MarketplaceTargetParseError> {
+    let (kind, id) = value.split_once(':').ok_or(MarketplaceTargetParseError)?;
+    if id.trim().is_empty() {
+        return Err(MarketplaceTargetParseError);
+    }
+    let kind = match kind {
+        "dcc" => CatalogTargetKind::Dcc,
+        "application" => CatalogTargetKind::Application,
+        "game" => CatalogTargetKind::Game,
+        "web" => CatalogTargetKind::Web,
+        _ => return Err(MarketplaceTargetParseError),
+    };
+    Ok(CatalogTarget {
+        kind,
+        id: id.to_string(),
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MarketplaceTargetParseError;
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
@@ -229,6 +287,7 @@ mod tests {
             name: "test".into(),
             description: "desc".into(),
             dcc: vec!["maya".into(), "blender".into()],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,
@@ -253,6 +312,7 @@ mod tests {
             name: "host-neutral".into(),
             description: "desc".into(),
             dcc: vec!["ANY".into()],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,

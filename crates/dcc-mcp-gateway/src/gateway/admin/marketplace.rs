@@ -530,6 +530,7 @@ mod tests {
             name: "test".into(),
             description: "desc".into(),
             dcc: vec!["maya".into(), "blender".into()],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,

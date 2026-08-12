@@ -329,7 +329,7 @@ fn marketplace_pack_and_publish_updates_catalog() {
     );
     let catalog =
         serde_json::from_str::<Value>(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
-    assert_eq!(catalog["schemaVersion"], "1");
+    assert_eq!(catalog["schemaVersion"], "2");
     assert_eq!(catalog["skills"][0]["minCoreVersion"], "0.19.0");
     assert_eq!(catalog["skills"][0]["source"]["type"], "zip");
     assert_eq!(
@@ -1879,4 +1879,110 @@ fn marketplace_entry_with_icon_validates() {
     let search = run_json_with_env(&["marketplace", "search", "--source", &source], &envs);
     assert_eq!(search["count"], 1);
     assert_eq!(search["hits"][0]["entry"]["name"], "skill-with-icon");
+}
+
+#[test]
+fn marketplace_installs_and_uninstalls_cua_profile_through_exact_cli() {
+    let tmp = TempDir::new().unwrap();
+    let package = tmp.path().join("the-bazaar-profile");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(package.join("profile.json"), "{}\n").unwrap();
+    let catalog = tmp.path().join("marketplace.json");
+    let published = run_json(&[
+        "marketplace",
+        "publish",
+        package.to_str().unwrap(),
+        "--catalog",
+        catalog.to_str().unwrap(),
+        "--install-url",
+        package.to_str().unwrap(),
+        "--install-type",
+        "path",
+        "--name",
+        "the-bazaar-profile",
+        "--description",
+        "The Bazaar semantic profile",
+        "--target",
+        "game:the-bazaar",
+        "--format",
+        "cua-profile",
+        "--component",
+        "cua-profile:the-bazaar=.",
+        "--version",
+        "1.0.0",
+        "--maintainer",
+        "dcc-mcp",
+        "--min-core-version",
+        "0.20.0",
+        "--tag",
+        "profile",
+    ]);
+    assert_eq!(published["entry"]["package"]["format"], "cua-profile");
+    let log = tmp.path().join("dcc-cua.log");
+    let fake = tmp.path().join(if cfg!(windows) {
+        "dcc-cua.cmd"
+    } else {
+        "dcc-cua"
+    });
+    if cfg!(windows) {
+        std::fs::write(
+            &fake,
+            "@echo off\r\necho %*>>\"%DCC_CUA_TEST_LOG%\"\r\nexit /b 0\r\n",
+        )
+        .unwrap();
+    } else {
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$DCC_CUA_TEST_LOG\"\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let root = tmp.path().join("installed");
+    let config = tmp.path().join("sources.json");
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config.to_str().unwrap()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", root.to_str().unwrap()),
+        ("DCC_MCP_CUA_BINARY", fake.to_str().unwrap()),
+        ("DCC_CUA_TEST_LOG", log.to_str().unwrap()),
+    ];
+    let source = catalog.to_str().unwrap();
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "the-bazaar-profile",
+            "--target",
+            "game:the-bazaar",
+            "--source",
+            source,
+            "--reload",
+        ],
+        &envs,
+    );
+    assert_eq!(installed["target"]["kind"], "game");
+    assert_eq!(installed["activation"], "none");
+    let removed = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "the-bazaar-profile",
+            "--target",
+            "game:the-bazaar",
+            "--reload",
+        ],
+        &envs,
+    );
+    assert_eq!(removed["uninstalled"], true);
+    let calls = std::fs::read_to_string(log).unwrap();
+    let lines = calls.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].starts_with("profile validate "));
+    assert!(lines[1].starts_with("profile install "));
+    assert_eq!(lines[2], "profile uninstall the-bazaar --confirm");
 }

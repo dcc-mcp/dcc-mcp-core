@@ -886,6 +886,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 action: MarketplaceAction::Install {
                     name: "dcc-mcp-maya-mgear".to_string(),
                     dcc: Some("maya".to_string()),
+                    target: None,
                     reload: true,
                     sources: Vec::new(),
                     force: false,
@@ -903,6 +904,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 action: MarketplaceAction::Install {
                     name: "dcc-mcp-maya-mgear".to_string(),
                     dcc: Some("maya".to_string()),
+                    target: None,
                     reload: false,
                     sources: Vec::new(),
                     force: false,
