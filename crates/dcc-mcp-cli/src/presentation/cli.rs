@@ -46,6 +46,8 @@ use record_replay::{RecordReplayAction, run_record_replay};
 use ui_control_output::compact_ui_control_result;
 
 use super::marketplace_cmd;
+#[cfg(test)]
+use super::update_cmd::UpdateAction;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 
@@ -315,10 +317,14 @@ enum Command {
     },
     /// Validate local SKILL.md packages before loading them at runtime.
     Lint(LintArgs),
+    Components {
+        #[command(subcommand)]
+        action: super::components_cmd::ComponentsAction,
+    },
     /// Check for and apply gateway-controlled binary updates.
     Update {
         #[command(subcommand)]
-        action: UpdateAction,
+        action: super::update_cmd::UpdateAction,
     },
     /// Gateway lifecycle management.
     Gateway {
@@ -516,21 +522,6 @@ struct LintArgs {
     /// Exit non-zero when warnings are present.
     #[arg(long, default_value = "false")]
     warnings_as_errors: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum UpdateAction {
-    /// Check whether a newer version is available.
-    Check {
-        /// Binary name to check in the gateway update manifest.
-        #[arg(long)]
-        binary: Option<String>,
-        /// Current version to compare against. Defaults to this CLI version.
-        #[arg(long)]
-        current_version: Option<String>,
-    },
-    /// Download the latest CLI version and stage it for the next launch.
-    Apply,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -1107,8 +1098,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
             result.value
         }
+        Command::Components { action } => super::components_cmd::run(action).await?,
         Command::Update { action } => match action {
-            UpdateAction::Check {
+            super::update_cmd::UpdateAction::Check {
                 binary,
                 current_version,
             } => {
@@ -1127,7 +1119,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 }
                 to_json(value)?
             }
-            UpdateAction::Apply => {
+            super::update_cmd::UpdateAction::Apply => {
                 let service = crate::application::update::UpdateService::new(
                     &base_url,
                     env!("CARGO_PKG_NAME"),
@@ -1246,6 +1238,7 @@ fn gateway_endpoint_for_command(
         Command::Install { .. }
         | Command::Marketplace { .. }
         | Command::Lint(_)
+        | Command::Components { .. }
         | Command::Gateway { .. } => None,
     }
 }

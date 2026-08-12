@@ -15,7 +15,11 @@ chrome, native dialogs, canvas-only content, and non-browser applications.
 
 ## Standalone CUA setup
 
-Install `dcc-cua` 0.4.0 or newer separately and expose it on `PATH`, or set
+The official `dcc-mcp-cli` installer also reconciles the independently released
+`dcc-cua` companion. Inspect or repair it explicitly with
+`dcc-mcp-cli components status dcc-cua` and
+`dcc-mcp-cli components ensure dcc-cua --yes`. For custom layouts, expose
+`dcc-cua` 0.4.0 or newer on `PATH`, or set
 `DCC_MCP_CUA_BINARY` to an absolute executable path. Then configure:
 
 ```text

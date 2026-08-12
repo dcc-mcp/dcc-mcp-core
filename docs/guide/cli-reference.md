@@ -185,6 +185,9 @@ dcc-mcp-cli marketplace publish path/to/skill --catalog marketplace.json --insta
 dcc-mcp-cli update check
 dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
 dcc-mcp-cli update apply
+dcc-mcp-cli components status dcc-cua
+dcc-mcp-cli components ensure dcc-cua --yes
+dcc-mcp-cli components ensure dcc-cua --version 0.6.0 --yes
 dcc-mcp-cli gateway daemon start
 dcc-mcp-cli gateway daemon restart
 dcc-mcp-cli gateway daemon stop
@@ -234,6 +237,8 @@ their worker-owned status tool.
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
 | `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
+| `components status dcc-cua` | CLI sibling + `dcc-cua manifest` | Read-only check of the independently released CUA runtime installed beside this CLI. |
+| `components ensure dcc-cua [--version <version>] --yes` | official per-target install manifest + archive | Download only from `dcc-mcp/dcc-cua`, require the manifest SHA-256, safely extract and validate the candidate runtime contract, then install it beside this CLI. Explicit `--yes` is mandatory. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
 | `gateway list` | local profile config | Show configured remote profiles and the active local/remote selection. |
 | `gateway set <profile\|local>` | local profile config | Select the active gateway profile. |
@@ -355,7 +360,9 @@ The Admin Instances panel checks server availability but does not stage an
 update because the gateway cannot prove a selected local or remote instance's
 installation root. Run `dcc-mcp-server update apply` in the exact server
 environment. On every platform that command validates and stages only the
-server binary. The standalone `dcc-cua` CLI is updated independently.
+server binary. The standalone `dcc-cua` CLI is released independently and is
+reconciled through `components ensure`; it is not part of the gateway update
+manifest.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. CI runs the same command
@@ -374,6 +381,11 @@ The installer scripts download one of these GitHub Release assets:
 Default install locations are `~/.local/bin` on Linux/macOS and
 `%LOCALAPPDATA%\dcc-mcp\bin` on Windows. Override with
 `DCC_MCP_INSTALL_DIR` or `--install-dir`.
+
+After installing the verified Core CLI, both official installers run
+`components ensure dcc-cua --yes`. The two verified replacements converge on a
+complete installation but are not yet one crash-atomic cross-binary
+transaction; rerunning the installer safely reconciles an interrupted pair.
 
 ---
 

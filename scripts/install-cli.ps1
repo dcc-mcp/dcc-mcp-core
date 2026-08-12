@@ -80,6 +80,16 @@ try {
     } else {
         [System.IO.File]::Move($binaryTmp, $target)
     }
+
+    # The CLI and dcc-cua are independently released. Reconcile the verified
+    # companion only after the CLI replacement succeeds. This is convergent,
+    # but not crash-atomic across the two independently owned executables.
+    $componentInstall = Start-Process -FilePath $target -ArgumentList @(
+        "components", "ensure", "dcc-cua", "--yes", "--output", "json"
+    ) -Wait -PassThru -NoNewWindow
+    if ($componentInstall.ExitCode -ne 0) {
+        throw "dcc-mcp-cli installed, but verified dcc-cua component installation failed"
+    }
 } finally {
     foreach ($path in @($manifestTmp, $binaryTmp)) {
         if (Test-Path -LiteralPath $path) {

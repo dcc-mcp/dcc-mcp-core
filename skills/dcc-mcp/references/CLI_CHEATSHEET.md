@@ -31,10 +31,16 @@ Keep an official build current through the release manifest:
 ```bash
 dcc-mcp-cli update check
 dcc-mcp-cli update apply
+dcc-mcp-cli components status dcc-cua
+dcc-mcp-cli components ensure dcc-cua --yes
 ```
 
 `update apply` downloads and stages the latest CLI for the next launch. It does
 not update a running `dcc-mcp-server`; update that server in its own environment.
+The official CLI installer also reconciles the independently released
+`dcc-cua` sibling. `components status` is read-only; `components ensure`
+requires explicit `--yes`, a mandatory archive SHA-256, and an exact official
+release-manifest binding.
 
 For repository development only, the same consent-gated verified
 bootstrap/fallback is:

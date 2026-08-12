@@ -1,5 +1,6 @@
 pub mod call_attribution;
 pub mod client;
+pub mod components;
 pub mod control_plane;
 pub mod doctor;
 pub mod gateway_ctrl;

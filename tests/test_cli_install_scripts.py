@@ -145,6 +145,10 @@ function Invoke-WebRequest {
         throw "Unexpected URL: $Uri"
     }
 }
+function Start-Process {
+    param([string] $FilePath, [object[]] $ArgumentList, [switch] $Wait, [switch] $PassThru, [switch] $NoNewWindow)
+    [pscustomobject]@{ ExitCode = 0 }
+}
 try {
     & $env:INSTALL_SCRIPT -Version latest -InstallDir $env:TEST_INSTALL_DIR
 } finally {
@@ -218,7 +222,7 @@ def test_installers_use_fixed_official_update_manifests() -> None:
 
 
 def test_sh_latest_uses_manifest_pinned_url_and_installs_verified_binary(tmp_path: Path) -> None:
-    binary = b"verified linux cli"
+    binary = b'#!/bin/sh\n[ "$1 $2 $3" = "components ensure dcc-cua" ]\n'
     result = _run_sh_installer(
         tmp_path,
         _manifest(asset="dcc-mcp-cli-linux-x86_64", binary=binary),

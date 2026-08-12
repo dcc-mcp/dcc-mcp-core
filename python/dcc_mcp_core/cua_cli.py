@@ -65,7 +65,7 @@ class CuaCliContract(NamedTuple):
 
 
 def resolve_cua_command(configured: Optional[str] = None) -> List[str]:
-    """Resolve one explicit binary or the installed ``dcc-cua`` command."""
+    """Resolve one explicit binary, CLI sibling, or installed ``dcc-cua`` command."""
     value = (configured if configured is not None else os.environ.get(CUA_BINARY_ENV, "")).strip()
     if value:
         candidate = Path(value).expanduser()
@@ -74,13 +74,23 @@ def resolve_cua_command(configured: Optional[str] = None) -> List[str]:
         if not candidate.is_file():
             raise CuaCliError("backend_unavailable", f"{CUA_BINARY_ENV} does not name a file.")
         return [str(candidate.resolve())]
-    discovered = shutil.which("dcc-cua")
+    discovered = _resolve_cli_sibling() or shutil.which("dcc-cua")
     if not discovered:
         raise CuaCliError(
             "backend_unavailable",
             f"Install dcc-cua or set {CUA_BINARY_ENV} to its absolute path.",
         )
     return [str(Path(discovered).resolve())]
+
+
+def _resolve_cli_sibling() -> Optional[str]:
+    """Prefer the component installed beside the official ``dcc-mcp-cli``."""
+    cli = shutil.which("dcc-mcp-cli")
+    if not cli:
+        return None
+    file_name = "dcc-cua.exe" if os.name == "nt" else "dcc-cua"
+    candidate = Path(cli).resolve().parent / file_name
+    return str(candidate) if candidate.is_file() else None
 
 
 def inspect_cua_contract(command: Sequence[str]) -> CuaCliContract:
