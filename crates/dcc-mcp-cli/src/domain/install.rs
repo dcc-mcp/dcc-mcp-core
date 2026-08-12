@@ -556,7 +556,7 @@ fn adapter_rank(entry: &CatalogEntry, dcc_key: &str) -> (bool, bool, bool, bool)
     )
 }
 
-fn normalized_dcc_key(value: &str) -> String {
+pub(crate) fn normalized_dcc_key(value: &str) -> String {
     value
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric())

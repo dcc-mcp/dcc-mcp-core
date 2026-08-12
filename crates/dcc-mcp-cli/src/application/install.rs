@@ -9,7 +9,8 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::domain::install::{
-    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest, InstallStepAction,
+    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest,
+    InstallStepAction, normalized_dcc_key,
 };
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
@@ -108,6 +109,7 @@ impl InstallService {
     pub fn dcc_types(&self, catalog_path: Option<&Path>) -> Result<DccTypesCatalog, InstallError> {
         let entries = self.load_entries(catalog_path)?;
         let mut grouped: BTreeMap<String, BTreeMap<String, DccAdapterSummary>> = BTreeMap::new();
+        let mut canonical_by_normalized: BTreeMap<String, String> = BTreeMap::new();
 
         for entry in entries.iter().filter(|entry| {
             entry
@@ -122,10 +124,15 @@ impl InstallService {
                 catalog_install_available: entry.install.is_some(),
             };
             for dcc_type in &entry.dcc {
-                let canonical = DccName::parse(dcc_type).to_string();
-                if canonical.is_empty() {
+                let parsed = DccName::parse(dcc_type).to_string();
+                let normalized = normalized_dcc_key(&parsed);
+                if normalized.is_empty() {
                     continue;
                 }
+                let canonical = canonical_by_normalized
+                    .entry(normalized)
+                    .or_insert_with(|| parsed.clone())
+                    .clone();
                 grouped
                     .entry(canonical)
                     .or_default()
@@ -778,6 +785,16 @@ mod tests {
         let catalog = service.dcc_types(None).unwrap();
 
         assert!(catalog.custom_types_supported);
+        assert_eq!(catalog.dcc_types.len(), 34);
+        for alias in ["after effects", "after-effects", "comfy-ui"] {
+            assert!(
+                catalog
+                    .dcc_types
+                    .iter()
+                    .all(|entry| entry.dcc_type != alias),
+                "alias {alias} must collapse into its first canonical catalog spelling"
+            );
+        }
         assert_eq!(
             catalog
                 .dcc_types
@@ -788,12 +805,21 @@ mod tests {
         );
         for (expected_type, expected_adapter) in [
             ("c4d", "dcc-mcp-cinema4d"),
+            ("cache-inspector", "dcc-mcp-cache-inspector"),
+            ("comfyui", "dcc-mcp-comfyui"),
             ("freecad", "dcc-mcp-freecad"),
+            ("gimp", "dcc-mcp-gimp"),
             ("godot", "dcc-mcp-godot"),
+            ("krita", "dcc-mcp-krita"),
             ("mari", "dcc-mcp-mari"),
+            ("material-maker", "dcc-mcp-material-maker"),
             ("openscad", "dcc-mcp-openscad"),
             ("renderdoc", "dcc-mcp-renderdoc"),
+            ("sketchup", "dcc-mcp-sketchup"),
+            ("tiled", "dcc-mcp-tiled"),
+            ("touchdesigner", "dcc-mcp-touchdesigner"),
             ("unity", "dcc-mcp-unity"),
+            ("wwise", "dcc-mcp-wwise"),
         ] {
             let entry = catalog
                 .dcc_types

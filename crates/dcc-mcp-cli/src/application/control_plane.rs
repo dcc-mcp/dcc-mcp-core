@@ -225,7 +225,8 @@ impl DccControlPlane {
     where
         F: FnMut(&JobWaitProgress),
     {
-        let status_tool = job_status_tool(&tool_slug, dcc_type.as_deref(), instance_id.as_deref())?;
+        let mut status_tool =
+            job_status_tool(&tool_slug, dcc_type.as_deref(), instance_id.as_deref())?;
         let poll_meta = job_poll_meta(meta.clone());
         let mut result = self
             .call(
@@ -269,7 +270,7 @@ impl DccControlPlane {
                 }));
             }
             tokio::time::sleep(JOB_POLL_INTERVAL).await;
-            match self
+            let poll_result = self
                 .call(
                     status_tool.clone(),
                     dcc_type.clone(),
@@ -278,8 +279,32 @@ impl DccControlPlane {
                     poll_meta.clone(),
                     request_timeout,
                 )
-                .await
-            {
+                .await;
+            let poll_result = match poll_result {
+                Err(error)
+                    if status_tool != "jobs_get_status" && job_status_tool_is_unknown(&error) =>
+                {
+                    match self
+                        .call(
+                            "jobs_get_status".to_string(),
+                            None,
+                            None,
+                            json!({"job_id": job_id, "include_result": true}),
+                            poll_meta.clone(),
+                            request_timeout,
+                        )
+                        .await
+                    {
+                        Ok(value) => {
+                            status_tool = "jobs_get_status".to_string();
+                            Ok(value)
+                        }
+                        Err(fallback_error) => Err(fallback_error),
+                    }
+                }
+                other => other,
+            };
+            match poll_result {
                 Ok(value) => {
                     result = value;
                     last_poll_error = None;
@@ -453,6 +478,16 @@ fn job_poll_error_is_retryable(error: &anyhow::Error) -> bool {
         ),
         None => false,
     }
+}
+
+fn job_status_tool_is_unknown(error: &anyhow::Error) -> bool {
+    matches!(
+        job_poll_http_error(error),
+        Some(HttpError::Status { status, body })
+            if *status == reqwest::StatusCode::NOT_FOUND
+                && body.contains("unknown-slug")
+                && body.contains("jobs_get_status")
+    )
 }
 
 fn job_poll_owner_exited(error: &anyhow::Error) -> bool {
@@ -946,6 +981,84 @@ mod tests {
                 ("pending", None, None),
                 ("running", Some(45), Some(90)),
                 ("completed", Some(90), Some(90)),
+            ]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_falls_back_to_bare_job_status_for_direct_adapter_base_url() {
+        async fn call(
+            State(requests): State<Arc<Mutex<Vec<String>>>>,
+            Json(body): Json<Value>,
+        ) -> Response {
+            let slug = body["tool_slug"].as_str().unwrap_or_default().to_string();
+            requests.lock().unwrap().push(slug.clone());
+            if slug == "touchdesigner.touchdesigner-scripting.jobs_get_status" {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({
+                        "kind": "unknown-slug",
+                        "message": "no action registered for slug 'touchdesigner.touchdesigner-scripting.jobs_get_status'"
+                    })),
+                )
+                    .into_response();
+            }
+            if slug == "jobs_get_status" {
+                return Json(json!({
+                    "output": {
+                        "job_id": "job-direct-42",
+                        "status": "completed",
+                        "result": {"success": true, "message": "done"}
+                    }
+                }))
+                .into_response();
+            }
+            Json(json!({
+                "output": {"job_id": "job-direct-42", "status": "pending"}
+            }))
+            .into_response()
+        }
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .with_state(requests.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let endpoint = Endpoint::new(format!("http://{addr}"));
+        let control = DccControlPlane::new(
+            GatewayTarget::Remote {
+                name: "adapter".to_string(),
+                endpoint: endpoint.clone(),
+            },
+            endpoint,
+            registry.path().to_path_buf(),
+            false,
+        );
+
+        let result = control
+            .call_and_wait(
+                "touchdesigner.touchdesigner-scripting.get_project_info".to_string(),
+                None,
+                None,
+                json!({}),
+                None,
+                Duration::from_secs(2),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result["output"]["status"], "completed");
+        assert_eq!(
+            *requests.lock().unwrap(),
+            vec![
+                "touchdesigner.touchdesigner-scripting.get_project_info",
+                "touchdesigner.touchdesigner-scripting.jobs_get_status",
+                "jobs_get_status",
             ]
         );
         server.abort();
