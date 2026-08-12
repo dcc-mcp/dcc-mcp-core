@@ -45,7 +45,7 @@ use marketplace_output::reload_marketplace_value;
 use record_replay::{RecordReplayAction, run_record_replay};
 use ui_control_output::compact_ui_control_result;
 
-use super::marketplace_cmd;
+use super::marketplace_cmd::{self, MarketplaceAction};
 #[cfg(test)]
 use super::update_cmd::UpdateAction;
 
@@ -393,131 +393,6 @@ struct UiControlArgs {
     /// Print the complete underlying MCP response, including the bounded UI tree.
     #[arg(long, default_value_t = false)]
     full_output: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum MarketplaceAction {
-    /// Add a marketplace source (raw URL, local file, or GitHub owner/repo).
-    Add {
-        #[arg(value_name = "SOURCE")]
-        source: String,
-    },
-    /// List configured marketplace sources.
-    List,
-    /// Search marketplace entries across configured sources.
-    Search {
-        /// Query text. Positional words are also accepted, for example `search maya rigging`.
-        #[arg(short, long, conflicts_with = "query_terms")]
-        query: Option<String>,
-        /// Unquoted positional query words joined with spaces.
-        #[arg(value_name = "QUERY", num_args = 1.., conflicts_with = "query")]
-        query_terms: Vec<String>,
-        #[arg(long, visible_alias = "dcc-type")]
-        dcc: Option<String>,
-        /// Generic target in KIND:ID form (for example game:the-bazaar).
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-        /// Use this source for the query instead of configured sources.
-        #[arg(long = "source")]
-        sources: Vec<String>,
-        #[arg(long)]
-        limit: Option<usize>,
-        /// Bypass JSON Schema validation of marketplace entries.
-        #[arg(long)]
-        skip_validation: bool,
-    },
-    /// Inspect one marketplace entry by exact name.
-    Inspect {
-        name: String,
-        /// Use this source for the query instead of configured sources.
-        #[arg(long = "source")]
-        sources: Vec<String>,
-        /// Bypass JSON Schema validation of marketplace entries.
-        #[arg(long)]
-        skip_validation: bool,
-    },
-    /// Install a marketplace plugin, bundle, or Skill package.
-    Install {
-        name: String,
-        /// Target DCC; inferred when the package declares exactly one.
-        #[arg(long)]
-        dcc: Option<String>,
-        /// Generic target in KIND:ID form (for example application:excel).
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-        /// Ask running instances of the installed DCC to re-scan skill paths.
-        #[arg(long)]
-        reload: bool,
-        /// Use this source for the query instead of configured sources.
-        #[arg(long = "source")]
-        sources: Vec<String>,
-        /// Replace an existing installed package.
-        #[arg(long)]
-        force: bool,
-        /// Bypass JSON Schema validation of marketplace entries.
-        #[arg(long)]
-        skip_validation: bool,
-    },
-    /// Remove an installed marketplace package.
-    Uninstall {
-        name: String,
-        /// Target DCC; inferred from installed state when omitted.
-        #[arg(long)]
-        dcc: Option<String>,
-        /// Generic target in KIND:ID form; inferred from installed state when omitted.
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-        /// Ask the running adapter to re-scan skill paths after removal.
-        #[arg(long)]
-        reload: bool,
-    },
-    /// List installed marketplace packages.
-    ListInstalled {
-        #[arg(long)]
-        dcc: Option<String>,
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-    },
-    /// List installed packages that have newer versions in the catalog.
-    Outdated {
-        #[arg(long)]
-        dcc: Option<String>,
-        /// Only check these package names.
-        #[arg(value_name = "NAME")]
-        names: Vec<String>,
-    },
-    /// Upgrade installed marketplace packages to the latest catalog version.
-    Update {
-        /// Upgrade a specific package by name.
-        name: Option<String>,
-        /// Upgrade all outdated packages.
-        #[arg(long, short = 'a')]
-        all: bool,
-        /// Filter to installed packages for this DCC.
-        #[arg(long)]
-        dcc: Option<String>,
-    },
-    /// Install a Skill or Agent Plugin directly from a GitHub repo.
-    ///
-    /// Clones the repo, discovers SKILL.md files, and installs to the
-    /// marketplace root. Supports owner/repo, full URL, and @subpath syntax.
-    AddRepo {
-        /// GitHub owner/repo, full URL, or owner/repo@subpath.
-        repo_ref: String,
-        /// Override the DCC type (required when SKILL.md doesn't declare one).
-        #[arg(long)]
-        dcc: Option<String>,
-        /// List available skills in the repo without installing.
-        #[arg(long)]
-        list: bool,
-        /// Replace an existing installation.
-        #[arg(long)]
-        force: bool,
-    },
-    /// Create a zip package and SHA-256 digest for a local marketplace package.
-    Pack(marketplace_cmd::MarketplacePackArgs),
-    /// Upsert a package entry into a local marketplace.json catalog.
-    Publish(Box<marketplace_cmd::MarketplacePublishArgs>),
 }
 
 #[derive(Debug, clap::Args)]

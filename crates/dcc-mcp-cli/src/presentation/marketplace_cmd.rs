@@ -3,6 +3,90 @@ use std::path::PathBuf;
 use anyhow::Context;
 use serde_json::Value;
 
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum MarketplaceAction {
+    Add {
+        source: String,
+    },
+    List,
+    Search {
+        #[arg(short, long, conflicts_with = "query_terms")]
+        query: Option<String>,
+        #[arg(value_name = "QUERY", num_args = 1.., conflicts_with = "query")]
+        query_terms: Vec<String>,
+        #[arg(long, visible_alias = "dcc-type")]
+        dcc: Option<String>,
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        skip_validation: bool,
+    },
+    Inspect {
+        name: String,
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        #[arg(long)]
+        skip_validation: bool,
+    },
+    Install {
+        name: String,
+        #[arg(long)]
+        dcc: Option<String>,
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
+        #[arg(long)]
+        reload: bool,
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        skip_validation: bool,
+    },
+    Uninstall {
+        name: String,
+        #[arg(long)]
+        dcc: Option<String>,
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
+        #[arg(long)]
+        reload: bool,
+    },
+    ListInstalled {
+        #[arg(long)]
+        dcc: Option<String>,
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
+    },
+    Outdated {
+        #[arg(long)]
+        dcc: Option<String>,
+        names: Vec<String>,
+    },
+    Update {
+        name: Option<String>,
+        #[arg(long, short = 'a')]
+        all: bool,
+        #[arg(long)]
+        dcc: Option<String>,
+    },
+    AddRepo {
+        repo_ref: String,
+        #[arg(long)]
+        dcc: Option<String>,
+        #[arg(long)]
+        list: bool,
+        #[arg(long)]
+        force: bool,
+    },
+    Pack(MarketplacePackArgs),
+    Publish(Box<MarketplacePublishArgs>),
+}
+
 #[derive(Debug, clap::Args)]
 pub(crate) struct MarketplacePackArgs {
     #[arg(value_name = "PATH")]
