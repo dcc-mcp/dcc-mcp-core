@@ -983,6 +983,7 @@ mod tests {
                 name: "dcc-mcp-maya".into(),
                 description: "Maya adapter".into(),
                 dcc: vec!["maya".into()],
+                targets: vec![],
                 url: None,
                 tags: vec![],
                 version: None,

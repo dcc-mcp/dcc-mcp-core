@@ -4,6 +4,12 @@ fn installed_package(name: &str, dcc: &str) -> InstalledMarketplacePackage {
     InstalledMarketplacePackage {
         name: name.into(),
         dcc: dcc.into(),
+        target: CatalogTarget {
+            kind: CatalogTargetKind::Dcc,
+            id: dcc.into(),
+        },
+        components: Vec::new(),
+        package_format: None,
         version: Some("1.0.0".into()),
         path: format!("/tmp/{name}-{dcc}"),
         source_name: "local-test".into(),
@@ -44,6 +50,30 @@ fn resolve_installed_dcc_requires_a_host_for_ambiguous_packages() {
         service.resolve_installed_dcc("shared-tools", None),
         Err(MarketplaceError::AmbiguousInstalledDcc { name }) if name == "shared-tools"
     ));
+}
+
+#[test]
+fn installed_state_keys_packages_by_name_and_generic_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = MarketplaceService::new(temp.path().to_path_buf());
+    for (kind, id) in [
+        (CatalogTargetKind::Game, "the-bazaar"),
+        (CatalogTargetKind::Application, "microsoft-excel"),
+    ] {
+        let mut package = installed_package("shared-profile", "");
+        package.target = CatalogTarget {
+            kind,
+            id: id.to_string(),
+        };
+        service.upsert_installed(package).unwrap();
+    }
+
+    assert_eq!(service.list_installed_for_target(None).unwrap().count, 2);
+    assert!(
+        service
+            .resolve_installed_target("shared-profile", None)
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -112,6 +142,12 @@ async fn outdated_fetches_each_catalog_once() {
             .upsert_installed(InstalledMarketplacePackage {
                 name: name.into(),
                 dcc: "blender".into(),
+                target: CatalogTarget {
+                    kind: CatalogTargetKind::Dcc,
+                    id: "blender".into(),
+                },
+                components: Vec::new(),
+                package_format: None,
                 version: Some("1.0.0".into()),
                 path: temp.path().join(name).display().to_string(),
                 source_name: "local-test".into(),
@@ -140,6 +176,7 @@ fn pinned_git_revision_marks_unchanged_version_as_outdated() {
         name: "test-skill".into(),
         description: "desc".into(),
         dcc: vec!["maya".into()],
+        targets: vec![],
         url: None,
         tags: vec![],
         version: Some("1.0.0".into()),
@@ -167,6 +204,12 @@ fn pinned_git_revision_marks_unchanged_version_as_outdated() {
     let installed = InstalledMarketplacePackage {
         name: "test-skill".into(),
         dcc: "maya".into(),
+        target: CatalogTarget {
+            kind: CatalogTargetKind::Dcc,
+            id: "maya".into(),
+        },
+        components: Vec::new(),
+        package_format: None,
         version: Some("1.0.0".into()),
         path: "/tmp/test".into(),
         source_name: "official".into(),
@@ -220,6 +263,7 @@ fn core_version_gate_rejects_too_new_or_invalid_requirements() {
         name: "test-skill".into(),
         description: "desc".into(),
         dcc: vec!["maya".into()],
+        targets: vec![],
         url: None,
         tags: vec![],
         version: None,
@@ -255,6 +299,7 @@ fn install_policy_rejects_unavailable_entries() {
         name: "retired-skill".into(),
         description: "desc".into(),
         dcc: vec!["maya".into()],
+        targets: vec![],
         url: None,
         tags: vec![],
         version: None,

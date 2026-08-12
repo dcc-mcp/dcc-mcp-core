@@ -3,7 +3,8 @@ use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
 use dcc_mcp_catalog::{
-    CatalogEntry, CatalogInstall, CatalogPackage, CatalogPolicy, CatalogRequirements,
+    CatalogComponent, CatalogEntry, CatalogInstall, CatalogPackage, CatalogPackageFormat,
+    CatalogPolicy, CatalogRequirements, CatalogTarget,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -39,6 +40,9 @@ pub struct MarketplacePublishOptions {
     pub name: Option<String>,
     pub description: Option<String>,
     pub dcc: Vec<String>,
+    pub targets: Vec<CatalogTarget>,
+    pub package_format: Option<CatalogPackageFormat>,
+    pub components: Vec<CatalogComponent>,
     pub version: Option<String>,
     pub maintainer: Option<String>,
     pub tags: Vec<String>,
@@ -140,12 +144,21 @@ pub fn publish_marketplace_package(
             .unwrap_or_else(|| list_or_csv_at(&skill_meta, &["metadata", "dcc-mcp", "tags"])),
         options.tags,
     );
-    let package = package_metadata(plugin.as_ref(), &options.skill_roots);
+    let package = if let Some(format) = options.package_format {
+        Some(CatalogPackage {
+            format,
+            skills: Vec::new(),
+            components: options.components.clone(),
+        })
+    } else {
+        package_metadata(plugin.as_ref(), &options.skill_roots)
+    };
 
     let entry = CatalogEntry {
         name: path_component("package name", &name)?,
         description,
         dcc,
+        targets: options.targets,
         url: options.homepage_url.or_else(|| {
             plugin
                 .as_ref()
@@ -214,16 +227,18 @@ fn package_metadata(
             .map(|skill| skill.name)
             .collect();
         return Some(CatalogPackage {
-            format: "agent-plugin".into(),
+            format: CatalogPackageFormat::AgentPlugin,
             skills,
+            components: Vec::new(),
         });
     }
     (skill_roots.len() > 1).then(|| CatalogPackage {
-        format: "skill-bundle".into(),
+        format: CatalogPackageFormat::SkillBundle,
         skills: skill_roots
             .iter()
             .filter_map(|root| Path::new(root).file_name()?.to_str().map(String::from))
             .collect(),
+        components: Vec::new(),
     })
 }
 
@@ -350,7 +365,7 @@ fn load_catalog_value(path: &Path) -> Result<Value, MarketplaceError> {
     if !path.exists() {
         return Ok(json!({
             "name": "dcc-mcp-local",
-            "schemaVersion": "1",
+            "schemaVersion": "2",
             "version": "1.0.0",
             "skills": []
         }));
@@ -374,9 +389,9 @@ fn save_catalog_value(path: &Path, catalog: &Value) -> Result<(), MarketplaceErr
 
 fn marketplace_v1_entry_value(entry: &CatalogEntry) -> Result<Value, MarketplaceError> {
     let version = required_entry_value(entry, "version", entry.version.as_deref())?;
-    if entry.dcc.is_empty() {
+    if entry.dcc.is_empty() && entry.targets.is_empty() {
         return Err(MarketplaceError::CommandFailed(format!(
-            "marketplace v1 entry '{}' requires at least one DCC target",
+            "marketplace entry '{}' requires at least one target",
             entry.name
         )));
     }
@@ -405,6 +420,7 @@ fn marketplace_v1_entry_value(entry: &CatalogEntry) -> Result<Value, Marketplace
         "description": entry.description,
         "version": version,
         "dcc": entry.dcc,
+        "targets": entry.targets,
         "tags": entry.tags,
         "category": entry.category.as_deref().unwrap_or("Skills"),
         "source": install,
@@ -521,13 +537,17 @@ fn validate_marketplace_v1_entry(entry: &Value) -> Result<(), MarketplaceError> 
             )));
         }
     }
-    if entry
+    let has_dcc = entry
         .get("dcc")
         .and_then(Value::as_array)
-        .is_none_or(Vec::is_empty)
-    {
+        .is_some_and(|values| !values.is_empty());
+    let has_target = entry
+        .get("targets")
+        .and_then(Value::as_array)
+        .is_some_and(|values| !values.is_empty());
+    if !has_dcc && !has_target {
         return Err(MarketplaceError::CommandFailed(
-            "marketplace v1 entry requires at least one DCC target".into(),
+            "marketplace entry requires at least one target".into(),
         ));
     }
     if entry
@@ -713,7 +733,7 @@ fn required_value(kind: &str, value: Option<String>) -> Result<String, Marketpla
 }
 
 fn default_catalog_version() -> String {
-    "1".to_string()
+    "2".to_string()
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -779,6 +799,9 @@ mod tests {
             name: None,
             description: None,
             dcc: Vec::new(),
+            targets: Vec::new(),
+            package_format: None,
+            components: Vec::new(),
             version: None,
             maintainer: Some("dcc-mcp".into()),
             tags: vec!["extra".into()],
@@ -807,7 +830,7 @@ mod tests {
         assert_eq!(requires.python, vec!["my_skill"]);
         assert_eq!(requires.skills, vec!["dcc-base"]);
         let text = fs::read_to_string(catalog_path).unwrap();
-        assert!(text.contains("\"schemaVersion\": \"1\""));
+        assert!(text.contains("\"schemaVersion\": \"2\""));
         assert!(text.contains("\"skills\": ["));
         assert!(text.contains("\"minCoreVersion\": \"0.19.0\""));
         assert!(text.contains("\"source\": {"));
@@ -849,6 +872,9 @@ mod tests {
             name: None,
             description: None,
             dcc: vec!["maya".into()],
+            targets: Vec::new(),
+            package_format: None,
+            components: Vec::new(),
             version: None,
             maintainer: None,
             tags: Vec::new(),
@@ -868,7 +894,7 @@ mod tests {
         assert_eq!(result.entry.maintainer.as_deref(), Some("dcc-mcp"));
         assert_eq!(result.entry.tags, vec!["rigging"]);
         let package = result.entry.package.unwrap();
-        assert_eq!(package.format, "agent-plugin");
+        assert_eq!(package.format, CatalogPackageFormat::AgentPlugin);
         assert_eq!(package.skills, vec!["act", "inspect"]);
     }
 

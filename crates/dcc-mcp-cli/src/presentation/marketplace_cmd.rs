@@ -43,6 +43,15 @@ pub(crate) struct MarketplacePublishArgs {
     /// Target DCC. Repeat for multi-DCC packages.
     #[arg(long)]
     pub(crate) dcc: Vec<String>,
+    /// Generic target in KIND:ID form. Repeat for multi-target packages.
+    #[arg(long = "target")]
+    pub(crate) targets: Vec<String>,
+    /// Typed package format.
+    #[arg(long = "format")]
+    pub(crate) package_format: Option<String>,
+    /// Typed component in KIND:ID=ROOT form. Repeat for composite packages.
+    #[arg(long = "component")]
+    pub(crate) components: Vec<String>,
     #[arg(long)]
     pub(crate) version: Option<String>,
     #[arg(long)]
@@ -84,6 +93,24 @@ pub(crate) fn run_pack(args: MarketplacePackArgs) -> anyhow::Result<Value> {
 }
 
 pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value> {
+    let targets = args
+        .targets
+        .iter()
+        .map(|value| {
+            dcc_mcp_marketplace::parse_target(value)
+                .map_err(|_| anyhow::anyhow!("invalid target '{value}'; expected KIND:ID"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let package_format = args
+        .package_format
+        .as_deref()
+        .map(parse_package_format)
+        .transpose()?;
+    let components = args
+        .components
+        .iter()
+        .map(|value| parse_component(value))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let result = dcc_mcp_marketplace::publish_marketplace_package(
         dcc_mcp_marketplace::MarketplacePublishOptions {
             package_dir: args.path,
@@ -96,6 +123,9 @@ pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value>
             name: args.name,
             description: args.description,
             dcc: args.dcc,
+            targets,
+            package_format,
+            components,
             version: args.version,
             maintainer: args.maintainer,
             tags: args.tags,
@@ -110,6 +140,41 @@ pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value>
         },
     )?;
     to_json(result)
+}
+
+fn parse_package_format(value: &str) -> anyhow::Result<dcc_mcp_catalog::CatalogPackageFormat> {
+    use dcc_mcp_catalog::CatalogPackageFormat;
+    match value {
+        "skill" => Ok(CatalogPackageFormat::Skill),
+        "skill-bundle" => Ok(CatalogPackageFormat::SkillBundle),
+        "agent-plugin" => Ok(CatalogPackageFormat::AgentPlugin),
+        "cua-profile" => Ok(CatalogPackageFormat::CuaProfile),
+        "composite" => Ok(CatalogPackageFormat::Composite),
+        _ => anyhow::bail!("invalid package format '{value}'"),
+    }
+}
+
+fn parse_component(value: &str) -> anyhow::Result<dcc_mcp_catalog::CatalogComponent> {
+    use dcc_mcp_catalog::CatalogComponentKind;
+    let (identity, root) = value
+        .split_once('=')
+        .ok_or_else(|| anyhow::anyhow!("invalid component '{value}'; expected KIND:ID=ROOT"))?;
+    let (kind, id) = identity
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("invalid component '{value}'; expected KIND:ID=ROOT"))?;
+    let kind = match kind {
+        "skill" => CatalogComponentKind::Skill,
+        "cua-profile" => CatalogComponentKind::CuaProfile,
+        _ => anyhow::bail!("invalid component kind '{kind}'"),
+    };
+    if id.is_empty() || root.is_empty() {
+        anyhow::bail!("invalid component '{value}'; id and root are required");
+    }
+    Ok(dcc_mcp_catalog::CatalogComponent {
+        kind,
+        id: id.to_string(),
+        root: root.to_string(),
+    })
 }
 
 fn to_json(value: impl serde::Serialize) -> anyhow::Result<Value> {

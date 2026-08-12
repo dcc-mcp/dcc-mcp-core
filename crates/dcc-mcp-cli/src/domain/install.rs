@@ -573,6 +573,7 @@ mod tests {
             name: name.into(),
             description: "Adapter".into(),
             dcc: dcc.iter().map(|value| value.to_string()).collect(),
+            targets: vec![],
             url: Some("https://example.invalid/adapter".into()),
             tags: vec!["official".into()],
             version: None,

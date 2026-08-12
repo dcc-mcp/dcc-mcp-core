@@ -2,7 +2,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 #[cfg(test)]
 use base64::Engine;
 use clap::{Parser, Subcommand};
@@ -414,6 +414,9 @@ enum MarketplaceAction {
         query_terms: Vec<String>,
         #[arg(long, visible_alias = "dcc-type")]
         dcc: Option<String>,
+        /// Generic target in KIND:ID form (for example game:the-bazaar).
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
         /// Use this source for the query instead of configured sources.
         #[arg(long = "source")]
         sources: Vec<String>,
@@ -439,6 +442,9 @@ enum MarketplaceAction {
         /// Target DCC; inferred when the package declares exactly one.
         #[arg(long)]
         dcc: Option<String>,
+        /// Generic target in KIND:ID form (for example application:excel).
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
         /// Ask running instances of the installed DCC to re-scan skill paths.
         #[arg(long)]
         reload: bool,
@@ -458,6 +464,9 @@ enum MarketplaceAction {
         /// Target DCC; inferred from installed state when omitted.
         #[arg(long)]
         dcc: Option<String>,
+        /// Generic target in KIND:ID form; inferred from installed state when omitted.
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
         /// Ask the running adapter to re-scan skill paths after removal.
         #[arg(long)]
         reload: bool,
@@ -466,6 +475,8 @@ enum MarketplaceAction {
     ListInstalled {
         #[arg(long)]
         dcc: Option<String>,
+        #[arg(long, conflicts_with = "dcc")]
+        target: Option<String>,
     },
     /// List installed packages that have newer versions in the catalog.
     Outdated {
@@ -1007,20 +1018,27 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     query,
                     query_terms,
                     dcc,
+                    target,
                     sources,
                     limit,
                     skip_validation,
-                } => to_json(
-                    service
-                        .search(
-                            resolve_query(query, query_terms),
-                            dcc,
-                            sources,
-                            limit,
-                            skip_validation,
-                        )
-                        .await?,
-                )?,
+                } => {
+                    let query = resolve_query(query, query_terms);
+                    if let Some(target) = target {
+                        let target = parse_marketplace_target(&target)?;
+                        to_json(
+                            service
+                                .search_for_target(query, target, sources, limit, skip_validation)
+                                .await?,
+                        )?
+                    } else {
+                        to_json(
+                            service
+                                .search(query, dcc, sources, limit, skip_validation)
+                                .await?,
+                        )?
+                    }
+                }
                 MarketplaceAction::Inspect {
                     name,
                     sources,
@@ -1029,17 +1047,32 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 MarketplaceAction::Install {
                     name,
                     dcc,
+                    target,
                     reload,
                     sources,
                     force,
                     skip_validation,
                 } => {
-                    let installed = service
-                        .install(name, dcc, sources, force, skip_validation)
-                        .await?;
+                    let installed = if let Some(target) = target {
+                        service
+                            .install_for_target(
+                                name,
+                                parse_marketplace_target(&target)?,
+                                sources,
+                                force,
+                                skip_validation,
+                            )
+                            .await?
+                    } else {
+                        service
+                            .install(name, dcc, sources, force, skip_validation)
+                            .await?
+                    };
                     let installed_dcc = installed.dcc.clone();
+                    let skill_reload = installed.activation
+                        == dcc_mcp_marketplace::MarketplaceActivation::SkillReload;
                     let mut value = to_json(installed)?;
-                    if reload {
+                    if reload && skill_reload {
                         let (reloaded_value, reload_failed) =
                             reload_marketplace_value(&control, value, installed_dcc).await;
                         value = reloaded_value;
@@ -1050,11 +1083,30 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     }
                     value
                 }
-                MarketplaceAction::Uninstall { name, dcc, reload } => {
-                    let installed_dcc = service.resolve_installed_dcc(&name, dcc.as_deref())?;
-                    let result = service.uninstall(&name, &installed_dcc)?;
+                MarketplaceAction::Uninstall {
+                    name,
+                    dcc,
+                    target,
+                    reload,
+                } => {
+                    let requested_target = target
+                        .as_deref()
+                        .map(parse_marketplace_target)
+                        .transpose()?;
+                    let installed_target = if requested_target.is_some() || dcc.is_none() {
+                        service.resolve_installed_target(&name, requested_target.as_ref())?
+                    } else {
+                        dcc_mcp_catalog::CatalogTarget {
+                            kind: dcc_mcp_catalog::CatalogTargetKind::Dcc,
+                            id: dcc.clone().unwrap_or_default(),
+                        }
+                    };
+                    let installed_dcc = installed_target.id.clone();
+                    let result = service.uninstall_for_target(&name, &installed_target)?;
+                    let skill_reload = result.activation
+                        == dcc_mcp_marketplace::MarketplaceActivation::SkillReload;
                     let mut value = to_json(result)?;
-                    if reload {
+                    if reload && skill_reload {
                         let (reloaded_value, reload_failed) =
                             reload_marketplace_value(&control, value, installed_dcc).await;
                         value = reloaded_value;
@@ -1065,8 +1117,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     }
                     value
                 }
-                MarketplaceAction::ListInstalled { dcc } => {
-                    to_json(service.list_installed(dcc.as_deref())?)?
+                MarketplaceAction::ListInstalled { dcc, target } => {
+                    if let Some(target) = target {
+                        let target = parse_marketplace_target(&target)?;
+                        to_json(service.list_installed_for_target(Some(&target))?)?
+                    } else {
+                        to_json(service.list_installed(dcc.as_deref())?)?
+                    }
                 }
                 MarketplaceAction::Outdated { dcc, names } => {
                     to_json(service.outdated(dcc.as_deref(), names).await?)?
@@ -1350,6 +1407,12 @@ fn resolve_query(query: Option<String>, query_terms: Vec<String>) -> Option<Stri
     query.or_else(|| {
         let joined = query_terms.join(" ");
         (!joined.is_empty()).then_some(joined)
+    })
+}
+
+fn parse_marketplace_target(value: &str) -> anyhow::Result<dcc_mcp_catalog::CatalogTarget> {
+    dcc_mcp_marketplace::parse_target(value).map_err(|_| {
+        anyhow!("invalid marketplace target '{value}'; expected dcc|application|game|web:ID")
     })
 }
 
