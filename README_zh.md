@@ -758,8 +758,8 @@ DPI 映射回目标窗口。每次操作必须引用最新 `snapshot_id`；发�
 - **作用域限定的窗口定位** —— 截图和操作均绑定到单一进程或窗口句柄，绝不作用于整个桌面。
 - **语义 UIA + 原始输入回退** —— 优先通过 `ui_control__find` 解析稳定的语义控件（按钮、文本框、复选框），
   仅当自定义绘制控件无语义节点时回退到截图坐标。
-- **带边界的安全模型** —— 每个操作都被适配器/操作者绑定的 PID/HWND 限定范围。原始输入需要显式启用
-  （`DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`）。硬性禁止：密码、认证控件、LockApp、Windows 安全界面、
+- **带边界的安全模型** —— 每个操作都被适配器/操作者绑定的 PID/HWND 限定范围。原始输入默认仅在该精确
+  范围内启用，可通过 `DCC_MCP_CUA_ALLOW_RAW_INPUT=false` 关闭。硬性禁止：密码、认证控件、LockApp、Windows 安全界面、
   终端和凭据管理器窗口。
 - **可见的胶囊覆盖层** —— DCC UI Control 处于活动状态时，目标窗口四周显示可穿透的角标，
   底部居中显示胶囊提示 `DCC UI Control · <应用名> | Esc 停止`。
@@ -776,7 +776,6 @@ DPI 映射回目标窗口。每次操作必须引用最新 `snapshot_id`；发�
 | `ui_control__act` | 执行一个限定作用域的语义或基于坐标的操作 |
 | `ui_control__wait_for` | 轮询直到 UI 条件成立或超时 |
 | `ui_control__stop_computer_use` | 释放胶囊、热键和全局输入所有者 |
-| `ui_control__system_operation` | 确保指定的 Windows 配置项（需要操作者授权） |
 
 详细的 Skill 参考和 Agent 工作流请参见
 [ui-control 技能文档](python/dcc_mcp_core/skills/ui-control/SKILL.md)。

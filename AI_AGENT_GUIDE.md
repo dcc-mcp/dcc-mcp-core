@@ -109,25 +109,18 @@ host APIs, or adapter scripts first. Load `ui-control` only when that path retur
 authentication, or desktop unavailability are stop conditions, not fallback
 signals:
 
-1. `ui_control__snapshot` scoped to the exact process or window. Every Windows UIA
+1. `ui_control__snapshot` scoped to the exact process or window. Every native
    mutation requires the adapter/operator to bind its DCC with
-   `DCC_MCP_UI_CONTROL_UIA_PROCESS_ID` or `DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE`.
+   `DCC_MCP_UI_CONTROL_PROCESS_ID` or `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`.
    A request may select that exact PID/HWND or narrow it further, but cannot
    replace the trusted runtime scope with another application.
-   The visible session and bounded native screenshot do not require raw input.
-   Native pointer or keyboard control has a second gate and additionally
-   requires `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT=true`.
+   Raw pointer and keyboard input are enabled by default only inside that exact
+   bound scope. Operators can disable them with
+   `DCC_MCP_CUA_ALLOW_RAW_INPUT=false`.
 2. One semantic action when possible, otherwise one screenshot-coordinate
    `ui_control__act` using the returned `snapshot_id`.
 3. `ui_control__snapshot` after every action before deciding what to do next.
 4. `ui_control__stop_computer_use` when the task completes, fails, or is abandoned.
-
-Windows plug-in setup that needs an HKCU string/DWORD or a file/directory
-symbolic link uses the separate `ui_control__system_operation` tool. It requires an
-exact operator-owned grant catalog and trusted action-time confirmation, and it
-does not require a PID, HWND, or snapshot. It has no shell, deletion,
-replacement, alternate-hive, or elevation form. Treat `elevation_required`,
-`approval_required`, and `system_operation_not_granted` as stop conditions.
 
 Never automate the whole desktop or reuse coordinates from an older snapshot.
 The Windows session shows a click-through target border, control banner, and
