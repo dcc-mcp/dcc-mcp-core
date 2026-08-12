@@ -24,15 +24,15 @@ submit a PR updating this matrix before the release PR merges.
 
 | DCC | Repository | Adapter Version | Core Pin | DCC Min Version | Dispatcher Pattern | Last Verified |
 |-----|-----------|----------------|----------|-----------------|-------------------|---------------|
-| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.15 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-06 |
+| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.22 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-08 |
 | Marmoset Toolbag | [dcc-mcp-marmoset](https://github.com/dcc-mcp/dcc-mcp-marmoset) | 0.1.1 | >=0.19.86,<1.0.0 | 4.03+ | External sidecar + Toolbag periodic callback | 2026-07 |
 | OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.1.1 | >=0.19.91,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
 | FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.1.1 | >=0.19.91,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
 | Cinema 4D | [dcc-mcp-cinema4d](https://github.com/dcc-mcp/dcc-mcp-cinema4d) | 0.1.2 | >=0.19.91,<1.0.0 | R21+ | External headless c4dpy subprocess | 2026-08 |
 | Mari | [dcc-mcp-mari](https://github.com/dcc-mcp/dcc-mcp-mari) | 0.2.1 | >=0.19.91,<1.0.0 | 5.0+ | Authenticated loopback sidecar + Qt UI timer | 2026-08 |
-| 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.37 | >=0.19.45,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-06 |
-| Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.36 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-06 |
-| Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.22.0 | >=0.19.45,<1.0.0 | 20.5+ | Event-loop callback | 2026-06 |
+| 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.40 | >=0.19.45,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-08 |
+| Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.43 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-08 |
+| Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.31.5 | >=0.19.45,<1.0.0 | 20.5+ | Event-loop callback | 2026-08 |
 | FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.8 | >=0.19.45,<1.0.0 | — | REST bridge | 2026-06 |
 | Nuke | [dcc-mcp-nuke](https://github.com/dcc-mcp/dcc-mcp-nuke) | 0.13.1 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | Unreal | [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) | 0.2.0 | >=0.19.45,<1.0.0 | — | Unreal Python bridge | — |
