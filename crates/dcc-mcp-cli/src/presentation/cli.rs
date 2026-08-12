@@ -15,7 +15,6 @@ use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
 };
 use crate::application::client::DccMcpClient;
-use crate::application::components::ComponentService;
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::gateway_ctrl;
@@ -316,15 +315,14 @@ enum Command {
     },
     /// Validate local SKILL.md packages before loading them at runtime.
     Lint(LintArgs),
-    /// Inspect or install independently released companion executables.
     Components {
         #[command(subcommand)]
-        action: ComponentsAction,
+        action: super::components_cmd::ComponentsAction,
     },
     /// Check for and apply gateway-controlled binary updates.
     Update {
         #[command(subcommand)]
-        action: UpdateAction,
+        action: super::update_cmd::UpdateAction,
     },
     /// Gateway lifecycle management.
     Gateway {
@@ -522,41 +520,6 @@ struct LintArgs {
     /// Exit non-zero when warnings are present.
     #[arg(long, default_value = "false")]
     warnings_as_errors: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum UpdateAction {
-    /// Check whether a newer version is available.
-    Check {
-        /// Binary name to check in the gateway update manifest.
-        #[arg(long)]
-        binary: Option<String>,
-        /// Current version to compare against. Defaults to this CLI version.
-        #[arg(long)]
-        current_version: Option<String>,
-    },
-    /// Download the latest CLI version and stage it for the next launch.
-    Apply,
-}
-
-#[derive(Debug, Subcommand)]
-enum ComponentsAction {
-    /// Inspect one installed companion executable without downloading anything.
-    Status {
-        #[arg(value_parser = ["dcc-cua"])]
-        component: String,
-    },
-    /// Install or reconcile one companion executable from its official manifest.
-    Ensure {
-        #[arg(value_parser = ["dcc-cua"])]
-        component: String,
-        /// Install an exact stable release instead of the latest release.
-        #[arg(long)]
-        version: Option<String>,
-        /// Confirm the filesystem mutation. This command never prompts.
-        #[arg(long)]
-        yes: bool,
-    },
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -1133,28 +1096,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
             result.value
         }
-        Command::Components { action } => {
-            let service = ComponentService::for_current_process()?;
-            match action {
-                ComponentsAction::Status { component } => {
-                    debug_assert_eq!(component, "dcc-cua");
-                    service.status()?
-                }
-                ComponentsAction::Ensure {
-                    component,
-                    version,
-                    yes,
-                } => {
-                    debug_assert_eq!(component, "dcc-cua");
-                    if !yes {
-                        anyhow::bail!("components ensure requires explicit --yes consent");
-                    }
-                    service.ensure(version.as_deref()).await?
-                }
-            }
-        }
+        Command::Components { action } => super::components_cmd::run(action).await?,
         Command::Update { action } => match action {
-            UpdateAction::Check {
+            super::update_cmd::UpdateAction::Check {
                 binary,
                 current_version,
             } => {
@@ -1173,7 +1117,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 }
                 to_json(value)?
             }
-            UpdateAction::Apply => {
+            super::update_cmd::UpdateAction::Apply => {
                 let service = crate::application::update::UpdateService::new(
                     &base_url,
                     env!("CARGO_PKG_NAME"),
