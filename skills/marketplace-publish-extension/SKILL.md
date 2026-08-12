@@ -93,6 +93,9 @@ push the change.
 - Pass `--min-core-version`; v1 entries require an explicit compatibility floor.
 - Git sources in the official catalog must use a complete 40-character commit
   SHA in `--install-ref`, never a mutable branch name.
+- Host-neutral Skills declare `dcc: any`. They match every concrete adapter,
+  but installation must still pass a concrete `--dcc`; `any` is never an
+  installation directory or a standalone DCC runtime.
 - Declare every installed skill directory with `--skill-root`. The installer
   only loads declared roots, so multi-skill repositories do not accidentally
   expose examples or development-only skills.

@@ -1226,15 +1226,11 @@ entries:
             ),
             ("dcc-mcp-comfyui", "comfyui", "dcc_mcp_comfyui.cli:main"),
             (
-                "dcc-mcp-cache-inspector",
-                "cache-inspector",
-                "dcc_mcp_cache_inspector.server:CacheInspectorMcpServer",
-            ),
-            (
                 "dcc-mcp-touchdesigner",
                 "touchdesigner",
                 "dcc_mcp_touchdesigner:TouchDesignerMcpServer",
             ),
+            ("dcc-mcp-shogun", "shogun", "dcc_mcp_shogun:ShogunMcpServer"),
             ("dcc-mcp-krita", "krita", "dcc_mcp_krita.server:main"),
             ("dcc-mcp-gimp", "gimp", "dcc_mcp_gimp.server:main"),
             ("dcc-mcp-tiled", "tiled", "dcc_mcp_tiled.server:main"),

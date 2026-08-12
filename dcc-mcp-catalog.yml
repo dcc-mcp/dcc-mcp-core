@@ -355,20 +355,6 @@ entries:
       entry_point: "dcc_mcp_comfyui.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-comfyui/main/README.md"
 
-  - name: "dcc-mcp-cache-inspector"
-    description: "Standalone read-only inspector for bounded privacy-safe SideFX geo, bgeo, and bgeo.sc cache summaries"
-    dcc: ["cache-inspector"]
-    url: "https://github.com/dcc-mcp/dcc-mcp-cache-inspector"
-    tags: ["adapter", "cache-inspector", "official", "pip", "standalone", "read-only", "geometry-cache", "houdini"]
-    version: "0.2.0"
-    min_core_version: "0.19.91"
-    maintainer: "dcc-mcp"
-    install:
-      type: pip
-      pip_package: "dcc-mcp-cache-inspector"
-      entry_point: "dcc_mcp_cache_inspector.server:CacheInspectorMcpServer"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cache-inspector/main/README.md"
-
   - name: "dcc-mcp-mari"
     description: "Mari adapter for typed project, geometry, channel, node-graph, layer, shader, image, and export workflows"
     dcc: ["mari"]
@@ -409,6 +395,20 @@ entries:
       pip_package: "dcc-mcp-touchdesigner"
       entry_point: "dcc_mcp_touchdesigner:TouchDesignerMcpServer"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-touchdesigner/main/install.md"
+
+  - name: "dcc-mcp-shogun"
+    description: "Vicon Shogun Post adapter with typed scene, file, timeline, and capability-gated processing workflows"
+    dcc: ["shogun"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-shogun"
+    tags: ["adapter", "shogun", "vicon", "official", "pip", "motion-capture", "timeline", "processing"]
+    version: "0.2.0"
+    min_core_version: "0.19.91"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-shogun"
+      entry_point: "dcc_mcp_shogun:ShogunMcpServer"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-shogun/main/README.md"
 
   - name: "dcc-mcp-tiled"
     description: "Tiled adapter for typed workspace-bounded map authoring, validation, and conversion"

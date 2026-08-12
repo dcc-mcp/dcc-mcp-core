@@ -1743,7 +1743,6 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
     for expected in [
         "aftereffects",
         "c4d",
-        "cache-inspector",
         "comfyui",
         "freecad",
         "gimp",
@@ -1758,6 +1757,7 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
         "renderdoc",
         "shotgrid",
         "sketchup",
+        "shogun",
         "tiled",
         "touchdesigner",
         "unity",

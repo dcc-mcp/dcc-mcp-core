@@ -805,7 +805,6 @@ mod tests {
         );
         for (expected_type, expected_adapter) in [
             ("c4d", "dcc-mcp-cinema4d"),
-            ("cache-inspector", "dcc-mcp-cache-inspector"),
             ("comfyui", "dcc-mcp-comfyui"),
             ("freecad", "dcc-mcp-freecad"),
             ("gimp", "dcc-mcp-gimp"),
@@ -816,6 +815,7 @@ mod tests {
             ("openscad", "dcc-mcp-openscad"),
             ("renderdoc", "dcc-mcp-renderdoc"),
             ("sketchup", "dcc-mcp-sketchup"),
+            ("shogun", "dcc-mcp-shogun"),
             ("tiled", "dcc-mcp-tiled"),
             ("touchdesigner", "dcc-mcp-touchdesigner"),
             ("unity", "dcc-mcp-unity"),
