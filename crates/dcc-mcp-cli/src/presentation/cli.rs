@@ -46,6 +46,8 @@ use record_replay::{RecordReplayAction, run_record_replay};
 use ui_control_output::compact_ui_control_result;
 
 use super::marketplace_cmd;
+#[cfg(test)]
+use super::update_cmd::UpdateAction;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 
