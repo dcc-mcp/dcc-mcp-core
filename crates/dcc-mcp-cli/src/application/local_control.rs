@@ -567,7 +567,13 @@ pub async fn wait_ready_local(
         attempts += 1;
         match gateway.get_json(&readyz_url).await {
             Ok(value) => {
-                let readiness = normalize_readiness_report(&value).unwrap_or(value);
+                let mut readiness = normalize_readiness_report(&value).unwrap_or(value);
+                if required.iter().any(|field| field == "skill_catalog")
+                    && readiness.get("skill_catalog").and_then(Value::as_bool) != Some(true)
+                {
+                    let catalog_observable = discovery_catalog_observable(&gateway, &entry).await;
+                    readiness = reconcile_catalog_readiness(readiness, catalog_observable);
+                }
                 let missing = missing_required_fields(Some(&readiness), &required);
                 let ready = missing.is_empty();
                 last = json!({
@@ -1231,6 +1237,35 @@ fn normalize_readiness_report(value: &Value) -> Option<Value> {
         return Some(value.clone());
     }
     None
+}
+
+async fn discovery_catalog_observable(gateway: &HttpGateway, entry: &ServiceEntry) -> bool {
+    list_mcp_tools(gateway, &local_instance::discovery_mcp_url(entry))
+        .await
+        .is_ok_and(|tools| {
+            tools.iter().any(|tool| {
+                tool.get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| {
+                        matches!(name, "search_tools" | "search_skills" | "load_skill")
+                    })
+            })
+        })
+}
+
+fn reconcile_catalog_readiness(mut readiness: Value, catalog_observable: bool) -> Value {
+    if !catalog_observable || readiness.get("skill_catalog").and_then(Value::as_bool) == Some(true)
+    {
+        return readiness;
+    }
+    if let Some(object) = readiness.as_object_mut() {
+        object.insert("skill_catalog".to_string(), Value::Bool(true));
+        object.insert(
+            "skill_catalog_source".to_string(),
+            Value::String("discovery_mcp".to_string()),
+        );
+    }
+    readiness
 }
 
 fn missing_required_fields(readiness: Option<&Value>, required: &[String]) -> Vec<String> {

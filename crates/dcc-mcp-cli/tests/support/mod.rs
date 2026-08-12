@@ -953,7 +953,6 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                     "readiness": {
                         "process": true,
                         "dcc": true,
-                        "skill_catalog": true,
                         "dispatcher": true,
                         "host_execution_bridge": true,
                         "main_thread_executor": true

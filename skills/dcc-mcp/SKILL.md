@@ -224,15 +224,15 @@ the complete target-binding, system-operation, capture, and artifact contract.
 
 `dcc-mcp-cli` has a built-in `local` profile. In local mode, agent-control
 commands first ensure the machine-wide loopback gateway is healthy, then
-`list` reads the core default FileRegistry directly, and `search`, `describe`,
-`load-skill`, `call`, `wait-ready`, and guarded `stop-instance` talk to the
-selected local DCC instance's advertised MCP/readyz/safe-stop endpoints. Remote
-machines are selected through named gateway profiles:
-
+`list` reads FileRegistry; `search`, `describe`, `call`, and guarded
+`stop-instance` use the selected instance endpoints. `load-skill` uses the
+ensured gateway to update its capability index; `--no-auto-gateway` retains
+direct loading. `wait-ready` uses discovery MCP when readyz cannot report
+`skill_catalog`. Remote machines use named gateway profiles:
 Treat `list` as inventory plus diagnostics, not proof that a row is callable.
 It intentionally keeps live `booting` / `dispatch_status=unavailable` sidecar
-rows visible. Local `search`, `describe`, `load-skill`, `call`, and
-`reload-skills` route only to rows ready for local CLI control. Per-DCC sidecar
+rows visible. Local control routes only to ready rows; gateway-owned
+`load-skill` targets the same row and refreshes its capabilities. Per-DCC sidecar
 rows become local MCP routes once they report `dispatch_status=ready`; before
 that, they remain visible for diagnostics. Use `wait-ready` or `doctor` when a
 listed instance is still booting.

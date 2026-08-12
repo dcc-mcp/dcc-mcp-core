@@ -40,6 +40,7 @@ pub struct DccControlPlane {
     endpoint: Endpoint,
     registry_dir: PathBuf,
     require_gateway: bool,
+    auto_gateway_enabled: bool,
 }
 
 impl DccControlPlane {
@@ -55,7 +56,14 @@ impl DccControlPlane {
             endpoint,
             registry_dir,
             require_gateway,
+            auto_gateway_enabled: true,
         }
+    }
+
+    #[must_use]
+    pub fn with_auto_gateway_enabled(mut self, enabled: bool) -> Self {
+        self.auto_gateway_enabled = enabled;
+        self
     }
 
     fn uses_direct_local(&self) -> bool {
@@ -104,7 +112,16 @@ impl DccControlPlane {
     }
 
     pub async fn load_skill(&self, request: LoadSkillRequest) -> anyhow::Result<Value> {
-        if self.uses_direct_local() {
+        if self.uses_direct_local() && self.auto_gateway_enabled {
+            let fallback_body = request.body.clone();
+            match self.gateway_client().load_skill(request).await {
+                Ok(value) => Ok(value),
+                Err(ClientError::Http(HttpError::Request(error))) if error.is_connect() => {
+                    local_control::load_skill_local(self.registry_dir.clone(), fallback_body).await
+                }
+                Err(error) => Err(error.into()),
+            }
+        } else if self.uses_direct_local() {
             local_control::load_skill_local(self.registry_dir.clone(), request.body).await
         } else {
             self.gateway_client()
@@ -614,6 +631,46 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[tokio::test]
+    async fn local_load_skill_routes_through_gateway_to_keep_index_coherent() {
+        async fn load_skill(Json(body): Json<Value>) -> Json<Value> {
+            Json(json!({
+                "loaded": true,
+                "skill_name": body["skill_name"],
+                "registered_tools": ["blender_scene__list_objects"],
+                "source": "gateway"
+            }))
+        }
+
+        let app = Router::new().route("/v1/load_skill", post(load_skill));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            false,
+        );
+
+        let result = control
+            .load_skill(LoadSkillRequest {
+                body: json!({
+                    "skill_name": "blender-scene",
+                    "dcc_type": "blender",
+                    "instance_id": "abc12345"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result["loaded"], true);
+        assert_eq!(result["source"], "gateway");
+        assert_eq!(result["registered_tools"][0], "blender_scene__list_objects");
+        server.abort();
+    }
 
     #[tokio::test]
     async fn required_gateway_routes_a_local_call_and_reports_stats_coverage() {

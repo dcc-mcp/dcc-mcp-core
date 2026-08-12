@@ -681,8 +681,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         endpoint.clone(),
         gateway_ensure::default_registry_dir(),
         require_gateway,
-    );
-
+    )
+    .with_auto_gateway_enabled(!no_auto_gateway);
     if !no_auto_gateway {
         ensure_gateway_for_command(
             &base_url,

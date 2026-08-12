@@ -247,3 +247,18 @@ fn call_result_rejects_nested_tool_failure_but_accepts_transport_success() {
         "output": {"success": true}
     })));
 }
+
+#[test]
+fn observable_discovery_catalog_satisfies_missing_readiness_bit() {
+    let readiness = json!({
+        "process": true,
+        "dcc": true,
+        "dispatcher": true
+    });
+
+    let reconciled = reconcile_catalog_readiness(readiness, true);
+
+    assert_eq!(reconciled["skill_catalog"], true);
+    assert_eq!(reconciled["skill_catalog_source"], "discovery_mcp");
+    assert!(missing_required_fields(Some(&reconciled), &["skill_catalog".to_string()]).is_empty());
+}
