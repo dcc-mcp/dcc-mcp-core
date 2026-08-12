@@ -1308,6 +1308,7 @@ mod tests {
             name: "host-neutral".into(),
             description: "desc".into(),
             dcc: vec!["any".into()],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,

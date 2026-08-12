@@ -234,13 +234,10 @@ pub struct RepoInstallResult {
 /// `any` is the host-neutral wildcard used by Skills that can be loaded into a
 /// concrete adapter without owning a standalone DCC runtime.
 pub fn entry_targets_dcc(entry: &CatalogEntry, dcc: &str) -> bool {
-    entry_targets(entry)
-        .iter()
-        .any(|target| {
-            target.kind == CatalogTargetKind::Dcc
-                && (target.id.eq_ignore_ascii_case("any")
-                    || target.id.eq_ignore_ascii_case(dcc))
-        })
+    entry_targets(entry).iter().any(|target| {
+        target.kind == CatalogTargetKind::Dcc
+            && (target.id.eq_ignore_ascii_case("any") || target.id.eq_ignore_ascii_case(dcc))
+    })
 }
 
 pub fn entry_targets(entry: &CatalogEntry) -> Vec<CatalogTarget> {
@@ -315,6 +312,7 @@ mod tests {
             name: "host-neutral".into(),
             description: "desc".into(),
             dcc: vec!["ANY".into()],
+            targets: vec![],
             url: None,
             tags: vec![],
             version: None,
