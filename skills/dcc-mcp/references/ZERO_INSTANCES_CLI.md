@@ -34,9 +34,12 @@ Before any setup step, confirm:
 
 Local `dcc-mcp-cli list` first ensures the machine-wide loopback gateway, then
 reads the FileRegistry directly. In the built-in `local` profile, `search`,
-`describe`, `load-skill`, `call`, `wait-ready`, and guarded `stop-instance` use
-the registered DCC instance's own MCP/readyz/safe-stop endpoints after the same
-gateway lifecycle check. Endpoint/admin/update workflows also auto-ensure a
+`describe`, `call`, and guarded `stop-instance` use the registered DCC
+instance's own MCP/safe-stop endpoints after the same gateway lifecycle check.
+`load-skill` goes through that ensured gateway so its capability index stays
+coherent, while explicit `--no-auto-gateway` mode retains direct loading.
+`wait-ready` combines the instance readyz report with the discovery MCP catalog
+contract when `skill_catalog` is absent. Endpoint/admin/update workflows also auto-ensure a
 machine-wide gateway daemon when they target loopback HTTP.
 Per-DCC adapters register themselves through their own sidecar/server runtime.
 The legacy first-wins election is only for explicit

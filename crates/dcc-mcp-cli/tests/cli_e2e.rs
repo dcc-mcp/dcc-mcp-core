@@ -661,7 +661,7 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
             "--instance-id",
             &instance_short,
             "--require",
-            "dispatcher,host_execution_bridge",
+            "skill_catalog,dispatcher,host_execution_bridge",
             "--timeout-secs",
             "1",
         ],
@@ -669,6 +669,8 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
     );
     assert_eq!(ready["source"], "local_mcp");
     assert_eq!(ready["ready"], true);
+    assert_eq!(ready["readiness"]["skill_catalog"], true);
+    assert_eq!(ready["readiness"]["skill_catalog_source"], "discovery_mcp");
     assert_eq!(ready["missing"].as_array().unwrap().len(), 0);
 
     let stop = run_json_with_env(
