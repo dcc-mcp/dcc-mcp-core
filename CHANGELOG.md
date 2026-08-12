@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.0...v0.20.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* enforce current dcc-cua scope metadata ([#2145](https://github.com/dcc-mcp/dcc-mcp-core/issues/2145)) ([594477d](https://github.com/dcc-mcp/dcc-mcp-core/commit/594477d268224663ea64b18b6674939724c13593))
+
+
+### Documentation
+
+* align UI Control migration guidance ([#2144](https://github.com/dcc-mcp/dcc-mcp-core/issues/2144)) ([208ba07](https://github.com/dcc-mcp/dcc-mcp-core/commit/208ba072656f4910c1cf79dde899ed34191d5f3d))
+
 ## [0.20.0](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.94...v0.20.0) (2026-08-11)
 
 
