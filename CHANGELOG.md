@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.1...v0.20.2) (2026-08-12)
+
+
+### Bug Fixes
+
+* keep local CLI catalog state coherent ([e96ca0e](https://github.com/dcc-mcp/dcc-mcp-core/commit/e96ca0ea095480436523a6303ce7afdba77f48d7))
+* refresh bundled adapter catalog ([bb777c7](https://github.com/dcc-mcp/dcc-mcp-core/commit/bb777c7d81e0d9d3f8656fec812529a80acdc4bf))
+
 ## [0.20.1](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.0...v0.20.1) (2026-08-12)
 
 
