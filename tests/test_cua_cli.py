@@ -146,9 +146,7 @@ def test_configured_binary_must_be_absolute(tmp_path: Path) -> None:
         resolve_cua_command(str(missing.resolve()))
 
 
-def test_cli_sibling_precedes_an_unrelated_path_cua(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_sibling_precedes_an_unrelated_path_cua(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cli = tmp_path / ("dcc-mcp-cli.exe" if os.name == "nt" else "dcc-mcp-cli")
     sibling = tmp_path / ("dcc-cua.exe" if os.name == "nt" else "dcc-cua")
     other = tmp_path / "other" / ("dcc-cua.exe" if os.name == "nt" else "dcc-cua")
