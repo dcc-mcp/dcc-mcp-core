@@ -164,6 +164,12 @@ chmod 0755 "$BINARY_TMP"
 TARGET="$INSTALL_DIR/dcc-mcp-cli"
 mv -f "$BINARY_TMP" "$TARGET"
 
+# The CLI and dcc-cua are independently released. Reconcile the verified
+# companion only after the CLI replacement succeeds. This is convergent, but
+# not crash-atomic across the two independently owned executables.
+"$TARGET" components ensure dcc-cua --yes --output json \
+    || fail "dcc-mcp-cli installed, but verified dcc-cua component installation failed"
+
 echo "Installed verified dcc-mcp-cli $MANIFEST_VERSION to $TARGET"
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;

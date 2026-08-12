@@ -34,7 +34,11 @@ interruption, authentication, and desktop unavailability are stop conditions.
 4. `mock` is an explicit deterministic test backend only; production defaults
    to `dcc-cua` and never silently falls back to mock automation.
 
-Core does not package an automation Host. Install `dcc-cua` 0.4.0 or newer separately so
+Core does not package an automation Host in its own release assets. The official
+CLI installer reconciles the independently released `dcc-cua` companion; verify
+it with `dcc-mcp-cli components status dcc-cua` or repair it with
+`dcc-mcp-cli components ensure dcc-cua --yes`. For custom layouts, install
+`dcc-cua` 0.4.0 or newer separately so
 it is on `PATH`, or set `DCC_MCP_CUA_BINARY` to an absolute executable path.
 Core validates `dcc-cua manifest`, ensures the shared Host, and keeps one
 persistent JSONL bridge per active UI session. It prefers shared-memory image

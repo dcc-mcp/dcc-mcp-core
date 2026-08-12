@@ -469,7 +469,14 @@ platform manifests and server-side update details.
 ```bash
 dcc-mcp-cli update check
 dcc-mcp-cli update apply
+dcc-mcp-cli components status dcc-cua
+dcc-mcp-cli components ensure dcc-cua --yes
 ```
+
+The official CLI installer reconciles the independently released `dcc-cua`
+sibling. `components status` is read-only; `components ensure` requires
+explicit consent and accepts only the official per-target manifest, exact
+release URL binding, and mandatory SHA-256 verification.
 
 For marketplace Skills, search first when the exact package ID is not known:
 

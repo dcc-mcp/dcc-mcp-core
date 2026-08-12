@@ -15,6 +15,7 @@ use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
 };
 use crate::application::client::DccMcpClient;
+use crate::application::components::ComponentService;
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::gateway_ctrl;
@@ -315,6 +316,11 @@ enum Command {
     },
     /// Validate local SKILL.md packages before loading them at runtime.
     Lint(LintArgs),
+    /// Inspect or install independently released companion executables.
+    Components {
+        #[command(subcommand)]
+        action: ComponentsAction,
+    },
     /// Check for and apply gateway-controlled binary updates.
     Update {
         #[command(subcommand)]
@@ -531,6 +537,26 @@ enum UpdateAction {
     },
     /// Download the latest CLI version and stage it for the next launch.
     Apply,
+}
+
+#[derive(Debug, Subcommand)]
+enum ComponentsAction {
+    /// Inspect one installed companion executable without downloading anything.
+    Status {
+        #[arg(value_parser = ["dcc-cua"])]
+        component: String,
+    },
+    /// Install or reconcile one companion executable from its official manifest.
+    Ensure {
+        #[arg(value_parser = ["dcc-cua"])]
+        component: String,
+        /// Install an exact stable release instead of the latest release.
+        #[arg(long)]
+        version: Option<String>,
+        /// Confirm the filesystem mutation. This command never prompts.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -1107,6 +1133,26 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
             result.value
         }
+        Command::Components { action } => {
+            let service = ComponentService::for_current_process()?;
+            match action {
+                ComponentsAction::Status { component } => {
+                    debug_assert_eq!(component, "dcc-cua");
+                    service.status()?
+                }
+                ComponentsAction::Ensure {
+                    component,
+                    version,
+                    yes,
+                } => {
+                    debug_assert_eq!(component, "dcc-cua");
+                    if !yes {
+                        anyhow::bail!("components ensure requires explicit --yes consent");
+                    }
+                    service.ensure(version.as_deref()).await?
+                }
+            }
+        }
         Command::Update { action } => match action {
             UpdateAction::Check {
                 binary,
@@ -1246,6 +1292,7 @@ fn gateway_endpoint_for_command(
         Command::Install { .. }
         | Command::Marketplace { .. }
         | Command::Lint(_)
+        | Command::Components { .. }
         | Command::Gateway { .. } => None,
     }
 }
