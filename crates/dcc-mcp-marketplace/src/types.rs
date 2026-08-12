@@ -207,11 +207,14 @@ pub struct RepoInstallResult {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /// Check whether `entry` targets the given DCC type (case-insensitive).
+///
+/// `any` is the host-neutral wildcard used by Skills that can be loaded into a
+/// concrete adapter without owning a standalone DCC runtime.
 pub fn entry_targets_dcc(entry: &CatalogEntry, dcc: &str) -> bool {
     entry
         .dcc
         .iter()
-        .any(|value| value.eq_ignore_ascii_case(dcc))
+        .any(|value| value.eq_ignore_ascii_case("any") || value.eq_ignore_ascii_case(dcc))
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -242,5 +245,30 @@ mod tests {
         assert!(entry_targets_dcc(&entry, "Maya"));
         assert!(entry_targets_dcc(&entry, "BLENDER"));
         assert!(!entry_targets_dcc(&entry, "houdini"));
+    }
+
+    #[test]
+    fn entry_targets_dcc_treats_any_as_host_neutral() {
+        let entry = CatalogEntry {
+            name: "host-neutral".into(),
+            description: "desc".into(),
+            dcc: vec!["ANY".into()],
+            url: None,
+            tags: vec![],
+            version: None,
+            min_core_version: None,
+            install: None,
+            package: None,
+            maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
+            icon: None,
+            showcase: None,
+        };
+
+        assert!(entry_targets_dcc(&entry, "maya"));
+        assert!(entry_targets_dcc(&entry, "Blender"));
+        assert!(entry_targets_dcc(&entry, "custom-host"));
     }
 }

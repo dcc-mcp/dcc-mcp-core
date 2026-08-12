@@ -943,6 +943,37 @@ mod tests {
     }
 
     #[test]
+    fn host_neutral_entry_requires_an_explicit_concrete_dcc() {
+        let entry = CatalogEntry {
+            name: "host-neutral".into(),
+            description: "desc".into(),
+            dcc: vec!["any".into()],
+            url: None,
+            tags: vec![],
+            version: None,
+            min_core_version: None,
+            install: None,
+            package: None,
+            maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
+            icon: None,
+            showcase: None,
+        };
+
+        assert_eq!(resolve_install_dcc(&entry, Some("Maya")).unwrap(), "maya");
+        assert!(matches!(
+            resolve_install_dcc(&entry, Some("any")),
+            Err(MarketplaceError::AmbiguousDcc { .. })
+        ));
+        assert!(matches!(
+            resolve_install_dcc(&entry, None),
+            Err(MarketplaceError::AmbiguousDcc { .. })
+        ));
+    }
+
+    #[test]
     fn installed_state_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
         let svc = MarketplaceService::new(tmp.path().to_path_buf());
