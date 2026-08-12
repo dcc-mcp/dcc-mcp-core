@@ -460,23 +460,12 @@ Load `dcc-mcp-skills-creator` and request `review_skill_improvement` with bounde
 
 ## Updates and Marketplace Maintenance
 
-Use the gateway release manifest for binary checks. `update apply` stages the
-CLI for its next launch; a running server must be updated in its own
-environment. The Admin Instances panel remains check-only because the gateway
-cannot prove an instance's installation root. See the CLI cheatsheet for
-platform manifests and server-side update details.
+Use the gateway release manifest for binary checks. `update apply` stages the CLI for its next launch; a running server must be updated in its own environment. The Admin Instances panel remains check-only because the gateway cannot prove an instance's installation root. See the CLI cheatsheet for platform manifests, server updates, and the verified `dcc-cua` sibling contract.
 
 ```bash
 dcc-mcp-cli update check
 dcc-mcp-cli update apply
-dcc-mcp-cli components status dcc-cua
-dcc-mcp-cli components ensure dcc-cua --yes
 ```
-
-The official CLI installer reconciles the independently released `dcc-cua`
-sibling. `components status` is read-only; `components ensure` requires
-explicit consent and accepts only the official per-target manifest, exact
-release URL binding, and mandatory SHA-256 verification.
 
 For marketplace Skills, search first when the exact package ID is not known:
 
