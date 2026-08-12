@@ -260,11 +260,18 @@ mod tests {
         .expect("job reaches the host queue");
 
         jobs.cancel(&pending.job_id).expect("cancel running job");
-        tokio::task::yield_now().await;
-        let _ = deferred.poll_pending();
-
         tokio::time::timeout(Duration::from_secs(2), async {
-            while jobs.get(&pending.job_id).expect("job").read().status != JobStatus::Cancelled {
+            loop {
+                // `DccExecutorHandle::pending` is intentionally an approximate
+                // observability counter: submit records the enqueue before it
+                // hands the task to the mpsc channel. Mirror a real DCC event
+                // loop by pumping until the execution lane acknowledges the
+                // cancellation instead of assuming one poll is sufficient.
+                let _ = deferred.poll_pending();
+                assert!(!ran.load(Ordering::Acquire));
+                if jobs.get(&pending.job_id).expect("job").read().status == JobStatus::Cancelled {
+                    break;
+                }
                 tokio::task::yield_now().await;
             }
         })
