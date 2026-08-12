@@ -1380,7 +1380,7 @@ mod tests {
 
         assert_eq!(
             github_archive_url(&install).as_deref(),
-            Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear/archive/main.zip")
+            Some("https://codeload.github.com/dcc-mcp/dcc-mcp-maya-mgear/zip/main")
         );
     }
 

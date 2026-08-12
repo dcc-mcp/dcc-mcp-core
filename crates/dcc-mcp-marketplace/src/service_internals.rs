@@ -317,8 +317,12 @@ pub fn github_archive_url(install: &CatalogInstall) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("HEAD");
+    // Fetch the archive directly from GitHub's archive host. The public
+    // github.com endpoint redirects here; avoiding that extra request prevents
+    // long downloads from being cut off when the redirect connection is
+    // closed before the response body completes.
     Some(format!(
-        "https://github.com/{owner}/{repo}/archive/{ref_}.zip"
+        "https://codeload.github.com/{owner}/{repo}/zip/{ref_}"
     ))
 }
 
