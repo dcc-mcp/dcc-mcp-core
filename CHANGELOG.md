@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.4](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.3...v0.20.4) (2026-08-12)
+
+
+### Features
+
+* install verified dcc-cua component ([#2157](https://github.com/dcc-mcp/dcc-mcp-core/issues/2157)) ([98f0e3c](https://github.com/dcc-mcp/dcc-mcp-core/commit/98f0e3c8c547305b78bb91bc91cdd651f9bdc022))
+* support host-neutral marketplace skills ([32f0b79](https://github.com/dcc-mcp/dcc-mcp-core/commit/32f0b79e09175175166b47b51db0c46cc0c5ca74))
+
 ## [0.20.3](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.2...v0.20.3) (2026-08-12)
 
 
