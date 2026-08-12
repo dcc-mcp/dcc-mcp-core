@@ -6,8 +6,8 @@ tools:
       stale controls can be detected. On Windows, an adapter/operator-bound
       PID/HWND starts the visible DCC UI Control session and captures a bounded
       target-window image even when raw input is disabled. Bind the
-      DCC through DCC_MCP_UI_CONTROL_UIA_PROCESS_ID or
-      DCC_MCP_UI_CONTROL_UIA_WINDOW_HANDLE; request scope can only narrow it. A
+      DCC through DCC_MCP_UI_CONTROL_PROCESS_ID or
+      DCC_MCP_UI_CONTROL_WINDOW_HANDLE; request scope can only narrow it. A
       locked, disconnected, or secure Windows desktop returns
       desktop_unavailable without ending the logical session. After unlock,
       discard old ids and take a fresh snapshot to restore the capsule.
