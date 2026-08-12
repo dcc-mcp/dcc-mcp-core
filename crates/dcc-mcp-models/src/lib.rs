@@ -15,7 +15,10 @@ pub mod tool_call_event;
 mod python;
 
 pub use action_result::ActionResultModel as ToolResult;
-pub use action_result::{ActionResultModel, ActionResultModelData, SerializeFormat};
+pub use action_result::{
+    ActionResultModel, ActionResultModelData, LinkedAdapterJob, SerializeFormat,
+    linked_adapter_job_from_result,
+};
 pub use dcc_name::DccName;
 pub use error::DccMcpError;
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};

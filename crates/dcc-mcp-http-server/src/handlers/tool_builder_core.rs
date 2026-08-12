@@ -399,10 +399,13 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
             McpTool {
                 name: TOOL_NAME.to_string(),
                 description: "Poll the status of an async tool-call job tracked by JobManager. \
-                              Returns a JSON envelope with job_id, parent_job_id, tool, status \
+                              Returns a JSON envelope with job_id, core_job_id, job_id_owner, \
+                              parent_job_id, tool, status \
                               (pending|running|completed|failed|cancelled|interrupted), timestamps, \
                               progress, error, and optionally the final ToolResult once the job \
-                              is terminal. Complements the `$/dcc.jobUpdated` SSE channel (#326) \
+                              is terminal. A terminal result that starts adapter-owned work also \
+                              exposes adapter_job_id and, when declared, its typed poll contract. \
+                              Complements the `$/dcc.jobUpdated` SSE channel (#326) \
                               for polling-based clients. Returns isError=true with a human-readable \
                               message when the job id is unknown (never a JSON-RPC transport error)."
                     .to_string(),
