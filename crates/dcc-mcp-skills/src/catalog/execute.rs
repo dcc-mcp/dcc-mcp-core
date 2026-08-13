@@ -511,6 +511,7 @@ fn which_program(program: &str) -> bool {
     false
 }
 
+#[cfg(any(feature = "python-bindings", test))]
 pub(super) fn is_python_cli_executable(path: &std::path::Path) -> bool {
     let stem = path
         .file_stem()
