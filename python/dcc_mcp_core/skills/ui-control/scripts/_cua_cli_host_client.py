@@ -86,13 +86,17 @@ class UiControlHostClient:
         return self._call("get_window_state", self._authority(), "window_state")
 
     def change_window_state(self, operation: str) -> Dict[str, Any]:
-        """Activate the exact target; CUA intentionally exposes no restore/show aliases."""
-        if operation != "activate":
-            raise UiControlHostError("unsupported", "dcc-cua only supports exact-window activation.")
+        """Activate or explicitly restore the exact target through CUA."""
+        host_operation = "restore_activate" if operation == "restore" else operation
+        if host_operation not in {"activate", "restore_activate"}:
+            raise UiControlHostError(
+                "unsupported",
+                "dcc-cua supports exact-window activation and restore-activation.",
+            )
         try:
             return self._call(
                 "change_window_state",
-                {**self._authority(), "operation": operation},
+                {**self._authority(), "operation": host_operation},
                 "window_state_changed",
             )
         finally:

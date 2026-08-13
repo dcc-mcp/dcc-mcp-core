@@ -75,6 +75,11 @@ class FakeBridge:
                 "action_id": "action-1",
                 "target_closed": False,
             }
+        if method == "change_window_state":
+            return {
+                "type": "window_state_changed",
+                "state": {"minimized": False, "foreground": True},
+            }
         if method == "recording_start":
             return {
                 "type": "recording_started",
@@ -155,6 +160,33 @@ def test_cua_host_adapter_preserves_exact_grant_snapshot_and_action_fences() -> 
 
     assert client.stop()["cleanup_pending"] is False
     assert bridge.closed is True
+
+
+def test_restore_window_uses_cua_restore_activate_contract() -> None:
+    client_module = _load(_CLIENT_PATH, "_test_cua_restore_activate")
+    bridge = FakeBridge()
+    client = client_module.UiControlHostClient(
+        session_id="maya",
+        task_grant_id="grant-1",
+        dcc_type="maya",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        bridge=bridge,
+    )
+
+    result = client.change_window_state("restore")
+
+    assert result["state"]["foreground"] is True
+    assert bridge.calls[-1] == (
+        "change_window_state",
+        {
+            "session_id": "maya",
+            "task_grant_id": "grant-1",
+            "window_capability": "cua-window-1",
+            "operation": "restore_activate",
+        },
+    )
 
 
 def test_cua_backend_passes_cua_element_token_not_legacy_control_id() -> None:
