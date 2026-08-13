@@ -88,6 +88,38 @@ class TestDccMcpSkill:
             names = {result.name for result in catalog.search_skills(phrase)}
             assert "dcc-mcp" in names
 
+    def test_explicit_dcc_cua_blocks_generic_computer_use_routing(self) -> None:
+        meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
+        assert meta is not None
+        description = " ".join((meta.description or "").lower().split())
+        for phrase in (
+            "even when the target is a browser or other non-dcc app",
+            "never substitute codex/openai generic computer use",
+            "@oai/sky",
+            "browser/chrome plugins",
+        ):
+            assert phrase in description
+
+        body = " ".join((Path(DCC_MCP_SKILL_DIR) / "SKILL.md").read_text(encoding="utf-8").lower().split())
+        for phrase in (
+            "explicit dcc-cua routing boundary",
+            "hard routing boundary for every app ui task",
+            "never load or call codex/openai generic computer use",
+            "the `computer-use` skill",
+            "`@oai/sky`",
+            "browser/chrome plugins",
+            "`dcc-cua` `browser_dom`",
+            "never silently fall back",
+            "computer use only when the user explicitly asks for it",
+        ):
+            assert phrase in body
+
+        prompt = dcc_mcp_core.yaml_loads(
+            (Path(DCC_MCP_SKILL_DIR) / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        )["interface"]["default_prompt"].lower()
+        assert "explicit dcc-cua requests" in prompt
+        assert "never substitute generic codex computer use" in prompt
+
     def test_marketplace_intent_is_cli_search_first(self) -> None:
         meta = dcc_mcp_core.parse_skill_md(DCC_MCP_SKILL_DIR)
         assert meta is not None

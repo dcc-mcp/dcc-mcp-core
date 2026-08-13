@@ -1,0 +1,4 @@
+interface:
+  display_name: "DCC-CUA"
+  short_description: "Project UI control with a fail-closed provider boundary"
+  default_prompt: "Use $dcc-cua for this UI task. Keep all observation and input on the project-owned DCC-CUA and DCC-MCP ui-control route, bind the exact target, verify the final state, and never substitute generic Codex Computer Use, computer-use, @oai/sky, or Browser/Chrome plugins."

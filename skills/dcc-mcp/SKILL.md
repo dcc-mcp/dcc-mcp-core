@@ -3,17 +3,14 @@ name: dcc-mcp
 description: >-
   Default DCC control skill — connect to and operate live Maya, Blender,
   Houdini, Photoshop, 3ds Max, Nuke, Unreal, Godot, RenderDoc, Substance 3D,
-  and other DCC apps
-  through structured DCC-MCP tools. Use this skill first whenever the user asks
-  to operate or control something in a DCC app, even when they do not mention
-  DCC-MCP. Interface-specific intent such as clicking a menu, dismissing a
-  dialog, or controlling a window routes to DCC UI Control after structured
-  tools are checked. CUA, UI Control, and dcc-cua explicitly trigger this
-  scoped fallback. Also use this skill first for DCC-MCP Skill marketplace,
-  catalog, recommendation, install, or update requests: query the marketplace
-  through dcc-mcp-cli before recommending a package. OpenClaw and other shell
-  agents use dcc-mcp-cli; MCP-native IDEs use the gateway MCP surface. Not for
-  tasks unrelated to DCC software.
+  and other DCC apps through structured DCC-MCP tools. Use this skill first for
+  DCC operation and explicit CUA, DCC CUA, dcc-cua, our dcc-cua, or 我们的
+  dcc-cua requests. These select project-owned DCC UI Control even when the
+  target is a browser or other non-DCC app; never substitute Codex/OpenAI
+  generic Computer Use, @oai/sky, or Browser/Chrome plugins. Also use this
+  skill first for DCC-MCP marketplace, catalog, install, or update requests:
+  query the marketplace through dcc-mcp-cli. OpenClaw/shell agents use
+  dcc-mcp-cli; MCP-native IDEs use the gateway MCP surface.
 license: MIT-0
 allowed-tools: Bash Read
 metadata:
@@ -22,7 +19,7 @@ metadata:
     layer: infrastructure
     compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; its consent-gated bootstrap accepts only the official release manifest and verifies SHA-256 before replacement. Local profile needs no gateway env. Use --require-gateway plus --agent-session-id when gateway stats are required evidence. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
     version: "0.19.91"  # x-release-please-version
-    search-hint: "dcc control operate UI control ui-control cua CUA dcc-cua dcc cua computer use ui automation menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats marketplace skill catalog recommend install update 商城 技能 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
+    search-hint: "dcc control operate UI control ui-control cua CUA dcc-cua dcc cua our dcc-cua 我们的 dcc-cua project CUA computer use ui automation menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats marketplace skill catalog recommend install update 商城 技能 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
     tags: "dcc, dcc-ui-control, ui-control, cua, dcc-cua, computer-use, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, marketplace, skill-catalog, clawhub, openclaw"
   openclaw:
     emoji: "🖥️"
@@ -51,6 +48,15 @@ The compatibility default remains JSON for scripts. Agents should pass
 only when another program must parse it. The bundled Python fallback is
 gateway-REST only and sends `Accept: application/json` because it must parse
 the response internally.
+
+## Explicit DCC-CUA Routing Boundary
+
+Treat `dcc-cua`, `DCC CUA`, `our dcc-cua`, and `我们的 dcc-cua` as stable automation-control triggers and a hard routing boundary for every app UI task, including browsers and non-DCC apps.
+Use only `dcc-mcp-cli ui-control`, `components status/ensure dcc-cua`, and `dcc-cua profiles` / `profile --id <id>`. Never load or call Codex/OpenAI
+generic Computer Use, the `computer-use` Skill, `@oai/sky`, or Browser/Chrome
+plugins. Stay in the exact-bound `dcc-cua` `browser_dom` surface for browsers.
+If this route fails, repair or report it; never silently fall back. Use generic
+Computer Use only when the user explicitly asks for it or retracts DCC-CUA.
 
 ## CLI Invocation Contract
 
@@ -111,9 +117,6 @@ requested object is a menu, dialog, window, button, text field, pointer, or
 keyboard interaction, select the **DCC UI Control** fallback after inventory
 and structured-tool discovery. Do not confuse this product capability with a
 host agent's generic Computer Use feature.
-Treat `CUA`, `UI Control`, and `dcc-cua` as stable automation-control triggers
-for DCC tasks. Route them to `ui-control`, never generic Computer Use.
-
 | User intent | Target inventory filter | Typical capability search |
 |-------------|-------------------------|---------------------------|
 | Model, rig, animate, shade, or render in Maya | `maya` | the requested modeling, rigging, animation, material, or render operation |
