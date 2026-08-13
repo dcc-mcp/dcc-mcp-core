@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.6](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.5...v0.20.6) (2026-08-13)
+
+
+### Features
+
+* add content-addressed asset sync ([39712bc](https://github.com/dcc-mcp/dcc-mcp-core/commit/39712bc28896c8ac66a49bf183c6e502f0967396))
+* **skills:** add fail-closed dcc-cua router ([#2166](https://github.com/dcc-mcp/dcc-mcp-core/issues/2166)) ([1e3d67a](https://github.com/dcc-mcp/dcc-mcp-core/commit/1e3d67a7d52afb6b16ff23db405d85425c6daf7b))
+
+
+### Bug Fixes
+
+* **cua:** accept standalone binary output path ([#2170](https://github.com/dcc-mcp/dcc-mcp-core/issues/2170)) ([58689c2](https://github.com/dcc-mcp/dcc-mcp-core/commit/58689c272925cb3e6dd7e3f97e06348fc3941a45))
+* **cua:** route restore through exact target operation ([#2171](https://github.com/dcc-mcp/dcc-mcp-core/issues/2171)) ([8ffd481](https://github.com/dcc-mcp/dcc-mcp-core/commit/8ffd4817b080ae2b0de1d2f54da366d7773cf531))
+* **skills:** preserve attached Python for subprocess scripts ([#2169](https://github.com/dcc-mcp/dcc-mcp-core/issues/2169)) ([575b9fb](https://github.com/dcc-mcp/dcc-mcp-core/commit/575b9fbdcf44752217fca4705d3e938fab7f819d))
+
+
+### Documentation
+
+* **catalog:** refresh recent adapter releases ([#2167](https://github.com/dcc-mcp/dcc-mcp-core/issues/2167)) ([6459221](https://github.com/dcc-mcp/dcc-mcp-core/commit/645922134cab758ae3984fa586ed35544233b6bd))
+
 ## [0.20.5](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.4...v0.20.5) (2026-08-12)
 
 
