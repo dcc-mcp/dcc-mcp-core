@@ -1,4 +1,4 @@
 interface:
   display_name: "DCC-MCP"
-  short_description: "DCC control and marketplace Skill discovery"
-  default_prompt: "Use $dcc-mcp to verify CLI/MCP inventory, discover and inspect the right live DCC capability, and act safely. For long jobs, start once with --wait, follow typed progress to a terminal state, and never resubmit or schedule polling by default."
+  short_description: "DCC control, DCC-CUA, and Skill discovery"
+  default_prompt: "Use $dcc-mcp for DCC control and explicit dcc-cua requests; keep named dcc-cua work on project ui-control, never substitute generic Codex Computer Use, and for long jobs start once with --wait, follow typed progress to a terminal state, and never resubmit or schedule polling by default."
