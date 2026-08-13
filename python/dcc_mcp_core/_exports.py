@@ -607,6 +607,11 @@ _LAZY: dict[str, str] = {
     "ImportWarningCode": "dcc_mcp_core.asset_import",
     "MaterialMode": "dcc_mcp_core.asset_import",
     "PlacementHint": "dcc_mcp_core.asset_import",
+    # Content-addressed cross-DCC asset synchronization
+    "AssetSyncConflictError": "dcc_mcp_core.asset_sync",
+    "AssetSyncRevision": "dcc_mcp_core.asset_sync",
+    "AssetSyncValidationError": "dcc_mcp_core.asset_sync",
+    "FileAssetSyncStore": "dcc_mcp_core.asset_sync",
     # Cross-DCC spatial interchange
     "SpatialConvention": "dcc_mcp_core.spatial",
     "plan_spatial_conversion": "dcc_mcp_core.spatial",
