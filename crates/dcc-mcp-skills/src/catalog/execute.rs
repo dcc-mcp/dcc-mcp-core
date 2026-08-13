@@ -511,6 +511,41 @@ fn which_program(program: &str) -> bool {
     false
 }
 
+#[cfg(any(feature = "python-bindings", test))]
+pub(super) fn is_python_cli_executable(path: &std::path::Path) -> bool {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    stem.starts_with("python")
+        || stem.starts_with("pypy")
+        || matches!(stem.as_str(), "mayapy" | "hython" | "c4dpy" | "3dsmaxpy")
+}
+
+#[cfg(feature = "python-bindings")]
+fn attached_python_executable() -> Option<String> {
+    use pyo3::prelude::*;
+
+    Python::try_attach(|py| {
+        let executable = py
+            .import("sys")
+            .ok()?
+            .getattr("executable")
+            .ok()?
+            .extract::<String>()
+            .ok()?;
+        let path = std::path::Path::new(&executable);
+        (path.is_file() && is_python_cli_executable(path)).then_some(executable)
+    })
+    .flatten()
+}
+
+#[cfg(not(feature = "python-bindings"))]
+fn attached_python_executable() -> Option<String> {
+    None
+}
+
 pub(crate) fn execute_script(
     script_path: &str,
     mut params: serde_json::Value,
@@ -533,10 +568,18 @@ pub(crate) fn execute_script(
 
     // Resolve the Python interpreter:
     // 1. DCC_MCP_PYTHON_EXECUTABLE env var (explicit override, e.g. mayapy)
-    // 2. Fall back to the Python that shipped the `python` command on PATH
+    // 2. The Python interpreter already attached through PyO3. This preserves
+    //    virtual-environment package visibility even when that environment is
+    //    not first on PATH.
+    // 3. Fall back to the `python` command on PATH for pure-Rust callers.
     let python_exe_override = std::env::var("DCC_MCP_PYTHON_EXECUTABLE").ok();
+    let attached_python_exe = python_exe_override
+        .is_none()
+        .then(attached_python_executable)
+        .flatten();
     let python_exe = python_exe_override
         .clone()
+        .or_else(|| attached_python_exe.clone())
         .unwrap_or_else(|| "python".to_string());
 
     // Optional: prepend a Python init snippet before running the skill script.
@@ -550,6 +593,7 @@ pub(crate) fn execute_script(
     // harnesses and the stub-based `python` DCC).
     if (ext == "py" || ext == "pyw")
         && python_exe_override.is_none()
+        && attached_python_exe.is_none()
         && init_snippet.is_none()
         && std::env::var("DCC_MCP_ALLOW_AMBIENT_PYTHON")
             .ok()

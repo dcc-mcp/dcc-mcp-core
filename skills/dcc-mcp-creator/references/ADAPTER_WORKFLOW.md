@@ -94,6 +94,16 @@ Only eager-load the skills needed for discovery, diagnostics, and a first useful
 scene query. Leave authoring, render, export, and pipeline skills loadable on
 demand.
 
+For ordinary standalone Python adapters installed in a virtual environment,
+leave `DCC_MCP_PYTHON_EXECUTABLE` unset. The subprocess executor resolves an
+explicit override first, then the active PyO3-attached `sys.executable` when it
+is a real Python CLI, and finally `python` on `PATH` for pure-Rust callers. This
+keeps adapter and Core packages visible to Skill scripts even when the virtual
+environment is not first on `PATH`. Core does not auto-select host GUI binaries
+such as Blender, Maya, FreeCAD, or OpenSCAD. Embedded hosts should keep using an
+in-process `HostExecutionBridge`, or set an explicit vendor CLI such as
+`mayapy`, `hython`, or `c4dpy` only when subprocess execution is intentional.
+
 ## 4. Publish Adapter Context
 
 Prefer core-owned surfaces:

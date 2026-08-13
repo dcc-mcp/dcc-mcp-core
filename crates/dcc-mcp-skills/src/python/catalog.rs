@@ -81,15 +81,18 @@ impl SkillCatalog {
     /// the callable receives the script path and a params dict and must return
     /// a JSON-serialisable dict.
     ///
-    /// The callable signature must be::
+    /// The callable signature must be:
     ///
+    /// ```python
     ///     def executor(script_path: str, params: dict, *, action_name: str,
     ///                  skill_name: str | None, thread_affinity: str,
     ///                  execution: str, timeout_hint_secs: int | None) -> dict:
     ///         ...
+    /// ```
     ///
-    /// Example (Maya adapter)::
+    /// Example (Maya adapter):
     ///
+    /// ```python
     ///     def _maya_exec(script_path: str, params: dict) -> dict:
     ///         import importlib.util, sys
     ///         spec = importlib.util.spec_from_file_location("_skill_script", script_path)
@@ -99,6 +102,7 @@ impl SkillCatalog {
     ///         return getattr(mod, "__mcp_result__", {"success": True})
     ///
     ///     catalog.set_in_process_executor(_maya_exec)
+    /// ```
     ///
     /// Pass ``None`` to revert to subprocess execution.
     #[pyo3(name = "set_in_process_executor")]
