@@ -16,14 +16,19 @@ def _entries() -> list:
 def test_recent_adapter_releases_are_current() -> None:
     entries = {entry["name"]: entry for entry in _entries()}
     expected_versions = {
-        "dcc-mcp-shogun": "0.7.0",
+        "dcc-mcp-comfyui": "0.1.1",
+        "dcc-mcp-touchdesigner": "0.1.1",
+        "dcc-mcp-shogun": "0.8.1",
         "dcc-mcp-tiled": "0.3.0",
         "dcc-mcp-material-maker": "0.3.1",
         "dcc-mcp-wwise": "0.1.2",
     }
 
     assert {name: entries[name]["version"] for name in expected_versions} == expected_versions
-    assert "61 typed" in entries["dcc-mcp-shogun"]["description"]
+    assert entries["dcc-mcp-comfyui"]["min_core_version"] == "0.19.91"
+    assert "17 typed" in entries["dcc-mcp-comfyui"]["description"]
+    assert "19 typed" in entries["dcc-mcp-touchdesigner"]["description"]
+    assert "66 typed" in entries["dcc-mcp-shogun"]["description"]
 
 
 def test_skill_only_packages_are_not_pip_adapters() -> None:
