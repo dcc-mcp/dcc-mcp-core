@@ -7,6 +7,12 @@
 use super::*;
 use dcc_mcp_test_utils::EnvVarsGuard;
 
+#[cfg(feature = "python-bindings")]
+use std::sync::Once;
+
+#[cfg(feature = "python-bindings")]
+static PYTHON_INIT: Once = Once::new();
+
 /// Clear the three Python-execution env vars and return a guard that restores
 /// them on drop. Tests that need a specific value should create their own
 /// `EnvVarsGuard::set(&[...])` that includes these three clears followed by
@@ -93,6 +99,101 @@ fn test_execute_script_allows_generic_python_dcc() {
         assert!(
             !err.contains("DCC_MCP_PYTHON_EXECUTABLE"),
             "generic 'python' dcc must not trigger the #231 check: got {err}"
+        );
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+#[test]
+fn test_execute_script_uses_attached_python_when_path_lacks_python() {
+    use pyo3::types::PyAnyMethods;
+
+    const CHILD_ENV: &str = "DCC_MCP_TEST_ATTACHED_PYTHON_CHILD";
+    if std::env::var_os(CHILD_ENV).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().expect("current test exe"))
+            .arg(
+                "catalog::tests::test_execute_script_env::test_execute_script_uses_attached_python_when_path_lacks_python",
+            )
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(CHILD_ENV, "1")
+            .output()
+            .expect("run isolated attached-Python test");
+        assert!(
+            output.status.success(),
+            "isolated test failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return;
+    }
+
+    let python_output = std::process::Command::new("python")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .expect("resolve a Python interpreter before clearing PATH");
+    assert!(python_output.status.success());
+    let python_executable = String::from_utf8(python_output.stdout)
+        .expect("Python executable path is UTF-8")
+        .trim()
+        .to_string();
+
+    PYTHON_INIT.call_once(pyo3::Python::initialize);
+    pyo3::Python::attach(|py| {
+        py.import("sys")
+            .expect("import sys")
+            .setattr("executable", python_executable.as_str())
+            .expect("model an extension loaded by the active Python interpreter");
+    });
+
+    let empty_path = tempfile::tempdir().expect("create empty PATH root");
+    let script_dir = tempfile::tempdir().expect("create skill script root");
+    let script = script_dir.path().join("status.py");
+    std::fs::write(
+        &script,
+        "import json\nprint(json.dumps({'success': True, 'runtime': 'attached'}))\n",
+    )
+    .expect("write skill script");
+
+    let empty_path_value = empty_path.path().to_string_lossy().into_owned();
+    let _g = EnvVarsGuard::set(&[
+        ("DCC_MCP_PYTHON_EXECUTABLE", None),
+        ("DCC_MCP_PYTHON_INIT_SNIPPET", None),
+        ("DCC_MCP_ALLOW_AMBIENT_PYTHON", None),
+        ("PATH", Some(empty_path_value.as_str())),
+    ]);
+
+    let result = execute_script(
+        script.to_str().expect("UTF-8 script path"),
+        serde_json::json!({}),
+        Some("freecad"),
+    )
+    .expect("the attached Python interpreter must execute the skill");
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["runtime"], "attached");
+}
+
+#[test]
+fn test_attached_interpreter_filter_rejects_dcc_gui_binaries() {
+    for executable in [
+        "python.exe",
+        "python3.14",
+        "pythonw.exe",
+        "pypy3",
+        "mayapy.exe",
+        "hython",
+    ] {
+        assert!(
+            super::execute::is_python_cli_executable(std::path::Path::new(executable)),
+            "{executable} must be accepted as a Python CLI",
+        );
+    }
+
+    for executable in ["FreeCAD.exe", "openscad.exe", "blender.exe", "maya.exe"] {
+        assert!(
+            !super::execute::is_python_cli_executable(std::path::Path::new(executable)),
+            "{executable} must never be auto-selected as a Python interpreter",
         );
     }
 }

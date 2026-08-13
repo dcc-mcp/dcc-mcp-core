@@ -1597,7 +1597,7 @@ automatically, so adapters using that path don't need a separate call.
 
 | Extension | Type | Execution |
 |-----------|------|-----------|
-| `.py` | Python | `python` interpreter |
+| `.py` | Python | resolved Python CLI, or the registered in-process executor |
 | `.sh`, `.bash` | Shell | `bash` |
 | `.bat`, `.cmd` | Batch | `cmd /C` |
 | `.mel` | MEL (Maya) | `python` wrapper |
@@ -1609,7 +1609,14 @@ automatically, so adapters using that path don't need a separate call.
 :::
 
 ::: warning script execution
-All scripts run as subprocesses. Input parameters are passed via stdin as JSON. The script should write a JSON result to stdout and exit with code 0 on success.
+Scripts use the execution route owned by the server. The default out-of-process
+route passes input parameters via stdin as JSON and expects one JSON result on
+stdout with exit code 0. Its Python priority is an explicit
+`DCC_MCP_PYTHON_EXECUTABLE`, then the active PyO3-attached `sys.executable` when
+that path is a Python CLI, then `python` on `PATH` for pure-Rust callers. Host
+GUI executables are never auto-selected. Embedded adapters should register the
+Core in-process executor through `HostExecutionBridge` when tools must stay in
+the DCC process.
 :::
 
 ## On-Demand Skill Discovery (MCP HTTP)
