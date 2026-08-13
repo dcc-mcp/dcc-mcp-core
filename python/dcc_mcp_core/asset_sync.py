@@ -331,9 +331,7 @@ class FileAssetSyncStore:
         if len(digest_hex) != 64 or any(char not in "0123456789abcdef" for char in digest_hex):
             raise AssetSyncValidationError("revision digest must be a lowercase sha256 digest")
 
-        destination = destination_dir / (
-            f"{asset_id}_r{revision.revision}_{digest_hex[:12]}.{normalized_format}"
-        )
+        destination = destination_dir / (f"{asset_id}_r{revision.revision}_{digest_hex[:12]}.{normalized_format}")
         source = self.resolve(revision)
         if destination.is_file() and _sha256_file(destination) == digest_hex:
             return destination
