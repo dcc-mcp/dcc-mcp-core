@@ -315,6 +315,18 @@ repository.
   private registry workflow. Do not create or publish a public repository
   unless the user explicitly requests it.
 
+## Cross-DCC Asset Sync
+
+When an adapter publishes an evolving file to another local or remote DCC, use
+Core's `AssetSyncRevision` and `FileAssetSyncStore` contract. Keep absolute
+paths process-local: public tools accept a relative source name, while both the
+source root and consumer destination root come from operator configuration.
+Validate format and size before publishing, pass `expected_head_revision` for
+optimistic conflict detection, and materialize only beneath the consumer-owned
+root. The adapter owns its native import, canvas, refresh, or watch behavior;
+Core owns only the path-free revision manifest, content-addressed object, and
+conflict/materialization rules. See `docs/guide/asset-sync.md` and ADR-021.
+
 ## Non-Negotiables
 
 - Do not touch a DCC API from a Tokio/HTTP worker thread.

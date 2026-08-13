@@ -165,6 +165,7 @@ next CLI launch and does not replace a running server.
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
+| Synchronize evolving files across DCC adapters | `AssetSyncRevision` + `FileAssetSyncStore.publish(..., expected_head_revision=N)` create path-free, content-addressed revisions; `materialize(revision, operator_owned_root, subfolder=...)` writes only beneath a trusted consumer root and stale writers raise `AssetSyncConflictError`. Host-specific formats and import/refresh behavior remain adapter-owned. |
 | Host-local executable script files | `materialize_script(...)` for DCC/session-scoped script files; the returned `file_ref` is compatible with FileRef metadata but the executable path stays on the host filesystem for `execute_python(file_path=...)` style tools. |
 | Capture DCC stdout/stderr/script-editor output | `OutputCapture` |
 | Rich skill error with traceback | `skill_error_with_trace()` |
