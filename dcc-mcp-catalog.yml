@@ -397,11 +397,11 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-touchdesigner/main/install.md"
 
   - name: "dcc-mcp-shogun"
-    description: "Vicon Shogun Post adapter with 48 typed Scene, channel, camera, file, Timeline, and capability-gated Offline processing tools"
+    description: "Vicon Shogun Post adapter with 61 typed Scene, channel, camera, file, Timeline, production-context, and capability-gated Offline processing tools"
     dcc: ["shogun"]
     url: "https://github.com/dcc-mcp/dcc-mcp-shogun"
     tags: ["adapter", "shogun", "vicon", "official", "pip", "motion-capture", "timeline", "processing"]
-    version: "0.4.0"
+    version: "0.7.0"
     min_core_version: "0.19.86"
     maintainer: "dcc-mcp"
     install:
@@ -429,7 +429,7 @@ entries:
     dcc: ["material-maker"]
     url: "https://github.com/dcc-mcp/dcc-mcp-material-maker"
     tags: ["adapter", "material-maker", "official", "pip", "procedural-materials", "ptex", "lookdev"]
-    version: "0.3.0"
+    version: "0.3.1"
     min_core_version: "0.19.38"
     maintainer: "dcc-mcp"
     install:
@@ -443,7 +443,7 @@ entries:
     dcc: ["wwise"]
     url: "https://github.com/dcc-mcp/dcc-mcp-wwise"
     tags: ["adapter", "wwise", "official", "pip", "waapi", "game-audio", "soundbank"]
-    version: "0.1.1"
+    version: "0.1.2"
     min_core_version: "0.19.86"
     maintainer: "dcc-mcp"
     install:
