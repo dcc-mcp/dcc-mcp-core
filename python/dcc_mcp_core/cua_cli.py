@@ -349,7 +349,9 @@ class CuaCliBridge:
     def _read_binary_output(self, response: Dict[str, Any]) -> bytes:
         if self._output_directory is None:
             raise CuaCliError("capture_failed", "The CUA binary output directory is unavailable.")
-        raw_path = response.get("_dcc_mcp_binary_output")
+        raw_path = response.get("_dcc_cua_binary_output")
+        if raw_path is None:
+            raw_path = response.get("_dcc_mcp_binary_output")
         if not isinstance(raw_path, str):
             raise CuaCliError("capture_failed", "dcc-cua returned no binary image output.")
         output_root = Path(self._output_directory.name).resolve()

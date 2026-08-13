@@ -69,7 +69,7 @@ elif command == "host-jsonl":
                     "type": "snapshot",
                     "request_id": request["request_id"],
                     "image": {"encoding": "binary_frame", "length": len(data)},
-                    "_dcc_mcp_binary_output": str(output),
+                    "_dcc_cua_binary_output": str(output),
                 }
             else:
                 response = {
@@ -163,6 +163,22 @@ def test_cli_sibling_precedes_an_unrelated_path_cua(tmp_path: Path, monkeypatch:
 
 def test_binary_frame_fallback_reads_and_removes_cli_output(tmp_path: Path) -> None:
     bridge = CuaCliBridge(_fake_command(tmp_path), snapshot_transport="binary_frame")
+    try:
+        response = bridge.call("image")
+        output = Path(response["_dcc_cua_binary_output"])
+        assert bridge.read_image(response) == b"png"
+        assert not output.exists()
+    finally:
+        bridge.close()
+
+
+def test_binary_frame_fallback_accepts_the_legacy_core_output_field(tmp_path: Path) -> None:
+    script = tmp_path / "fake_legacy_cua.py"
+    script.write_text(
+        _FAKE_CLI.replace('"_dcc_cua_binary_output"', '"_dcc_mcp_binary_output"'),
+        encoding="utf-8",
+    )
+    bridge = CuaCliBridge([sys.executable, str(script)], snapshot_transport="binary_frame")
     try:
         response = bridge.call("image")
         output = Path(response["_dcc_mcp_binary_output"])
