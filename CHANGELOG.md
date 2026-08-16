@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.7](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.6...v0.20.7) (2026-08-16)
+
+
+### Documentation
+
+* register dcc-mcp-office + dcc-mcp-PowerPoint in ecosystem catalog ([#2175](https://github.com/dcc-mcp/dcc-mcp-core/issues/2175)) ([096b1f4](https://github.com/dcc-mcp/dcc-mcp-core/commit/096b1f4efb527d334bd757dd478a71c8bf99a349))
+
 ## [0.20.6](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.5...v0.20.6) (2026-08-13)
 
 
