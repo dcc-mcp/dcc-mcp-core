@@ -1739,7 +1739,7 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    assert_eq!(types.len(), 34);
+    assert_eq!(types.len(), 35);
     for expected in [
         "aftereffects",
         "c4d",
@@ -1754,6 +1754,7 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
         "material-maker",
         "openusd",
         "openscad",
+        "powerpoint",
         "renderdoc",
         "shotgrid",
         "sketchup",
