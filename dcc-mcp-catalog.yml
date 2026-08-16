@@ -23,6 +23,21 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-core"
     tags: ["core", "official", "rust", "python", "library"]
 
+  - name: "dcc-mcp-office"
+    description: "Office shared core for DCC-MCP — office-rpc/1 protocol, C# COM sidecar, Open XML worker, Microsoft Graph connector and Office skill packs"
+    dcc: ["office"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-office"
+    tags: ["office", "core", "official", "powerpoint", "word", "excel", "outlook"]
+
+  - name: "dcc-mcp-PowerPoint"
+    description: "PowerPoint adapter for DCC-MCP — deck generation (Deck IR → Open XML compile → COM render), slide composition and review decks"
+    dcc: ["powerpoint"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-PowerPoint"
+    tags: ["adapter", "powerpoint", "office", "official", "deck", "skills"]
+    version: "0.1.0"
+    min_core_version: "0.18.2"
+    maintainer: "dcc-mcp"
+
   - name: "dcc-mcp-maya"
     description: "Core Maya adapter for DCC-MCP — gateway-managed instance, mayapy-based MCP server"
     dcc: ["maya"]

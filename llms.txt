@@ -1102,6 +1102,8 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 ## Related Projects
 
 - [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) — Maya MCP server implementation
+- [dcc-mcp-office](https://github.com/dcc-mcp/dcc-mcp-office) — Office shared core: office-rpc/1 protocol, C# COM sidecar, Open XML worker, Graph connector
+- [dcc-mcp-PowerPoint](https://github.com/dcc-mcp/dcc-mcp-PowerPoint) — PowerPoint adapter: deck generation (Deck IR → Open XML → COM render), review decks
 
 ---
 
