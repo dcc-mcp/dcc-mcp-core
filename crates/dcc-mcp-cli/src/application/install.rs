@@ -785,7 +785,7 @@ mod tests {
         let catalog = service.dcc_types(None).unwrap();
 
         assert!(catalog.custom_types_supported);
-        assert_eq!(catalog.dcc_types.len(), 34);
+        assert_eq!(catalog.dcc_types.len(), 35);
         for alias in ["after effects", "after-effects", "comfy-ui"] {
             assert!(
                 catalog
@@ -813,6 +813,7 @@ mod tests {
             ("mari", "dcc-mcp-mari"),
             ("material-maker", "dcc-mcp-material-maker"),
             ("openscad", "dcc-mcp-openscad"),
+            ("powerpoint", "dcc-mcp-PowerPoint"),
             ("renderdoc", "dcc-mcp-renderdoc"),
             ("sketchup", "dcc-mcp-sketchup"),
             ("shogun", "dcc-mcp-shogun"),
