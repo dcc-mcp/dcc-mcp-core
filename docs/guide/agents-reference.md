@@ -1067,6 +1067,7 @@ When adding a Rust type/function that needs to be callable from Python:
 - Python 3.8–3.14 gate: a representative PR matrix, plus the full Linux / macOS / Windows matrix on the scheduled workflow
 - Versioning: Release Please (Conventional Commits) — never manually bump
 - PyPI: Trusted Publishing (no tokens) — **each** of `dcc-mcp-core`, `dcc-mcp-server`, and `dcc-mcp-core-semantic` needs its own PyPI Trusted Publisher; see [PyPI Trusted Publishers](https://docs.pypi.org/trusted-publishers/)
+- PyPI size budget: each project has a 10 GB total-storage limit. The publish jobs run `scripts/ci/check_pypi_project_size.py` before uploading, so a release either publishes completely or fails loudly up front — never a partial upload. When the budget is exhausted, free storage by deleting old releases at `https://pypi.org/manage/project/<name>/releases/` (PyPI has no deletion API, so this is a maintainer web-UI action) or request a limit increase per [PyPI storage limits](https://docs.pypi.org/project-management/storage-limits/), then re-run the Release workflow — the publish step's `skip-existing` resumes the partial upload
 - Every PR emits the stable required statuses, including documentation-only changes
 - Squash merge convention for PRs
 

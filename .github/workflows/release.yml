@@ -634,6 +634,30 @@ jobs:
       - name: List dcc-mcp-core artefacts
         run: ls -la dist/
 
+      # PyPI caps each project's TOTAL storage (10 GB by default); once the
+      # budget is exhausted the upload fails mid-stream and leaves the release
+      # partially published (v0.19.0 and v0.20.6 both reached PyPI with only
+      # the cp37 wheels). Preflight the budget before touching PyPI so a
+      # release either publishes completely or fails loudly up front.
+      # Backfills publish tagged source, but the preflight belongs to the
+      # workflow revision being executed - fetch it from the workflow ref
+      # like the other compatibility tooling.
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            scripts/ci
+          persist-credentials: false
+
+      - name: Check PyPI project size budget
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_pypi_project_size.py
+          --package dcc-mcp-core
+          --dist-dir dist
+
       - name: Upload dcc-mcp-core to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -667,6 +691,24 @@ jobs:
 
       - name: List dcc-mcp-server artefacts
         run: ls -la dist-server/
+
+      # Same PyPI total-size budget gate as publish-core-pypi - fail before
+      # upload instead of leaving a partially published release.
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            scripts/ci
+          persist-credentials: false
+
+      - name: Check PyPI project size budget
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_pypi_project_size.py
+          --package dcc-mcp-server
+          --dist-dir dist-server
 
       # The PyPI project must have a Trusted Publisher for:
       # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
@@ -704,6 +746,24 @@ jobs:
 
       - name: List dcc-mcp-core-semantic artefacts
         run: ls -la dist-semantic/
+
+      # Same PyPI total-size budget gate as publish-core-pypi - fail before
+      # upload instead of leaving a partially published release.
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            scripts/ci
+          persist-credentials: false
+
+      - name: Check PyPI project size budget
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_pypi_project_size.py
+          --package dcc-mcp-core-semantic
+          --dist-dir dist-semantic
 
       # The PyPI project must have a Trusted Publisher for:
       # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
