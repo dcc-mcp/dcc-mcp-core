@@ -357,11 +357,11 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cinema4d/main/README.md"
 
   - name: "dcc-mcp-comfyui"
-    description: "ComfyUI adapter for typed API-format workflow validation, bounded queue execution, status, and artifact retrieval"
+    description: "ComfyUI adapter with 17 typed workflow, catalog, queue, and artifact tools"
     dcc: ["comfyui", "comfy-ui"]
     url: "https://github.com/dcc-mcp/dcc-mcp-comfyui"
     tags: ["adapter", "comfyui", "official", "pip", "node-graph", "image-generation"]
-    version: "0.1.0"
+    version: "0.1.1"
     min_core_version: "0.19.91"
     maintainer: "dcc-mcp"
     install:
@@ -398,11 +398,11 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-sketchup/main/README.md"
 
   - name: "dcc-mcp-touchdesigner"
-    description: "TouchDesigner adapter with typed operator graphs, parameters, project saves, TOP capture, and main-thread-safe execution"
+    description: "TouchDesigner adapter with 19 typed operator graph, parameter, DAT, timeline, capture, and project tools dispatched on the main thread"
     dcc: ["touchdesigner"]
     url: "https://github.com/dcc-mcp/dcc-mcp-touchdesigner"
     tags: ["adapter", "touchdesigner", "official", "pip", "node-graph", "real-time", "interactive-media"]
-    version: "0.1.0"
+    version: "0.1.1"
     min_core_version: "0.19.91"
     maintainer: "dcc-mcp"
     install:
@@ -412,11 +412,11 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-touchdesigner/main/install.md"
 
   - name: "dcc-mcp-shogun"
-    description: "Vicon Shogun Post adapter with 61 typed Scene, channel, camera, file, Timeline, production-context, and capability-gated Offline processing tools"
+    description: "Vicon Shogun Post adapter with 66 typed Scene, channel, camera, file, Timeline, editing, production-context, and capability-gated Offline processing tools"
     dcc: ["shogun"]
     url: "https://github.com/dcc-mcp/dcc-mcp-shogun"
     tags: ["adapter", "shogun", "vicon", "official", "pip", "motion-capture", "timeline", "processing"]
-    version: "0.7.0"
+    version: "0.8.1"
     min_core_version: "0.19.86"
     maintainer: "dcc-mcp"
     install:

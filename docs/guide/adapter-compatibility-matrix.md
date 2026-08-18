@@ -29,8 +29,8 @@ submit a PR updating this matrix before the release PR merges.
 | OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.1.2 | >=0.19.91,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
 | FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.1.2 | >=0.19.91,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
 | Cinema 4D | [dcc-mcp-cinema4d](https://github.com/dcc-mcp/dcc-mcp-cinema4d) | 0.1.3 | >=0.19.91,<1.0.0 | R21+ | External headless c4dpy subprocess | 2026-08 |
-| ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.0 | >=0.19.91,<1.0.0 | 0.31+ | Standalone sidecar + local REST workflow bridge | 2026-08 |
-| Shogun | [dcc-mcp-shogun](https://github.com/dcc-mcp/dcc-mcp-shogun) | 0.7.0 | >=0.19.86,<1.0.0 | Vicon Shogun Post | 61 typed Scene, channel, camera, file, Timeline, production-context, and Offline tools; SDK-dependent surfaces remain capability-gated | 2026-08 |
+| ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.1 | >=0.19.91,<1.0.0 | 0.31+ | 17 typed workflow, catalog, queue, and artifact tools over the local REST bridge | 2026-08 |
+| Shogun | [dcc-mcp-shogun](https://github.com/dcc-mcp/dcc-mcp-shogun) | 0.8.1 | >=0.19.86,<1.0.0 | Vicon Shogun Post | 66 typed Scene, channel, camera, file, Timeline, editing, production-context, and Offline tools; SDK-dependent surfaces remain capability-gated | 2026-08 |
 | Mari | [dcc-mcp-mari](https://github.com/dcc-mcp/dcc-mcp-mari) | 0.2.1 | >=0.19.91,<1.0.0 | 5.0+ | Authenticated loopback sidecar + Qt UI timer | 2026-08 |
 | 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.40 | >=0.19.45,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-08 |
 | Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.43 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-08 |
@@ -46,7 +46,7 @@ submit a PR updating this matrix before the release PR merges.
 | GIMP | [dcc-mcp-gimp](https://github.com/dcc-mcp/dcc-mcp-gimp) | 0.3.0 | >=0.19.38,<1.0.0 | 3.0+ | Authenticated JSON-lines bridge + GLib main-thread dispatcher | — |
 | Krita | [dcc-mcp-krita](https://github.com/dcc-mcp/dcc-mcp-krita) | 0.3.0 | >=0.19.38,<1.0.0 | — | Authenticated JSON-lines bridge + UI main-thread queue | — |
 | SketchUp | [dcc-mcp-sketchup](https://github.com/dcc-mcp/dcc-mcp-sketchup) | 0.1.0 | >=0.19.91,<1.0.0 | 2021+ | Authenticated Ruby main-thread bridge + sidecar | 2026-08 |
-| TouchDesigner | [dcc-mcp-touchdesigner](https://github.com/dcc-mcp/dcc-mcp-touchdesigner) | 0.1.0 | >=0.19.91,<1.0.0 | 2025 official build | In-process HTTP runtime + `td.run()` main-thread dispatcher | — |
+| TouchDesigner | [dcc-mcp-touchdesigner](https://github.com/dcc-mcp/dcc-mcp-touchdesigner) | 0.1.1 | >=0.19.91,<1.0.0 | 2025 official build | 19 typed operator graph, parameter, DAT, timeline, capture, and project tools through the in-process HTTP runtime + `td.run()` main-thread dispatcher | 2026-08 |
 | Tiled | [dcc-mcp-tiled](https://github.com/dcc-mcp/dcc-mcp-tiled) | 0.3.0 | >=0.19.38,<1.0.0 | 1.10+ | Standalone service + fixed JavaScript driver through `tiled --evaluate` | 2026-08 |
 | Material Maker | [dcc-mcp-material-maker](https://github.com/dcc-mcp/dcc-mcp-material-maker) | 0.3.1 | >=0.19.38,<1.0.0 | 1.7 | Standalone `.ptex` parser + native CLI exporter | 2026-08 |
 | Wwise | [dcc-mcp-wwise](https://github.com/dcc-mcp/dcc-mcp-wwise) | 0.1.2 | >=0.19.86,<1.0.0 | 2024.1+ | External WAAPI client + host PID binding | 2026-08 |
