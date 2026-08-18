@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.8](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.7...v0.20.8) (2026-08-18)
+
+
+### Features
+
+* **release:** add auditable PyPI cleanup planner ([#2179](https://github.com/dcc-mcp/dcc-mcp-core/issues/2179)) ([164337c](https://github.com/dcc-mcp/dcc-mcp-core/commit/164337cfee00122fcaaf549243575fd60fdd19c8))
+
+
+### Bug Fixes
+
+* **ci:** gate PyPI publish on project size budget preflight ([#2174](https://github.com/dcc-mcp/dcc-mcp-core/issues/2174)) ([10f377d](https://github.com/dcc-mcp/dcc-mcp-core/commit/10f377db26418f53b8d276f9b4c1443c4c719731))
+
+
+### Documentation
+
+* **catalog:** refresh ComfyUI TouchDesigner and Shogun ([#2173](https://github.com/dcc-mcp/dcc-mcp-core/issues/2173)) ([332274d](https://github.com/dcc-mcp/dcc-mcp-core/commit/332274db71c43434094e7f24281cc3852a253db4))
+
 ## [0.20.7](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.6...v0.20.7) (2026-08-16)
 
 
