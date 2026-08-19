@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: ""
+      reuse-release-assets:
+        description: "Reuse immutable dcc-mcp-core distributions from an existing GitHub Release"
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       checkout-ref:
@@ -24,6 +29,11 @@ on:
         required: false
         type: string
         default: ""
+      reuse-release-assets:
+        description: "Reuse immutable dcc-mcp-core distributions from an existing GitHub Release"
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   # Scope by the resolved checkout target so a release-driven build for tag
@@ -39,6 +49,7 @@ jobs:
   # ── ABI3 builds (Python 3.8+) — one wheel works for all 3.8+ ──
 
   linux:
+    if: inputs.reuse-release-assets != true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -68,6 +79,7 @@ jobs:
           --platform linux-x86_64
           dist/*.whl
   windows:
+    if: inputs.reuse-release-assets != true
     runs-on: windows-latest
     permissions:
       contents: read
@@ -107,6 +119,7 @@ jobs:
   # from python/dcc_mcp_core without maturin, Rust, or just (just>=1.0 is
   # unavailable on Python 3.7 and previously blocked release PyPI publish).
   py37-lite:
+    if: inputs.reuse-release-assets != true
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -161,6 +174,7 @@ jobs:
   # Uses WHEEL_FEATURES_PY37 (no abi3-py38) via build-wheel action py37 branch.
 
   linux-py37:
+    if: inputs.reuse-release-assets != true
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -200,6 +214,7 @@ jobs:
             python -c "import dcc_mcp_core"
           fi
   windows-py37:
+    if: inputs.reuse-release-assets != true
     runs-on: windows-2022
     permissions:
       contents: read
@@ -239,6 +254,7 @@ jobs:
             python -c "import dcc_mcp_core"
           fi
   macos:
+    if: inputs.reuse-release-assets != true
     runs-on: macos-latest
     permissions:
       contents: read
@@ -268,6 +284,69 @@ jobs:
           --profile abi3
           --platform macos-universal2
           dist/*.whl
+
+  # Manual release backfills must publish the immutable bytes already archived
+  # on GitHub. Rebuilding can produce different wheel bytes for the same
+  # filename, while PyPI's skip-existing behavior preserves the first upload.
+  reuse-release-assets:
+    if: inputs.reuse-release-assets == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout immutable distribution verification tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+
+      - name: Download dcc-mcp-core distributions from GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release-tag-name }}
+          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${RELEASE_VERSION#v}"
+          if [ -z "$RELEASE_TAG" ] || [ -z "$RELEASE_VERSION" ]; then
+            echo "::error::release-tag-name is required when reuse-release-assets is true"
+            exit 1
+          fi
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir dist \
+            --pattern "dcc_mcp_core-${RELEASE_VERSION}-*" \
+            --pattern "dcc_mcp_core-${RELEASE_VERSION}.tar.gz"
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets > release-assets.json
+
+      - name: Verify downloaded distributions against GitHub digests
+        env:
+          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${RELEASE_VERSION#v}"
+          python .workflow-tools/scripts/ci/check_release_distribution_set.py \
+            --assets-json release-assets.json \
+            --dist-dir dist \
+            --version "$RELEASE_VERSION"
+
+      - name: Upload verified release distributions for PyPI backfill
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-release-backfill
+          path: dist/
+          retention-days: 30
+
   publish-release:
     needs:
       - linux
@@ -288,9 +367,9 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Upload wheels to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: >-
-          gh release upload "${{ inputs.release-tag-name }}" dist/*.whl
-          --repo "${{ github.repository }}" --clobber
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release-tag-name }}
+          files: dist/*
+          overwrite_files: false
+          fail_on_unmatched_files: true

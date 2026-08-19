@@ -7,6 +7,8 @@ from dcc_mcp_core import yaml_loads
 
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 PYPI_ACTION = "pypa/gh-action-pypi-publish@release/v1"
+GITHUB_RELEASE_ACTION = "softprops/action-gh-release@v3"
+CORE_BACKFILL_EXPRESSION = "github.event_name == 'workflow_dispatch' && inputs.release_tag != ''"
 
 
 def _release_jobs() -> dict:
@@ -16,6 +18,38 @@ def _release_jobs() -> dict:
 
 def _pypi_steps(job: dict) -> list[dict]:
     return [step for step in job.get("steps", []) if step.get("uses") == PYPI_ACTION]
+
+
+def _github_release_steps(jobs: dict) -> list[dict]:
+    return [step for job in jobs.values() for step in job.get("steps", []) if step.get("uses") == GITHUB_RELEASE_ACTION]
+
+
+def test_release_workflow_preserves_existing_github_release_assets() -> None:
+    steps = _github_release_steps(_release_jobs())
+    assert len(steps) == 3
+    for step in steps:
+        assert step["with"]["overwrite_files"] is False
+        assert step["with"]["fail_on_unmatched_files"] is True
+
+
+def test_release_workflow_manual_backfill_reuses_core_release_assets() -> None:
+    build_wheels = _release_jobs()["build-wheels"]
+    assert build_wheels["with"]["reuse-release-assets"] == (
+        "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}"
+    )
+
+
+def test_manual_backfill_is_explicitly_core_only() -> None:
+    jobs = _release_jobs()
+    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels"):
+        condition = jobs[job_id]["if"]
+        assert f"!({CORE_BACKFILL_EXPRESSION})" in condition
+
+    summary = jobs["publish"]["steps"][0]["run"]
+    assert f'core_backfill="${{{{ {CORE_BACKFILL_EXPRESSION} }}}}"' in summary
+    assert 'server" != "skipped"' in summary
+    assert 'semantic" != "skipped"' in summary
+    assert 'release_assets" != "skipped"' in summary
 
 
 def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:

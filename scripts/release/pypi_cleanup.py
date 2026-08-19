@@ -6,13 +6,22 @@ exact pins, and must be performed by a project Owner in the official PyPI
 management UI. This tool deliberately does not read browser credentials or
 submit private Warehouse forms. It inventories the public JSON API, applies a
 bounded selection policy, and optionally writes a manifest containing every
-selected file name, size, URL, and SHA-256 digest for operator review.
+selected file name, size, URL, and SHA-256 digest for operator review. When a
+GitHub repository is supplied, the tool fails closed unless every selected
+PyPI file has an exact-name GitHub Release asset with the same size and digest.
 
 Example:
     python scripts/release/pypi_cleanup.py --package dcc-mcp-core \
         --delete-below 0.19.90 \
         --keep-version 0.19.3 --keep-version 0.19.4 \
-        --keep-version 0.19.45 --output-json cleanup-plan.json
+        --keep-version 0.19.45 \
+        --max-deletes 83 --expect-selected-count 83 \
+        --expect-selected-total-bytes 9271523910 \
+        --github-repository dcc-mcp/dcc-mcp-core \
+        --output-json cleanup-plan.json
+
+Set GH_TOKEN or GITHUB_TOKEN only when GitHub's anonymous API rate limit is
+insufficient. Tokens are used for read-only Release metadata and never stored.
 
 """
 
@@ -21,7 +30,11 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timezone
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -30,7 +43,8 @@ import urllib.parse
 import urllib.request
 
 PYPI_URL = "https://pypi.org"
-USER_AGENT = "dcc-mcp-pypi-cleanup-plan/1.0 (+https://github.com/dcc-mcp/dcc-mcp-core)"
+GITHUB_API_URL = "https://api.github.com"
+USER_AGENT = "dcc-mcp-pypi-cleanup-plan/2.0 (+https://github.com/dcc-mcp/dcc-mcp-core)"
 
 
 class CleanupError(Exception):
@@ -112,27 +126,55 @@ def select_versions(
     return selected[:max_deletes] if max_deletes is not None else selected
 
 
-def _distribution_file(payload: dict) -> DistributionFile:
+def _distribution_file(version: str, payload: dict) -> DistributionFile:
     digests = payload.get("digests") or {}
-    return DistributionFile(
-        filename=str(payload.get("filename") or ""),
-        size=int(payload.get("size") or 0),
-        sha256=str(digests.get("sha256") or ""),
-        url=str(payload.get("url") or ""),
+    filename = payload.get("filename")
+    size = payload.get("size")
+    sha256 = digests.get("sha256") if isinstance(digests, dict) else None
+    url = payload.get("url")
+    parsed_url = urllib.parse.urlparse(url) if isinstance(url, str) else None
+    valid = (
+        isinstance(filename, str)
+        and bool(filename)
+        and Path(filename).name == filename
+        and isinstance(size, int)
+        and not isinstance(size, bool)
+        and size > 0
+        and isinstance(sha256, str)
+        and re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is not None
+        and parsed_url is not None
+        and parsed_url.scheme == "https"
+        and parsed_url.hostname == "files.pythonhosted.org"
     )
+    if not valid:
+        raise CleanupError(f"release {version!r} has invalid file evidence")
+    return DistributionFile(
+        filename=filename,
+        size=size,
+        sha256=sha256.lower(),
+        url=url,
+    )
+
+
+def _utc_now() -> str:
+    """Return a compact UTC timestamp for manifest freshness evidence."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def parse_project_state(package: str, payload: dict) -> ProjectState:
     """Validate a project JSON payload and convert it into typed records."""
+    if not isinstance(payload, dict):
+        raise CleanupError("public PyPI response is missing release metadata")
     releases_payload = payload.get("releases")
-    latest = payload.get("info", {}).get("version")
+    info_payload = payload.get("info")
+    latest = info_payload.get("version") if isinstance(info_payload, dict) else None
     if not isinstance(releases_payload, dict) or not isinstance(latest, str) or not latest:
         raise CleanupError("public PyPI response is missing release metadata")
     releases = {}
     for version, files_payload in releases_payload.items():
-        if not isinstance(files_payload, list):
+        if not isinstance(files_payload, list) or any(not isinstance(item, dict) for item in files_payload):
             raise CleanupError(f"release {version!r} has an invalid files payload")
-        files = tuple(_distribution_file(item) for item in files_payload if isinstance(item, dict))
+        files = tuple(_distribution_file(str(version), item) for item in files_payload)
         releases[str(version)] = ReleaseRecord(version=str(version), files=files)
     return ProjectState(package=package, latest_version=latest, releases=releases)
 
@@ -152,6 +194,136 @@ def fetch_project_state(package: str) -> ProjectState:
     return parse_project_state(package, payload)
 
 
+def _github_repository_parts(repository: str) -> tuple[str, str]:
+    parts = repository.split("/")
+    if len(parts) != 2 or not all(re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts):
+        raise CleanupError("GitHub repository must use the OWNER/REPO form")
+    return parts[0], parts[1]
+
+
+def fetch_github_releases(repository: str) -> list[dict]:
+    """Read every public GitHub Release needed for backup verification."""
+    owner, repo = _github_repository_parts(repository)
+    releases = []
+    for page in range(1, 101):
+        url = (
+            f"{GITHUB_API_URL}/repos/{urllib.parse.quote(owner, safe='')}/"
+            f"{urllib.parse.quote(repo, safe='')}/releases?per_page=100&page={page}"
+        )
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": USER_AGENT,
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                payload = json.loads(response.read())
+        except (urllib.error.URLError, json.JSONDecodeError) as exc:
+            raise CleanupError(f"could not read public GitHub Releases for {repository!r}: {exc}") from exc
+        if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+            raise CleanupError(f"public GitHub response for {repository!r} has invalid release metadata")
+        releases.extend(payload)
+        if len(payload) < 100:
+            return releases
+    raise CleanupError(f"public GitHub Releases for {repository!r} exceeded the 100-page safety bound")
+
+
+def verify_github_backup(plan: dict, repository: str, releases: list[dict]) -> dict:
+    """Fail closed unless every selected PyPI file has an identical GitHub asset."""
+    _github_repository_parts(repository)
+    releases_by_tag = {}
+    for release in releases:
+        tag = release.get("tag_name")
+        if isinstance(tag, str) and tag and tag not in releases_by_tag:
+            releases_by_tag[tag] = release
+
+    issues = []
+    release_evidence = []
+    verified_files = 0
+    for selected in plan["selected_releases"]:
+        tag = f"v{selected['version']}"
+        release = releases_by_tag.get(tag)
+        if release is None:
+            issues.append(f"{tag}: release is missing")
+            continue
+        if release.get("draft") is True:
+            issues.append(f"{tag}: release is still a draft")
+            continue
+        release_url = release.get("html_url")
+        assets_payload = release.get("assets")
+        if not isinstance(release_url, str) or not release_url.startswith("https://github.com/"):
+            issues.append(f"{tag}: release URL is invalid")
+            continue
+        if not isinstance(assets_payload, list) or any(not isinstance(item, dict) for item in assets_payload):
+            issues.append(f"{tag}: asset metadata is invalid")
+            continue
+
+        assets_by_name = {}
+        for asset in assets_payload:
+            name = asset.get("name")
+            if isinstance(name, str) and name and name not in assets_by_name:
+                assets_by_name[name] = asset
+
+        asset_evidence = []
+        for expected in selected["files"]:
+            filename = expected["filename"]
+            asset = assets_by_name.get(filename)
+            if asset is None:
+                issues.append(f"{tag}/{filename}: asset is missing")
+                continue
+            digest = asset.get("digest")
+            size = asset.get("size")
+            expected_digest = f"sha256:{expected['sha256']}"
+            if size != expected["size"]:
+                issues.append(f"{tag}/{filename}: size mismatch (PyPI {expected['size']}, GitHub {size!r})")
+                continue
+            if not isinstance(digest, str) or digest.lower() != expected_digest:
+                issues.append(f"{tag}/{filename}: digest mismatch (PyPI {expected_digest}, GitHub {digest!r})")
+                continue
+            asset_id = asset.get("id")
+            download_url = asset.get("browser_download_url")
+            if not isinstance(asset_id, int) or asset_id <= 0:
+                issues.append(f"{tag}/{filename}: asset id is invalid")
+                continue
+            if not isinstance(download_url, str) or not download_url.startswith("https://github.com/"):
+                issues.append(f"{tag}/{filename}: asset download URL is invalid")
+                continue
+            asset_evidence.append(
+                {
+                    "filename": filename,
+                    "asset_id": asset_id,
+                    "size": size,
+                    "sha256": expected["sha256"],
+                    "download_url": download_url,
+                }
+            )
+            verified_files += 1
+        release_evidence.append(
+            {
+                "version": selected["version"],
+                "tag": tag,
+                "release_url": release_url,
+                "assets": asset_evidence,
+            }
+        )
+
+    if issues:
+        raise CleanupError("GitHub backup verification failed: " + "; ".join(issues))
+    return {
+        "status": "verified",
+        "verified_at": _utc_now(),
+        "repository": repository,
+        "source": f"{GITHUB_API_URL}/repos/{repository}/releases",
+        "release_count": len(release_evidence),
+        "file_count": verified_files,
+        "releases": release_evidence,
+    }
+
+
 def build_plan(state: ProjectState, selected_versions: list[str], kept_versions: set[str]) -> dict:
     """Return a stable JSON-serializable cleanup manifest."""
     selected = []
@@ -166,7 +338,8 @@ def build_plan(state: ProjectState, selected_versions: list[str], kept_versions:
         )
     selected_bytes = sum(item["total_bytes"] for item in selected)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "generated_at": _utc_now(),
         "package": state.package,
         "source": f"{PYPI_URL}/pypi/{urllib.parse.quote(state.package, safe='')}/json",
         "management_url": f"{PYPI_URL}/manage/project/{urllib.parse.quote(state.package, safe='')}/releases/",
@@ -192,6 +365,12 @@ def _print_plan(plan: dict) -> None:
     print(f"Projected storage: {plan['projected_total_bytes']} byte(s)")
     if plan["kept_versions"]:
         print(f"Explicitly kept: {', '.join(plan['kept_versions'])}")
+    backup = plan.get("github_backup")
+    if backup:
+        print(
+            f"GitHub backup: {backup['file_count']} file(s) across "
+            f"{backup['release_count']} release(s) verified in {backup['repository']}"
+        )
     for release in selected:
         print(
             f"  - {release['version']} ({release['total_bytes']} bytes, {release['total_bytes'] / (1024**2):.2f} MiB)"
@@ -211,6 +390,23 @@ def main(argv: list[str] | None = None) -> int:
         "--keep-version", action="append", default=[], help="never select this exact version; repeatable"
     )
     parser.add_argument("--max-deletes", type=int, metavar="N", help="cap the number of selected releases")
+    parser.add_argument(
+        "--expect-selected-count",
+        type=int,
+        metavar="N",
+        help="fail unless the unbounded cleanup policy selects exactly N releases",
+    )
+    parser.add_argument(
+        "--expect-selected-total-bytes",
+        type=int,
+        metavar="N",
+        help="fail unless the selected releases contain exactly N stored bytes",
+    )
+    parser.add_argument(
+        "--github-repository",
+        metavar="OWNER/REPO",
+        help="fail unless every selected file has an identical public GitHub Release asset",
+    )
     parser.add_argument("--output-json", type=Path, metavar="PATH", help="write the complete cleanup manifest")
     args = parser.parse_args(argv)
 
@@ -218,31 +414,53 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("one of --delete-below / --delete-matching is required")
     if args.max_deletes is not None and args.max_deletes <= 0:
         parser.error("--max-deletes must be positive")
+    if args.expect_selected_count is not None and args.expect_selected_count <= 0:
+        parser.error("--expect-selected-count must be positive")
+    if args.expect_selected_total_bytes is not None and args.expect_selected_total_bytes <= 0:
+        parser.error("--expect-selected-total-bytes must be positive")
 
     state = fetch_project_state(args.package)
     kept_versions = set(args.keep_version)
     unknown_kept = sorted(kept_versions - set(state.releases), key=version_key)
     if unknown_kept:
         raise CleanupError(f"explicitly kept versions are absent from PyPI: {unknown_kept}")
-    selected = select_versions(
+    matching = select_versions(
         list(state.releases),
         delete_below=args.delete_below,
         delete_matching=args.delete_matching,
         exclude_matching=args.exclude_matching,
-        max_deletes=args.max_deletes,
+        max_deletes=None,
         keep_versions=kept_versions,
     )
+    if args.expect_selected_count is not None and len(matching) != args.expect_selected_count:
+        raise CleanupError(
+            f"expected {args.expect_selected_count} selected release(s), found {len(matching)} before the delete cap"
+        )
+    selected = matching[: args.max_deletes] if args.max_deletes is not None else matching
+    if args.expect_selected_count is not None and len(selected) != args.expect_selected_count:
+        raise CleanupError(
+            f"expected {args.expect_selected_count} selected release(s), but the delete cap retained {len(selected)}"
+        )
     if state.latest_version in selected:
         raise CleanupError(f"refusing to select current latest release {state.latest_version!r}")
     if not selected:
         print("Nothing matches the cleanup policy; nothing to do.")
         return 0
+    selected_bytes = sum(state.releases[version].total_bytes for version in selected)
+    if args.expect_selected_total_bytes is not None and selected_bytes != args.expect_selected_total_bytes:
+        raise CleanupError(f"expected {args.expect_selected_total_bytes} selected byte(s), found {selected_bytes}")
 
     plan = build_plan(state, selected, kept_versions)
+    if args.github_repository:
+        releases = fetch_github_releases(args.github_repository)
+        plan["github_backup"] = verify_github_backup(plan, args.github_repository, releases)
     _print_plan(plan)
     if args.output_json:
-        args.output_json.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        manifest_text = json.dumps(plan, indent=2, sort_keys=True) + "\n"
+        manifest_bytes = manifest_text.encode("utf-8")
+        args.output_json.write_bytes(manifest_bytes)
         print(f"Manifest written to: {args.output_json}")
+        print(f"Manifest SHA-256: {hashlib.sha256(manifest_bytes).hexdigest()}")
     return 0
 
 
