@@ -203,6 +203,12 @@ fn bench_score_skills(c: &mut Criterion) {
                 black_box(total);
             })
         });
+
+        c.bench_function(&format!("inverted_index_upsert/{group_label}"), |b| {
+            b.iter(|| {
+                idx.upsert("benchmark-updated-skill", &fields[0]);
+            })
+        });
     }
 }
 
