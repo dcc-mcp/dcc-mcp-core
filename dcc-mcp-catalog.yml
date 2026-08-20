@@ -49,6 +49,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-maya"
+      url: "https://files.pythonhosted.org/packages/98/cb/204ff09455e119520635592e039c1fa16b12824a54cc34850d12894356e7/dcc_mcp_maya-0.9.22-py3-none-any.whl"
+      sha256: "b288c2bf95014f827d3833ef5af4f7c36b2ff8a465ac647f9feb2163bc44397b"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
 
   - name: "dcc-mcp-blender"
@@ -62,6 +64,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-blender"
+      url: "https://files.pythonhosted.org/packages/8c/56/3a075f0389408e64268b193447f56cd68be7a4cedb2ac759c49ba4497b27/dcc_mcp_blender-0.1.43-py3-none-any.whl"
+      sha256: "0f2c4a0957dd41f72b711d164e36b0da039f6f13311b0eb0fecb73059bd7c0bf"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-blender/main/install.md"
 
   - name: "dcc-mcp-houdini"
@@ -75,6 +79,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-houdini"
+      url: "https://files.pythonhosted.org/packages/af/9e/7e37c169d3f52ccad8ad441521dc1dbff5e8eabd984d21c6e2f65a2f49d4/dcc_mcp_houdini-0.31.5-py3-none-any.whl"
+      sha256: "af8b68d2d7c6002a575e93de073404f2bebc04f415833d6d1a60363b607d5c15"
       entry_point: "dcc_mcp_houdini.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-houdini/main/install.md"
 
@@ -89,6 +95,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-3dsmax"
+      url: "https://files.pythonhosted.org/packages/f0/23/db420ca34459f378e2a9fa294ceb525b49c1242dec817ca53f39f13343fd/dcc_mcp_3dsmax-0.1.40-py3-none-any.whl"
+      sha256: "c5b117c232f35d47cbb9e4801cd57de5d1e84e15bf40391f99529edb4b7c8ccd"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-3dsmax/main/install.md"
 
   - name: "dcc-mcp-photoshop"
@@ -102,6 +110,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-photoshop"
+      url: "https://files.pythonhosted.org/packages/e0/77/23de5e60335b229708ae75f399a6591503065c624dfdc0dad5ea0b0105da/dcc_mcp_photoshop-0.1.37-py3-none-any.whl"
+      sha256: "210d7b47a590ad4a9d39d942b2df9997418427edf326e9fe6169482e6e569aff"
       entry_point: "dcc_mcp_photoshop.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/main/docs/distribution.md"
 
@@ -116,6 +126,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-nuke"
+      url: "https://files.pythonhosted.org/packages/2f/33/84bbba6cff8bd69d6e33eb2a62fbef678c3d2e18b37e134a809e7cf305df/dcc_mcp_nuke-0.13.1-py3-none-any.whl"
+      sha256: "c00aef395d6b6c50724acb093ece25063cc2c50d64348059b334e562fc9a67bf"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/main/README.md"
 
   - name: "dcc-mcp-unreal"
@@ -123,12 +135,14 @@ entries:
     dcc: ["unreal"]
     url: "https://github.com/dcc-mcp/dcc-mcp-unreal"
     tags: ["adapter", "unreal", "official", "pip", "game-engine"]
-    version: "0.2.0"
+    version: "0.3.0"
     min_core_version: "0.19.45"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-unreal"
+      url: "https://files.pythonhosted.org/packages/0b/e2/e70e3f6d0433ac7155b34668453b131efed2e5fea060ff7f1997494196e6/dcc_mcp_unreal-0.3.0-py3-none-any.whl"
+      sha256: "4df543a902bcd771bc0733c1ba894fd802a64e1e897adb65c29800dcf5cb2ccf"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
 
   - name: "dcc-mcp-zbrush"
@@ -142,6 +156,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-zbrush"
+      url: "https://files.pythonhosted.org/packages/dc/01/62d1465a4904147cd6eaaaef580c5c5d97b2506a10457d391e3528fe6534/dcc_mcp_zbrush-0.2.18-py3-none-any.whl"
+      sha256: "5740703345a9b8c54c7fd6dcfd9fab52b524d943f48e90d4493ffa2a8d86804b"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-zbrush/main/README.md"
 
   - name: "dcc-mcp-premiere"
@@ -155,6 +171,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-premiere"
+      url: "https://files.pythonhosted.org/packages/5c/e1/f7602fec72ded139a7a10bde8783cd5690b14f4377278e0ead284f2137e2/dcc_mcp_premiere-0.5.0-py3-none-any.whl"
+      sha256: "e35061610b0aba182b2eec29f2dc111cffb9d92194f9321f43805213456c3252"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-premiere/main/README.md"
 
   - name: "dcc-mcp-aftereffects"
@@ -168,6 +186,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-aftereffects"
+      url: "https://files.pythonhosted.org/packages/af/63/4d000ba740d427d27984f40edaacaf8e06ddf16ef888f2d96674813828cb/dcc_mcp_aftereffects-0.6.0-py3-none-any.whl"
+      sha256: "b48e27139027790117a3d5fa8da7d3d92920ab94b68007b56800840a2e30e702"
       entry_point: "dcc_mcp_aftereffects.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-aftereffects/main/README.md"
 
@@ -182,6 +202,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-illustrator"
+      url: "https://files.pythonhosted.org/packages/c5/ef/ca6090fadcfb57402f82e99cfebf3b0b16dde59421dd482bebb970d909dc/dcc_mcp_illustrator-0.2.0-py3-none-any.whl"
+      sha256: "506266fe09aa38a66a08bb28f6bad8aadaacdf868336f59c85f8aad912b6f630"
       entry_point: "dcc_mcp_illustrator.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-illustrator/main/README.md"
 
@@ -196,6 +218,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-gimp"
+      url: "https://files.pythonhosted.org/packages/d4/a4/ac98c7af64baedbb60c9c06cb4ccb8e698e158477ea0f0ddefc7d6d3ed78/dcc_mcp_gimp-0.3.0-py3-none-any.whl"
+      sha256: "e03544e7a2ed04b658c9e1fd14c58209f0c1f1ae5159d06e267a6f280c497186"
       entry_point: "dcc_mcp_gimp.server:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gimp/main/README.md"
 
@@ -210,6 +234,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-krita"
+      url: "https://files.pythonhosted.org/packages/35/8f/b8c0dadfebf4601663bbb4dbef2fe438f764d19d45dc3b8581d3f798c7ed/dcc_mcp_krita-0.3.0-py3-none-any.whl"
+      sha256: "8d9f14012a07a9cec6c16fb4f796c2356bf08a968444d04c3b2688bd0ae5a5e4"
       entry_point: "dcc_mcp_krita.server:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-krita/main/README.md"
 
@@ -224,6 +250,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-katana"
+      url: "https://files.pythonhosted.org/packages/b2/fc/5b75058d0ae2a2873f5cdb358f6a450332c06d6fe8190db25c77bd295539/dcc_mcp_katana-0.4.0-py3-none-any.whl"
+      sha256: "0fe54a32a600616be78d62d22a88f0ca9e88674722f0fdc0c80ded485fc7f876"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-katana/main/README.md"
 
   - name: "dcc-mcp-mobu"
@@ -237,6 +265,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-mobu"
+      url: "https://files.pythonhosted.org/packages/b5/99/63df289d8b6319f6267b5b8d2ac5c9c09e2fc6291cf174822f518e26dc94/dcc_mcp_mobu-0.3.0-py3-none-any.whl"
+      sha256: "7c27cf99a3d0bdcd314a7a57954bc06d039b013c0bd70401b4d38831353ff6c5"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-mobu/main/README.md"
 
   - name: "dcc-mcp-renderdoc"
@@ -250,6 +280,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-renderdoc"
+      url: "https://files.pythonhosted.org/packages/db/ef/0966f1657f016669be5b57bdc5657f140a3863aac459979e1f2a15b1f0be/dcc_mcp_renderdoc-0.3.0-py3-none-any.whl"
+      sha256: "f8d0290c825c6e167acade9d1fbdaafc2c5e42edc06eaca6506acde251d4aa17"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-renderdoc/main/README.md"
 
   - name: "dcc-mcp-substance3d-designer"
@@ -263,6 +295,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-substance3d-designer"
+      url: "https://files.pythonhosted.org/packages/c2/3c/e7cacb084b2087380a7785edf83c05f3a05d77779eeb99899a47c9546df6/dcc_mcp_substance3d_designer-0.3.0-py3-none-any.whl"
+      sha256: "65e16406a0ba4a15dfdde9dd082a2092685c204c678681da5e228dc68fe9b29c"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-substance3d-designer/main/README.md"
 
   - name: "dcc-mcp-substance3d-painter"
@@ -276,6 +310,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-substance3d-painter"
+      url: "https://files.pythonhosted.org/packages/80/3f/e642c17c5515752bc66bbba088d9f20f4162a7fd532fd1b87cc39de437f1/dcc_mcp_substance3d_painter-0.1.3-py3-none-any.whl"
+      sha256: "cdaf37c4de958eeb3855ee52d3466558d9c4605db988f26c4111affba954a57b"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-substance3d-painter/main/README.md"
 
   - name: "dcc-mcp-godot"
@@ -289,6 +325,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-godot"
+      url: "https://files.pythonhosted.org/packages/57/c8/f81a9d014d24747a2219fd8ceec002decdab304df3fb8303ff74700294cb/dcc_mcp_godot-0.4.0-py3-none-any.whl"
+      sha256: "4d260738e0b2823b802c01a3571d0d660c19d9f390a5505991e6c2aed41c1186"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/main/README.md"
 
   - name: "dcc-mcp-unity"
@@ -302,6 +340,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-unity"
+      url: "https://files.pythonhosted.org/packages/d5/d7/a4ef262fae42a8ae7ba95057b85a2128d7a1ec54a320b777adf768550889/dcc_mcp_unity-0.11.2-py3-none-any.whl"
+      sha256: "aab6097038ec0153bfd9bd3a111ce9435a1d57aecfc8bc76030e7bf73643eedd"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unity/main/install.md"
 
   - name: "dcc-mcp-marmoset"
@@ -315,6 +355,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-marmoset"
+      url: "https://files.pythonhosted.org/packages/26/b8/cac4c22c973f46129bae4d74397ae11fe460a50ecd599ec2d48df5741a72/dcc_mcp_marmoset-0.1.1-py3-none-any.whl"
+      sha256: "3c368e8889b1af87b412b625635e222fe5fc01cc21841dba28656b056acab9df"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-marmoset/main/install.md"
 
   - name: "dcc-mcp-openscad"
@@ -328,6 +370,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-openscad"
+      url: "https://files.pythonhosted.org/packages/73/dc/d32e4116781858eea2f3d802f3a2d07f986de01bcbe8e7474dfbb2173e30/dcc_mcp_openscad-0.1.2-py3-none-any.whl"
+      sha256: "c1345969b62f4f6fd457c0caf5a20a3776afa8a26365e096054334758036927b"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscad/main/README.md"
 
   - name: "dcc-mcp-freecad"
@@ -341,6 +385,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-freecad"
+      url: "https://files.pythonhosted.org/packages/7e/9f/5ae064ce1aca90fded4240e27f19b6fd0116d4f7eda0c2e5c2d55d286155/dcc_mcp_freecad-0.1.2-py3-none-any.whl"
+      sha256: "b039012cd6be9ce52ed0bd64b1a9f00a87add9115b61474d17b8a93a51e2f978"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-freecad/main/README.md"
 
   - name: "dcc-mcp-cinema4d"
@@ -354,6 +400,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-cinema4d"
+      url: "https://files.pythonhosted.org/packages/d4/27/ddcdf195531048af08ab2c3aa6d456b20d712277c518bc405121ba94ab7d/dcc_mcp_cinema4d-0.1.3-py3-none-any.whl"
+      sha256: "6038f3584f7f5c3cd8d3d051bb9308c6c9381ca021c1f04951cca29c334374f9"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cinema4d/main/README.md"
 
   - name: "dcc-mcp-comfyui"
@@ -367,6 +415,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-comfyui"
+      url: "https://files.pythonhosted.org/packages/7c/e9/68babf57175e35985a543d437e668b92f5328c4c616cc86ce74d317be7de/dcc_mcp_comfyui-0.1.1-py3-none-any.whl"
+      sha256: "69ac8fb98d88217abd22c6281835bd282caf00bb63a5aa26887f369370f7d756"
       entry_point: "dcc_mcp_comfyui.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-comfyui/main/README.md"
 
@@ -381,6 +431,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-mari"
+      url: "https://files.pythonhosted.org/packages/76/81/f1bf615945acd175ff579d0084f35df249fd027d96870fa321647b724bf8/dcc_mcp_mari-0.2.1-py3-none-any.whl"
+      sha256: "de160ebe7ee7910238bf05e76a96ab8d35c0945885c1651b2c5809aeb61555a7"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-mari/main/README.md"
 
   - name: "dcc-mcp-sketchup"
@@ -394,6 +446,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-sketchup"
+      url: "https://files.pythonhosted.org/packages/34/53/a3035083471a1b5692754b1c0a027a5cd951bc2640980baaac132e0e0262/dcc_mcp_sketchup-0.1.0-py3-none-any.whl"
+      sha256: "22a2fc8a502109be756e1c8f5eb673499f1c92e401e08b411019293f607aa375"
       entry_point: "dcc_mcp_sketchup.server:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-sketchup/main/README.md"
 
@@ -408,6 +462,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-touchdesigner"
+      url: "https://files.pythonhosted.org/packages/a3/bd/2b67130f5a889824659dc87398ed61e0140bc7a9cc55110a984b6a0256de/dcc_mcp_touchdesigner-0.1.1-py3-none-any.whl"
+      sha256: "99ce677d8bdb674116849220ff92751c15b9f3ba410aff8b3371ff96ef13f4dc"
       entry_point: "dcc_mcp_touchdesigner:TouchDesignerMcpServer"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-touchdesigner/main/install.md"
 
@@ -422,10 +478,13 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-shogun"
+      url: "https://files.pythonhosted.org/packages/41/ca/3eba76e8696d3f478f1b2f776abd52640403ea20ac4057b689e57fdde82d/dcc_mcp_shogun-0.8.1-py3-none-any.whl"
+      sha256: "975a2d967a5c9b09cc285b7dd5bd1b8db16cdf3043d75cbae3b7d30d90529b5d"
       entry_point: "dcc_mcp_shogun:ShogunMcpServer"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-shogun/main/README.md"
 
   - name: "dcc-mcp-tiled"
+    # Automatic install is omitted until a wheel is published.
     description: "Tiled adapter for typed workspace-bounded map authoring, validation, and conversion"
     dcc: ["tiled"]
     url: "https://github.com/dcc-mcp/dcc-mcp-tiled"
@@ -433,13 +492,9 @@ entries:
     version: "0.3.0"
     min_core_version: "0.19.38"
     maintainer: "dcc-mcp"
-    install:
-      type: pip
-      pip_package: "dcc-mcp-tiled"
-      entry_point: "dcc_mcp_tiled.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-tiled/main/README.md"
 
   - name: "dcc-mcp-material-maker"
+    # Automatic install is omitted until a wheel is published.
     description: "Material Maker adapter for typed bounded .ptex inspection, validation, and native export"
     dcc: ["material-maker"]
     url: "https://github.com/dcc-mcp/dcc-mcp-material-maker"
@@ -447,13 +502,9 @@ entries:
     version: "0.3.1"
     min_core_version: "0.19.38"
     maintainer: "dcc-mcp"
-    install:
-      type: pip
-      pip_package: "dcc-mcp-material-maker"
-      entry_point: "dcc_mcp_material_maker.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-material-maker/main/README.md"
 
   - name: "dcc-mcp-wwise"
+    # Automatic install is omitted until a wheel is published.
     description: "Audiokinetic Wwise Authoring adapter with typed WAAPI project, audio, SoundBank, and profiler workflows"
     dcc: ["wwise"]
     url: "https://github.com/dcc-mcp/dcc-mcp-wwise"
@@ -461,11 +512,6 @@ entries:
     version: "0.1.2"
     min_core_version: "0.19.86"
     maintainer: "dcc-mcp"
-    install:
-      type: pip
-      pip_package: "dcc-mcp-wwise"
-      entry_point: "dcc_mcp_wwise.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-wwise/main/install.md"
 
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
@@ -478,6 +524,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-fpt"
+      url: "https://files.pythonhosted.org/packages/a3/89/8a127a24ab0b4b0992a19cc5b59332a455d74ac97fa79804c5ec513e5658/dcc_mcp_fpt-0.1.8-py3-none-any.whl"
+      sha256: "197952ea4133217a9e68913798c0b0ed470fc1be3ad2854121c20261f737387b"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-fpt/main/README.md"
 
   - name: "dcc-mcp-openusd"
@@ -491,6 +539,8 @@ entries:
     install:
       type: pip
       pip_package: "dcc-mcp-openusd"
+      url: "https://files.pythonhosted.org/packages/fd/f6/36fced0c6c3799545c40852194178038fead5fb6e971121f855785e1d7c8/dcc_mcp_openusd-0.8.1-py3-none-any.whl"
+      sha256: "82902d82b12c6d037afe69e040cf33339461de51c85d7e3b4cab8a57313ae4c6"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openusd/main/README.md"
 
   - name: "autodesk-product-help"

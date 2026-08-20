@@ -336,11 +336,15 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
             version,
             extras,
             python,
+            artifact_url,
+            sha256,
         } => execute_pip_install(
             package,
             version.as_deref(),
             extras.as_deref(),
             python.as_deref(),
+            artifact_url.as_deref(),
+            sha256.as_deref(),
         ),
         InstallStepAction::GitClone { url, ref_, dest } => {
             execute_git_clone(url, ref_.as_deref(), dest)
@@ -366,10 +370,13 @@ fn execute_pip_install(
     version: Option<&str>,
     extras: Option<&[String]>,
     python: Option<&str>,
+    artifact_url: Option<&str>,
+    sha256: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
     let python_cmd = python.unwrap_or("python");
+    let package_spec = verified_pip_artifact_spec(package, version, extras, artifact_url, sha256)?;
     let mut cmd = Command::new(python_cmd);
-    cmd.args(pip_install_args(package, version, extras));
+    cmd.args(pip_install_args(&package_spec));
 
     let status = cmd.status().map_err(|e| InstallError::StepFailed {
         step: format!("pip-install-{package}"),
@@ -390,30 +397,92 @@ fn execute_pip_install(
     }))
 }
 
-fn pip_package_spec(package: &str, version: Option<&str>, extras: Option<&[String]>) -> String {
+fn verified_pip_artifact_spec(
+    package: &str,
+    version: Option<&str>,
+    extras: Option<&[String]>,
+    artifact_url: Option<&str>,
+    sha256: Option<&str>,
+) -> Result<String, InstallError> {
+    let version = version.unwrap_or_default().trim();
+    let artifact_url = artifact_url.unwrap_or_default().trim();
+    let value = sha256.unwrap_or_default().trim();
+    let checksum = value.strip_prefix("sha256:").unwrap_or(value);
+    let valid_package = !package.is_empty()
+        && package
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && package
+            .as_bytes()
+            .last()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && package
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+    let valid_extras = extras.is_none_or(|values| {
+        values.iter().all(|value| {
+            !value.is_empty()
+                && value
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && value
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        })
+    });
+    let normalized_package = package
+        .chars()
+        .map(|character| match character {
+            '-' | '.' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect::<String>();
+    let filename = artifact_url.rsplit('/').next().unwrap_or_default();
+    let expected_prefix = format!("{normalized_package}-{version}-");
+    let valid_artifact = artifact_url.starts_with("https://")
+        && !artifact_url.contains('#')
+        && !artifact_url.contains('?')
+        && filename
+            .to_ascii_lowercase()
+            .starts_with(&expected_prefix.to_ascii_lowercase())
+        && filename.ends_with("-py3-none-any.whl");
+    if !valid_package
+        || !valid_extras
+        || version.is_empty()
+        || !valid_artifact
+        || checksum.len() != 64
+        || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(InstallError::StepFailed {
+            step: "pip-integrity".into(),
+            message: "catalog-pinned wheel URL, version, and SHA-256 are required".into(),
+        });
+    }
+
     let package_with_extras = if extras.is_some_and(|values| !values.is_empty()) {
         format!("{}[{}]", package, extras.unwrap().join(","))
     } else {
         package.to_string()
     };
-    if let Some(version) = version.filter(|value| !value.trim().is_empty()) {
-        format!("{package_with_extras}=={version}")
-    } else {
-        package_with_extras
-    }
+    Ok(format!(
+        "{package_with_extras} @ {artifact_url}#sha256={}",
+        checksum.to_ascii_lowercase()
+    ))
 }
 
-fn pip_install_args(
-    package: &str,
-    version: Option<&str>,
-    extras: Option<&[String]>,
-) -> Vec<String> {
+fn pip_install_args(package_spec: &str) -> Vec<String> {
     vec![
         "-m".into(),
         "pip".into(),
         "install".into(),
         "--upgrade".into(),
-        pip_package_spec(package, version, extras),
+        package_spec.into(),
     ]
 }
 
@@ -659,8 +728,11 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
             | InstallStepAction::ZipExtract { dest, .. }
             | InstallStepAction::PathCopy { dest, .. } => verify_installed_path(dest)?,
             InstallStepAction::PipInstall {
-                package, python, ..
-            } => verify_pip_package(package, python.as_deref())?,
+                package,
+                version,
+                python,
+                ..
+            } => verify_pip_package(package, version.as_deref(), python.as_deref())?,
             InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => {}
         }
     }
@@ -683,20 +755,40 @@ fn verify_installed_path(path: &Path) -> Result<(), InstallError> {
     Ok(())
 }
 
-fn verify_pip_package(package: &str, python: Option<&str>) -> Result<(), InstallError> {
+fn verify_pip_package(
+    package: &str,
+    expected_version: Option<&str>,
+    python: Option<&str>,
+) -> Result<(), InstallError> {
     let python_cmd = python.unwrap_or("python");
-    let status = Command::new(python_cmd)
+    let output = Command::new(python_cmd)
         .args(pip_show_args(package))
-        .status()
+        .output()
         .map_err(|e| InstallError::StepFailed {
             step: "verify".into(),
             message: format!("failed to launch {python_cmd}: {e}"),
         })?;
-    if !status.success() {
+    if !output.status.success() {
         return Err(InstallError::StepFailed {
             step: "verify".into(),
             message: format!("{python_cmd} could not verify installed pip package '{package}'"),
         });
+    }
+    if let Some(expected) = expected_version {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let actual = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("Version:"))
+            .map(str::trim)
+            .unwrap_or_default();
+        if actual != expected {
+            return Err(InstallError::StepFailed {
+                step: "verify".into(),
+                message: format!(
+                    "installed {package} version mismatch: expected {expected}, got {actual}"
+                ),
+            });
+        }
     }
     Ok(())
 }
@@ -950,9 +1042,13 @@ mod tests {
     fn pip_install_missing_python_reports_error() {
         let result = execute_pip_install(
             "nonexistent-package",
-            None,
+            Some("1.0.0"),
             None,
             Some("/__nonexistent__/python"),
+            Some(
+                "https://files.pythonhosted.org/packages/example/nonexistent_package-1.0.0-py3-none-any.whl",
+            ),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1021,27 +1117,39 @@ mod tests {
     }
 
     #[test]
-    fn pip_install_uses_python_module_invocation() {
+    fn pip_install_uses_verified_direct_artifact_reference() {
+        let spec = verified_pip_artifact_spec(
+            "dcc-mcp-maya",
+            Some("0.9.22"),
+            Some(&["maya".to_string()]),
+            Some(
+                "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.9.22-py3-none-any.whl",
+            ),
+            Some("A".repeat(64).as_str()),
+        )
+        .unwrap();
         assert_eq!(
-            pip_install_args("dcc-mcp-maya", None, Some(&["maya".to_string()])),
+            pip_install_args(&spec),
             vec![
                 "-m".to_string(),
                 "pip".to_string(),
                 "install".to_string(),
                 "--upgrade".to_string(),
-                "dcc-mcp-maya[maya]".to_string(),
+                format!(
+                    "dcc-mcp-maya[maya] @ https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.9.22-py3-none-any.whl#sha256={}",
+                    "a".repeat(64)
+                ),
             ]
         );
-        assert_eq!(
-            pip_install_args("dcc-mcp-unity", Some("0.11.2"), None),
-            vec![
-                "-m".to_string(),
-                "pip".to_string(),
-                "install".to_string(),
-                "--upgrade".to_string(),
-                "dcc-mcp-unity==0.11.2".to_string(),
-            ]
+
+        let error = verified_pip_artifact_spec(
+            "dcc-mcp-unity",
+            Some("0.11.2"),
+            None,
+            Some("https://pypi.org/project/dcc-mcp-unity"),
+            None,
         );
+        assert!(error.unwrap_err().to_string().contains("pip-integrity"));
         assert_eq!(
             pip_uninstall_args("dcc-mcp-maya"),
             vec![

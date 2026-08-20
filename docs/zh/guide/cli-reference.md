@@ -143,9 +143,9 @@ dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-i
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
-dcc-mcp-cli install --dcc-type maya --version 2026
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
+dcc-mcp-cli install --dcc-type maya
+dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
+dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
 dcc-mcp-cli marketplace search --query hunyuan --dcc maya
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
@@ -190,7 +190,7 @@ dcc-mcp-cli lint path/to/skills
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | 本地 registry + per-instance `/v1/readyz`，或远程 gateway inventory + `/v1/readyz` | 等待 release smoke test 所需 readiness bit，例如 `skill_catalog` 或 `host_execution_bridge`。 |
 | `reload-skills [--dcc-type <dcc>] [--instance-id <id>]` | 本地 MCP `tools/call dcc_admin__reload_skills`，或远程 `POST /v1/dcc/{dcc}/instances/{id}/call` | marketplace 安装或 skill path 变更后，让正在运行的 adapter 重新扫描 skill 搜索路径。 |
 | `stop-instance --dcc-type <dcc> --instance-id <id>` | 本地 `safe_stop_url` 或远程 `POST /v1/dcc/{dcc}/instances/{id}/stop` | 对声明了 `safe_stop_url` 的实例发起带保护条件的 safe-stop 请求。 |
-| `install --dcc-type <dcc> [--version <v>] [--python <path>] [--execute]` | catalog-backed local plan / executor | 解析匹配的 adapter 并输出可审计安装计划；加 `--execute` 后会在确认后执行 package 安装步骤、失败回滚并做 package/path 验证。Live DCC 检查保留在返回的 `next_steps` 中。 |
+| `install --dcc-type <dcc> [--version <catalog-version>] [--python <path>] [--execute]` | catalog-backed local plan / executor | 解析匹配的 adapter 并输出可审计安装计划；加 `--execute` 后会在确认后执行 package 安装步骤、失败回滚并做 package/path 验证。Live DCC 检查保留在返回的 `next_steps` 中。 |
 | `marketplace install <name> [--dcc <dcc>] [--reload]` | marketplace catalog + local installed state；可选控制运行中的 DCC | 安装本地 marketplace skill 包；`--reload` 会让匹配的运行中 adapter 重新扫描 skill path，并把刷新结果写入安装 JSON。 |
 | `marketplace search/update/...` | marketplace catalog + local installed state | 搜索、卸载和更新本地 marketplace skill 包。 |
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | 生成 marketplace 发布 ZIP 并输出 SHA-256 摘要。 |
@@ -242,6 +242,9 @@ Blender 自带 Python。传 `--execute` 后才会请求确认并执行
 pip 安装使用 `<python> -m pip`，并用 `pip show` 验证；git/zip/path 安装会检查目标路径
 确实存在，且目标目录不是空目录。DCC 只有在 host plugin / sidecar 启动、保持存活、
 并出现在 `dcc-mcp-cli list` 中后才算在线；CLI install 不会伪造 gateway 注册。
+
+Pip execution requires the catalog-pinned universal wheel URL, exact version,
+and SHA-256. `--version` may only repeat that reviewed artifact version.
 
 如果工作室有专门的 Pipeline 部署流程，可以设置
 `DCC_MCP_INSTALL_DISABLED=1` 禁用自动执行安装。plan 仍会返回 adapter metadata 和
