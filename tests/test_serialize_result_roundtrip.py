@@ -12,8 +12,8 @@ Covers:
 - Long message and Unicode content
 - deserialize_result TypeError on wrong input type
 - deserialize_result ValueError on corrupt data
-- _serialize_result helper in skill.py falls back when _core unavailable
-- run_main in skill.py uses Rust path when _core available
+- _serialize_result helper uses one dependency-light standard-library path
+- run_main emits the same normalized JSON with or without _core
 """
 
 from __future__ import annotations
@@ -506,91 +506,70 @@ class TestSkillSerializeResult:
         assert parsed["success"] is False
         assert parsed["error"] == "RuntimeError: boom"
 
-    def test_serialize_result_fallback_without_core(self, monkeypatch):
-        """When _core cannot be imported, fall back to json.dumps."""
-        import builtins
-        import importlib
-
-        original_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "dcc_mcp_core._core":
-                raise ImportError("simulated missing _core")
-            return original_import(name, *args, **kwargs)
-
-        # Reload skill module to get a fresh copy
+    def test_serialize_result_is_independent_of_native_json_helpers(self, monkeypatch):
+        """Skill JSON projection is identical when native helpers are unavailable."""
         import dcc_mcp_core.skill as skill_mod
 
-        importlib.reload(skill_mod)
-
+        result = {
+            "success": False,
+            "message": "Maya command failed",
+            "prompt": None,
+            "error": "RuntimeError",
+            "context": {"dcc_type": "maya", "action_name": "create_sphere"},
+            "_meta": {
+                "dcc.error": {
+                    "type": "RuntimeError",
+                    "message": "host stopped",
+                }
+            },
+        }
+        native_available = skill_mod._serialize_result(result)
         with monkeypatch.context() as mp:
-            mp.setattr(builtins, "__import__", mock_import)
-            # Import _serialize_result after patching
-            result = {"success": True, "message": "fallback", "prompt": None, "error": None, "context": {}}
-            # Call directly to exercise the fallback branch
-            output = skill_mod._serialize_result(result)
-        assert isinstance(output, str)
-        parsed = json.loads(output)
-        assert parsed["message"] == "fallback"
+            mp.setattr(
+                dcc_mcp_core,
+                "json_dumps",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("native JSON helper used")),
+                raising=False,
+            )
+            source_only = skill_mod._serialize_result(result)
 
-    def test_serialize_result_fallback_prefers_core_json_dumps(self, monkeypatch):
-        """When validation is unavailable but json_dumps is importable, prefer it over stdlib JSON."""
-        import builtins
-        import importlib
+        assert native_available == source_only
+        parsed = json.loads(source_only)
+        assert parsed["_meta"] == result["_meta"]
+        assert "_meta" not in parsed["context"]
 
-        original_import = builtins.__import__
-        calls = []
+    def test_serialize_result_preserves_json_tuple_and_large_integer_semantics(self):
+        from dcc_mcp_core.skill import _serialize_result
 
-        def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "dcc_mcp_core._core":
-                raise ImportError("simulated missing validation path")
-            return original_import(name, globals, locals, fromlist, level)
+        large_integer = 2**80 + 1
+        parsed = json.loads(
+            _serialize_result(
+                {
+                    "success": True,
+                    "message": "done",
+                    "context": {"coordinates": (1, 2), "asset_id": large_integer},
+                }
+            )
+        )
 
-        def fake_json_dumps(payload, **kwargs):
-            calls.append((payload, kwargs))
-            return json.dumps(payload, **kwargs)
+        assert parsed["context"]["coordinates"] == [1, 2]
+        assert parsed["context"]["asset_id"] == large_integer
 
-        import dcc_mcp_core.skill as skill_mod
+    def test_serialize_result_replaces_non_json_context_with_failure(self):
+        from dcc_mcp_core.skill import _serialize_result
 
-        importlib.reload(skill_mod)
+        parsed = json.loads(
+            _serialize_result(
+                {
+                    "success": True,
+                    "message": "done",
+                    "context": {"host_object": object()},
+                }
+            )
+        )
 
-        with monkeypatch.context() as mp:
-            mp.setattr(builtins, "__import__", mock_import)
-            mp.setattr(dcc_mcp_core, "json_dumps", fake_json_dumps, raising=False)
-            result = {"success": True, "message": "fast", "prompt": None, "error": None, "context": {}}
-
-            output = skill_mod._serialize_result(result)
-
-        assert calls
-        assert json.loads(output)["message"] == "fast"
-
-    def test_serialize_result_fallback_handles_lazy_core_json_missing(self, monkeypatch):
-        """If top-level json_dumps resolves but needs _core at call time, use stdlib JSON."""
-        import builtins
-        import importlib
-
-        original_import = builtins.__import__
-
-        def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "dcc_mcp_core._core":
-                raise ImportError("simulated missing validation path")
-            return original_import(name, globals, locals, fromlist, level)
-
-        def unavailable_json_dumps(_payload, **_kwargs):
-            raise ModuleNotFoundError("No module named 'dcc_mcp_core._core'")
-
-        import dcc_mcp_core.skill as skill_mod
-
-        importlib.reload(skill_mod)
-
-        with monkeypatch.context() as mp:
-            mp.setattr(builtins, "__import__", mock_import)
-            mp.setattr(dcc_mcp_core, "json_dumps", unavailable_json_dumps, raising=False)
-            result = {"success": True, "message": "source-only", "prompt": None, "error": None, "context": {}}
-
-            output = skill_mod._serialize_result(result)
-
-        assert json.loads(output)["message"] == "source-only"
+        assert parsed["success"] is False
+        assert parsed["error"] == "non_serializable_result"
 
 
 # ---------------------------------------------------------------------------

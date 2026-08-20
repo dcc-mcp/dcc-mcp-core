@@ -699,7 +699,8 @@ class TestFromException:
 
     def test_error_field_set(self):
         r = from_exception("my error")
-        assert r.error == "my error"
+        assert r.error == "Exception"
+        assert r._meta["dcc.error"]["message"] == "my error"
 
     def test_message_field_default_none_or_str(self):
         r = from_exception("my error")
@@ -714,9 +715,9 @@ class TestFromException:
         r = from_exception("my error", include_traceback=False)
         assert r.success is False
 
-    def test_include_traceback_true_has_traceback_context(self):
+    def test_include_traceback_true_has_traceback_meta(self):
         r = from_exception("my error", include_traceback=True)
-        assert "traceback" in r.context
+        assert "traceback" in r._meta["dcc.error"]
 
     def test_context_kwargs_are_stored(self):
         r = from_exception("my error", foo="bar", baz=42)
@@ -732,9 +733,10 @@ class TestFromException:
         r = from_exception("my error", prompt="Try checking logs")
         assert r.prompt == "Try checking logs"
 
-    def test_context_contains_error_type(self):
+    def test_meta_contains_error_type(self):
         r = from_exception("my error", include_traceback=True)
-        assert "error_type" in r.context
+        assert r._meta["dcc.error"]["type"] == "Exception"
+        assert r.context["error_type"] == "Exception"
 
     def test_returns_action_result_model_type(self):
         from dcc_mcp_core import ToolResult

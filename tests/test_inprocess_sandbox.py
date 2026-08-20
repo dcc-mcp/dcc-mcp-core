@@ -43,7 +43,7 @@ def test_denied_action_records_audit_without_importing_script(tmp_path: Path) ->
 
     mocked.assert_not_called()
     assert result["success"] is False
-    assert result["error"]["type"] == "SandboxDenied"
+    assert result["error"] == "SandboxDenied"
     denials = ctx.audit_log.denials()
     assert len(denials) == 1
     assert denials[0].action == "execute_python"
@@ -92,8 +92,8 @@ def test_sandbox_uses_script_stem_when_action_name_missing(tmp_path: Path) -> No
 
     mocked.assert_not_called()
     assert result["success"] is False
-    assert result["error"]["type"] == "SandboxDenied"
-    assert result["error"]["action"] == "execute_python"
+    assert result["error"] == "SandboxDenied"
+    assert result["context"]["action_name"] == "execute_python"
     denials = ctx.audit_log.denials()
     assert len(denials) == 1
     assert denials[0].action == "execute_python"
@@ -143,8 +143,8 @@ def test_register_inprocess_executor_attaches_configured_sandbox(tmp_path: Path)
     )
     result = captured[0](str(script), {})
     assert result["success"] is False
-    assert result["error"]["type"] == "SandboxDenied"
-    assert result["error"]["action"] == "execute_python"
+    assert result["error"] == "SandboxDenied"
+    assert result["context"]["action_name"] == "execute_python"
     assert base._execution_bridge is not None
     assert base._execution_bridge.sandbox_context is not None
 
@@ -174,5 +174,5 @@ def test_register_host_execution_bridge_attaches_configured_sandbox(tmp_path: Pa
     )
     result = captured[0](str(script), {})
     assert result["success"] is False
-    assert result["error"]["type"] == "SandboxDenied"
-    assert result["error"]["action"] == "execute_python"
+    assert result["error"] == "SandboxDenied"
+    assert result["context"]["action_name"] == "execute_python"

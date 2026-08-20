@@ -76,7 +76,7 @@ from dcc_mcp_core._tool_registration import register_tools
 from dcc_mcp_core.constants import CATEGORY_RECIPES
 from dcc_mcp_core.constants import METADATA_DCC_MCP
 from dcc_mcp_core.constants import METADATA_RECIPES_KEY
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -528,14 +528,14 @@ def _recipes_handle_list(skill_map: dict[str, Any], params: Any) -> Any:
     skill_name = args.get("skill", "")
     skill_md = skill_map.get(skill_name)
     if skill_md is None:
-        return ToolResult(
+        return ToolResultEnvelope(
             success=False,
             message=f"Skill '{skill_name}' not found.",
             context={"skill": skill_name, "anchors": []},
         ).to_dict()
     rp = get_recipes_path(skill_md)
     if not rp:
-        return ToolResult.ok(
+        return ToolResultEnvelope.ok(
             f"Skill '{skill_name}' has no recipes file.",
             skill=skill_name,
             anchors=[],
@@ -544,7 +544,7 @@ def _recipes_handle_list(skill_map: dict[str, Any], params: Any) -> Any:
         ).to_dict()
     entries = list_recipe_entries(skill_md)
     anchors = [entry["name"] for entry in entries if entry.get("provenance", {}).get("format") == "markdown-anchor"]
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         f"Found {len(entries)} recipes.",
         skill=skill_name,
         anchors=anchors,
@@ -560,13 +560,13 @@ def _recipes_handle_get(skill_map: dict[str, Any], params: Any) -> Any:
     anchor = args.get("anchor", "")
     skill_md = skill_map.get(skill_name)
     if skill_md is None:
-        return ToolResult(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
+        return ToolResultEnvelope(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
     rp = get_recipes_path(skill_md)
     if not rp:
-        return ToolResult(success=False, message=f"Skill '{skill_name}' has no recipes file.").to_dict()
+        return ToolResultEnvelope(success=False, message=f"Skill '{skill_name}' has no recipes file.").to_dict()
     recipe = find_recipe_entry(skill_md, anchor)
     if recipe and recipe.get("provenance", {}).get("format") == "recipe-pack":
-        return ToolResult.ok(
+        return ToolResultEnvelope.ok(
             f"Recipe '{anchor}'",
             skill=skill_name,
             anchor=anchor,
@@ -576,12 +576,12 @@ def _recipes_handle_get(skill_map: dict[str, Any], params: Any) -> Any:
     content_path = str(recipe.get("provenance", {}).get("path") or rp) if recipe else rp
     content = get_recipe_content(content_path, anchor)
     if content is None:
-        return ToolResult(
+        return ToolResultEnvelope(
             success=False,
             message=f"Anchor '{anchor}' not found in {rp}.",
             context={"available_anchors": [entry["name"] for entry in list_recipe_entries(skill_md)]},
         ).to_dict()
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         f"Recipe '{anchor}'",
         skill=skill_name,
         anchor=anchor,
@@ -614,7 +614,7 @@ def _recipes_handle_search(skills: list[Any], params: Any) -> Any:
             if dcc_filter and str(entry.get("dcc") or "").lower() != dcc_filter:
                 continue
             matches.append(entry)
-    return ToolResult.ok(f"Found {len(matches)} matching recipes.", query=query, recipes=matches).to_dict()
+    return ToolResultEnvelope.ok(f"Found {len(matches)} matching recipes.", query=query, recipes=matches).to_dict()
 
 
 def _recipes_handle_validate(skill_map: dict[str, Any], params: Any) -> Any:
@@ -625,12 +625,12 @@ def _recipes_handle_validate(skill_map: dict[str, Any], params: Any) -> Any:
     inputs = args.get("inputs") or {}
     skill_md = skill_map.get(skill_name)
     if skill_md is None:
-        return ToolResult.not_found("Skill", skill_name).to_dict()
+        return ToolResultEnvelope.not_found("Skill", skill_name).to_dict()
     recipe = find_recipe_entry(skill_md, recipe_name)
     if recipe is None:
-        return ToolResult.not_found("Recipe", recipe_name).to_dict()
+        return ToolResultEnvelope.not_found("Recipe", recipe_name).to_dict()
     errors = validate_recipe_inputs(recipe, inputs if isinstance(inputs, dict) else {})
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         "Recipe inputs are valid." if not errors else "Recipe inputs are invalid.",
         valid=not errors,
         errors=errors,
@@ -647,16 +647,18 @@ def _recipes_handle_apply(skill_map: dict[str, Any], params: Any) -> Any:
     inputs = args.get("inputs") or {}
     skill_md = skill_map.get(skill_name)
     if skill_md is None:
-        return ToolResult.not_found("Skill", skill_name).to_dict()
+        return ToolResultEnvelope.not_found("Skill", skill_name).to_dict()
     recipe = find_recipe_entry(skill_md, recipe_name)
     if recipe is None:
-        return ToolResult.not_found("Recipe", recipe_name).to_dict()
+        return ToolResultEnvelope.not_found("Recipe", recipe_name).to_dict()
     if recipe.get("provenance", {}).get("format") != "recipe-pack":
-        return ToolResult.invalid_input("recipes__apply requires a structured YAML recipe pack entry.").to_dict()
+        return ToolResultEnvelope.invalid_input(
+            "recipes__apply requires a structured YAML recipe pack entry."
+        ).to_dict()
     errors = validate_recipe_inputs(recipe, inputs if isinstance(inputs, dict) else {})
     if errors:
-        return ToolResult.invalid_input("Recipe inputs are invalid.", errors=errors).to_dict()
-    return ToolResult.ok(
+        return ToolResultEnvelope.invalid_input("Recipe inputs are invalid.", errors=errors).to_dict()
+    return ToolResultEnvelope.ok(
         f"Recipe '{recipe_name}' application plan ready.",
         skill=skill_name,
         recipe=recipe_name,

@@ -132,7 +132,7 @@ print(result.success)   # True
 print(result.context)   # {"name": "sphere1"}
 
 # 错误
-result = error_result("创建球体失败", error="没有活动场景")
+result = error_result("创建球体失败", error="no_active_scene")
 print(result.success)   # False
 
 # 从异常创建

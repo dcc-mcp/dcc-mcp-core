@@ -149,6 +149,7 @@ _LAZY: dict[str, str] = {
     "ToolRecorder": "dcc_mcp_core._core",
     "ToolRegistry": "dcc_mcp_core._core",
     "ToolResult": "dcc_mcp_core._core",
+    "ToolResultEnvelope": "dcc_mcp_core.result_envelope",
     "ToolValidator": "dcc_mcp_core.skills_helper",
     "TransportAddress": "dcc_mcp_core._core",
     "TransportScheme": "dcc_mcp_core._core",

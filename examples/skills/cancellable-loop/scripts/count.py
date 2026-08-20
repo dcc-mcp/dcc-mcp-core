@@ -51,8 +51,14 @@ def count(iterations: int = 10, sleep_ms: int = 100, **_: object) -> dict:
     except CancelledError as exc:
         return skill_error(
             f"Cancelled after {completed} iteration(s)",
-            repr(exc),
+            "cancelled",
             prompt="The client cancelled the request; no cleanup needed.",
+            _meta={
+                "dcc.error": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
             iterations_completed=completed,
         )
     return skill_success(

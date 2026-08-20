@@ -172,7 +172,7 @@ next CLI launch and does not replace a running server.
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 | Make skill discovery hermetic | `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` omits implicit operator-owned roots (local/platform defaults, marketplace installs, and Admin custom paths) while preserving explicit, bundled, and `DCC_MCP_*_SKILL_PATHS` paths |
-| Typed Python tool handler return | `from dcc_mcp_core.result_envelope import ToolResult` → `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` (also `success_`/`error_`, plus `not_found(entity_type, name)` / `invalid_input(msg)` shortcuts). **Note**: `success`/`error` are dataclass fields, not factories; calling `ToolResult.success(...)` raises `AttributeError` (#487) |
+| Typed Python tool handler return | `from dcc_mcp_core.result_envelope import ToolResultEnvelope` → `ToolResultEnvelope.ok("msg", **ctx).to_dict()` / `ToolResultEnvelope.fail("msg", error="code").to_dict()` (also `success_`/`error_`, plus `not_found(entity_type, name)` / `invalid_input(msg)`). `error` is a string code; put structured details in `_meta["dcc.error"]`. Top-level `dcc_mcp_core.ToolResult` is the distinct Rust runtime model (#2183) |
 | Centralised metadata key constants | `from dcc_mcp_core import METADATA_RECIPES_KEY, METADATA_LAYER_KEY, LAYER_THIN_HARNESS, CATEGORY_DIAGNOSTICS, ...` — re-exported at top level; also `from dcc_mcp_core.constants import ...`. Every `"dcc-mcp.<feature>"` string lives here. Available constants: `METADATA_DCC_MCP`, `METADATA_RECIPES_KEY`, `METADATA_WORKFLOWS_KEY`, `METADATA_LAYER_KEY`, `METADATA_DCC_KEY`, `METADATA_VERSION_KEY`, `METADATA_TOOLS_KEY`, `METADATA_GROUPS_KEY`, `METADATA_SEARCH_HINT_KEY`, `METADATA_TAGS_KEY`, `METADATA_EXTERNAL_DEPS_KEY`, `LAYER_THIN_HARNESS`, `LAYER_DOMAIN`, `LAYER_INFRASTRUCTURE`, `LAYER_EXAMPLE`, `CATEGORY_DIAGNOSTICS`, `CATEGORY_FEEDBACK`, `CATEGORY_INTROSPECT`, `CATEGORY_RECIPES`, `CATEGORY_WORKFLOWS`, `CATEGORY_DOCS`, `CATEGORY_GENERAL` (#487) |
 | Custom JSON-RPC method (Rust) | `dcc_mcp_http::handler::{MethodRouter, MethodHandler, HandlerFuture}` — `router.register("ping", Arc::new(handler))`; capability gating lives in the handler, not the router (#492) |
 | Custom action validation (Rust) | `dcc_mcp_actions::validation_strategy::{ValidationStrategy, ValidationOutcome, NoOpValidator, SchemaValidator, select_strategy}` — adding a flavour does not touch `dispatch()` (#493) |
@@ -209,7 +209,7 @@ meta = reg.get_action("create_sphere")
 
 # Structured results (always use factories, never raw dicts)
 result = dcc_mcp_core.success_result("Created sphere", prompt="Add materials next", count=1)
-error = dcc_mcp_core.error_result("Failed", "File not found")
+error = dcc_mcp_core.error_result("Failed", "file_not_found")
 
 # Event bus
 bus = dcc_mcp_core.EventBus()
@@ -337,12 +337,12 @@ Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_e
 - `VersionConstraint.parse(">=1.0.0")` — Version constraint expression
 
 **Result Factories:**
-- `success_result(message, prompt=None, **context) -> ToolResult`
-- `error_result(message, error, prompt=None, possible_solutions=None, **context) -> ToolResult`
-- `from_exception(error_message, message=None, include_traceback=False, ...) -> ToolResult`
+- `success_result(message, prompt=None, *, _meta=None, **context) -> ToolResult`
+- `error_result(message, error, prompt=None, possible_solutions=None, *, _meta=None, **context) -> ToolResult`
+- `from_exception(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, *, _meta=None, **context) -> ToolResult`
 - `validate_action_result(result) -> ToolResult` — normalize dict/str/None → ToolResult
 
-**ToolResult fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `.to_dict()`, `.to_json()`, `.with_error(err)`, `.with_context(**kw)`
+**ToolResult fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `._meta`, `.to_dict()`, `.to_json()`, `.with_error(err)`, `.with_context(**kw)`
 
 **Skills:**
 - `SkillScanner` — `.scan(extra_paths=None, dcc_name=None, force_refresh=False) -> List[str]`
@@ -361,11 +361,11 @@ Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_e
 - `validate_dependencies(skills) -> List[str]` — returns error messages
 - `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS` env var
 - `get_app_skill_paths_from_env(app_name: str) -> List[str]` — reads `DCC_MCP_{APP}_SKILL_PATHS` env var
-- `skill_error(message, error, prompt=None, possible_solutions=None, **context) -> dict` — zero-boilerplate error result for skill scripts
-- `skill_error_with_trace(message, error=None, prompt=None, **context) -> dict` — same as `skill_error` but includes traceback
-- `skill_warning(message, prompt=None, **context) -> dict` — warning-level result
-- `skill_exception(message, exc_info=None, prompt=None, **context) -> dict` — exception-style result
-- `run_main(skill_dir, params=None) -> dict` — convenience entry point for standalone skill script execution
+- `skill_error(message, error, *, prompt=None, possible_solutions=None, _meta=None, **context) -> dict` — zero-boilerplate result using a stable string error code; structured diagnostics belong in `_meta["dcc.error"]`
+- `skill_error_with_trace(message, error, *, ..., _meta=None, **context) -> dict` — same as `skill_error` with `_meta["dcc.raw_trace"]`
+- `skill_warning(message, *, warning="", prompt=None, _meta=None, **context) -> dict` — warning-level result
+- `skill_exception(exc, *, message=None, prompt=None, include_traceback=True, possible_solutions=None, _meta=None, **context) -> dict` — exception code plus `_meta["dcc.error"]`
+- `run_main(main_fn, argv=None) -> None` — standalone skill entry point; writes JSON and exits from the normalized envelope status
 - `SkillFeedback` — feedback data model
 - `get_skill_feedback(skill_name) -> List[SkillFeedback]`
 - `record_skill_feedback(skill_name, feedback)`

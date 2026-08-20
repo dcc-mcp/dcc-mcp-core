@@ -12,7 +12,7 @@ from dcc_mcp_core.skills_helper import skill_success
 def main(name: str = "World"):
     """Return a bounded greeting for connectivity validation."""
     if not isinstance(name, str) or not name.strip():
-        return skill_error("Invalid name", "Name must be a non-empty string.")
+        return skill_error("Invalid name", "invalid_name")
     return skill_success(
         f"Hello, {name.strip()}! (from the internal MCP service)",
         name=name.strip(),

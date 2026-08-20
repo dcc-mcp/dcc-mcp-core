@@ -64,7 +64,7 @@ from typing import Callable
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
 from dcc_mcp_core.constants import CATEGORY_DIAGNOSTICS
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ def _handle_get_audit_log(params_json: str) -> str:
 
     ctx = _get_sandbox_context()
     if ctx is None:
-        return ToolResult(success=False, message="SandboxContext not available.").to_json()
+        return ToolResultEnvelope(success=False, message="SandboxContext not available.").to_json()
 
     try:
         audit = ctx.audit_log
@@ -191,7 +191,7 @@ def _handle_get_audit_log(params_json: str) -> str:
         )
     except Exception as exc:
         logger.warning("get_audit_log handler error: %s", exc)
-        return ToolResult(success=False, message=str(exc)).to_json()
+        return ToolResultEnvelope(success=False, message=str(exc)).to_json()
 
 
 def _handle_get_tool_metrics(params_json: str) -> str:
@@ -205,7 +205,7 @@ def _handle_get_tool_metrics(params_json: str) -> str:
 
     recorder = _get_action_recorder()
     if recorder is None:
-        return ToolResult(success=False, message="ToolRecorder not available.").to_json()
+        return ToolResultEnvelope(success=False, message="ToolRecorder not available.").to_json()
 
     try:
         if action_name:
@@ -223,7 +223,7 @@ def _handle_get_tool_metrics(params_json: str) -> str:
         )
     except Exception as exc:
         logger.warning("get_tool_metrics handler error: %s", exc)
-        return ToolResult(success=False, message=str(exc)).to_json()
+        return ToolResultEnvelope(success=False, message=str(exc)).to_json()
 
 
 def _get_window_capturer() -> Any:
@@ -580,7 +580,7 @@ def _handle_dispatch_tool(params_json: str) -> str:
     try:
         params = json_loads(params_json) if params_json else {}
     except ValueError:
-        return ToolResult(success=False, message="Invalid JSON params.").to_json()
+        return ToolResultEnvelope(success=False, message="Invalid JSON params.").to_json()
 
     # The wire payload still uses the legacy field name ``action`` — that key
     # reflects the backward-compat Rust dispatch result shape (see PR #218);
@@ -589,11 +589,11 @@ def _handle_dispatch_tool(params_json: str) -> str:
     action_params = params.get("params", {})
 
     if not action:
-        return ToolResult(success=False, message="Missing 'action' field.").to_json()
+        return ToolResultEnvelope(success=False, message="Missing 'action' field.").to_json()
 
     dispatcher = _dispatcher_ref
     if dispatcher is None:
-        return ToolResult(success=False, message="Dispatcher not available.").to_json()
+        return ToolResultEnvelope(success=False, message="Dispatcher not available.").to_json()
 
     try:
         result = dispatcher.dispatch(action, json_dumps(action_params))
@@ -603,7 +603,7 @@ def _handle_dispatch_tool(params_json: str) -> str:
         return json_dumps(output)
     except Exception as exc:
         logger.warning("dispatch_tool handler error for '%s': %s", action, exc)
-        return ToolResult(success=False, message=str(exc)).to_json()
+        return ToolResultEnvelope(success=False, message=str(exc)).to_json()
 
 
 # ── public API ────────────────────────────────────────────────────────────
@@ -923,4 +923,4 @@ def _adapt_mcp_handler(handler: Callable[[str], str], params: Any) -> Any:
     try:
         return json_loads(result_str)
     except (TypeError, ValueError):
-        return ToolResult(success=False, message="Invalid handler output").to_dict()
+        return ToolResultEnvelope(success=False, message="Invalid handler output").to_dict()

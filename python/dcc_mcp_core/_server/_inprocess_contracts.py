@@ -11,6 +11,7 @@ from typing import Callable
 
 from dcc_mcp_core._typing_compat import Protocol
 from dcc_mcp_core._typing_compat import runtime_checkable
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -119,15 +120,13 @@ def sandbox_denied_envelope(exc: BaseException, *, action_name: str = "") -> dic
     """Structured denial envelope when :class:`SandboxContext` rejects an action."""
     msg = str(exc)
     detail = f"Sandbox denied action '{action_name}': {msg}" if action_name else f"Sandbox denied action: {msg}"
-    return {
-        "success": False,
-        "message": detail,
-        "error": {
-            "type": "SandboxDenied",
-            "message": msg,
-            "action": action_name or None,
-        },
-    }
+    context = {"action_name": action_name} if action_name else {}
+    return ToolResultEnvelope.fail(
+        detail,
+        error="SandboxDenied",
+        _meta={"dcc.error": {"type": "SandboxDenied", "message": msg}},
+        **context,
+    ).to_dict()
 
 
 def resolve_sandbox_action_name(action_name: str, script_path: str) -> str:
@@ -145,22 +144,26 @@ def exception_to_error_envelope(exc: BaseException, *, message: str | None = Non
     the same ``success: false`` heuristic without any extra string
     parsing on the client side.
 
-    The traceback is folded into ``error.traceback`` (single string,
-    pre-formatted) so MCP clients can render it inline. Skill authors
-    catching exceptions inside ``main`` can reuse this helper to keep
-    the envelope shape consistent across in-process and subprocess
+    ``error`` is the stable exception-type string. Structured details are
+    folded into ``_meta["dcc.error"]`` so MCP clients can render them without
+    forcing consumers to support two incompatible ``error`` field types.
+    Skill authors catching exceptions inside ``main`` can reuse this helper
+    to keep the envelope shape consistent across in-process and subprocess
     execution.
     """
     msg = message if message is not None else f"Execution failed: {exc}"
-    return {
-        "success": False,
-        "message": msg,
-        "error": {
-            "type": type(exc).__name__,
-            "message": str(exc),
-            "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    error_type = type(exc).__name__
+    return ToolResultEnvelope.fail(
+        msg,
+        error=error_type,
+        _meta={
+            "dcc.error": {
+                "type": error_type,
+                "message": str(exc),
+                "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            }
         },
-    }
+    ).to_dict()
 
 
 def attach_deferred_streams(result: Any, deferred: DeferredToolResult) -> Any:

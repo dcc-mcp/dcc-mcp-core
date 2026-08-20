@@ -133,7 +133,7 @@ bpy.app.timers.register(render_next)
 ```python
 for batch in chunks(primitives, size=500):
     if job.check_cancelled():           # #329
-        return skill_error("被用户取消")
+        return skill_error("被用户取消", "cancelled")
     create_primitives(batch)
     # 在 batch 之间控制权会回到 DCC
 ```

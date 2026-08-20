@@ -84,13 +84,24 @@ def test_skills_helper_reexports_skill_result_helpers() -> None:
 def test_skill_error_from_exception_uses_standard_skill_error_shape() -> None:
     exc = ValueError("bad radius")
 
-    result = skill_error_from_exception(exc, prompt="Use a positive radius.", radius=-1)
+    result = skill_error_from_exception(
+        exc,
+        prompt="Use a positive radius.",
+        _meta={"vendor.trace": {"id": "trace-42"}, "dcc.error": {"type": "Spoofed"}},
+        radius=-1,
+    )
 
     assert result["success"] is False
     assert result["message"] == "bad radius"
     assert result["error"] == "ValueError"
     assert result["prompt"] == "Use a positive radius."
     assert result["context"] == {"radius": -1}
+    assert result["_meta"]["vendor.trace"] == {"id": "trace-42"}
+    assert result["_meta"]["dcc.error"] == {
+        "type": "ValueError",
+        "message": "bad radius",
+        "traceback": "ValueError: bad radius\n",
+    }
 
 
 def test_skills_helper_reports_invalid_json_errors() -> None:
@@ -289,7 +300,11 @@ def test_http_error_can_raise_structured_status_error(http_server) -> None:
     assert err.status == 418
     assert err.response.status == 418
     assert err.kind == "http-status"
-    assert err.to_skill_error()["error"] == "http-status"
+    payload = err.to_skill_error(_meta={"vendor.http": {"attempt": 1}})
+    assert payload["error"] == "http-status"
+    assert payload["_meta"]["vendor.http"] == {"attempt": 1}
+    assert payload["_meta"]["dcc.error"]["type"] == "HttpStatusError"
+    assert payload["_meta"]["dcc.error"]["message"] == str(err)
 
 
 def test_http_timeout_raises_structured_http_error(http_server) -> None:

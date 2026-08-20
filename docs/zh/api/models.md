@@ -11,8 +11,9 @@
 | `success` | `bool` | `True` | 执行是否成功 |
 | `message` | `str` | `""` | 人类可读的结果描述 |
 | `prompt` | `Optional[str]` | `None` | 给 AI 的下一步建议 |
-| `error` | `Optional[str]` | `None` | `success` 为 `False` 时的错误消息 |
+| `error` | `Optional[str]` | `None` | `success` 为 `False` 时的稳定字符串错误代码 |
 | `context` | `Dict[str, Any]` | `{}` | 附加上下文数据 |
+| `_meta` | `Dict[str, Any]` | `{}` | 命名空间化的结构化元数据，例如 `dcc.error` |
 
 ### 方法
 
@@ -49,14 +50,19 @@ json_str = serialize_result(result)
 ### 工厂函数
 
 ```python
-from dcc_mcp_core import success_result, error_result, from_exception, validate_action_result
+from dcc_mcp_core import success_result, error_result, from_exception, validate_action_result, ToolResult
 
 # 带上下文的成功结果
-result = success_result("创建了 5 个球体", prompt="使用 modify_spheres", count=5)
+result = success_result(
+    "创建了 5 个球体",
+    prompt="使用 modify_spheres",
+    _meta={"vendor.trace": {"id": "42"}},
+    count=5,
+)
 
 # 带可能解决方案的错误结果
 error = error_result(
-    "失败", "文件未找到",
+    "失败", "file_not_found",
     prompt="检查路径",
     possible_solutions=["确认文件存在", "检查权限"],
     path="/bad/path",
@@ -68,6 +74,8 @@ exc_result = from_exception(
     message="导入失败",
     include_traceback=True,
 )
+# exc_result.error == "ValueError"
+# exc_result._meta["dcc.error"]["message"] == "bad input"
 
 # 验证/规范化任意值为 ToolResult
 validate_action_result(result)                          # 直接通过
@@ -79,9 +87,9 @@ validate_action_result("hello")                         # 包装为成功结果
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `success_result` | `(message, prompt=None, **context) -> ToolResult` | 创建成功结果 |
-| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ToolResult` | 创建失败结果 |
-| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ToolResult` | 将异常包装为结果 |
+| `success_result` | `(message, prompt=None, *, _meta=None, **context) -> ToolResult` | 创建成功结果 |
+| `error_result` | `(message, error, prompt=None, possible_solutions=None, *, _meta=None, **context) -> ToolResult` | 创建失败结果 |
+| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, *, _meta=None, **context) -> ToolResult` | 将异常包装为结果 |
 | `validate_action_result` | `(result: Any) -> ToolResult` | 规范化 dict/str/None/ARM → ToolResult |
 
 ## SkillMetadata

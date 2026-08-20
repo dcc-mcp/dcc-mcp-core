@@ -157,6 +157,28 @@ from dcc_mcp_core._core import DeferredExecutor   # 需要直接导入
 这包括 `register_diagnostic_mcp_tools(...)` 用于实例绑定的诊断工具 —
 在调用 `server.start()` 之前注册，绝不在之后。
 
+**Python 工具处理器返回 `ToolResultEnvelope`（#2183），不要手写字典：**
+```python
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
+
+# ✓ 类型化 envelope；序列化后的 wire shape 与现有客户端契约一致。
+return ToolResultEnvelope.ok("Loaded skill", name=name).to_dict()
+return ToolResultEnvelope.fail(
+    "Skill missing",
+    error="not_found",
+    prompt="Try `recipes__list`.",
+).to_dict()
+
+# ✗ 临时拼装的字典不会校验字段，wire shape 演进时容易漂移。
+return {"success": True, "message": "...", "context": {"name": name}}
+```
+`ToolResultEnvelope` 与 Rust `ToolResult` 共享 wire schema，但它是独立的轻依赖构建器。
+`.to_dict()` 默认裁剪空字段；skill helpers 为兼容历史调用方保留固定键投影。
+`error` 必须是字符串代码；结构化详情放在 `_meta["dcc.error"]` 下。
+工厂方法使用 `success_` / `error_`（或别名 `ok` / `fail`），因为
+`success` 与 `error` 本身是 dataclass 字段。顶层 `dcc_mcp_core.ToolResult`
+是 Rust 运行时模型，不是这个 wire builder。
+
 **`Capturer.new_auto()` vs `.new_window_auto()`：**
 ```python
 # ✓ 全屏 / 显示捕获（Windows 上 DXGI，Linux 上 X11）
@@ -215,7 +237,8 @@ annotations = ToolAnnotations(
     deferred_hint=None,        # 完整 schema 延迟到 load_skill（由服务器设置，非用户）
 )
 # 围绕用户工作流设计工具，而非原始 API 调用。
-# 通过 error_result("msg", "specific error") 返回人类可读的错误。
+# 人类可读详情放在 message/_meta 中，error 使用稳定错误码。
+# 示例：error_result("File was not found", "file_not_found")。
 # 当工具集变更时使用 notifications/tools/list_changed。
 ```
 

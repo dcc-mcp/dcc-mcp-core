@@ -28,7 +28,7 @@ from typing import Any
 from typing import Sequence
 from typing import TextIO
 
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
 from dcc_mcp_core.script_materialization import default_script_materialization_root
@@ -506,7 +506,7 @@ class ScriptExecutionResult:
                 repr_fallback=use_repr,
             )
         except ScriptExecutionSerializationError as exc:
-            return ToolResult.fail(
+            return ToolResultEnvelope.fail(
                 str(exc),
                 error="non_serializable_result",
                 stdout=stdout,
@@ -520,7 +520,7 @@ class ScriptExecutionResult:
         }
         if materialized_script is not None:
             context["materialized_script"] = _materialized_script_context(materialized_script)
-        return ToolResult.ok(message, **context).to_dict()
+        return ToolResultEnvelope.ok(message, **context).to_dict()
 
     @staticmethod
     def from_exception(
@@ -531,14 +531,23 @@ class ScriptExecutionResult:
         message: str | None = None,
     ) -> dict[str, Any]:
         """Return a structured failure envelope with traceback and captured output."""
-        return ToolResult.fail(
+        error_type = type(exc).__name__
+        formatted_traceback = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        return ToolResultEnvelope.fail(
             message or f"Script execution failed: {exc}",
             error="script_execution_error",
+            _meta={
+                "dcc.error": {
+                    "type": error_type,
+                    "message": str(exc),
+                    "traceback": formatted_traceback,
+                }
+            },
             stdout=stdout,
             stderr=stderr,
-            exception_type=type(exc).__name__,
+            exception_type=error_type,
             exception_message=str(exc),
-            traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            traceback=formatted_traceback,
         ).to_dict()
 
 

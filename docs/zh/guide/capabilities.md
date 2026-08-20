@@ -155,11 +155,15 @@ URI scheme，服务器针对会话的第一个根目录解析它。
 ```python
 def import_usd(path: str, _workspace_roots=None):
     if _workspace_roots is None:
-        return error_result("import_usd", "no workspace roots advertised")
+        return error_result("No workspace roots advertised", "missing_workspace_roots")
     try:
         resolved = _workspace_roots.resolve(path)
     except ValueError as e:
-        return error_result("import_usd", str(e))
+        return error_result(
+            "Import path is invalid",
+            "invalid_path",
+            _meta={"dcc.error": {"type": type(e).__name__, "message": str(e)}},
+        )
     # ...继续使用 `resolved` 作为绝对 PathBuf 等效物
 ```
 

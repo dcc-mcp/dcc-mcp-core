@@ -769,7 +769,8 @@ class TestFromException:
 
     def test_error_contains_message(self) -> None:
         r = dcc_mcp_core.from_exception("connection timeout")
-        assert "connection timeout" in r.error
+        assert r.error == "Exception"
+        assert r._meta["dcc.error"]["message"] == "connection timeout"
 
     def test_returns_action_result_model(self) -> None:
         r = dcc_mcp_core.from_exception("err")
@@ -797,4 +798,5 @@ class TestFromException:
     def test_include_traceback_false(self) -> None:
         r = dcc_mcp_core.from_exception("err", include_traceback=False)
         assert r.success is False
-        assert "err" in r.error
+        assert r.error == "Exception"
+        assert "traceback" not in r._meta["dcc.error"]

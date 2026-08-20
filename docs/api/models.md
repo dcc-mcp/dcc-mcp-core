@@ -11,8 +11,9 @@ Standardized result for all action executions. Backed by a Rust struct via PyO3.
 | `success` | `bool` | `True` | Whether the execution was successful |
 | `message` | `str` | `""` | Human-readable result description |
 | `prompt` | `Optional[str]` | `None` | Suggestion for AI about next steps |
-| `error` | `Optional[str]` | `None` | Error message when `success` is `False` |
+| `error` | `Optional[str]` | `None` | Stable string error code when `success` is `False` |
 | `context` | `Dict[str, Any]` | `{}` | Additional context data |
+| `_meta` | `Dict[str, Any]` | `{}` | Namespaced structured metadata such as `dcc.error` |
 
 ### Methods
 
@@ -52,11 +53,16 @@ json_str = serialize_result(result)
 from dcc_mcp_core import success_result, error_result, from_exception, validate_action_result, ToolResult
 
 # Success result with context
-result = success_result("Created 5 spheres", prompt="Use modify_spheres next", count=5)
+result = success_result(
+    "Created 5 spheres",
+    prompt="Use modify_spheres next",
+    _meta={"vendor.trace": {"id": "42"}},
+    count=5,
+)
 
 # Error result with possible solutions
 error = error_result(
-    "Failed", "File not found",
+    "Failed", "file_not_found",
     prompt="Check path",
     possible_solutions=["Verify file exists", "Check permissions"],
     path="/bad/path",
@@ -68,6 +74,8 @@ exc_result = from_exception(
     message="Import failed",
     include_traceback=True,
 )
+# exc_result.error == "ValueError"
+# exc_result._meta["dcc.error"]["message"] == "bad input"
 
 # Validate/normalize any value to ToolResult
 validate_action_result(result)                          # pass-through
@@ -79,9 +87,9 @@ validate_action_result("hello")                         # wrap as success
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `success_result` | `(message, prompt=None, **context) -> ToolResult` | Create a successful result |
-| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ToolResult` | Create a failed result |
-| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ToolResult` | Wrap an exception as a result |
+| `success_result` | `(message, prompt=None, *, _meta=None, **context) -> ToolResult` | Create a successful result |
+| `error_result` | `(message, error, prompt=None, possible_solutions=None, *, _meta=None, **context) -> ToolResult` | Create a failed result |
+| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, *, _meta=None, **context) -> ToolResult` | Wrap an exception as a result |
 | `validate_action_result` | `(result: Any) -> ToolResult` | Normalize dict/str/None/ToolResult → ToolResult |
 
 ## SkillMetadata

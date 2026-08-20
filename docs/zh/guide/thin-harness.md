@@ -116,7 +116,7 @@ tools:
 ```python
 from __future__ import annotations
 
-from dcc_mcp_core import skill_entry, skill_success, skill_error
+from dcc_mcp_core import skill_entry, skill_success, skill_error_with_trace
 
 
 @skill_entry
@@ -138,10 +138,11 @@ def execute_python(code: str, timeout_secs: int = 30) -> dict:
         output = local_ns.get("result", None)
         return skill_success("Script executed", output=output)
     except Exception as exc:  # noqa: BLE001
-        return skill_error(
+        return skill_error_with_trace(
             f"Script raised {type(exc).__name__}: {exc}",
+            "script_execution_failed",
             underlying_call=code[:200],
-            traceback=traceback.format_exc(),
+            tb=traceback.format_exc(),
         )
 ```
 

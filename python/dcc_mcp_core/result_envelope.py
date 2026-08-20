@@ -1,99 +1,246 @@
-"""Typed result envelope for Python MCP tool handlers (#487).
+"""Dependency-light wire envelope for Python MCP tool handlers.
 
-Replaces the ad-hoc ``{"success": ..., "message": ..., "context": ...}``
-dicts that previously appeared inline in every handler in ``recipes.py``,
-``feedback.py``, ``introspect.py``, ``docs_resources.py``,
-``workflow_yaml.py``, and ``dcc_server.py``.
-
-The wire format is preserved: :meth:`ToolResult.to_dict` produces the
-same JSON shape that existing clients receive today, including the
-""empty fields are pruned"" convention that makes the envelope stable
-across feature flags.
+``dcc_mcp_core.ToolResult`` is the Rust-backed runtime model. This module owns
+the distinct JSON-compatible wire builder, :class:`ToolResultEnvelope`, used by
+pure-Python skill scripts and handler code. Keeping the names distinct avoids
+the historical collision where two unrelated classes were both called
+``ToolResult`` (issue #2183).
 
 Typical usage::
 
-    from dcc_mcp_core.result_envelope import ToolResult
+    from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
-    return ToolResult.ok("Loaded skill", name="recipe.x").to_dict()
+    return ToolResultEnvelope.ok("Loaded skill", name="recipe.x").to_dict()
 
-    return ToolResult.fail(
+    return ToolResultEnvelope.fail(
         "Failed to load skill",
         error="not_found",
         prompt="Try `recipes__list` to see available skills.",
         skill_name=name,
     ).to_dict()
+
+The deprecated ``result_envelope.ToolResult`` name remains available through a
+module-level compatibility shim for one migration window. New code must use
+``ToolResultEnvelope`` or the top-level Rust-backed ``ToolResult`` explicitly.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
+import json
+from typing import TYPE_CHECKING
 from typing import Any
+from typing import Mapping
+import warnings
 
-from dcc_mcp_core import json_dumps
+_KNOWN_KEYS = frozenset({"success", "message", "error", "prompt", "context", "_meta"})
 
 
 @dataclass
-class ToolResult:
-    """Typed envelope for MCP tool return values.
+class ToolResultEnvelope:
+    """JSON-compatible envelope for MCP tool return values.
 
-    Attributes
-    ----------
-    success:
-        ``True`` if the tool succeeded, ``False`` otherwise.
-    message:
-        Short human-readable summary suitable for surfacing to an AI agent.
-    error:
-        Stable, machine-readable error code (e.g. ``"not_found"``,
-        ``"invalid_input"``). ``None`` on success.
-    prompt:
-        Optional next-step suggestion shown to the agent (e.g. ``"Try
-        `recipes__list` to see available skills."``).
-    context:
-        Free-form structured data carried alongside the message. Empty
-        contexts are pruned by :meth:`to_dict` to keep the wire format
-        stable with the historical hand-rolled dicts.
+    ``error`` is always a string when present. Structured diagnostics belong
+    under namespaced ``_meta`` entries such as ``dcc.error`` or
+    ``dcc.raw_trace``; they must never replace the string error field.
 
+    Empty optional fields are pruned by default. Callers that expose a legacy
+    fixed-key mapping may pass ``prune_empty=False`` to :meth:`to_dict` while
+    retaining the same schema and field types.
     """
 
     success: bool
     message: str = ""
     error: str | None = None
-    prompt: str = ""
+    prompt: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
+    _meta: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Render to the JSON-compatible dict shape clients expect.
+    def __post_init__(self) -> None:
+        """Enforce the wire schema on every construction path."""
+        if not isinstance(self.success, bool):
+            raise TypeError("'success' field must be a bool")
+        if not isinstance(self.message, str):
+            raise TypeError("'message' field must be a string")
+        if self.error is not None and not isinstance(self.error, str):
+            raise TypeError("'error' field must be a string or None")
+        if self.prompt is not None and not isinstance(self.prompt, str):
+            raise TypeError("'prompt' field must be a string or None")
+        if not isinstance(self.context, Mapping):
+            raise TypeError("'context' field must be a mapping")
+        if not isinstance(self._meta, Mapping):
+            raise TypeError("'_meta' field must be a mapping")
+        self.context = dict(self.context)
+        self._meta = dict(self._meta)
 
-        Empty optional fields (``error=None``, ``prompt=""``,
-        ``context={}``) are pruned so the wire format matches what the
-        previous hand-rolled dicts produced.
+    def to_dict(self, *, prune_empty: bool = True) -> dict[str, Any]:
+        """Render the canonical JSON-compatible mapping.
+
+        Args:
+            prune_empty: Omit empty optional fields when ``True``. Skill helper
+                compatibility paths use ``False`` so released scripts can keep
+                indexing ``prompt``, ``error``, and ``context`` directly.
+
         """
         out: dict[str, Any] = {"success": self.success}
-        if self.message:
+        if self.message or not prune_empty:
             out["message"] = self.message
-        if self.error is not None:
+        if self.error is not None or not prune_empty:
             out["error"] = self.error
-        if self.prompt:
+        if self.prompt not in (None, "") or not prune_empty:
             out["prompt"] = self.prompt
-        if self.context:
+        if self.context or not prune_empty:
             out["context"] = self.context
+        if self._meta:
+            out["_meta"] = self._meta
         return out
 
-    def to_json(self) -> str:
-        """Render to the JSON string form used by JSON-RPC handlers."""
-        return json_dumps(self.to_dict())
-
-    # ── Factory helpers ────────────────────────────────────────────────────
+    def to_json(self, *, prune_empty: bool = True) -> str:
+        """Render the envelope as dependency-free UTF-8 JSON."""
+        return json.dumps(
+            self.to_dict(prune_empty=prune_empty),
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
 
     @classmethod
-    def success_(cls, message: str = "", **context: Any) -> ToolResult:
-        """Build a success envelope. Keyword arguments become ``context``.
+    def from_dict(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        strict: bool = True,
+    ) -> ToolResultEnvelope:
+        """Validate and normalize a result mapping.
 
-        Named with a trailing underscore to avoid shadowing
-        ``unittest.TestCase.success`` and similar builtins on intermixed
-        usage. Use :meth:`ok` as a shorter alias.
+        Unknown top-level keys are rejected in strict mode. ``strict=False``
+        preserves the historical runtime behavior by folding them into
+        ``context``; :func:`dcc_mcp_core.skill._serialize_result` uses that
+        compatibility mode for released skill scripts.
         """
+        if not isinstance(payload, Mapping):
+            raise TypeError("tool result envelope must be a mapping")
+
+        success = payload.get("success")
+        if not isinstance(success, bool):
+            raise TypeError("'success' field must be a bool")
+
+        message = payload.get("message", "")
+        if not isinstance(message, str):
+            raise TypeError("'message' field must be a string")
+
+        error = payload.get("error")
+        if error is not None and not isinstance(error, str):
+            raise TypeError("'error' field must be a string or None")
+
+        prompt = payload.get("prompt")
+        if prompt is not None and not isinstance(prompt, str):
+            raise TypeError("'prompt' field must be a string or None")
+
+        raw_context = payload.get("context")
+        if raw_context is None:
+            context: dict[str, Any] = {}
+        elif isinstance(raw_context, Mapping):
+            context = dict(raw_context)
+        else:
+            raise TypeError("'context' field must be a mapping or None")
+
+        raw_meta = payload.get("_meta")
+        if raw_meta is None:
+            meta: dict[str, Any] = {}
+        elif isinstance(raw_meta, Mapping):
+            meta = dict(raw_meta)
+        else:
+            raise TypeError("'_meta' field must be a mapping or None")
+
+        extras = {key: value for key, value in payload.items() if key not in _KNOWN_KEYS}
+        if extras and strict:
+            names = ", ".join(sorted(str(key) for key in extras))
+            raise ValueError(f"unknown tool result envelope fields: {names}")
+        context.update(extras)
+
+        return cls(
+            success=success,
+            message=message,
+            error=error,
+            prompt=prompt,
+            context=context,
+            _meta=meta,
+        )
+
+    from_mapping = from_dict
+
+    @classmethod
+    def success_(
+        cls,
+        message: str = "",
+        *,
+        prompt: str | None = None,
+        _meta: Mapping[str, Any] | None = None,
+        **context: Any,
+    ) -> ToolResultEnvelope:
+        """Build a success envelope; keyword arguments become context."""
+        return cls(
+            success=True,
+            message=message,
+            prompt=prompt,
+            context=dict(context),
+            _meta=dict(_meta or {}),
+        )
+
+    ok = success_
+
+    @classmethod
+    def error_(
+        cls,
+        message: str,
+        error: str = "error",
+        prompt: str | None = None,
+        *,
+        _meta: Mapping[str, Any] | None = None,
+        **context: Any,
+    ) -> ToolResultEnvelope:
+        """Build an error envelope with a string code and optional metadata."""
+        return cls(
+            success=False,
+            message=message,
+            error=error,
+            prompt=prompt,
+            context=dict(context),
+            _meta=dict(_meta or {}),
+        )
+
+    fail = error_
+
+    @classmethod
+    def not_found(
+        cls,
+        entity_type: str,
+        entity_name: str,
+        **context: Any,
+    ) -> ToolResultEnvelope:
+        """Build a ``not_found`` envelope for a missing entity."""
+        return cls.error_(
+            message=f"{entity_type} not found: {entity_name}",
+            error="not_found",
+            **context,
+        )
+
+    @classmethod
+    def invalid_input(cls, message: str, **context: Any) -> ToolResultEnvelope:
+        """Build an ``invalid_input`` envelope for caller-side validation."""
+        return cls.error_(message=message, error="invalid_input", **context)
+
+
+@dataclass
+class _LegacyToolResultEnvelope(ToolResultEnvelope):
+    """Behavior-compatible implementation of the deprecated class name."""
+
+    prompt: str | None = ""
+
+    @classmethod
+    def success_(cls, message: str = "", **context: Any) -> _LegacyToolResultEnvelope:
         return cls(success=True, message=message, context=dict(context))
 
     ok = success_
@@ -105,12 +252,7 @@ class ToolResult:
         error: str = "error",
         prompt: str = "",
         **context: Any,
-    ) -> ToolResult:
-        """Build an error envelope with a stable error code and optional prompt.
-
-        Named with a trailing underscore to avoid shadowing the dataclass
-        ``error`` field.
-        """
+    ) -> _LegacyToolResultEnvelope:
         return cls(
             success=False,
             message=message,
@@ -121,24 +263,27 @@ class ToolResult:
 
     fail = error_
 
-    @classmethod
-    def not_found(
-        cls,
-        entity_type: str,
-        entity_name: str,
-        **context: Any,
-    ) -> ToolResult:
-        """Build a ``not_found`` envelope for missing entities."""
-        return cls.error_(
-            message=f"{entity_type} not found: {entity_name}",
-            error="not_found",
-            **context,
+
+if TYPE_CHECKING:
+    ToolResult = _LegacyToolResultEnvelope
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve the legacy pure-Python class name with a deprecation warning."""
+    if name == "ToolResult":
+        warnings.warn(
+            "dcc_mcp_core.result_envelope.ToolResult is deprecated; use "
+            "ToolResultEnvelope for wire dictionaries or dcc_mcp_core.ToolResult "
+            "for the Rust-backed runtime model.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-
-    @classmethod
-    def invalid_input(cls, message: str, **context: Any) -> ToolResult:
-        """Build an ``invalid_input`` envelope for caller-side validation errors."""
-        return cls.error_(message=message, error="invalid_input", **context)
+        return _LegacyToolResultEnvelope
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["ToolResult"]
+def __dir__() -> list[str]:
+    return sorted([*globals(), "ToolResult"])
+
+
+__all__ = ["ToolResult", "ToolResultEnvelope"]

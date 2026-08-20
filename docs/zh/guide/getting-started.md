@@ -191,7 +191,7 @@ print(result.success)  # True
 print(result.message)  # "创建了 5 个球体"
 print(result.context)  # {"count": 5}
 
-err = error_result("失败", "文件未找到", prompt="检查路径")
+err = error_result("失败", "file_not_found", prompt="检查路径")
 print(err.success)  # False
 ```
 

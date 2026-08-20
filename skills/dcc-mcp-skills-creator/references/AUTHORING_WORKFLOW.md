@@ -120,7 +120,11 @@ host process.
 Import shared helper APIs from `dcc_mcp_core.skills_helper` before adding small
 dependencies or local utility modules. That namespace is the preferred path for
 JSON/YAML codecs, bounded HTTP requests, safe file/path helpers, validation,
-result envelopes, argument normalization, and cancellation checks. Keep
+argument normalization, and cancellation checks. Use `skill_success` /
+`skill_error` from this preferred namespace for result envelopes; the lazy
+exports delegate to the canonical implementation in `dcc_mcp_core.skill`.
+Failures carry a string error code and structured details under namespaced
+`_meta`. Keep
 `requests`, PyYAML, custom HTTP/file helpers, or SDK-specific libraries only
 when they provide behavior `skills_helper` intentionally does not cover, such
 as sessions, streaming, multipart upload, custom retry/auth flows, or rich

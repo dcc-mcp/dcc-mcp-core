@@ -22,6 +22,26 @@ permissive `{"type": "object"}` instead of importing or executing the script.
 If you derive schemas from Python annotations, do it while authoring and write
 the result into `tools.yaml`.
 
+## Result Envelope
+
+Python skill scripts should return `skill_success(...)`, `skill_error(...)`,
+or another helper from `dcc_mcp_core.skill`. Lower-level handlers may use
+`ToolResultEnvelope` from `dcc_mcp_core.result_envelope`. Do not hand-roll a
+result mapping.
+
+The canonical fields are `success`, `message`, `error`, `prompt`, `context`,
+and optional `_meta`. A failure's `error` must be a stable string code (for
+example `invalid_input`, `RuntimeError`, or `SandboxDenied`), never an object.
+Put structured exception details under `_meta["dcc.error"]` and raw DCC call
+diagnostics under `_meta["dcc.raw_trace"]`. Keep ordinary tool outputs and
+identifiers in `context`.
+
+The general builder may omit empty optional fields. Skill helpers intentionally
+retain their historical fixed-key shape, so consumers should rely on field
+types and semantics rather than treating omission and `None` as different
+outcomes. Top-level `dcc_mcp_core.ToolResult` is the distinct Rust-backed
+runtime model; use `ToolResultEnvelope` when building a Python wire mapping.
+
 A zero-argument tool must not use that permissive fallback. Declare the closed
 empty-object contract explicitly:
 

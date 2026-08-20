@@ -146,8 +146,11 @@ __all__ = [
     "atomic_write_text",
     "bytes_digest_sha256",
     "correct_python_executable",
+    "deserialize_result",
     "ensure_within_root",
+    "error_result",
     "file_digest_sha256",
+    "from_exception",
     "gc_orphans",
     "init_default_telemetry",
     "is_gui_executable",
@@ -165,10 +168,13 @@ __all__ = [
     "scan_and_load_user_lenient",
     "scan_skill_paths",
     "scene_info_json_to_stage",
+    "serialize_result",
     "shutdown_telemetry",
     "stage_to_scene_info_json",
+    "success_result",
     "units_to_mpu",
     "validate_action_id",
+    "validate_action_result",
     "validate_tool_name",
 ]
 
@@ -3555,7 +3561,48 @@ class ToolResult:
     r"""
     Python-facing ToolResult.
     """
+    @property
+    def success(self) -> builtins.bool: ...
+    @property
+    def message(self) -> builtins.str: ...
+    @message.setter
+    def message(self, value: builtins.str) -> None: ...
+    @property
+    def prompt(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def error(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def context(self) -> dict: ...
+    @property
+    def _meta(self) -> dict: ...
     def __eq__(self, other: builtins.object, /) -> builtins.bool: ...
+    def __new__(cls, success: builtins.bool = True, message: builtins.str = '', prompt: typing.Optional[builtins.str] = None, error: typing.Optional[builtins.str] = None, context: typing.Optional[dict] = None, *, _meta: typing.Optional[dict] = None) -> ToolResult: ...
+    def with_error(self, error: builtins.str) -> ToolResult:
+        r"""
+        Create a new instance with error information.
+        """
+    def with_context(self, **kwargs: typing.Any) -> ToolResult:
+        r"""
+        Create a new instance with updated context.
+        """
+    def to_dict(self) -> dict:
+        r"""
+        Convert to dictionary.
+        """
+    def to_json(self) -> builtins.str:
+        r"""
+        Serialize to a JSON string.
+        """
+    def __iter__(self) -> typing.Any:
+        r"""
+        Iterate over key-value pairs (mapping protocol).
+        """
+    def keys(self) -> builtins.list[builtins.str]:
+        r"""
+        Return the list of field names (part of the mapping protocol).
+        """
+    def __repr__(self) -> builtins.str: ...
+    def __str__(self) -> builtins.str: ...
 
 @typing.final
 class ToolValidator:
@@ -4387,15 +4434,24 @@ def correct_python_executable(path: builtins.str) -> pathlib.Path:
     Convenience for one-shot fixing of `DCC_MCP_PYTHON_EXECUTABLE`.
     """
 
+def deserialize_result(data: typing.Any, format: SerializeFormat = SerializeFormat.Json) -> ToolResult:
+    r"""
+    Deserialize a `str` (JSON) or `bytes` (MsgPack) into a `ToolResult`.
+    """
+
 def ensure_within_root(root: builtins.str, path: builtins.str, must_exist: builtins.bool = False) -> builtins.str:
     r"""
     Resolve ``path`` under ``root`` and reject paths that escape the root.
     """
 
+def error_result(message: builtins.str, error: builtins.str, prompt: typing.Optional[builtins.str] = None, possible_solutions: typing.Optional[typing.Sequence[builtins.str]] = None, *, _meta: typing.Optional[dict] = None, **context: typing.Any) -> ToolResult: ...
+
 def file_digest_sha256(path: builtins.str, max_bytes: typing.Optional[builtins.int] = None) -> builtins.str:
     r"""
     Stream-hash a file with SHA-256 and return the lowercase hex digest.
     """
+
+def from_exception(error_message: builtins.str, message: typing.Optional[builtins.str] = None, prompt: typing.Optional[builtins.str] = None, include_traceback: builtins.bool = True, possible_solutions: typing.Optional[typing.Sequence[builtins.str]] = None, *, _meta: typing.Optional[dict] = None, **context: typing.Any) -> ToolResult: ...
 
 def gc_orphans(max_age_secs: builtins.float) -> builtins.int:
     r"""
@@ -4510,6 +4566,11 @@ def scene_info_json_to_stage(scene_info_json: builtins.str, dcc_type: builtins.s
         A ``UsdStage`` containing the converted scene.
     """
 
+def serialize_result(result: ToolResult, format: SerializeFormat = SerializeFormat.Json) -> typing.Any:
+    r"""
+    Serialize a `ToolResult` to a string (JSON) or bytes (MsgPack).
+    """
+
 def shutdown_telemetry() -> None:
     r"""
     Shut down the global telemetry provider, flushing all pending data.
@@ -4519,6 +4580,8 @@ def stage_to_scene_info_json(stage: UsdStage) -> builtins.str:
     r"""
     Convert a ``UsdStage`` to a JSON string representing ``SceneInfo``.
     """
+
+def success_result(message: builtins.str, prompt: typing.Optional[builtins.str] = None, *, _meta: typing.Optional[dict] = None, **context: typing.Any) -> ToolResult: ...
 
 def units_to_mpu(units: builtins.str) -> builtins.float:
     r"""
@@ -4531,6 +4594,8 @@ def validate_action_id(name: builtins.str) -> None:
 
     Raises ``ValueError`` on any violation; returns ``None`` on success.
     """
+
+def validate_action_result(result: typing.Any) -> ToolResult: ...
 
 def validate_tool_name(name: builtins.str) -> None:
     r"""

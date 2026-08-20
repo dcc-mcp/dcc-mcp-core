@@ -104,7 +104,11 @@ pub enum SerializeFormat {
     MsgPack,
 }
 
-/// Internal Rust data representation (serde-friendly).
+/// Rust data representation (serde-friendly).
+///
+/// The public field layout is intentionally stable for downstream struct
+/// literals. Python-only top-level metadata is stored by [`ActionResultModel`]
+/// rather than adding a source-breaking field here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ActionResultModelData {
@@ -115,7 +119,7 @@ pub struct ActionResultModelData {
     /// Optional prompt/hint for the next user action.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
-    /// Optional error message when `success` is `false`.
+    /// Stable machine-readable error code when `success` is `false`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Arbitrary key-value context data (e.g. traceback, error_type).
@@ -209,6 +213,22 @@ impl ActionResultModelData {
     }
 }
 
+#[derive(Serialize)]
+struct ActionResultWireRef<'a> {
+    #[serde(flatten)]
+    data: &'a ActionResultModelData,
+    #[serde(rename = "_meta", skip_serializing_if = "HashMap::is_empty")]
+    meta: &'a HashMap<String, serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct ActionResultWireOwned {
+    #[serde(flatten)]
+    data: ActionResultModelData,
+    #[serde(rename = "_meta", default)]
+    meta: HashMap<String, serde_json::Value>,
+}
+
 /// Python-facing ToolResult.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
@@ -218,19 +238,71 @@ impl ActionResultModelData {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActionResultModel {
     pub(crate) inner: ActionResultModelData,
+    pub(crate) meta: HashMap<String, serde_json::Value>,
 }
 
 impl ActionResultModel {
     /// Create a `ToolResult` from raw data.
     #[must_use]
     pub fn from_data(data: ActionResultModelData) -> Self {
-        Self { inner: data }
+        Self {
+            inner: data,
+            meta: HashMap::new(),
+        }
+    }
+
+    /// Create a `ToolResult` from raw data and top-level metadata.
+    #[must_use]
+    pub fn from_data_with_meta(
+        data: ActionResultModelData,
+        meta: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        Self { inner: data, meta }
     }
 
     /// Access the underlying data.
     #[must_use]
     pub fn data(&self) -> &ActionResultModelData {
         &self.inner
+    }
+
+    /// Access top-level `_meta` values without mixing them into context.
+    #[must_use]
+    pub fn meta(&self) -> &HashMap<String, serde_json::Value> {
+        &self.meta
+    }
+
+    /// Serialize the complete model, including top-level `_meta`.
+    pub fn to_bytes(&self, fmt: SerializeFormat) -> Result<Vec<u8>, String> {
+        let wire = ActionResultWireRef {
+            data: &self.inner,
+            meta: &self.meta,
+        };
+        match fmt {
+            SerializeFormat::Json => serde_json::to_vec(&wire).map_err(|e| e.to_string()),
+            SerializeFormat::MsgPack => rmp_serde::to_vec_named(&wire).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Deserialize the complete model, including top-level `_meta`.
+    pub fn from_bytes(data: &[u8], fmt: SerializeFormat) -> Result<Self, String> {
+        let wire: ActionResultWireOwned = match fmt {
+            SerializeFormat::Json => serde_json::from_slice(data).map_err(|e| e.to_string())?,
+            SerializeFormat::MsgPack => rmp_serde::from_slice(data).map_err(|e| e.to_string())?,
+        };
+        Ok(Self::from_data_with_meta(wire.data, wire.meta))
+    }
+
+    /// Serialize to compact JSON while applying the historical context limit.
+    pub fn to_json_string(&self) -> Result<String, String> {
+        let mut compacted = self.clone();
+        compacted.inner.context = compacted
+            .inner
+            .context
+            .iter()
+            .map(|(k, v)| (k.clone(), compact_json_value(v, 0, 3)))
+            .collect();
+        String::from_utf8(compacted.to_bytes(SerializeFormat::Json)?).map_err(|e| e.to_string())
     }
 }
 

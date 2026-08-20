@@ -27,8 +27,14 @@ def main(
     except (KeyError, TypeError, ValueError) as exc:
         return skill_error(
             "Spatial conversion could not be planned",
-            str(exc),
+            "invalid_spatial_conversion",
             prompt="Inspect the live source and target axes and units, then provide three distinct signed axes.",
+            _meta={
+                "dcc.error": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
         )
     return skill_success("Spatial conversion planned", **plan)
 

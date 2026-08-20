@@ -63,7 +63,7 @@ from dcc_mcp_core import json_loads
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
 from dcc_mcp_core.constants import CATEGORY_FEEDBACK
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +269,7 @@ def _handle_feedback_report(params: str) -> str:
         entry["tool_name"],
         entry["severity"],
     )
-    return ToolResult.ok("Feedback recorded.", feedback_id=entry["id"]).to_json()
+    return ToolResultEnvelope.ok("Feedback recorded.", feedback_id=entry["id"]).to_json()
 
 
 # ── Registration helper ────────────────────────────────────────────────────
