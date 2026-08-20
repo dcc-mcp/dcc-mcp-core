@@ -16,19 +16,18 @@ path = "src/main.rs"
 # `dcc-mcp-http` default features include `auto-gateway` which pulls in
 # the full gateway runtime. We forward that explicitly through our own
 # `gateway-auto` feature so this binary can also build slim variants
-# (issue #1359). Use a direct path dep here because the workspace
-# inheritance form (`workspace = true`) cannot override the inherited
-# `default-features` setting.
+# (issue #1359). Keep direct path deps for HTTP and sidecar because Cargo's
+# workspace inheritance cannot override the inherited `default-features` setting.
 dcc-mcp-http = { path = "../dcc-mcp-http", default-features = false }
 dcc-mcp-actions.workspace = true
 dcc-mcp-skills.workspace = true
 dcc-mcp-protocols.workspace = true
 dcc-mcp-logging.workspace = true
 dcc-mcp-transport.workspace = true
-dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
+dcc-mcp-telemetry = { workspace = true, optional = true }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-capture.workspace = true
-dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
+dcc-mcp-jsonrpc = { workspace = true }
 dcc-mcp-updater.workspace = true
 dcc-mcp-sidecar = { path = "../dcc-mcp-sidecar", default-features = false, optional = true }
 serde.workspace = true
@@ -45,8 +44,8 @@ futures-util.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
 # MCP Streamable HTTP uses HTTP/1.1 SSE only; http2 feature removed to avoid h2 crate.
-axum = { version = "0.8", features = ["http1", "tokio"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+axum = { workspace = true, features = ["http1", "tokio"] }
+tower-http = { workspace = true, features = ["cors", "trace"] }
 clap = { version = "4", features = ["derive", "env"] }
 sysinfo.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
@@ -104,11 +103,6 @@ admin = [
     "dcc-mcp-sidecar?/admin",
 ]
 
-# Placeholder for embedding the relay tunnel agent in-process. Wired
-# up by issue #1363; currently a no-op feature gate so downstream
-# build configs can already declare it.
-tunnel-agent = []
-
 # Optional LAN-local mDNS/DNS-SD advertisement and gateway browsing.
 mdns = [
     "dcc-mcp-http/mdns",
@@ -135,6 +129,6 @@ tracy = ["dcc-mcp-logging/tracy"]
 sentry = ["dep:sentry"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
+dcc-mcp-test-utils = { workspace = true }

@@ -10,14 +10,14 @@ description = "MCP Streamable HTTP server for DCC applications (axum-based, thre
 
 [dependencies]
 # Internal crates
-dcc-mcp-http-types = { path = "../dcc-mcp-http-types" }
-dcc-mcp-http-server = { path = "../dcc-mcp-http-server" }
-dcc-mcp-actions = { path = "../dcc-mcp-actions" }
-dcc-mcp-naming = { path = "../dcc-mcp-naming" }
-dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
-dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
-dcc-mcp-job = { path = "../dcc-mcp-job" }
-dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
+dcc-mcp-http-types = { workspace = true }
+dcc-mcp-http-server = { workspace = true }
+dcc-mcp-actions = { workspace = true }
+dcc-mcp-naming = { workspace = true }
+dcc-mcp-protocols = { workspace = true }
+dcc-mcp-jsonrpc = { workspace = true }
+dcc-mcp-job = { workspace = true }
+dcc-mcp-skill-rest = { workspace = true }
 # Optional via the `auto-gateway` feature (default-on). Embedders that
 # only need the per-DCC MCP HTTP server (no first-wins election, no
 # admin UI, no aggregation) can opt out with `default-features = false`
@@ -26,17 +26,17 @@ dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 # here — they are forwarded through the `admin` / `admin-persist-sqlite`
 # feature gates below so the default wheel path pulls in neither the Vite
 # admin bundle nor the Prometheus exporter (issue #2182).
-dcc-mcp-gateway = { path = "../dcc-mcp-gateway", optional = true }
-dcc-mcp-models = { path = "../dcc-mcp-models" }
-dcc-mcp-skills = { path = "../dcc-mcp-skills" }
-dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }
-dcc-mcp-transport = { path = "../dcc-mcp-transport" }
-dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
-dcc-mcp-capture = { path = "../dcc-mcp-capture" }
-dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
-dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }
-dcc-mcp-artefact = { path = "../dcc-mcp-artefact" }
-dcc-mcp-host = { path = "../dcc-mcp-host" }
+dcc-mcp-gateway = { workspace = true, optional = true }
+dcc-mcp-models = { workspace = true }
+dcc-mcp-skills = { workspace = true }
+dcc-mcp-pybridge = { workspace = true, optional = true }
+dcc-mcp-transport = { workspace = true }
+dcc-mcp-sandbox = { workspace = true }
+dcc-mcp-capture = { workspace = true }
+dcc-mcp-telemetry = { workspace = true, optional = true }
+dcc-mcp-workflow = { workspace = true }
+dcc-mcp-artefact = { workspace = true }
+dcc-mcp-host = { workspace = true }
 
 # Workspace shared
 serde = { workspace = true }
@@ -57,11 +57,11 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # HTTP server
 # MCP Streamable HTTP uses HTTP/1.1 SSE; http2 is not required and pulls in
 # the heavy `h2` crate — keep it disabled for faster builds.
-axum = { version = "0.8", features = ["http1", "tokio"] }
-tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
-http = "1.0"
-futures = "0.3"
+axum = { workspace = true, features = ["http1", "tokio"] }
+tower = { workspace = true, features = ["util"] }
+tower-http = { workspace = true, features = ["cors", "trace", "limit"] }
+http.workspace = true
+futures.workspace = true
 tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
 pin-project-lite = "0.2"
 
@@ -89,8 +89,8 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 axum-test = "20"
 rstest = "0.26"
-tempfile = "3"
-dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
+tempfile.workspace = true
+dcc-mcp-sandbox = { workspace = true }
 # Enable `auto-initialize` only during testing so the in-crate Rust
 # tests that exercise PyO3 surface (e.g. `python::resources_handle`
 # issue #730) can spin up an embedded Python interpreter automatically.

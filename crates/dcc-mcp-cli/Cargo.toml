@@ -18,6 +18,7 @@ base64.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-gateway-ensure.workspace = true
+# Keep the path override: Cargo cannot override inherited workspace default features.
 dcc-mcp-sidecar = { path = "../dcc-mcp-sidecar", default-features = false, features = ["gateway-daemon", "admin"] }
 dcc-mcp-transport.workspace = true
 dcc-mcp-updater.workspace = true
@@ -30,9 +31,9 @@ reqwest.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.11"
+sha2.workspace = true
 tar = "0.4"
-tempfile = "3"
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toon-format.workspace = true
@@ -40,7 +41,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-axum = { version = "0.8", features = ["http1", "tokio"] }
+axum = { workspace = true, features = ["http1", "tokio"] }
 dcc-mcp-actions.workspace = true
 dcc-mcp-http.workspace = true
 hex = "0.4"

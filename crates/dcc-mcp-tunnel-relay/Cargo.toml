@@ -25,7 +25,7 @@ tokio = { workspace = true }
 uuid = { workspace = true }
 # /tunnels admin endpoint + WebSocket frontend transport. http1-only mirrors
 # `dcc-mcp-http`'s feature set so the relay does not pull in `h2`.
-axum = { version = "0.8", features = ["http1", "tokio", "ws"] }
+axum = { workspace = true, features = ["http1", "tokio", "ws"] }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

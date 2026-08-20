@@ -14,7 +14,7 @@ dcc-mcp-gateway-ensure.workspace = true
 dcc-mcp-host-rpc.workspace = true
 dcc-mcp-transport.workspace = true
 anyhow.workspace = true
-axum = { version = "0.8", features = ["http1", "tokio"] }
+axum = { workspace = true, features = ["http1", "tokio"] }
 clap = { version = "4", features = ["derive", "env"] }
 reqwest.workspace = true
 serde.workspace = true
@@ -48,9 +48,9 @@ mdns = [
 prometheus = ["dcc-mcp-gateway?/prometheus"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
+dcc-mcp-test-utils = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

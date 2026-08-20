@@ -10,9 +10,9 @@ description = "Per-DCC RESTful skill API surface (issues #658, #660) — extract
 
 [dependencies]
 # Internal
-dcc-mcp-actions = { path = "../dcc-mcp-actions" }
-dcc-mcp-models = { path = "../dcc-mcp-models" }
-dcc-mcp-skills = { path = "../dcc-mcp-skills" }
+dcc-mcp-actions = { workspace = true }
+dcc-mcp-models = { workspace = true }
+dcc-mcp-skills = { workspace = true }
 
 # Workspace shared
 serde = { workspace = true }
@@ -23,10 +23,10 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 # HTTP server
-axum = { version = "0.8", features = ["http1", "tokio"] }
+axum = { workspace = true, features = ["http1", "tokio"] }
 
 # Async + SSE streaming (#818 phase 1b)
-futures = "0.3"
+futures.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -40,4 +40,4 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 axum-test = "20"
-dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
+dcc-mcp-test-utils = { workspace = true }

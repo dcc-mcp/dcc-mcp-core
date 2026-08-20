@@ -9,14 +9,15 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
 use dcc_mcp_skills::catalog::inverted_index::InvertedIndex;
 use dcc_mcp_skills::catalog::scoring::{FieldTokens, score_skills, score_skills_with_tokens};
+use rand::RngExt;
 use std::hint::black_box;
 
 // ── Synthetic skill generation ──────────────────────────────────────────
 
 fn synthetic_skill(i: usize, rng: &mut impl rand::Rng) -> SkillMetadata {
-    let dcc = ["maya", "blender", "max", "houdini", "unreal"][rng.gen_range(0..5)];
+    let dcc = ["maya", "blender", "max", "houdini", "unreal"][rng.random_range(0..5)];
     let mut name = format!("{dcc}-skill-{i:05}");
-    if rng.gen_bool(0.2) {
+    if rng.random_bool(0.2) {
         name.push_str("-advanced");
     }
 
@@ -32,9 +33,9 @@ fn synthetic_skill(i: usize, rng: &mut impl rand::Rng) -> SkillMetadata {
         "fx",
         "layout",
     ];
-    let tag_count = rng.gen_range(1..=3);
+    let tag_count = rng.random_range(1..=3);
     let mut tags: Vec<String> = (0..tag_count)
-        .map(|_| tags_pool[rng.gen_range(0..tags_pool.len())].to_string())
+        .map(|_| tags_pool[rng.random_range(0..tags_pool.len())].to_string())
         .collect();
     tags.sort();
     tags.dedup();
@@ -71,40 +72,40 @@ fn synthetic_skill(i: usize, rng: &mut impl rand::Rng) -> SkillMetadata {
         "simulate",
         "bake",
     ];
-    let desc_len = rng.gen_range(3..=12);
+    let desc_len = rng.random_range(3..=12);
     let description: String = (0..desc_len)
-        .map(|_| desc_words[rng.gen_range(0..desc_words.len())])
+        .map(|_| desc_words[rng.random_range(0..desc_words.len())])
         .collect::<Vec<_>>()
         .join(" ");
 
-    let hint = if rng.gen_bool(0.5) {
-        let hint_len = rng.gen_range(1..=5);
+    let hint = if rng.random_bool(0.5) {
+        let hint_len = rng.random_range(1..=5);
         (0..hint_len)
-            .map(|_| desc_words[rng.gen_range(0..desc_words.len())])
+            .map(|_| desc_words[rng.random_range(0..desc_words.len())])
             .collect::<Vec<_>>()
             .join(" ")
     } else {
         String::new()
     };
 
-    let tool_count = rng.gen_range(1..=4);
+    let tool_count = rng.random_range(1..=4);
     let tools: Vec<ToolDeclaration> = (0..tool_count)
         .map(|t| ToolDeclaration {
             name: format!("{name}-tool-{t}"),
-            description: (0..rng.gen_range(2..=6))
-                .map(|_| desc_words[rng.gen_range(0..desc_words.len())])
+            description: (0..rng.random_range(2..=6))
+                .map(|_| desc_words[rng.random_range(0..desc_words.len())])
                 .collect::<Vec<_>>()
                 .join(" "),
             ..Default::default()
         })
         .collect();
 
-    let alias_count = rng.gen_range(0..=2);
+    let alias_count = rng.random_range(0..=2);
     let search_aliases: Vec<String> = (0..alias_count)
-        .map(|_| format!("alias-{}-{}", name, rng.gen_range(0..999)))
+        .map(|_| format!("alias-{}-{}", name, rng.random_range(0..999)))
         .collect();
 
-    let layer = match rng.gen_range(0u8..100) {
+    let layer = match rng.random_range(0u8..100) {
         0..=59 => None,
         60..=79 => Some("domain".to_string()),
         80..=89 => Some("infrastructure".to_string()),

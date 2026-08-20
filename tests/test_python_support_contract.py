@@ -15,6 +15,7 @@ from scripts.ci.check_python_support import collect_full_matrix_errors
 from scripts.ci.check_python_support import collect_projection_errors
 from scripts.ci.check_python_support import collect_semantic_release_errors
 from scripts.ci.check_python_support import collect_wheel_action_errors
+from scripts.ci.check_python_support import collect_wheel_feature_projection_errors
 from scripts.ci.check_python_support import expected_fragments
 from scripts.ci.python_support_contract import ContractError
 from scripts.ci.python_support_contract import load_contract
@@ -23,6 +24,17 @@ from scripts.ci.python_support_contract import python37_test_requirements
 from scripts.ci.python_support_contract import validate_contract
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_pyproject_maturin_features_match_canonical_wheel_features(tmp_path: Path) -> None:
+    (tmp_path / "justfile").write_text((_REPO_ROOT / "justfile").read_text(encoding="utf-8"), encoding="utf-8")
+    pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    assert collect_wheel_feature_projection_errors(tmp_path) == []
+
+    (tmp_path / "pyproject.toml").write_text(pyproject.replace(', "admin"]', "]", 1), encoding="utf-8")
+    errors = collect_wheel_feature_projection_errors(tmp_path)
+    assert any("missing=['admin']" in error for error in errors)
 
 
 def test_contract_is_internally_valid_and_matches_repository() -> None:

@@ -19,9 +19,9 @@ workspace = true
 # HttpError bubbles into (issue #488). dcc-mcp-models is itself a
 # pure-types crate, so depending on it here keeps the dependency
 # direction inward.
-dcc-mcp-models = { path = "../dcc-mcp-models" }
-dcc-mcp-gateway-core = { path = "../dcc-mcp-gateway-core" }
-dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
+dcc-mcp-models = { workspace = true }
+dcc-mcp-gateway-core = { workspace = true }
+dcc-mcp-jsonrpc = { workspace = true }
 
 # Workspace shared
 serde = { workspace = true }

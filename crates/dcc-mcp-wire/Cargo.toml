@@ -20,7 +20,7 @@ stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 
 [dependencies]
 # Internal — pure protocol types only; avoids circular imports.
-dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
+dcc-mcp-protocols = { workspace = true }
 
 # Workspace shared
 serde = { workspace = true }
