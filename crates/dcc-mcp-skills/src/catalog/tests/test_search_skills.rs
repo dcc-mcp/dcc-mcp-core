@@ -162,9 +162,7 @@ fn test_search_skills_with_inverted_index_same_results() {
 }
 
 #[test]
-fn test_search_skills_index_invalidation_on_add() {
-    // Adding a new skill must invalidate the index; subsequent search
-    // must include the new skill.
+fn test_search_skills_index_updates_incrementally_on_add() {
     let catalog = make_test_catalog();
 
     // Populate and query once to build index.
@@ -175,9 +173,9 @@ fn test_search_skills_index_invalidation_on_add() {
     let mut new_skill = make_test_skill("maya-bevel", "maya", &[]);
     new_skill.description = "bevel polygon edges".to_string();
     catalog.add_skill(new_skill);
+    assert!(!catalog.inverted_index.read().is_stale());
 
-    // Search again — the index was invalidated and rebuilt; new skill
-    // must appear.
+    // Search again without a full rebuild; the new skill must appear.
     let results = catalog.search_skills(Some("bevel"), &[], None, None, None);
     assert!(
         results.iter().any(|s| s.name == "maya-bevel"),
@@ -186,9 +184,7 @@ fn test_search_skills_index_invalidation_on_add() {
 }
 
 #[test]
-fn test_search_skills_index_invalidation_on_remove() {
-    // Removing a skill must invalidate the index; subsequent search
-    // must not include the removed skill.
+fn test_search_skills_index_updates_incrementally_on_remove() {
     let catalog = make_test_catalog();
 
     catalog.add_skill(make_test_skill("maya-modeling", "maya", &[]));
@@ -199,6 +195,7 @@ fn test_search_skills_index_invalidation_on_remove() {
 
     // Remove a skill.
     assert!(catalog.remove_skill("maya-bevel"));
+    assert!(!catalog.inverted_index.read().is_stale());
 
     // Search again — removed skill must not appear.
     let results = catalog.search_skills(Some("maya"), &[], None, None, None);

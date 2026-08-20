@@ -152,9 +152,9 @@ pub struct SkillCatalog {
     pub(super) after_scoped_group_change_hook: RwLock<Option<Arc<AfterScopedGroupChangeFn>>>,
     /// Tool groups currently active (`"<skill>:<group>"` keys).
     pub(super) active_groups: DashSet<String>,
-    /// Inverted index for fast `search_skills` scoring. Built lazily on
-    /// the first query, invalidated on any mutation. Wrapped in `RwLock`
-    /// so builds (writer) and reads (readers) can coexist.
+    /// Inverted index for fast `search_skills` scoring. Built lazily on the
+    /// first query, then updated per changed entry. Wrapped in `RwLock` so
+    /// builds/mutations (writer) and queries (readers) can coexist.
     pub(super) inverted_index: RwLock<IndexGuard>,
     /// Per-`dcc_type` shards mapping lowercase dcc name → set of skill
     /// names. Populated on every mutation; `search_skills` with a
@@ -215,7 +215,7 @@ impl Registry<SkillEntry> for SkillCatalog {
         self.entries.insert(key.clone(), entry);
         self.shard_insert(&key, &dcc);
         self.refresh_dependency_states();
-        self.inverted_index.write().invalidate();
+        self.sync_search_index(&key);
     }
 
     fn get(&self, key: &str) -> Option<SkillEntry> {
@@ -235,7 +235,7 @@ impl Registry<SkillEntry> for SkillCatalog {
         let removed = self.entries.remove(key).is_some();
         if removed {
             self.refresh_dependency_states();
-            self.inverted_index.write().invalidate();
+            self.sync_search_index(key);
         }
         removed
     }

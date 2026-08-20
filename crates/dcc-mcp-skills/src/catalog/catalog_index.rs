@@ -15,6 +15,15 @@ use super::*;
 use std::collections::HashSet;
 
 impl SkillCatalog {
+    pub(super) fn sync_search_index(&self, name: &str) {
+        let mut index = self.inverted_index.write();
+        if let Some(entry) = self.entries.get(name) {
+            index.upsert(name, &entry.field_tokens);
+        } else {
+            index.remove(name);
+        }
+    }
+
     /// Return the stable names of catalog entries matching any query token.
     ///
     /// `None` means the query cannot use the index and callers must retain the
