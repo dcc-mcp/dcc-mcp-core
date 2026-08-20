@@ -37,7 +37,7 @@ from typing import Callable
 from typing import Iterable
 from typing import Mapping
 
-from dcc_mcp_core._typing_compat import Protocol
+from dcc_mcp_core._typing import Protocol
 
 __all__ = [
     "InMemoryMemoryStore",

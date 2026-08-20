@@ -45,8 +45,8 @@ import re
 from typing import Iterable
 from typing import Mapping
 
-from dcc_mcp_core._typing_compat import Protocol
-from dcc_mcp_core._typing_compat import runtime_checkable
+from dcc_mcp_core._typing import Protocol
+from dcc_mcp_core._typing import runtime_checkable
 
 __all__ = [
     "DEFAULT_DIM",

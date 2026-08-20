@@ -51,7 +51,7 @@ Python 3.7–3.14 都有 CI 覆盖。Python 3.7 具备原生 wheel、运行时�
 
 ### 是否有 Python 库运行时依赖？
 
-**没有第三方 Python 库依赖。** 核心逻辑编译进 Rust 扩展。默认包会依赖配套的 `dcc-mcp-server` wheel，让 `DccServerBase` 可以从打包二进制启动 gateway daemon，而不依赖 `PATH`。
+**依赖保持最小。** 核心逻辑编译进 Rust 扩展；Python 3.7 额外使用固定版本的官方 `typing_extensions` backport。默认包还依赖配套的 `dcc-mcp-server` wheel，让 `DccServerBase` 可以从打包二进制启动 gateway daemon，而不依赖 `PATH`。
 
 ## 安装
 

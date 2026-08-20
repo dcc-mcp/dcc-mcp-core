@@ -36,12 +36,18 @@ The native profile uses the PyO3 series pinned in the compatibility contract
 and does not enable `abi3-py38`. Linux and Windows wheels are built separately
 for CPython 3.7. This is the full package and the authoritative LTS proof.
 
-### `lite_py37`
+### `lite_py37` (extensionless profile)
 
-The lite profile packages the Python tree without a compiled extension. Public
+The current release profile keeps its historical build identifier, but the
+fallback implementation is interpreter-neutral. It packages the Python tree
+without a compiled extension. Public
 entry points select pure-Python or sidecar-backed implementations when `_core`
 is absent. It is a portability fallback, not a replacement for the native
 profile.
+
+Interpreter-neutral implementations live in `dcc_mcp_core._lite_fallback`.
+The former `_py37_fallback` module is a deprecated forwarding shim for one
+compatibility window; new code must not couple extension absence to Python 3.7.
 
 The lite factory provides local metadata discovery through `list_skills()`,
 `search_skills()`, and `get_skill()` so explicit and environment-provided
@@ -89,9 +95,10 @@ their runtime evaluation safe. Code that calls `typing.get_type_hints` or
 stores evaluated aliases must use a compatibility layer.
 
 Python 3.7's `typing` module lacks several runtime APIs used by newer code,
-including `Literal`, `Protocol`, and `runtime_checkable`. Shared behavior
-belongs in `dcc_mcp_core._typing_compat`; do not duplicate private fallbacks in
-individual modules.
+including `Literal`, `Protocol`, and `runtime_checkable`. The private
+`dcc_mcp_core._typing` boundary selects the standard library on modern Python
+and the pinned official `typing_extensions` backport on Python 3.7. Do not
+implement local typing semantics.
 
 ## Source rules
 

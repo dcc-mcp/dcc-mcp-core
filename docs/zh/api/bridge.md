@@ -8,6 +8,12 @@ WebSocket JSON-RPC 2.0 桥接，用于非 Python DCC 应用程序。`DccBridge` 
 
 ## DccBridge
 
+创建 bridge 前请安装 WebSocket transport：
+
+```bash
+pip install 'dcc-mcp-core[bridge]'
+```
+
 WebSocket 桥接服务器，用于与非 Python DCC（如通过 C++ 插件）通信。
 
 - `DccBridge(host="localhost", port=9001, timeout=30.0)` — 创建桥接实例

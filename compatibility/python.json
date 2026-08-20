@@ -230,7 +230,7 @@
       "dcc_mcp_core.schema",
       "dcc_mcp_core.server_base",
       "dcc_mcp_core.host",
-      "dcc_mcp_core._py37_fallback",
+      "dcc_mcp_core._lite_fallback",
       "dcc_mcp_core._runtime.mcp_http_config",
       "dcc_mcp_core._runtime.pure_skill_catalog",
       "dcc_mcp_core._runtime.server_factory",

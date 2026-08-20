@@ -56,8 +56,8 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Iterable
 
-from dcc_mcp_core._typing_compat import Protocol
-from dcc_mcp_core._typing_compat import runtime_checkable
+from dcc_mcp_core._typing import Protocol
+from dcc_mcp_core._typing import runtime_checkable
 from dcc_mcp_core.semantic_skill_index import SkillDocument
 from dcc_mcp_core.semantic_skill_index import SkillSearchHit
 from dcc_mcp_core.vector_embedder import Embedder

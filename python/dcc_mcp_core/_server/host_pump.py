@@ -17,8 +17,8 @@ from typing import Optional
 
 from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpPolicy
 from dcc_mcp_core._server.callable_dispatcher import DrainStats
-from dcc_mcp_core._typing_compat import Protocol
-from dcc_mcp_core._typing_compat import runtime_checkable
+from dcc_mcp_core._typing import Protocol
+from dcc_mcp_core._typing import runtime_checkable
 
 __all__ = [
     "HostPumpController",

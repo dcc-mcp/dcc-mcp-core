@@ -510,7 +510,7 @@ MemoryRecorder(store).install(hooks)  # wires 6 lifecycle events
 | **Zero-code tool registration** | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` pointing at sibling `tools.yaml` + `scripts/` |
 | **Return structured results** | `success_result()` / `error_result()` |
 | **Rich error with traceback** | `skill_error_with_trace()` |
-| **Bridge non-Python DCC** | `DccBridge` (WebSocket JSON-RPC 2.0) |
+| **Bridge non-Python DCC** | Install `dcc-mcp-core[bridge]`, then use `DccBridge` (WebSocket JSON-RPC 2.0) |
 | **Register lifecycle hooks** | `LifecycleHooks()` + `server.register_lifecycle_hooks(hooks)` |
 | **Enable agent memory** | `MemoryRecorder(InMemoryMemoryStore()).install(hooks)` |
 | **Register all built-in tools** | `register_all_builtin_skills(server, dcc_name=..., skills=...)` |

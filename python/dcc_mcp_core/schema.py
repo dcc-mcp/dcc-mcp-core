@@ -66,7 +66,7 @@ _TYPEDDICT_META = getattr(typing, "_TypedDictMeta", None)
 def _literal_origins() -> tuple[Any, ...]:
     """Return known Literal origins by identity without importing packages."""
     candidates = [_LITERAL_TYPE]
-    for module_name in ("typing_extensions", "dcc_mcp_core._typing_compat"):
+    for module_name in ("typing_extensions", "dcc_mcp_core._typing"):
         module = sys.modules.get(module_name)
         if module is not None:
             candidates.append(getattr(module, "Literal", None))

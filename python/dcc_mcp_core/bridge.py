@@ -535,7 +535,8 @@ class DccBridge:
             import websockets  # type: ignore[import-untyped]
         except ImportError as exc:
             raise ImportError(
-                "The 'websockets' package is required for DccBridge. Install it with: pip install websockets"
+                "The 'websockets' package is required for DccBridge. "
+                "Install it with: pip install 'dcc-mcp-core[bridge]'"
             ) from exc
 
         shutdown_event = asyncio.Event()

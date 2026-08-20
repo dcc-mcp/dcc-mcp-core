@@ -21,7 +21,7 @@ from typing import Tuple
 
 from dcc_mcp_core import tool_spec_from_callable
 from dcc_mcp_core._tool_registration import ToolSpec
-from dcc_mcp_core._typing_compat import Literal
+from dcc_mcp_core._typing import Literal
 
 
 @dataclass

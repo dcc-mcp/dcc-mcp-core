@@ -9,8 +9,8 @@ import traceback
 from typing import Any
 from typing import Callable
 
-from dcc_mcp_core._typing_compat import Protocol
-from dcc_mcp_core._typing_compat import runtime_checkable
+from dcc_mcp_core._typing import Protocol
+from dcc_mcp_core._typing import runtime_checkable
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)

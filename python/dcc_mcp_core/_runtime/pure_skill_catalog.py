@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from typing import Iterable
 
-from dcc_mcp_core._py37_fallback import _parse_skill_fields
+from dcc_mcp_core._lite_fallback import _parse_skill_fields
 
 
 class PurePythonSkillMetadata:

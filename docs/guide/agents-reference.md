@@ -721,7 +721,9 @@ def _register_introspect_tools(self, context): ...  # ← TypeError at runtime!
 - **Don't write a domain skill `description` without a "Not for X" sentence** — agents need explicit counter-examples to avoid picking the wrong skill
 - **Don't overlap `search-hint` keywords between infrastructure and domain skills** — overlapping keywords make `search_skills()` return ambiguous results
 - Don't use removed transport APIs: `FramedChannel`, `connect_ipc()`, `IpcListener`, `TransportManager`, `CircuitBreaker`, `ConnectionPool` — removed in v0.14 (#251). Use `IpcChannelAdapter` / `DccLinkFrame` instead
-- Don't add Python runtime dependencies — the project is zero-dep by design
+- Don't add Python runtime dependencies without an accepted compatibility or
+  capability boundary. Python 3.7 uses the pinned `typing_extensions` backport;
+  optional capabilities belong in extras such as `bridge` or `semantic`.
 - Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this
 - Don't hardcode API keys, tokens, or passwords — use environment variables
 - Don't use `docs/` prefix in branch names — causes `refs/heads/docs/...` conflicts
