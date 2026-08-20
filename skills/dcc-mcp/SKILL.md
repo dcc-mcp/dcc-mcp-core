@@ -292,7 +292,6 @@ npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 The published package is [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp). Install it with the command for the current agent host, start a new agent turn, and invoke `$dcc-mcp` explicitly if automatic routing is uncertain. A checkout may load this directory directly.
 
 Then follow the CLI/MCP preflight above.
-
 `dcc-mcp` supersedes `dcc-cli-gateway`; do not load both names in one agent.
 
 ## Critical Rules
@@ -300,6 +299,7 @@ Then follow the CLI/MCP preflight above.
 | Situation | You MUST |
 |-----------|----------|
 | **Marketplace/Skill store intent** | Search the official catalog before recommendations or when no exact package ID was supplied; an exact known ID may go directly to consent-gated `marketplace install --reload`; live inventory is not required |
+| Official catalog or update metadata fails provenance verification | Stop; do not bypass the detached Sigstore check or substitute a custom source unless the operator explicitly supplies and trusts that source |
 | **Starting any local DCC task** | Run `dcc-mcp-cli list`; it ensures the local gateway, then reads the local FileRegistry |
 | **Startup state is ambiguous** | Run `dcc-mcp-cli doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
 | **Starting any remote DCC task** | Select or override a profile with `dcc-mcp-cli gateway set <name>` or `dcc-mcp-cli list --gateway <name>` |

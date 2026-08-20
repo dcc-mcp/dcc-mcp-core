@@ -47,6 +47,7 @@ members = [
     "crates/dcc-mcp-db",
     "crates/dcc-mcp-semantic",
     "crates/dcc-mcp-updater",
+    "crates/dcc-mcp-attestation",
     "crates/dcc-mcp-test-utils",
     "crates/workspace-hack",
 ]
@@ -97,6 +98,7 @@ dcc-mcp-catalog = { path = "crates/dcc-mcp-catalog" }
 dcc-mcp-db = { path = "crates/dcc-mcp-db" }
 dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }
 dcc-mcp-updater = { path = "crates/dcc-mcp-updater" }
+dcc-mcp-attestation = { path = "crates/dcc-mcp-attestation" }
 dcc-mcp-gateway-ensure = { path = "crates/dcc-mcp-gateway-ensure" }
 dcc-mcp-gateway-search = { path = "crates/dcc-mcp-gateway-search" }
 dcc-mcp-semantic = { path = "crates/dcc-mcp-semantic" }

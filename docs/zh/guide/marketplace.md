@@ -214,8 +214,14 @@ DCC 适配器会自动将 `~/.dcc-mcp/marketplace/<dcc>` 加入其技能搜索�
 
 - **路径遍历保护**：`marketplace_path_component()` 拒绝空组件、`.`、`..`、
   前导点和非 ASCII 字母数字字符。
-- **SHA256 校验**：ZIP 安装会验证 `install.sha256`（如果存在），在哈希不匹配
-  时拒绝安装，且不会修改已有包。
+- **不可变 Git 安装**：catalog Git source 和 direct repository install 都要求完整
+  commit object ID，并验证 detached checkout。
+- **强制 SHA-256**：ZIP 安装必须先提供有效摘要；缺失、格式错误或不匹配都会在
+  修改 package 前失败。
+- **官方 catalog provenance**：内置 `dcc-mcp/marketplace` catalog 必须匹配其
+  detached Sigstore bundle、GitHub Actions issuer、transparency log 和精确的
+  main-branch workflow identity，之后才会解析条目。显式 local/studio source
+  仍属于 operator 信任的覆盖边界。
 - **压缩包逃逸检测**：ZIP 解压会拒绝逃脱安装根目录的条目。
 - **Plugin 路径边界**：Agent Plugin manifest 和固定 Skill 组件必须解析在
   plugin 根目录内；不支持的 manifest schema 会被拒绝。

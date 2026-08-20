@@ -32,8 +32,9 @@ python scripts/check_cli.py --ensure-cli --pretty
 Agent 在安装或下载新二进制前必须先征得用户同意。这个 bundled helper 只接受
 官方 `dcc-mcp/dcc-mcp-core` release；它会先验证当前平台的 update manifest 和
 CLI SHA-256，再替换二进制。URL、manifest、摘要或下载异常时会 fail closed，
-不会覆盖已有 CLI。SHA-256 用于确认二进制与 release manifest 一致，不等同于
-数字签名。
+不会覆盖已有 CLI。SHA-256 用于确认二进制与 release manifest 一致；该 helper
+是首次安装的信任边界，安装完成后由 gateway 驱动的更新还会验证 release workflow
+的 detached Sigstore provenance。
 
 如果没有安装 Skill，请把官方 installer 下载为本地文件，先检查内容，再执行该
 本地文件：

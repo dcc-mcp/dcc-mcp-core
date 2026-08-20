@@ -63,7 +63,8 @@ follow the consent-gated official installation instructions in `dcc-mcp`.
 Before long-lived validation, run `dcc-mcp-cli update check`; use
 `dcc-mcp-cli update apply` to verify and stage the latest CLI for the next
 launch. Apply-time verification is installation-bound and legacy unsigned
-staging is quarantined. This does not replace a running server binary; update
+staging is quarantined. Official update manifests additionally require the
+release workflow's detached Sigstore provenance. This does not replace a running server binary; update
 the server from its exact target environment. Gateway Admin is check-only.
 
 ## Runtime Vocabulary

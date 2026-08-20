@@ -272,6 +272,12 @@ manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 下次启动替换前会再次校验，替换后用原参数重启 CLI。旧的 `pending.bin` /
 `pending.marker` 没有摘要，只会被隔离，绝不会应用。
 
+官方 `dcc-mcp/dcc-mcp-core` update manifest 还必须携带由 `main` 分支 release
+workflow 生成的 detached Sigstore bundle。Gateway 会在解析条目前验证 manifest
+原始字节、GitHub Actions certificate identity 和公开 transparency-log proof。
+自定义 `DCC_MCP_UPDATE_MANIFEST_URL` 是 operator 显式信任的边界，不会冒充
+官方 DCC-MCP release。
+
 Admin 实例页对所有 binary 都只做检查；gateway 无法证明本机或远端实例的实际
 安装目录，因此不会代替目标环境暂存更新。请在目标 server 环境运行
 `dcc-mcp-server update apply`。它使用相同的强制摘要与应用前复验契约，并且只

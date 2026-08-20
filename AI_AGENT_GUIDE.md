@@ -84,8 +84,9 @@ python scripts/check_cli.py --ensure-cli --pretty
 The helper is fixed to the official `dcc-mcp/dcc-mcp-core` release. It checks
 the platform update manifest and CLI SHA-256 before replacing anything, and
 fails closed on an invalid URL, manifest, digest, or download. SHA-256 verifies
-that the binary matches the release manifest; it is not a digital signature. If
-the Skill is unavailable,
+that the binary matches the release manifest. This helper is the bootstrap
+trust boundary; after installation, gateway-driven updates additionally verify
+the release workflow's detached Sigstore provenance. If the Skill is unavailable,
 [download the official installer to a local file, inspect it, and then execute
 that file](docs/guide/getting-started.md#cli-from-the-dcc-mcp-skill). Never pipe
 a remote installer directly into a shell or bypass the machine's script

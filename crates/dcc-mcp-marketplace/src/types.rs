@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 /// Canonical URL for the official dcc-mcp/marketplace catalog.
 pub const OFFICIAL_MARKETPLACE_SOURCE: &str =
     "https://raw.githubusercontent.com/dcc-mcp/marketplace/main/marketplace.json";
+/// Detached Sigstore bundle for [`OFFICIAL_MARKETPLACE_SOURCE`].
+pub const OFFICIAL_MARKETPLACE_ATTESTATION: &str =
+    "https://raw.githubusercontent.com/dcc-mcp/marketplace/main/marketplace.sigstore.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MarketplaceSource {
