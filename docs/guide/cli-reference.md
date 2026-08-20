@@ -232,7 +232,8 @@ their worker-owned status tool.
 | `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. |
 | `marketplace uninstall <name> [--dcc <dcc>] [--reload]` | local installed-state file + filesystem | Remove an installed marketplace package; infer the DCC from installed state when unambiguous, and optionally reload the adapter. |
 | `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
-| `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. For `git` installs, fetches the new ref in place; for other types, re-installs from the catalog. Use `--all` to update every outdated package. |
+| `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. Git updates reinstall the next full commit OID through verified staging; ZIP updates require and verify SHA-256. Use `--all` to update every outdated package. |
+| `marketplace add-repo <repo> --commit <40-hex-oid> [--dcc <dcc>]` | direct Git fetch + local filesystem | Install directly from an immutable repository commit. `--list` is read-only and may omit `--commit`; installation may not. |
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | Build a release zip for a marketplace package and print its SHA-256 digest. |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
@@ -334,8 +335,9 @@ Additional sources are persisted under
 `~/.dcc-mcp/marketplace/<dcc>/<name>/`, with
 `DCC_MCP_MARKETPLACE_INSTALL_ROOT` overriding the root. The current installer
 supports `install.type: git`, `install.type: path`, and `install.type: zip`.
-Archive installs verify `install.sha256` when present and reject entries that
-escape the install root. DCC adapters include
+Git installs require and verify a full 40-character commit object ID. Archive
+installs require `install.sha256` before I/O, verify the received bytes, and
+reject entries that escape the install root. DCC adapters include
 `~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
 are discovered on adapter startup. To expose an exact package to running
 adapters immediately, use
@@ -345,11 +347,10 @@ adapters immediately, use
 the adapter has not auto-loaded that skill yet.
 
 `update` compares each installed package version against the latest catalog
-entry. For `git`-type installs, if a `.git` directory already exists the
-command runs `git fetch && git checkout <ref>` in place; otherwise it
-re-clones. The local installed-state file is updated with the new version
-metadata. Installed packages with no matching catalog entry (e.g. the
-source was removed) are silently skipped.
+entry. Git packages are reinstalled through staging at the next catalog-pinned
+commit rather than mutated in place. The local installed-state file is updated
+with the new version metadata. Installed packages with no matching catalog
+entry (e.g. the source was removed) are silently skipped.
 
 `dcc-mcp-cli update` is for binary updates exposed by the gateway update
 manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or

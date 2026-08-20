@@ -71,6 +71,14 @@ pub enum MarketplaceError {
     #[error("marketplace install command failed: {0}")]
     CommandFailed(String),
 
+    #[error(
+        "marketplace git install requires a full 40-character commit object ID, got '{reference}'"
+    )]
+    UnpinnedGitReference { reference: String },
+
+    #[error("marketplace git checkout mismatch: expected commit {expected}, got {actual}")]
+    GitCommitMismatch { expected: String, actual: String },
+
     #[error("installed package does not contain SKILL.md at '{0}'")]
     MissingSkill(String),
 
@@ -80,6 +88,12 @@ pub enum MarketplaceError {
         expected: String,
         actual: String,
     },
+
+    #[error("marketplace archive '{url}' requires SHA-256 before it can be read or downloaded")]
+    MissingArchiveChecksum { url: String },
+
+    #[error("marketplace archive has invalid SHA-256 '{value}'; expected 64 hexadecimal digits")]
+    InvalidArchiveChecksum { value: String },
 
     #[error("marketplace archive error for '{0}': {1}")]
     Archive(String, String),

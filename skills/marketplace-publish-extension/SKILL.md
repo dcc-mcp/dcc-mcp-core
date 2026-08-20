@@ -91,8 +91,9 @@ push the change.
 ## Official catalog requirements
 
 - Pass `--min-core-version`; v1 entries require an explicit compatibility floor.
-- Git sources in the official catalog must use a complete 40-character commit
-  SHA in `--install-ref`, never a mutable branch name.
+- Git sources must use a complete 40-character commit object ID in
+  `--install-ref`; every catalog and runtime rejects branches, tags, short
+  object IDs, and missing refs.
 - Host-neutral Skills declare `dcc: any`. They match every concrete adapter,
   but installation must still pass a concrete `--dcc`; `any` is never an
   installation directory or a standalone DCC runtime.
@@ -103,8 +104,9 @@ push the change.
   Skill at an immediate `skills/<name>/SKILL.md` path. Publishing records
   `package.format: agent-plugin`; legacy multi-root packages use
   `skill-bundle`.
-- Zip sources require a 64-character SHA-256 digest. When the archive URL
-  changes, provide the new digest rather than reusing old metadata.
+- Zip sources require a 64-character SHA-256 digest before any archive read or
+  download. When the archive URL changes, provide the new digest rather than
+  reusing old metadata.
 - The publisher preserves v1 curation fields such as `requires` and `policy`
   when updating an existing entry, but new official entries must provide the
   complete marketplace metadata required by the catalog schema.

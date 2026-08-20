@@ -441,6 +441,7 @@ fn execute_git_clone(
     ref_: Option<&str>,
     dest: &Path,
 ) -> Result<Option<StepRollback>, InstallError> {
+    let commit = required_git_commit(ref_)?;
     if dest.exists() {
         return Err(InstallError::StepFailed {
             step: "git-clone".into(),
@@ -453,26 +454,74 @@ fn execute_git_clone(
         std::fs::create_dir_all(parent)?;
     }
 
-    let mut cmd = Command::new("git");
-    cmd.arg("clone").arg("--depth").arg("1");
-    if let Some(r) = ref_.filter(|v| !v.trim().is_empty()) {
-        cmd.arg("--branch").arg(r);
-    }
-    cmd.arg(url).arg(dest);
+    run_git(
+        dest,
+        "init",
+        &["init", "--quiet", dest.to_string_lossy().as_ref()],
+    )?;
+    run_git(dest, "remote-add", &["remote", "add", "origin", url])?;
+    run_git(dest, "fetch", &["fetch", "--depth", "1", "origin", &commit])?;
+    run_git(
+        dest,
+        "checkout",
+        &["checkout", "--detach", "--quiet", "FETCH_HEAD"],
+    )?;
 
-    let status = cmd.status().map_err(|e| InstallError::StepFailed {
-        step: "git-clone".into(),
-        message: format!("failed to launch git: {e}"),
-    })?;
-
-    if !status.success() {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dest)
+        .output()
+        .map_err(|error| InstallError::StepFailed {
+            step: "git-verify".into(),
+            message: format!("failed to launch git: {error}"),
+        })?;
+    if !output.status.success() {
         return Err(InstallError::StepFailed {
-            step: "git-clone".into(),
-            message: format!("git clone exited with {status}"),
+            step: "git-verify".into(),
+            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+    let actual = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_ascii_lowercase();
+    if actual != commit {
+        return Err(InstallError::StepFailed {
+            step: "git-verify".into(),
+            message: format!("commit mismatch: expected {commit}, got {actual}"),
         });
     }
 
     Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
+}
+
+fn required_git_commit(ref_: Option<&str>) -> Result<String, InstallError> {
+    let reference = ref_.unwrap_or_default().trim();
+    if reference.len() != 40 || !reference.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(InstallError::StepFailed {
+            step: "git-integrity".into(),
+            message: "a full 40-character commit object ID is required".into(),
+        });
+    }
+    Ok(reference.to_ascii_lowercase())
+}
+
+fn run_git(dest: &Path, step: &str, args: &[&str]) -> Result<(), InstallError> {
+    let mut command = Command::new("git");
+    command.args(args);
+    if step != "init" {
+        command.current_dir(dest);
+    }
+    let output = command.output().map_err(|error| InstallError::StepFailed {
+        step: format!("git-{step}"),
+        message: format!("failed to launch git: {error}"),
+    })?;
+    if !output.status.success() {
+        return Err(InstallError::StepFailed {
+            step: format!("git-{step}"),
+            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn execute_zip_extract(
@@ -480,6 +529,7 @@ fn execute_zip_extract(
     sha256: Option<&str>,
     dest: &Path,
 ) -> Result<Option<StepRollback>, InstallError> {
+    let expected = required_archive_sha256(sha256)?;
     if dest.exists() {
         return Err(InstallError::StepFailed {
             step: "zip-extract".into(),
@@ -498,20 +548,17 @@ fn execute_zip_extract(
         message: format!("failed to read response from {url}: {e}"),
     })?;
 
-    // Verify SHA-256 if requested
-    if let Some(expected) = sha256 {
-        use sha2::Digest;
-        let actual = sha2::Sha256::digest(&bytes);
-        let actual_hex = actual
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
-        if !actual_hex.eq_ignore_ascii_case(expected) {
-            return Err(InstallError::StepFailed {
-                step: "zip-checksum".into(),
-                message: format!("SHA-256 mismatch: expected {expected}, got {actual_hex}"),
-            });
-        }
+    use sha2::Digest;
+    let actual = sha2::Sha256::digest(&bytes);
+    let actual_hex = actual
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    if !actual_hex.eq_ignore_ascii_case(&expected) {
+        return Err(InstallError::StepFailed {
+            step: "zip-checksum".into(),
+            message: format!("SHA-256 mismatch: expected {expected}, got {actual_hex}"),
+        });
     }
 
     // Ensure parent directory exists
@@ -534,6 +581,18 @@ fn execute_zip_extract(
         })?;
 
     Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
+}
+
+fn required_archive_sha256(sha256: Option<&str>) -> Result<String, InstallError> {
+    let value = sha256.unwrap_or_default().trim();
+    let checksum = value.strip_prefix("sha256:").unwrap_or(value);
+    if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(InstallError::StepFailed {
+            step: "zip-integrity".into(),
+            message: "exactly 64 hexadecimal SHA-256 digits are required".into(),
+        });
+    }
+    Ok(checksum.to_ascii_lowercase())
 }
 
 fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>, InstallError> {
@@ -908,6 +967,35 @@ mod tests {
         let dest = PathBuf::from("/__nonexistent__/test-repo");
         let result = execute_git_clone("https://__nonexistent__.invalid/repo.git", None, &dest);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn git_and_zip_integrity_fail_before_network_or_filesystem_io() {
+        let root = tempfile::tempdir().unwrap();
+        let git_dest = root.path().join("git-install");
+        let git_error = execute_git_clone(
+            "https://__nonexistent__.invalid/repo.git",
+            Some("main"),
+            &git_dest,
+        )
+        .unwrap_err();
+        assert!(git_error.to_string().contains("40-character commit"));
+        assert!(!git_dest.exists());
+
+        let zip_dest = root.path().join("zip-install");
+        let zip_error = execute_zip_extract(
+            "https://__nonexistent__.invalid/archive.zip",
+            None,
+            &zip_dest,
+        )
+        .unwrap_err();
+        assert!(zip_error.to_string().contains("64 hexadecimal"));
+        assert!(!zip_dest.exists());
+
+        assert_eq!(
+            required_archive_sha256(Some(&format!("sha256:{}", "A".repeat(64)))).unwrap(),
+            "a".repeat(64)
+        );
     }
 
     #[test]

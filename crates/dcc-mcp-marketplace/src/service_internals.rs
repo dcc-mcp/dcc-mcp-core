@@ -227,27 +227,71 @@ pub fn install_from_git_command(
     install: &CatalogInstall,
     dest: &Path,
 ) -> Result<(), MarketplaceError> {
+    let commit = required_git_commit(install)?;
     let url = install
         .url
         .as_deref()
         .ok_or_else(|| MarketplaceError::MissingInstall("git.url".into()))?;
-    let mut command = git_command();
-    command.arg("clone").arg("--depth").arg("1");
-    if let Some(ref_) = install.ref_.as_deref().filter(|v| !v.trim().is_empty()) {
-        command.arg("--branch").arg(ref_);
-    }
-    command.arg(url).arg(dest);
-    let output = command
+    let output = git_command()
+        .args(["init", "--quiet"])
+        .arg(dest)
         .output()
-        .map_err(|err| MarketplaceError::CommandFailed(format!("git clone: {err}")))?;
+        .map_err(|err| MarketplaceError::CommandFailed(format!("git init: {err}")))?;
+    ensure_git_success("init", output)?;
+
+    let output = git_command()
+        .args(["remote", "add", "origin", url])
+        .current_dir(dest)
+        .output()
+        .map_err(|err| MarketplaceError::CommandFailed(format!("git remote add: {err}")))?;
+    ensure_git_success("remote add", output)?;
+
+    let output = git_command()
+        .args(["fetch", "--depth", "1", "origin", &commit])
+        .current_dir(dest)
+        .output()
+        .map_err(|err| MarketplaceError::CommandFailed(format!("git fetch: {err}")))?;
+    ensure_git_success("fetch pinned commit", output)?;
+
+    let output = git_command()
+        .args(["checkout", "--detach", "--quiet", "FETCH_HEAD"])
+        .current_dir(dest)
+        .output()
+        .map_err(|err| MarketplaceError::CommandFailed(format!("git checkout: {err}")))?;
+    ensure_git_success("checkout pinned commit", output)?;
+
+    let actual = git_head_commit(dest).unwrap_or_else(|| "<unresolved>".into());
+    if actual != commit {
+        return Err(MarketplaceError::GitCommitMismatch {
+            expected: commit,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn ensure_git_success(
+    operation: &str,
+    output: std::process::Output,
+) -> Result<(), MarketplaceError> {
     if output.status.success() {
         return Ok(());
     }
     Err(MarketplaceError::CommandFailed(format!(
-        "git clone exited with {}: {}",
+        "git {operation} exited with {}: {}",
         output.status,
         String::from_utf8_lossy(&output.stderr)
     )))
+}
+
+pub fn required_git_commit(install: &CatalogInstall) -> Result<String, MarketplaceError> {
+    let reference = install.ref_.as_deref().unwrap_or_default().trim();
+    if !is_full_git_oid(reference) {
+        return Err(MarketplaceError::UnpinnedGitReference {
+            reference: reference.to_string(),
+        });
+    }
+    Ok(reference.to_ascii_lowercase())
 }
 
 pub fn immutable_git_commit(install: &CatalogInstall) -> Option<String> {
@@ -300,32 +344,6 @@ pub fn git_head_commit(repo_path: &Path) -> Option<String> {
     is_full_git_oid(&revision).then_some(revision)
 }
 
-pub fn github_archive_url(install: &CatalogInstall) -> Option<String> {
-    let url = install.url.as_deref()?.trim().trim_end_matches('/');
-    let path = url
-        .strip_prefix("https://github.com/")
-        .or_else(|| url.strip_prefix("http://github.com/"))?;
-    let mut parts = path.split('/');
-    let owner = parts.next()?.trim();
-    let repo = parts.next()?.trim().trim_end_matches(".git");
-    if owner.is_empty() || repo.is_empty() {
-        return None;
-    }
-    let ref_ = install
-        .ref_
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("HEAD");
-    // Fetch the archive directly from GitHub's archive host. The public
-    // github.com endpoint redirects here; avoiding that extra request prevents
-    // long downloads from being cut off when the redirect connection is
-    // closed before the response body completes.
-    Some(format!(
-        "https://codeload.github.com/{owner}/{repo}/zip/{ref_}"
-    ))
-}
-
 pub fn install_from_path(install: &CatalogInstall, dest: &Path) -> Result<(), MarketplaceError> {
     let url = install
         .url
@@ -341,82 +359,42 @@ pub fn install_from_path(install: &CatalogInstall, dest: &Path) -> Result<(), Ma
     copy_dir_recursive(&src, dest)
 }
 
-pub fn git_fetch_and_checkout(repo_path: &Path, ref_: &str) -> Result<(), MarketplaceError> {
-    let output = git_command()
-        .args(["fetch", "origin", "--tags"])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|err| MarketplaceError::CommandFailed(format!("git fetch: {err}")))?;
-    if !output.status.success() {
-        return Err(MarketplaceError::CommandFailed(format!(
-            "git fetch failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    let output = git_command()
-        .args(["checkout", ref_])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|err| MarketplaceError::CommandFailed(format!("git checkout: {err}")))?;
-    if !output.status.success() {
-        return Err(MarketplaceError::CommandFailed(format!(
-            "git checkout failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    Ok(())
-}
-
-pub fn git_pull(repo_path: &Path) -> Result<(), MarketplaceError> {
-    let output = git_command()
-        .args(["pull", "--ff-only"])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|err| MarketplaceError::CommandFailed(format!("git pull: {err}")))?;
-    if !output.status.success() {
-        return Err(MarketplaceError::CommandFailed(format!(
-            "git pull failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    Ok(())
-}
-
-pub fn git_remote_url(repo_path: &Path) -> Result<String, MarketplaceError> {
-    let output = git_command()
-        .args(["remote", "get-url", "origin"])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|err| MarketplaceError::CommandFailed(format!("git remote get-url: {err}")))?;
-    if !output.status.success() {
-        return Err(MarketplaceError::CommandFailed(format!(
-            "git remote get-url failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
 // ── zip / sha256 ─────────────────────────────────────────────────────────────
+
+pub fn required_archive_sha256(install: &CatalogInstall) -> Result<String, MarketplaceError> {
+    let url = install.url.as_deref().unwrap_or("<missing-url>");
+    let Some(value) = install.sha256.as_deref() else {
+        return Err(MarketplaceError::MissingArchiveChecksum { url: url.into() });
+    };
+    let normalized = normalize_sha256(value);
+    if normalized.len() != 64 || !normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(MarketplaceError::InvalidArchiveChecksum {
+            value: value.to_string(),
+        });
+    }
+    Ok(normalized)
+}
+
+pub fn validate_install_integrity(install: &CatalogInstall) -> Result<(), MarketplaceError> {
+    match install.install_type.as_str() {
+        "git" => required_git_commit(install).map(|_| ()),
+        "zip" => required_archive_sha256(install).map(|_| ()),
+        _ => Ok(()),
+    }
+}
 
 pub fn verify_archive_sha256(
     bytes: &[u8],
-    expected: Option<&str>,
+    expected: &str,
     url: &str,
 ) -> Result<(), MarketplaceError> {
-    let Some(expected) = expected
-        .map(normalize_sha256)
-        .filter(|value| !value.is_empty())
-    else {
-        return Ok(());
-    };
     let actual = sha256_hex(bytes);
-    if actual.eq_ignore_ascii_case(&expected) {
+    if actual.eq_ignore_ascii_case(expected) {
         return Ok(());
     }
     Err(MarketplaceError::HashMismatch {
         url: url.to_string(),
-        expected,
+        expected: expected.to_string(),
         actual,
     })
 }
@@ -429,7 +407,7 @@ fn normalize_sha256(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(super) fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(digest.len() * 2);
     for byte in digest {

@@ -39,7 +39,9 @@ fn hide_command_window(command: &mut std::process::Command) {
 fn hide_command_window(_: &mut std::process::Command) {}
 
 // Re-export the public API for convenience.
-pub use add_repo::{install_from_repo, list_repo_skills, parse_repo_ref};
+pub use add_repo::{
+    install_from_repo, install_from_repo_at_commit, list_repo_skills, parse_repo_ref,
+};
 pub use error::MarketplaceError;
 pub use package::{
     MarketplacePackOptions, MarketplacePackResult, MarketplacePublishOptions,

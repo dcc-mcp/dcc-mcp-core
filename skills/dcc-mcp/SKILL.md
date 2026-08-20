@@ -482,8 +482,9 @@ dcc-mcp-cli marketplace install <profile_package_name> --target game:the-bazaar
 `--query "maya rigging"` remains supported for scripts. Search and inspect are
 read-only; install/update require consent. Inspect is optional when the exact
 package ID is already known, and `--dcc` is optional for single-DCC packages.
-After updates or installs without `--reload`, run `reload-skills`; then use
-`load-skill` only if the adapter did not auto-load it.
+Catalog Git installs require a full commit object ID and ZIP installs require a
+valid SHA-256 before I/O. Direct `marketplace add-repo` installation requires `--commit <40-hex-oid>`; only its read-only `--list` mode may omit it.
+After updates or installs without `--reload`, run `reload-skills`; then use `load-skill` only if the adapter did not auto-load it.
 
 Use `install` for adapter plans, never for marketplace Skills:
 
@@ -495,6 +496,5 @@ package installation as live registration. If no standard DCC is found, ask for 
 the returned policy prompt and hand off to the named deployment owner.
 
 The CLI is the **default agent-facing control plane**. The Python fallback uses
-the same gateway REST endpoints only when the CLI is unavailable after a
-verified install attempt fails. The gateway still serves MCP for IDE clients in
-parallel; choosing this skill does not replace or disable the IDE MCP path.
+the same gateway REST endpoints only when the CLI is unavailable after a verified install attempt fails.
+The gateway still serves MCP for IDE clients in parallel; choosing this skill does not replace or disable the IDE MCP path.

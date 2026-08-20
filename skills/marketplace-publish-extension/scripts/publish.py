@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -182,6 +183,7 @@ def _build_catalog_entry(
     install_url: str,
     install_type: str,
     install_ref: str | None,
+    sha256: str | None,
     version: str | None,
     maintainer: str | None,
     icon: str | None,
@@ -190,6 +192,10 @@ def _build_catalog_entry(
     extension_url: str | None,
 ) -> dict[str, Any]:
     """Build a CatalogEntry dict from SKILL.md metadata and CLI inputs."""
+    if install_type == "git" and not re.fullmatch(r"[0-9a-fA-F]{40}", install_ref or ""):
+        raise ValueError("git installs require a full 40-character commit object ID")
+    if install_type == "zip" and not re.fullmatch(r"(?:sha256:)?[0-9a-fA-F]{64}", sha256 or ""):
+        raise ValueError("zip installs require exactly 64 hexadecimal SHA-256 digits")
     dcc_mcp_meta = skill_md.get("metadata", {}).get("dcc-mcp", {})
 
     # Name from SKILL.md frontmatter
@@ -237,6 +243,8 @@ def _build_catalog_entry(
 
     if install_ref:
         entry["install"]["ref"] = install_ref
+    if sha256:
+        entry["install"]["sha256"] = sha256
 
     if entry_version:
         entry["version"] = entry_version
@@ -462,7 +470,16 @@ def main() -> None:
     )
     parser.add_argument("--install_url", required=True, help="Install source URL for the CatalogEntry")
     parser.add_argument("--install_type", default="git", choices=["git", "path", "zip"], help="Install source type")
-    parser.add_argument("--install_ref", default=None, help="Git ref, branch, or tag for git-type installs")
+    parser.add_argument(
+        "--install_ref",
+        default=None,
+        help="Full 40-character commit object ID for git-type installs",
+    )
+    parser.add_argument(
+        "--sha256",
+        default=None,
+        help="Required 64-hex SHA-256 for zip-type installs",
+    )
     parser.add_argument("--version", default=None, help="Semantic version (overrides SKILL.md metadata if set)")
     parser.add_argument("--maintainer", default=None, help="Extension maintainer name")
     parser.add_argument("--icon", default=None, help="Icon path or URL for the CatalogEntry")
@@ -506,6 +523,7 @@ def main() -> None:
             install_url=args.install_url,
             install_type=args.install_type,
             install_ref=args.install_ref,
+            sha256=args.sha256,
             version=args.version,
             maintainer=args.maintainer,
             icon=args.icon,

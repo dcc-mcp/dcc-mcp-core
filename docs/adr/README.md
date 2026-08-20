@@ -28,6 +28,7 @@ Decision / Consequences / Alternatives considered.
 | 021 | [Use content-addressed revisions for cross-DCC asset sync](./021-content-addressed-asset-sync.md) | Accepted |
 | 022 | [Canonical Tool Result Envelope](./022-canonical-tool-result-envelope.md) | Accepted |
 | 023 | [Installation-Bound Binary Updates](./023-installation-bound-binary-updates.md) | Accepted |
+| 024 | [Immutable Marketplace Install Sources](./024-immutable-marketplace-install-sources.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any
