@@ -6,11 +6,14 @@
 //! (cached tokens) to quantify the allocation/CPU saving.
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use dcc_mcp_actions::ToolRegistry;
 use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
+use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::catalog::inverted_index::InvertedIndex;
 use dcc_mcp_skills::catalog::scoring::{FieldTokens, score_skills, score_skills_with_tokens};
 use rand::RngExt;
 use std::hint::black_box;
+use std::sync::Arc;
 
 // ── Synthetic skill generation ──────────────────────────────────────────
 
@@ -203,5 +206,24 @@ fn bench_score_skills(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench_score_skills);
+fn bench_catalog_search(c: &mut Criterion) {
+    for n in [1_000usize, 10_000] {
+        let (metas, _, _, _) = synthetic_catalogue(n);
+        let catalog = SkillCatalog::new(Arc::new(ToolRegistry::new()));
+        for metadata in metas {
+            catalog.add_skill(metadata);
+        }
+
+        // Build the lazy index outside the measured loop. The benchmark then
+        // captures candidate selection + scoring without catalog-wide clones.
+        black_box(catalog.search_skills(Some("polygon bevel"), &[], None, None, Some(25)));
+        c.bench_function(&format!("catalog_search/{n}_skills"), |b| {
+            b.iter(|| {
+                black_box(catalog.search_skills(Some("polygon bevel"), &[], None, None, Some(25)));
+            })
+        });
+    }
+}
+
+criterion_group!(benches, bench_score_skills, bench_catalog_search);
 criterion_main!(benches);

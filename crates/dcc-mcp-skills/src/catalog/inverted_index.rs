@@ -15,7 +15,8 @@
 //!   `register`, `remove`, `add_skill`, `remove_skill`, `rediscover`,
 //!   `load_skill_object` (via `refresh_tokens`), and `load_skill_metadata`
 //!   (via `refresh_tokens`).
-//! - **Re-built** on the next search after invalidation.
+//! - **Re-built** synchronously on the next indexed search after invalidation,
+//!   borrowing catalog entries instead of deep-cloning them.
 //! - The `stale` flag is cheap (`AtomicBool`); invalidation never blocks on
 //!   the index lock.
 //!
@@ -31,12 +32,9 @@
 //!
 //! # Fallback path
 //!
-//! When the index is stale (e.g. because it hasn't been rebuilt yet after a
-//! mutation), `search_skills` falls back to the existing linear scan. The
-//! stale flag is checked at the top of the query path; if set, the index is
-//! not used and the linear path is taken. The flag is only cleared after a
-//! successful rebuild. This guarantees correctness at all times — stale
-//! index = slower, but never wrong results.
+//! Tokenless queries use the linear scan. A stale index is rebuilt before it
+//! participates in candidate selection and the flag is cleared only after a
+//! successful rebuild.
 
 use super::scoring::FieldTokens;
 use dashmap::DashMap;
