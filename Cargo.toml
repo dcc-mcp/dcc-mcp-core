@@ -257,10 +257,15 @@ prometheus = ["dcc-mcp-http/prometheus", "dcc-mcp-telemetry/prometheus"]
 # (issue #328). Forwards to `dcc-mcp-http/job-persist-sqlite`. Off by
 # default — when disabled, zero SQLite code compiles into the wheel.
 job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
-# Enable the admin UI (Vite bundle in gateway). Forwards to
-# `dcc-mcp-gateway/admin`. Off by default — when disabled, zero admin
-# UI code or front-end assets are compiled into the wheel.
-admin = ["dcc-mcp-gateway/admin"]
+# Enable the admin UI (Vite bundle in gateway). Forwards to both the
+# direct `dcc-mcp-gateway` dep and, crucially, the gateway pulled in via
+# `dcc-mcp-http`'s default `auto-gateway` feature (issue #2182). Off by
+# default — when disabled, zero admin UI code or front-end assets are
+# compiled into the wheel.
+admin = ["dcc-mcp-gateway/admin", "dcc-mcp-http/admin"]
+# Persist gateway admin state in SQLite (bundled `rusqlite`). Opt-in; off
+# by default so the default wheel compiles no bundled C SQLite (issue #2182).
+admin-persist-sqlite = ["dcc-mcp-http/admin-persist-sqlite", "dcc-mcp-gateway/admin-persist-sqlite"]
 # Opt-in local Tracy profiling through the existing logging subscriber.
 tracy = ["dcc-mcp-logging/tracy"]
 
