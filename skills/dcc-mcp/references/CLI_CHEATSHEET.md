@@ -151,8 +151,8 @@ paths, or full tool payloads.
 
 | Command | Purpose |
 |---------|---------|
-| `dcc-mcp-cli install --dcc-type maya --version 2026` | Build an auditable adapter install plan with machine-readable `next_steps`, without changing local state |
-| `dcc-mcp-cli install --dcc-type maya --version 2026 --python "<mayapy>" --execute` | Execute package install after consent; rolls back on failure and verifies pip/path outputs |
+| `dcc-mcp-cli install --dcc-type maya` | Build an auditable adapter install plan with a catalog-pinned wheel URL, version, SHA-256, and machine-readable `next_steps` |
+| `dcc-mcp-cli install --dcc-type maya --python "<mayapy>" --execute` | Execute the verified wheel after consent; roll back on failure and verify the installed package version |
 | `dcc-mcp-cli install --dcc-type maya --dcc-path "<maya-executable>"` | Supply a non-standard DCC executable/application path when the host is not found automatically |
 | `dcc-mcp-cli marketplace search --query "maya rigging" --limit 20` | Find installable Skill packages with released and current CLI builds |
 | `dcc-mcp-cli marketplace inspect <package_name>` | Inspect the selected skill package metadata before installing |

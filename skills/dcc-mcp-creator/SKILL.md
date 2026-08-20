@@ -82,7 +82,9 @@ the server from its exact target environment. Gateway Admin is check-only.
 1. Classify the ownership boundary before creating files:
    - Public DCC adapter: run `dcc-mcp-cli dcc-types`; improve an existing
      adapter instead of creating a duplicate. Add a genuinely new public
-     adapter to `dcc-mcp-catalog.yml` and the compatibility matrix.
+     adapter to `dcc-mcp-catalog.yml` and the compatibility matrix. A pip
+     install entry requires the released universal wheel's exact HTTPS URL,
+     catalog version, and SHA-256; omit install metadata until it is published.
    - Private non-DCC service: work in the supplied local or intranet project,
      keep its stable custom service id private, and do not require a GitHub
      repository, public catalog entry, issue, or release. Use a studio-owned

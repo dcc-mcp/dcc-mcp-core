@@ -296,6 +296,7 @@ enum Command {
     Install {
         #[arg(long)]
         dcc_type: String,
+        /// Exact adapter package version; must match the catalog-pinned artifact.
         #[arg(long)]
         version: Option<String>,
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]

@@ -93,6 +93,12 @@ pub enum InstallStepAction {
         /// Optional Python/mayapy interpreter path override.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         python: Option<String>,
+        /// Immutable wheel artifact URL declared by the catalog.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        artifact_url: Option<String>,
+        /// Required SHA-256 for the declared wheel artifact.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sha256: Option<String>,
     },
     /// Check out a git repository at an immutable commit.
     GitClone {
@@ -146,6 +152,10 @@ pub enum InstallPlanError {
     UnpinnedGitReference,
     #[error("zip install requires exactly 64 hexadecimal SHA-256 digits")]
     InvalidArchiveChecksum,
+    #[error("pip install requires a package, version, universal wheel URL, and SHA-256")]
+    InvalidPipArtifact,
+    #[error("requested pip version '{requested}' differs from catalog version '{catalog}'")]
+    PipVersionMismatch { requested: String, catalog: String },
 }
 
 // ── defaults ─────────────────────────────────────────────────────────────────────
@@ -165,7 +175,11 @@ fn dirs_data_dir() -> PathBuf {
 
 pub struct InstallPlanner;
 
-fn validate_install_integrity(install: &CatalogInstall) -> Result<(), InstallPlanError> {
+fn validate_install_integrity(
+    entry: &CatalogEntry,
+    install: &CatalogInstall,
+    requested_version: Option<&str>,
+) -> Result<(), InstallPlanError> {
     match install.install_type.as_str() {
         "git" => {
             let reference = install.ref_.as_deref().unwrap_or_default().trim();
@@ -178,6 +192,74 @@ fn validate_install_integrity(install: &CatalogInstall) -> Result<(), InstallPla
             let checksum = value.strip_prefix("sha256:").unwrap_or(value);
             if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
                 return Err(InstallPlanError::InvalidArchiveChecksum);
+            }
+        }
+        "pip" => {
+            let package = install.pip_package.as_deref().unwrap_or_default().trim();
+            let catalog_version = entry.version.as_deref().unwrap_or_default().trim();
+            let artifact_url = install.url.as_deref().unwrap_or_default().trim();
+            let value = install.sha256.as_deref().unwrap_or_default().trim();
+            let checksum = value.strip_prefix("sha256:").unwrap_or(value);
+            let normalized_package = package
+                .chars()
+                .map(|character| match character {
+                    '-' | '.' => '_',
+                    other => other.to_ascii_lowercase(),
+                })
+                .collect::<String>();
+            let filename = artifact_url.rsplit('/').next().unwrap_or_default();
+            let expected_prefix = format!("{normalized_package}-{catalog_version}-");
+            let valid_package = !package.is_empty()
+                && package
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && package
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && package
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+            let valid_extras = install.pip_extras.as_ref().is_none_or(|values| {
+                values.iter().all(|value| {
+                    !value.is_empty()
+                        && value
+                            .as_bytes()
+                            .first()
+                            .is_some_and(u8::is_ascii_alphanumeric)
+                        && value
+                            .as_bytes()
+                            .last()
+                            .is_some_and(u8::is_ascii_alphanumeric)
+                        && value.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
+                        })
+                })
+            });
+            let valid_artifact = artifact_url.starts_with("https://")
+                && !artifact_url.contains('#')
+                && !artifact_url.contains('?')
+                && filename
+                    .to_ascii_lowercase()
+                    .starts_with(&expected_prefix.to_ascii_lowercase())
+                && filename.ends_with("-py3-none-any.whl");
+            if !valid_package
+                || !valid_extras
+                || catalog_version.is_empty()
+                || !valid_artifact
+                || checksum.len() != 64
+                || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(InstallPlanError::InvalidPipArtifact);
+            }
+            if let Some(requested) = requested_version
+                && requested.trim() != catalog_version
+            {
+                return Err(InstallPlanError::PipVersionMismatch {
+                    requested: requested.into(),
+                    catalog: catalog_version.into(),
+                });
             }
         }
         _ => {}
@@ -201,11 +283,11 @@ impl InstallPlanner {
             .ok_or_else(|| InstallPlanError::UnsupportedDcc(request.dcc_type.clone()))?;
 
         let dcc_type = request.dcc_type.clone();
-        let version = request.version.clone();
+        let version = request.version.clone().or_else(|| adapter.version.clone());
         let dcc_path = request.dcc_path.clone();
 
         if let Some(install) = &adapter.install {
-            validate_install_integrity(install)?;
+            validate_install_integrity(&adapter, install, request.version.as_deref())?;
         }
 
         let steps = match &adapter.install {
@@ -256,6 +338,8 @@ impl InstallPlanner {
                     version,
                     extras: install.pip_extras.clone(),
                     python,
+                    artifact_url: install.url.clone(),
+                    sha256: install.sha256.clone(),
                 }
             }
             "git" => InstallStepAction::GitClone {
@@ -604,7 +688,7 @@ mod tests {
             targets: vec![],
             url: Some("https://example.invalid/adapter".into()),
             tags: vec!["official".into()],
-            version: None,
+            version: Some("0.3.0".into()),
             min_core_version: None,
             install,
             package: None,
@@ -693,9 +777,12 @@ mod tests {
     fn planner_generates_executable_steps_for_pip_install() {
         let install = CatalogInstall {
             install_type: "pip".into(),
-            url: Some("https://pypi.org/project/dcc-mcp-maya".into()),
+            url: Some(
+                "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.3.0-py3-none-any.whl"
+                    .into(),
+            ),
             ref_: None,
-            sha256: None,
+            sha256: Some("a".repeat(64)),
             skill_roots: None,
             pip_package: Some("dcc-mcp-maya".into()),
             pip_extras: Some(vec!["maya".into()]),
@@ -727,12 +814,19 @@ mod tests {
             version,
             extras,
             python,
+            artifact_url,
+            sha256,
         }) = &plan.steps[0].action
         {
             assert_eq!(package, "dcc-mcp-maya");
-            assert_eq!(version, &None);
+            assert_eq!(version.as_deref(), Some("0.3.0"));
             assert_eq!(extras.as_deref(), Some(&["maya".into()][..]));
             assert_eq!(python.as_deref(), Some("/usr/bin/mayapy"));
+            assert!(artifact_url.as_deref().unwrap().ends_with(".whl"));
+            assert_eq!(
+                sha256.as_deref(),
+                Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            );
         } else {
             panic!("expected PipInstall action");
         }
@@ -869,9 +963,12 @@ mod tests {
     fn planner_prefers_catalog_install_instructions_url() {
         let install = CatalogInstall {
             install_type: "pip".into(),
-            url: None,
+            url: Some(
+                "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.3.0-py3-none-any.whl"
+                    .into(),
+            ),
             ref_: None,
-            sha256: None,
+            sha256: Some("a".repeat(64)),
             skill_roots: None,
             pip_package: Some("dcc-mcp-maya".into()),
             pip_extras: None,
@@ -995,6 +1092,71 @@ mod tests {
     }
 
     #[test]
+    fn planner_rejects_unpinned_pip_artifacts_and_version_overrides() {
+        let mut install = CatalogInstall {
+            install_type: "pip".into(),
+            url: None,
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        };
+        let entry = |install| catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
+        let request = |version: Option<&str>| InstallRequest {
+            dcc_type: "maya".into(),
+            version: version.map(str::to_string),
+            catalog_path: None,
+            python: None,
+            dcc_path: None,
+        };
+
+        let error = InstallPlanner::plan(&[entry(install.clone())], request(None)).unwrap_err();
+        assert_eq!(error, InstallPlanError::InvalidPipArtifact);
+
+        install.url = Some(
+            "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.3.0-py3-none-any.whl"
+                .into(),
+        );
+        install.sha256 = Some("a".repeat(64));
+        assert!(InstallPlanner::plan(&[entry(install.clone())], request(None)).is_ok());
+
+        let error = InstallPlanner::plan(&[entry(install)], request(Some("0.2.0"))).unwrap_err();
+        assert_eq!(
+            error,
+            InstallPlanError::PipVersionMismatch {
+                requested: "0.2.0".into(),
+                catalog: "0.3.0".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn legacy_pip_plan_deserializes_without_integrity_but_cannot_hide_it() {
+        let action: InstallStepAction = serde_json::from_value(serde_json::json!({
+            "type": "PipInstall",
+            "package": "dcc-mcp-maya",
+            "version": "0.9.22"
+        }))
+        .unwrap();
+
+        match action {
+            InstallStepAction::PipInstall {
+                artifact_url,
+                sha256,
+                ..
+            } => {
+                assert!(artifact_url.is_none());
+                assert!(sha256.is_none());
+            }
+            other => panic!("expected PipInstall action, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn planner_missing_install_metadata_uses_info_steps() {
         let entries = vec![catalog_entry("dcc-mcp-blender", &["blender"], None)];
         let plan = InstallPlanner::plan(
@@ -1017,9 +1179,12 @@ mod tests {
     fn planner_prefers_requested_python_for_pip_install() {
         let install = CatalogInstall {
             install_type: "pip".into(),
-            url: None,
+            url: Some(
+                "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.3.0-py3-none-any.whl"
+                    .into(),
+            ),
             ref_: None,
-            sha256: None,
+            sha256: Some("a".repeat(64)),
             skill_roots: None,
             pip_package: Some("dcc-mcp-maya".into()),
             pip_extras: None,
@@ -1052,9 +1217,12 @@ mod tests {
     fn planner_prefers_adapter_entry_over_skill_pack() {
         let install = CatalogInstall {
             install_type: "pip".into(),
-            url: None,
+            url: Some(
+                "https://files.pythonhosted.org/packages/example/dcc_mcp_photoshop-0.3.0-py3-none-any.whl"
+                    .into(),
+            ),
             ref_: None,
-            sha256: None,
+            sha256: Some("a".repeat(64)),
             skill_roots: None,
             pip_package: Some("dcc-mcp-photoshop".into()),
             pip_extras: None,

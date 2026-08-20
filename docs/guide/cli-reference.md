@@ -168,9 +168,9 @@ dcc-mcp-cli call unity.abc12345.run_tests --require-gateway --wait --wait-timeou
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
-dcc-mcp-cli install --dcc-type maya --version 2026
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
+dcc-mcp-cli install --dcc-type maya
+dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
+dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
 dcc-mcp-cli marketplace add dcc-mcp/marketplace
 dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
 dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
@@ -223,7 +223,7 @@ their worker-owned status tool.
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | local registry + per-instance `/v1/readyz`, or remote gateway inventory + `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
 | `reload-skills [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call dcc_admin__reload_skills`, or remote `POST /v1/dcc/{dcc}/instances/{id}/call` | Ask running adapters to re-scan skill search paths after marketplace installs or path changes. |
 | `stop-instance --dcc-type <dcc> --instance-id <id>` | local `safe_stop_url` or remote `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request to instances that advertise `safe_stop_url`. |
-| `install --dcc-type <dcc> [--version <v>] [--python <path>] [--dcc-path <path>] [--execute]` | catalog-backed local plan / executor | Resolve the matching adapter and emit an auditable install plan; if the host is non-standard, supply its executable/application path with `--dcc-path`. With `--execute`, the path is verified before completion. |
+| `install --dcc-type <dcc> [--version <catalog-version>] [--python <path>] [--dcc-path <path>] [--execute]` | catalog-backed local plan / executor | Resolve the matching adapter and emit an auditable install plan. Pip adapters use the catalog-pinned wheel URL and SHA-256; `--version` may only repeat that artifact version. If the host is non-standard, supply its path with `--dcc-path`. |
 | `marketplace add <source>` | local source registry | Register a marketplace source (`dcc-mcp/marketplace`, a GitHub `owner/repo`, raw JSON URL, or local catalog file). |
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
 | `marketplace search [-q\|--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Fuzzy-rank Skill packages across configured or explicit sources using the shared search engine; the query flag works with released builds, while current builds also accept positional words as an alternative. Deduplicate by package name before applying `--limit`; `--dcc-type` is an alias for `--dcc`. |
@@ -310,10 +310,11 @@ plus the manual host-plugin start step. Pass `--python` (or
 `DCC_MCP_INSTALL_PYTHON`) when a pip-based adapter must be installed into a DCC
 interpreter such as `mayapy`, `hython`, or Blender's bundled Python. Pass
 `--execute` to prompt for consent and run executable package-install steps.
-Execution rolls back completed steps when a later step fails, uses
-`<python> -m pip` for pip installs, verifies pip installs with `pip show`, and
-verifies git/zip/path installs by checking that their target path exists and is
-not an empty directory. A DCC is considered online only after its host plugin or
+Execution rolls back completed steps when a later step fails. Pip installs use
+an HTTPS wheel bound to the catalog package/version and SHA-256, pass pip a
+direct reference with `#sha256=`, and verify the installed version with
+`pip show`. Git/ZIP/path installs verify that their target exists and is not an
+empty directory. A DCC is considered online only after its host plugin or
 sidecar starts, remains alive, and appears in `dcc-mcp-cli list`; the CLI does
 not fake gateway registration during install.
 

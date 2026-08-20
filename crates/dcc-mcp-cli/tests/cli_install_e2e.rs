@@ -83,7 +83,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
             "--dcc-type",
             "maya",
             "--version",
-            "0.11.2",
+            "0.9.22",
             "--python",
             "C:/Autodesk/Maya2026/bin/mayapy.exe",
         ],
@@ -97,7 +97,17 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
     assert_eq!(plan["steps"][0]["name"], "install-pip");
     assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
     assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-maya");
-    assert_eq!(plan["steps"][0]["action"]["version"], "0.11.2");
+    assert_eq!(plan["steps"][0]["action"]["version"], "0.9.22");
+    assert_eq!(
+        plan["steps"][0]["action"]["sha256"],
+        "b288c2bf95014f827d3833ef5af4f7c36b2ff8a465ac647f9feb2163bc44397b"
+    );
+    assert!(
+        plan["steps"][0]["action"]["artifact_url"]
+            .as_str()
+            .unwrap()
+            .ends_with("dcc_mcp_maya-0.9.22-py3-none-any.whl")
+    );
     assert_eq!(
         plan["steps"][0]["action"]["python"],
         "C:/Autodesk/Maya2026/bin/mayapy.exe"
@@ -205,6 +215,48 @@ fn bundled_catalog_reports_current_unity_adapter_version() {
 
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-unity");
     assert_eq!(plan["adapter"]["version"], "0.11.2");
+}
+
+#[test]
+fn install_rejects_pip_version_without_a_catalog_pinned_artifact() {
+    let output = cli_command()
+        .args([
+            "install",
+            "--dcc-type",
+            "maya",
+            "--version",
+            "0.9.21",
+            "--output",
+            "json",
+        ])
+        .env_remove("DCC_MCP_CATALOG_PATH")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("differs from catalog version '0.9.22'")
+    );
+}
+
+#[test]
+fn unpublished_adapters_do_not_advertise_automatic_install_steps() {
+    for dcc_type in ["tiled", "material-maker", "wwise"] {
+        let plan = run_json_with_env_removed(
+            &["install", "--dcc-type", dcc_type],
+            &[],
+            &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+        );
+        assert!(plan["adapter"]["install"].is_null(), "{dcc_type}");
+        assert!(
+            plan["steps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|step| step["action"].is_null()),
+            "{dcc_type}"
+        );
+    }
 }
 
 #[test]

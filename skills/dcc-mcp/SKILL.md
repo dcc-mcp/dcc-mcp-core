@@ -489,10 +489,10 @@ After updates or installs without `--reload`, run `reload-skills`; then use `loa
 Use `install` for adapter plans, never for marketplace Skills:
 
 ```bash
-dcc-mcp-cli install --dcc-type maya --version 2026
+dcc-mcp-cli install --dcc-type maya
 ```
 Ask before `--execute`, follow the returned `next_steps`, and do not treat
-package installation as live registration. If no standard DCC is found, ask for an absolute path and pass `--dcc-path`. If auto-install is disabled, show
+package installation as live registration. Pip plans must preserve the catalog-pinned artifact; see the CLI cheatsheet. If no standard DCC is found, ask for an absolute path and pass `--dcc-path`. If auto-install is disabled, show
 the returned policy prompt and hand off to the named deployment owner.
 
 The CLI is the **default agent-facing control plane**. The Python fallback uses
