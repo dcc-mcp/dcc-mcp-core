@@ -57,8 +57,14 @@ GitHub Release 会附带可直接解压部署的
 `dcc-mcp/dcc-cua` 项目单独发布为 `dcc-cua`；Core 运行时校验其
 machine manifest，但不再打包或更新它。manifest 必须声明
 `runtime.separate_driver_required=false`，因此部署不会再添加独立的 `cua-driver`
-资产。`dcc-mcp-server update apply` 在所有平台
-都只校验并暂存 server binary，CUA 保持独立发布生命周期。
+资产。请从目标安装环境运行 `dcc-mcp-server update apply`。有更新时 manifest
+必须提供 URL 和有效 SHA-256；server 会校验下载资产，只暂存一个与当前安装绑定
+的 server binary，并在替换前再次校验。损坏的 v2 staging 与旧 unsigned marker
+会被隔离，现有 server 继续运行。CUA 保持独立发布生命周期。
+
+从旧版本第一次升级到强制摘要版本时，执行的仍是旧 updater。高保证部署应通过
+外部 SHA-256 已验证的 release 资产安装首个修复版本。摘要只能证明资产与 manifest
+一致，不等同于发布者签名；detached manifest signature 属于后续独立信任层。
 
 ### 安装路径
 

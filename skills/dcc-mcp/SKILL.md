@@ -463,7 +463,7 @@ Load `dcc-mcp-skills-creator` and request `review_skill_improvement` with bounde
 
 ## Updates and Marketplace Maintenance
 
-Use the gateway release manifest for binary checks. `update apply` stages the CLI for its next launch; a running server must be updated in its own environment. The Admin Instances panel remains check-only because the gateway cannot prove an instance's installation root. See the CLI cheatsheet for platform manifests, server updates, and the verified `dcc-cua` sibling contract.
+Use the gateway release manifest for binary checks. An available binary must have a valid SHA-256; `update apply` verifies it during download, binds one component to the exact CLI installation, and re-verifies it before replacement and restart. Legacy unsigned staging is quarantined. A running server must be updated in its own environment. The Admin Instances panel is check-only for every binary because the gateway cannot prove an installation root. See the CLI cheatsheet for platform manifests, server updates, and the verified `dcc-cua` sibling contract.
 
 ```bash
 dcc-mcp-cli update check

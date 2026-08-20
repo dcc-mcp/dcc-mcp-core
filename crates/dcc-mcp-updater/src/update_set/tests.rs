@@ -66,6 +66,94 @@ fn stage_set_rejects_missing_and_hash_mismatch_without_marker() {
 }
 
 #[test]
+fn single_binary_update_rejects_tampered_staged_bytes() {
+    let temp = tempfile::tempdir().unwrap();
+    let current = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
+    let downloaded = write_fixture(temp.path(), "cli.download", b"new-cli");
+    let expected_sha256 = sha256_file(&downloaded).unwrap();
+    let binary_name = unique_name("tampered-single");
+
+    stage_verified_binary_update_for(&binary_name, &current, &downloaded, &expected_sha256)
+        .unwrap();
+    let staged = installation_root(&binary_name, &current)
+        .join(PENDING_SET_DIR)
+        .join("component-0.bin");
+    std::fs::write(staged, b"tampered-cli").unwrap();
+
+    let error = apply_staged_binary_update_for(&binary_name, &current).unwrap_err();
+
+    assert!(matches!(error, UpdateError::RejectedStagedUpdate { .. }));
+    assert_eq!(std::fs::read(&current).unwrap(), b"old-cli");
+    assert!(
+        !installation_root(&binary_name, &current)
+            .join(PENDING_SET_DIR)
+            .exists()
+    );
+    assert!(!apply_staged_binary_update_for(&binary_name, &current).unwrap());
+}
+
+#[test]
+fn single_binary_update_rejects_staged_sibling_components() {
+    let temp = tempfile::tempdir().unwrap();
+    let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
+    let sibling = write_fixture(temp.path(), "dcc-mcp-host.exe", b"old-host");
+    let server_download = write_fixture(temp.path(), "server.download", b"new-server");
+    let host_download = write_fixture(temp.path(), "host.download", b"new-host");
+    let server_sha = sha256_file(&server_download).unwrap();
+    let host_sha = sha256_file(&host_download).unwrap();
+    let current_target = UpdateTarget::CurrentExecutable;
+    let sibling_target = UpdateTarget::Sibling {
+        file_name: "dcc-mcp-host.exe".into(),
+    };
+    let binary_name = unique_name("foreign-set");
+    stage_update_set_for(
+        &binary_name,
+        &current,
+        &[
+            UpdateSetSource {
+                downloaded: &server_download,
+                target: &current_target,
+                expected_sha256: &server_sha,
+            },
+            UpdateSetSource {
+                downloaded: &host_download,
+                target: &sibling_target,
+                expected_sha256: &host_sha,
+            },
+        ],
+    )
+    .unwrap();
+
+    let error = apply_staged_binary_update_for(&binary_name, &current).unwrap_err();
+
+    assert!(matches!(error, UpdateError::RejectedStagedUpdate { .. }));
+    assert!(error.to_string().contains("single binary"));
+    assert_eq!(std::fs::read(&current).unwrap(), b"old-server");
+    assert_eq!(std::fs::read(sibling).unwrap(), b"old-host");
+    assert!(
+        !installation_root(&binary_name, &current)
+            .join(PENDING_SET_DIR)
+            .exists()
+    );
+}
+
+#[test]
+fn clearing_a_staged_binary_update_preserves_the_current_executable() {
+    let temp = tempfile::tempdir().unwrap();
+    let current = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
+    let downloaded = write_fixture(temp.path(), "cli.download", b"new-cli");
+    let expected_sha256 = sha256_file(&downloaded).unwrap();
+    let binary_name = unique_name("clear-single");
+    stage_verified_binary_update_for(&binary_name, &current, &downloaded, &expected_sha256)
+        .unwrap();
+
+    clear_staged_binary_update_for(&binary_name, &current).unwrap();
+
+    assert!(!apply_staged_binary_update_for(&binary_name, &current).unwrap());
+    assert_eq!(std::fs::read(current).unwrap(), b"old-cli");
+}
+
+#[test]
 fn sibling_target_rejects_windows_ads_and_ambiguous_names() {
     for file_name in [
         "host.exe:stream",

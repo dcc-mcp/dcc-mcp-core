@@ -264,10 +264,15 @@ adapter 启动时被发现。要让运行中的 adapter 立即看到准确包名
 manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 `GatewayConfig.update_manifest_url`）配置。`update check` 只读取
 `/v1/update/check`，适合人和 agent 使用；CLI 会在请求前默认确保本机 gateway
-存在。`update apply` 只暂存 CLI binary。Admin 实例页只检查 server 是否有更新；
-gateway 无法证明本机或远端实例的实际安装目录，因此不会代替实例暂存 server。
-请在目标 server 环境运行 `dcc-mcp-server update apply`。所有平台都只校验和暂存
-server 自身；独立的 `dcc-cua` CLI 单独更新。
+存在。有更新时，manifest 必须同时提供 URL 和 64 位十六进制 SHA-256。
+`update apply` 流式下载并校验该资产，只暂存一个与当前安装绑定的 CLI component；
+下次启动替换前会再次校验，替换后用原参数重启 CLI。旧的 `pending.bin` /
+`pending.marker` 没有摘要，只会被隔离，绝不会应用。
+
+Admin 实例页对所有 binary 都只做检查；gateway 无法证明本机或远端实例的实际
+安装目录，因此不会代替目标环境暂存更新。请在目标 server 环境运行
+`dcc-mcp-server update apply`。它使用相同的强制摘要与应用前复验契约，并且只
+暂存 server 自身；独立的 `dcc-cua` CLI 单独更新。
 
 `lint` 复用生产 `dcc-mcp-skills` validator，因此本地检查与运行时加载会因同一类
 结构问题失败。CI 也通过 `just lint-skills` 显式传入仓库 skill roots，跑同一条

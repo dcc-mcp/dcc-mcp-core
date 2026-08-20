@@ -1524,7 +1524,7 @@ fn update_check_auto_starts_builtin_local_gateway() {
 }
 
 #[test]
-fn staged_update_applies_before_version_short_circuit() {
+fn legacy_unsigned_update_is_quarantined_before_version_short_circuit() {
     let temp = TempDir::new().unwrap();
     let source = std::path::Path::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
     let cli = temp.path().join(source.file_name().unwrap());
@@ -1561,8 +1561,23 @@ fn staged_update_applies_before_version_short_circuit() {
     );
     assert!(
         !marker.exists(),
-        "--version must apply a staged update before clap exits; stderr: {}",
+        "--version must quarantine a legacy staged update before clap exits; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(&cli).unwrap(),
+        std::fs::read(source).unwrap(),
+        "legacy unsigned bytes must never replace the CLI"
+    );
+    assert!(
+        std::fs::read_dir(&staging)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("legacy-unsigned-")),
+        "legacy update should be retained in a quarantine directory"
     );
 }
 
@@ -1665,7 +1680,10 @@ fn update_check_supports_server_binary_versions() {
         update["download_url"],
         "https://example.invalid/dcc-mcp-server.zip"
     );
-    assert_eq!(update["sha256"], "abc123");
+    assert_eq!(
+        update["sha256"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
     assert_eq!(update["release_notes"], "Server update");
 }
 

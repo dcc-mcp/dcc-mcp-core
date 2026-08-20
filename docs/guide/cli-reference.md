@@ -355,11 +355,17 @@ source was removed) are silently skipped.
 manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or
 `GatewayConfig.update_manifest_url`). `update check` is safe for both humans
 and agents because it only reads `/v1/update/check`; the CLI auto-ensures the
-local gateway before the request. `update apply` stages only the CLI binary.
-The Admin Instances panel checks server availability but does not stage an
-update because the gateway cannot prove a selected local or remote instance's
-installation root. Run `dcc-mcp-server update apply` in the exact server
-environment. On every platform that command validates and stages only the
+local gateway before the request. An available entry is valid only when its URL
+and 64-hex SHA-256 are present. `update apply` streams and verifies that exact
+asset, stages one installation-bound CLI component, and re-verifies it before
+replacement on the next launch. The CLI then restarts with the original
+arguments. Legacy `pending.bin` / `pending.marker` state is unsigned and is
+quarantined rather than applied.
+
+The Admin Instances panel is check-only for every binary because the gateway
+cannot prove a selected local or remote instance's installation root. Run
+`dcc-mcp-server update apply` in the exact server environment. It uses the same
+mandatory digest and apply-time verification contract and stages only the
 server binary. The standalone `dcc-cua` CLI is released independently and is
 reconciled through `components ensure`; it is not part of the gateway update
 manifest.

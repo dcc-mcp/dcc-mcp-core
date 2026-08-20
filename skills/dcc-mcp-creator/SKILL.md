@@ -61,8 +61,10 @@ Use the `dcc-mcp` skill and `dcc-mcp-cli` for discovery, validation, and live
 DCC control whenever the agent can run shell commands. If the CLI is missing,
 follow the consent-gated official installation instructions in `dcc-mcp`.
 Before long-lived validation, run `dcc-mcp-cli update check`; use
-`dcc-mcp-cli update apply` to stage the latest CLI for the next launch. This
-does not replace a running server binary.
+`dcc-mcp-cli update apply` to verify and stage the latest CLI for the next
+launch. Apply-time verification is installation-bound and legacy unsigned
+staging is quarantined. This does not replace a running server binary; update
+the server from its exact target environment. Gateway Admin is check-only.
 
 ## Runtime Vocabulary
 

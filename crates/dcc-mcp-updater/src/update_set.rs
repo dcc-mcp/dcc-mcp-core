@@ -14,6 +14,7 @@ use super::{UpdateError, sha256_bytes, sha256_file, staging_dir};
 const PENDING_SET_DIR: &str = "pending-set";
 const PREVIOUS_SET_DIR: &str = "pending-set.previous";
 const COMMITTED_SET_PREFIX: &str = "pending-set.committed-";
+const REJECTED_SET_PREFIX: &str = "pending-set.rejected-";
 const MANIFEST_FILE: &str = "manifest.json";
 const JOURNAL_FILE: &str = "journal.json";
 const APPLIED_GENERATION_FILE: &str = "applied-generation.json";
@@ -111,6 +112,42 @@ struct JournalEntry {
     had_original: bool,
     original_sha256: Option<String>,
     expected_sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateSetPolicy {
+    Any,
+    CurrentExecutableOnly,
+}
+
+/// Stage one verified binary update bound to the current executable.
+pub fn stage_verified_binary_update(
+    binary_name: &str,
+    downloaded: &Path,
+    expected_sha256: &str,
+) -> Result<(), UpdateError> {
+    let current_exe = std::env::current_exe().map_err(|_| UpdateError::NoExePath)?;
+    stage_verified_binary_update_for(binary_name, &current_exe, downloaded, expected_sha256)
+}
+
+/// Stage one verified binary update for an explicit executable path.
+#[doc(hidden)]
+pub fn stage_verified_binary_update_for(
+    binary_name: &str,
+    current_exe: &Path,
+    downloaded: &Path,
+    expected_sha256: &str,
+) -> Result<(), UpdateError> {
+    let target = UpdateTarget::CurrentExecutable;
+    stage_update_set_for(
+        binary_name,
+        current_exe,
+        &[UpdateSetSource {
+            downloaded,
+            target: &target,
+            expected_sha256,
+        }],
+    )
 }
 
 /// Stage a complete update set and bind it to this executable installation.
@@ -273,6 +310,74 @@ pub fn apply_staged_update_set(binary_name: &str) -> Result<bool, UpdateError> {
     apply_staged_update_set_for(binary_name, &current_exe)
 }
 
+/// Apply one staged binary update bound to the current executable.
+pub fn apply_staged_binary_update(binary_name: &str) -> Result<bool, UpdateError> {
+    let current_exe = std::env::current_exe().map_err(|_| UpdateError::NoExePath)?;
+    apply_staged_binary_update_for(binary_name, &current_exe)
+}
+
+/// Apply one staged binary update for an explicit executable path.
+#[doc(hidden)]
+pub fn apply_staged_binary_update_for(
+    binary_name: &str,
+    current_exe: &Path,
+) -> Result<bool, UpdateError> {
+    apply_staged_update_set_for_build_with_policy(
+        binary_name,
+        current_exe,
+        env!("CARGO_PKG_VERSION"),
+        UPDATE_LOCK_TIMEOUT,
+        UpdateSetPolicy::CurrentExecutableOnly,
+    )
+}
+
+/// Clear one staged binary update bound to the current executable.
+pub fn clear_staged_binary_update(binary_name: &str) -> Result<(), UpdateError> {
+    let current_exe = std::env::current_exe().map_err(|_| UpdateError::NoExePath)?;
+    clear_staged_binary_update_for(binary_name, &current_exe)
+}
+
+/// Clear one staged binary update for an explicit executable path.
+#[doc(hidden)]
+pub fn clear_staged_binary_update_for(
+    binary_name: &str,
+    current_exe: &Path,
+) -> Result<(), UpdateError> {
+    let current_exe = canonical_existing(current_exe)?;
+    let root = installation_staging_dir(binary_name, &current_exe)?;
+    let _lock = acquire_installation_lock(&root, &current_exe, UPDATE_LOCK_TIMEOUT)?;
+    recover_stage_swap(&root)?;
+    cleanup_committed_sets(&root)?;
+
+    let pending = root.join(PENDING_SET_DIR);
+    if !pending.exists() {
+        return Ok(());
+    }
+    if !pending.is_dir() {
+        return Err(UpdateError::Stage(format!(
+            "pending binary update is not a directory: {}",
+            pending.display()
+        )));
+    }
+    let manifest: UpdateSetManifest = read_json(&pending.join(MANIFEST_FILE))?;
+    validate_single_binary_manifest(&manifest, &current_exe)?;
+
+    let journal_path = pending.join(JOURNAL_FILE);
+    if journal_path.is_file() {
+        let journal: UpdateJournal = read_json(&journal_path)?;
+        if journal.state == JournalState::Committed {
+            persist_applied_generation(&root, &manifest)?;
+            finish_committed(&pending, &journal)?;
+            return Ok(());
+        }
+        rollback(&journal)?;
+        std::fs::remove_file(&journal_path)?;
+        cleanup_committed_entries(&journal)?;
+    }
+    std::fs::remove_dir_all(pending)?;
+    Ok(())
+}
+
 /// Apply a complete staged update set to an explicit executable path.
 #[doc(hidden)]
 pub fn apply_staged_update_set_for(
@@ -301,6 +406,22 @@ fn apply_staged_update_set_for_build_with_timeout(
     current_build_version: &str,
     lock_timeout: Duration,
 ) -> Result<bool, UpdateError> {
+    apply_staged_update_set_for_build_with_policy(
+        binary_name,
+        current_exe,
+        current_build_version,
+        lock_timeout,
+        UpdateSetPolicy::Any,
+    )
+}
+
+fn apply_staged_update_set_for_build_with_policy(
+    binary_name: &str,
+    current_exe: &Path,
+    current_build_version: &str,
+    lock_timeout: Duration,
+    policy: UpdateSetPolicy,
+) -> Result<bool, UpdateError> {
     let current_exe = canonical_existing(current_exe)?;
     let root = installation_staging_dir(binary_name, &current_exe)?;
     let _lock = acquire_installation_lock(&root, &current_exe, lock_timeout)?;
@@ -311,13 +432,24 @@ fn apply_staged_update_set_for_build_with_timeout(
     if !pending.is_dir() {
         return applied_generation_requires_reexec(&root, &current_exe, current_build_version);
     }
-    let manifest: UpdateSetManifest = read_json(&pending.join(MANIFEST_FILE))?;
-    if manifest.format_version != 2 {
-        return Err(UpdateError::Stage(
-            "unsupported staged update-set format".into(),
-        ));
+    let manifest: UpdateSetManifest = match read_json(&pending.join(MANIFEST_FILE)) {
+        Ok(manifest) => manifest,
+        Err(error)
+            if policy == UpdateSetPolicy::CurrentExecutableOnly
+                && is_rejectable_manifest_read_error(&error) =>
+        {
+            return reject_pending_set(&root, &pending, error);
+        }
+        Err(error) => return Err(error),
+    };
+    if let Err(error) = validate_manifest_shape(&manifest) {
+        return reject_or_return(policy, &root, &pending, error);
     }
-    if !paths_equal(&current_exe, &manifest.bound_executable) {
+    if policy == UpdateSetPolicy::CurrentExecutableOnly {
+        if let Err(error) = validate_single_binary_manifest(&manifest, &current_exe) {
+            return reject_pending_set(&root, &pending, error);
+        }
+    } else if !paths_equal(&current_exe, &manifest.bound_executable) {
         return Err(UpdateError::Stage(format!(
             "staged update belongs to a different executable: {}",
             manifest.bound_executable.display()
@@ -348,10 +480,15 @@ fn apply_staged_update_set_for_build_with_timeout(
 
     let actual_source_sha = sha256_file(&current_exe)?;
     if !actual_source_sha.eq_ignore_ascii_case(&manifest.source_server_sha256) {
-        return Err(UpdateError::Stage(format!(
-            "staged update source changed: expected {}, got {actual_source_sha}",
-            manifest.source_server_sha256
-        )));
+        return reject_or_return(
+            policy,
+            &root,
+            &pending,
+            UpdateError::Stage(format!(
+                "staged update source changed: expected {}, got {actual_source_sha}",
+                manifest.source_server_sha256
+            )),
+        );
     }
 
     let install_dir = current_exe
@@ -360,30 +497,41 @@ fn apply_staged_update_set_for_build_with_timeout(
     let mut entries = Vec::with_capacity(manifest.components.len());
     let mut seen_targets = HashSet::new();
     for component in &manifest.components {
-        validate_target(&component.target)?;
-        validate_expected_sha(&component.sha256)?;
         let source = pending.join(&component.staged_file);
         if !source.is_file() {
-            return Err(UpdateError::Stage(format!(
-                "staged update component is missing: {}",
-                source.display()
-            )));
+            return reject_or_return(
+                policy,
+                &root,
+                &pending,
+                UpdateError::Stage(format!(
+                    "staged update component is missing: {}",
+                    source.display()
+                )),
+            );
         }
         let actual = sha256_file(&source)?;
         if !actual.eq_ignore_ascii_case(&component.sha256) {
-            return Err(UpdateError::ChecksumMismatch {
-                expected: component.sha256.clone(),
-                actual,
-            });
+            return reject_or_return(
+                policy,
+                &root,
+                &pending,
+                UpdateError::ChecksumMismatch {
+                    expected: component.sha256.clone(),
+                    actual,
+                },
+            );
         }
         let target = match &component.target {
             UpdateTarget::CurrentExecutable => current_exe.clone(),
             UpdateTarget::Sibling { file_name } => install_dir.join(file_name),
         };
         if !seen_targets.insert(path_key(&target)) {
-            return Err(UpdateError::Stage(
-                "staged update contains duplicate resolved targets".into(),
-            ));
+            return reject_or_return(
+                policy,
+                &root,
+                &pending,
+                UpdateError::Stage("staged update contains duplicate resolved targets".into()),
+            );
         }
         let file_name = target
             .file_name()
@@ -967,6 +1115,94 @@ fn unique_nonce() -> Result<String, UpdateError> {
             .map_err(|error| UpdateError::Stage(error.to_string()))?
             .as_nanos()
     ))
+}
+
+fn validate_single_binary_manifest(
+    manifest: &UpdateSetManifest,
+    current_exe: &Path,
+) -> Result<(), UpdateError> {
+    if manifest.format_version != 2 {
+        return Err(UpdateError::Stage(
+            "unsupported staged update-set format".into(),
+        ));
+    }
+    if !paths_equal(current_exe, &manifest.bound_executable) {
+        return Err(UpdateError::Stage(format!(
+            "staged update belongs to a different executable: {}",
+            manifest.bound_executable.display()
+        )));
+    }
+    if manifest.components.len() != 1
+        || !matches!(
+            manifest.components[0].target,
+            UpdateTarget::CurrentExecutable
+        )
+    {
+        return Err(UpdateError::Stage(
+            "single binary update contains foreign or sibling components".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_manifest_shape(manifest: &UpdateSetManifest) -> Result<(), UpdateError> {
+    if manifest.format_version != 2 {
+        return Err(UpdateError::Stage(
+            "unsupported staged update-set format".into(),
+        ));
+    }
+    validate_expected_sha(&manifest.source_server_sha256)?;
+    if manifest.components.is_empty() {
+        return Err(UpdateError::Stage(
+            "staged update set must contain at least one component".into(),
+        ));
+    }
+    for (index, component) in manifest.components.iter().enumerate() {
+        let expected_file = format!("component-{index}.bin");
+        if component.staged_file != expected_file {
+            return Err(UpdateError::Stage(format!(
+                "invalid staged component path: {:?}",
+                component.staged_file
+            )));
+        }
+        validate_target(&component.target)?;
+        validate_expected_sha(&component.sha256)?;
+    }
+    Ok(())
+}
+
+fn is_rejectable_manifest_read_error(error: &UpdateError) -> bool {
+    matches!(error, UpdateError::Json(_))
+        || matches!(error, UpdateError::Io(error) if error.kind() == std::io::ErrorKind::NotFound)
+}
+
+fn reject_or_return<T>(
+    policy: UpdateSetPolicy,
+    root: &Path,
+    pending: &Path,
+    error: UpdateError,
+) -> Result<T, UpdateError> {
+    if policy == UpdateSetPolicy::CurrentExecutableOnly {
+        reject_pending_set(root, pending, error)
+    } else {
+        Err(error)
+    }
+}
+
+fn reject_pending_set<T>(
+    root: &Path,
+    pending: &Path,
+    error: UpdateError,
+) -> Result<T, UpdateError> {
+    let reason = error.to_string();
+    let rejected = root.join(format!("{REJECTED_SET_PREFIX}{}", unique_nonce()?));
+    std::fs::rename(pending, &rejected).map_err(|quarantine_error| {
+        UpdateError::Stage(format!(
+            "invalid staged update ({reason}); quarantine failed: {quarantine_error}"
+        ))
+    })?;
+    tracing::warn!(path = %rejected.display(), %reason, "quarantined invalid staged update");
+    Err(UpdateError::RejectedStagedUpdate { reason })
 }
 
 fn validate_target(target: &UpdateTarget) -> Result<(), UpdateError> {

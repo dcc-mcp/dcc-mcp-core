@@ -9,7 +9,6 @@ use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use dcc_mcp_gateway_core::naming::instance_short;
-use dcc_mcp_updater::{UpdateInfo, Updater};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -166,7 +165,7 @@ pub async fn handle_admin_instances(
     .into_response()
 }
 
-/// `POST /admin/api/instances/{instance_id}/update` — check and optionally stage a server update.
+/// `POST /admin/api/instances/{instance_id}/update` — check an instance update.
 pub async fn handle_admin_instance_update(
     State(s): State<AdminState>,
     Path(instance_filter): Path<String>,
@@ -179,7 +178,7 @@ pub async fn handle_admin_instance_update(
         .filter(|value| !value.is_empty())
         .unwrap_or("dcc-mcp-server")
         .to_string();
-    let apply = req.apply.unwrap_or(true);
+    let apply = req.apply.unwrap_or(false);
 
     let instance = match admin_find_instance_entry(&s, &instance_filter).await {
         Ok(entry) => entry,
@@ -284,6 +283,32 @@ pub async fn handle_admin_instance_update(
 
     let update_available =
         crate::gateway::is_newer_version(&manifest_entry.version, &current_version);
+    let verified_asset = if update_available {
+        match manifest_entry.require_asset(&binary_name) {
+            Ok(asset) => Some(asset),
+            Err(error) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({
+                        "status": "manifest_error",
+                        "error": "invalid_update_manifest",
+                        "message": error.to_string(),
+                        "instance_id": instance_id,
+                        "instance_short": instance_short_id,
+                        "binary_name": binary_name,
+                        "current_version": displayed_current_version,
+                        "current_version_source": current_version_source,
+                        "latest_version": manifest_entry.version,
+                        "update_available": false,
+                        "requires_restart": false,
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        None
+    };
     if !update_available || !apply {
         return Json(json!({
             "status": if update_available { "available" } else { "up_to_date" },
@@ -293,8 +318,10 @@ pub async fn handle_admin_instance_update(
             "current_version": displayed_current_version,
             "current_version_source": current_version_source,
             "latest_version": manifest_entry.version,
-            "download_url": manifest_entry.url,
-            "sha256": manifest_entry.sha256,
+            "download_url": verified_asset.as_ref().map(|asset| asset.url),
+            "sha256": verified_asset
+                .as_ref()
+                .map(|asset| asset.sha256.as_str()),
             "release_notes": manifest_entry.release_notes,
             "update_available": update_available,
             "requires_restart": false,
@@ -307,120 +334,35 @@ pub async fn handle_admin_instance_update(
         .into_response();
     }
 
-    // The gateway cannot prove that a selected instance uses its own current
-    // executable or installation root. Staging a server update here would let
-    // another local/remote instance consume a binary_name-only marker and,
-    // on Windows, could pair the server with the wrong sibling host. Keep
-    // Admin check-only and require apply from the exact target environment.
-    if binary_name == "dcc-mcp-server" {
-        return (
-            StatusCode::CONFLICT,
-            Json(json!({
-                "status": "target_environment_required",
-                "error": "server_update_target_unproven",
-                "message": "Server updates must be staged from the target installation. Run `dcc-mcp-server update apply` in that server environment.",
-                "instance_id": instance_id,
-                "instance_short": instance_short_id,
-                "binary_name": binary_name,
-                "current_version": displayed_current_version,
-                "current_version_source": current_version_source,
-                "latest_version": manifest_entry.version,
-                "update_available": true,
-                "requires_restart": false,
-            })),
-        )
-            .into_response();
-    }
-
-    if manifest_entry.url.is_none() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({
-                "status": "download_failed",
-                "error": "download_url_not_configured",
-                "message": format!("No download URL is configured for binary '{binary_name}'."),
-                "instance_id": instance_id,
-                "instance_short": instance_short_id,
-                "binary_name": binary_name,
-                "current_version": displayed_current_version,
-                "current_version_source": current_version_source,
-                "latest_version": manifest_entry.version,
-                "update_available": true,
-                "requires_restart": false,
-            })),
-        )
-            .into_response();
-    }
-
-    let info = UpdateInfo {
-        update_available,
-        current_version: current_version.clone(),
-        latest_version: manifest_entry.version.clone(),
-        download_url: manifest_entry.url.clone(),
-        sha256: manifest_entry.sha256.clone(),
-        release_notes: manifest_entry.release_notes.clone(),
-    };
-    let updater = Updater::new("http://127.0.0.1", &binary_name, &current_version);
-    let downloaded = match updater.download_update(&info).await {
-        Ok(path) => path,
-        Err(err) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({
-                    "status": "download_failed",
-                    "error": "update_download_failed",
-                    "message": err.to_string(),
-                    "instance_id": instance_id,
-                    "instance_short": instance_short_id,
-                    "binary_name": binary_name,
-                    "current_version": displayed_current_version,
-                    "current_version_source": current_version_source,
-                    "latest_version": manifest_entry.version,
-                    "update_available": true,
-                    "requires_restart": false,
-                })),
-            )
-                .into_response();
-        }
-    };
-
-    if let Err(err) = Updater::stage_update(&downloaded, &binary_name) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "status": "stage_failed",
-                "error": "update_stage_failed",
-                "message": err.to_string(),
-                "instance_id": instance_id,
-                "instance_short": instance_short_id,
-                "binary_name": binary_name,
-                "current_version": displayed_current_version,
-                "current_version_source": current_version_source,
-                "latest_version": manifest_entry.version,
-                "update_available": true,
-                "requires_restart": false,
-            })),
-        )
-            .into_response();
-    }
-
-    Json(json!({
-        "status": "staged",
-        "instance_id": instance_id,
-        "instance_short": instance_short_id,
-        "binary_name": binary_name,
-        "current_version": displayed_current_version,
-        "current_version_source": current_version_source,
-        "latest_version": manifest_entry.version,
-        "download_url": manifest_entry.url,
-        "sha256": manifest_entry.sha256,
-        "release_notes": manifest_entry.release_notes,
-        "staged_at": downloaded.to_string_lossy(),
-        "update_available": true,
-        "requires_restart": true,
-        "message": "Update downloaded and staged. Restart the binary to apply.",
-    }))
-    .into_response()
+    // The gateway cannot prove which executable installation should consume
+    // a staged update. Keep Admin check-only for every binary and require the
+    // updater to run inside the exact target environment.
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "status": "target_environment_required",
+            "error": "update_target_unproven",
+            "message": format!(
+                "Updates for '{binary_name}' must be staged from the exact target installation."
+            ),
+            "instance_id": instance_id,
+            "instance_short": instance_short_id,
+            "binary_name": binary_name,
+            "current_version": displayed_current_version,
+            "current_version_source": current_version_source,
+            "latest_version": manifest_entry.version,
+            "download_url": verified_asset
+                .as_ref()
+                .map(|asset| asset.url),
+            "sha256": verified_asset
+                .as_ref()
+                .map(|asset| asset.sha256.as_str()),
+            "release_notes": manifest_entry.release_notes,
+            "update_available": true,
+            "requires_restart": false,
+        })),
+    )
+        .into_response()
 }
 
 async fn admin_find_instance_entry(

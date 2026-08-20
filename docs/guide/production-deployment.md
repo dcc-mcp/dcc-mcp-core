@@ -63,13 +63,22 @@ standalone `cua-driver` asset.
 ### Server self-update transaction
 
 Run `dcc-mcp-server update apply` from the exact target installation. On every
-platform it verifies and stages only the server binary. The next server launch
-applies that installation-bound update with rollback/journal recovery and then
-starts the new server image. `dcc-cua` has its own release lifecycle.
+platform an available manifest entry must contain a URL and valid SHA-256. The
+server verifies the downloaded asset, stages only one installation-bound server
+binary, and re-verifies it before replacement. The next launch applies it with
+rollback/journal recovery and starts the new server image. Invalid v2 staging
+and legacy unsigned markers are quarantined while the existing server remains
+available. `dcc-cua` has its own release lifecycle.
 
 The Admin Instances panel is check-only. A gateway cannot prove the selected
-local or remote instance's executable directory, so it never stages a
-`dcc-mcp-server` update by binary name alone.
+local or remote instance's executable directory, so it never stages any binary
+update by name alone.
+
+The first upgrade from an older release still runs that older release's update
+code. High-assurance deployments should install the first digest-enforcing
+release through an externally SHA-256-verified release asset. Digest validation
+proves consistency with the manifest, not publisher authenticity; detached
+manifest signatures are a separate trust layer.
 
 ### Install Location
 

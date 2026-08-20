@@ -38,17 +38,21 @@ impl UpdateService {
             }));
         }
 
-        // Download the update archive
-        let downloaded = self.updater.download_update(&info).await?;
+        // Download and verify the update binary.
+        let downloaded = self.updater.download_verified_update(&info).await?;
 
         // Stage it for replacement on next launch
-        Updater::stage_update(&downloaded, self.updater.binary_name())?;
+        Updater::stage_verified_update(
+            downloaded.path(),
+            self.updater.binary_name(),
+            downloaded.sha256(),
+        )?;
 
         Ok(serde_json::json!({
             "status": "staged",
             "current_version": info.current_version,
             "latest_version": info.latest_version,
-            "staged_at": downloaded.to_string_lossy(),
+            "staged_at": downloaded.path().to_string_lossy(),
             "message": "Update downloaded and staged. Restart the binary to apply.",
         }))
     }

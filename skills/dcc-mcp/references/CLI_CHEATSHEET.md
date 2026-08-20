@@ -35,8 +35,12 @@ dcc-mcp-cli components status dcc-cua
 dcc-mcp-cli components ensure dcc-cua --yes
 ```
 
-`update apply` downloads and stages the latest CLI for the next launch. It does
-not update a running `dcc-mcp-server`; update that server in its own environment.
+`update apply` requires the available entry's 64-hex SHA-256, verifies the
+streamed download, and stages one component bound to the exact CLI installation.
+The next launch re-verifies the bytes before replacement and restarts with the
+original arguments. Legacy unsigned staging is quarantined. It does not update
+a running `dcc-mcp-server`; update that server in its own environment. Gateway
+Admin remains check-only for every binary.
 The official CLI installer also reconciles the independently released
 `dcc-cua` sibling. `components status` is read-only; `components ensure`
 requires explicit `--yes`, a mandatory archive SHA-256, and an exact official

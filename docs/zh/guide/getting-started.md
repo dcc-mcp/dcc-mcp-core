@@ -66,8 +66,9 @@ dcc-mcp-cli update check
 dcc-mcp-cli update apply
 ```
 
-`update apply` 会暂存最新版 CLI，并在下一次启动时生效；它不会替换正在运行的
-`dcc-mcp-server`，server 需要在自己的运行环境中单独更新。
+`update apply` 会强制读取 release manifest 的 SHA-256、校验下载的 CLI，并为
+下一次启动暂存。替换前会再次校验 staged bytes，之后用相同参数重启 CLI。它不会
+替换正在运行的 `dcc-mcp-server`，server 需要在自己的运行环境中单独更新。
 
 CLI 也提供了独立 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
 可从每个 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases) 下载。

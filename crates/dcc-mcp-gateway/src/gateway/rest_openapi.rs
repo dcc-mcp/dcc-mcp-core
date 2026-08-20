@@ -757,13 +757,20 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "binary_name": {"type": "string", "description": "Present on CLI-normalized payloads or binary-specific errors."},
                     "latest_version": {"type": "string", "description": "Present when the binary exists in the update manifest."},
                     "download_url": {"type": ["string", "null"], "format": "uri"},
-                    "sha256": {"type": ["string", "null"]},
+                    "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{64}$"},
                     "release_notes": {"type": ["string", "null"]},
                     "status": {"type": "string", "description": "Present on structured error responses."},
                     "error": {"type": "string"},
                     "message": {"type": "string"},
                     "hint": {"type": "string"}
                 },
+                "allOf": [{
+                    "if": {
+                        "properties": {"update_available": {"const": true}},
+                        "required": ["update_available"]
+                    },
+                    "then": {"required": ["download_url", "sha256"]}
+                }],
                 "additionalProperties": true,
             }),
         ),
@@ -773,6 +780,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                 "type": "object",
                 "properties": {
                     "download_url": {"type": "string", "format": "uri"},
+                    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
                     "status": {"type": "string"},
                     "error": {"type": "string"},
                     "message": {"type": "string"},
@@ -780,6 +788,10 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "latest_version": {"type": "string"},
                     "update_available": {"type": "boolean"}
                 },
+                "oneOf": [
+                    {"required": ["download_url", "sha256"]},
+                    {"required": ["error"]}
+                ],
                 "additionalProperties": true,
             }),
         ),
@@ -1478,3 +1490,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "rest_openapi_contract_tests.rs"]
+mod contract_tests;
