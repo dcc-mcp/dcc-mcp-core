@@ -12,7 +12,12 @@ use dcc_mcp_skill_rest::InvocationCancellation;
 use crate::executor::DccExecutorHandle;
 use crate::server_state::ServerState;
 
-use super::wire::{decode_dispatch_wire, encode_dispatch_wire, use_main_thread_route};
+pub(crate) fn use_main_thread_route(
+    thread_affinity: ThreadAffinity,
+    executor_present: bool,
+) -> bool {
+    matches!(thread_affinity, ThreadAffinity::Main) && executor_present
+}
 
 pub struct ThreadRoutingDispatch<'a> {
     pub dispatcher: dcc_mcp_actions::ToolDispatcher,
@@ -51,16 +56,15 @@ async fn run_on_main_thread(
     let task = Box::new(move || {
         with_optional_job_context(job_context, || {
             with_execution_context(exec_ctx, || {
-                encode_dispatch_wire(dcc_mcp_actions::with_thread_affinity(
-                    ThreadAffinity::Main,
-                    || dispatcher.dispatch(&resolved_name, call_params, meta),
-                ))
+                dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+                    dispatcher.dispatch(&resolved_name, call_params, meta)
+                })
             })
         })
     });
-    let json_str = if let Some(cancellation) = cancellation {
+    if let Some(cancellation) = cancellation {
         let cancel_token = cancellation.cancel_token().clone();
-        let response = executor.submit_deferred(&tool_name, cancel_token.clone(), task);
+        let response = executor.submit_deferred_typed(&tool_name, cancel_token.clone(), task);
         let outcome = response
             .await
             .map_err(|_| DispatchError::HandlerError("CANCELLED".to_string()))?;
@@ -70,11 +74,10 @@ async fn run_on_main_thread(
         outcome
     } else {
         executor
-            .execute(task)
+            .execute_typed(task)
             .await
             .map_err(|e| DispatchError::HandlerError(e.to_string()))?
-    };
-    decode_dispatch_wire(&json_str)
+    }
 }
 
 struct WorkerDispatch {

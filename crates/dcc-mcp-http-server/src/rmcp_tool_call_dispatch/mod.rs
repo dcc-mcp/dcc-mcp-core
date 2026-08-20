@@ -3,11 +3,11 @@
 mod handlers;
 mod helpers;
 mod thread_route;
-mod wire;
 
-pub(crate) use thread_route::dispatch_action_with_thread_routing_cancellable;
 pub use thread_route::{ThreadRoutingDispatch, dispatch_action_with_thread_routing};
-pub(crate) use wire::{decode_dispatch_output, encode_dispatch_wire, use_main_thread_route};
+pub(crate) use thread_route::{
+    dispatch_action_with_thread_routing_cancellable, use_main_thread_route,
+};
 
 use serde_json::Value;
 
@@ -1227,7 +1227,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn async_main_thread_job_decodes_deferred_dispatch_wire() {
+    async fn async_main_thread_job_preserves_typed_dispatch_result() {
         let registry = ToolRegistry::new();
         let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
         let seen_meta = Arc::new(parking_lot::Mutex::new(None::<Value>));
