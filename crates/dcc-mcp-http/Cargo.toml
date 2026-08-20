@@ -25,7 +25,7 @@ dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 # Gateway sub-features (admin UI, SQLite persistence) are NOT enabled
 # here — they are forwarded through the `admin` / `admin-persist-sqlite`
 # feature gates below so the default wheel path pulls in neither the Vite
-# admin bundle, bundled SQLite, nor Prometheus (issue #2182).
+# admin bundle nor the Prometheus exporter (issue #2182).
 dcc-mcp-gateway = { path = "../dcc-mcp-gateway", optional = true }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
