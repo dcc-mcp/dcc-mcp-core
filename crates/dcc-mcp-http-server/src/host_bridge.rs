@@ -17,10 +17,10 @@
 //! # Responsibility (SRP)
 //!
 //! This module is pure glue. It takes an [`Arc<dyn DccDispatcher>`]
-//! and returns a [`DccExecutorHandle`] that forwards every submitted
-//! [`crate::executor::DccTaskFn`] through `dispatcher.post(...)` and
-//! relays the resulting `String` back through the `oneshot` the HTTP
-//! layer already expects. It does not own the dispatcher, does not
+//! and returns a [`DccExecutorHandle`] that forwards each type-erased
+//! runnable through `dispatcher.post(...)`. Typed result channels are
+//! captured by the runnable itself, so the bridge never serializes them.
+//! It does not own the dispatcher, does not
 //! own the executor, and does not touch `AppState` or the request
 //! hot path.
 //!
@@ -38,7 +38,7 @@
 
 use std::sync::Arc;
 
-use dcc_mcp_host::{DccDispatcher, DccDispatcherExt, DispatchError};
+use dcc_mcp_host::{DccDispatcher, DccDispatcherExt};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
@@ -61,17 +61,8 @@ pub const DEFAULT_BRIDGE_QUEUE_DEPTH: usize = 16;
 /// tune the depth via the HTTP config `bridge_queue_depth`.
 ///
 /// A single background tokio task (spawned on `runtime`) drains the
-/// synthesized handle's mpsc, forwards each closure into
-/// `dispatcher.post(...)`, awaits the post, and ships the resulting
-/// `String` through the oneshot the HTTP hot path already awaits on.
-///
-/// # Error encoding
-///
-/// On [`DispatchError`] we encode the failure as a
-/// `{"__dispatch_error": "..."}` JSON string, matching the convention
-/// used by the HTTP tools/call sync implementation.
-/// The HTTP layer's `decode_dispatch_output` unwraps this into a
-/// user-facing error without introducing a new error type.
+/// synthesized handle's mpsc and forwards each runnable into
+/// `dispatcher.post(...)`.
 #[must_use]
 pub fn dispatcher_to_executor_handle(
     dispatcher: Arc<dyn DccDispatcher>,
@@ -99,39 +90,14 @@ pub fn dispatcher_to_executor_handle_with_capacity(
     let (tx, mut rx) = mpsc::channel::<DccTask>(depth);
 
     runtime.spawn(async move {
-        while let Some(DccTask { func, result_tx }) = rx.recv().await {
-            let post = dispatcher.post(func);
-            let payload = match post.await {
-                Ok(json_string) => json_string,
-                Err(err) => encode_dispatch_error(&err),
-            };
-            // Ignore send failures: the HTTP caller may have dropped
-            // its receiver after a timeout. That's their contract,
-            // not ours.
-            let _ = result_tx.send(payload);
+        while let Some(DccTask { func }) = rx.recv().await {
+            if let Err(error) = dispatcher.post(func).await {
+                tracing::warn!(%error, "host dispatcher rejected HTTP executor task");
+            }
         }
     });
 
     DccExecutorHandle::from_sender(tx, depth)
-}
-
-/// Encode a [`DispatchError`] as the `{"__dispatch_error": "..."}`
-/// JSON string the HTTP hot path understands.
-///
-/// The tag prefix (`shutdown:` / `dropped:` / `panic:`) mirrors the
-/// convention in [`dcc_mcp_host::python::PyPostHandle::wait`] so
-/// Python and Rust surfaces report the same failure taxonomy.
-fn encode_dispatch_error(err: &DispatchError) -> String {
-    let tag = match err {
-        DispatchError::Shutdown => "shutdown",
-        DispatchError::ResultDropped => "dropped",
-        DispatchError::Panic(_) => "panic",
-        DispatchError::QueueOverloaded { .. } => "queue-overloaded",
-    };
-    serde_json::to_string(&serde_json::json!({
-        "__dispatch_error": format!("{tag}: {err}"),
-    }))
-    .unwrap_or_else(|_| r#"{"__dispatch_error":"dispatch failure"}"#.to_string())
 }
 
 #[cfg(test)]
@@ -170,9 +136,9 @@ mod tests {
         ticker.join().unwrap();
     }
 
-    /// Panics inside the closure surface as `__dispatch_error` JSON.
+    /// Panics close the typed task result channel.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn panic_surfaces_as_dispatch_error_json() {
+    async fn panic_closes_typed_result_channel() {
         let dispatcher: Arc<dyn DccDispatcher> = Arc::new(QueueDispatcher::new());
         let handle = dispatcher_to_executor_handle(dispatcher.clone(), &Handle::current());
 
@@ -182,32 +148,31 @@ mod tests {
             dispatcher_tick.tick(16);
         });
 
-        let got = handle
+        let error = handle
             .execute(Box::new(|| panic!("boom in closure")))
             .await
-            .unwrap();
-        assert!(
-            got.contains("__dispatch_error") && got.contains("panic"),
-            "expected __dispatch_error json for panic, got: {got}"
-        );
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            dcc_mcp_http_types::error::HttpError::ExecutorClosed
+        ));
     }
 
-    /// After the dispatcher shuts down, submits surface as
-    /// `__dispatch_error: shutdown` JSON.
+    /// After dispatcher shutdown, typed task result channels close.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn shutdown_surfaces_as_dispatch_error_json() {
+    async fn shutdown_closes_typed_result_channel() {
         let dispatcher: Arc<dyn DccDispatcher> = Arc::new(QueueDispatcher::new());
         let handle = dispatcher_to_executor_handle(dispatcher.clone(), &Handle::current());
 
         dispatcher.shutdown();
 
-        let got = handle
+        let error = handle
             .execute(Box::new(|| "never runs".to_string()))
             .await
-            .unwrap();
-        assert!(
-            got.contains("__dispatch_error") && got.contains("shutdown"),
-            "expected __dispatch_error json for shutdown, got: {got}"
-        );
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            dcc_mcp_http_types::error::HttpError::ExecutorClosed
+        ));
     }
 }

@@ -11,6 +11,11 @@ Use this table when choosing adapter runtime wiring for a new DCC.
 | Houdini | `hou` | Event-loop callback or headless hython dispatcher | Node graph writes are main-thread-sensitive. |
 | Maya | `maya.cmds` / OpenMaya | UI dispatcher in GUI; standalone serialized dispatcher in mayapy | Do not special-case Maya patterns into core without parameterizing host identity. |
 | Photoshop / Adobe | UXP/CEP/ExtendScript | External bridge or UI Control contract | Use structured bridge calls; do not depend on a Python-in-host runtime. |
+
+Core main-thread routing carries typed Rust results through the in-process
+executor. Adapters should submit through `DccDispatcher` / the core executor
+seam and must not add a JSON encode/decode envelope between same-process
+queues. JSON remains a transport boundary only (HTTP, MCP, IPC, or host RPC).
 | Custom studio tool | Python, socket, HTTP, or CLI | Start with the least-powerful bridge that can satisfy typed tools | Document auth, scope, and shutdown behavior up front. |
 
 ## Host API Rules

@@ -50,6 +50,35 @@ async fn submit_deferred_runs_closure_on_pumped_thread() {
 }
 
 #[tokio::test]
+async fn execute_typed_preserves_non_json_result() {
+    #[derive(Debug, PartialEq)]
+    struct TypedResult {
+        action: &'static str,
+        code: u32,
+    }
+
+    let mut exec = DeferredExecutor::new(16);
+    let handle = exec.handle();
+    let task = tokio::spawn(async move {
+        handle
+            .execute_typed(|| TypedResult {
+                action: "maya.bevel",
+                code: 42,
+            })
+            .await
+            .unwrap()
+    });
+    pump_until(&mut exec, || task.is_finished(), 40).await;
+    assert_eq!(
+        task.await.unwrap(),
+        TypedResult {
+            action: "maya.bevel",
+            code: 42,
+        }
+    );
+}
+
+#[tokio::test]
 async fn submit_deferred_skips_closure_when_cancelled_before_pump() {
     let mut exec = DeferredExecutor::new(16);
     let handle = exec.handle();

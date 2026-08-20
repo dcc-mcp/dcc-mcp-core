@@ -13,9 +13,7 @@ use dcc_mcp_models::{ExecutionMode, ThreadAffinity};
 use crate::job_aware_invoker::attach_job_id_to_meta;
 use crate::server_state::ServerState;
 
-use crate::rmcp_tool_call_dispatch::{
-    decode_dispatch_output, encode_dispatch_wire, use_main_thread_route,
-};
+use crate::rmcp_tool_call_dispatch::use_main_thread_route;
 
 pub(super) struct AsyncDispatchConfig {
     pub parent_job_id: Option<String>,
@@ -150,23 +148,21 @@ async fn run_async_execution_lane(
         let dispatch_params = call_params.clone();
         let dispatch = dispatcher.clone();
         let job_context = dispatch_job_context(&job_id, &cancel_token);
-        let response = executor.submit_deferred(
+        let response = executor.submit_deferred_typed(
             &resolved_name,
             cancel_token.clone(),
             Box::new(move || {
                 with_dispatch_job_context(job_context, || {
-                    match dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
+                    dcc_mcp_actions::with_thread_affinity(ThreadAffinity::Main, || {
                         dispatch.dispatch(&dispatch_name, dispatch_params, call_meta)
-                    }) {
-                        Ok(result) => encode_dispatch_wire(Ok(result)),
-                        Err(err) => encode_dispatch_wire(Err(err)),
-                    }
+                    })
                 })
             }),
         );
 
         let outcome = match response.await {
-            Ok(json_str) => decode_dispatch_output(&json_str),
+            Ok(Ok(result)) => Ok(result.output),
+            Ok(Err(error)) => Err(error.to_string()),
             Err(_) => Err("CANCELLED".to_string()),
         };
         if cancel_token.is_cancelled() {

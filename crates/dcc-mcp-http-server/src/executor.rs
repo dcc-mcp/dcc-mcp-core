@@ -148,8 +148,7 @@ pub type DccTaskFn = Box<dyn FnOnce() -> String + Send + 'static>;
 /// crates still cannot see this type — they use the public
 /// [`DccExecutorHandle::execute`] API.
 pub(crate) struct DccTask {
-    pub(crate) func: DccTaskFn,
-    pub(crate) result_tx: oneshot::Sender<String>,
+    pub(crate) func: Box<dyn FnOnce() + Send + 'static>,
 }
 
 /// Handle owned by the HTTP server to submit tasks to the DCC main thread.
@@ -223,17 +222,33 @@ impl DccExecutorHandle {
     /// distinguish this from [`HttpError::ExecutorClosed`]
     /// and decide whether to retry or fail over.
     pub async fn execute(&self, func: DccTaskFn) -> Result<String, HttpError> {
-        let (result_tx, result_rx) = oneshot::channel();
+        self.execute_typed(func).await
+    }
+
+    /// Submit a typed task without serializing its result inside the process.
+    pub async fn execute_typed<T, F>(&self, func: F) -> Result<T, HttpError>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        let (result_tx, result_rx) = oneshot::channel::<T>();
+        let task = DccTask {
+            func: Box::new(move || {
+                let _ = result_tx.send(func());
+            }),
+        };
+        self.enqueue(task).await?;
+        result_rx.await.map_err(|_| HttpError::ExecutorClosed)
+    }
+
+    async fn enqueue(&self, task: DccTask) -> Result<(), HttpError> {
         let submit_attempted_at = Instant::now();
         let timeout = self.stats.send_timeout;
         let send_res = if timeout.is_zero() {
             // Opt-out of backpressure: caller asked for no bound.
-            self.tx
-                .send(DccTask { func, result_tx })
-                .await
-                .map_err(|_| ())
+            self.tx.send(task).await.map_err(|_| ())
         } else {
-            match tokio::time::timeout(timeout, self.tx.send(DccTask { func, result_tx })).await {
+            match tokio::time::timeout(timeout, self.tx.send(task)).await {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(_)) => Err(()), // channel closed
                 Err(_) => {
@@ -258,7 +273,7 @@ impl DccExecutorHandle {
             }
         }
 
-        result_rx.await.map_err(|_| HttpError::ExecutorClosed)
+        Ok(())
     }
 
     /// Submit a cancellation-aware task to the DCC main thread (issue #332).
@@ -291,7 +306,7 @@ impl DccExecutorHandle {
         let (result_tx, result_rx) = oneshot::channel();
         let name_for_task = tool_name.to_string();
         let ct_for_task = cancel_token.clone();
-        let wrapped: DccTaskFn = Box::new(move || {
+        let wrapped = Box::new(move || {
             // Pre-execution checkpoint: drop the call if it was cancelled
             // while queued. Cheap, happens on main thread. Keeps the
             // wrapper interface uniform with `execute`.
@@ -300,10 +315,12 @@ impl DccExecutorHandle {
                     tool = %name_for_task,
                     "deferred tool skipped — job cancelled before pump reached it"
                 );
-                return serde_json::to_string(&serde_json::json!({
+                let output = serde_json::to_string(&serde_json::json!({
                     "__dispatch_error": "CANCELLED"
                 }))
                 .unwrap_or_else(|_| "{\"__dispatch_error\":\"CANCELLED\"}".to_string());
+                let _ = result_tx.send(output);
+                return;
             }
             let start = std::time::Instant::now();
             let out = (func)();
@@ -319,7 +336,7 @@ impl DccExecutorHandle {
                      (see docs/guide/dcc-thread-safety.md)"
                 );
             }
-            out
+            let _ = result_tx.send(out);
         });
 
         // Submit via a detached Tokio task so the caller doesn't need an
@@ -328,10 +345,7 @@ impl DccExecutorHandle {
         let tx = self.tx.clone();
         let stats = self.stats.clone();
         tokio::spawn(async move {
-            let task = DccTask {
-                func: wrapped,
-                result_tx,
-            };
+            let task = DccTask { func: wrapped };
             // Race `cancel_token.cancelled()` against `tx.send(task)`.
             tokio::select! {
                 biased;
@@ -351,6 +365,60 @@ impl DccExecutorHandle {
                             );
                             drop(task);
                         }
+                    }
+                }
+            }
+        });
+        result_rx
+    }
+
+    /// Cancellation-aware typed submission without an in-process wire format.
+    #[must_use]
+    pub fn submit_deferred_typed<T, F>(
+        &self,
+        tool_name: &str,
+        cancel_token: CancellationToken,
+        func: F,
+    ) -> oneshot::Receiver<T>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        let (result_tx, result_rx) = oneshot::channel();
+        let name_for_task = tool_name.to_string();
+        let ct_for_task = cancel_token.clone();
+        let task = DccTask {
+            func: Box::new(move || {
+                if ct_for_task.is_cancelled() {
+                    return;
+                }
+                let start = Instant::now();
+                let output = func();
+                let elapsed_ms = start.elapsed().as_millis();
+                if elapsed_ms > 50 {
+                    tracing::warn!(
+                        tool = %name_for_task,
+                        elapsed_ms,
+                        "typed deferred tool spent > 50 ms on the DCC main thread"
+                    );
+                }
+                let _ = result_tx.send(output);
+            }),
+        };
+        let tx = self.tx.clone();
+        let stats = self.stats.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = cancel_token.cancelled() => drop(task),
+                result = tx.reserve() => match result {
+                    Ok(permit) => {
+                        stats.record_submit(Instant::now());
+                        permit.send(task);
+                    }
+                    Err(_) => {
+                        stats.record_reject();
+                        drop(task);
                     }
                 }
             }
@@ -422,8 +490,7 @@ impl DeferredExecutor {
         let stats = self.handle.stats.clone();
         while let Ok(task) = self.rx.try_recv() {
             stats.record_dequeue(Instant::now());
-            let result = (task.func)();
-            let _ = task.result_tx.send(result);
+            (task.func)();
             count += 1;
         }
         count
@@ -437,8 +504,7 @@ impl DeferredExecutor {
         while count < max {
             if let Ok(task) = self.rx.try_recv() {
                 stats.record_dequeue(Instant::now());
-                let result = (task.func)();
-                let _ = task.result_tx.send(result);
+                (task.func)();
                 count += 1;
             } else {
                 break;
@@ -470,8 +536,7 @@ impl InProcessExecutor {
         let join = tokio::spawn(async move {
             while let Some(task) = rx.recv().await {
                 drain_stats.record_dequeue(Instant::now());
-                let result = (task.func)();
-                let _ = task.result_tx.send(result);
+                (task.func)();
             }
         });
         (DccExecutorHandle { tx, stats }, Arc::new(join))
