@@ -22,7 +22,11 @@ dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 # only need the per-DCC MCP HTTP server (no first-wins election, no
 # admin UI, no aggregation) can opt out with `default-features = false`
 # and drop the whole gateway code path / dependency tree (issue #1357).
-dcc-mcp-gateway = { path = "../dcc-mcp-gateway", features = ["admin", "admin-persist-sqlite"], optional = true }
+# Gateway sub-features (admin UI, SQLite persistence) are NOT enabled
+# here — they are forwarded through the `admin` / `admin-persist-sqlite`
+# feature gates below so the default wheel path pulls in neither the Vite
+# admin bundle, bundled SQLite, nor Prometheus (issue #2182).
+dcc-mcp-gateway = { path = "../dcc-mcp-gateway", optional = true }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }
@@ -102,6 +106,14 @@ default = ["auto-gateway"]
 # no-op and `cargo tree -p dcc-mcp-http --no-default-features` shows
 # no aggregation tier.
 auto-gateway = ["dep:dcc-mcp-gateway"]
+# Forward the admin UI to the gateway when it is pulled in via
+# `auto-gateway` (issue #2182). Opt-in only — the default `auto-gateway`
+# path does NOT enable this, so the Vite admin bundle stays out of the
+# default wheel.
+admin = ["dcc-mcp-gateway?/admin"]
+# Forward gateway SQLite persistence (bundled `rusqlite`) when the gateway
+# is present. Opt-in only (issue #2182).
+admin-persist-sqlite = ["dcc-mcp-gateway?/admin-persist-sqlite"]
 mdns = ["dcc-mcp-gateway?/mdns"]
 python-bindings = ["pyo3", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings", "dcc-mcp-host/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
