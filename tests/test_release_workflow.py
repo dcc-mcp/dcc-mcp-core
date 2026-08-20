@@ -122,10 +122,25 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "publish-semantic-pypi",
     ]
     assert "always()" in safety["if"]
-    assert safety["permissions"] == {"actions": "read", "contents": "write"}
+    assert safety["permissions"] == {
+        "actions": "read",
+        "contents": "write",
+        "id-token": "write",
+        "attestations": "write",
+    }
     downloads = [step for step in safety["steps"] if step.get("uses") == "actions/download-artifact@v8"]
     download_patterns = {step["with"]["pattern"]: step["with"]["path"] for step in downloads}
     assert download_patterns["server-binary-*"] == "dist-binaries"
+    attestation_steps = {step["id"]: step for step in safety["steps"] if step.get("uses") == "actions/attest@v4"}
+    assert {step["with"]["subject-path"] for step in attestation_steps.values()} == {
+        "dist-binaries/dcc-mcp-update-manifest-linux-x86_64.json",
+        "dist-binaries/dcc-mcp-update-manifest-windows-x86_64.json",
+        "dist-binaries/dcc-mcp-update-manifest-macos-universal2.json",
+    }
+    publish_bundles = next(
+        step for step in safety["steps"] if step.get("name") == "Publish detached update-manifest bundles"
+    )
+    assert ".sigstore.json" in publish_bundles["run"]
     safety_upload = next(step for step in safety["steps"] if step.get("uses") == "softprops/action-gh-release@v3")
     assert "dist-binaries/*" in safety_upload["with"]["files"]
 

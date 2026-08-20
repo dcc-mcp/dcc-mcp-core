@@ -16,6 +16,9 @@ pub enum MarketplaceError {
     #[error("marketplace source fetch failed for '{0}': {1}")]
     Fetch(String, #[source] reqwest::Error),
 
+    #[error("official marketplace attestation verification failed: {0}")]
+    Attestation(#[from] dcc_mcp_attestation::AttestationError),
+
     #[error("marketplace source read failed for '{0}': {1}")]
     Read(String, #[source] std::io::Error),
 

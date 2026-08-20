@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Shared marketplace domain layer for catalog fetch, install/uninstall, source management, and integrity verification"
 
 [dependencies]
+dcc-mcp-attestation.workspace = true
 dcc-mcp-catalog.workspace = true
 reqwest.workspace = true
 serde.workspace = true

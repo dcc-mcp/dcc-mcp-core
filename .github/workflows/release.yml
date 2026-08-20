@@ -807,6 +807,8 @@ jobs:
     permissions:
       actions: read
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Download dcc-mcp-core wheel artefacts
         uses: actions/download-artifact@v8
@@ -835,6 +837,34 @@ jobs:
           pattern: semantic-wheel-*
           path: dist-semantic
           merge-multiple: true
+
+      - name: Attest Linux update manifest
+        id: attest-update-linux
+        uses: actions/attest@v4
+        with:
+          subject-path: dist-binaries/dcc-mcp-update-manifest-linux-x86_64.json
+
+      - name: Attest Windows update manifest
+        id: attest-update-windows
+        uses: actions/attest@v4
+        with:
+          subject-path: dist-binaries/dcc-mcp-update-manifest-windows-x86_64.json
+
+      - name: Attest macOS update manifest
+        id: attest-update-macos
+        uses: actions/attest@v4
+        with:
+          subject-path: dist-binaries/dcc-mcp-update-manifest-macos-universal2.json
+
+      - name: Publish detached update-manifest bundles
+        shell: bash
+        run: |
+          cp "${{ steps.attest-update-linux.outputs.bundle-path }}" \
+            dist-binaries/dcc-mcp-update-manifest-linux-x86_64.sigstore.json
+          cp "${{ steps.attest-update-windows.outputs.bundle-path }}" \
+            dist-binaries/dcc-mcp-update-manifest-windows-x86_64.sigstore.json
+          cp "${{ steps.attest-update-macos.outputs.bundle-path }}" \
+            dist-binaries/dcc-mcp-update-manifest-macos-universal2.sigstore.json
 
       - name: List artefacts
         run: |
@@ -938,6 +968,7 @@ jobs:
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'
+            '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.sigstore\.json$'
           )
 
           release_json=""

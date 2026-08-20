@@ -364,6 +364,13 @@ replacement on the next launch. The CLI then restarts with the original
 arguments. Legacy `pending.bin` / `pending.marker` state is unsigned and is
 quarantined rather than applied.
 
+Official `dcc-mcp/dcc-mcp-core` update manifests also require a detached
+Sigstore bundle produced by the release workflow on `main`. The gateway checks
+the exact manifest bytes, GitHub Actions certificate identity, and public
+transparency-log proof before parsing entries. A custom
+`DCC_MCP_UPDATE_MANIFEST_URL` is an explicit operator-trusted boundary and is
+not treated as an official DCC-MCP release.
+
 The Admin Instances panel is check-only for every binary because the gateway
 cannot prove a selected local or remote instance's installation root. Run
 `dcc-mcp-server update apply` in the exact server environment. It uses the same

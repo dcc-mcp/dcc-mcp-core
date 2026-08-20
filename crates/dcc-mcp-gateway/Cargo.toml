@@ -11,6 +11,7 @@ build = "build.rs"
 
 [dependencies]
 # Internal
+dcc-mcp-attestation = { path = "../dcc-mcp-attestation" }
 dcc-mcp-db = { path = "../dcc-mcp-db", default-features = false }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-actions = { path = "../dcc-mcp-actions" }

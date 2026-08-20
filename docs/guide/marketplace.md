@@ -339,6 +339,10 @@ so installed skills appear on adapter startup or `reload_skill_paths`.
   installs require a full commit object ID and verify the detached checkout.
 - **Mandatory SHA-256**: Zip installs require a valid digest before I/O and
   reject missing, malformed, or mismatched values without modifying packages.
+- **Official catalog provenance**: the built-in `dcc-mcp/marketplace` catalog
+  must match its detached Sigstore bundle, GitHub Actions issuer, transparency
+  log, and exact main-branch workflow identity before entries are parsed.
+  Explicit local and studio sources remain operator-trusted overrides.
 - **Archive escape detection**: Zip extraction rejects entries that escape the
   install root directory.
 - **Plugin containment**: Agent Plugin manifests and fixed Skill components

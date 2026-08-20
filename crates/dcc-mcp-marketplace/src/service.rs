@@ -18,8 +18,9 @@ use crate::types::{
     InstalledMarketplacePackage, MarketplaceActivation, MarketplaceHit, MarketplaceInspectResult,
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceOrigin,
-    MarketplaceUninstallResult, MarketplaceUpdateResult, OutdatedMarketplacePackage,
-    RepoInstallResult, RepoSkillList, StoredMarketplaceSource, entry_targets, entry_targets_dcc,
+    MarketplaceUninstallResult, MarketplaceUpdateResult, OFFICIAL_MARKETPLACE_ATTESTATION,
+    OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, RepoInstallResult, RepoSkillList,
+    StoredMarketplaceSource, entry_targets, entry_targets_dcc,
 };
 
 #[path = "service_internals.rs"]
@@ -886,7 +887,8 @@ impl MarketplaceService {
         source: &MarketplaceSource,
     ) -> Result<Vec<CatalogEntry>, MarketplaceError> {
         let text = if source.url.starts_with("http://") || source.url.starts_with("https://") {
-            self.client
+            let bytes = self
+                .client
                 .get(&source.url)
                 .header("User-Agent", "dcc-mcp marketplace")
                 .send()
@@ -894,9 +896,37 @@ impl MarketplaceService {
                 .map_err(|err| MarketplaceError::Fetch(source.url.clone(), err))?
                 .error_for_status()
                 .map_err(|err| MarketplaceError::Fetch(source.url.clone(), err))?
-                .text()
+                .bytes()
                 .await
-                .map_err(|err| MarketplaceError::Fetch(source.url.clone(), err))?
+                .map_err(|err| MarketplaceError::Fetch(source.url.clone(), err))?;
+            if source.url == OFFICIAL_MARKETPLACE_SOURCE {
+                let bundle = self
+                    .client
+                    .get(OFFICIAL_MARKETPLACE_ATTESTATION)
+                    .header("User-Agent", "dcc-mcp marketplace")
+                    .send()
+                    .await
+                    .map_err(|err| {
+                        MarketplaceError::Fetch(OFFICIAL_MARKETPLACE_ATTESTATION.into(), err)
+                    })?
+                    .error_for_status()
+                    .map_err(|err| {
+                        MarketplaceError::Fetch(OFFICIAL_MARKETPLACE_ATTESTATION.into(), err)
+                    })?
+                    .text()
+                    .await
+                    .map_err(|err| {
+                        MarketplaceError::Fetch(OFFICIAL_MARKETPLACE_ATTESTATION.into(), err)
+                    })?;
+                dcc_mcp_attestation::verify_attested_bytes(
+                    &bytes,
+                    &bundle,
+                    &dcc_mcp_attestation::GitHubAttestationPolicy::official_marketplace(),
+                )?;
+            }
+            String::from_utf8(bytes.to_vec()).map_err(|error| {
+                dcc_mcp_catalog::CatalogError::Parse(format!("catalog is not valid UTF-8: {error}"))
+            })?
         } else {
             let path = source
                 .url

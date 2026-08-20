@@ -61,6 +61,8 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-transport    # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 ├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
 ├── dcc-mcp-telemetry    # Tracing/recording: ToolRecorder, TelemetryConfig
+├── dcc-mcp-updater      # Gateway 管理的 binary 下载、暂存和应用前复验
+├── dcc-mcp-attestation  # 官方 release metadata 的离线 Sigstore 验证
 ├── dcc-mcp-sandbox      # Security: SandboxPolicy, SandboxContext, AuditLog
 ├── dcc-mcp-shm          # Shared memory: PySharedBuffer, PyBufferPool
 ├── dcc-mcp-capture      # Screen capture: Capturer, CaptureFrame

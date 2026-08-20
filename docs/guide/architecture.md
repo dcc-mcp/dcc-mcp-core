@@ -86,6 +86,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-process       # Launch, monitor, watcher, crash recovery
 ├── dcc-mcp-telemetry     # Tool metrics and recorders
 ├── dcc-mcp-updater       # Gateway-controlled binary update (check, download, staged apply)
+├── dcc-mcp-attestation   # Offline Sigstore verification for official release metadata
 ├── dcc-mcp-sandbox       # SandboxPolicy, validation, audit log
 ├── dcc-mcp-shm           # Shared memory buffers
 ├── dcc-mcp-capture       # Screen/window capture

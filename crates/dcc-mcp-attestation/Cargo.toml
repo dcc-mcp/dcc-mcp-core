@@ -1,0 +1,15 @@
+[package]
+name = "dcc-mcp-attestation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GitHub OIDC and Sigstore artifact-attestation verification for DCC-MCP"
+
+[dependencies]
+sha2 = "0.11"
+sigstore-verify = { version = "0.11", default-features = false }
+thiserror.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

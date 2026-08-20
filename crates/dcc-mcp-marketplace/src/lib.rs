@@ -55,7 +55,7 @@ pub use types::{
     MarketplaceInstallResult, MarketplaceInstalledList, MarketplaceInstalledState,
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig,
     MarketplaceSourceOrigin, MarketplaceTargetParseError, MarketplaceUninstallResult,
-    MarketplaceUpdateResult, OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage,
-    RepoInstallResult, RepoSkillInfo, RepoSkillList, StoredMarketplaceSource, entry_targets,
-    entry_targets_dcc, parse_target,
+    MarketplaceUpdateResult, OFFICIAL_MARKETPLACE_ATTESTATION, OFFICIAL_MARKETPLACE_SOURCE,
+    OutdatedMarketplacePackage, RepoInstallResult, RepoSkillInfo, RepoSkillList,
+    StoredMarketplaceSource, entry_targets, entry_targets_dcc, parse_target,
 };

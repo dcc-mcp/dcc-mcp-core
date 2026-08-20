@@ -35,8 +35,9 @@ For agents, obtain user consent before installing or downloading a new binary.
 The bundled helper is fixed to the official `dcc-mcp/dcc-mcp-core` release. It
 validates the platform update manifest and CLI SHA-256 before replacing the
 binary, and fails closed on an invalid URL, manifest, digest, or download.
-SHA-256 verifies that the binary matches the release manifest; it is not a
-digital signature.
+SHA-256 verifies that the binary matches the release manifest. This helper is
+the bootstrap trust boundary; installed gateway-driven updates additionally
+verify the release workflow's detached Sigstore provenance.
 
 Without the Skill, download the official installer to a local file, inspect it,
 and only then execute that file:
