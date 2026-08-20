@@ -507,18 +507,34 @@ enum GatewayDaemonAction {
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    apply_staged_update();
+    if apply_staged_update() {
+        return restart_after_update();
+    }
     run_with_args(Args::parse()).await
 }
 
-fn apply_staged_update() {
+fn apply_staged_update() -> bool {
     // Apply any staged binary update before running commands (CLI restart
     // is the user's next invocation after `update apply`).
     match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
-        Ok(true) => eprintln!("info: staged binary update applied"),
-        Ok(false) => { /* no update was staged */ }
-        Err(e) => eprintln!("warning: failed to apply staged binary update: {e}"),
+        Ok(true) => {
+            eprintln!("info: staged binary update applied; restarting");
+            true
+        }
+        Ok(false) => false,
+        Err(e) => {
+            eprintln!("warning: failed to apply staged binary update: {e}");
+            false
+        }
     }
+}
+
+fn restart_after_update() -> anyhow::Result<()> {
+    let executable = std::env::current_exe()?;
+    std::process::Command::new(executable)
+        .args(std::env::args_os().skip(1))
+        .spawn()?;
+    Ok(())
 }
 
 async fn run_with_args(args: Args) -> anyhow::Result<()> {

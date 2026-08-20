@@ -59,7 +59,8 @@ Start a new agent turn after installation.
 If `dcc-mcp-cli` is missing, obtain user consent before using the official
 release installers in `README.md`. Keep it current with
 `dcc-mcp-cli update check`, then `dcc-mcp-cli update apply`; apply stages the
-next CLI launch and does not replace a running server.
+next CLI launch, requires and re-verifies the manifest SHA-256, quarantines
+legacy unsigned staging, and does not replace a running server.
 
 **New to this project?** Read [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) FIRST.
 

@@ -68,7 +68,9 @@ Start a new agent turn after installation.
   before running the local file.
 - Keep official builds current with `dcc-mcp-cli update check`, then
   `dcc-mcp-cli update apply`. The apply step stages the latest CLI for the next
-  launch; it does not replace a running `dcc-mcp-server`.
+  launch and re-verifies its mandatory SHA-256 before replacement. Legacy
+  unsigned staging is quarantined. It does not replace a running
+  `dcc-mcp-server`.
 
 ## Response Language
 

@@ -117,6 +117,7 @@ function isInstanceUpdatePayload(value: unknown): value is InstanceUpdatePayload
       'not_configured',
       'stage_failed',
       'staged',
+      'target_environment_required',
       'up_to_date',
     ].includes(status);
 }

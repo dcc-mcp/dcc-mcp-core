@@ -33,9 +33,13 @@ async fn stage_server_update(gateway_url: &str) -> anyhow::Result<()> {
         print_up_to_date(&info)?;
         return Ok(());
     }
-    let downloaded = updater.download_update(&info).await?;
-    dcc_mcp_updater::Updater::stage_update(&downloaded, updater.binary_name())?;
-    print_staged(&info, &[downloaded])?;
+    let downloaded = updater.download_verified_update(&info).await?;
+    dcc_mcp_updater::Updater::stage_verified_update(
+        downloaded.path(),
+        updater.binary_name(),
+        downloaded.sha256(),
+    )?;
+    print_staged(&info, &[downloaded.path().to_path_buf()])?;
     Ok(())
 }
 
@@ -74,6 +78,13 @@ pub(crate) fn apply_staged_update() -> anyhow::Result<bool> {
             Ok(true)
         }
         Ok(false) => Ok(false),
+        Err(
+            dcc_mcp_updater::UpdateError::LegacyUnsignedStage
+            | dcc_mcp_updater::UpdateError::RejectedStagedUpdate { .. },
+        ) => {
+            tracing::warn!("refused and quarantined an untrusted staged server update");
+            Ok(false)
+        }
         Err(error) => Err(error.into()),
     }
 }

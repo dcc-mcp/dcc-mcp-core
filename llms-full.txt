@@ -3602,7 +3602,8 @@ dcc-mcp-cli call <tool-slug> --json '{"radius":2.0}'
 If the CLI is missing, obtain user consent before using the official release
 installers in `README.md`. Keep it current with `dcc-mcp-cli update check`,
 then `dcc-mcp-cli update apply`. The apply step stages the next CLI launch and
-does not replace a running server.
+requires a valid manifest SHA-256, re-verifies installation-bound staged bytes,
+quarantines legacy unsigned staging, and does not replace a running server.
 
 ### 2. Skill-Based Tools (preferred over raw API calls)
 - Use skill tools (e.g. `maya_geometry__create_sphere`) — they have validated schemas, error handling, and `next-tools` guidance

@@ -69,7 +69,9 @@ dcc-mcp-cli update check
 dcc-mcp-cli update apply
 ```
 
-`update apply` stages the latest CLI for the next launch. It does not replace a
+`update apply` requires the release-manifest SHA-256, verifies the downloaded
+CLI, and stages it for the next launch. Replacement re-verifies the staged
+bytes and restarts the CLI with the same arguments. It does not replace a
 running `dcc-mcp-server`; update that server in its own environment.
 
 The CLI is also available as a standalone ZIP archive

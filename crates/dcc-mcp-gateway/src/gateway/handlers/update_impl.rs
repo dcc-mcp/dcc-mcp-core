@@ -36,6 +36,19 @@ fn not_found(binary: &str) -> (StatusCode, Json<Value>) {
     )
 }
 
+fn invalid_manifest(binary: &str, message: impl Into<String>) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(json!({
+            "status": "manifest_error",
+            "error": "invalid_update_manifest",
+            "message": message.into(),
+            "binary_name": binary,
+            "update_available": false,
+        })),
+    )
+}
+
 // ── Query params ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -103,12 +116,22 @@ pub(crate) async fn handle_v1_update_check(
     };
 
     let update_available = is_newer_version(&entry.version, &current_version);
+    let verified_asset = if update_available {
+        match entry.require_asset(&binary_name) {
+            Ok(asset) => Some(asset),
+            Err(error) => return invalid_manifest(&binary_name, error.to_string()).into_response(),
+        }
+    } else {
+        None
+    };
 
     let resp = json!({
         "update_available": update_available,
         "latest_version": entry.version,
-        "download_url": entry.url,
-        "sha256": entry.sha256,
+        "download_url": verified_asset.as_ref().map(|asset| asset.url),
+        "sha256": verified_asset
+            .as_ref()
+            .map(|asset| asset.sha256.as_str()),
         "release_notes": entry.release_notes,
         "current_version": current_version,
     });
@@ -149,27 +172,17 @@ pub(crate) async fn handle_v1_update_download(
         None => return not_found(&binary_name).into_response(),
     };
 
-    let download_url = match &entry.url {
-        Some(url) => url.clone(),
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({
-                    "status": "download_url_not_configured",
-                    "error": "download_url_not_configured",
-                    "message": format!("No download URL is configured for binary '{binary_name}'."),
-                    "binary_name": binary_name,
-                    "latest_version": entry.version,
-                    "update_available": false,
-                })),
-            )
-                .into_response();
-        }
+    let asset = match entry.require_asset(&binary_name) {
+        Ok(asset) => asset,
+        Err(error) => return invalid_manifest(&binary_name, error.to_string()).into_response(),
     };
 
     (
         StatusCode::OK,
-        Json(json!({ "download_url": download_url })),
+        Json(json!({
+            "download_url": asset.url,
+            "sha256": asset.sha256.as_str(),
+        })),
     )
         .into_response()
 }

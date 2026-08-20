@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -41,4 +42,5 @@ def test_platform_manifests_publish_only_core_binaries(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     manifest = json.loads((tmp_path / "dist" / "dcc-mcp-update-manifest-windows-x86_64.json").read_text())
     assert set(manifest) == {"dcc-mcp-server", "dcc-mcp-cli"}
-    assert all(len(asset["sha256"]) == 64 for asset in manifest.values())
+    assert manifest["dcc-mcp-server"]["sha256"] == hashlib.sha256(b"server").hexdigest()
+    assert manifest["dcc-mcp-cli"]["sha256"] == hashlib.sha256(b"cli").hexdigest()

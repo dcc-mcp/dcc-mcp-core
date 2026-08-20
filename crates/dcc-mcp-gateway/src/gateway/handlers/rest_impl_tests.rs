@@ -685,7 +685,7 @@ async fn gateway_update_check_and_download_use_configured_manifest() {
         "dcc-mcp-server": {
             "version": "0.19.0",
             "url": "https://example.invalid/dcc-mcp-server.zip",
-            "sha256": "abc123",
+            "sha256": "a".repeat(64),
             "release_notes": "Server update"
         }
     }))
@@ -715,7 +715,7 @@ async fn gateway_update_check_and_download_use_configured_manifest() {
         body["download_url"],
         "https://example.invalid/dcc-mcp-server.zip"
     );
-    assert_eq!(body["sha256"], "abc123");
+    assert_eq!(body["sha256"], "a".repeat(64));
     assert_eq!(body["release_notes"], "Server update");
 
     let response = app
@@ -736,10 +736,11 @@ async fn gateway_update_check_and_download_use_configured_manifest() {
         body["download_url"],
         "https://example.invalid/dcc-mcp-server.zip"
     );
+    assert_eq!(body["sha256"], "a".repeat(64));
 }
 
 #[tokio::test]
-async fn gateway_update_download_reports_missing_url_as_structured_payload() {
+async fn gateway_update_download_rejects_manifest_without_verified_asset() {
     let (manifest_url, shutdown) = spawn_update_manifest(json!({
         "dcc-mcp-server": {
             "version": "0.19.0",
@@ -766,12 +767,12 @@ async fn gateway_update_download_reports_missing_url_as_structured_payload() {
     let (status, body) = response_json(response).await;
     let _ = shutdown.send(());
 
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(body["status"], "download_url_not_configured");
-    assert_eq!(body["error"], "download_url_not_configured");
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body["status"], "manifest_error");
+    assert_eq!(body["error"], "invalid_update_manifest");
     assert_eq!(body["binary_name"], "dcc-mcp-server");
-    assert_eq!(body["latest_version"], "0.19.0");
     assert_eq!(body["update_available"], false);
+    assert!(body["message"].as_str().unwrap().contains("download URL"));
 }
 
 #[tokio::test]

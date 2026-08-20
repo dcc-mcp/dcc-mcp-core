@@ -48,22 +48,17 @@ impl ScopedUpdateDataDir {
         self.dir.path()
     }
 
-    fn pending_marker(&self, binary_name: &str) -> std::path::PathBuf {
+    fn update_root(&self) -> std::path::PathBuf {
         #[cfg(target_os = "macos")]
         {
             self.root()
                 .join("Library")
                 .join("Application Support")
                 .join("update")
-                .join(binary_name)
-                .join("pending.marker")
         }
         #[cfg(not(target_os = "macos"))]
         {
-            self.root()
-                .join("update")
-                .join(binary_name)
-                .join("pending.marker")
+            self.root().join("update")
         }
     }
 }
@@ -188,18 +183,22 @@ async fn spawn_update_manifest(manifest: Value) -> (String, oneshot::Sender<()>)
 }
 
 async fn spawn_update_manifest_with_binary(
+    binary_name: &'static str,
     version: &'static str,
     binary_body: &'static [u8],
 ) -> (String, oneshot::Sender<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    let download_url = format!("http://127.0.0.1:{port}/dcc-mcp-server.bin");
+    let download_url = format!("http://127.0.0.1:{port}/binary.bin");
+    let digest_file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(digest_file.path(), binary_body).unwrap();
+    let sha256 = dcc_mcp_updater::sha256_file(digest_file.path()).unwrap();
     let manifest = json!({
-        "dcc-mcp-server": {
+        binary_name: {
             "version": version,
             "url": download_url,
-            "sha256": null,
-            "release_notes": "Server update"
+            "sha256": sha256,
+            "release_notes": "Binary update"
         }
     });
     let app = Router::new()
@@ -211,7 +210,7 @@ async fn spawn_update_manifest_with_binary(
             }),
         )
         .route(
-            "/dcc-mcp-server.bin",
+            "/binary.bin",
             axum::routing::get(move || {
                 let body = binary_body.to_vec();
                 async move { ([(header::CONTENT_TYPE, "application/octet-stream")], body) }
@@ -393,7 +392,7 @@ async fn test_admin_instance_update_checks_manifest_without_manual_cli() {
 }
 
 #[tokio::test]
-async fn test_admin_instance_update_requires_target_environment_before_server_download() {
+async fn test_admin_instance_update_rejects_available_manifest_without_asset_integrity() {
     let (manifest_url, shutdown) = spawn_update_manifest(json!({
         "dcc-mcp-server": {
             "version": "999.0.0",
@@ -424,21 +423,21 @@ async fn test_admin_instance_update_requires_target_environment_before_server_do
     .await;
     let _ = shutdown.send(());
 
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(body["status"], "target_environment_required");
-    assert_eq!(body["error"], "server_update_target_unproven");
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body["status"], "manifest_error");
+    assert_eq!(body["error"], "invalid_update_manifest");
     assert_eq!(body["binary_name"], "dcc-mcp-server");
     assert_eq!(body["current_version"], "0.18.0");
     assert_eq!(body["current_version_source"], "request");
     assert_eq!(body["latest_version"], "999.0.0");
-    assert_eq!(body["update_available"], true);
+    assert_eq!(body["update_available"], false);
     assert_eq!(body["requires_restart"], false);
 }
 
 #[tokio::test]
 async fn test_admin_instance_update_can_check_without_staging() {
     let (manifest_url, shutdown) =
-        spawn_update_manifest_with_binary("999.0.0", b"server-binary").await;
+        spawn_update_manifest_with_binary("dcc-mcp-server", "999.0.0", b"server-binary").await;
 
     let mut gs = make_gateway_state();
     gs.update_manifest_url = Some(manifest_url);
@@ -475,7 +474,7 @@ async fn test_admin_instance_update_never_stages_unbound_server_binary() {
     let _guard = UPDATE_ENV_LOCK.lock();
     let data_dir = ScopedUpdateDataDir::new();
     let (manifest_url, shutdown) =
-        spawn_update_manifest_with_binary("999.0.0", b"server-binary").await;
+        spawn_update_manifest_with_binary("dcc-mcp-server", "999.0.0", b"server-binary").await;
 
     let mut gs = make_gateway_state();
     gs.update_manifest_url = Some(manifest_url);
@@ -499,7 +498,7 @@ async fn test_admin_instance_update_never_stages_unbound_server_binary() {
 
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(body["status"], "target_environment_required");
-    assert_eq!(body["error"], "server_update_target_unproven");
+    assert_eq!(body["error"], "update_target_unproven");
     assert_eq!(body["binary_name"], "dcc-mcp-server");
     assert_eq!(body["current_version"], "0.18.0");
     assert_eq!(body["current_version_source"], "request");
@@ -507,8 +506,51 @@ async fn test_admin_instance_update_never_stages_unbound_server_binary() {
     assert_eq!(body["update_available"], true);
     assert_eq!(body["requires_restart"], false);
     assert!(
-        !data_dir.pending_marker("dcc-mcp-server").exists(),
-        "Admin must not write an installation-unbound server marker"
+        !data_dir.update_root().exists(),
+        "Admin must not write installation-unbound update state"
+    );
+}
+
+#[tokio::test]
+async fn test_admin_instance_update_is_check_only_for_non_server_binaries() {
+    let _guard = UPDATE_ENV_LOCK.lock();
+    let data_dir = ScopedUpdateDataDir::new();
+
+    for binary_name in ["dcc-mcp-cli", "studio-custom-tool"] {
+        let (manifest_url, shutdown) =
+            spawn_update_manifest_with_binary(binary_name, "999.0.0", b"binary").await;
+        let mut gs = make_gateway_state();
+        gs.update_manifest_url = Some(manifest_url);
+        let instance_id = {
+            let reg = gs.registry.write().await;
+            let entry = make_service_entry("photoshop", "127.0.0.1", 18814, Some(4243));
+            let instance_id = entry.instance_id.to_string();
+            reg.register(entry).unwrap();
+            instance_id
+        };
+
+        let router = build_admin_router(AdminState::new(gs));
+        let (status, body) = post_json(
+            router,
+            &format!("/api/instances/{instance_id}/update"),
+            json!({
+                "binary": binary_name,
+                "apply": true,
+                "current_version": "0.18.0"
+            }),
+        )
+        .await;
+        let _ = shutdown.send(());
+
+        assert_eq!(status, StatusCode::CONFLICT, "{binary_name}: {body}");
+        assert_eq!(body["status"], "target_environment_required");
+        assert_eq!(body["error"], "update_target_unproven");
+        assert_eq!(body["binary_name"], binary_name);
+    }
+
+    assert!(
+        !data_dir.update_root().exists(),
+        "Admin must remain check-only for every binary"
     );
 }
 

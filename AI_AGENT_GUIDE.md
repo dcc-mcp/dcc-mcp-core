@@ -98,8 +98,11 @@ dcc-mcp-cli update check
 dcc-mcp-cli update apply
 ```
 
-`update apply` downloads and stages the latest CLI for the next launch. It does
-not update a running `dcc-mcp-server`; update that server in its own environment.
+`update apply` accepts only an available manifest entry with a valid SHA-256,
+downloads and verifies the exact asset, and stages it for the next launch. The
+next process re-verifies the installation-bound staged bytes before replacing
+and restarting the CLI; legacy unsigned staging is quarantined. It does not
+update a running `dcc-mcp-server`; update that server in its own environment.
 
 ### Computer Use is an agent-directed fallback
 

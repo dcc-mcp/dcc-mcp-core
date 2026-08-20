@@ -103,7 +103,7 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                     "dcc-mcp-server": {
                         "version": "9.9.9",
                         "url": "https://example.invalid/dcc-mcp-server.zip",
-                        "sha256": "abc123",
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         "release_notes": "Fixture update"
                     }
                 }))
@@ -545,7 +545,7 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                             "update_available": current != "0.19.0",
                             "latest_version": "0.19.0",
                             "download_url": "https://example.invalid/dcc-mcp-server.zip",
-                            "sha256": "abc123",
+                            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                             "release_notes": "Server update"
                         })),
                     )
@@ -566,7 +566,8 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                 (
                     StatusCode::OK,
                     Json(json!({
-                        "download_url": "https://example.invalid/dcc-mcp-server.zip"
+                        "download_url": "https://example.invalid/dcc-mcp-server.zip",
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                     })),
                 )
             }),
