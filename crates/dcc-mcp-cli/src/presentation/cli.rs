@@ -1024,6 +1024,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 }
                 MarketplaceAction::AddRepo {
                     repo_ref,
+                    commit,
                     dcc,
                     list,
                     force,
@@ -1031,7 +1032,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     if list {
                         to_json(service.list_repo_skills(&repo_ref)?)?
                     } else {
-                        to_json(service.add_repo(&repo_ref, dcc.as_deref(), force)?)?
+                        let commit = commit.expect("clap requires --commit unless --list is set");
+                        to_json(service.add_repo_at_commit(
+                            &repo_ref,
+                            &commit,
+                            dcc.as_deref(),
+                            force,
+                        )?)?
                     }
                 }
                 MarketplaceAction::Pack(args) => marketplace_cmd::run_pack(args)?,

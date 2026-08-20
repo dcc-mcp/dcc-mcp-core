@@ -1,7 +1,8 @@
 //! Direct GitHub repo installation — SKILL.md discovery, no marketplace.json needed.
 //!
 //! This module implements `dcc-mcp-cli marketplace add-repo <owner/repo>`:
-//! - Clone a GitHub repo via `git clone --depth 1`
+//! - Preview the current repository contents without installing
+//! - Install only an explicitly pinned 40-character commit
 //! - Discover SKILL.md files to infer name/dcc/description
 //! - Support `@subpath` syntax (vercel skills parity)
 //! - `--list` to enumerate available skills without installing
@@ -9,10 +10,13 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use dcc_mcp_catalog::CatalogInstall;
+
 use crate::error::MarketplaceError;
 use crate::git_command;
 use crate::path_component;
 use crate::plugin::load_agent_plugin;
+use crate::service::service_internals::{install_from_git_command, required_git_commit};
 use crate::types::{RepoInstallResult, RepoSkillInfo, RepoSkillList};
 
 /// Parse a repo reference into a clone URL and optional subpath.
@@ -261,7 +265,7 @@ pub fn list_repo_skills(repo_ref: &str) -> Result<RepoSkillList, MarketplaceErro
     })
 }
 
-/// Install a Skill or Agent Plugin directly from a GitHub repo into the marketplace.
+/// Legacy direct-install entry point retained to fail closed for existing callers.
 ///
 /// `repo_ref`: owner/repo, full URL, or @subpath variant.
 /// `dcc`: explicit DCC override (required when SKILL.md doesn't declare one).
@@ -273,13 +277,40 @@ pub fn install_from_repo(
     force: bool,
     root: &Path,
 ) -> Result<RepoInstallResult, MarketplaceError> {
+    let _ = (repo_ref, dcc, force, root);
+    Err(MarketplaceError::UnpinnedGitReference {
+        reference: String::new(),
+    })
+}
+
+/// Install from a direct repository at an immutable commit.
+pub fn install_from_repo_at_commit(
+    repo_ref: &str,
+    commit: &str,
+    dcc: Option<&str>,
+    force: bool,
+    root: &Path,
+) -> Result<RepoInstallResult, MarketplaceError> {
     let (url, subpath) = parse_repo_ref(repo_ref)?;
+    let install = CatalogInstall {
+        install_type: "git".into(),
+        url: Some(url.clone()),
+        ref_: Some(commit.into()),
+        sha256: None,
+        skill_roots: None,
+        pip_package: None,
+        pip_extras: None,
+        python_path: None,
+        entry_point: None,
+        instructions_url: None,
+    };
+    required_git_commit(&install)?;
 
     // Temp staging for clone
     let staging = StagingDir::new()?;
     let clone_dir = staging.path.clone();
 
-    clone_repo(&url, &clone_dir)?;
+    install_from_git_command(&install, &clone_dir)?;
 
     let search_root = match &subpath {
         Some(sub) => {
@@ -502,6 +533,14 @@ mod tests {
         let (url, subpath) = parse_repo_ref("dcc-mcp/dcc-mcp-maya").unwrap();
         assert_eq!(url, "https://github.com/dcc-mcp/dcc-mcp-maya.git");
         assert!(subpath.is_none());
+    }
+
+    #[test]
+    fn legacy_direct_install_api_fails_closed_without_commit() {
+        let root = tempfile::tempdir().unwrap();
+        let error =
+            install_from_repo("dcc-mcp/example", Some("maya"), false, root.path()).unwrap_err();
+        assert!(error.to_string().contains("40-character commit"));
     }
 
     #[test]

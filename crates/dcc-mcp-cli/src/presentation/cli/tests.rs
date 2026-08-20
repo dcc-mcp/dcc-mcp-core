@@ -148,6 +148,46 @@ fn marketplace_search_contract_accepts_positional_query_and_dcc_type_alias() {
 }
 
 #[test]
+fn marketplace_add_repo_requires_commit_for_install_but_not_list() {
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "marketplace", "add-repo", "dcc-mcp/example",])
+            .is_err()
+    );
+
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "marketplace",
+        "add-repo",
+        "dcc-mcp/example",
+        "--commit",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ])
+    .expect("parse pinned direct repo install");
+    let Command::Marketplace {
+        action: MarketplaceAction::AddRepo { commit, list, .. },
+    } = args.command
+    else {
+        panic!("expected marketplace add-repo command");
+    };
+    assert_eq!(
+        commit.as_deref(),
+        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+    assert!(!list);
+
+    assert!(
+        Args::try_parse_from([
+            "dcc-mcp-cli",
+            "marketplace",
+            "add-repo",
+            "dcc-mcp/example",
+            "--list",
+        ])
+        .is_ok()
+    );
+}
+
+#[test]
 fn stats_contract_parses_composable_runtime_filters() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",

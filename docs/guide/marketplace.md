@@ -81,7 +81,7 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 | `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| Remove an installed package and optionally refresh the adapter |
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
 | `marketplace update [name] --all`         | Upgrade installed packages                     |
-| `marketplace add-repo <repo> [--dcc]`     | Install directly from a GitHub repo            |
+| `marketplace add-repo <repo> --commit <oid> [--dcc]` | Install an immutable Git commit directly |
 | `marketplace pack <path> --out dist/`     | Build a zip package and SHA-256 digest         |
 | `marketplace publish <path> --catalog <file>` | Upsert a catalog entry for a package       |
 
@@ -139,29 +139,32 @@ backward-compatible input alias and should not be used for new entries.
 
 ### Git (`install.type: git`)
 
-Clones the repository on install, then uses `git fetch && git checkout <ref>`
-on subsequent updates. Best for actively developed skill packages.
+Requires a full 40-character commit object ID, fetches that exact object, checks
+it out detached, and verifies `HEAD` before installation. Branches, tags, short
+object IDs, and missing refs fail before Git starts. Updates reinstall the next
+catalog-pinned commit through the same staging boundary.
 
 ```yaml
 - name: dcc-mcp-maya-skills
   install:
     type: git
     url: "https://github.com/example/dcc-mcp-maya-skills.git"
-    ref: "v1.2.0"
+    ref: "0123456789abcdef0123456789abcdef01234567"
 ```
 
 ### Zip (`install.type: zip`)
 
-Downloads a ZIP archive (from URL or local path) and extracts it. Supports
-`sha256` verification. The archive root must contain exactly one top-level
-directory, which is flattened automatically.
+Requires exactly 64 hexadecimal SHA-256 digits before reading a local archive
+or starting a download, verifies the received bytes, and only then extracts.
+The archive root must contain exactly one top-level directory, which is
+flattened automatically.
 
 ```yaml
 - name: dcc-asset-hunyuan-download
   install:
     type: zip
     url: "https://example.com/packages/hunyuan-v2.zip"
-    sha256: "a1b2c3d4e5f6..."
+    sha256: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
 
 ### Path (`install.type: path`)
@@ -205,7 +208,7 @@ dcc-mcp-cli marketplace publish . \
 ```
 
 This is the recommended path for stable packages. Development packages can
-still use `install.type: git` entries.
+still use `install.type: git`, but must publish the exact commit being tested.
 
 Minimal GitHub Actions shape for package repositories:
 
@@ -241,25 +244,25 @@ installs either the complete plugin or the matching Skill.
 
 ```bash
 # Install from GitHub shorthand (owner/repo → https://github.com/owner/repo.git)
-dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya
+dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --commit <40-hex-commit> --dcc maya
 
 # Install from full URL
-dcc-mcp-cli marketplace add-repo https://github.com/dcc-mcp/dcc-mcp-maya --dcc maya
+dcc-mcp-cli marketplace add-repo https://github.com/dcc-mcp/dcc-mcp-maya --commit <40-hex-commit> --dcc maya
 
 # List available skills in a repo without installing
 dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --list
 
 # Install a subpath within a repo (e.g., owner/repo@subdir)
-dcc-mcp-cli marketplace add-repo my-org/skill-repo@maya-skills --dcc maya
+dcc-mcp-cli marketplace add-repo my-org/skill-repo@maya-skills --commit <40-hex-commit> --dcc maya
 
 # Force replace an existing installation
-dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya --force
+dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --commit <40-hex-commit> --dcc maya --force
 ```
 
 ### How It Works
 
-1. **Clone**: runs `git clone --depth 1` of the target repo to a temporary
-   staging directory.
+1. **Fetch**: initializes a temporary repository, fetches only the required
+   commit, checks it out detached, and verifies `HEAD` before discovery.
 2. **Discover**: validates root `plugin.json` and its immediate `skills/*`
    components when present; otherwise scans for `SKILL.md` files.
 3. **Parse**: reads plugin metadata plus each Skill's `name`, `description`, and
@@ -292,7 +295,7 @@ The `dcc` field (under `metadata.dcc-mcp.dcc`) is optional but recommended; use
 |-------------------------|------------------------------|---------------------------------|
 | Requires catalog entry  | Yes                          | No                              |
 | Source resolution       | Via sources.json / --source  | Direct GitHub clone             |
-| Version tracking        | Catalog version + git ref    | HEAD of cloned branch           |
+| Version tracking        | Catalog version + commit OID | Explicit `--commit` OID         |
 | Update mechanism        | Catalog-driven update check  | Re-clone (future)               |
 | SKILL.md discovery      | Via catalog entry metadata   | Filesystem scan                 |
 
@@ -332,8 +335,10 @@ so installed skills appear on adapter startup or `reload_skill_paths`.
 
 - **Path traversal protection**: `marketplace_path_component()` rejects empty
   components, `.`, `..`, leading dots, and non-ASCII alphanumeric characters.
-- **SHA256 verification**: Zip installs verify `install.sha256` when present
-  and reject mismatches without modifying existing packages.
+- **Immutable Git installs**: catalog Git sources and direct repository
+  installs require a full commit object ID and verify the detached checkout.
+- **Mandatory SHA-256**: Zip installs require a valid digest before I/O and
+  reject missing, malformed, or mismatched values without modifying packages.
 - **Archive escape detection**: Zip extraction rejects entries that escape the
   install root directory.
 - **Plugin containment**: Agent Plugin manifests and fixed Skill components
@@ -370,8 +375,8 @@ falling back to the local `dcc-mcp-catalog.yml` when offline. Set
   install:
     type: git                        # git | zip | path
     url: "https://github.com/..."
-    ref: "v1.2.0"                    # tag/branch/commit (git type)
-    sha256: "a1b2c3..."              # content hash (zip type)
+    ref: "0123456789abcdef0123456789abcdef01234567" # full commit OID (git)
+    sha256: "sha256:<64-hex-digest>" # mandatory content hash (zip)
   package:
     format: agent-plugin              # agent-plugin | skill-bundle
     skills: [maya-rig, rig-review]    # displayed package components
@@ -429,7 +434,7 @@ future phase.
 | Uninstall | `marketplace uninstall <name> [--dcc <dcc>] [--reload]` | Uninstall button in Installed tab |
 | List installed | `marketplace list-installed --dcc <dcc>` | Installed tab |
 | Add source | `marketplace add <source>` | Source management in panel |
-| Direct GitHub install | `marketplace add-repo <repo> --dcc <dcc>` | Admin API (planned) |
+| Direct GitHub install | `marketplace add-repo <repo> --commit <oid> --dcc <dcc>` | Admin API (planned) |
 | Update | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
 | Live adapter refresh | Bundled with install `--reload`; standalone after update/uninstall | Automatic when the backend reports `reload_required` |
 

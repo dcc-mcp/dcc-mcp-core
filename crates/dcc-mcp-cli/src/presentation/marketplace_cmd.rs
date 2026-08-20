@@ -76,6 +76,9 @@ pub(crate) enum MarketplaceAction {
     },
     AddRepo {
         repo_ref: String,
+        /// Full 40-character commit object ID. Required for installation.
+        #[arg(long, required_unless_present = "list")]
+        commit: Option<String>,
         #[arg(long)]
         dcc: Option<String>,
         #[arg(long)]
@@ -109,14 +112,14 @@ pub(crate) struct MarketplacePublishArgs {
     /// Install source type.
     #[arg(long = "install-type", default_value = "zip")]
     pub(crate) install_type: String,
-    /// Git ref/tag for git installs.
-    #[arg(long = "install-ref")]
+    /// Full 40-character commit object ID for git installs.
+    #[arg(long = "install-ref", required_if_eq("install_type", "git"))]
     pub(crate) install_ref: Option<String>,
     /// Skill directories to install from the source. Repeat for multi-skill packages.
     #[arg(long = "skill-root")]
     pub(crate) skill_roots: Vec<String>,
     /// Archive SHA-256, optionally prefixed with sha256:.
-    #[arg(long)]
+    #[arg(long, required_if_eq("install_type", "zip"))]
     pub(crate) sha256: Option<String>,
     /// Override package name when PATH has no root SKILL.md.
     #[arg(long)]

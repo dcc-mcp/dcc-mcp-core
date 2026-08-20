@@ -94,21 +94,21 @@ pub enum InstallStepAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         python: Option<String>,
     },
-    /// Clone a git repository.
+    /// Check out a git repository at an immutable commit.
     GitClone {
         /// Git remote URL.
         url: String,
-        /// Git ref, tag, or branch to check out.
+        /// Full 40-character commit object ID to check out.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ref_: Option<String>,
         /// Target directory for the clone.
         dest: PathBuf,
     },
-    /// Download and extract a ZIP archive.
+    /// Download, verify, and extract a ZIP archive.
     ZipExtract {
         /// Archive download URL.
         url: String,
-        /// Optional SHA-256 hash for integrity verification.
+        /// Required SHA-256 hash for integrity verification.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sha256: Option<String>,
         /// Target extract directory.
@@ -142,6 +142,10 @@ pub enum InstallPlanError {
     UnsupportedDcc(String),
     #[error("no install metadata found in catalog entry for '{0}'")]
     MissingInstallMetadata(String),
+    #[error("git install requires a full 40-character commit object ID")]
+    UnpinnedGitReference,
+    #[error("zip install requires exactly 64 hexadecimal SHA-256 digits")]
+    InvalidArchiveChecksum,
 }
 
 // ── defaults ─────────────────────────────────────────────────────────────────────
@@ -161,6 +165,26 @@ fn dirs_data_dir() -> PathBuf {
 
 pub struct InstallPlanner;
 
+fn validate_install_integrity(install: &CatalogInstall) -> Result<(), InstallPlanError> {
+    match install.install_type.as_str() {
+        "git" => {
+            let reference = install.ref_.as_deref().unwrap_or_default().trim();
+            if reference.len() != 40 || !reference.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(InstallPlanError::UnpinnedGitReference);
+            }
+        }
+        "zip" => {
+            let value = install.sha256.as_deref().unwrap_or_default().trim();
+            let checksum = value.strip_prefix("sha256:").unwrap_or(value);
+            if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(InstallPlanError::InvalidArchiveChecksum);
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 impl InstallPlanner {
     /// Generate an install plan from catalog entries and user request.
     ///
@@ -179,6 +203,10 @@ impl InstallPlanner {
         let dcc_type = request.dcc_type.clone();
         let version = request.version.clone();
         let dcc_path = request.dcc_path.clone();
+
+        if let Some(install) = &adapter.install {
+            validate_install_integrity(install)?;
+        }
 
         let steps = match &adapter.install {
             Some(install) => Self::build_executable_steps(
@@ -876,7 +904,7 @@ mod tests {
         let install = CatalogInstall {
             install_type: "git".into(),
             url: Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear".into()),
-            ref_: Some("main".into()),
+            ref_: Some("a".repeat(40)),
             sha256: None,
             skill_roots: None,
             pip_package: None,
@@ -908,6 +936,62 @@ mod tests {
             plan.steps[0].action,
             Some(InstallStepAction::GitClone { .. })
         ));
+    }
+
+    #[test]
+    fn planner_rejects_mutable_git_and_unverified_zip_installs() {
+        let mut install = CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/example".into()),
+            ref_: Some("main".into()),
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        };
+        let request = || InstallRequest {
+            dcc_type: "maya".into(),
+            version: None,
+            catalog_path: None,
+            python: None,
+            dcc_path: None,
+        };
+
+        let error = InstallPlanner::plan(
+            &[catalog_entry(
+                "git-adapter",
+                &["maya"],
+                Some(install.clone()),
+            )],
+            request(),
+        )
+        .unwrap_err();
+        assert_eq!(error, InstallPlanError::UnpinnedGitReference);
+
+        install.install_type = "zip".into();
+        install.ref_ = None;
+        let error = InstallPlanner::plan(
+            &[catalog_entry(
+                "zip-adapter",
+                &["maya"],
+                Some(install.clone()),
+            )],
+            request(),
+        )
+        .unwrap_err();
+        assert_eq!(error, InstallPlanError::InvalidArchiveChecksum);
+
+        install.sha256 = Some(format!("sha256:{}", "a".repeat(64)));
+        assert!(
+            InstallPlanner::plan(
+                &[catalog_entry("zip-adapter", &["maya"], Some(install))],
+                request(),
+            )
+            .is_ok()
+        );
     }
 
     #[test]

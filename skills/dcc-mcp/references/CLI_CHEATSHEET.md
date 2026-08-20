@@ -160,6 +160,7 @@ paths, or full tool payloads.
 | `dcc-mcp-cli marketplace install <package_name> --target game:the-bazaar` | Install a typed CUA Profile for a generic application target; no DCC reload is requested |
 | `dcc-mcp-cli reload-skills --dcc-type maya` | Ask running Maya adapters to re-scan installed skill paths |
 | `dcc-mcp-cli marketplace update <package_name> --dcc maya` | Update an installed skill package from the catalog |
+| `dcc-mcp-cli marketplace add-repo <repo> --commit <40-hex-oid> --dcc maya` | Install a direct repository source only at the reviewed immutable commit; `--list` may omit the commit |
 | `dcc-mcp-cli marketplace uninstall <package_name> --reload` | Remove an installed skill package; infer its DCC when it is installed for one DCC and refresh the adapter |
 
 After adapter package install, follow the plan's `next_steps`: read the

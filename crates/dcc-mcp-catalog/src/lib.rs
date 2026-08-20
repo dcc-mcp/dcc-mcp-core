@@ -194,10 +194,10 @@ pub struct CatalogInstall {
     /// Source URL or local path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// Git ref, tag, branch, or revision where applicable.
+    /// Full 40-character Git commit object ID for `git` installs.
     #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
     pub ref_: Option<String>,
-    /// Optional content hash for archive installs.
+    /// Required SHA-256 content hash for `zip` installs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
     /// Repository-relative roots that contain the skills this package is allowed to install.
@@ -573,6 +573,22 @@ const MARKETPLACE_V2_SCHEMA_JSON: &str = r##"{
             "entry_point": { "type": "string" },
             "instructions_url": { "type": "string" }
           },
+          "allOf": [
+            {
+              "if": { "properties": { "type": { "const": "git" } } },
+              "then": {
+                "required": ["url", "ref"],
+                "properties": { "ref": { "pattern": "^[0-9a-fA-F]{40}$" } }
+              }
+            },
+            {
+              "if": { "properties": { "type": { "const": "zip" } } },
+              "then": {
+                "required": ["url", "sha256"],
+                "properties": { "sha256": { "pattern": "^(sha256:)?[0-9a-fA-F]{64}$" } }
+              }
+            }
+          ],
           "additionalProperties": false
         }
       },
@@ -1054,7 +1070,7 @@ entries:
                 install_type: "zip".into(),
                 url: Some("https://example.com/skill.zip".into()),
                 ref_: Some("v0.1.0".into()),
-                sha256: Some("abc123".into()),
+                sha256: Some("a".repeat(64)),
                 skill_roots: None,
                 pip_package: None,
                 pip_extras: None,
@@ -1065,6 +1081,50 @@ entries:
             icon: None,
             showcase: None,
         };
+        assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_validate_entry_requires_immutable_git_commit() {
+        let mut entry = make_entry("git-skill", "A Git-installed skill");
+        entry.install = Some(CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/example".into()),
+            ref_: Some("main".into()),
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        });
+
+        assert!(validate_entry(&entry).is_err());
+        entry.install.as_mut().unwrap().ref_ = Some("a".repeat(40));
+        assert!(validate_entry(&entry).is_ok());
+    }
+
+    #[test]
+    fn test_validate_entry_requires_well_formed_zip_sha256() {
+        let mut entry = make_entry("zip-skill", "A ZIP-installed skill");
+        entry.install = Some(CatalogInstall {
+            install_type: "zip".into(),
+            url: Some("https://example.com/skill.zip".into()),
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        });
+
+        assert!(validate_entry(&entry).is_err());
+        entry.install.as_mut().unwrap().sha256 = Some("abc123".into());
+        assert!(validate_entry(&entry).is_err());
+        entry.install.as_mut().unwrap().sha256 = Some(format!("sha256:{}", "A".repeat(64)));
         assert!(validate_entry(&entry).is_ok());
     }
 
