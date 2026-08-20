@@ -65,10 +65,11 @@ lru = "0.15"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
-# No default features: Prometheus/OpenTelemetry is opt-in via the root
-# `prometheus` feature (issue #2182). Keeping it out of `default` means
-# the default wheel path compiles neither the Prometheus exporter nor the
-# OTel stack.
+# No default features: the Prometheus exporter is opt-in via the root
+# `prometheus` feature (issue #2182). Keeping it out of `default` means the
+# default wheel path no longer compiles the Prometheus exporter. The OTel core
+# (opentelemetry / opentelemetry_sdk / opentelemetry-stdout) still compiles via
+# `dcc-mcp-telemetry`; opt-in gating of the OTel stack is a separate follow-up.
 default = []
 admin = []
 admin-persist-sqlite = ["admin", "dcc-mcp-db/gateway-admin-sqlite"]
