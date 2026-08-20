@@ -16,12 +16,12 @@ serde.workspace = true
 serde_yaml_ng.workspace = true
 serde_json.workspace = true
 semver.workspace = true
-sha2 = "0.11"
+sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-tempfile = "3"
-dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
+tempfile.workspace = true
+dcc-mcp-test-utils = { workspace = true }

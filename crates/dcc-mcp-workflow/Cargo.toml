@@ -36,10 +36,9 @@ base64 = { workspace = true }
 # Optional: SQLite persistence (writer + interrupted-on-restart recovery).
 rusqlite = { version = "0.39", optional = true, features = ["bundled"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
-sha2 = "0.11.0"
-
+sha2.workspace = true
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "test-util"] }
 dcc-mcp-models = { workspace = true, features = ["testing"] }
 

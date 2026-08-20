@@ -533,6 +533,46 @@ def collect_expected_fragment_errors(root: Path, contract: Mapping[str, Any]) ->
     return errors
 
 
+def collect_wheel_feature_projection_errors(root: Path) -> list[str]:
+    """Require pyproject's default maturin features to match the Justfile wheel set."""
+    justfile = (root / "justfile").read_text(encoding="utf-8")
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    opt_match = re.search(r'^OPT_FEATURES\s*:=\s*"([^"]*)"', justfile, re.MULTILINE)
+    wheel_match = re.search(
+        r'^WHEEL_FEATURES\s*:=\s*"([^"]*)"\s*\+\s*OPT_FEATURES',
+        justfile,
+        re.MULTILINE,
+    )
+    maturin_match = re.search(
+        r"(?ms)^\[tool\.maturin\]\s*(.*?)(?=^\[|\Z)",
+        pyproject,
+    )
+    if not opt_match or not wheel_match or not maturin_match:
+        return ["Justfile/pyproject.toml: cannot resolve canonical wheel feature projections"]
+    pyproject_match = re.search(
+        r"(?ms)^features\s*=\s*\[(.*?)\]",
+        maturin_match.group(1),
+    )
+    if not pyproject_match:
+        return ["pyproject.toml: [tool.maturin] is missing features"]
+
+    expected = {
+        feature.strip()
+        for value in (wheel_match.group(1), opt_match.group(1))
+        for feature in value.split(",")
+        if feature.strip()
+    }
+    actual = set(re.findall(r'"([^"]+)"', pyproject_match.group(1)))
+    if actual == expected:
+        return []
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    return [
+        "pyproject.toml: [tool.maturin].features drifted from Justfile "
+        f"WHEEL_FEATURES (missing={missing}, extra={extra})"
+    ]
+
+
 def collect_projection_errors(root: Path, contract: Mapping[str, Any]) -> list[str]:
     """Collect all contract drift errors without failing at the first one."""
     errors = collect_expected_fragment_errors(root, contract)
@@ -544,6 +584,7 @@ def collect_projection_errors(root: Path, contract: Mapping[str, Any]) -> list[s
     errors.extend(collect_wheel_action_errors(root))
     errors.extend(collect_backfill_tooling_errors(root))
     errors.extend(collect_semantic_release_errors(root))
+    errors.extend(collect_wheel_feature_projection_errors(root))
 
     release_jobs = {
         "linux-x86_64": "linux-py37",

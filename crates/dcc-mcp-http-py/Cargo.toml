@@ -17,16 +17,16 @@ doctest = false
 workspace = true
 
 [dependencies]
-dcc-mcp-http = { path = "../dcc-mcp-http" }
-dcc-mcp-http-types = { path = "../dcc-mcp-http-types" }
-dcc-mcp-actions = { path = "../dcc-mcp-actions" }
-dcc-mcp-artefact = { path = "../dcc-mcp-artefact" }
-dcc-mcp-host = { path = "../dcc-mcp-host" }
-dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
-dcc-mcp-models = { path = "../dcc-mcp-models" }
-dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge" }
-dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
-dcc-mcp-skills = { path = "../dcc-mcp-skills" }
+dcc-mcp-http = { workspace = true }
+dcc-mcp-http-types = { workspace = true }
+dcc-mcp-actions = { workspace = true }
+dcc-mcp-artefact = { workspace = true }
+dcc-mcp-host = { workspace = true }
+dcc-mcp-jsonrpc = { workspace = true }
+dcc-mcp-models = { workspace = true }
+dcc-mcp-pybridge = { workspace = true }
+dcc-mcp-skill-rest = { workspace = true }
+dcc-mcp-skills = { workspace = true }
 parking_lot = { workspace = true }
 pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }

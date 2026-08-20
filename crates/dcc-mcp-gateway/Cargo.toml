@@ -11,21 +11,23 @@ build = "build.rs"
 
 [dependencies]
 # Internal
-dcc-mcp-attestation = { path = "../dcc-mcp-attestation" }
+dcc-mcp-attestation = { workspace = true }
+# Keep path overrides where this crate intentionally disables dependency defaults;
+# Cargo does not allow an inherited workspace dependency to override that setting.
 dcc-mcp-db = { path = "../dcc-mcp-db", default-features = false }
-dcc-mcp-models = { path = "../dcc-mcp-models" }
-dcc-mcp-actions = { path = "../dcc-mcp-actions" }
-dcc-mcp-gateway-core = { path = "../dcc-mcp-gateway-core" }
-dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
-dcc-mcp-naming = { path = "../dcc-mcp-naming" }
-dcc-mcp-transport = { path = "../dcc-mcp-transport" }
-dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
-dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
+dcc-mcp-models = { workspace = true }
+dcc-mcp-actions = { workspace = true }
+dcc-mcp-gateway-core = { workspace = true }
+dcc-mcp-jsonrpc = { workspace = true }
+dcc-mcp-naming = { workspace = true }
+dcc-mcp-transport = { workspace = true }
+dcc-mcp-telemetry = { workspace = true, optional = true }
+dcc-mcp-skill-rest = { workspace = true }
 dcc-mcp-skills = { path = "../dcc-mcp-skills", default-features = false }
-dcc-mcp-catalog = { path = "../dcc-mcp-catalog" }
-dcc-mcp-marketplace = { path = "../dcc-mcp-marketplace" }
-dcc-mcp-updater = { path = "../dcc-mcp-updater" }
-dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }
+dcc-mcp-catalog = { workspace = true }
+dcc-mcp-marketplace = { workspace = true }
+dcc-mcp-updater = { workspace = true }
+dcc-mcp-workflow = { workspace = true }
 opentelemetry = { version = "0.32", features = ["trace"], optional = true }
 prometheus = { version = "0.14", default-features = false, optional = true }
 
@@ -48,12 +50,12 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP server
-axum = { version = "0.8", features = ["http1", "tokio", "ws"] }
-tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+axum = { workspace = true, features = ["http1", "tokio", "ws"] }
+tower = { workspace = true, features = ["util"] }
+tower-http = { workspace = true, features = ["cors", "trace", "limit"] }
 sysinfo = { workspace = true }
-http = "1.0"
-futures = "0.3"
+http.workspace = true
+futures.workspace = true
 futures-util = { workspace = true }
 slab = "0.4"
 tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
@@ -79,12 +81,12 @@ prometheus = ["telemetry", "dcc-mcp-telemetry/prometheus", "dep:prometheus"]
 mdns = ["dcc-mcp-transport/mdns"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 criterion = { version = "0.8", features = ["html_reports"] }
-tower = { version = "0.5", features = ["util"] }
+tower = { workspace = true, features = ["util"] }
 proptest = "1.5"
-dcc-mcp-test-utils = { path = "../dcc-mcp-test-utils" }
+dcc-mcp-test-utils = { workspace = true }
 
 [[bench]]
 name = "search_bench"

@@ -68,6 +68,10 @@ dcc-mcp-models = { path = "crates/dcc-mcp-models" }
 dcc-mcp-actions = { path = "crates/dcc-mcp-actions" }
 dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
+dcc-mcp-jsonrpc = { path = "crates/dcc-mcp-jsonrpc" }
+dcc-mcp-wire = { path = "crates/dcc-mcp-wire" }
+dcc-mcp-job = { path = "crates/dcc-mcp-job" }
+dcc-mcp-skill-rest = { path = "crates/dcc-mcp-skill-rest" }
 dcc-mcp-logging = { path = "crates/dcc-mcp-logging" }
 dcc-mcp-pybridge = { path = "crates/dcc-mcp-pybridge" }
 dcc-mcp-pybridge-derive = { path = "crates/dcc-mcp-pybridge-derive" }
@@ -80,6 +84,7 @@ dcc-mcp-shm = { path = "crates/dcc-mcp-shm" }
 dcc-mcp-capture = { path = "crates/dcc-mcp-capture" }
 dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
 dcc-mcp-http = { path = "crates/dcc-mcp-http" }
+dcc-mcp-http-types = { path = "crates/dcc-mcp-http-types" }
 dcc-mcp-http-server = { path = "crates/dcc-mcp-http-server" }
 dcc-mcp-http-py = { path = "crates/dcc-mcp-http-py" }
 dcc-mcp-cli = { path = "crates/dcc-mcp-cli" }
@@ -97,11 +102,13 @@ dcc-mcp-marketplace = { path = "crates/dcc-mcp-marketplace" }
 dcc-mcp-catalog = { path = "crates/dcc-mcp-catalog" }
 dcc-mcp-db = { path = "crates/dcc-mcp-db" }
 dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }
+dcc-mcp-gateway-core = { path = "crates/dcc-mcp-gateway-core" }
 dcc-mcp-updater = { path = "crates/dcc-mcp-updater" }
 dcc-mcp-attestation = { path = "crates/dcc-mcp-attestation" }
 dcc-mcp-gateway-ensure = { path = "crates/dcc-mcp-gateway-ensure" }
 dcc-mcp-gateway-search = { path = "crates/dcc-mcp-gateway-search" }
 dcc-mcp-semantic = { path = "crates/dcc-mcp-semantic" }
+dcc-mcp-test-utils = { path = "crates/dcc-mcp-test-utils" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }
@@ -140,6 +147,14 @@ base64 = "0.22"
 # only when the `job-persist-sqlite` feature is enabled on `dcc-mcp-http`;
 # otherwise zero SQLite code compiles into the wheel.
 rusqlite = { version = "0.39", features = ["bundled"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = "0.6"
+tempfile = "3"
+sha2 = "0.11"
+rand = "0.10"
+http = "1.0"
+futures = "0.3"
 
 # Safe zero-copy (de)serialisation for shared-memory headers.
 bytemuck = { version = "1.22", features = ["derive", "extern_crate_alloc", "min_const_generics"] }
@@ -181,7 +196,6 @@ keywords = ["dcc", "mcp", "maya", "blender", "houdini", "pyo3"]
 [lib]
 name = "_core"
 crate-type = ["cdylib", "rlib"]
-required-features = ["python-bindings"]
 
 [dependencies]
 # Internal crates

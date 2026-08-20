@@ -14,8 +14,8 @@ parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde_json = { workspace = true }
-dcc-mcp-wire = { path = "../dcc-mcp-wire" }
-dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }
+dcc-mcp-wire = { workspace = true }
+dcc-mcp-pybridge = { workspace = true, optional = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 pyo3 = { workspace = true, optional = true }
