@@ -15,6 +15,10 @@ Use the smallest shape that can honestly run the host API:
 | Editor/game engine | Unreal, Unity | Adapter-owned plugin bridge plus typed skill tools; keep Python optional |
 | Standalone internal service | Asset/review/render APIs, private CLI tools | `DccServerBase` with `instance_type="standalone"`, no DCC PID, and inline typed tools |
 
+When an external bridge uses the public Python `DccBridge` WebSocket server,
+declare `dcc-mcp-core[bridge]`; the base install intentionally does not pull in
+the optional `websockets` transport.
+
 ## 2. Build the Composition Root
 
 Adapter server modules should be composition roots, not utility bins. Keep them

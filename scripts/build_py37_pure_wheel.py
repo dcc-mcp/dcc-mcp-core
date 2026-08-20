@@ -36,6 +36,15 @@ def _read_minimum_python_spec() -> str:
     return ">={}".format(contract["support"]["minimum_python"])
 
 
+def _read_runtime_requirements() -> list[str]:
+    """Project base dependencies must be identical in native and lite wheels."""
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^dependencies\s*=\s*\[(.*?)\]\s*(?=^\[)", text)
+    if not match:
+        raise RuntimeError("could not read project dependencies from pyproject.toml")
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+
 def main() -> int:
     """Assemble a pure-Python wheel from ``python/dcc_mcp_core``."""
     _ensure_wheel()
@@ -55,6 +64,8 @@ def main() -> int:
     metadata["Requires-Python"] = _read_minimum_python_spec()
     metadata["License"] = "MIT"
     metadata["Summary"] = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
+    for requirement in _read_runtime_requirements():
+        metadata["Requires-Dist"] = requirement
 
     wheel_meta = "Wheel-Version: 1.0\nGenerator: build_py37_pure_wheel\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
 

@@ -71,7 +71,8 @@ Maya 2022 / CPython 3.7
   `match` 等 Python 3.8+ 语法。
 - `compile()` 通过不等于运行时兼容；不能在 3.7 上直接求值现代注解。
 - 对 Python 3.7 `typing` 中不存在的 `Protocol`、`Literal` 等运行时 API，
-  使用 `_typing_compat` 或明确的回退实现。
+  使用 `dcc_mcp_core._typing`；它选择标准库或固定版本的官方
+  `typing_extensions` backport，不要自行实现 typing 语义。
 - 需要支持 lite 档位的代码不能无条件导入 `_core`。
 - 新增跨 Rust/Python 边界的公开 API 时，应覆盖原生和 lite 两种档位。
 

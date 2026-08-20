@@ -35,7 +35,7 @@ import re
 from threading import RLock
 from typing import Iterable
 
-from dcc_mcp_core._typing_compat import Protocol
+from dcc_mcp_core._typing import Protocol
 
 __all__ = [
     "LexicalSkillIndex",

@@ -9,6 +9,12 @@ Generic WebSocket bridge for non-Python DCCs. Implements the server-side of the 
 
 ## DccBridge
 
+Install the WebSocket transport before creating a bridge:
+
+```bash
+pip install 'dcc-mcp-core[bridge]'
+```
+
 WebSocket bridge server that waits for a DCC plugin to connect.
 
 ### Constructor

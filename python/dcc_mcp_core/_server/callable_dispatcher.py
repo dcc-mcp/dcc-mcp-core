@@ -47,9 +47,9 @@ if TYPE_CHECKING:
 # `typing.Protocol`, `typing.runtime_checkable` and `typing.Literal` are
 # 3.8+. For Python 3.7 (Maya 2022), expose duck-typed fallbacks with the
 # same attribute contracts; concrete dispatchers do not need to inherit.
-from dcc_mcp_core._typing_compat import Literal
-from dcc_mcp_core._typing_compat import Protocol
-from dcc_mcp_core._typing_compat import runtime_checkable
+from dcc_mcp_core._typing import Literal
+from dcc_mcp_core._typing import Protocol
+from dcc_mcp_core._typing import runtime_checkable
 
 logger = logging.getLogger(__name__)
 

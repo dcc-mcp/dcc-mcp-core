@@ -38,6 +38,9 @@ dependencies = [
     # pure-Python code only and users install dcc-mcp-server separately when
     # their platform provides a compatible binary wheel.
     "dcc-mcp-server>=0.18.17,<1.0.0",
+    # Python 3.7 lacks Protocol, runtime_checkable, and Literal. Use the
+    # standards-compatible backport instead of maintaining local typing semantics.
+    "typing-extensions==4.7.1; python_version<'3.8'",
 ]
 
 [project.scripts]
@@ -51,7 +54,6 @@ test = [
     "pytest-cov>=4.0,<5.0; python_version<'3.8'",
     "pytest-xdist>=3.0; python_version>='3.8'",
     "pytest-xdist==3.5.0; python_version<'3.8'",
-    "typing-extensions==4.7.1; python_version<'3.8'",
     "rez",
     "zipp>=3.19.1; python_version>='3.8'",  # CVE-2024-5569; fixed releases require Python 3.8+
     # Qt UI inspector live-Qt tests (issue #1332); skipped on Py<3.9 / when missing
@@ -64,6 +66,9 @@ dev = [
     "mypy>=1.0; python_version>='3.8'",
     "maturin>=1.0",
 ]
+# WebSocket JSON-RPC bridge for non-Python DCC hosts. Pip selects the newest
+# release compatible with the active Python interpreter from this range.
+bridge = ["websockets>=11,<18"]
 # Optional ONNX-backed semantic embeddings for VectorSkillIndex
 # (issues #1393, #1395). Default install stays zero-dep; install this extra
 # when ``HashedEmbedder`` (the deterministic hashing-trick default) is not
@@ -102,6 +107,9 @@ Changelog = "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md"
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"
+# Source builds default to the CPython 3.8+ stable ABI. Native CPython 3.7
+# wheels are separate CI/release artifacts built without ``abi3-py38``;
+# ``requires-python >=3.7`` covers both explicitly validated profiles.
 # Feature list MUST stay in sync with `WHEEL_FEATURES` in the root justfile.
 # The justfile is the single source of truth for CI; this list only matters
 # for downstream `pip install .` / sdist rebuilds that bypass our CI.
@@ -146,8 +154,6 @@ known-first-party = ["dcc_mcp_core"]
 # instead of ``from dcc_mcp_core import …`` so submodules avoid the lazy package facade.
 
 [tool.ruff.lint.per-file-ignores]
-# Python 3.7 compat: deliberate __dict__ access; get_annotations() would eval string annotations unnecessarily.
-"python/dcc_mcp_core/_typing_compat.py" = ["RUF063"]
 # Python 3.7 (Maya 2022) compat: use typing.Optional/Dict/List instead of PEP 604 syntax.
 "python/dcc_mcp_core/_server/host_ui_dispatcher.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/host_errors.py" = ["UP006", "UP045"]

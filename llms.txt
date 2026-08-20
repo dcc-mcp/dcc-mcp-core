@@ -583,6 +583,7 @@ tools:
 
 ### DccBridge — WebSocket Bridge (`dcc_mcp_core.bridge`)
 
+- Install transport support with `pip install 'dcc-mcp-core[bridge]'`.
 - `DccBridge(host="localhost", port=9001, timeout=30.0)` — WebSocket bridge server for non-Python DCCs
   - `.connect(wait_for_dcc=False)` — start the WebSocket server; optionally block until DCC plugin connects
   - `.call(method, **params) -> Any` — synchronous RPC to the DCC plugin (thread-safe)

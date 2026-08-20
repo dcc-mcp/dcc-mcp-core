@@ -6,7 +6,7 @@
 - **MCP-only IDE 客户端** → 使用 gateway 的少量固定 MCP 工作流（`search`、`describe`、`load_skill`、`call`）。
 - **传统调用方** →（cURL / CI / 任意 HTTP 客户端）通过**完整的 `/v1/*` REST 服务**。
 
-底层是 Rust，通过 [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin) 编译成一个 Python 扩展模块。它没有第三方 Python 库运行时依赖；配套的 `dcc-mcp-server` wheel 提供打包后的 gateway daemon 二进制。
+底层是 Rust，通过 [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin) 编译成一个 Python 扩展模块。Python 3.8+ 不需要 typing backport；Python 3.7 会安装固定版本的 `typing_extensions` 兼容依赖。配套的 `dcc-mcp-server` wheel 提供打包后的 gateway daemon 二进制。
 
 ---
 
@@ -63,7 +63,7 @@ flowchart LR
 - **多 DCC 网关汇聚** —— 文件型服务注册表 + TCP 心跳探测，自动剔除 3 连失败的实例、清理 ghost 行，基于 `crate_version → adapter_version → adapter_dcc` 的三级选举仲裁。
 - **Tool Slug 契约** —— `<dcc>.<id8>.<tool>` 三段 slug 是唯一的全局寻址方式，网关据此把 REST `/v1/call` 路由到正确的后端。
 - **Tunnel（#504）** —— `dcc-mcp-tunnel-relay` + `dcc-mcp-tunnel-agent` 两个可执行二进制，让远程 AI 客户端直接访问工作站上的 DCC。
-- **PyO3 绑定** —— Rust 加速的一切从 Python 透明可用；没有第三方 Python 库运行时依赖，gateway daemon 启动使用配套的 `dcc-mcp-server` wheel。
+- **PyO3 绑定** —— Rust 加速的一切从 Python 透明可用；Python 3.7 仅增加固定版本的官方 typing backport，gateway daemon 启动使用配套的 `dcc-mcp-server` wheel。
 
 ---
 

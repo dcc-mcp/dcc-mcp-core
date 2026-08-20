@@ -27,7 +27,7 @@ def _new_probe() -> Any:
     try:
         from dcc_mcp_core._core import ReadinessProbe
     except ImportError:
-        from dcc_mcp_core._py37_fallback import ReadinessProbe
+        from dcc_mcp_core._lite_fallback import ReadinessProbe
 
     return ReadinessProbe()
 
