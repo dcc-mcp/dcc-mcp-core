@@ -223,30 +223,34 @@ tools with `execution: async` and poll `jobs_get_status`.
 This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —
 register them before calling `server.start()`, never after.
 
-**Return `ToolResult` from Python tool handlers (#487) — never hand-roll the dict:**
+**Return `ToolResultEnvelope` from Python tool handlers (#2183) — never hand-roll the dict:**
 ```python
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 # ✓ typed envelope; serialises to the same wire shape clients already see.
 # Factory methods are `success_` / `error_` (trailing underscore avoids
 # shadowing the dataclass fields), with shorter aliases `ok` / `fail`.
-return ToolResult.ok("Loaded skill", name=name).to_dict()
-return ToolResult.fail("Skill missing", error="not_found",
-                       prompt="Try `recipes__list`.").to_dict()
-# `ToolResult.not_found("Skill", name)` and `ToolResult.invalid_input(msg)`
+return ToolResultEnvelope.ok("Loaded skill", name=name).to_dict()
+return ToolResultEnvelope.fail("Skill missing", error="not_found",
+                               prompt="Try `recipes__list`.").to_dict()
+# `ToolResultEnvelope.not_found("Skill", name)` and
+# `ToolResultEnvelope.invalid_input(msg)`
 # are convenience constructors for the two most common error codes.
 
 # ✗ ad-hoc dict — no field validation, drifts when the wire shape evolves
 return {"success": True, "message": "...", "context": {"name": name}}
 ```
-The dataclass mirrors the Rust `ToolResult` model; empty fields are pruned
-by `.to_dict()` so feature-flag toggles do not perturb the JSON envelope.
+The dataclass shares the Rust `ToolResult` wire schema but is a distinct,
+dependency-light builder. Empty fields are pruned by `.to_dict()` by default;
+skill helpers intentionally retain their historical fixed-key projection.
+`error` is a string code; structured details belong under `_meta["dcc.error"]`.
 
-> **Trap (#487):** there is no `ToolResult.success(...)` / `ToolResult.error(...)`
+> **Trap (#2183):** there is no `ToolResultEnvelope.success(...)` /
+> `ToolResultEnvelope.error(...)`
 > classmethod — `success` and `error` are *dataclass fields*, so the factories
 > are spelled `success_` / `error_` (or the cleaner aliases `ok` / `fail`).
-> Calling `ToolResult.success("...")` raises
-> `AttributeError: type object 'ToolResult' has no attribute 'success'`.
+> Top-level `dcc_mcp_core.ToolResult` is the Rust runtime model, not this wire
+> builder.
 
 **Import metadata key strings from `constants.py` (#487):**
 ```python
@@ -375,7 +379,8 @@ annotations = ToolAnnotations(
     deferred_hint=None,        # full schema deferred until load_skill (set by server, not user)
 )
 # Design tools around user workflows, not raw API calls.
-# Return human-readable errors via error_result("msg", "specific error").
+# Put human-readable detail in message/_meta and pass a stable code as error.
+# Example: error_result("File was not found", "file_not_found").
 # Use notifications/tools/list_changed when the tool set changes.
 ```
 
@@ -787,7 +792,8 @@ Strict input/output schemas, explicit side effects, documented errors.
 
 - Every tool MUST have an `input_schema` (JSON Schema) with per-parameter
   descriptions (≤100 chars each).
-- Every tool handler MUST return `ToolResult` — never raw dicts.
+- Every Python tool handler MUST return a `ToolResultEnvelope` mapping (usually
+  through `skill_success` / `skill_error`) — never a hand-rolled dict.
 - Every error MUST include an actionable `prompt` suggesting a recovery step.
 
 ### Safety Annotations
@@ -848,17 +854,17 @@ description: "Create geometry."
 Every tool should provide structured error recovery:
 
 ```python
-from dcc_mcp_core import error_result, ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 # ✓ Good — specific error code + actionable prompt
-return ToolResult.fail(
+return ToolResultEnvelope.fail(
     "Sphere creation failed",
     error="invalid_radius",
     prompt="Radius must be positive. Try create_sphere with radius=1.0.",
 ).to_dict()
 
 # ✗ Bad — generic error, no guidance
-return ToolResult.fail("Error", error="failed").to_dict()
+return ToolResultEnvelope.fail("Error", error="failed").to_dict()
 ```
 
 ### Stateless by Default
@@ -962,7 +968,10 @@ return client.call(params["service"], **params.get("arguments", {}))
 ```python
 hint = params.get("_meta", {}).get("permission_hint", "read-write")
 if hint == "read-only" and params.get("action") == "delete":
-    return error_result("action 'delete' denied: permission_hint is 'read-only'")
+    return error_result(
+        "Action 'delete' denied: permission_hint is 'read-only'",
+        "permission_denied",
+    )
 ```
 
 **Pattern 3: Project-scoped data isolation** — filter results by

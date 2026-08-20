@@ -158,17 +158,23 @@ print(result.context)   # {"object_name": "sphere1", "position": [0, 0, 0]}
 # 错误
 result = error_result(
     message="Failed to create sphere",
-    error="Maya API error: object already exists",
+    error="object_already_exists",
+    _meta={
+        "dcc.error": {
+            "type": "MayaApiError",
+            "message": "object already exists",
+        }
+    },
     object_name="sphere1",
 )
 print(result.success)  # False
-print(result.error)    # "Maya API error: object already exists"
+print(result.error)    # "object_already_exists"
 
 # 从异常创建
 try:
     raise RuntimeError("connection refused")
-except Exception:
-    result = from_exception("Connection to Maya lost")
+except Exception as exc:
+    result = from_exception(f"{type(exc).__name__}: {exc}")
     print(result.success)  # False
 ```
 

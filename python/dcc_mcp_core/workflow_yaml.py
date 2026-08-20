@@ -65,7 +65,7 @@ from dcc_mcp_core._tool_registration import register_tools
 from dcc_mcp_core.constants import CATEGORY_WORKFLOWS
 from dcc_mcp_core.constants import METADATA_DCC_MCP
 from dcc_mcp_core.constants import METADATA_WORKFLOWS_KEY
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +404,7 @@ def register_workflow_yaml_tools(
 
     def _handle_list(_params: Any) -> Any:
         summaries = [wf.to_summary_dict() for wf in workflow_map.values()]
-        return ToolResult.ok(
+        return ToolResultEnvelope.ok(
             f"{len(summaries)} workflow(s) available.",
             workflows=summaries,
             count=len(summaries),
@@ -416,12 +416,12 @@ def register_workflow_yaml_tools(
         wf = workflow_map.get(name)
         if wf is None:
             available = list(workflow_map.keys())
-            return ToolResult(
+            return ToolResultEnvelope(
                 success=False,
                 message=f"Workflow '{name}' not found.",
                 context={"available": available},
             ).to_dict()
-        return ToolResult(
+        return ToolResultEnvelope(
             success=True,
             message=f"Workflow '{name}': {wf.goal}",
             context=wf.to_summary_dict(),

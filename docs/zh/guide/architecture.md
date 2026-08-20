@@ -396,7 +396,7 @@ dependencies = [
 python/dcc_mcp_core/
 ├── __init__.py     # 顶层公开重导出
 ├── skill.py        # 纯 Python Skill 脚本辅助（无 _core 依赖）
-├── result_envelope.py # Typed ToolResult helpers
+├── result_envelope.py # 轻依赖 ToolResultEnvelope 构建器
 └── py.typed        # PEP 561 标记
 
 # _core.pyi 是 stub-gen/dev 构建后的生成产物，不是手写源码

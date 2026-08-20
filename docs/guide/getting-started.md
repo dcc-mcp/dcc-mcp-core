@@ -246,7 +246,7 @@ print(result.success)  # True
 print(result.message)  # "Created 5 spheres"
 print(result.context)  # {"count": 5}
 
-err = error_result("Failed", "File not found", prompt="Check path")
+err = error_result("Failed", "file_not_found", prompt="Check path")
 print(err.success)  # False
 ```
 
@@ -403,7 +403,7 @@ When building tools for AI agents to consume:
 
 1. **Design around user workflows**, not raw API calls. A tool called `create_character` is better than three separate calls to `create_joint`, `bind_skin`, `apply_animation`.
 2. **Use `ToolAnnotations`** to signal safety properties — `read_only_hint=True`, `destructive_hint=False`, `idempotent_hint=True` — so AI clients make informed choices.
-3. **Return human-readable errors** via `error_result("msg", "specific error")` with actionable suggestions in `prompt`.
+3. **Return stable error codes** via `error_result("human-readable message", "machine_code")`, put structured diagnostics in `_meta`, and provide actionable suggestions in `prompt`.
 4. **Use `next-tools`** inside sibling `tools.yaml` declarations to guide AI agents to follow-up tools (e.g. `on-failure: [dcc_diagnostics__screenshot]`).
 5. **Keep `tools/list` small** by using tool groups with `default_active=false` for power-user features. Agents activate groups on demand.
 6. **Validate all AI-provided inputs** with `ToolValidator.from_schema_json()` before execution — never trust LLM output blindly.
@@ -419,7 +419,7 @@ Before registering a new tool, verify:
 - [ ] **Single responsibility**: Tool does one clear thing (not a kitchen-sink endpoint)
 - [ ] **Descriptive name**: Follows `{skill}__{action}` naming; self-explanatory action
 - [ ] **Input schema**: JSON Schema with per-parameter descriptions (≤100 chars each)
-- [ ] **Output schema**: Returns `ToolResult` via `ToolResult.ok()` / `ToolResult.fail()` — never raw dicts
+- [ ] **Output schema**: Python handlers return `ToolResultEnvelope` via `.ok()` / `.fail()` (or `skill_success` / `skill_error`) — never hand-rolled dicts
 - [ ] **ToolAnnotations**: Set `read_only_hint`, `destructive_hint`, `idempotent_hint`, `open_world_hint`
 - [ ] **Error taxonomy**: Document error codes in `error_result()` with actionable `prompt` suggestions
 - [ ] **Follow-up guidance**: `next-tools.on-success` for the logical next step; `next-tools.on-failure` pointing to diagnostics

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 #[cfg(feature = "stub-gen")]
-use pyo3_stub_gen_derive::gen_stub_pymethods;
+use pyo3_stub_gen_derive::{gen_stub_pyfunction, gen_stub_pymethods};
 
 use dcc_mcp_pybridge::py_json::{
     json_value_to_bound_py, py_any_to_json_value, py_dict_to_json_map,
@@ -25,7 +25,9 @@ const CTX_KEY_ERROR_TYPE: &str = "error_type";
 const CTX_KEY_TRACEBACK: &str = "traceback";
 const CTX_KEY_VALUE: &str = "value";
 const CTX_KEY_POSSIBLE_SOLUTIONS: &str = "possible_solutions";
-const ACTION_RESULT_KNOWN_KEYS: &[&str] = &["success", "message", "prompt", "error", "context"];
+const META_KEY_DCC_ERROR: &str = "dcc.error";
+const ACTION_RESULT_KNOWN_KEYS: &[&str] =
+    &["success", "message", "prompt", "error", "context", "_meta"];
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
@@ -38,29 +40,31 @@ impl SerializeFormat {
     }
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl ActionResultModel {
     #[new]
-    #[pyo3(signature = (success=true, message="".to_string(), prompt=None, error=None, context=None))]
+    #[pyo3(signature = (success=true, message="".to_string(), prompt=None, error=None, context=None, *, _meta=None))]
     fn new(
         success: bool,
         message: String,
         prompt: Option<String>,
         error: Option<String>,
         context: Option<&Bound<'_, PyDict>>,
+        _meta: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
-        let ctx = if let Some(dict) = context {
-            py_dict_to_json_map(dict)?
-        } else {
-            HashMap::new()
-        };
-        Ok(Self::from_data(ActionResultModelData {
-            success,
-            message,
-            prompt,
-            error,
-            context: ctx,
-        }))
+        let ctx = extract_context(context)?;
+        let meta = extract_context(_meta)?;
+        Ok(Self::from_data_with_meta(
+            ActionResultModelData {
+                success,
+                message,
+                prompt,
+                error,
+                context: ctx,
+            },
+            meta,
+        ))
     }
 
     #[getter]
@@ -97,6 +101,15 @@ impl ActionResultModel {
         Ok(dict)
     }
 
+    #[getter]
+    fn _meta<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        for (k, v) in self.meta() {
+            dict.set_item(k, json_value_to_bound_py(py, v)?)?;
+        }
+        Ok(dict)
+    }
+
     /// Create a new instance with error information.
     #[allow(clippy::double_must_use)]
     #[must_use]
@@ -104,7 +117,7 @@ impl ActionResultModel {
         let mut data = self.data().clone();
         data.success = false;
         data.error = Some(error);
-        Self::from_data(data)
+        Self::from_data_with_meta(data, self.meta().clone())
     }
 
     /// Create a new instance with updated context.
@@ -120,7 +133,7 @@ impl ActionResultModel {
                 data.context.insert(key, val);
             }
         }
-        Ok(Self::from_data(data))
+        Ok(Self::from_data_with_meta(data, self.meta().clone()))
     }
 
     /// Convert to dictionary.
@@ -131,32 +144,40 @@ impl ActionResultModel {
         dict.set_item("prompt", self.data().prompt.as_deref())?;
         dict.set_item("error", self.data().error.as_deref())?;
         dict.set_item("context", self.context(py)?)?;
+        if !self.meta().is_empty() {
+            dict.set_item("_meta", self._meta(py)?)?;
+        }
         Ok(dict)
     }
 
     /// Serialize to a JSON string.
     fn to_json(&self) -> PyResult<String> {
-        self.data()
-            .to_json_string()
+        self.to_json_string()
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Iterate over key-value pairs (mapping protocol).
-    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyIterator>> {
+    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let dict = self.to_dict(py)?;
-        pyo3::types::PyIterator::from_object(&dict.into_any())
+        Ok(pyo3::types::PyIterator::from_object(&dict.into_any())?
+            .into_any()
+            .unbind())
     }
 
     /// Return the list of field names (part of the mapping protocol).
     fn keys<'py>(&self, py: Python<'py>) -> PyResult<Vec<String>> {
         let _ = py;
-        Ok(vec![
+        let mut keys = vec![
             "success".to_string(),
             "message".to_string(),
             "prompt".to_string(),
             "error".to_string(),
             "context".to_string(),
-        ])
+        ];
+        if !self.meta().is_empty() {
+            keys.push("_meta".to_string());
+        }
+        Ok(keys)
     }
 
     fn __repr__(&self) -> String {
@@ -202,6 +223,84 @@ fn insert_possible_solutions(
     }
 }
 
+fn insert_error_meta(
+    meta: &mut HashMap<String, serde_json::Value>,
+    error_type: &str,
+    message: &str,
+    traceback: Option<String>,
+) {
+    let mut details = serde_json::Map::from_iter([
+        (
+            "type".to_string(),
+            serde_json::Value::String(error_type.to_string()),
+        ),
+        (
+            "message".to_string(),
+            serde_json::Value::String(message.to_string()),
+        ),
+    ]);
+    if let Some(traceback) = traceback {
+        details.insert(
+            "traceback".to_string(),
+            serde_json::Value::String(traceback),
+        );
+    }
+    meta.insert(
+        META_KEY_DCC_ERROR.to_string(),
+        serde_json::Value::Object(details),
+    );
+}
+
+fn truncate_utf8_at_byte_limit(value: &str, max_bytes: usize) -> &str {
+    if value.len() <= max_bytes {
+        return value;
+    }
+
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
+}
+
+fn is_exception_error_code(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    let has_valid_syntax = (first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'));
+    if !has_valid_syntax {
+        return false;
+    }
+
+    let leaf = value.rsplit('.').next().unwrap_or(value);
+    value.contains('_')
+        || value.contains('-')
+        || leaf.ends_with("Error")
+        || leaf.ends_with("Exception")
+        || matches!(
+            leaf,
+            "KeyboardInterrupt"
+                | "SystemExit"
+                | "GeneratorExit"
+                | "StopIteration"
+                | "StopAsyncIteration"
+        )
+}
+
+fn split_exception_message(error_message: &str) -> (String, String) {
+    if let Some((candidate, detail)) = error_message.split_once(':') {
+        let candidate = candidate.trim();
+        let detail = detail.trim();
+        if is_exception_error_code(candidate) && !detail.starts_with("//") {
+            return (candidate.to_string(), detail.to_string());
+        }
+    }
+
+    (DEFAULT_ERROR_TYPE.to_string(), error_message.to_string())
+}
+
 fn extract_bool_field(dict: &Bound<'_, PyDict>, key: &str, default: bool) -> PyResult<bool> {
     dict.get_item(key)?
         .map(|v| {
@@ -241,16 +340,19 @@ fn extract_optional_string_field(dict: &Bound<'_, PyDict>, key: &str) -> PyResul
         .map(|opt| opt.flatten())
 }
 
-fn extract_context_field(dict: &Bound<'_, PyDict>) -> PyResult<HashMap<String, serde_json::Value>> {
-    dict.get_item("context")?
+fn extract_dict_field(
+    dict: &Bound<'_, PyDict>,
+    key: &str,
+) -> PyResult<HashMap<String, serde_json::Value>> {
+    dict.get_item(key)?
         .map(|v| {
             if v.is_none() {
                 Ok(HashMap::new())
             } else {
-                let context = v.cast::<PyDict>().map_err(|_| {
-                    pyo3::exceptions::PyTypeError::new_err("'context' field must be a dict")
+                let value = v.cast::<PyDict>().map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err(format!("'{key}' field must be a dict"))
                 })?;
-                py_dict_to_json_map(context)
+                py_dict_to_json_map(value)
             }
         })
         .transpose()
@@ -263,7 +365,8 @@ fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
     let prompt = extract_optional_string_field(dict, "prompt")?;
     let error = extract_optional_string_field(dict, "error")?;
 
-    let mut ctx = extract_context_field(dict)?;
+    let mut ctx = extract_dict_field(dict, "context")?;
+    let meta = extract_dict_field(dict, "_meta")?;
     for (k, v) in dict.iter() {
         if let Ok(key) = k.extract::<String>()
             && !ACTION_RESULT_KNOWN_KEYS.contains(&key.as_str())
@@ -272,94 +375,108 @@ fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
         }
     }
 
-    Ok(ActionResultModel::from_data(ActionResultModelData {
-        success,
-        message,
-        prompt,
-        error,
-        context: ctx,
-    }))
-}
-
-#[pyfunction]
-#[pyo3(name = "success_result")]
-#[pyo3(signature = (message, prompt=None, **context))]
-pub fn py_success_result(
-    message: String,
-    prompt: Option<String>,
-    context: Option<&Bound<'_, PyDict>>,
-) -> PyResult<ActionResultModel> {
-    let ctx = extract_context(context)?;
-    Ok(ActionResultModel::from_data(
-        ActionResultModelData::success(message, prompt, ctx),
+    Ok(ActionResultModel::from_data_with_meta(
+        ActionResultModelData {
+            success,
+            message,
+            prompt,
+            error,
+            context: ctx,
+        },
+        meta,
     ))
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction]
+#[pyo3(name = "success_result")]
+#[pyo3(signature = (message, prompt=None, *, _meta=None, **context))]
+pub fn py_success_result(
+    message: String,
+    prompt: Option<String>,
+    _meta: Option<&Bound<'_, PyDict>>,
+    context: Option<&Bound<'_, PyDict>>,
+) -> PyResult<ActionResultModel> {
+    let ctx = extract_context(context)?;
+    let data = ActionResultModelData::success(message, prompt, ctx);
+    Ok(ActionResultModel::from_data_with_meta(
+        data,
+        extract_context(_meta)?,
+    ))
+}
+
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "error_result")]
-#[pyo3(signature = (message, error, prompt=None, possible_solutions=None, **context))]
+#[pyo3(signature = (message, error, prompt=None, possible_solutions=None, *, _meta=None, **context))]
 pub fn py_error_result(
     message: String,
     error: String,
     prompt: Option<String>,
     possible_solutions: Option<Vec<String>>,
+    _meta: Option<&Bound<'_, PyDict>>,
     context: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<ActionResultModel> {
     let mut ctx = extract_context(context)?;
     insert_possible_solutions(&mut ctx, possible_solutions);
-    Ok(ActionResultModel::from_data(
-        ActionResultModelData::failure(message, Some(error), prompt, ctx),
+    let data = ActionResultModelData::failure(message, Some(error), prompt, ctx);
+    Ok(ActionResultModel::from_data_with_meta(
+        data,
+        extract_context(_meta)?,
     ))
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "from_exception")]
-#[pyo3(signature = (error_message, message=None, prompt=None, include_traceback=true, possible_solutions=None, **context))]
+#[pyo3(signature = (error_message, message=None, prompt=None, include_traceback=true, possible_solutions=None, *, _meta=None, **context))]
 pub fn py_from_exception(
     error_message: String,
     message: Option<String>,
     prompt: Option<String>,
     include_traceback: bool,
     possible_solutions: Option<Vec<String>>,
+    _meta: Option<&Bound<'_, PyDict>>,
     context: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<ActionResultModel> {
     let mut ctx = extract_context(context)?;
-    let error_type = error_message
-        .split_once(':')
-        .map(|(t, _)| t.trim().to_string())
-        .unwrap_or_else(|| DEFAULT_ERROR_TYPE.to_string());
-    ctx.insert(
-        CTX_KEY_ERROR_TYPE.to_string(),
-        serde_json::Value::String(error_type),
-    );
+    let (error_type, error_detail) = split_exception_message(&error_message);
     let msg = message.unwrap_or_else(|| format!("Error: {error_message}"));
-    if include_traceback {
-        let truncated_traceback = if error_message.len() > 1024 {
+    let traceback = include_traceback.then(|| {
+        if error_message.len() > 1024 {
             let trace_id = format!("err-{}", uuid::Uuid::new_v4());
             format!(
                 "{}... (truncated, see trace_id: {})",
-                &error_message[..1000.min(error_message.len())],
+                truncate_utf8_at_byte_limit(&error_message, 1000),
                 trace_id
             )
         } else {
             error_message.clone()
-        };
+        }
+    });
+    ctx.insert(
+        CTX_KEY_ERROR_TYPE.to_string(),
+        serde_json::Value::String(error_type.clone()),
+    );
+    if let Some(traceback) = &traceback {
         ctx.insert(
             CTX_KEY_TRACEBACK.to_string(),
-            serde_json::Value::String(truncated_traceback),
+            serde_json::Value::String(traceback.clone()),
         );
     }
     insert_possible_solutions(&mut ctx, possible_solutions);
-    Ok(ActionResultModel::from_data(
-        ActionResultModelData::failure(
-            msg,
-            Some(error_message),
-            Some(prompt.unwrap_or_else(|| DEFAULT_ERROR_PROMPT.to_string())),
-            ctx,
-        ),
-    ))
+    let data = ActionResultModelData::failure(
+        msg,
+        Some(error_type.clone()),
+        Some(prompt.unwrap_or_else(|| DEFAULT_ERROR_PROMPT.to_string())),
+        ctx,
+    );
+    let mut meta = extract_context(_meta)?;
+    insert_error_meta(&mut meta, &error_type, &error_detail, traceback);
+    Ok(ActionResultModel::from_data_with_meta(data, meta))
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "validate_action_result")]
 pub fn py_validate_action_result(result: &Bound<'_, PyAny>) -> PyResult<ActionResultModel> {
@@ -380,6 +497,7 @@ pub fn py_validate_action_result(result: &Bound<'_, PyAny>) -> PyResult<ActionRe
 }
 
 /// Serialize a `ToolResult` to a string (JSON) or bytes (MsgPack).
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "serialize_result")]
 #[pyo3(signature = (result, format = SerializeFormat::Json))]
@@ -389,7 +507,6 @@ pub fn py_serialize_result(
     format: SerializeFormat,
 ) -> PyResult<Py<PyAny>> {
     let bytes = result
-        .data()
         .to_bytes(format)
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
     match format {
@@ -403,6 +520,7 @@ pub fn py_serialize_result(
 }
 
 /// Deserialize a `str` (JSON) or `bytes` (MsgPack) into a `ToolResult`.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "deserialize_result")]
 #[pyo3(signature = (data, format = SerializeFormat::Json))]
@@ -419,7 +537,191 @@ pub fn py_deserialize_result(
             "data must be str (JSON) or bytes (MsgPack)",
         ));
     };
-    let data = ActionResultModelData::from_bytes(&raw, format)
+    let data = ActionResultModel::from_bytes(&raw, format)
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
-    Ok(ActionResultModel::from_data(data))
+    Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::PyTypeError;
+    use std::sync::Once;
+
+    fn initialize_python() {
+        static INITIALIZE: Once = Once::new();
+        INITIALIZE.call_once(Python::initialize);
+    }
+
+    #[test]
+    fn test_validate_to_dict_and_serialize_preserve_top_level_meta() {
+        initialize_python();
+        Python::attach(|py| -> PyResult<()> {
+            let error_details = PyDict::new(py);
+            error_details.set_item("type", "RuntimeError")?;
+            error_details.set_item("message", "host stopped")?;
+
+            let meta = PyDict::new(py);
+            meta.set_item("dcc.error", &error_details)?;
+
+            let context = PyDict::new(py);
+            context.set_item("action_name", "create_sphere")?;
+
+            let payload = PyDict::new(py);
+            payload.set_item("success", false)?;
+            payload.set_item("message", "Execution failed")?;
+            payload.set_item("error", "execution_error")?;
+            payload.set_item("context", &context)?;
+            payload.set_item("_meta", &meta)?;
+            payload.set_item("legacy_extra", 42)?;
+
+            let result = validate_from_dict(&payload)?;
+            assert_eq!(
+                result.meta()["dcc.error"],
+                serde_json::json!({"type": "RuntimeError", "message": "host stopped"})
+            );
+            assert!(!result.data().context.contains_key("_meta"));
+            assert_eq!(result.data().context["legacy_extra"], serde_json::json!(42));
+
+            let rendered = result.to_dict(py)?;
+            let rendered_json = py_dict_to_json_map(&rendered)?;
+            assert_eq!(
+                rendered_json["_meta"],
+                serde_json::json!({
+                    "dcc.error": {"type": "RuntimeError", "message": "host stopped"}
+                })
+            );
+            assert!(result.keys(py)?.contains(&"_meta".to_string()));
+
+            let serialized = py_serialize_result(py, &result, SerializeFormat::Json)?;
+            let serialized: String = serialized.bind(py).extract()?;
+            let serialized: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(serialized["_meta"], rendered_json["_meta"]);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_constructor_and_factory_keep_meta_outside_context() {
+        initialize_python();
+        Python::attach(|py| -> PyResult<()> {
+            let meta = PyDict::new(py);
+            meta.set_item("vendor.trace", "trace-42")?;
+
+            let constructed =
+                ActionResultModel::new(true, "Done".to_string(), None, None, None, Some(&meta))?;
+            assert_eq!(
+                constructed.meta()["vendor.trace"],
+                serde_json::json!("trace-42")
+            );
+            assert!(constructed.data().context.is_empty());
+
+            let failed = py_error_result(
+                "Execution failed".to_string(),
+                "execution_error".to_string(),
+                None,
+                None,
+                Some(&meta),
+                None,
+            )?;
+            assert_eq!(failed.meta(), constructed.meta());
+            assert!(failed.data().context.is_empty());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_from_exception_uses_string_code_and_namespaced_meta() {
+        initialize_python();
+        Python::attach(|py| -> PyResult<()> {
+            let meta = PyDict::new(py);
+            meta.set_item("vendor.trace", "trace-42")?;
+
+            let result = py_from_exception(
+                "RuntimeError: host stopped".to_string(),
+                None,
+                None,
+                true,
+                None,
+                Some(&meta),
+                None,
+            )?;
+
+            assert_eq!(result.data().error.as_deref(), Some("RuntimeError"));
+            assert_eq!(
+                result.data().context[CTX_KEY_ERROR_TYPE],
+                serde_json::json!("RuntimeError")
+            );
+            assert_eq!(
+                result.data().context[CTX_KEY_TRACEBACK],
+                serde_json::json!("RuntimeError: host stopped")
+            );
+            assert_eq!(result.meta()["vendor.trace"], serde_json::json!("trace-42"));
+            assert_eq!(
+                result.meta()[META_KEY_DCC_ERROR],
+                serde_json::json!({
+                    "type": "RuntimeError",
+                    "message": "host stopped",
+                    "traceback": "RuntimeError: host stopped"
+                })
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_from_exception_truncates_utf8_on_character_boundary() {
+        initialize_python();
+        for (unit, count, expected_prefix_count) in [("错", 342, 333), ("🙂", 260, 250)] {
+            let result =
+                py_from_exception(unit.repeat(count), None, None, true, None, None, None).unwrap();
+
+            let traceback = result.data().context[CTX_KEY_TRACEBACK]
+                .as_str()
+                .expect("traceback must be a string");
+            assert!(traceback.starts_with(&format!("{}...", unit.repeat(expected_prefix_count))));
+            assert!(traceback.contains("truncated, see trace_id"));
+        }
+    }
+
+    #[test]
+    fn test_from_exception_rejects_human_text_and_windows_drive_as_error_codes() {
+        initialize_python();
+        for message in [
+            r"C:\scene.ma: access denied",
+            "C:scene.ma: access denied",
+            "https://example.invalid/file: failed",
+            "dcc-mcp://host/tool: failed",
+            "Could not open: file",
+        ] {
+            let result =
+                py_from_exception(message.to_string(), None, None, false, None, None, None)
+                    .unwrap();
+
+            assert_eq!(result.data().error.as_deref(), Some(DEFAULT_ERROR_TYPE));
+            assert_eq!(
+                result.meta()[META_KEY_DCC_ERROR]["message"],
+                serde_json::json!(message)
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_rejects_non_dict_meta() {
+        initialize_python();
+        Python::attach(|py| -> PyResult<()> {
+            let payload = PyDict::new(py);
+            payload.set_item("success", false)?;
+            payload.set_item("_meta", "not-a-dict")?;
+
+            let error = validate_from_dict(&payload).unwrap_err();
+            assert!(error.is_instance_of::<PyTypeError>(py));
+            assert!(error.to_string().contains("'_meta' field must be a dict"));
+            Ok(())
+        })
+        .unwrap();
+    }
 }

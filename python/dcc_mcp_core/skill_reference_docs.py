@@ -20,7 +20,7 @@ from dcc_mcp_core._tool_registration import register_tools
 from dcc_mcp_core.constants import CATEGORY_DOCS
 from dcc_mcp_core.constants import METADATA_DCC_MCP
 from dcc_mcp_core.constants import METADATA_SKILL_REFERENCE_DOCS_KEY
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -173,23 +173,23 @@ def _handle_list(skill_map: dict[str, Any], params: Any) -> dict[str, Any]:
     skill_name = str(args.get("skill") or "")
     md = skill_map.get(skill_name)
     if md is None:
-        return ToolResult(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
+        return ToolResultEnvelope(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
     skill_path = getattr(md, "skill_path", "") or ""
     if not skill_path:
-        return ToolResult.fail("Skill has no skill_path.", error="invalid_skill").to_dict()
+        return ToolResultEnvelope.fail("Skill has no skill_path.", error="invalid_skill").to_dict()
     root = Path(skill_path)
     if not root.is_dir():
-        return ToolResult.fail(f"Skill directory missing: {skill_path}", error="invalid_skill").to_dict()
+        return ToolResultEnvelope.fail(f"Skill directory missing: {skill_path}", error="invalid_skill").to_dict()
     globs = _skill_reference_doc_globs(md)
     if not globs:
-        return ToolResult.ok(
+        return ToolResultEnvelope.ok(
             f"Skill '{skill_name}' has no reference-doc globs and no references/ directory.",
             skill=skill_name,
             globs=[],
             files=[],
         ).to_dict()
     files = _collect_reference_files(root, globs)
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         f"Found {len(files)} reference file(s) for '{skill_name}'.",
         skill=skill_name,
         globs=globs,
@@ -203,43 +203,43 @@ def _handle_read(skill_map: dict[str, Any], params: Any) -> dict[str, Any]:
     rel_path = str(args.get("path") or "")
     md = skill_map.get(skill_name)
     if md is None:
-        return ToolResult(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
+        return ToolResultEnvelope(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
     skill_path = getattr(md, "skill_path", "") or ""
     root = Path(skill_path)
     if not root.is_dir():
-        return ToolResult.fail(f"Skill directory missing: {skill_path}", error="invalid_skill").to_dict()
+        return ToolResultEnvelope.fail(f"Skill directory missing: {skill_path}", error="invalid_skill").to_dict()
 
     target = _resolve_safe_path(root, rel_path)
     if target is None:
-        return ToolResult.invalid_input(
+        return ToolResultEnvelope.invalid_input(
             "Invalid path — use a relative path from skill_refs__list with no '..'.",
         ).to_dict()
 
     suf = target.suffix.lower()
     if suf not in _TEXT_SUFFIXES:
-        return ToolResult.invalid_input("Only text reference types are readable (.md, .txt, …).").to_dict()
+        return ToolResultEnvelope.invalid_input("Only text reference types are readable (.md, .txt, …).").to_dict()
 
     allowed = {e["path"] for e in _collect_reference_files(root, _skill_reference_doc_globs(md))}
     rel_posix = target.resolve().relative_to(root.resolve()).as_posix()
     if rel_posix not in allowed:
-        return ToolResult.invalid_input(
+        return ToolResultEnvelope.invalid_input(
             "Path is not among indexed reference files; call skill_refs__list first.",
         ).to_dict()
 
     try:
         raw = target.read_bytes()
     except OSError as exc:
-        return ToolResult.fail(f"Cannot read file: {exc}", error="io_error").to_dict()
+        return ToolResultEnvelope.fail(f"Cannot read file: {exc}", error="io_error").to_dict()
     if len(raw) > _MAX_READ_BYTES:
-        return ToolResult.invalid_input(
+        return ToolResultEnvelope.invalid_input(
             f"File exceeds max read size ({_MAX_READ_BYTES} bytes).",
         ).to_dict()
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        return ToolResult.invalid_input("File is not valid UTF-8.").to_dict()
+        return ToolResultEnvelope.invalid_input("File is not valid UTF-8.").to_dict()
 
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         f"Read '{rel_posix}'",
         skill=skill_name,
         path=rel_posix,

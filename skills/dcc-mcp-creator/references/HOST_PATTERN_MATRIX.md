@@ -40,7 +40,11 @@ Use this table when choosing adapter runtime wiring for a new DCC.
   cannot safely interrupt a DCC-native API call or an uncooperative hot loop
   already executing on the host thread; use typed, bounded operations and
   return control to the pump between chunks.
-- Every bridge path must normalize arguments and return structured envelopes.
+- Every bridge path must normalize arguments and return the canonical domain
+  result envelope: `error` is a string code and structured details belong under
+  namespaced `_meta` entries. `HostExecutionBridge` and in-process dispatchers
+  must not return a JSON-RPC-style error object in the domain `error` field.
+  Keep outer host-RPC `{result}` / `{error}` transport envelopes separate.
 
 ## Dispatcher Smoke Tests
 

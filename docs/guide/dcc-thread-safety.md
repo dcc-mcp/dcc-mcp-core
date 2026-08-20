@@ -347,7 +347,7 @@ for the planned cooperative-cancellation primitive.
 ```python
 for batch in chunks(primitives, size=500):
     if job.check_cancelled():           # #329
-        return skill_error("Cancelled by user")
+        return skill_error("Cancelled by user", "cancelled")
     create_primitives(batch)
     # control returns to DCC between batches
 ```

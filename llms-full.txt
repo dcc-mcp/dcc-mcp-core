@@ -153,15 +153,16 @@ hints for the LLM. Immutable snapshot — use `with_error()`/`with_context()` to
 
 **Constructor:**
 ```python
-ToolResult(success=True, message="", prompt=None, error=None, context=None)
+ToolResult(success=True, message="", prompt=None, error=None, context=None, *, _meta=None)
 ```
 
 **Properties (read-only except `message`):**
 - `success: bool` — Whether the execution was successful
 - `message: str` — Human-readable result description (settable)
 - `prompt: Optional[str]` — Suggestion for AI about next steps ← **use this for AI guidance**
-- `error: Optional[str]` — Error message when success is False
+- `error: Optional[str]` — Stable string error code when success is False
 - `context: dict` — Additional context data (returns a new dict each access)
+- `_meta: dict` — Namespaced structured metadata such as `dcc.error`
 
 **Methods:**
 - `with_error(error: str) -> ToolResult` — Copy with error info (sets success=False)
@@ -176,17 +177,21 @@ ToolResult(success=True, message="", prompt=None, error=None, context=None)
 from dcc_mcp_core import success_result, error_result, from_exception, validate_action_result
 
 # success_result: positional message, optional prompt, remaining kwargs → context
-result = success_result("Created 5 spheres", prompt="Use modify_spheres next", count=5)
+result = success_result("Created 5 spheres", prompt="Use modify_spheres next", _meta={"vendor.trace": {"id": "42"}}, count=5)
 # result.context == {"count": 5}
 
 # error_result: message, error string, optional prompt+solutions
-error = error_result("Failed", "File not found", prompt="Check path", possible_solutions=["fix A", "fix B"])
+error = error_result("Failed", "file_not_found", prompt="Check path", possible_solutions=["fix A", "fix B"])
 
 # from_exception: wrap an exception string (not the exception object itself)
 try:
     risky_op()
 except Exception as e:
-    exc_result = from_exception(str(e), message="Import failed", include_traceback=True)
+    exc_result = from_exception(
+        f"{type(e).__name__}: {e}",
+        message="Import failed",
+        include_traceback=True,
+    )
 
 # validate_action_result: normalize any type to ToolResult
 validated = validate_action_result({"success": True, "message": "ok"})  # dict → ToolResult
@@ -738,7 +743,7 @@ manifest = get_skill_version_manifest("/path/to/skill-dir")
 from dcc_mcp_core import skill_error_with_trace, skill_warning, skill_exception
 
 # Error with automatic traceback capture
-result = skill_error_with_trace("Export failed", error="File not found", prompt="Check path")
+result = skill_error_with_trace("Export failed", error="file_not_found", prompt="Check path")
 
 # Warning-level result (success=True with warning note)
 result = skill_warning("Export completed", prompt="Review normals", warning="Some UVs overlap")
@@ -746,8 +751,8 @@ result = skill_warning("Export completed", prompt="Review normals", warning="Som
 # Exception wrapper (captures current exception info)
 try:
     risky_op()
-except Exception:
-    result = skill_exception("Operation failed", prompt="Retry with different params")
+except Exception as exc:
+    result = skill_exception(exc, message="Operation failed", prompt="Retry with different params")
 ```
 
 ### run_main
@@ -999,17 +1004,17 @@ All helpers return a plain `dict` compatible with `ToolResult`.
 
 ```python
 # Success
-skill_success(message, *, prompt=None, **context) -> dict
+skill_success(message, *, prompt=None, _meta=None, **context) -> dict
 
 # Failure — explicit error string
-skill_error(message, error, *, prompt=None, possible_solutions=None, **context) -> dict
+skill_error(message, error, *, prompt=None, possible_solutions=None, _meta=None, **context) -> dict
 
 # Success with a warning note in context["warning"]
-skill_warning(message, *, warning="", prompt=None, **context) -> dict
+skill_warning(message, *, warning="", prompt=None, _meta=None, **context) -> dict
 
-# Failure built from a caught exception (captures traceback in context)
+# Failure built from a caught exception (details in _meta["dcc.error"])
 skill_exception(exc, *, message=None, prompt=None, include_traceback=True,
-                possible_solutions=None, **context) -> dict
+                possible_solutions=None, _meta=None, **context) -> dict
 ```
 
 ### @skill_entry decorator
@@ -1109,11 +1114,12 @@ assert arm3.context["count"] == 3
 
 ### How run_main serializes
 
-`run_main()` in `dcc_mcp_core.skill` uses this Rust path when `_core` is available:
+`run_main()` in `dcc_mcp_core.skill` uses one dependency-light path in every environment:
 ```
-dict → validate_action_result() → ToolResult → serialize_result() → JSON str → stdout
+dict → ToolResultEnvelope.from_dict() → canonical mapping → stdlib JSON → stdout
 ```
-Falls back to `json.dumps` in pure-Python DCC environments (no `_core` installed).
+This keeps native-wheel and source-only subprocess payloads identical. Use
+`serialize_result()` explicitly for Rust-backed `ToolResult` JSON or MessagePack.
 
 ### Rust API (for crate authors)
 
@@ -2981,7 +2987,11 @@ try:
         output = reply.body.decode()
         r = success_result(output, prompt="Objects listed. You can now select one to modify.")
     else:  # Err (msg_type=3)
-        r = error_result("DCC script failed", reply.body.decode())
+        r = error_result(
+            "DCC script failed",
+            "dcc_script_failed",
+            _meta={"dcc.error": {"message": reply.body.decode()}},
+        )
 finally:
     client.shutdown()
 ```
@@ -3187,7 +3197,11 @@ for skill in skills:
                 proc = subprocess.run(["python", sp], capture_output=True, text=True, timeout=30)
                 if proc.returncode == 0:
                     return success_result(proc.stdout.strip(), prompt="Script finished successfully.")
-                return error_result("Script failed", proc.stderr.strip())
+                return error_result(
+                    "Script failed",
+                    "script_failed",
+                    _meta={"dcc.error": {"message": proc.stderr.strip()}},
+                )
             return handler
         dispatcher.register_handler(action_name, make_handler(script_path))
 

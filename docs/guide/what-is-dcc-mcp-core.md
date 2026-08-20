@@ -118,7 +118,7 @@ dcc-mcp-core/
     └── dcc_mcp_core/
         ├── __init__.py              # public API re-exports from _core
         ├── constants.py             # METADATA_*, LAYER_*, CATEGORY_* (#487)
-        ├── result_envelope.py       # ToolResult factories (#487)
+        ├── result_envelope.py       # dependency-light ToolResultEnvelope builder
         ├── _server/                 # DccServerBase collaborators (#486)
         └── _core.pyi                # type stubs for every public API
 ```

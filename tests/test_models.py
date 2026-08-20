@@ -155,10 +155,13 @@ class TestFactoryFunctions:
     def test_from_exception_minimal(self) -> None:
         r = dcc_mcp_core.from_exception("ValueError: bad")
         assert r.success is False
-        assert "ValueError" in r.error
+        assert r.error == "ValueError"
         assert r.prompt is not None  # has default prompt
-        assert "error_type" in r.context
-        assert "traceback" in r.context  # include_traceback=True by default
+        assert r._meta["dcc.error"]["type"] == "ValueError"
+        assert r._meta["dcc.error"]["message"] == "bad"
+        assert r._meta["dcc.error"]["traceback"]  # include_traceback=True by default
+        assert r.context["error_type"] == "ValueError"
+        assert r.context["traceback"]
 
     def test_from_exception_with_message(self) -> None:
         r = dcc_mcp_core.from_exception("err", message="Custom msg")
@@ -170,7 +173,7 @@ class TestFactoryFunctions:
 
     def test_from_exception_no_traceback(self) -> None:
         r = dcc_mcp_core.from_exception("err", include_traceback=False)
-        assert "traceback" not in r.context
+        assert "traceback" not in r._meta["dcc.error"]
 
     def test_from_exception_with_solutions(self) -> None:
         r = dcc_mcp_core.from_exception("err", possible_solutions=["sol1", "sol2"])

@@ -250,6 +250,9 @@ def test_from_exception_includes_traceback_and_captured_output() -> None:
     assert result["error"] == "script_execution_error"
     assert result["context"]["stdout"] == "out"
     assert result["context"]["stderr"] == "err"
+    assert result["_meta"]["dcc.error"]["type"] == "RuntimeError"
+    assert result["_meta"]["dcc.error"]["message"] == "boom"
+    assert "Traceback" in result["_meta"]["dcc.error"]["traceback"]
     assert result["context"]["exception_type"] == "RuntimeError"
     assert result["context"]["exception_message"] == "boom"
     assert "Traceback" in result["context"]["traceback"]

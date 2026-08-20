@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 
-from dcc_mcp_core.result_envelope import ToolResult
+import pytest
+
+import dcc_mcp_core
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 
 def test_tool_result_ok_puts_kwargs_in_context() -> None:
-    result = ToolResult.ok("Loaded skill", name="recipe.x").to_dict()
+    result = ToolResultEnvelope.ok("Loaded skill", name="recipe.x").to_dict()
 
     assert result == {
         "success": True,
@@ -18,7 +21,7 @@ def test_tool_result_ok_puts_kwargs_in_context() -> None:
 
 
 def test_tool_result_fail_sets_error_prompt_and_context() -> None:
-    result = ToolResult.fail(
+    result = ToolResultEnvelope.fail(
         "Unknown tool",
         error="not_found",
         prompt="Call search_tools first.",
@@ -33,12 +36,12 @@ def test_tool_result_fail_sets_error_prompt_and_context() -> None:
 
 
 def test_tool_result_shortcut_factories() -> None:
-    assert ToolResult.not_found("Skill", "missing").to_dict() == {
+    assert ToolResultEnvelope.not_found("Skill", "missing").to_dict() == {
         "success": False,
         "message": "Skill not found: missing",
         "error": "not_found",
     }
-    assert ToolResult.invalid_input("Bad radius", radius=-1).to_dict() == {
+    assert ToolResultEnvelope.invalid_input("Bad radius", radius=-1).to_dict() == {
         "success": False,
         "message": "Bad radius",
         "error": "invalid_input",
@@ -47,6 +50,56 @@ def test_tool_result_shortcut_factories() -> None:
 
 
 def test_tool_result_json_uses_pruned_wire_shape() -> None:
-    payload = json.loads(ToolResult.ok("Done").to_json())
+    payload = json.loads(ToolResultEnvelope.ok("Done").to_json())
 
     assert payload == {"success": True, "message": "Done"}
+
+
+def test_tool_result_envelope_preserves_namespaced_meta() -> None:
+    payload = ToolResultEnvelope.fail(
+        "Execution failed",
+        error="execution_error",
+        _meta={"dcc.error": {"type": "RuntimeError", "message": "boom"}},
+    ).to_dict()
+
+    assert payload["error"] == "execution_error"
+    assert payload["_meta"]["dcc.error"]["type"] == "RuntimeError"
+
+
+def test_tool_result_envelope_round_trips_canonical_shape() -> None:
+    payload = {
+        "success": False,
+        "message": "Execution failed",
+        "error": "execution_error",
+        "prompt": "Retry after inspecting the error details.",
+        "context": {"action_name": "create_sphere"},
+        "_meta": {"dcc.error": {"type": "RuntimeError", "message": "boom"}},
+    }
+
+    assert ToolResultEnvelope.from_dict(payload).to_dict() == payload
+
+
+def test_legacy_module_tool_result_alias_is_deprecated() -> None:
+    from dcc_mcp_core import result_envelope
+
+    with pytest.warns(DeprecationWarning, match="ToolResultEnvelope"):
+        legacy = result_envelope.ToolResult
+
+    assert legacy is not ToolResultEnvelope
+    assert issubclass(legacy, ToolResultEnvelope)
+    assert legacy(True).prompt == ""
+    assert legacy.ok("Done", prompt="Inspect").to_dict() == {
+        "success": True,
+        "message": "Done",
+        "context": {"prompt": "Inspect"},
+    }
+
+
+def test_runtime_model_and_wire_envelope_have_distinct_public_names() -> None:
+    assert dcc_mcp_core.ToolResultEnvelope is ToolResultEnvelope
+    assert dcc_mcp_core.ToolResult is not ToolResultEnvelope
+
+
+def test_tool_result_envelope_rejects_object_error_on_direct_construction() -> None:
+    with pytest.raises(TypeError, match=r"error.*string"):
+        ToolResultEnvelope.fail("failed", error={"type": "RuntimeError"})  # type: ignore[arg-type]

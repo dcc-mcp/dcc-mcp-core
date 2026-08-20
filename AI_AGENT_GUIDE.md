@@ -413,9 +413,11 @@ skills, skipped = scan_and_load(dcc_name="maya")
 for skill in scan_and_load(...):  # BREAKS - returns tuple, not list
 ```
 
-### 2. ToolResult Structure
+### 2. Tool Result Structures
 
-Always use the provided factories (`success_result`, `error_result`) — never hand-roll dicts:
+Server code uses the Rust-backed `ToolResult` factories. Dependency-light
+Python handlers use the distinct `ToolResultEnvelope` builder. Never hand-roll
+either structure:
 
 ```python
 from dcc_mcp_core import success_result, error_result
@@ -423,6 +425,14 @@ from dcc_mcp_core import success_result, error_result
 # ✓ CORRECT - use factories
 result = success_result("Created sphere", prompt="Add material next", count=5)
 # result.to_dict() -> {"success": True, "message": "...", "context": {"count": 5}}
+
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
+
+wire_result = ToolResultEnvelope.fail(
+    "Sphere creation failed",
+    error="invalid_radius",
+    _meta={"dcc.error": {"message": "radius must be positive"}},
+).to_dict()
 
 # ✗ WRONG - hand-rolled dict
 result = {"success": True, "message": "..."}  # Missing context, not forward-compatible
@@ -575,7 +585,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level extension keys
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level
 7. **Gateway wrappers accept only `tool_slug`, `arguments`, `meta`** → backend inputs go inside `arguments`
-8. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()`
+8. **Return `ToolResultEnvelope` from Python tool handlers** → `ToolResultEnvelope.ok("...", **ctx).to_dict()`; use string error codes and `_meta["dcc.error"]` for details
 9. **Lifecycle hooks: policy events veto, observation events don't** → `BEFORE_*` events propagate `HookDeny`; `AFTER_*` events swallow it
 10. **Agent memory: `install()` is mandatory** → `MemoryRecorder` does nothing until wired to `LifecycleHooks` via `.install(hooks)`
 

@@ -751,6 +751,7 @@ skill_success(
     message: str,
     *,
     prompt: str | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
@@ -761,6 +762,7 @@ Return a success result dict.
 |-----------|------|-------------|
 | `message` | `str` | Human-readable summary of what was accomplished |
 | `prompt` | `str \| None` | Optional hint for the agent's next action |
+| `_meta` | `Mapping[str, Any] \| None` | Optional namespaced top-level metadata |
 | `**context` | `Any` | Arbitrary key/value pairs attached to `context` |
 
 ```python
@@ -783,6 +785,7 @@ skill_error(
     *,
     prompt: str | None = None,
     possible_solutions: list[str] | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
@@ -792,14 +795,15 @@ Return a failure result dict.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `message` | `str` | User-facing description of what went wrong |
-| `error` | `str` | Technical error string (exception repr, code …) |
+| `error` | `str` | Stable machine-readable error code; put exception details under `_meta["dcc.error"]` |
 | `prompt` | `str \| None` | Recovery hint; defaults to a generic message |
 | `possible_solutions` | `list[str] \| None` | Actionable suggestions in `context["possible_solutions"]` |
+| `_meta` | `Mapping[str, Any] \| None` | Optional namespaced top-level metadata |
 
 ```python
 return skill_error(
     "Maya is not available",
-    "ImportError: No module named 'maya'",
+    "import_error",
     prompt="Ensure Maya is running before calling this skill.",
     possible_solutions=["Start Maya", "Check DCC_MCP_MAYA_SKILL_PATHS"],
 )
@@ -815,6 +819,7 @@ skill_warning(
     *,
     warning: str = "",
     prompt: str | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
@@ -842,12 +847,16 @@ skill_exception(
     prompt: str | None = None,
     include_traceback: bool = True,
     possible_solutions: list[str] | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
 
-Return a failure result built from an exception. Captures `error_type` and optionally
-the formatted traceback in `context`.
+Return a failure result built from an exception. The string `error` is the
+exception type; the message and optional formatted traceback are stored in
+`_meta["dcc.error"]`. Caller metadata is merged by namespace. The legacy
+`context.error_type` and `context.traceback` mirrors remain for one migration
+window.
 
 ```python
 try:
@@ -1021,17 +1030,17 @@ assert roundtrip.context["frame_count"] == 240
 
 ### How `run_main` uses serialization
 
-`run_main()` automatically uses `serialize_result` when `_core` is available,
-falling back to `json.dumps` in pure-Python environments:
+`run_main()` always normalizes through the dependency-light
+`ToolResultEnvelope` and emits JSON with the standard library. Using one path
+keeps native-wheel and source-only skill subprocess payloads identical:
 
 ```
 result dict
-    ↓ validate_action_result()  (type-safe validation)
-ToolResult
-    ↓ serialize_result(arm, SerializeFormat.Json)   (Rust JSON writer)
+    ↓ ToolResultEnvelope.from_dict()  (schema validation)
+canonical mapping
+    ↓ json.dumps(..., allow_nan=False)
 JSON string → stdout
 ```
 
-To switch to MessagePack in a future release, only `_serialize_result()` in
-`skill.py` needs updating — the `serialize_result` / `deserialize_result` API
-remains stable.
+The Rust-backed `serialize_result` / `deserialize_result` functions remain the
+explicit JSON/MessagePack API for runtime `ToolResult` objects.

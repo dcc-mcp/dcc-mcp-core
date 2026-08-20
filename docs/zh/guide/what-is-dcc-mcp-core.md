@@ -117,7 +117,7 @@ dcc-mcp-core/
     └── dcc_mcp_core/
         ├── __init__.py              # 从 _core 重导出公共 API
         ├── constants.py             # METADATA_*, LAYER_*, CATEGORY_*（#487）
-        ├── result_envelope.py       # ToolResult 工厂（#487）
+        ├── result_envelope.py       # 轻依赖 ToolResultEnvelope 构建器
         ├── _server/                 # DccServerBase 协作者（#486）
         └── _core.pyi                # 所有公开 API 的类型桩
 ```

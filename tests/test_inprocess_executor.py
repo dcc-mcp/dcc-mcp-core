@@ -475,9 +475,9 @@ def test_executor_dispatcher_exception_becomes_error_envelope(tmp_path: Path) ->
     assert isinstance(result, dict)
     assert result["success"] is False
     assert "UI thread shutdown" in result["message"]
-    assert result["error"]["type"] == "RuntimeError"
-    assert result["error"]["message"] == "UI thread shutdown"
-    assert "Traceback" in result["error"]["traceback"]
+    assert result["error"] == "RuntimeError"
+    assert result["_meta"]["dcc.error"]["message"] == "UI thread shutdown"
+    assert "Traceback" in result["_meta"]["dcc.error"]["traceback"]
 
 
 def test_executor_inline_exception_becomes_error_envelope(tmp_path: Path) -> None:
@@ -489,9 +489,9 @@ def test_executor_inline_exception_becomes_error_envelope(tmp_path: Path) -> Non
     result = executor(str(p), {})
     assert isinstance(result, dict)
     assert result["success"] is False
-    assert result["error"]["type"] == "ValueError"
-    assert result["error"]["message"] == "bad input"
-    assert "Traceback" in result["error"]["traceback"]
+    assert result["error"] == "ValueError"
+    assert result["_meta"]["dcc.error"]["message"] == "bad input"
+    assert "Traceback" in result["_meta"]["dcc.error"]["traceback"]
 
 
 def test_exception_to_error_envelope_overrides_message() -> None:
@@ -502,13 +502,16 @@ def test_exception_to_error_envelope_overrides_message() -> None:
     assert envelope == {
         "success": False,
         "message": "custom summary",
-        "error": {
-            "type": "KeyError",
-            "message": "'missing'",
-            "traceback": envelope["error"]["traceback"],
+        "error": "KeyError",
+        "_meta": {
+            "dcc.error": {
+                "type": "KeyError",
+                "message": "'missing'",
+                "traceback": envelope["_meta"]["dcc.error"]["traceback"],
+            }
         },
     }
-    assert "KeyError" in envelope["error"]["traceback"]
+    assert "KeyError" in envelope["_meta"]["dcc.error"]["traceback"]
 
 
 def test_executor_uses_custom_runner() -> None:
@@ -645,7 +648,7 @@ def test_host_execution_bridge_connects_cooperative_cancel_token(tmp_path: Path)
         result = call.result(timeout=2)
 
     assert result["success"] is False
-    assert result["error"]["type"] == "CancelledError"
+    assert result["error"] == "CancelledError"
     assert current_job_id() is None
 
 
@@ -776,7 +779,7 @@ def test_hot_reload_invalidates_an_already_dispatched_call(
         result = call.result(timeout=1)
 
     assert result["success"] is False
-    assert result["error"]["type"] == "RuntimeError"
+    assert result["error"] == "RuntimeError"
     assert not cleaned.exists()
     assert bridge.shutdown_script_execution() == 0
     assert not cleaned.exists()
@@ -1048,7 +1051,7 @@ def test_deferred_tool_result_timeout_becomes_error_envelope() -> None:
     )
 
     assert result["success"] is False
-    assert result["error"]["type"] == "TimeoutError"
+    assert result["error"] == "TimeoutError"
     assert result["_meta"]["dcc.deferred"]["stderr"] == "still rendering"
 
 

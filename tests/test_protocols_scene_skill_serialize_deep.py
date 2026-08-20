@@ -577,7 +577,7 @@ class TestSkillException:
             raise ValueError("bad input")
         except Exception as e:
             r = skill_exception(e)
-        assert "ValueError" in r["error"] or "bad input" in r["error"]
+        assert r["error"] == "ValueError"
 
     def test_custom_message(self):
         try:
@@ -591,8 +591,7 @@ class TestSkillException:
             raise ValueError("oops")
         except Exception as e:
             r = skill_exception(e, include_traceback=True)
-        # traceback info should be in context
-        assert "traceback" in r.get("context", {}) or "error" in r
+        assert "traceback" in r["_meta"]["dcc.error"]
 
     def test_no_traceback_by_default_still_ok(self):
         try:
@@ -640,6 +639,8 @@ class TestSkillEntryDecorator:
 
         r = my_func()
         assert r["success"] is False
+        assert r["error"] == "import_error"
+        assert r["_meta"]["dcc.error"]["type"] == "ImportError"
 
     def test_exception_caught(self):
         @skill_entry
@@ -648,6 +649,19 @@ class TestSkillEntryDecorator:
 
         r = my_func()
         assert r["success"] is False
+
+    def test_base_exception_uses_stable_code_and_structured_meta(self):
+        @skill_entry
+        def my_func(**kwargs):
+            raise KeyboardInterrupt("artist cancelled")
+
+        r = my_func()
+        assert r["success"] is False
+        assert r["error"] == "interrupted"
+        assert r["_meta"]["dcc.error"] == {
+            "type": "KeyboardInterrupt",
+            "message": "artist cancelled",
+        }
 
     def test_returns_dict_always(self):
         @skill_entry

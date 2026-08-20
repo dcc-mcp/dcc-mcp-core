@@ -339,7 +339,7 @@ Gateway resources/prompts:
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` |
 | Zero-dep JSON/YAML | `json_dumps/loads` / `yaml_dumps/loads` (Rust-powered) |
 | Canonical MCP/REST call envelopes | Rust `dcc-mcp-wire::{decode_call_tool, decode_rest_call, normalize_arguments, normalize_meta}`; Python wrappers `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` |
-| Typed handler return envelope | `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` from `dcc_mcp_core.result_envelope` — note the underscored aliases `success_`/`error_`; `success`/`error` are dataclass fields, **not** factories (#487) |
+| Typed handler return envelope | `ToolResultEnvelope.ok("msg", **ctx).to_dict()` / `ToolResultEnvelope.fail("msg", error="code").to_dict()` from `dcc_mcp_core.result_envelope`; `dcc_mcp_core.ToolResult` is the distinct Rust runtime model. Tool errors use a string code and structured details under `_meta["dcc.error"]` (#2183) |
 | Centralised metadata keys | `from dcc_mcp_core import METADATA_*, LAYER_*, CATEGORY_*` — re-exported at top level; also available from `dcc_mcp_core.constants`. Never inline `"dcc-mcp.recipes"` etc. (#487) |
 | Custom JSON-RPC method (Rust) | `MethodRouter::register(method, Arc::new(handler))` — implement `MethodHandler` trait (#492) |
 | Custom action validation (Rust) | implement `ValidationStrategy` and return it from `select_strategy(...)` (#493) |
@@ -443,7 +443,7 @@ restarts because the field is `#[serde(default)]`.
 4. **Register ALL handlers BEFORE `server.start()`** — server reads registry at startup
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level keys (v0.15+ / #356)
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level (also in `constants` sub-module); no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
-7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()` (or `success_(...)`); `success`/`error` are dataclass *fields*, the factories are `success_`/`error_` / `ok`/`fail` (#487)
+7. **Return `ToolResultEnvelope` from Python tool handlers** → `ToolResultEnvelope.ok("...", **ctx).to_dict()` (or `success_(...)`); `error` is a string code and structured diagnostics belong under namespaced `_meta` entries (#2183)
 8. **Gateway REST `/v1/call` / `/v1/call_batch` payloads accept only `tool_slug`, `arguments`, and `meta`** → put backend fields (`code`, `file_path`, `radius`, …) inside `arguments`; use `dcc-mcp-wire` / `dcc_mcp_core.host.normalize_tool_arguments()` for shared normalization
 9. **Lifecycle hooks — policy events propagate `HookDeny`, observation events swallow it** → `BEFORE_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `BEFORE_SEARCH` are policy; all others are observation-only. Raising `HookDeny` from an observation event is silently logged (#1337)
 10. **Lifecycle hooks — `off()` removes by identity (`is`), not equality** → store the handler reference; `hooks.off(event, lambda ctx: ...)` never matches (#1337)
@@ -589,7 +589,7 @@ If a split is genuinely out-of-scope for the current PR:
 ```
 crates/          # Rust workspace; package membership comes from Cargo.toml
 python/dcc_mcp_core/__init__.py  # ← top-level Python public re-exports
-python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
+python/dcc_mcp_core/result_envelope.py  # ← typed ToolResultEnvelope wire builder (#2183)
 python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)
 python/dcc_mcp_core/_server/            # ← DccServerBase collaborators (observability, skill_query, window_resolver) (#486)
 tests/           # integration/regression tests
@@ -604,7 +604,7 @@ docs/            # human-readable guides + API reference
 ### Do ✅
 - Use `create_skill_server()` — Skills-First entry point
 - Use `success_result("msg", count=5)` — kwargs become context
-- Use `ToolResult.ok("...", **ctx).to_dict()` (or `.success_(...)`) from `result_envelope`; `.fail(msg, error="...")` for errors; `.not_found("Skill", name)` / `.invalid_input(msg)` for the common error codes (#487)
+- Use `ToolResultEnvelope.ok("...", **ctx).to_dict()` (or `.success_(...)`) from `result_envelope`; `.fail(msg, error="...")` for string error codes; structured details belong under `_meta` (#2183)
 - Import metadata strings from `dcc_mcp_core` (`METADATA_*`, `LAYER_*`, `CATEGORY_*` re-exported at top level; `dcc_mcp_core.constants.*` also works) (#487)
 - Use `ToolAnnotations` — safety hints for AI clients
 - Use `search_skills(query)` — don't guess tool names
@@ -622,7 +622,7 @@ docs/            # human-readable guides + API reference
 - Don't use `context=` kwarg in `success_result()` → **pass kwargs directly**
 - Don't call `ToolDispatcher.call()` → **use `.dispatch(name, json_str)`**
 - Don't put SKILL.md extensions at top level → **use `metadata.dcc-mcp.<feature>` + sibling file**
-- Don't hand-roll `{"success": ..., "context": ...}` dicts in handlers → **return `ToolResult.ok(...).to_dict()`** (the factory is `ok`/`success_`, NOT `success`) (#487)
+- Don't hand-roll `{"success": ..., "context": ...}` dicts in handlers → **return `ToolResultEnvelope.ok(...).to_dict()`** (the factory is `ok`/`success_`, not `success`) (#2183)
 - Don't write inline `"dcc-mcp.recipes"` / `"thin-harness"` literals → **import from `dcc_mcp_core`** (constants re-exported at top level) (#487)
 - Don't pass raw `&str` DCC names through Rust APIs → **`DccName::parse(s)` at the boundary** (#491)
 - Don't hardcode Maya as the default/example for generic core behavior → **use generic DCC examples or at least two DCCs in tests**

@@ -114,7 +114,7 @@ print(result.success)   # True
 print(result.context)   # {"name": "sphere1"}
 
 # Error
-result = error_result("Failed to create sphere", error="No active scene")
+result = error_result("Failed to create sphere", error="no_active_scene")
 print(result.success)   # False
 
 # From exception

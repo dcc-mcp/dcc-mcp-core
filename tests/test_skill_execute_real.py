@@ -264,8 +264,8 @@ class TestSkillScriptErrorPropagation:
             {"reason": "invalid input"},
         )
         assert result["success"] is False
-        assert result["error"]["type"] == "RuntimeError"
-        assert result["error"]["message"] == "skill failed: invalid input"
+        assert result["error"] == "RuntimeError"
+        assert result["_meta"]["dcc.error"]["message"] == "skill failed: invalid input"
 
     def test_dispatcher_errors_are_visible_to_caller(self, tmp_path: Path) -> None:
         """If the host dispatcher's UI thread fails (e.g. Maya viewport closed),
@@ -291,8 +291,8 @@ class TestSkillScriptErrorPropagation:
         executor = build_inprocess_executor(_BoomDispatcher())
         result = executor(str(skill_dir / "scripts" / "noop.py"), {})
         assert result["success"] is False
-        assert result["error"]["type"] == "RuntimeError"
-        assert result["error"]["message"] == "UI thread shutting down"
+        assert result["error"] == "RuntimeError"
+        assert result["_meta"]["dcc.error"]["message"] == "UI thread shutting down"
 
     def test_missing_main_callable_raises_attribute_error(self, tmp_path: Path) -> None:
         skill_dir = _write_skill(
@@ -305,8 +305,8 @@ class TestSkillScriptErrorPropagation:
         executor = build_inprocess_executor(None)
         result = executor(str(skill_dir / "scripts" / "module_only.py"), {})
         assert result["success"] is False
-        assert result["error"]["type"] == "AttributeError"
-        assert "`main` callable" in result["error"]["message"]
+        assert result["error"] == "AttributeError"
+        assert "`main` callable" in result["_meta"]["dcc.error"]["message"]
 
 
 # ── catalog ↔ executor wiring round-trip ───────────────────────────────────

@@ -67,7 +67,11 @@ def create_sphere(radius: float = 1.0, name: str | None = None):
             radius=radius,
         )
     except Exception as e:
-        return error_result("创建球体失败", str(e))
+        return error_result(
+            "创建球体失败",
+            "sphere_creation_failed",
+            _meta={"dcc.error": {"type": type(e).__name__, "message": str(e)}},
+        )
 ```
 
 ### 第三步：通过环境变量注册并启动

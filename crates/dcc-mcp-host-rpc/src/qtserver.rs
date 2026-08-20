@@ -568,6 +568,25 @@ mod tests {
     }
 
     #[test]
+    fn interpret_envelope_keeps_domain_error_inside_result() {
+        let domain_result = json!({
+            "success": false,
+            "error": "RuntimeError",
+            "_meta": {
+                "dcc.error": {
+                    "type": "RuntimeError",
+                    "message": "host stopped",
+                },
+            },
+        });
+        let env = json!({"id": "req-domain-error", "result": domain_result.clone()});
+
+        let value = interpret_envelope(env, "maya_scene__create_sphere").unwrap();
+
+        assert_eq!(value, domain_result);
+    }
+
+    #[test]
     fn interpret_envelope_maps_dispatcher_error_to_transport_error() {
         let env = json!({
             "id": "req-2",

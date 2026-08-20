@@ -187,7 +187,7 @@ def search_assets(query: str, limit: int = 10) -> dict:
     """
     query = query.strip()
     if not query:
-        return skill_error("Empty query", "query must not be empty")
+        return skill_error("Empty query", "invalid_query")
 
     limit = max(1, min(limit, 50))
 

@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import json as _json
 from pathlib import Path
+import traceback as _traceback
 from typing import Any
 
 from dcc_mcp_core._lazy import lazy_dir
@@ -607,15 +608,27 @@ def skill_error_from_exception(
     message: str | None = None,
     error: str | None = None,
     prompt: str | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context: Any,
 ) -> dict[str, Any]:
-    """Convert an exception into the standard skill error dictionary shape."""
+    """Convert an exception into the standard skill error dictionary shape.
+
+    The exception type and message are preserved under ``_meta["dcc.error"]``.
+    Caller metadata is retained, but cannot override those canonical details.
+    """
     from dcc_mcp_core.skill import skill_error
 
+    meta = dict(_meta or {})
+    meta["dcc.error"] = {
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    }
     return skill_error(
         message or str(exc) or type(exc).__name__,
         error or type(exc).__name__,
         prompt=prompt,
+        _meta=meta,
         **context,
     )
 

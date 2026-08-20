@@ -136,6 +136,9 @@ def test_skill_entry_import_error_reports_actual_bridge_host(exc, expected_label
 
     assert result["success"] is False
     assert result["message"] == f"{expected_label} is not available in this environment"
+    assert result["error"] == "import_error"
+    assert result["_meta"]["dcc.error"]["type"] == "ImportError"
+    assert result["_meta"]["dcc.error"]["message"] == str(exc)
     assert f"{expected_label} is running" in result["prompt"]
     assert "Maya is not available" not in result["message"]
     assert "Maya" not in result["prompt"]
@@ -158,4 +161,6 @@ def test_run_main_emits_non_maya_bridge_error_json(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["success"] is False
     assert payload["message"] == "ZBrush is not available in this environment"
+    assert payload["error"] == "import_error"
+    assert payload["_meta"]["dcc.error"]["type"] == "ImportError"
     assert "Maya" not in payload["prompt"]

@@ -24,7 +24,7 @@ from typing import Any
 from dcc_mcp_core import json_loads
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def _load_qt() -> _QtBinding:
 
 
 def _binding_unavailable(exc: _BindingUnavailable) -> dict[str, Any]:
-    return ToolResult.fail(
+    return ToolResultEnvelope.fail(
         str(exc),
         error="qt-binding-unavailable",
         hint=(
@@ -72,7 +72,7 @@ def _binding_unavailable(exc: _BindingUnavailable) -> dict[str, Any]:
 
 
 def _no_application() -> dict[str, Any]:
-    return ToolResult.fail(
+    return ToolResultEnvelope.fail(
         "QApplication.instance() returned None — host has no running Qt event loop.",
         error="qt-no-application",
         hint="this tool must run inside a Qt host (Maya/Houdini/Nuke/Substance/Katana/etc.)",
@@ -192,7 +192,7 @@ def qt_list_windows(*, include_hidden: bool = False, max_results: int = 64) -> d
                 break
         except Exception as exc:
             windows.append({"widget_id": None, "class": w.__class__.__name__, "error": str(exc)})
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         "listed Qt top-level windows",
         binding=binding.name,
         window_count=len(windows),
@@ -212,7 +212,7 @@ def qt_find_widgets(
 ) -> dict[str, Any]:
     """Search Qt widgets by object name and/or class name with a bounded result count."""
     if object_name is None and class_name is None:
-        return ToolResult.invalid_input("supply at least one of object_name or class_name").to_dict()
+        return ToolResultEnvelope.invalid_input("supply at least one of object_name or class_name").to_dict()
     cap = max(1, min(int(max_results), 1024))
     try:
         binding = _load_qt()
@@ -235,7 +235,7 @@ def qt_find_widgets(
                 break
         except Exception:
             continue
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         "found matching Qt widgets",
         binding=binding.name,
         match_count=len(hits),
@@ -247,7 +247,7 @@ def qt_find_widgets(
 def qt_describe_widget(*, widget_id: str) -> dict[str, Any]:
     """Return a single Qt widget's structured state and bounded property snapshot."""
     if not widget_id:
-        return ToolResult.invalid_input("widget_id is required").to_dict()
+        return ToolResultEnvelope.invalid_input("widget_id is required").to_dict()
     try:
         binding = _load_qt()
     except _BindingUnavailable as exc:
@@ -257,7 +257,7 @@ def qt_describe_widget(*, widget_id: str) -> dict[str, Any]:
         return _no_application()
     widget = _find_by_id(app, widget_id)
     if widget is None:
-        return ToolResult.not_found("Widget", widget_id).to_dict()
+        return ToolResultEnvelope.not_found("Widget", widget_id).to_dict()
     summary = _widget_summary(widget)
     properties: dict[str, Any] = {}
     try:
@@ -279,7 +279,7 @@ def qt_describe_widget(*, widget_id: str) -> dict[str, Any]:
         properties = {}
     summary["properties"] = properties
     summary["properties_truncated"] = len(properties) >= _PROPERTY_CAP
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         "described Qt widget",
         binding=binding.name,
         widget=summary,
@@ -326,7 +326,7 @@ def qt_snapshot_tree(
     budget = [cap]
     if root_widget_id is None:
         trees = [_walk(w, 0, depth, budget) for w in app.topLevelWidgets() if budget[0] > 0]
-        return ToolResult.ok(
+        return ToolResultEnvelope.ok(
             "snapshotted Qt top-level widget trees",
             binding=binding.name,
             root_widget_id=None,
@@ -336,9 +336,9 @@ def qt_snapshot_tree(
         ).to_dict()
     root = _find_by_id(app, root_widget_id)
     if root is None:
-        return ToolResult.not_found("Widget", root_widget_id).to_dict()
+        return ToolResultEnvelope.not_found("Widget", root_widget_id).to_dict()
     tree = _walk(root, 0, depth, budget)
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         "snapshotted Qt widget tree",
         binding=binding.name,
         root_widget_id=root_widget_id,
@@ -391,7 +391,7 @@ def qt_wait_for_widget(
 ) -> dict[str, Any]:
     """Poll for a Qt widget matching the criteria within a bounded timeout."""
     if object_name is None and class_name is None:
-        return ToolResult.invalid_input("supply at least one of object_name or class_name").to_dict()
+        return ToolResultEnvelope.invalid_input("supply at least one of object_name or class_name").to_dict()
     timeout = max(0, min(int(timeout_ms), 60_000)) / 1000.0
     poll = max(25, int(poll_interval_ms)) / 1000.0
     try:
@@ -415,7 +415,7 @@ def qt_wait_for_widget(
                     continue
                 if enabled and not w.isEnabled():
                     continue
-                return ToolResult.ok(
+                return ToolResultEnvelope.ok(
                     "Qt widget appeared",
                     binding=binding.name,
                     polls=polls,
@@ -425,7 +425,7 @@ def qt_wait_for_widget(
             except Exception:
                 continue
         if time.monotonic() >= deadline:
-            return ToolResult.fail(
+            return ToolResultEnvelope.fail(
                 "timed out waiting for matching widget",
                 error="timeout",
                 polls=polls,

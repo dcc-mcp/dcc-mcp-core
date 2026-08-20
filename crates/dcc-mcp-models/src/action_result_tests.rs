@@ -126,6 +126,8 @@ fn test_action_result_serialization() {
     assert!(json.contains("\"prompt\":\"next step\""));
     // Optional None fields are skipped
     assert!(!json.contains("\"error\""));
+    // Empty metadata does not change the legacy wire shape.
+    assert!(!json.contains("\"_meta\""));
 }
 
 #[test]
@@ -150,6 +152,68 @@ fn test_action_result_deserialize_minimal_json() {
     assert!(data.success); // default = true
     assert_eq!(data.message, "hello");
     assert!(data.error.is_none());
+}
+
+#[test]
+fn test_action_result_meta_round_trips_json_and_msgpack() {
+    let meta = HashMap::from([
+        (
+            "dcc.error".to_string(),
+            serde_json::json!({
+                "type": "RuntimeError",
+                "message": "host stopped",
+                "details": {"adapter": "maya", "retryable": false}
+            }),
+        ),
+        (
+            "vendor.trace".to_string(),
+            serde_json::json!(["frame-1", {"frame": 2}]),
+        ),
+    ]);
+    let model = ActionResultModel::from_data_with_meta(
+        ActionResultModelData {
+            success: false,
+            message: "Execution failed".to_string(),
+            error: Some("execution_error".to_string()),
+            context: HashMap::from([(
+                "action_name".to_string(),
+                serde_json::json!("create_sphere"),
+            )]),
+            ..Default::default()
+        },
+        meta.clone(),
+    );
+
+    for format in [SerializeFormat::Json, SerializeFormat::MsgPack] {
+        let encoded = model.to_bytes(format).unwrap();
+        let decoded = ActionResultModel::from_bytes(&encoded, format).unwrap();
+        assert_eq!(decoded, model);
+        assert_eq!(decoded.meta(), &meta);
+    }
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&model.to_bytes(SerializeFormat::Json).unwrap()).unwrap();
+    assert_eq!(json["_meta"], serde_json::json!(meta));
+    assert!(json.get("meta").is_none());
+}
+
+#[test]
+fn test_action_result_json_string_does_not_compact_meta() {
+    let deeply_nested = serde_json::json!({
+        "level_1": {"level_2": {"level_3": {"level_4": [1, 2, 3]}}}
+    });
+    let model = ActionResultModel::from_data_with_meta(
+        ActionResultModelData {
+            message: "metadata fidelity".to_string(),
+            context: HashMap::from([("deep".to_string(), deeply_nested.clone())]),
+            ..Default::default()
+        },
+        HashMap::from([("dcc.error".to_string(), deeply_nested.clone())]),
+    );
+
+    let json: serde_json::Value = serde_json::from_str(&model.to_json_string().unwrap()).unwrap();
+    assert_eq!(json["_meta"]["dcc.error"], deeply_nested);
+    assert_ne!(json["context"]["deep"], deeply_nested);
 }
 
 // ── Context ─────────────────────────────────────────────────────────────────

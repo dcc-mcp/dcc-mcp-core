@@ -40,7 +40,7 @@ You can also call the helpers directly without the decorator:
             cmds.playbackOptions(min=start_frame, max=end_frame)
             return skill_success("Timeline updated", start=start_frame, end=end_frame)
         except ImportError:
-            return skill_error("Maya not available", "ImportError: maya.cmds not found")
+            return skill_error("Maya not available", "import_error")
         except Exception as exc:
             return skill_exception(exc)
 
@@ -58,7 +58,10 @@ import traceback
 from typing import Any
 from typing import Callable
 from typing import Dict
+from typing import Mapping
 from typing import TypeVar
+
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 __all__ = [
     "get_bundled_skill_paths",
@@ -179,6 +182,7 @@ def skill_success(
     message: str,
     *,
     prompt: str | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context: Any,
 ) -> ResultDict:
     """Return a success result dict compatible with ``ToolResult``.
@@ -190,6 +194,8 @@ def skill_success(
     prompt:
         Optional hint for the agent's next action (e.g.
         ``"Inspect the viewport to verify the result."``).
+    _meta:
+        Optional namespaced top-level metadata.
     **context:
         Arbitrary key/value pairs attached to ``context``.  Use these to
         return structured data (object names, frame counts, file paths …).
@@ -212,13 +218,7 @@ def skill_success(
         )
 
     """
-    return {
-        "success": True,
-        "message": message,
-        "prompt": prompt,
-        "error": None,
-        "context": context,
-    }
+    return ToolResultEnvelope.ok(message, prompt=prompt, _meta=_meta, **context).to_dict(prune_empty=False)
 
 
 def skill_error(
@@ -227,6 +227,7 @@ def skill_error(
     *,
     prompt: str | None = None,
     possible_solutions: list[str] | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context: Any,
 ) -> ResultDict:
     """Return a failure result dict compatible with ``ToolResult``.
@@ -236,13 +237,16 @@ def skill_error(
     message:
         User-facing description of what went wrong.
     error:
-        Technical error string (exception repr, error code …).
+        Stable machine-readable error code. Put exception type, message, and
+        traceback details under ``_meta["dcc.error"]``.
     prompt:
         Optional hint for recovery (defaults to a generic "check the error"
         message).
     possible_solutions:
         Optional list of actionable suggestions stored under
         ``context["possible_solutions"]``.
+    _meta:
+        Optional namespaced top-level metadata.
     **context:
         Additional key/value pairs attached to ``context``.
 
@@ -252,7 +256,7 @@ def skill_error(
 
         return skill_error(
             "Failed to create object",
-            "NameError: 'polyCube' is not defined",
+            "missing_command",
             prompt="Ensure the Maya plugin is loaded.",
             possible_solutions=["Load plugin: loadPlugin('polyCube')"],
         )
@@ -260,13 +264,13 @@ def skill_error(
     """
     if possible_solutions:
         context.setdefault("possible_solutions", possible_solutions)
-    return {
-        "success": False,
-        "message": message,
-        "prompt": prompt or "Check the error details and try again.",
-        "error": error,
-        "context": context,
-    }
+    return ToolResultEnvelope.fail(
+        message,
+        error=error,
+        prompt=prompt or "Check the error details and try again.",
+        _meta=_meta,
+        **context,
+    ).to_dict(prune_empty=False)
 
 
 def _build_raw_trace(
@@ -314,6 +318,7 @@ def skill_error_with_trace(
     tb: str | None = None,
     prompt: str | None = None,
     possible_solutions: list[str] | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context: Any,
 ) -> ResultDict:
     """Return a failure result dict enriched with a diagnostic ``_meta.dcc.raw_trace`` block.
@@ -332,7 +337,8 @@ def skill_error_with_trace(
     message:
         User-facing description of what went wrong.
     error:
-        Technical error string (exception repr, error code …).
+        Stable machine-readable error code. Put exception type and message
+        under ``_meta["dcc.error"]`` when they are available.
     underlying_call:
         The raw DCC API call that failed (e.g.
         ``"maya.cmds.polySphere(name='mySphere', radius=-1.0)"``).
@@ -351,6 +357,8 @@ def skill_error_with_trace(
         Optional recovery hint for the agent.
     possible_solutions:
         Optional list of actionable suggestions.
+    _meta:
+        Optional namespaced metadata merged with ``dcc.raw_trace``.
     **context:
         Additional key/value pairs attached to ``context``.
 
@@ -384,7 +392,7 @@ def skill_error_with_trace(
         except Exception as exc:
             return skill_error_with_trace(
                 "Failed to create sphere",
-                str(exc),
+                "sphere_creation_failed",
                 underlying_call=f"maya.cmds.polySphere(name='mySphere', radius={radius})",
                 recipe_hint="references/RECIPES.md#create_sphere",
                 introspect_hint="dcc_introspect__signature(qualname='maya.cmds.polySphere')",
@@ -395,17 +403,17 @@ def skill_error_with_trace(
     if possible_solutions:
         context.setdefault("possible_solutions", possible_solutions)
 
-    result: ResultDict = {
-        "success": False,
-        "message": message,
-        "prompt": prompt or "Check the error details and try again.",
-        "error": error,
-        "context": context,
-    }
     raw_trace = _build_raw_trace(underlying_call, recipe_hint, introspect_hint, tb)
+    meta = dict(_meta or {})
     if raw_trace:
-        result["_meta"] = {"dcc.raw_trace": raw_trace}
-    return result
+        meta["dcc.raw_trace"] = raw_trace
+    return ToolResultEnvelope.fail(
+        message,
+        error=error,
+        prompt=prompt or "Check the error details and try again.",
+        _meta=meta or None,
+        **context,
+    ).to_dict(prune_empty=False)
 
 
 def skill_warning(
@@ -413,6 +421,7 @@ def skill_warning(
     *,
     warning: str = "",
     prompt: str | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context: Any,
 ) -> ResultDict:
     """Return a success-but-with-warning result dict.
@@ -428,6 +437,8 @@ def skill_warning(
         Description of the condition that should be noted.
     prompt:
         Optional follow-up hint for the agent.
+    _meta:
+        Optional namespaced top-level metadata.
     **context:
         Additional context key/value pairs.
 
@@ -444,13 +455,7 @@ def skill_warning(
 
     """
     context["warning"] = warning
-    return {
-        "success": True,
-        "message": message,
-        "prompt": prompt,
-        "error": None,
-        "context": context,
-    }
+    return ToolResultEnvelope.ok(message, prompt=prompt, _meta=_meta, **context).to_dict(prune_empty=False)
 
 
 def skill_exception(
@@ -460,12 +465,13 @@ def skill_exception(
     prompt: str | None = None,
     include_traceback: bool = True,
     possible_solutions: list[str] | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context: Any,
 ) -> ResultDict:
     """Return a failure result dict built from an exception.
 
-    Captures the exception type, repr, and optionally the full traceback
-    and stores them in ``context``.
+    Uses the exception type as the stable string error code. The exception
+    message and optional traceback are stored in ``_meta["dcc.error"]``.
 
     Parameters
     ----------
@@ -477,9 +483,11 @@ def skill_exception(
         Optional recovery hint.
     include_traceback:
         When ``True`` (default), attach the formatted traceback to
-        ``context["traceback"]``.
+        ``_meta["dcc.error"]["traceback"]``.
     possible_solutions:
         Optional list of actionable suggestions.
+    _meta:
+        Optional namespaced metadata merged with ``dcc.error``.
     **context:
         Additional context key/value pairs.
 
@@ -493,9 +501,8 @@ def skill_exception(
             return skill_exception(exc, possible_solutions=["Check file path"])
 
     """
-    error_str = repr(exc)
     error_type = type(exc).__name__
-    context["error_type"] = error_type
+    error_details = {"type": error_type, "message": str(exc)}
     if include_traceback:
         # Use format_exception with explicit exc.__traceback__ so the full
         # stack frames are preserved even when called across thread
@@ -503,16 +510,21 @@ def skill_exception(
         # (e.g. through a DCC main-thread dispatcher). format_exc() relies
         # on sys.exc_info() which is thread-local and can return
         # (None, None, None) outside an active except block. (issue #860)
-        context["traceback"] = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        formatted_traceback = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        error_details["traceback"] = formatted_traceback
+        context["traceback"] = formatted_traceback
+    context["error_type"] = error_type
     if possible_solutions:
         context.setdefault("possible_solutions", possible_solutions)
-    return {
-        "success": False,
-        "message": message or f"Error: {exc}",
-        "prompt": prompt or "Check the error details and try again.",
-        "error": error_str,
-        "context": context,
-    }
+    meta = dict(_meta or {})
+    meta["dcc.error"] = error_details
+    return ToolResultEnvelope.fail(
+        message or f"Error: {exc}",
+        error=error_type,
+        prompt=prompt or "Check the error details and try again.",
+        _meta=meta,
+        **context,
+    ).to_dict(prune_empty=False)
 
 
 # ---------------------------------------------------------------------------
@@ -559,16 +571,28 @@ def skill_entry(func: _F) -> _F:
             dcc_name = _guess_dcc_from_import_error(exc)
             return skill_error(
                 f"{dcc_name} is not available in this environment",
-                repr(exc),
+                "import_error",
                 prompt=f"Ensure {dcc_name} is running and the plugin is loaded.",
+                _meta={
+                    "dcc.error": {
+                        "type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                },
             )
         except Exception as exc:
             return skill_exception(exc)
         except BaseException as exc:
             return skill_error(
                 "Skill execution was interrupted",
-                repr(exc),
+                "interrupted",
                 prompt="The skill was forcibly stopped; retry if needed.",
+                _meta={
+                    "dcc.error": {
+                        "type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                },
             )
 
     # Attach a `main` name alias so callers can use `main(**kwargs)` pattern.
@@ -608,12 +632,9 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
 
     Notes
     -----
-    * Serialization uses the Rust ``serialize_result()`` implementation when
-      the compiled ``_core`` extension is available.  This is type-safe,
-      format-agnostic (JSON now, MessagePack in the future), and validates the
-      result through ``ToolResult``.
-    * Falls back to ``json.dumps`` in DCC environments where only the pure-Python
-      wheel is installed.
+    * Serialization uses the dependency-light ``ToolResultEnvelope`` validator
+      and standard-library JSON in every installation, so native and source-only
+      DCC environments emit the same payload.
     * The function currently ignores *argv* (no CLI arg parser is bundled).
         The subprocess executor's complete stdin JSON payload is authoritative.
     * Exit code ``0`` on success, ``1`` on failure (``result["success"] is False``).
@@ -636,10 +657,10 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
     except Exception as exc:
         result = skill_exception(exc)
 
-    output = _serialize_result(result)
+    output, success = _serialize_result_with_status(result)
     sys.stdout.write(output + "\n")
     sys.stdout.flush()
-    sys.exit(0 if result.get("success", False) else 1)
+    sys.exit(0 if success else 1)
 
 
 # ---------------------------------------------------------------------------
@@ -647,13 +668,57 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
 # ---------------------------------------------------------------------------
 
 
-def _serialize_result(result: ResultDict) -> str:
+def _normalize_result(result: Any) -> ToolResultEnvelope:
+    """Return the canonical envelope emitted by a skill subprocess."""
+    try:
+        return ToolResultEnvelope.from_dict(result, strict=False)
+    except (TypeError, ValueError) as exc:
+        return ToolResultEnvelope.fail(
+            "Failed to normalize result",
+            error="invalid_result_envelope",
+            _meta={
+                "dcc.error": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
+        )
+
+
+def _serialize_result_with_status(result: Any) -> tuple[str, bool]:
+    """Serialize the actual emitted envelope and return its success state."""
+    envelope = _normalize_result(result)
+    payload = envelope.to_dict(prune_empty=False)
+    payload = {key: value for key, value in payload.items() if not (key in {"error", "prompt"} and value is None)}
+
+    try:
+        output = json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        envelope = ToolResultEnvelope.fail(
+            "Failed to serialize result",
+            error="non_serializable_result",
+            _meta={
+                "dcc.error": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
+        )
+        output = envelope.to_json(prune_empty=False)
+    return output, envelope.success
+
+
+def _serialize_result(result: Any) -> str:
     """Serialize a result dict to a JSON string.
 
-    Tries the Rust ``serialize_result()`` path first (type-safe, validates via
-    ``ToolResult``, format-extensible).  Falls back to ``json.dumps``
-    when the compiled ``_core`` extension is not available (e.g. standalone
-    DCC environment with only this module installed).
+    Normalizes through :class:`ToolResultEnvelope` and serializes with the
+    standard library in every installation. This keeps native and source-only
+    skill environments byte-for-byte consistent for JSON values.
 
     Parameters
     ----------
@@ -667,44 +732,7 @@ def _serialize_result(result: ResultDict) -> str:
         JSON-encoded result string (no trailing newline).
 
     """
-    try:
-        # Import lazily so skill.py itself has no hard _core dependency.
-        from dcc_mcp_core._core import SerializeFormat
-        from dcc_mcp_core._core import serialize_result
-        from dcc_mcp_core._core import validate_action_result
-
-        arm = validate_action_result(result)
-        return serialize_result(arm, SerializeFormat.Json)
-    except ImportError:
-        pass  # _core not available — fall back to pure Python
-
-    dumps = _json_dumps_for_fallback()
-
-    # Fallback path: handles any extra keys in context gracefully.
-    try:
-        return dumps(result, ensure_ascii=False)
-    except (TypeError, ValueError) as exc:
-        return dumps(
-            skill_error("Failed to serialize result", repr(exc)),
-            ensure_ascii=False,
-        )
-
-
-def _json_dumps_for_fallback() -> Callable[..., str]:
-    """Return the fastest JSON dumper available without a top-level _core dependency."""
-    try:
-        # Lazy import: source-only DCC environments may not have the compiled extension.
-        from dcc_mcp_core import json_dumps as core_json_dumps
-    except (AttributeError, ImportError):
-        return json.dumps
-
-    def dumps(payload: Any, **kwargs: Any) -> str:
-        try:
-            return core_json_dumps(payload, **kwargs)
-        except ImportError:
-            return json.dumps(payload, **kwargs)
-
-    return dumps
+    return _serialize_result_with_status(result)[0]
 
 
 _DCC_IMPORT_LABELS = {

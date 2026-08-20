@@ -35,7 +35,7 @@ from dcc_mcp_core import json_loads
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
 from dcc_mcp_core.constants import CATEGORY_INTROSPECT
-from dcc_mcp_core.result_envelope import ToolResult
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +77,13 @@ def introspect_list_module(module_name: str, *, limit: int = _MAX_NAMES) -> dict
     """
     mod, err = _import_module(module_name)
     if err:
-        return ToolResult(success=False, message=err).to_dict()
+        return ToolResultEnvelope(success=False, message=err).to_dict()
 
     names = list(mod.__all__) if hasattr(mod, "__all__") else [n for n in dir(mod) if not n.startswith("_")]
 
     names.sort()
     truncated = len(names) > limit
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         f"{len(names)} names in {module_name}" + (" (truncated)" if truncated else ""),
         module=module_name,
         names=names[:limit],
@@ -115,11 +115,11 @@ def introspect_signature(qualname: str) -> dict[str, Any]:
 
     mod, err = _import_module(module_name)
     if err:
-        return ToolResult(success=False, message=err).to_dict()
+        return ToolResultEnvelope(success=False, message=err).to_dict()
 
     obj = getattr(mod, attr, None)
     if obj is None:
-        return ToolResult(success=False, message=f"'{attr}' not found in '{module_name}'").to_dict()
+        return ToolResultEnvelope(success=False, message=f"'{attr}' not found in '{module_name}'").to_dict()
 
     # Signature
     sig_str = ""
@@ -139,7 +139,7 @@ def introspect_signature(qualname: str) -> dict[str, Any]:
     with contextlib.suppress(TypeError, OSError):
         source_file = inspect.getfile(obj)
 
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         f"Signature for {qualname}",
         qualname=qualname,
         signature=sig_str,
@@ -175,11 +175,11 @@ def introspect_search(
     try:
         regex = re.compile(pattern, re.IGNORECASE)
     except re.error as exc:
-        return ToolResult(success=False, message=f"Invalid regex '{pattern}': {exc}").to_dict()
+        return ToolResultEnvelope(success=False, message=f"Invalid regex '{pattern}': {exc}").to_dict()
 
     mod, err = _import_module(module_name)
     if err:
-        return ToolResult(success=False, message=err).to_dict()
+        return ToolResultEnvelope(success=False, message=err).to_dict()
 
     all_names: list[str] = list(getattr(mod, "__all__", None) or [n for n in dir(mod) if not n.startswith("_")])
     hits: list[dict[str, str]] = []
@@ -197,7 +197,7 @@ def introspect_search(
         if len(hits) >= limit:
             break
 
-    return ToolResult.ok(
+    return ToolResultEnvelope.ok(
         f"{len(hits)} matches for '{pattern}' in '{module_name}'",
         pattern=pattern,
         module=module_name,
@@ -232,7 +232,7 @@ def introspect_eval(expression: str) -> dict[str, Any]:
     _BANNED = ("import ", "=", "def ", "class ", "for ", "while ", "exec(", "eval(", "__import__")
     for banned in _BANNED:
         if banned in stripped:
-            return ToolResult(
+            return ToolResultEnvelope(
                 success=False,
                 message=f"Expression contains disallowed construct: '{banned}'",
             ).to_dict()
@@ -244,13 +244,13 @@ def introspect_eval(expression: str) -> dict[str, Any]:
             repr_str = repr_str[:_REPR_MAX_CHARS] + "...(truncated)"
     except Exception:
         tb = traceback.format_exc()
-        return ToolResult(
+        return ToolResultEnvelope(
             success=False,
             message=f"Evaluation failed: {tb.splitlines()[-1]}",
             context={"traceback": tb},
         ).to_dict()
 
-    return ToolResult.ok("Expression evaluated.", expression=expression, repr=repr_str).to_dict()
+    return ToolResultEnvelope.ok("Expression evaluated.", expression=expression, repr=repr_str).to_dict()
 
 
 # ── JSON schemas for MCP tools ─────────────────────────────────────────────

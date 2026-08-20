@@ -621,6 +621,7 @@ skill_success(
     message: str,
     *,
     prompt: str | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
@@ -631,6 +632,7 @@ skill_success(
 |------|------|------|
 | `message` | `str` | 人类可读的执行摘要 |
 | `prompt` | `str \| None` | Agent 下一步操作的提示（可选）|
+| `_meta` | `Mapping[str, Any] \| None` | 可选的命名空间化顶层元数据 |
 | `**context` | `Any` | 附加到 `context` 的任意键值对 |
 
 ```python
@@ -653,6 +655,7 @@ skill_error(
     *,
     prompt: str | None = None,
     possible_solutions: list[str] | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
@@ -662,14 +665,15 @@ skill_error(
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `message` | `str` | 面向用户的错误描述 |
-| `error` | `str` | 技术错误字符串（异常 repr、错误码等）|
+| `error` | `str` | 稳定、机器可读的错误码；异常详情放在 `_meta["dcc.error"]` 下 |
 | `prompt` | `str \| None` | 恢复提示；默认为通用消息 |
 | `possible_solutions` | `list[str] \| None` | 可操作建议，存储在 `context["possible_solutions"]` 中 |
+| `_meta` | `Mapping[str, Any] \| None` | 可选的命名空间化顶层元数据 |
 
 ```python
 return skill_error(
     "Maya 环境不可用",
-    "ImportError: No module named 'maya'",
+    "import_error",
     prompt="请确保 Maya 已启动再调用此 Skill。",
     possible_solutions=["启动 Maya", "检查 DCC_MCP_MAYA_SKILL_PATHS"],
 )
@@ -685,6 +689,7 @@ skill_warning(
     *,
     warning: str = "",
     prompt: str | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
@@ -712,11 +717,14 @@ skill_exception(
     prompt: str | None = None,
     include_traceback: bool = True,
     possible_solutions: list[str] | None = None,
+    _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
 ```
 
-从异常构建失败结果 dict。自动捕获 `error_type` 和完整堆栈跟踪（可选）存入 `context`。
+从异常构建失败结果 dict。字符串 `error` 为异常类型；异常消息和可选完整堆栈存入
+`_meta["dcc.error"]`，调用方元数据按命名空间合并。
+为兼容现有调用方，`context.error_type` 与 `context.traceback` 会镜像保留一个迁移周期。
 
 ```python
 try:
@@ -886,14 +894,16 @@ assert roundtrip.context["frame_count"] == 240
 
 ### `run_main` 的序列化流程
 
-`run_main()` 在 `_core` 可用时自动使用 `serialize_result`，在纯 Python 环境中回退到 `json.dumps`：
+`run_main()` 始终通过轻依赖 `ToolResultEnvelope` 规范化结果，并使用标准库输出 JSON。
+单一路径保证原生 wheel 与仅源码的 skill 子进程产生相同 payload：
 
 ```
 result dict
-    ↓ validate_action_result()  （类型安全验证）
-ToolResult
-    ↓ serialize_result(arm, SerializeFormat.Json)   （Rust JSON 写入器）
+    ↓ ToolResultEnvelope.from_dict()  （schema 校验）
+canonical mapping
+    ↓ json.dumps(..., allow_nan=False)
 JSON 字符串 → stdout
 ```
 
-未来切换到 MessagePack 时，只需修改 `skill.py` 中的 `_serialize_result()`——`serialize_result` / `deserialize_result` API 保持稳定。
+Rust 后端的 `serialize_result` / `deserialize_result` 仍是运行时 `ToolResult`
+对象显式使用的 JSON/MessagePack API。
