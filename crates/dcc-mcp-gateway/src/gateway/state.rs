@@ -53,6 +53,7 @@ use dcc_mcp_gateway_core::naming::instance_short;
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 use super::event_log::EventLog;
+use super::http_limits::GatewayIngressState;
 use super::http_registration::{
     HttpInstanceRegistry, entry_discovery_mcp_url, entry_mcp_url, entry_registry_source,
 };
@@ -140,6 +141,7 @@ impl fmt::Display for ResolveInstanceError {
 #[derive(Clone)]
 pub struct GatewayState {
     pub registry: Arc<FileRegistry>,
+    pub ingress: Arc<GatewayIngressState>,
     pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     pub mdns_instance_registry: Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
     pub relay_instance_registry: Arc<parking_lot::RwLock<RelayInstanceRegistry>>,

@@ -1482,6 +1482,12 @@ gateway from stale or hostile FileRegistry state:
    process startup) to enforce both age- and size-based retention so
    long-lived gateways don't fill the disk.
 
+Gateway ingress limits and the fixed-minute rate window belong to each
+`GatewayState` through `GatewayIngressState`. Construct explicit limits in
+tests and embedded multi-gateway processes; do not add process-wide lazy
+configuration or counters, because one gateway must not consume another
+gateway's client budget.
+
 ### Gateway Prometheus Metrics (issue #559)
 
 `/metrics` is **off by default**. To turn it on, build any consumer of

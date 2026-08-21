@@ -48,7 +48,7 @@ pub fn read_retry_max() -> u32 {
 
 // ── HTTP ingress limits (also surfaced on `/admin/api/health`) ─────────
 
-/// Tunable gateway HTTP limits parsed once from the environment.
+/// Tunable gateway HTTP limits captured when a gateway state is constructed.
 #[derive(Debug, Clone)]
 pub struct GatewayLimits {
     /// Hard cap on non-streaming request bodies (Axum `RequestBodyLimitLayer`).
@@ -93,13 +93,6 @@ impl GatewayLimits {
                 .unwrap_or(0),
         }
     }
-}
-
-static GATEWAY_LIMITS: LazyLock<GatewayLimits> = LazyLock::new(GatewayLimits::from_env);
-
-#[must_use]
-pub fn gateway_limits() -> &'static GatewayLimits {
-    &GATEWAY_LIMITS
 }
 
 // ── per-backend circuit registry ───────────────────────────────────────

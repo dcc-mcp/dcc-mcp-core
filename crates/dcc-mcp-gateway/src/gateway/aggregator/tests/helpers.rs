@@ -69,6 +69,7 @@ pub(crate) async fn make_gateway_state(
     let (yield_tx, _) = tokio::sync::watch::channel(false);
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
     crate::gateway::GatewayState {
+        ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         registry,
         http_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
             crate::gateway::http_registration::HttpInstanceRegistry::default(),
@@ -400,6 +401,7 @@ pub(crate) async fn gateway_state_with_instances(
     let (yield_tx, _) = tokio::sync::watch::channel(false);
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
     let state = crate::gateway::GatewayState {
+        ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         registry,
         http_instance_registry: std::sync::Arc::new(parking_lot::RwLock::new(
             crate::gateway::http_registration::HttpInstanceRegistry::default(),

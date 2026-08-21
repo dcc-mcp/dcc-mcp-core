@@ -256,6 +256,10 @@ would be unsafe.
 - Keep registry heartbeat and HTTP readiness independent of the DCC main
   thread. A readiness/transport timeout marks the instance `unreachable`; it
   must not erase a row whose owner lock/PID or remote TTL is still valid.
+- Keep HTTP body limits, trusted-proxy depth, and request-rate windows on the
+  owning `GatewayState` (`GatewayIngressState`). Embedded adapters may host
+  more than one gateway in a process, so process-global lazy counters or env
+  snapshots are not a valid isolation boundary.
 - In Rust async gateway/adapter code, share `Arc<FileRegistry>` directly and
   call its `*_async` methods. `FileRegistry` is already internally synchronized;
   an outer `RwLock` adds no safety and holding an async guard across its

@@ -9,7 +9,7 @@ use axum::response::IntoResponse;
 use serde_json::{Value, json};
 
 use crate::gateway::admin::state::AdminState;
-use crate::gateway::resilience::{self as gw_resilience, gateway_limits};
+use crate::gateway::resilience as gw_resilience;
 use crate::gateway::response_codec::{
     JSON_MIME, TOKEN_ESTIMATOR, TOON_MIME, default_rest_response_format,
 };
@@ -34,7 +34,7 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
         "degraded"
     };
 
-    let limits = gateway_limits();
+    let limits = s.gateway.ingress.limits();
     let circuits = gw_resilience::circuits().snapshot_json();
     let rss_bytes = gateway_self_rss_bytes();
 
@@ -162,7 +162,7 @@ pub async fn handle_admin_reliability(State(s): State<AdminState>) -> impl IntoR
     } else {
         "degraded"
     };
-    let limits = gateway_limits();
+    let limits = s.gateway.ingress.limits();
     let circuits = gw_resilience::circuits().snapshot_json();
     let rss_bytes = gateway_self_rss_bytes();
 
