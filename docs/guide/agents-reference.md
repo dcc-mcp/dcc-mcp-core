@@ -223,6 +223,14 @@ tools with `execution: async` and poll `jobs_get_status`.
 This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —
 register them before calling `server.start()`, never after.
 
+Each `DccServerBase` owns a `DiagnosticRuntimeState`; diagnostic handlers close
+over that instance instead of reading module globals. Standalone code that
+registers both IPC and MCP diagnostics may create one
+`DiagnosticRuntimeState(dcc_name)` and pass it as `diagnostic_state=` to both
+registration helpers. `DccServerBase.diagnostic_state` exposes the owned
+component for adapters that also register IPC diagnostics. The compatibility default exists only for callers that
+omit the argument and exposes an explicit test reset seam.
+
 **Return `ToolResultEnvelope` from Python tool handlers (#2183) — never hand-roll the dict:**
 ```python
 from dcc_mcp_core.result_envelope import ToolResultEnvelope

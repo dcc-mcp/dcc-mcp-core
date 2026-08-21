@@ -11,6 +11,7 @@ import logging
 from typing import Any
 from typing import Callable
 
+from dcc_mcp_core._server.diagnostic_state import DiagnosticRuntimeState
 from dcc_mcp_core.admin_tools import register_admin_tools
 from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
 from dcc_mcp_core.feedback import register_feedback_tool
@@ -32,6 +33,7 @@ def register_all_builtin_skills(
     gateway_failover_resolver: Callable[[], dict[str, Any]] | None = None,
     reload_skills: Callable[[], int] | None = None,
     skills: list[Any] | None = None,
+    diagnostic_state: DiagnosticRuntimeState | None = None,
 ) -> None:
     """Register all standard built-in tools on *server*.
 
@@ -66,6 +68,7 @@ def register_all_builtin_skills(
         dcc_window_handle=dcc_window_handle,
         dcc_window_title=dcc_window_title,
         gateway_failover_resolver=gateway_failover_resolver,
+        diagnostic_state=diagnostic_state,
     )
 
     # 2. Introspection (signature, search, eval)

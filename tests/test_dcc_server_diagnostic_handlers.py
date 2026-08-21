@@ -19,6 +19,19 @@ import os
 
 import pytest
 
+from dcc_mcp_core._server.diagnostic_state import get_default_diagnostic_state
+
+_diagnostic_state = get_default_diagnostic_state()
+_instance_context = _diagnostic_state.instance_context
+
+
+@pytest.fixture(autouse=True)
+def _reset_diagnostic_state():
+    _diagnostic_state.reset_for_tests()
+    yield
+    _diagnostic_state.reset_for_tests()
+
+
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
@@ -95,9 +108,40 @@ def test_idempotent_registration():
     assert len(server._handlers) == 4
 
 
+def test_two_servers_keep_diagnostic_state_isolated():
+    from dcc_mcp_core._server.diagnostic_state import DiagnosticRuntimeState
+    from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+
+    maya_server = _MockServer()
+    blender_server = _MockServer()
+    maya_dispatcher = _MockDispatcher()
+    blender_dispatcher = _MockDispatcher()
+    maya_state = DiagnosticRuntimeState("maya")
+    blender_state = DiagnosticRuntimeState("blender")
+
+    register_diagnostic_handlers(
+        maya_server,
+        dispatcher=maya_dispatcher,
+        dcc_name="maya",
+        dcc_pid=1001,
+        diagnostic_state=maya_state,
+    )
+    register_diagnostic_handlers(
+        blender_server,
+        dispatcher=blender_dispatcher,
+        dcc_name="blender",
+        dcc_pid=2002,
+        diagnostic_state=blender_state,
+    )
+
+    assert maya_state.instance_context["dcc_pid"] == 1001
+    assert blender_state.instance_context["dcc_pid"] == 2002
+    assert maya_state.dispatcher is maya_dispatcher
+    assert blender_state.dispatcher is blender_dispatcher
+
+
 def test_instance_context_populated():
     """register_diagnostic_handlers stores DCC instance context for screenshot handler."""
-    from dcc_mcp_core.dcc_server import _instance_context
     from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 
     server = _MockServer()
@@ -189,15 +233,15 @@ def test_dispatch_tool_no_dispatcher_returns_error():
     import dcc_mcp_core.dcc_server as mod
 
     # Reset dispatcher so we can test the None path
-    original = mod._dispatcher_ref
-    mod._dispatcher_ref = None
+    original = _diagnostic_state.dispatcher
+    _diagnostic_state.dispatcher = None
     try:
         result_str = mod._handle_dispatch_tool(json.dumps({"action": "test", "params": {}}))
         data = json.loads(result_str)
         assert data["success"] is False
         assert "Dispatcher not available" in data["message"]
     finally:
-        mod._dispatcher_ref = original
+        _diagnostic_state.dispatcher = original
 
 
 def test_dispatch_tool_with_dispatcher():

@@ -31,8 +31,19 @@ import pytest
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 from dcc_mcp_core import register_diagnostic_mcp_tools
+from dcc_mcp_core._server.diagnostic_state import get_default_diagnostic_state
 from dcc_mcp_core.dcc_server import _handle_gateway_failover_status
-from dcc_mcp_core.dcc_server import _instance_context
+
+_instance_context = get_default_diagnostic_state().instance_context
+
+
+@pytest.fixture(autouse=True)
+def _reset_diagnostic_state():
+    state = get_default_diagnostic_state()
+    state.reset_for_tests()
+    yield
+    state.reset_for_tests()
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
