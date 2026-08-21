@@ -12,7 +12,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from typing import Any
 from typing import Dict
@@ -23,6 +22,7 @@ from typing import Tuple
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from ._install_lifecycle_runtime import default_registry_dir
 from ._path_util import to_resolved_path as _to_path
 
 REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
@@ -434,11 +434,6 @@ def launch_sidecar(
         result["ready"] = bool(result["readiness"].get("ready"))
         result["readiness_checked"] = True
     return result
-
-
-def default_registry_dir() -> str:
-    """Return the shared FileRegistry directory without importing ``_core``."""
-    return os.environ.get(REGISTRY_ENV) or str(Path(tempfile.gettempdir()) / "dcc-mcp-registry")
 
 
 def _merged_env(env: Optional[Dict[str, str]]) -> Dict[str, str]:

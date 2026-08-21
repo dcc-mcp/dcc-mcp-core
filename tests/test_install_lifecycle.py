@@ -99,6 +99,11 @@ print(json.dumps({"after_lifecycle": "dcc_mcp_core._core" in sys.modules}))
     assert rows == [{"after_package": False}, {"after_lifecycle": False}]
 
 
+def test_default_registry_dir_has_one_runtime_owner() -> None:
+    assert lifecycle.default_registry_dir is runtime_lifecycle.default_registry_dir
+    assert sidecar_lifecycle.default_registry_dir is runtime_lifecycle.default_registry_dir
+
+
 def test_top_level_lifecycle_export_does_not_load_core_in_fresh_process() -> None:
     script = """
 import json

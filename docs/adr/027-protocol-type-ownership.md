@@ -105,6 +105,10 @@ Import-light lifecycle path coercion uses
 them when possible, while preserving the lexical absolute-path fallback for
 inaccessible or transient filesystem entries.
 
+The import-light lifecycle runtime module owns `default_registry_dir`.
+Install and sidecar helpers re-export that callable instead of independently
+reconstructing the environment and temporary-directory fallback contract.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.
