@@ -231,6 +231,13 @@ registration helpers. `DccServerBase.diagnostic_state` exposes the owned
 component for adapters that also register IPC diagnostics. The compatibility default exists only for callers that
 omit the argument and exposes an explicit test reset seam.
 
+`DccServerBase` also owns `feedback_store`, `script_execution_context`, and
+`checkpoint_store`. Pass those components to `register_feedback_tool(...,
+store=...)`, `execute_with_context(..., context=...)`, and checkpoint helpers'
+existing `store=` parameter. Module-level convenience calls use explicit
+compatibility holders with `reset_default_*_for_tests()` seams; adapters must
+not add their own mutable namespace, feedback, or checkpoint globals.
+
 **Return `ToolResultEnvelope` from Python tool handlers (#2183) — never hand-roll the dict:**
 ```python
 from dcc_mcp_core.result_envelope import ToolResultEnvelope

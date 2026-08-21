@@ -176,6 +176,7 @@ class SkillDiscoveryController:
                 gateway_failover_resolver=owner.get_gateway_election_status,
                 reload_skills=owner.reload_skill_paths,
                 diagnostic_state=owner.diagnostic_state,
+                feedback_store=owner.feedback_store,
             )
         except Exception as exc:
             logger.warning("[%s] built-in skill registration failed: %s", options.dcc_name, exc)

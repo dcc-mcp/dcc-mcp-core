@@ -134,19 +134,52 @@ class CheckpointStore:
             return count
 
 
-# ── Module-level default store ────────────────────────────────────────────
+class DefaultCheckpointStore:
+    """Thread-safe compatibility holder for the default checkpoint store."""
 
-_DEFAULT_STORE: CheckpointStore = CheckpointStore()
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._store = CheckpointStore()
+
+    def get(self) -> CheckpointStore:
+        """Return the currently configured store."""
+        with self._lock:
+            return self._store
+
+    def configure(self, path: str | Path | None = None) -> CheckpointStore:
+        """Replace and return the compatibility store."""
+        with self._lock:
+            self._store = CheckpointStore(path=path)
+            return self._store
+
+    def reset_for_tests(self) -> None:
+        """Restore a fresh in-memory store."""
+        self.configure()
+
+
+_DEFAULT_CHECKPOINT_STORE = DefaultCheckpointStore()
+
+
+def get_default_checkpoint_store() -> CheckpointStore:
+    """Return the compatibility checkpoint store."""
+    return _DEFAULT_CHECKPOINT_STORE.get()
+
+
+def reset_default_checkpoint_store_for_tests() -> None:
+    """Reset the compatibility checkpoint store between tests."""
+    _DEFAULT_CHECKPOINT_STORE.reset_for_tests()
 
 
 def _get_store() -> CheckpointStore:
-    return _DEFAULT_STORE
+    return get_default_checkpoint_store()
 
 
 def configure_checkpoint_store(path: str | Path | None = None) -> CheckpointStore:
-    """Replace the module-level default store and return it.
+    """Replace the compatibility default store and return it.
 
-    Call this once at startup (e.g. from ``DccServerBase.__init__``) to enable
+    This helper is for standalone compatibility. ``DccServerBase`` adapters
+    should pass ``server.checkpoint_store`` through the existing ``store=``
+    parameters. Standalone processes may call this once at startup to enable
     durable checkpoint storage:
 
     .. code-block:: python
@@ -155,9 +188,7 @@ def configure_checkpoint_store(path: str | Path | None = None) -> CheckpointStor
         configure_checkpoint_store(path="/var/dcc-mcp/checkpoints.json")
 
     """
-    global _DEFAULT_STORE
-    _DEFAULT_STORE = CheckpointStore(path=path)
-    return _DEFAULT_STORE
+    return _DEFAULT_CHECKPOINT_STORE.configure(path)
 
 
 # ── Public helpers ────────────────────────────────────────────────────────
@@ -185,7 +216,7 @@ def save_checkpoint(
     progress_hint:
         Human-readable summary (e.g. ``"Processed 180/200 files"``).
     store:
-        Use a custom store; defaults to the module-level store.
+        Use a custom store; defaults to the compatibility store.
 
     """
     (store or _get_store()).save(job_id, state, progress_hint=progress_hint)
@@ -267,7 +298,7 @@ def checkpoint_every(
     progress_fn:
         Optional zero-argument callable returning a progress hint string.
     store:
-        Custom store; defaults to module-level store.
+        Custom store; defaults to the compatibility store.
 
     Example
     -------
@@ -357,7 +388,7 @@ def register_checkpoint_tools(
     dcc_name:
         DCC name for tool metadata.
     store:
-        Custom checkpoint store; defaults to the module-level store.
+        Custom checkpoint store; defaults to the compatibility store.
 
     """
     _store = store or _get_store()
@@ -449,11 +480,14 @@ __all__ = [
     "JOBS_CHECKPOINT_STATUS_TOOL",
     "JOBS_RESUME_CONTEXT_TOOL",
     "CheckpointStore",
+    "DefaultCheckpointStore",
     "checkpoint_every",
     "clear_checkpoint",
     "configure_checkpoint_store",
     "get_checkpoint",
+    "get_default_checkpoint_store",
     "list_checkpoints",
     "register_checkpoint_tools",
+    "reset_default_checkpoint_store_for_tests",
     "save_checkpoint",
 ]

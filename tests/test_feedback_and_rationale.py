@@ -78,9 +78,31 @@ def test_make_rationale_meta_round_trip():
 
 def setup_function():
     """Clear feedback store before each test."""
-    from dcc_mcp_core.feedback import clear_feedback
+    from dcc_mcp_core.feedback import reset_default_feedback_store_for_tests
 
-    clear_feedback()
+    reset_default_feedback_store_for_tests()
+
+
+def test_feedback_stores_are_isolated() -> None:
+    from dcc_mcp_core.feedback import FeedbackStore
+    from dcc_mcp_core.feedback import _handle_feedback_report
+    from dcc_mcp_core.feedback import get_feedback_entries
+
+    maya = FeedbackStore()
+    blender = FeedbackStore()
+    payload = json.dumps(
+        {
+            "tool_name": "maya_geometry__create_sphere",
+            "intent": "Create a sphere",
+            "blocker": "No active scene",
+            "severity": "blocked",
+        }
+    )
+
+    _handle_feedback_report(payload, store=maya)
+
+    assert len(get_feedback_entries(store=maya)) == 1
+    assert get_feedback_entries(store=blender) == []
 
 
 def test_feedback_report_and_retrieve():
@@ -194,6 +216,29 @@ def test_register_feedback_tool_registers_name():
     assert name_arg == "dcc_feedback__report"
 
 
+def test_registered_feedback_handler_uses_injected_store():
+    from dcc_mcp_core.feedback import FeedbackStore
+    from dcc_mcp_core.feedback import get_feedback_entries
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    store = FeedbackStore()
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(server, dcc_name="photoshop", store=store)
+    handler = server.register_handler.call_args.args[1]
+
+    handler(
+        {
+            "tool_name": "photoshop_layers__merge",
+            "intent": "Merge layers",
+            "blocker": "Document is locked",
+            "severity": "blocked",
+        }
+    )
+
+    assert get_feedback_entries(store=store)[0]["tool_name"] == "photoshop_layers__merge"
+
+
 def test_register_feedback_tool_no_registry():
     from dcc_mcp_core.feedback import register_feedback_tool
 
@@ -219,3 +264,6 @@ def test_importable_from_top_level():
     assert hasattr(dcc_mcp_core, "register_feedback_tool")
     assert hasattr(dcc_mcp_core, "get_feedback_entries")
     assert hasattr(dcc_mcp_core, "clear_feedback")
+    assert hasattr(dcc_mcp_core, "FeedbackStore")
+    assert hasattr(dcc_mcp_core, "get_default_feedback_store")
+    assert hasattr(dcc_mcp_core, "reset_default_feedback_store_for_tests")

@@ -40,6 +40,9 @@ from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
+from dcc_mcp_core.checkpoint import CheckpointStore
+from dcc_mcp_core.feedback import FeedbackStore
+from dcc_mcp_core.script_execution import ScriptExecutionContext
 
 try:
     from dcc_mcp_core import _core
@@ -141,6 +144,9 @@ class DccServerBase:
         self._dcc_window_title: str | None = diag.window_title
         self._dcc_window_handle: int | None = diag.window_handle
         self._diagnostic_state = DiagnosticRuntimeState(options.dcc_name)
+        self._feedback_store = FeedbackStore()
+        self._script_execution_context = ScriptExecutionContext()
+        self._checkpoint_store = CheckpointStore()
 
         # Resolve execution mode from the tagged union
         execution = resolve_execution_binding(options.execution.mode)
@@ -258,6 +264,33 @@ class DccServerBase:
     def diagnostic_state(self) -> DiagnosticRuntimeState:
         """Instance-owned state shared by MCP and IPC diagnostic handlers."""
         return self._get_diagnostic_state()
+
+    @property
+    def feedback_store(self) -> FeedbackStore:
+        """Instance-owned agent feedback store."""
+        store = self.__dict__.get("_feedback_store")
+        if store is None:
+            store = FeedbackStore()
+            self._feedback_store = store
+        return store
+
+    @property
+    def script_execution_context(self) -> ScriptExecutionContext:
+        """Instance-owned persistent namespace for adapter script tools."""
+        context = self.__dict__.get("_script_execution_context")
+        if context is None:
+            context = ScriptExecutionContext()
+            self._script_execution_context = context
+        return context
+
+    @property
+    def checkpoint_store(self) -> CheckpointStore:
+        """Instance-owned checkpoint store for long-running adapter jobs."""
+        store = self.__dict__.get("_checkpoint_store")
+        if store is None:
+            store = CheckpointStore()
+            self._checkpoint_store = store
+        return store
 
     def _register_builtin_skills(self, options: DccServerOptions) -> None:
         """Register standard built-in skills (diagnostics, introspect, etc)."""
@@ -458,7 +491,7 @@ class DccServerBase:
             from dcc_mcp_core.feedback import register_feedback_tool
         except ImportError:
             return
-        register_feedback_tool(self._server, dcc_name=self._dcc_name)
+        register_feedback_tool(self._server, dcc_name=self._dcc_name, store=self.feedback_store)
 
     def _register_qt_ui_inspector(self, context: Any | None = None) -> None:
         """Adopt the shared core ``qt_ui_inspector__*`` tools (phase helper)."""
