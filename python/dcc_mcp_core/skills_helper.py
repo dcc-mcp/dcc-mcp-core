@@ -789,6 +789,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     # Cooperative cancellation.
     "CancellationProbe": "dcc_mcp_core.cancellation",
     "CancelledError": "dcc_mcp_core.cancellation",
+    "DccMcpCancelledError": "dcc_mcp_core.cancellation",
     "check_cancelled": "dcc_mcp_core.cancellation",
     "check_dcc_cancelled": "dcc_mcp_core.cancellation",
     "current_job_id": "dcc_mcp_core.cancellation",

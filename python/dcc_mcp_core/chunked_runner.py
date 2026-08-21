@@ -10,8 +10,8 @@ from typing import Callable
 from typing import Iterable
 from typing import Iterator
 
-from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import CancelToken
+from dcc_mcp_core.cancellation import DccMcpCancelledError
 from dcc_mcp_core.cancellation import current_cancel_token
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ class ChunkedRunner:
         except StopIteration:
             self._publish_terminal("completed")
             return False
-        except CancelledError:
+        except DccMcpCancelledError:
             self._publish_terminal("cancelled")
             return False
         except Exception as exc:

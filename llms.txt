@@ -110,7 +110,7 @@ legacy unsigned staging, and does not replace a running server.
 | Inline chart / table / image result (MCP Apps, issue #409) | `skill_success_with_chart(msg, spec)` / `skill_success_with_table(msg, headers, rows)` / `skill_success_with_image(msg, image_data=...)` |
 | Run skill scripts inside embedded DCC (no subprocess) | `SkillCatalog.set_in_process_executor(callable)` on the server's catalog — callable receives `(script_path, params) -> dict` |
 | Claude Code one-click plugin bundle (issue #410) | `build_plugin_manifest(dcc_name, mcp_url, skill_paths, api_key=...)` + `export_plugin_manifest(manifest, path)` or `server.plugin_manifest(version=...)` |
-| Cooperative cancellation in in-process skill scripts (MCP + REST) | `check_dcc_cancelled()` — raises `CancelledError` when the server-owned async job is cancelled; `current_job_id()` returns that job id; `current_cancel_token()` exposes a read-only `CancellationProbe` (`cancelled`, `job_id`) |
+| Cooperative cancellation in in-process skill scripts (MCP + REST) | `check_dcc_cancelled()` — raises `DccMcpCancelledError` when the server-owned async job is cancelled; `current_job_id()` returns that job id; `current_cancel_token()` exposes a read-only `CancellationProbe` (`cancelled`, `job_id`) |
 | Cooperative cancellation in DCC dispatcher skills (#522) | `check_dcc_cancelled()` — also honours per-job `JobHandle` published via `set_current_job(handle)`; required for skills launched outside an MCP request context (queued batch render, `scriptJob` callback, simulation runner) |
 | Detect a misconfigured GUI binary on `DCC_MCP_PYTHON_EXECUTABLE` (#524) | `is_gui_executable(path)` → `GuiExecutableHint(gui_path, dcc_kind, recommended_replacement)` or `None` for python/unknown binaries; covers maya/houdini/unreal/blender/3dsmax/nuke/modo/motionbuilder/c4d/katana |
 | Auto-correct a GUI binary to its headless sibling (#524) | `correct_python_executable(path)` — returns `mayapy.exe` next to `maya.exe`, `hython` next to `houdini`, `UnrealEditor-Cmd.exe` next to `UnrealEditor.exe`; falls back to original path when no sibling is found on disk |
@@ -613,8 +613,8 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 
 - `CancellationProbe` (`Protocol`, runtime-checkable) — read-only contract exposed to skill code: `.cancelled -> bool`, `.job_id -> str | None`
 - `CancelToken(job_id=None)` — mutable pure-Python implementation for dispatchers; `.cancel()`, `.cancelled -> bool`, `.job_id -> str | None`
-- `CancelledError(DccMcpError)` — raised by `check_cancelled()` / `check_dcc_cancelled()` when cancellation was signalled; remains an `Exception` subtype
-- `check_cancelled() -> None` — raise `CancelledError` if the active MCP request was cancelled (no-op outside request context)
+- `DccMcpCancelledError(DccMcpError)` — raised by `check_cancelled()` / `check_dcc_cancelled()` when cancellation was signalled; remains an `Exception` subtype; `CancelledError` is a deprecated compatibility alias
+- `check_cancelled() -> None` — raise `DccMcpCancelledError` if the active MCP request was cancelled (no-op outside request context)
 - `check_dcc_cancelled() -> None` (#522) — combines `check_cancelled()` with a per-job check; raises if either the MCP token OR the per-job `JobHandle` reports cancellation; use this in skills launched from a DCC dispatcher rather than an MCP request
 - `JobHandle` (`Protocol`, runtime-checkable) — contract for the per-job handle a host dispatcher publishes; only `cancelled: bool` is contractual
 - `current_job: ContextVar[JobHandle | None]` — read-only contextvar (default `None`) holding the active per-job handle

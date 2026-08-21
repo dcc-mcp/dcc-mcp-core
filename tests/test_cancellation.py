@@ -14,6 +14,7 @@ import pytest
 from dcc_mcp_core import CancellationProbe
 from dcc_mcp_core import CancelledError
 from dcc_mcp_core import CancelToken
+from dcc_mcp_core import DccMcpCancelledError
 from dcc_mcp_core import JobHandle
 from dcc_mcp_core import check_cancelled
 from dcc_mcp_core import check_dcc_cancelled
@@ -35,6 +36,7 @@ def test_exports_available() -> None:
         "CancelToken",
         "CancelledError",
         "CancellationProbe",
+        "DccMcpCancelledError",
         "check_cancelled",
         "current_cancel_token",
         "current_job_id",
@@ -63,7 +65,7 @@ def test_raises_when_cancelled() -> None:
         check_cancelled()  # not cancelled yet → no raise
         token.cancel()
         assert token.cancelled is True
-        with pytest.raises(CancelledError):
+        with pytest.raises(DccMcpCancelledError):
             check_cancelled()
     finally:
         reset_cancel_token(reset)
@@ -139,7 +141,7 @@ def test_two_concurrent_contexts_do_not_leak() -> None:
         try:
             check_cancelled()
             return False
-        except CancelledError:
+        except DccMcpCancelledError:
             return True
 
     assert ctx_a.run(_check_raises) is True
@@ -204,14 +206,16 @@ def test_explicit_none_clears_inherited_token() -> None:
         reset_cancel_token(outer)
 
 
-def test_cancelled_error_is_exception_subclass() -> None:
-    """CancelledError stays in the Exception lineage (not BaseException-only)."""
-    assert issubclass(CancelledError, Exception)
+def test_cancellation_error_name_and_compatibility_alias() -> None:
+    """The canonical name is unambiguous and the old alias remains compatible."""
+    assert DccMcpCancelledError.__name__ == "DccMcpCancelledError"
+    assert CancelledError is DccMcpCancelledError
+    assert issubclass(DccMcpCancelledError, Exception)
     # Ensure @skill_entry's `except Exception` branch can catch it.
     try:
-        raise CancelledError("x")
+        raise DccMcpCancelledError("x")
     except Exception as exc:
-        assert isinstance(exc, CancelledError)
+        assert isinstance(exc, DccMcpCancelledError)
 
 
 # ── check_dcc_cancelled / JobHandle (issue #522) ───────────────────────────
@@ -251,7 +255,7 @@ def test_check_dcc_cancelled_honours_mcp_token() -> None:
     reset_token = set_cancel_token(token)
     try:
         token.cancel()
-        with pytest.raises(CancelledError, match="Request cancelled"):
+        with pytest.raises(DccMcpCancelledError, match="Request cancelled"):
             check_dcc_cancelled()
     finally:
         reset_cancel_token(reset_token)
@@ -264,7 +268,7 @@ def test_check_dcc_cancelled_honours_per_job_handle() -> None:
     try:
         check_dcc_cancelled()  # not yet cancelled → no-op
         job.cancelled = True
-        with pytest.raises(CancelledError, match="Job cancelled by dispatcher"):
+        with pytest.raises(DccMcpCancelledError, match="Job cancelled by dispatcher"):
             check_dcc_cancelled()
     finally:
         reset_current_job(reset)
@@ -282,7 +286,7 @@ def test_check_dcc_cancelled_clears_per_thread() -> None:
             # New OS thread → fresh contextvar copy is empty → no-op.
             try:
                 check_dcc_cancelled()
-            except CancelledError:
+            except DccMcpCancelledError:
                 seen.append(False)
             else:
                 seen.append(True)
@@ -323,7 +327,7 @@ def test_check_dcc_cancelled_token_takes_priority_over_job() -> None:
     reset_t = set_cancel_token(token)
     reset_j = set_current_job(job)
     try:
-        with pytest.raises(CancelledError, match="Request cancelled"):
+        with pytest.raises(DccMcpCancelledError, match="Request cancelled"):
             check_dcc_cancelled()
     finally:
         reset_current_job(reset_j)

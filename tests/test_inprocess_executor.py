@@ -648,7 +648,7 @@ def test_host_execution_bridge_connects_cooperative_cancel_token(tmp_path: Path)
         result = call.result(timeout=2)
 
     assert result["success"] is False
-    assert result["error"] == "CancelledError"
+    assert result["error"] == "DccMcpCancelledError"
     assert current_job_id() is None
 
 

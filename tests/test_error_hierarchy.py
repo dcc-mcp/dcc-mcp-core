@@ -15,7 +15,7 @@ from dcc_mcp_core.bridge import BridgeConnectionError
 from dcc_mcp_core.bridge import BridgeError
 from dcc_mcp_core.bridge import BridgeRpcError
 from dcc_mcp_core.bridge import BridgeTimeoutError
-from dcc_mcp_core.cancellation import CancelledError
+from dcc_mcp_core.cancellation import DccMcpCancelledError
 from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.guardrails import DccGuardrailError
 from dcc_mcp_core.host._fallback import DispatchError
@@ -60,7 +60,7 @@ def test_public_errors_share_one_root() -> None:
         BridgeError,
         BridgeRpcError,
         BridgeTimeoutError,
-        CancelledError,
+        DccMcpCancelledError,
         CuaCliError,
         DccGuardrailError,
         DispatchError,

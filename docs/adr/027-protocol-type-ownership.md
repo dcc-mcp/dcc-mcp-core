@@ -118,6 +118,8 @@ Public Python exceptions share the import-light `dcc_mcp_core.DccMcpError`
 root. Specialized exceptions retain their prior built-in exception category
 through multiple inheritance. The Python class is an API-level catch boundary,
 not an alias for the Rust `dcc_mcp_models::DccMcpError` domain enum.
+Cooperative cancellation raises `DccMcpCancelledError`; the former ambiguous
+`CancelledError` name remains only as a deprecated compatibility alias.
 
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility

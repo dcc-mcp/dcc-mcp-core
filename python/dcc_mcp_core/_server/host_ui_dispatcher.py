@@ -31,7 +31,7 @@ from typing import Optional
 from typing import Set
 from typing import Tuple
 
-from dcc_mcp_core.cancellation import CancelledError
+from dcc_mcp_core.cancellation import DccMcpCancelledError
 from dcc_mcp_core.cancellation import reset_current_job
 from dcc_mcp_core.cancellation import set_current_job
 from dcc_mcp_core.chunked_runner import ChunkedRunner
@@ -166,7 +166,7 @@ class HostUiJobEntry:
                 output=output,
                 job_id=self.job_id,
             )
-        except CancelledError:
+        except DccMcpCancelledError:
             self.outcome = host_ui_outcome(
                 self.request_id,
                 self.affinity,
