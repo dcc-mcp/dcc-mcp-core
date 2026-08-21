@@ -1157,6 +1157,12 @@ When you reach for a "tiny shared helper" ask in this order:
    new utility module just to share three lines of code, and never
    resurrect a `utils` / `common` crate.
 
+For cross-crate protocol types, follow
+[ADR-027](../adr/027-protocol-type-ownership.md): use the canonical owner
+directly or add an explicit conversion when invariants differ. Application
+crates must not repeat generic JSON-RPC envelopes, MCP models, wire
+normalizers, or transport errors field-for-field.
+
 ### Compile-time invariants
 
 - `cargo tree -p dcc-mcp-models --no-default-features` MUST NOT list

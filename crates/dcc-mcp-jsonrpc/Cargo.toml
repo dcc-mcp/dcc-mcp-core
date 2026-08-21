@@ -6,7 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "JSON-RPC 2.0 + MCP 2025-03-26 Streamable HTTP wire types (no transport, no axum)"
+description = "Transport-neutral JSON-RPC 2.0 envelopes and MCP wire types (no transport, no axum)"
 
 [dependencies]
 dcc-mcp-wire = { workspace = true }

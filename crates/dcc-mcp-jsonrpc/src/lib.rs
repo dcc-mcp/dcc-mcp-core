@@ -1,10 +1,11 @@
-//! MCP JSON-RPC 2.0 protocol types (2025-03-26 Streamable HTTP spec).
+//! Transport-neutral JSON-RPC 2.0 envelopes and MCP protocol types.
 //!
 //! Reference: <https://modelcontextprotocol.io/specification/2025-03-26/basic/transports>
 //!
-//! Extracted from `dcc-mcp-http` so that downstream crates (clients,
-//! CLIs, alternative transports) can depend on the wire types without
-//! pulling in axum/tokio/reqwest.
+//! Generic envelopes and standard error codes are shared by MCP and other
+//! JSON-RPC application protocols. MCP-specific payloads follow the 2025-03-26
+//! Streamable HTTP spec. Downstream crates can depend on both without pulling
+//! in axum/tokio/reqwest.
 //!
 //! ## Maintainer layout
 //!

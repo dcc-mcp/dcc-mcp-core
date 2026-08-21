@@ -63,7 +63,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-actions       # ToolRegistry, EventBus, ToolDispatcher, validation
 ├── dcc-mcp-skills        # SkillScanner, SkillCatalog, SkillWatcher, resolver
 ├── dcc-mcp-protocols     # MCP-facing Tool/Resource/Prompt/DccAdapter models
-├── dcc-mcp-jsonrpc       # MCP 2025-03-26 JSON-RPC builders
+├── dcc-mcp-jsonrpc       # Canonical JSON-RPC envelopes + MCP builders
 ├── dcc-mcp-wire          # Canonical MCP/REST call envelopes, validation, normalization
 ├── dcc-mcp-job           # Async job tracking + optional persistence
 ├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API

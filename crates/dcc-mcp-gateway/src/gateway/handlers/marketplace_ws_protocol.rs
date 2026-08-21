@@ -5,67 +5,19 @@
 
 #![allow(dead_code)]
 
+use dcc_mcp_jsonrpc::error_codes::INTERNAL_ERROR;
 use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+use dcc_mcp_jsonrpc::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+#[cfg(test)]
 use serde_json::Value;
-
-// ── JSON-RPC 2.0 envelopes ────────────────────────────────────────────────
-
-/// JSON-RPC 2.0 request.
-#[derive(Debug, Clone, Deserialize)]
-pub struct JsonRpcRequest {
-    pub jsonrpc: String,
-    #[serde(default)]
-    pub id: Option<Value>,
-    pub method: String,
-    #[serde(default)]
-    pub params: Option<Value>,
-}
-
-/// JSON-RPC 2.0 success response.
-#[derive(Debug, Clone, Serialize)]
-pub struct JsonRpcSuccess {
-    pub jsonrpc: &'static str,
-    pub id: Option<Value>,
-    pub result: Value,
-}
-
-/// JSON-RPC 2.0 error response.
-#[derive(Debug, Clone, Serialize)]
-pub struct JsonRpcError {
-    pub jsonrpc: &'static str,
-    pub id: Option<Value>,
-    pub error: JsonRpcErrorBody,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct JsonRpcErrorBody {
-    pub code: i32,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
-}
-
-/// JSON-RPC 2.0 notification (no id field).
-#[derive(Debug, Clone, Serialize)]
-pub struct JsonRpcNotification {
-    pub jsonrpc: &'static str,
-    pub method: String,
-    pub params: Value,
-}
-
-// ── Standard JSON-RPC 2.0 error codes ─────────────────────────────────────
-
-pub const PARSE_ERROR: i32 = -32700;
-pub const INVALID_REQUEST: i32 = -32600;
-pub const METHOD_NOT_FOUND: i32 = -32601;
-pub const INVALID_PARAMS: i32 = -32602;
-pub const INTERNAL_ERROR: i32 = -32603;
 
 // ── Application error codes ───────────────────────────────────────────────
 
 /// Domain error codes for marketplace operations (PIP-1096 M2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
+#[repr(i64)]
 pub enum MarketplaceErrorCode {
     PackageNotFound = -32000,
     DccMismatch = -32001,
@@ -87,14 +39,14 @@ impl MarketplaceErrorCode {
         }
     }
 
-    pub fn code(self) -> i32 {
-        self as i32
+    pub fn code(self) -> i64 {
+        self as i64
     }
 }
 
 /// Map a `dcc_mcp_marketplace::MarketplaceError` to the appropriate JSON-RPC
 /// application error code.
-pub fn marketplace_error_to_rpc(err: &dcc_mcp_marketplace::MarketplaceError) -> (i32, String) {
+pub fn marketplace_error_to_rpc(err: &dcc_mcp_marketplace::MarketplaceError) -> (i64, String) {
     use dcc_mcp_marketplace::MarketplaceError;
     let code = match err {
         MarketplaceError::NotFound(_) => MarketplaceErrorCode::PackageNotFound,
@@ -184,77 +136,6 @@ pub struct RemoveSourceParams {
     pub name: String,
 }
 
-// ── Builder helpers ───────────────────────────────────────────────────────
-
-impl JsonRpcSuccess {
-    pub fn new(id: Option<Value>, result: Value) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            id,
-            result,
-        }
-    }
-}
-
-impl JsonRpcError {
-    pub fn new(id: Option<Value>, code: i32, message: String, data: Option<Value>) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            id,
-            error: JsonRpcErrorBody {
-                code,
-                message,
-                data,
-            },
-        }
-    }
-
-    pub fn method_not_found(id: Option<Value>, method: &str) -> Self {
-        Self::new(
-            id,
-            METHOD_NOT_FOUND,
-            format!("Method not found: {method}"),
-            None,
-        )
-    }
-
-    pub fn invalid_params(id: Option<Value>, detail: &str) -> Self {
-        Self::new(
-            id,
-            INVALID_PARAMS,
-            format!("Invalid params: {detail}"),
-            None,
-        )
-    }
-
-    pub fn internal(id: Option<Value>, detail: &str) -> Self {
-        Self::new(
-            id,
-            INTERNAL_ERROR,
-            format!("Internal error: {detail}"),
-            None,
-        )
-    }
-
-    pub fn parse_error() -> Self {
-        Self::new(None, PARSE_ERROR, "Parse error".to_string(), None)
-    }
-
-    pub fn invalid_request() -> Self {
-        Self::new(None, INVALID_REQUEST, "Invalid Request".to_string(), None)
-    }
-}
-
-impl JsonRpcNotification {
-    pub fn new(method: &str, params: Value) -> Self {
-        Self {
-            jsonrpc: "2.0",
-            method: method.to_string(),
-            params,
-        }
-    }
-}
-
 // ── Unit tests ────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -280,7 +161,10 @@ mod tests {
 
     #[test]
     fn serialize_success_response() {
-        let resp = JsonRpcSuccess::new(Some(Value::Number(1.into())), Value::String("ok".into()));
+        let resp = JsonRpcResponse::success(
+            Some(serde_json::Value::Number(1.into())),
+            serde_json::Value::String("ok".into()),
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains(r#""jsonrpc":"2.0""#));
         assert!(json.contains(r#""id":1"#));
@@ -289,7 +173,10 @@ mod tests {
 
     #[test]
     fn serialize_error_response() {
-        let resp = JsonRpcError::method_not_found(Some(Value::Number(1.into())), "bad.method");
+        let resp = JsonRpcResponse::method_not_found(
+            Some(serde_json::Value::Number(1.into())),
+            "bad.method",
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains(r#""code":-32601"#));
         assert!(json.contains("Method not found"));
@@ -346,7 +233,8 @@ mod tests {
 
     #[test]
     fn serialize_notification() {
-        let notif = JsonRpcNotification::new("marketplace.installed.changed", Value::Null);
+        let notif =
+            JsonRpcNotification::new("marketplace.installed.changed", serde_json::Value::Null);
         let json = serde_json::to_string(&notif).unwrap();
         assert!(json.contains(r#""method":"marketplace.installed.changed""#));
         // Notification must not have an id field.

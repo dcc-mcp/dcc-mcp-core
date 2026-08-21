@@ -140,7 +140,37 @@ impl JsonRpcResponse {
         )
     }
 
+    /// Build the standard JSON-RPC parse-error response.
+    pub fn parse_error() -> Self {
+        Self::error(None, error_codes::PARSE_ERROR, "Parse error")
+    }
+
+    /// Build the standard JSON-RPC invalid-request response.
+    pub fn invalid_request() -> Self {
+        Self::error(None, error_codes::INVALID_REQUEST, "Invalid Request")
+    }
+
+    /// Build an invalid-params response with a human-readable detail.
+    pub fn invalid_params(id: Option<Value>, detail: &str) -> Self {
+        Self::error(
+            id,
+            error_codes::INVALID_PARAMS,
+            format!("Invalid params: {detail}"),
+        )
+    }
+
     pub fn internal_error(id: Option<Value>, msg: impl Into<String>) -> Self {
         Self::error(id, error_codes::INTERNAL_ERROR, msg)
+    }
+}
+
+impl JsonRpcNotification {
+    /// Build a notification with an explicit params payload.
+    pub fn new(method: impl Into<String>, params: Value) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            method: method.into(),
+            params: Some(params),
+        }
     }
 }
