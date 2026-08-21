@@ -13,7 +13,7 @@
 
 use uuid::Uuid;
 
-use crate::naming::{ID_PREFIX_LEN, instance_short};
+use crate::capability_naming::{ID_PREFIX_LEN, instance_short};
 
 /// Encode a backend resource URI for gateway aggregation:
 /// `<scheme>://<rest>` → `<scheme>://<id8>/<rest>`.

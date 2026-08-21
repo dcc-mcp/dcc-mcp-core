@@ -367,6 +367,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `PendingCall` — gateway-to-backend cancellation correlation primitive.
 - `CapabilityRecord` — compact per-tool search/dispatch record.
 - `SearchQuery`, `SearchHit`, `SearchPage`, `SearchMode` — token-budgeted capability search contract.
+- `capability_naming` — gateway instance/skill name projection and bare-name collision policy; delegates wire-name validation to `dcc-mcp-naming`.
 - `ExactScorer`, `FuzzyScorer`, `SubstringScorer`, `StrategyScorer` — pluggable ranking strategies.
 
 **Dependencies**: `serde`, `uuid`, `nucleo-matcher` only where the pure ranking strategy needs it.

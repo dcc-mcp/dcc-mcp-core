@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use dcc_mcp_gateway_core::naming::{BareNameInput, resolve_bare_names};
+use dcc_mcp_gateway_core::capability_naming::{BareNameInput, resolve_bare_names};
 use dcc_mcp_jsonrpc::{McpTool, TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_naming::validate_tool_name;
 

@@ -363,7 +363,7 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
 
     json!({
         "instance_id":    e.instance_id.to_string(),
-        "instance_short": dcc_mcp_gateway_core::naming::instance_short(&e.instance_id),
+        "instance_short": dcc_mcp_gateway_core::capability_naming::instance_short(&e.instance_id),
         "display_id":     e.display_id(),
         "dcc_type":       e.dcc_type,
         "version":        e.version,
@@ -397,7 +397,7 @@ pub fn instance_matches_query(e: &ServiceEntry, query_lower: &str) -> bool {
         || e.version
             .as_ref()
             .is_some_and(|v| v.to_ascii_lowercase().contains(query_lower))
-        || dcc_mcp_gateway_core::naming::instance_short(&e.instance_id)
+        || dcc_mcp_gateway_core::capability_naming::instance_short(&e.instance_id)
             .to_ascii_lowercase()
             .contains(query_lower)
         || e.scene

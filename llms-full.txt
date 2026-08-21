@@ -136,6 +136,8 @@ crates/
 └── workspace-hack/       # Cargo-hakari feature unification
 ```
 
+Rust naming ownership: use `dcc_mcp_naming` for ecosystem-wide tool/action name validation and `dcc_mcp_gateway_core::capability_naming` for gateway instance/skill projection, codecs, and bare-name collision policy. The former gateway-core `naming` module path is a deprecated compatibility alias.
+
 **Key import pattern** (always use the top-level package):
 ```python
 from dcc_mcp_core import ToolRegistry, success_result, SkillScanner

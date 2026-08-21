@@ -3,7 +3,7 @@
 //! These are the smallest building blocks of the gateway naming contract.
 //! They depend only on `uuid` and describe encoding *invariants* — no
 //! transport, no logging, no shared state. Every other module in
-//! [`crate::naming`] builds on top of them.
+//! [`crate::capability_naming`] builds on top of them.
 
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ pub fn instance_short(id: &Uuid) -> String {
 /// `[A-Za-z0-9_]` *and* `s` is non-empty.
 ///
 /// This is the stricter regex some MCP clients (notably Cursor) enforce
-/// on tool names. The [`crate::naming::encode`] module guarantees that
+/// on tool names. The capability naming codec guarantees that
 /// every name it emits passes this predicate; debug builds assert on
 /// any violation.
 #[must_use]

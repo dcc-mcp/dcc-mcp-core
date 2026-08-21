@@ -47,7 +47,7 @@ use super::capability::{
 };
 use super::request_meta::meta_with_agent_context;
 use super::state::{GatewayState, ResolveInstanceError};
-use dcc_mcp_gateway_core::naming::instance_short;
+use dcc_mcp_gateway_core::capability_naming::instance_short;
 
 const PROFILING_TARGET: &str = "dcc_mcp::profiling";
 
