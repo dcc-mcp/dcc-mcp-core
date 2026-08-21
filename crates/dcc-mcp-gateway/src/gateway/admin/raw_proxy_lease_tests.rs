@@ -82,6 +82,7 @@ fn make_gateway_state() -> GatewayState {
 fn make_service_entry(port: u16) -> ServiceEntry {
     let now = SystemTime::now();
     ServiceEntry {
+        schema_version: dcc_mcp_transport::SERVICE_ENTRY_SCHEMA_VERSION,
         dcc_type: "maya".into(),
         instance_id: uuid::Uuid::new_v4(),
         host: "127.0.0.1".into(),

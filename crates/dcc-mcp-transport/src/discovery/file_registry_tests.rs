@@ -1,6 +1,9 @@
 //! Unit tests for `FileRegistry`.
 
 use super::*;
+use crate::discovery::types::{
+    GATEWAY_SENTINEL_DCC_TYPE, SERVICE_ENTRY_LEGACY_SCHEMA_VERSION, SERVICE_ENTRY_SCHEMA_VERSION,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1494,6 +1497,97 @@ fn test_malformed_json_registry_file_is_quarantined() {
     assert!(!services_json.exists());
 }
 
+#[test]
+fn test_future_registry_schema_is_rejected_without_quarantine_or_rewrite() {
+    let dir = tempfile::tempdir().unwrap();
+    let services_json = dir.path().join(REGISTRY_FILE);
+    let future_version = u64::from(SERVICE_ENTRY_SCHEMA_VERSION) + 1;
+    let content = serde_json::json!([{
+        "schema_version": future_version,
+        "dcc_type": "photoshop",
+        "instance_id": "ab7e8a1b-2c3d-4e5f-6789-abcdef012345",
+        "host": "127.0.0.1",
+        "port": 18813,
+        "registered_at": 1_714_567_678,
+        "last_heartbeat": 1_714_567_678,
+    }]);
+    let original = serde_json::to_string_pretty(&content).unwrap();
+    std::fs::write(&services_json, &original).unwrap();
+
+    let error = FileRegistry::new(dir.path())
+        .err()
+        .expect("future schema must be rejected");
+
+    assert!(matches!(
+        error,
+        TransportError::UnsupportedServiceEntrySchemaVersion {
+            received,
+            supported: SERVICE_ENTRY_SCHEMA_VERSION,
+        } if received == future_version
+    ));
+    assert_eq!(std::fs::read_to_string(&services_json).unwrap(), original);
+    assert!(corrupted_registry_files(dir.path()).is_empty());
+}
+
+#[test]
+fn test_existing_registry_cannot_overwrite_future_schema_during_heartbeat() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let services_json = registry.registry_file_path();
+    let future_version = u64::from(SERVICE_ENTRY_SCHEMA_VERSION) + 1;
+    let content = serde_json::json!([{
+        "schema_version": future_version,
+        "dcc_type": "photoshop",
+        "instance_id": "ab7e8a1b-2c3d-4e5f-6789-abcdef012345",
+        "host": "127.0.0.1",
+        "port": 18813,
+        "registered_at": 1_714_567_678,
+        "last_heartbeat": 1_714_567_678,
+    }]);
+    let original = serde_json::to_string_pretty(&content).unwrap();
+    std::fs::write(&services_json, &original).unwrap();
+
+    let error = registry
+        .heartbeat(&key)
+        .expect_err("heartbeat must not overwrite a future registry schema");
+
+    assert!(matches!(
+        error,
+        TransportError::UnsupportedServiceEntrySchemaVersion {
+            received,
+            supported: SERVICE_ENTRY_SCHEMA_VERSION,
+        } if received == future_version
+    ));
+    assert_eq!(std::fs::read_to_string(&services_json).unwrap(), original);
+    assert!(corrupted_registry_files(dir.path()).is_empty());
+}
+
+#[test]
+fn test_register_rejects_future_service_entry_before_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let mut entry = ServiceEntry::new("blender", "127.0.0.1", 18814);
+    entry.schema_version = SERVICE_ENTRY_SCHEMA_VERSION + 1;
+
+    let error = registry
+        .register(entry)
+        .expect_err("future schema must not be registered");
+
+    assert!(matches!(
+        error,
+        TransportError::UnsupportedServiceEntrySchemaVersion {
+            received: 2,
+            supported: SERVICE_ENTRY_SCHEMA_VERSION,
+        }
+    ));
+    assert!(registry.is_empty());
+    assert!(!registry.registry_file_path().exists());
+}
+
 /// A registry file with float Unix timestamps (Python-written format)
 /// must parse successfully.
 #[test]
@@ -1562,6 +1656,10 @@ fn test_legacy_python_gateway_sentinel_preserves_live_entries() {
     );
     let sentinels = registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
     assert_eq!(sentinels.len(), 1);
+    assert_eq!(
+        sentinels[0].schema_version,
+        SERVICE_ENTRY_LEGACY_SCHEMA_VERSION
+    );
     assert_eq!(
         sentinels[0]
             .last_heartbeat

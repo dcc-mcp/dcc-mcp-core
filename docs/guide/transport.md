@@ -309,6 +309,7 @@ Represents a discovered DCC service instance.
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `schema_version` | `int` | Registry-row schema version; new rows use `1`, while rows with no field are legacy version `0` |
 | `dcc_type` | `str` | DCC application type (e.g. `"maya"`) |
 | `instance_id` | `str` | UUID string |
 | `host` | `str` | Host address |
@@ -320,6 +321,11 @@ Represents a discovered DCC service instance.
 | `status` | `ServiceStatus` | Instance status |
 | `transport_address` | `TransportAddress \| None` | Preferred IPC address |
 | `last_heartbeat_ms` | `int` | Last heartbeat timestamp (Unix ms) |
+
+File-backed registry consumers accept versions `0..=1`. A higher version is
+an upgrade boundary: loading and mutation fail with an explicit unsupported
+schema error, and the original `services.json` remains in place. Malformed
+JSON remains a separate corruption case and is quarantined as before.
 
 ### ServiceStatus
 

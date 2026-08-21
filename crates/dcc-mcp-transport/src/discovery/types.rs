@@ -5,6 +5,14 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+use crate::error::{TransportError, TransportResult};
+
+/// Schema version emitted for newly written [`ServiceEntry`] rows.
+pub const SERVICE_ENTRY_SCHEMA_VERSION: u16 = 1;
+
+/// Schema version assigned to registry rows written before versioning existed.
+pub const SERVICE_ENTRY_LEGACY_SCHEMA_VERSION: u16 = 0;
+
 /// Custom deserializer for `SystemTime` that accepts both Unix timestamp numbers
 /// (integer or float — as written by Python bridge plugins) and the Rust std serde
 /// struct format `{"secs_since_epoch": N, "nanos_since_epoch": N}`.
@@ -346,6 +354,13 @@ pub struct ServiceSnapshot<'a> {
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServiceEntry {
+    /// Version of the serialized registry-row schema.
+    ///
+    /// Rows written before this field existed deserialize as version 0. Registry
+    /// boundaries reject versions newer than [`SERVICE_ENTRY_SCHEMA_VERSION`]
+    /// so an older process cannot silently rewrite an incompatible file.
+    #[serde(default)]
+    pub schema_version: u16,
     /// DCC application type (e.g. "maya", "houdini", "blender").
     pub dcc_type: String,
     /// Unique ID for this running instance.
@@ -472,6 +487,7 @@ impl ServiceEntry {
     pub fn new(dcc_type: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
         let now = SystemTime::now();
         Self {
+            schema_version: SERVICE_ENTRY_SCHEMA_VERSION,
             dcc_type: dcc_type.into(),
             instance_id: Uuid::new_v4(),
             host: host.into(),
@@ -510,6 +526,7 @@ impl ServiceEntry {
         };
         let now = SystemTime::now();
         Self {
+            schema_version: SERVICE_ENTRY_SCHEMA_VERSION,
             dcc_type: dcc_type.into(),
             instance_id: Uuid::new_v4(),
             host,
@@ -533,6 +550,18 @@ impl ServiceEntry {
             lease_owner: None,
             current_job_id: None,
             lease_expires_at: None,
+        }
+    }
+
+    /// Validate that this row uses a schema understood by this build.
+    pub fn validate_schema_version(&self) -> TransportResult<()> {
+        if self.schema_version <= SERVICE_ENTRY_SCHEMA_VERSION {
+            Ok(())
+        } else {
+            Err(TransportError::UnsupportedServiceEntrySchemaVersion {
+                received: u64::from(self.schema_version),
+                supported: SERVICE_ENTRY_SCHEMA_VERSION,
+            })
         }
     }
 
@@ -734,24 +763,13 @@ impl std::fmt::Display for ServiceKey {
 }
 
 #[cfg(test)]
+#[path = "service_entry_schema_tests.rs"]
+mod service_entry_schema_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
-
-    #[test]
-    fn test_service_entry_new() {
-        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
-        assert_eq!(entry.dcc_type, "maya");
-        assert_eq!(entry.host, "127.0.0.1");
-        assert_eq!(entry.port, 18812);
-        assert_eq!(entry.status, ServiceStatus::Available);
-        assert!(entry.version.is_none());
-        assert!(entry.scene.is_none());
-        assert!(entry.transport_address.is_none());
-        assert!(entry.extras.is_empty());
-        // pid is auto-populated with the current process id (ghost-entry prevention).
-        assert_eq!(entry.pid, Some(std::process::id()));
-    }
 
     #[test]
     fn test_service_entry_with_pid_override() {

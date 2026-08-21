@@ -269,6 +269,7 @@ Represents a discovered DCC service instance.
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
+| `schema_version` | `int` | Serialized registry-row schema version (`1` for rows written by this release; missing legacy fields read as `0`) |
 | `dcc_type` | `str` | DCC application type (e.g. `"maya"`) |
 | `instance_id` | `str` | UUID string |
 | `host` | `str` | Host address |
@@ -295,6 +296,11 @@ Represents a discovered DCC service instance.
 |--------|---------|-------------|
 | `effective_address()` | `TransportAddress` | IPC address or TCP fallback |
 | `to_dict()` | `dict` | Serialize to dict |
+
+`services.json` readers accept legacy schema `0` and current schema `1`.
+They reject a higher version explicitly and leave the file untouched, so an
+older gateway or adapter cannot quarantine or overwrite registry data written
+by a newer incompatible release.
 
 ## ServiceStatus
 

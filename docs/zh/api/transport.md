@@ -268,6 +268,7 @@ addr = TransportScheme.AUTO.select_address("maya", "127.0.0.1", 18812, pid=12345
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
+| `schema_version` | `int` | 序列化注册表行的 schema 版本（当前版本写入 `1`，缺少该字段的旧数据按 `0` 读取）|
 | `dcc_type` | `str` | DCC 类型，如 `"maya"` |
 | `instance_id` | `str` | UUID 字符串 |
 | `host` | `str` | 主机地址 |
@@ -294,6 +295,8 @@ addr = TransportScheme.AUTO.select_address("maya", "127.0.0.1", 18812, pid=12345
 |------|--------|------|
 | `effective_address()` | `TransportAddress` | IPC 地址或 TCP 降级地址 |
 | `to_dict()` | `dict` | 序列化为字典 |
+
+`services.json` 读取端兼容旧 schema `0` 和当前 schema `1`。遇到更高版本时会明确拒绝并保留原文件，防止旧版 gateway 或 adapter 隔离、覆盖由新版写入的不兼容注册表数据。
 
 ## ServiceStatus
 

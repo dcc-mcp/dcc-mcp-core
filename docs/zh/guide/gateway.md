@@ -118,6 +118,9 @@ generic standalone）。运行时满足：
   server 在没有 daemon 时仍会自我选举（#1357 把 auto-gateway 路径放到
   默认开启的 cargo feature 后面，关闭该 feature 即可让 binary 完全跳过
   gateway 运行时）。
+- **注册表 schema 有明确边界。** 缺少 `ServiceEntry.schema_version` 的旧行
+  按版本 `0` 读取，当前写入端使用版本 `1`；更高版本会停止加载或修改，且
+  不会隔离或覆盖 `services.json`。
 
 ### 何时用哪种模式
 

@@ -13,9 +13,9 @@ use std::time::{Duration, Instant, SystemTime};
 use dashmap::DashMap;
 use fs4::{FileExt, TryLockError};
 use tracing;
-use uuid::Uuid;
 
 use super::liveness::{is_pid_alive, legacy_sidecar_host_pid};
+use super::registry_format::{RegistryParseError, parse_registry_entries};
 use super::types::{
     GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
 };
@@ -87,35 +87,6 @@ fn maps_equal(left: &EntryMap, right: &EntryMap) -> bool {
         && left
             .iter()
             .all(|(key, entry)| right.get(key) == Some(entry))
-}
-
-fn parse_registry_entries(content: &str) -> Result<Vec<ServiceEntry>, serde_json::Error> {
-    serde_json::from_str::<Vec<serde_json::Value>>(content)?
-        .into_iter()
-        .map(|value| {
-            serde_json::from_value(value.clone())
-                .or_else(|error| legacy_gateway_sentinel(&value).ok_or(error))
-        })
-        .collect()
-}
-
-fn legacy_gateway_sentinel(value: &serde_json::Value) -> Option<ServiceEntry> {
-    let row = value.as_object()?;
-    (row.get("dcc_type")?.as_str()? == GATEWAY_SENTINEL_DCC_TYPE).then_some(())?;
-    let host = row.get("host")?.as_str()?;
-    let port = u16::try_from(row.get("port")?.as_u64()?).ok()?;
-    let mut entry = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, host, port);
-    entry.instance_id = Uuid::new_v5(
-        &Uuid::NAMESPACE_URL,
-        format!("dcc-mcp://gateway/{host}:{port}").as_bytes(),
-    );
-    let defaults = serde_json::to_value(entry).ok()?;
-    let mut normalized = value.clone();
-    let normalized_row = normalized.as_object_mut()?;
-    for (key, default) in defaults.as_object()? {
-        normalized_row.entry(key.clone()).or_insert(default.clone());
-    }
-    serde_json::from_value(normalized).ok()
 }
 
 fn ensure_registry_dir(path: &Path) -> TransportResult<()> {
@@ -580,6 +551,7 @@ impl FileRegistry {
 
     /// Register a service.
     pub fn register(&self, mut entry: ServiceEntry) -> TransportResult<()> {
+        entry.validate_schema_version()?;
         self.with_write_transaction(|| {
             let key = entry.key();
             tracing::info!(
@@ -1399,9 +1371,24 @@ impl FileRegistry {
 
         match parse_registry_entries(&content) {
             Ok(entries) => Ok(entries),
-            Err(e) => {
+            Err(RegistryParseError::Json(e)) => {
                 self.quarantine_corrupted_registry_file(&path, &e);
                 Ok(Vec::new())
+            }
+            Err(RegistryParseError::UnsupportedSchema {
+                received,
+                supported,
+            }) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    received,
+                    supported,
+                    "FileRegistry: registry schema is newer than this build; preserving the file without loading it"
+                );
+                Err(TransportError::UnsupportedServiceEntrySchemaVersion {
+                    received,
+                    supported,
+                })
             }
         }
     }
