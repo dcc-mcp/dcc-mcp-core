@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+from functools import partial
 import logging
 import os
 import sys
@@ -63,6 +64,8 @@ from typing import Callable
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+from dcc_mcp_core._server.diagnostic_state import DiagnosticRuntimeState
+from dcc_mcp_core._server.diagnostic_state import get_default_diagnostic_state
 from dcc_mcp_core.constants import CATEGORY_DIAGNOSTICS
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
@@ -82,65 +85,33 @@ DEFAULT_SCREENSHOT_TIMEOUT_MS: int = 5000
 #: Equivalent to ``PROCESS_QUERY_LIMITED_INFORMATION`` (winnt.h 0x1000).
 _WIN_PROCESS_QUERY_LIMITED_INFORMATION: int = 0x1000
 
-# ── module-level shared state (one per process) ────────────────────────────
-# Populated by register_diagnostic_handlers().
-_sandbox_context: Any = None  # SandboxContext | None
-_action_recorder: Any = None  # ToolRecorder | None
-_dispatcher_ref: Any = None  # ToolDispatcher | None
-_server_ref: Any = None  # McpHttpServer | None — set by register_diagnostic_mcp_tools
 
-# Diagnostic instance context (DCC PID / window / resolver callback).
-_instance_context: dict[str, Any] = {
-    "dcc_name": None,
-    "dcc_pid": None,
-    "dcc_window_handle": None,
-    "dcc_window_title": None,
-    "resolver": None,
-    # Optional zero-arg callable returning the current gateway failover
-    # state dict. Wired by DccServerBase via register_diagnostic_mcp_tools.
-    "gateway_failover_resolver": None,
-    # DCC application version string (e.g. "2024.2"). Set by DccServerBase
-    # or adapter startup code via _instance_context or the register_* kwargs.
-    "dcc_version": None,
-}
-
-# Lazily-constructed capturers (one per kind, reused across screenshots).
-_capturer_window: Any = None
-_capturer_full: Any = None
+def _diagnostic_state(state: DiagnosticRuntimeState | None) -> DiagnosticRuntimeState:
+    """Resolve explicit instance state or the standalone compatibility state."""
+    return state if state is not None else get_default_diagnostic_state()
 
 
-def _get_sandbox_context() -> Any:
-    """Return the shared SandboxContext, creating one lazily if needed."""
-    global _sandbox_context
-    if _sandbox_context is None:
-        try:
-            from dcc_mcp_core._core import SandboxContext
-            from dcc_mcp_core._core import SandboxPolicy
-
-            policy = SandboxPolicy()
-            _sandbox_context = SandboxContext(policy)
-        except Exception as exc:
-            logger.debug("Failed to create SandboxContext: %s", exc)
-    return _sandbox_context
+def _get_sandbox_context(state: DiagnosticRuntimeState | None = None) -> Any:
+    """Return the sandbox context owned by *state*."""
+    return _diagnostic_state(state).get_sandbox_context()
 
 
-def _get_action_recorder(dcc_name: str = "dcc") -> Any:
-    """Return the shared ToolRecorder, creating one lazily if needed."""
-    global _action_recorder
-    if _action_recorder is None:
-        try:
-            from dcc_mcp_core._core import ToolRecorder
-
-            _action_recorder = ToolRecorder(f"dcc-mcp-{dcc_name}")
-        except Exception as exc:
-            logger.debug("Failed to create ToolRecorder: %s", exc)
-    return _action_recorder
+def _get_action_recorder(
+    dcc_name: str | None = None,
+    state: DiagnosticRuntimeState | None = None,
+) -> Any:
+    """Return the DCC-namespaced recorder owned by *state*."""
+    return _diagnostic_state(state).get_action_recorder(dcc_name)
 
 
 # ── handler implementations ────────────────────────────────────────────────
 
 
-def _handle_get_audit_log(params_json: str) -> str:
+def _handle_get_audit_log(
+    params_json: str,
+    *,
+    state: DiagnosticRuntimeState | None = None,
+) -> str:
     """Return audit log entries as a JSON string."""
     try:
         params = json_loads(params_json) if params_json else {}
@@ -151,7 +122,7 @@ def _handle_get_audit_log(params_json: str) -> str:
     action_name = params.get("action_name")
     limit = int(params.get("limit", 50))
 
-    ctx = _get_sandbox_context()
+    ctx = _get_sandbox_context(state)
     if ctx is None:
         return ToolResultEnvelope(success=False, message="SandboxContext not available.").to_json()
 
@@ -194,7 +165,11 @@ def _handle_get_audit_log(params_json: str) -> str:
         return ToolResultEnvelope(success=False, message=str(exc)).to_json()
 
 
-def _handle_get_tool_metrics(params_json: str) -> str:
+def _handle_get_tool_metrics(
+    params_json: str,
+    *,
+    state: DiagnosticRuntimeState | None = None,
+) -> str:
     """Return ToolRecorder metrics as a JSON string."""
     try:
         params = json_loads(params_json) if params_json else {}
@@ -203,7 +178,7 @@ def _handle_get_tool_metrics(params_json: str) -> str:
 
     action_name = params.get("action_name")
 
-    recorder = _get_action_recorder()
+    recorder = _get_action_recorder(state=state)
     if recorder is None:
         return ToolResultEnvelope(success=False, message="ToolRecorder not available.").to_json()
 
@@ -226,27 +201,21 @@ def _handle_get_tool_metrics(params_json: str) -> str:
         return ToolResultEnvelope(success=False, message=str(exc)).to_json()
 
 
-def _get_window_capturer() -> Any:
-    """Return (and cache) a window-target ``Capturer`` instance."""
-    global _capturer_window
-    if _capturer_window is None:
-        from dcc_mcp_core import Capturer
-
-        _capturer_window = Capturer.new_window_auto()
-    return _capturer_window
+def _get_window_capturer(state: DiagnosticRuntimeState | None = None) -> Any:
+    """Return the window capturer owned by *state*."""
+    return _diagnostic_state(state).get_window_capturer()
 
 
-def _get_full_capturer() -> Any:
-    """Return (and cache) a full-screen ``Capturer`` instance."""
-    global _capturer_full
-    if _capturer_full is None:
-        from dcc_mcp_core import Capturer
-
-        _capturer_full = Capturer.new_auto()
-    return _capturer_full
+def _get_full_capturer(state: DiagnosticRuntimeState | None = None) -> Any:
+    """Return the full-screen capturer owned by *state*."""
+    return _diagnostic_state(state).get_full_capturer()
 
 
-def _handle_take_screenshot(params_json: str) -> str:
+def _handle_take_screenshot(
+    params_json: str,
+    *,
+    state: DiagnosticRuntimeState | None = None,
+) -> str:
     """Capture a screenshot of the owning DCC window (or the full screen).
 
     Params (all optional):
@@ -269,14 +238,16 @@ def _handle_take_screenshot(params_json: str) -> str:
     scale = float(params.get("scale", 1.0))
     timeout_ms = int(params.get("timeout_ms", DEFAULT_SCREENSHOT_TIMEOUT_MS))
     full_screen = bool(params.get("full_screen", False))
-    hwnd = params.get("window_handle") or _instance_context.get("dcc_window_handle")
-    pid = params.get("process_id") or _instance_context.get("dcc_pid")
-    title = params.get("window_title") or _instance_context.get("dcc_window_title")
+    runtime = _diagnostic_state(state)
+    instance_context = runtime.snapshot_instance_context()
+    hwnd = params.get("window_handle") or instance_context.get("dcc_window_handle")
+    pid = params.get("process_id") or instance_context.get("dcc_pid")
+    title = params.get("window_title") or instance_context.get("dcc_window_title")
 
     cap = None
     try:
         if full_screen:
-            cap = _get_full_capturer()
+            cap = _get_full_capturer(runtime)
             frame = cap.capture(
                 format=fmt,
                 jpeg_quality=quality,
@@ -285,7 +256,7 @@ def _handle_take_screenshot(params_json: str) -> str:
             )
         else:
             if not hwnd:
-                resolver = _instance_context.get("resolver")
+                resolver = instance_context.get("resolver")
                 if callable(resolver):
                     try:
                         hwnd = resolver()
@@ -303,7 +274,7 @@ def _handle_take_screenshot(params_json: str) -> str:
                         title = window.title
                 except Exception as exc:
                     logger.debug("take_screenshot: window discovery failed: %s", exc)
-            cap = _get_window_capturer()
+            cap = _get_window_capturer(runtime)
             frame = cap.capture_window(
                 process_id=pid,
                 window_handle=hwnd,
@@ -366,14 +337,18 @@ def _handle_take_screenshot(params_json: str) -> str:
     return json_dumps(payload)
 
 
-def _handle_process_status(params_json: str) -> str:
+def _handle_process_status(
+    params_json: str,
+    *,
+    state: DiagnosticRuntimeState | None = None,
+) -> str:
     """Report adapter process health and DCC instance context.
 
     Params (all optional) are ignored; the handler reads state from
-    ``_instance_context`` and the current Python process.
+    the instance-owned diagnostic context and the current Python process.
     """
     _ = params_json
-    ctx = _instance_context
+    ctx = _diagnostic_state(state).snapshot_instance_context()
     dcc_pid = ctx.get("dcc_pid")
     dcc_name = ctx.get("dcc_name") or "dcc"
 
@@ -409,7 +384,11 @@ def _handle_process_status(params_json: str) -> str:
     return json_dumps(payload)
 
 
-def _handle_gateway_failover_status(params_json: str) -> str:
+def _handle_gateway_failover_status(
+    params_json: str,
+    *,
+    state: DiagnosticRuntimeState | None = None,
+) -> str:
     """Report gateway failover election status for this adapter (#1355).
 
     Params (all optional) are ignored. Surface contract:
@@ -432,8 +411,9 @@ def _handle_gateway_failover_status(params_json: str) -> str:
       "election_active", or "active_gateway".
     """
     _ = params_json
-    resolver = _instance_context.get("gateway_failover_resolver")
-    dcc_name = _instance_context.get("dcc_name") or "dcc"
+    instance_context = _diagnostic_state(state).snapshot_instance_context()
+    resolver = instance_context.get("gateway_failover_resolver")
+    dcc_name = instance_context.get("dcc_name") or "dcc"
 
     if not callable(resolver):
         payload: dict[str, Any] = {
@@ -505,14 +485,19 @@ def _handle_gateway_failover_status(params_json: str) -> str:
     return json_dumps(payload)
 
 
-def _handle_get_instance_info(params_json: str) -> str:
+def _handle_get_instance_info(
+    params_json: str,
+    *,
+    state: DiagnosticRuntimeState | None = None,
+) -> str:
     """Return DCC instance metadata (UUID, DCC type, version, PID, URLs)."""
     _ = params_json
-    ctx = _instance_context
+    runtime = _diagnostic_state(state)
+    ctx = runtime.snapshot_instance_context()
     dcc_name = ctx.get("dcc_name") or "dcc"
     dcc_pid = ctx.get("dcc_pid")
     dcc_version = ctx.get("dcc_version")
-    server = _server_ref
+    server = runtime.server
 
     # Resolve instance UUID from the server handle when available.
     instance_uuid = None
@@ -575,7 +560,11 @@ def _metadata_truthy(value: Any) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes"}
 
 
-def _handle_dispatch_tool(params_json: str) -> str:
+def _handle_dispatch_tool(
+    params_json: str,
+    *,
+    state: DiagnosticRuntimeState | None = None,
+) -> str:
     """Relay a dispatch request through the server's ToolDispatcher."""
     try:
         params = json_loads(params_json) if params_json else {}
@@ -591,7 +580,7 @@ def _handle_dispatch_tool(params_json: str) -> str:
     if not action:
         return ToolResultEnvelope(success=False, message="Missing 'action' field.").to_json()
 
-    dispatcher = _dispatcher_ref
+    dispatcher = _diagnostic_state(state).dispatcher
     if dispatcher is None:
         return ToolResultEnvelope(success=False, message="Dispatcher not available.").to_json()
 
@@ -619,7 +608,8 @@ def register_diagnostic_handlers(
     dcc_window_title: str | None = None,
     dcc_version: str | None = None,
     resolver: Callable[[], int | None] | None = None,
-) -> None:
+    diagnostic_state: DiagnosticRuntimeState | None = None,
+) -> DiagnosticRuntimeState:
     """Register the standard diagnostic IPC action handlers on *server*.
 
     Also sets ``DCC_MCP_IPC_ADDRESS`` in the process environment (unless it
@@ -645,6 +635,8 @@ def register_diagnostic_handlers(
             Stored in instance context for diagnostic tools.
         resolver: Optional callback returning the current native window handle
             when neither ``dcc_window_handle`` nor a cache hit is available.
+        diagnostic_state: Optional instance-owned state. Standalone callers
+            that omit it use the compatibility default state.
 
     Example::
 
@@ -663,29 +655,26 @@ def register_diagnostic_handlers(
     - ``take_screenshot`` — capture the DCC window (or full screen)
 
     """
-    global _dispatcher_ref
-    if dispatcher is not None:
-        _dispatcher_ref = dispatcher
+    runtime = _diagnostic_state(diagnostic_state)
+    runtime.dispatcher = dispatcher
 
-    _instance_context.update(
-        {
-            "dcc_name": dcc_name,
-            "dcc_pid": dcc_pid,
-            "dcc_window_handle": dcc_window_handle,
-            "dcc_window_title": dcc_window_title,
-            "dcc_version": dcc_version,
-            "resolver": resolver,
-        }
+    runtime.configure_instance(
+        dcc_name=dcc_name,
+        dcc_pid=dcc_pid,
+        dcc_window_handle=dcc_window_handle,
+        dcc_window_title=dcc_window_title,
+        dcc_version=dcc_version,
+        resolver=resolver,
     )
 
     # Ensure action recorder uses the correct DCC name
-    _get_action_recorder(dcc_name)
+    _get_action_recorder(dcc_name, runtime)
 
     try:
-        server.register_handler("get_audit_log", _handle_get_audit_log)
-        server.register_handler("get_tool_metrics", _handle_get_tool_metrics)
-        server.register_handler("dispatch_tool", _handle_dispatch_tool)
-        server.register_handler("take_screenshot", _handle_take_screenshot)
+        server.register_handler("get_audit_log", partial(_handle_get_audit_log, state=runtime))
+        server.register_handler("get_tool_metrics", partial(_handle_get_tool_metrics, state=runtime))
+        server.register_handler("dispatch_tool", partial(_handle_dispatch_tool, state=runtime))
+        server.register_handler("take_screenshot", partial(_handle_take_screenshot, state=runtime))
         logger.debug(
             "Registered diagnostic IPC handlers for dcc=%r: "
             "get_audit_log, get_tool_metrics, dispatch_tool, take_screenshot",
@@ -693,9 +682,10 @@ def register_diagnostic_handlers(
         )
     except Exception as exc:
         logger.warning("Failed to register diagnostic handlers: %s", exc)
-        return
+        return runtime
 
     _set_ipc_address_env(dcc_name)
+    return runtime
 
 
 def _set_ipc_address_env(dcc_name: str = "dcc") -> None:
@@ -794,7 +784,8 @@ def register_diagnostic_mcp_tools(
     dcc_version: str | None = None,
     resolver: Callable[[], int | None] | None = None,
     gateway_failover_resolver: Callable[[], dict[str, Any]] | None = None,
-) -> None:
+    diagnostic_state: DiagnosticRuntimeState | None = None,
+) -> DiagnosticRuntimeState:
     """Register the ``dcc_diagnostics__*`` MCP tools on *server*.
 
     Tools are registered as regular :class:`ToolRegistry` entries so they
@@ -803,8 +794,8 @@ def register_diagnostic_mcp_tools(
     "register all actions before start".
 
     Instance context kwargs match :func:`register_diagnostic_handlers` and
-    are propagated to the same ``_instance_context`` global so the IPC path
-    and the MCP-tool path share state.
+    are propagated to one :class:`DiagnosticRuntimeState` so the IPC path and
+    the MCP-tool path can deliberately share instance-owned state.
 
     Registered tools
     ----------------
@@ -838,29 +829,29 @@ def register_diagnostic_mcp_tools(
             ``dcc_diagnostics__gateway_failover`` MCP tool can report a
             stable explanation even when the election thread never started
             (see #1355).
+        diagnostic_state: Optional instance-owned state. Standalone callers
+            that omit it use the compatibility default state.
 
     """
-    global _server_ref
-    _server_ref = server
+    runtime = _diagnostic_state(diagnostic_state)
+    runtime.server = server
 
-    _instance_context.update(
-        {
-            "dcc_name": dcc_name,
-            "dcc_pid": dcc_pid,
-            "dcc_window_handle": dcc_window_handle,
-            "dcc_window_title": dcc_window_title,
-            "dcc_version": dcc_version,
-            "resolver": resolver,
-            "gateway_failover_resolver": gateway_failover_resolver,
-        }
+    runtime.configure_instance(
+        dcc_name=dcc_name,
+        dcc_pid=dcc_pid,
+        dcc_window_handle=dcc_window_handle,
+        dcc_window_title=dcc_window_title,
+        dcc_version=dcc_version,
+        resolver=resolver,
+        gateway_failover_resolver=gateway_failover_resolver,
     )
-    _get_action_recorder(dcc_name)
+    _get_action_recorder(dcc_name, runtime)
 
     try:
         registry = server.registry
     except Exception as exc:
         logger.warning("register_diagnostic_mcp_tools: server.registry unavailable: %s", exc)
-        return
+        return runtime
 
     specs = [
         (
@@ -911,9 +902,11 @@ def register_diagnostic_mcp_tools(
             logger.warning("register_diagnostic_mcp_tools: register(%s) failed: %s", name, exc)
             continue
         try:
-            server.register_handler(name, lambda params, h=handler: _adapt_mcp_handler(h, params))
+            bound_handler = partial(handler, state=runtime)
+            server.register_handler(name, lambda params, h=bound_handler: _adapt_mcp_handler(h, params))
         except Exception as exc:
             logger.warning("register_diagnostic_mcp_tools: register_handler(%s) failed: %s", name, exc)
+    return runtime
 
 
 def _adapt_mcp_handler(handler: Callable[[str], str], params: Any) -> Any:

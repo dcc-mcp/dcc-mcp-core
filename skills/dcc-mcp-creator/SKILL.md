@@ -119,6 +119,10 @@ the server from its exact target environment. Gateway Admin is check-only.
 6. Keep service identity data-driven: `dcc_name`/custom service id, `server_name`, env-var prefix, skill names, and gateway metadata.
    Leave the instance port unset so core resolves `DCC_MCP_<DCC>_PORT` or asks the OS for a free port.
 7. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers. Python `DccServerBase.collect_skill_search_paths()` includes marketplace-installed skills under `~/.dcc-mcp/marketplace/<dcc>` (or `DCC_MCP_MARKETPLACE_INSTALL_ROOT/<dcc>`) when the directory exists, so adapters should not add a second marketplace path convention. Hermetic adapter tests should set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`; this excludes implicit local/platform defaults, marketplace installs, and Admin custom paths while explicit, bundled, and environment-provided skill paths remain active.
+   `DccServerBase` also owns `DiagnosticRuntimeState`; do not add adapter-level
+   recorder, sandbox, screenshot-capturer, dispatcher, server, or instance-context
+   globals. Standalone registration code may inject one state into both
+   diagnostic registration helpers.
    - For native visual UI fallback, reuse the bundled `ui-control` skill with
      standalone `dcc-cua` 0.4.0 or newer; do not add adapter-local capture,
      accessibility, or raw-input wrappers. Keep stateful UI calls in one

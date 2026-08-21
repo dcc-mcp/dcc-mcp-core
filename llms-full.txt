@@ -2232,6 +2232,13 @@ For low-level servers that build on `McpHttpServer` directly, call
 `register_diagnostic_handlers(...)` (IPC path) **before** `server.start()` —
 MCP tool registration must complete before the server is running.
 
+`DccServerBase` owns one `DiagnosticRuntimeState` per server and exposes it as
+`server.diagnostic_state`. Low-level callers that register both MCP and IPC
+diagnostics should create one `DiagnosticRuntimeState(dcc_name)` and pass it as
+`diagnostic_state=` to both registration helpers. This keeps recorder names,
+sandbox audit state, capturers, dispatchers, server handles, and DCC context
+isolated when Maya and Blender/Photoshop servers share a process.
+
 The bundled `dcc-diagnostics` skill's `screenshot.py` handler tries
 `DCC_MCP_OWNER_IPC` → IPC frame with take_screenshot request first and falls back
 to `Capturer.new_auto()` when no owner IPC is configured.

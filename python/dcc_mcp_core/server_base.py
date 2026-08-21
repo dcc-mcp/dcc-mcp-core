@@ -6,7 +6,7 @@ server lifecycle management. Adapters usually only construct
 ``DccServerOptions`` and optionally override ``_version_string`` or
 ``_upgrade_to_gateway``.
 
-The class delegates to four seam controllers (PIP-688):
+The class delegates to seam controllers and instance-owned runtime components (PIP-688):
 - :class:`~dcc_mcp_core._server.skill_discovery.SkillDiscoveryController`
 - :class:`~dcc_mcp_core._server.execution_bridge.ExecutionBridgeBinder`
 - :class:`~dcc_mcp_core._server.lifecycle_controller.LifecycleController`
@@ -34,6 +34,7 @@ from dcc_mcp_core._server import collect_context_metadata_from_env
 from dcc_mcp_core._server import resolve_diagnostics_state
 from dcc_mcp_core._server import resolve_execution_binding
 from dcc_mcp_core._server import resolve_observability_flags
+from dcc_mcp_core._server.diagnostic_state import DiagnosticRuntimeState
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
@@ -139,6 +140,7 @@ class DccServerBase:
         self._dcc_pid: int = diag.dcc_pid
         self._dcc_window_title: str | None = diag.window_title
         self._dcc_window_handle: int | None = diag.window_handle
+        self._diagnostic_state = DiagnosticRuntimeState(options.dcc_name)
 
         # Resolve execution mode from the tagged union
         execution = resolve_execution_binding(options.execution.mode)
@@ -244,6 +246,18 @@ class DccServerBase:
             ctrl = ObservabilityFacade(self)
             self._observability = ctrl
         return ctrl
+
+    def _get_diagnostic_state(self) -> DiagnosticRuntimeState:
+        state = self.__dict__.get("_diagnostic_state")
+        if state is None:
+            state = DiagnosticRuntimeState(self._dcc_name)
+            self._diagnostic_state = state
+        return state
+
+    @property
+    def diagnostic_state(self) -> DiagnosticRuntimeState:
+        """Instance-owned state shared by MCP and IPC diagnostic handlers."""
+        return self._get_diagnostic_state()
 
     def _register_builtin_skills(self, options: DccServerOptions) -> None:
         """Register standard built-in skills (diagnostics, introspect, etc)."""

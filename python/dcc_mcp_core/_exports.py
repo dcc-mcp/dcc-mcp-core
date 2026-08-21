@@ -322,6 +322,8 @@ _LAZY: dict[str, str] = {
     "BridgeExecution": "dcc_mcp_core._server.options",
     "DccServerOptions": "dcc_mcp_core._server.options",
     "DiagnosticsOptions": "dcc_mcp_core._server.options",
+    "DiagnosticRuntimeState": "dcc_mcp_core._server.diagnostic_state",
+    "reset_default_diagnostic_state_for_tests": "dcc_mcp_core._server.diagnostic_state",
     "DispatcherExecution": "dcc_mcp_core._server.options",
     "ExecutionOptions": "dcc_mcp_core._server.options",
     "GatewayOptions": "dcc_mcp_core._server.options",

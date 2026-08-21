@@ -340,6 +340,12 @@ For low-level servers built around `McpHttpServer` directly, call
 `register_diagnostic_mcp_tools(server, dcc_name=..., dcc_pid=...)` **before**
 `server.start()` — per the "register all actions before start" rule.
 
+Every `DccServerBase` owns one `DiagnosticRuntimeState`, available as
+`server.diagnostic_state`. If standalone code registers both MCP and IPC
+diagnostics, create one state and pass it as `diagnostic_state=` to both
+registration helpers so two DCC servers in one process never share recorder,
+capturer, dispatcher, or instance-context caches.
+
 ## Development Setup
 
 ```bash

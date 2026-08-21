@@ -157,6 +157,11 @@ from dcc_mcp_core._core import DeferredExecutor   # 需要直接导入
 这包括 `register_diagnostic_mcp_tools(...)` 用于实例绑定的诊断工具 —
 在调用 `server.start()` 之前注册，绝不在之后。
 
+每个 `DccServerBase` 都拥有独立的 `DiagnosticRuntimeState`，并通过
+`server.diagnostic_state` 暴露。独立注册 MCP 与 IPC 诊断时，应把同一个
+`diagnostic_state=` 传给两个注册函数，避免同一进程中的 Maya、Blender
+或 Photoshop 服务共享 recorder、capturer、dispatcher 与实例上下文。
+
 **Python 工具处理器返回 `ToolResultEnvelope`（#2183），不要手写字典：**
 ```python
 from dcc_mcp_core.result_envelope import ToolResultEnvelope

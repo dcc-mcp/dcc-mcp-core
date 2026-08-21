@@ -20,6 +20,18 @@ import pytest
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 from dcc_mcp_core import register_diagnostic_mcp_tools
+from dcc_mcp_core._server.diagnostic_state import get_default_diagnostic_state
+
+_diagnostic_state = get_default_diagnostic_state()
+_instance_context = _diagnostic_state.instance_context
+
+
+@pytest.fixture(autouse=True)
+def _reset_diagnostic_state():
+    _diagnostic_state.reset_for_tests()
+    yield
+    _diagnostic_state.reset_for_tests()
+
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -65,8 +77,6 @@ class TestRegisterDiagnosticMcpTools:
 
     def test_instance_context_populated(self, server) -> None:
         # Import local modules
-        from dcc_mcp_core.dcc_server import _instance_context
-
         register_diagnostic_mcp_tools(
             server,
             dcc_name="test-dcc",
@@ -86,7 +96,6 @@ class TestProcessStatusHandler:
     def test_reports_context(self) -> None:
         # Import local modules
         from dcc_mcp_core.dcc_server import _handle_process_status
-        from dcc_mcp_core.dcc_server import _instance_context
 
         original = dict(_instance_context)
         _instance_context.update(
@@ -115,7 +124,6 @@ class TestGetInstanceInfoHandler:
     def test_reports_context(self) -> None:
         # Import local modules
         from dcc_mcp_core.dcc_server import _handle_get_instance_info
-        from dcc_mcp_core.dcc_server import _instance_context
 
         original = dict(_instance_context)
         _instance_context.update(
@@ -152,8 +160,6 @@ class TestGetInstanceInfoHandler:
         """Handler returns server-attached fields when server is wired."""
         # Import local modules
         from dcc_mcp_core.dcc_server import _handle_get_instance_info
-        from dcc_mcp_core.dcc_server import _instance_context
-        from dcc_mcp_core.dcc_server import _server_ref
 
         register_diagnostic_mcp_tools(
             server,
@@ -169,7 +175,7 @@ class TestGetInstanceInfoHandler:
             assert payload["dcc_pid"] == 12345
             assert payload["dcc_version"] == "2025.1"
             # Server ref should be set by register_diagnostic_mcp_tools
-            assert _server_ref is not None
+            assert _diagnostic_state.server is not None
         finally:
             _instance_context.update(
                 {
