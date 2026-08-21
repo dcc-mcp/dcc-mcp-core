@@ -13,11 +13,10 @@ path = "src/bin/dcc-mcp-tunnel-relay.rs"
 required-features = ["bin"]
 
 [dependencies]
-dcc-mcp-tunnel-protocol = { workspace = true }
+dcc-mcp-tunnel-protocol = { workspace = true, features = ["tokio-io"] }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 tracing = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }

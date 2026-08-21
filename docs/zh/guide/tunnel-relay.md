@@ -30,9 +30,13 @@ LLM、跨主机的编排器或 Web 客户端时使用。同一局域网内仍优
 
 | Crate | 角色 |
 |---|---|
-| `dcc-mcp-tunnel-protocol` | 帧格式（msgpack）、JWT 鉴权、编解码 |
+| `dcc-mcp-tunnel-protocol` | 帧格式（msgpack）、JWT 鉴权、编解码及可选的共享 Tokio 帧 I/O |
 | `dcc-mcp-tunnel-relay` | 公网入口：agent + 前端监听器、注册表、清扫器 |
 | `dcc-mcp-tunnel-agent` | 本地边车：注册并把每会话字节多路复用到本地 DCC |
+
+协议 crate 默认仍不依赖异步运行时。Agent 与 relay 构建会启用其
+`tokio-io` feature，共用 `tokio_io::{read_frame, write_frame,
+FrameIoError}`，避免两端的帧处理和错误语义发生漂移。
 
 ## 端到端最小示例（Rust）
 

@@ -19,7 +19,7 @@ use dcc_mcp_tunnel_protocol::{
 };
 
 use crate::AgentConfig;
-use crate::transport::{TransportError, read_frame, write_frame};
+use crate::transport::{FrameIoError, read_frame, write_frame};
 
 const SESSION_INBOX_QUEUE: usize = 32;
 const READ_CHUNK: usize = 32 * 1024;
@@ -192,7 +192,7 @@ pub enum ClientError {
 
     /// Frame I/O failure with the relay.
     #[error("transport: {0}")]
-    Transport(#[from] TransportError),
+    Transport(#[from] FrameIoError),
 
     /// Handshake violated the wire protocol.
     #[error("handshake protocol: {0}")]

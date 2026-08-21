@@ -14,11 +14,13 @@
 //! - the **agent** (local sidecar, `dcc-mcp-tunnel-agent`) reuse the same
 //!   types when sending without forking the schema;
 //! - external tooling — telemetry probes, Wireshark dissectors, third-party
-//!   relay implementations — link against a tiny std-only crate to inspect
-//!   tunnel traffic.
+//!   relay implementations — link against a tiny runtime-free default build
+//!   to inspect tunnel traffic.
 //!
-//! No tokio, no `bytes`, no async machinery. The codec operates on `Vec<u8>`
-//! and `&[u8]` so it round-trips cleanly under `#[test]` without a runtime.
+//! The default feature set has no tokio, no `bytes`, and no async machinery.
+//! Enable `tokio-io` to share the canonical async frame reader and writer used
+//! by the agent and relay. The codec itself operates on `Vec<u8>` and `&[u8]`
+//! so it round-trips cleanly under `#[test]` without a runtime.
 //!
 //! # Quick orientation
 //!
@@ -37,6 +39,8 @@ pub mod auth;
 pub mod codec;
 pub mod error;
 pub mod frame;
+#[cfg(feature = "tokio-io")]
+pub mod tokio_io;
 
 pub use auth::{TunnelClaims, issue, validate};
 pub use codec::{Decoder, MAX_FRAME_BYTES, decode, encode};
@@ -45,3 +49,5 @@ pub use frame::{
     CloseReason, ErrorCode, Frame, PROTOCOL_VERSION, RegisterAck, RegisterRequest, SessionId,
     TunnelId,
 };
+#[cfg(feature = "tokio-io")]
+pub use tokio_io::FrameIoError;

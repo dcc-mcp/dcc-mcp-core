@@ -29,7 +29,7 @@ use dcc_mcp_tunnel_protocol::{
 use crate::config::RelayConfig;
 use crate::handle::TunnelHandle;
 use crate::registry::{TunnelEntry, TunnelRegistry};
-use crate::transport::{TransportError, read_frame, write_frame};
+use crate::transport::{FrameIoError, read_frame, write_frame};
 
 /// Bound on the agent's outbound queue. Picked to absorb a few jumbo
 /// `Data` frames (8 MiB cap each) without unbounded growth, while still
@@ -199,7 +199,7 @@ where
     })
 }
 
-async fn reject<W>(writer: &mut W, code: ErrorCode, message: String) -> Result<(), TransportError>
+async fn reject<W>(writer: &mut W, code: ErrorCode, message: String) -> Result<(), FrameIoError>
 where
     W: AsyncWrite + Unpin,
 {
@@ -220,7 +220,7 @@ async fn read_loop<R>(
     handle: &Arc<TunnelHandle>,
     registry: &Arc<TunnelRegistry>,
     tunnel_id: &str,
-) -> Result<(), TransportError>
+) -> Result<(), FrameIoError>
 where
     R: AsyncRead + Unpin,
 {

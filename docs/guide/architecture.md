@@ -95,7 +95,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-scheduler     # ScheduleSpec, TriggerSpec, scheduler service
 ├── dcc-mcp-artefact      # FileRef and content-addressed handoff
 ├── dcc-mcp-host          # Host execution bridge / adapter-facing contracts
-├── dcc-mcp-tunnel-protocol # Remote MCP tunnel protocol + auth
+├── dcc-mcp-tunnel-protocol # Remote MCP tunnel protocol + auth + optional Tokio frame I/O
 ├── dcc-mcp-tunnel-relay  # RelayServer
 ├── dcc-mcp-tunnel-agent  # Local tunnel sidecar
 ├── dcc-mcp-catalog       # Public adapter catalog search/describe
