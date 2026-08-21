@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import Future
 from dataclasses import dataclass
+from functools import partial
 import logging
 import queue
 import threading
@@ -42,19 +43,11 @@ import uuid
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+from dcc_mcp_core._version_util import package_version
 
-
-# NOTE: dcc_mcp_core.__version__ is deferred to avoid a potential import-time
-# circular dependency if bridge.py is ever imported before _core is ready.
-# We only need the version string at DccBridge.__init__ call time, not at
-# module import time, so this is safe.
-def _package_version() -> str:
-    try:
-        from dcc_mcp_core import __version__
-
-        return __version__
-    except Exception:
-        return "0.0.0"
+# Keep native loading deferred: bridge construction only reuses an extension
+# that is already loaded, then falls back to distribution metadata.
+_package_version = partial(package_version, fallback="0.0.0")
 
 
 logger = logging.getLogger(__name__)

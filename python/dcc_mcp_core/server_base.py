@@ -15,6 +15,7 @@ The class delegates to seam controllers and instance-owned runtime components (P
 
 from __future__ import annotations
 
+from functools import partial
 import logging
 import sys
 from typing import Any
@@ -40,6 +41,7 @@ from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
+from dcc_mcp_core._version_util import package_version
 from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.feedback import FeedbackStore
 from dcc_mcp_core.script_execution import ScriptExecutionContext
@@ -77,30 +79,7 @@ def create_skill_server(
     return server
 
 
-def _package_version() -> str:
-    try:
-        import dcc_mcp_core
-    except Exception:
-        dcc_mcp_core = None
-
-    if is_core_extension_available() and dcc_mcp_core is not None:
-        core = getattr(dcc_mcp_core, "_core", None)
-        version = getattr(core, "__version__", None)
-        if version is not None:
-            return str(version)
-
-    try:
-        from importlib import metadata as importlib_metadata
-    except ImportError:
-        try:
-            import importlib_metadata  # type: ignore[import-not-found]
-        except ImportError:
-            return _PKG_VERSION
-
-    try:
-        return importlib_metadata.version("dcc-mcp-core")
-    except Exception:
-        return _PKG_VERSION
+_package_version = partial(package_version, fallback=_PKG_VERSION, load_core=True)
 
 
 class DccServerBase:
