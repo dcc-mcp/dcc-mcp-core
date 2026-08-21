@@ -13,7 +13,7 @@ path = "src/bin/dcc-mcp-tunnel-agent.rs"
 required-features = ["bin"]
 
 [dependencies]
-dcc-mcp-tunnel-protocol = { workspace = true }
+dcc-mcp-tunnel-protocol = { workspace = true, features = ["tokio-io"] }
 
 serde = { workspace = true }
 thiserror = { workspace = true }

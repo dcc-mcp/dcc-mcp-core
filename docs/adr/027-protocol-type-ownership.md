@@ -61,6 +61,13 @@ name is a deprecated compatibility alias. `ToolDeclaration.annotations` uses
 the source projection, and the HTTP boundary projects only spec fields into
 the protocol type while keeping DCC extensions in `_meta`.
 
+`dcc_mcp_tunnel_protocol::tokio_io` owns async I/O for the tunnel frame
+contract when its `tokio-io` feature is enabled. Its `FrameIoError` is narrow:
+it covers stream I/O and tunnel frame decoding only. The agent and relay
+re-export the shared implementation and retain their former `TransportError`
+names as deprecated aliases. The broader `dcc_mcp_transport::TransportError`
+continues to own IPC sessions, pools, reconnects, and registry failures.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.

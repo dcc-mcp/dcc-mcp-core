@@ -31,9 +31,13 @@ Three crates collaborate:
 
 | Crate | Role |
 |---|---|
-| `dcc-mcp-tunnel-protocol` | Frame format (msgpack), JWT auth, codec |
+| `dcc-mcp-tunnel-protocol` | Frame format (msgpack), JWT auth, codec, and optional shared Tokio frame I/O |
 | `dcc-mcp-tunnel-relay` | Public-facing server: agent + frontend listeners, registry, eviction |
 | `dcc-mcp-tunnel-agent` | Local sidecar: registers, multiplexes per-session bytes to the local DCC |
+
+The protocol crate remains runtime-free by default. Agent and relay builds
+enable its `tokio-io` feature and share `tokio_io::{read_frame, write_frame,
+FrameIoError}` so framing and error semantics cannot drift between peers.
 
 ## Minimal end-to-end example (Rust)
 
