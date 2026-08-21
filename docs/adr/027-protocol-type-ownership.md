@@ -95,6 +95,11 @@ Python runtime version decisions use the import-light
 `None`; lifecycle planning reports unknown drift and gateway takeover fails
 closed instead of coercing malformed segments to zero.
 
+Import-light lifecycle path coercion uses
+`dcc_mcp_core._path_util.to_resolved_path`. It expands user paths and resolves
+them when possible, while preserving the lexical absolute-path fallback for
+inaccessible or transient filesystem entries.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.

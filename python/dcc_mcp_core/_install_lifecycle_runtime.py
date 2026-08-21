@@ -15,6 +15,7 @@ from typing import List
 from typing import Optional
 
 from ._install_lifecycle_process import entry_runtime_alive as _entry_runtime_alive
+from ._path_util import to_resolved_path as _to_path
 
 ROLE_METADATA_KEY = "dcc_mcp_role"
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
@@ -173,15 +174,6 @@ def _normalise_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         "metadata": metadata,
         "install_roots": install_roots,
     }
-
-
-def _to_path(path: Any) -> Optional[Path]:
-    if path in (None, ""):
-        return None
-    try:
-        return Path(str(path)).expanduser().resolve()
-    except OSError:
-        return Path(str(path)).expanduser().absolute()
 
 
 def _path_under(path: Optional[Path], root: Optional[Path]) -> bool:

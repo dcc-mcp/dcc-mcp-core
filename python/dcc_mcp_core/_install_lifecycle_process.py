@@ -12,6 +12,8 @@ from typing import Any
 from typing import Dict
 from typing import Optional
 
+from ._path_util import to_resolved_path as _to_path
+
 _WINDOWS_LOCK_WINERRORS = {5, 32, 33}
 _LOCK_ERRNOS = {errno.EACCES, errno.EPERM}
 
@@ -82,15 +84,6 @@ def terminate_pid(pid: int, timeout_secs: float, target_kind: str) -> Dict[str, 
 
 def sys_platform_is_windows() -> bool:
     return os.name == "nt"
-
-
-def _to_path(path: Any) -> Optional[Path]:
-    if path in (None, ""):
-        return None
-    try:
-        return Path(str(path)).expanduser().resolve()
-    except OSError:
-        return Path(str(path)).expanduser().absolute()
 
 
 def _sentinel_owner_dead(sentinel_path: Any) -> Optional[bool]:
