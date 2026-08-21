@@ -23,7 +23,7 @@
 //! All third-party deps are pure: `uuid`, `tracing` (facade only),
 //! `dcc-mcp-naming` (validator only). No HTTP, no async, no `GatewayState`.
 //!
-//! Consumers import directly from `dcc_mcp_gateway_core::naming::*`.
+//! Consumers import directly from `dcc_mcp_gateway_core::capability_naming::*`.
 
 mod bare;
 mod constants;

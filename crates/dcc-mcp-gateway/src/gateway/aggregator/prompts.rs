@@ -15,7 +15,7 @@
 //! logged at WARN level and skipped, matching the `tools/list`
 //! contract so one stale DCC never 500s the whole gateway endpoint.
 
-use dcc_mcp_gateway_core::naming::{decode_tool_name, encode_tool_name_cursor_safe};
+use dcc_mcp_gateway_core::capability_naming::{decode_tool_name, encode_tool_name_cursor_safe};
 
 use super::*;
 

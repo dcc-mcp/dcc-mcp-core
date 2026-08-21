@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use serde_json::{Map, Value, json};
 
 use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
-use dcc_mcp_gateway_core::naming::{
+use dcc_mcp_gateway_core::capability_naming::{
     decode_skill_tool_name, extract_bare_tool_name, skill_tool_name,
 };
 use dcc_mcp_jsonrpc::{McpTool, McpToolAnnotations};

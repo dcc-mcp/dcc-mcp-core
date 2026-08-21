@@ -48,7 +48,7 @@ use futures::future::join_all;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use dcc_mcp_gateway_core::naming::instance_short;
+use dcc_mcp_gateway_core::capability_naming::instance_short;
 
 use super::backend_client::{call_backend, fetch_tools};
 use super::state::GatewayState;

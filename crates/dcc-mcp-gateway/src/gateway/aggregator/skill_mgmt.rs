@@ -840,12 +840,14 @@ fn resolve_loaded_target_slug(
     let requested_action = crate::gateway::capability::parse_slug(requested_slug)
         .map(|(_, _, action)| action)
         .unwrap_or(requested_slug);
-    let requested_bare =
-        dcc_mcp_gateway_core::naming::extract_bare_tool_name(skill_name, requested_action)
-            .replace('-', "_");
+    let requested_bare = dcc_mcp_gateway_core::capability_naming::extract_bare_tool_name(
+        skill_name,
+        requested_action,
+    )
+    .replace('-', "_");
     let mut matches = loaded_tool_slugs.iter().filter(|candidate| {
         crate::gateway::capability::parse_slug(candidate).is_some_and(|(_, _, action)| {
-            dcc_mcp_gateway_core::naming::extract_bare_tool_name(skill_name, action)
+            dcc_mcp_gateway_core::capability_naming::extract_bare_tool_name(skill_name, action)
                 .replace('-', "_")
                 == requested_bare
         })

@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::naming::{instance_short, is_cursor_safe_alphabet};
+use crate::capability_naming::{instance_short, is_cursor_safe_alphabet};
 
 /// Placeholder annotation key signalling that an action has an input
 /// schema on its owning backend but the index does not carry it yet.

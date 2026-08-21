@@ -15,7 +15,7 @@ pub(in crate::gateway::admin) mod admin_tests {
     use tokio::sync::{RwLock, broadcast, oneshot, watch};
     use tower::ServiceExt;
 
-    use dcc_mcp_gateway_core::naming::instance_short;
+    use dcc_mcp_gateway_core::capability_naming::instance_short;
 
     use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
     use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};

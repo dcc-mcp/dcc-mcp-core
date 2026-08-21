@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use dcc_mcp_gateway_core::capability::compute_fingerprint;
-use dcc_mcp_gateway_core::naming::{
+use dcc_mcp_gateway_core::capability_naming::{
     decode_skill_tool_name, extract_bare_tool_name, is_core_tool, is_local_tool,
 };
 use dcc_mcp_jsonrpc::McpTool;

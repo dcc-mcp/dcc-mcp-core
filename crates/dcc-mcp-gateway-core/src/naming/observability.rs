@@ -1,8 +1,8 @@
 //! One-shot warning helpers for the naming domain.
 //!
 //! These functions own the only piece of mutable global state in
-//! [`crate::naming`]. They are intentionally separated from the pure
-//! resolver in [`crate::naming::bare`] so the pure path stays free of
+//! [`crate::capability_naming`]. They are intentionally separated from the
+//! pure resolver so the pure path stays free of
 //! interior mutability and can be reasoned about as a mathematical
 //! function.
 //!
@@ -30,7 +30,7 @@ fn warned_prefixed_slot() -> &'static Mutex<HashSet<String>> {
 /// keep the hot path quiet when multiple skills intentionally overlap
 /// (e.g. both `maya-anim` and `blender-anim` expose `set_keyframe`).
 ///
-/// Intended for use by [`crate::naming::resolve_bare_names`]; not part
+/// Intended for use by [`crate::capability_naming::resolve_bare_names`]; not part
 /// of the published surface because the collision shape is an
 /// implementation detail of the resolver.
 pub(super) fn warn_bare_collision_once(bare: &str, skills: &[&str]) {

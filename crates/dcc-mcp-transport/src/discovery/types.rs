@@ -591,7 +591,7 @@ impl ServiceEntry {
     /// # Stability
     ///
     /// The 8-char hex short ID must match
-    /// `dcc_mcp_gateway_core::naming::instance_short` byte-for-byte
+    /// `dcc_mcp_gateway_core::capability_naming::instance_short` byte-for-byte
     /// so a `display_id` and the cursor-safe tool slug for the same
     /// instance always reference the same 8 hex characters. Tests
     /// pin this in [`tests::display_id_short_matches_gateway_naming`].
@@ -1041,7 +1041,7 @@ mod tests {
     #[test]
     fn display_id_short_matches_gateway_naming() {
         // Pinning the 8-char prefix contract — must stay byte-for-byte
-        // aligned with `dcc_mcp_gateway_core::naming::instance_short`
+        // aligned with `dcc_mcp_gateway_core::capability_naming::instance_short`
         // (8 leading hex chars of the simple-form UUID). If
         // `instance_short` ever changes its length or alphabet, this
         // test fails loudly so both surfaces get re-aligned in lock

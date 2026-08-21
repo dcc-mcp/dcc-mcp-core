@@ -27,7 +27,7 @@ fn action_matches_group_tool(action: &str, group_tool_name: &str) -> bool {
         return true;
     }
     // Try the bare action name (strip skill prefix) for comparison.
-    dcc_mcp_gateway_core::naming::decode_skill_tool_name(action)
+    dcc_mcp_gateway_core::capability_naming::decode_skill_tool_name(action)
         .is_some_and(|(_, bare)| bare == group_tool_name)
 }
 

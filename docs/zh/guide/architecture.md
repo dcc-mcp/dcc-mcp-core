@@ -279,6 +279,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `PendingCall` — gateway 到 backend 的取消关联值对象
 - `CapabilityRecord` — 紧凑的每工具 search/dispatch record
 - `SearchQuery`、`SearchHit`、`SearchPage`、`SearchMode` — 面向 agent 的低 token 搜索契约
+- `capability_naming` — gateway instance/skill 名称投影与 bare-name 冲突策略；wire 名称校验委托给 `dcc-mcp-naming`
 - `ExactScorer`、`FuzzyScorer`、`SubstringScorer`、`StrategyScorer` — 可组合 ranking 策略
 
 ### dcc-mcp-gateway

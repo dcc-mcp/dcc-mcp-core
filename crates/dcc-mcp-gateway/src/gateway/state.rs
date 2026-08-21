@@ -49,7 +49,7 @@ use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 use uuid::Uuid;
 
-use dcc_mcp_gateway_core::naming::instance_short;
+use dcc_mcp_gateway_core::capability_naming::instance_short;
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 use super::event_log::EventLog;

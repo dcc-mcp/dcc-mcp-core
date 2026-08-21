@@ -83,6 +83,13 @@ catalog type's former `SearchHit` name is a deprecated compatibility alias;
 catalog APIs use the explicit name so imports cannot imply that the two search
 domains share a contract.
 
+`dcc-mcp-naming` owns ecosystem-wide validation for MCP tool names and internal
+action ids. `dcc_mcp_gateway_core::capability_naming` owns the narrower gateway
+projection policy: instance prefixes, skill-qualified tool codecs, bare-name
+collision resolution, and its fixed vocabulary. The gateway module's former
+`naming` path is a deprecated compatibility alias. Validation remains delegated
+to `dcc-mcp-naming`; the gateway layer does not redefine its regex contract.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.
