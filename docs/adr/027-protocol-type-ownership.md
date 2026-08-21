@@ -109,6 +109,11 @@ The import-light lifecycle runtime module owns `default_registry_dir`.
 Install and sidecar helpers re-export that callable instead of independently
 reconstructing the environment and temporary-directory fallback contract.
 
+`dcc-mcp-jsonrpc` owns the supported MCP protocol versions and negotiation
+policy. MCP clients advertise its latest version, while servers negotiate a
+supported client request through the shared helper. CLI and sidecar crates must
+not carry independent protocol-version literals or negotiation logic.
+
 Import-light environment parsing uses `dcc_mcp_core.env`: `env_flag`,
 `env_int`, `env_float`, and `env_path`. Core runtime callers keep environment
 names in `dcc_mcp_core.constants` and pass caller-specific truth tokens or

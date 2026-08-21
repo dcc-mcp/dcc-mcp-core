@@ -38,6 +38,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::routing::{get, post};
 use dcc_mcp_host_rpc::HostRpcClient;
+pub use dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, watch};
 
@@ -49,11 +50,6 @@ mod trace;
 use handlers::{
     handle_health, handle_healthz, handle_mcp_post, handle_v1_healthz, handle_v1_readyz,
 };
-
-/// The MCP protocol version this listener speaks back to clients.
-/// Pinned as a constant so test assertions cannot drift away from
-/// what the gateway expects.
-pub const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
 
 /// `server_name` advertised in the `initialize` response. Stable
 /// string so the gateway / admin UI can identify a sidecar-served

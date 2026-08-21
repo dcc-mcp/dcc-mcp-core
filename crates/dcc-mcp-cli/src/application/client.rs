@@ -1,3 +1,4 @@
+use dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION;
 use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::time::{Instant, sleep};
@@ -10,8 +11,6 @@ use crate::domain::rest::{
 use crate::infra::http::{HttpError, HttpGateway};
 
 const MCP_STREAMABLE_HTTP_ACCEPT: &str = "application/json, text/event-stream";
-const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
-
 #[derive(Debug, Error)]
 pub enum ClientError {
     #[error(transparent)]

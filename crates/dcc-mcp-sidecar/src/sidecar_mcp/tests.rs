@@ -134,7 +134,7 @@ async fn initialize_returns_negotiated_protocol_version() {
     .await
     .expect("parse JSON");
 
-    assert_eq!(body["result"]["protocolVersion"], MCP_PROTOCOL_VERSION);
+    assert_eq!(body["result"]["protocolVersion"], "2025-03-26");
     assert_eq!(body["result"]["serverInfo"]["name"], SIDECAR_SERVER_NAME);
     assert_eq!(body["result"]["serverInfo"]["version"], "test-0.0.0");
     // tools.listChanged: false - we intentionally don't promise
@@ -143,6 +143,26 @@ async fn initialize_returns_negotiated_protocol_version() {
         body["result"]["capabilities"]["tools"]["listChanged"],
         false
     );
+    handle.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn initialize_unknown_protocol_falls_back_to_latest_supported_version() {
+    let handle = fresh_listener().await;
+    let body: Value = post_mcp(
+        &handle.mcp_url,
+        json!({
+            "jsonrpc": "2.0", "id": 2,
+            "method": "initialize",
+            "params": {"protocolVersion": "2099-01-01"}
+        }),
+    )
+    .await
+    .json()
+    .await
+    .expect("parse JSON");
+
+    assert_eq!(body["result"]["protocolVersion"], MCP_PROTOCOL_VERSION);
     handle.shutdown().await;
 }
 
@@ -317,7 +337,7 @@ async fn concurrent_initialize_requests_all_succeed() {
                     "jsonrpc": "2.0",
                     "id": client_idx,
                     "method": "initialize",
-                    "params": {"protocolVersion": "2025-03-26"}
+                    "params": {"protocolVersion": MCP_PROTOCOL_VERSION}
                 }),
             )
             .await

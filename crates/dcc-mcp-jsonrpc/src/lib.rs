@@ -97,3 +97,26 @@ pub const ELICITATION_CREATE_METHOD: &str = "elicitation/create";
 
 /// Number of tools returned per `tools/list` page.
 pub const TOOLS_LIST_PAGE_SIZE: usize = 32;
+
+#[cfg(test)]
+mod tests {
+    use super::{MCP_PROTOCOL_VERSION, negotiate_protocol_version};
+
+    #[test]
+    fn protocol_negotiation_preserves_supported_versions() {
+        assert_eq!(
+            negotiate_protocol_version(Some(MCP_PROTOCOL_VERSION)),
+            MCP_PROTOCOL_VERSION
+        );
+        assert_eq!(negotiate_protocol_version(Some("2025-03-26")), "2025-03-26");
+    }
+
+    #[test]
+    fn protocol_negotiation_falls_back_to_latest_supported_version() {
+        assert_eq!(negotiate_protocol_version(None), MCP_PROTOCOL_VERSION);
+        assert_eq!(
+            negotiate_protocol_version(Some("2099-01-01")),
+            MCP_PROTOCOL_VERSION
+        );
+    }
+}
