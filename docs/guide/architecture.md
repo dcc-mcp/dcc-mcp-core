@@ -475,11 +475,14 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-pybridge
 
-**Purpose**: PyO3 helpers — `repr_pairs!` / `to_dict_pairs!` macros.
+**Purpose**: PyO3 conversion helpers plus wrapper-boilerplate generation.
 
 **Modules**:
 - `py_json` — `py_json()` / `py_yaml()` serialization helpers
-- `pybridge_derive` — `#[derive(ReprPairs)]` derive macro (in `dcc-mcp-pybridge-derive`)
+- `derive::PyWrapper` — generates getters, setters, `__repr__`, and `to_dict`;
+  field mappings may target nested aggregate paths such as
+  `gateway_port => gateway.gateway_port`
+- `py_json` / `py_yaml` — Python ↔ serde serialization helpers
 
 **Dependencies**: `pyo3`
 
