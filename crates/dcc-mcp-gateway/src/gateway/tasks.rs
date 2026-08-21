@@ -396,6 +396,11 @@ pub(crate) async fn start_gateway_tasks(
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(30))
         .build()?;
+    let gateway_limits = crate::gateway::resilience::GatewayLimits::from_env();
+    let ingress = Arc::new(crate::gateway::http_limits::GatewayIngressState::new(
+        gateway_limits.clone(),
+    ));
+    let resilience = Arc::new(crate::gateway::resilience::GatewayResilienceState::from_env());
 
     // ── Separate HTTP client for the backend SSE subscriber (issue #TODO) ──
     // MUST NOT have a client-level timeout. reqwest's `.timeout()` applies to
@@ -627,6 +632,7 @@ pub(crate) async fn start_gateway_tasks(
     let reg_prompts = registry.clone();
     let events_tx_prompts = events_tx.clone();
     let http_client_prompts = http_client.clone();
+    let resilience_prompts = resilience.clone();
     let prompts_own_host = own_host.clone();
     let prompts_own_port = own_port;
     let prompts_watcher_handle = tokio::spawn(async move {
@@ -640,6 +646,7 @@ pub(crate) async fn start_gateway_tasks(
                 &reg_prompts,
                 stale_timeout,
                 &http_client_prompts,
+                &resilience_prompts,
                 backend_timeout,
                 Some(prompts_own_host.as_str()),
                 prompts_own_port,
@@ -683,6 +690,7 @@ pub(crate) async fn start_gateway_tasks(
     let reg_resources = registry.clone();
     let events_tx_resources = events_tx.clone();
     let http_client_resources = http_client.clone();
+    let resilience_resources = resilience.clone();
     let resources_own_host = own_host.clone();
     let resources_own_port = own_port;
     let resources_watcher_handle = tokio::spawn(async move {
@@ -696,6 +704,7 @@ pub(crate) async fn start_gateway_tasks(
                 &reg_resources,
                 stale_timeout,
                 &http_client_resources,
+                &resilience_resources,
                 backend_timeout,
                 Some(resources_own_host.as_str()),
                 resources_own_port,
@@ -856,7 +865,8 @@ pub(crate) async fn start_gateway_tasks(
 
     #[cfg_attr(not(feature = "admin"), allow(unused_mut))]
     let mut gw_state = GatewayState {
-        ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
+        ingress,
+        resilience,
         registry: registry.clone(),
         http_instance_registry: http_instance_registry.clone(),
         mdns_instance_registry: mdns_instance_registry.clone(),

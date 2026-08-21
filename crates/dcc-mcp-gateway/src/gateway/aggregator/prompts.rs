@@ -50,7 +50,7 @@ pub async fn aggregate_prompts_list(gs: &GatewayState) -> Value {
     let backend_timeout = gs.backend_timeout;
     let futs = instances.iter().map(|entry| async move {
         let url = entry_discovery_mcp_url(entry);
-        let prompts = try_fetch_prompts(client, &url, backend_timeout).await;
+        let prompts = try_fetch_prompts(client, &gs.resilience, &url, backend_timeout).await;
         (entry.instance_id, entry.dcc_type.clone(), prompts)
     });
     let results = join_all(futs).await;
@@ -161,6 +161,7 @@ pub async fn route_prompts_get(
     let url = entry_discovery_mcp_url(&entry);
     forward_prompts_get(
         &gs.http_client,
+        &gs.resilience,
         &url,
         &original,
         arguments,
@@ -233,6 +234,7 @@ pub(crate) async fn compute_prompts_fingerprint_with_own(
     registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
+    resilience: &crate::gateway::resilience::GatewayResilienceState,
     backend_timeout: Duration,
     own_host: Option<&str>,
     own_port: u16,
@@ -256,7 +258,7 @@ pub(crate) async fn compute_prompts_fingerprint_with_own(
 
     let futs = instances.iter().map(|entry| async move {
         let url = entry_discovery_mcp_url(entry);
-        let prompts = fetch_prompts(http_client, &url, backend_timeout).await;
+        let prompts = fetch_prompts(http_client, resilience, &url, backend_timeout).await;
         (entry.instance_id, prompts)
     });
     let results = join_all(futs).await;
@@ -281,12 +283,14 @@ pub async fn compute_prompts_fingerprint(
     registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
+    resilience: &crate::gateway::resilience::GatewayResilienceState,
     backend_timeout: Duration,
 ) -> String {
     compute_prompts_fingerprint_with_own(
         registry,
         stale_timeout,
         http_client,
+        resilience,
         backend_timeout,
         None,
         0,

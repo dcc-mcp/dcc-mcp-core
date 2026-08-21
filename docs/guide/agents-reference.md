@@ -1488,6 +1488,14 @@ tests and embedded multi-gateway processes; do not add process-wide lazy
 configuration or counters, because one gateway must not consume another
 gateway's client budget.
 
+Outbound retry policy and circuit-breaker observations likewise belong to the
+owning `GatewayState` through `GatewayResilienceState`. Backend discovery,
+resource/prompt fan-out, JSON-RPC compatibility calls, and REST dispatch must
+all receive that instance state explicitly. Construct `GatewayResilienceState`
+with an explicit retry count, failure threshold, and open duration in tests;
+do not serialize tests around first-touch global configuration or share circuit
+failures between embedded gateways.
+
 ### Gateway Prometheus Metrics (issue #559)
 
 `/metrics` is **off by default**. To turn it on, build any consumer of

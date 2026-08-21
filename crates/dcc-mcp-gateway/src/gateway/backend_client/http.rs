@@ -6,7 +6,7 @@ use super::error::BackendCallError;
 use super::urls::rest_base_from_mcp_url;
 use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::metrics::record_gateway_backend_error_kind;
-use crate::gateway::resilience::{circuits, is_circuit_worthy_jsonrpc_error};
+use crate::gateway::resilience::{GatewayResilienceState, is_circuit_worthy_jsonrpc_error};
 
 /// Percent-encode a URI string for use as a URL path segment.
 ///
@@ -115,16 +115,21 @@ pub(super) async fn rest_post_with_trace_context(
 
 pub(super) async fn post_jsonrpc(
     client: &reqwest::Client,
+    resilience: &GatewayResilienceState,
     mcp_url: &str,
     req_body: Value,
     session_id: Option<&str>,
     timeout: Duration,
 ) -> Result<Value, BackendCallError> {
-    post_jsonrpc_with_trace_context(client, mcp_url, req_body, session_id, timeout, None).await
+    post_jsonrpc_with_trace_context(
+        client, resilience, mcp_url, req_body, session_id, timeout, None,
+    )
+    .await
 }
 
 pub(super) async fn post_jsonrpc_with_trace_context(
     client: &reqwest::Client,
+    resilience: &GatewayResilienceState,
     mcp_url: &str,
     req_body: Value,
     session_id: Option<&str>,
@@ -132,7 +137,7 @@ pub(super) async fn post_jsonrpc_with_trace_context(
     trace_context: Option<&TraceContext>,
 ) -> Result<Value, BackendCallError> {
     let circuit_key = rest_base_from_mcp_url(mcp_url);
-    if let Err(reason) = circuits().check_open(&circuit_key) {
+    if let Err(reason) = resilience.circuits().check_open(&circuit_key) {
         let err = BackendCallError::Transport {
             mcp_url: mcp_url.to_string(),
             reason,
@@ -166,7 +171,7 @@ pub(super) async fn post_jsonrpc_with_trace_context(
     let resp = match request.send().await {
         Ok(r) => r,
         Err(e) => {
-            circuits().on_transport_failure(&circuit_key);
+            resilience.circuits().on_transport_failure(&circuit_key);
             let err = BackendCallError::Transport {
                 mcp_url: mcp_url.to_string(),
                 reason: e.to_string(),
@@ -185,9 +190,9 @@ pub(super) async fn post_jsonrpc_with_trace_context(
             body,
         };
         if is_circuit_worthy_jsonrpc_error(&err) {
-            circuits().on_transport_failure(&circuit_key);
+            resilience.circuits().on_transport_failure(&circuit_key);
         } else {
-            circuits().on_success(&circuit_key);
+            resilience.circuits().on_success(&circuit_key);
         }
         record_gateway_backend_error_kind(err.prometheus_error_kind());
         return Err(err);
@@ -196,7 +201,7 @@ pub(super) async fn post_jsonrpc_with_trace_context(
     let text = match resp.text().await {
         Ok(t) => t,
         Err(e) => {
-            circuits().on_transport_failure(&circuit_key);
+            resilience.circuits().on_transport_failure(&circuit_key);
             let err = BackendCallError::ReadBody {
                 mcp_url: mcp_url.to_string(),
                 reason: e.to_string(),
@@ -208,12 +213,12 @@ pub(super) async fn post_jsonrpc_with_trace_context(
 
     let out = parse_jsonrpc_result(mcp_url, &text);
     match &out {
-        Ok(_) => circuits().on_success(&circuit_key),
+        Ok(_) => resilience.circuits().on_success(&circuit_key),
         Err(e) => {
             if is_circuit_worthy_jsonrpc_error(e) {
-                circuits().on_transport_failure(&circuit_key);
+                resilience.circuits().on_transport_failure(&circuit_key);
             } else {
-                circuits().on_success(&circuit_key);
+                resilience.circuits().on_success(&circuit_key);
             }
             record_gateway_backend_error_kind(e.prometheus_error_kind());
         }

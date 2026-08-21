@@ -603,6 +603,7 @@ pub async fn describe_tool_full(
     // full <dcc>.<skill>.<action> slugs, so we can pass callable_id directly.
     let tool = try_describe_tool(
         &gs.http_client,
+        &gs.resilience,
         &url,
         &record.callable_id,
         gs.backend_timeout,
@@ -728,6 +729,7 @@ pub async fn call_service(
         });
         call_backend_with_observability(
             &gs.http_client,
+            &gs.resilience,
             &url,
             BackendJsonRpcCallRequest {
                 method: "tools/call",
@@ -743,6 +745,7 @@ pub async fn call_service(
     } else {
         forward_tools_call(
             &gs.http_client,
+            &gs.resilience,
             &url,
             ForwardToolsCallRequest {
                 tool_name: &record.callable_id,
@@ -891,6 +894,7 @@ async fn refresh_instance_bounded(
         refresh_instance(
             &gs.capability_index,
             &gs.http_client,
+            &gs.resilience,
             url,
             instance_id,
             dcc_type,

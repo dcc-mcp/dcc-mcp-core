@@ -40,11 +40,12 @@ fn is_registry_row_eligible_for_resources(entry: &ServiceEntry) -> bool {
 async fn fetch_resources_for_entries(
     entries: &[ServiceEntry],
     client: &reqwest::Client,
+    resilience: &crate::gateway::resilience::GatewayResilienceState,
     backend_timeout: Duration,
 ) -> Vec<(uuid::Uuid, String, Vec<Value>)> {
     let futs = entries.iter().map(|entry| async move {
         let url = backend_mcp_url(entry);
-        let resources = fetch_resources(client, &url, backend_timeout).await;
+        let resources = fetch_resources(client, resilience, &url, backend_timeout).await;
         (entry.instance_id, entry.dcc_type.clone(), resources)
     });
     join_all(futs).await
@@ -61,7 +62,13 @@ pub(crate) async fn fetch_backend_resources(
     // respects the `allow_unknown_tools` toggle — no further filter is
     // needed here.
     let instances = live_backends(gs).await;
-    fetch_resources_for_entries(&instances, &gs.http_client, gs.backend_timeout).await
+    fetch_resources_for_entries(
+        &instances,
+        &gs.http_client,
+        &gs.resilience,
+        gs.backend_timeout,
+    )
+    .await
 }
 
 /// Build the unified `resources/list` result.
@@ -183,6 +190,7 @@ pub(crate) async fn compute_resources_fingerprint_with_own(
     registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
+    resilience: &crate::gateway::resilience::GatewayResilienceState,
     backend_timeout: Duration,
     own_host: Option<&str>,
     own_port: u16,
@@ -204,7 +212,8 @@ pub(crate) async fn compute_resources_fingerprint_with_own(
             .collect()
     };
 
-    let results = fetch_resources_for_entries(&instances, http_client, backend_timeout).await;
+    let results =
+        fetch_resources_for_entries(&instances, http_client, resilience, backend_timeout).await;
 
     let mut parts: Vec<String> = results
         .into_iter()

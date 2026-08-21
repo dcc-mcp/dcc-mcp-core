@@ -701,6 +701,7 @@ async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
         &registry,
         std::time::Duration::from_secs(30),
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         std::time::Duration::from_secs(2),
     )
     .await;
@@ -714,6 +715,7 @@ async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
         &registry,
         std::time::Duration::from_secs(30),
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         std::time::Duration::from_secs(2),
     )
     .await;

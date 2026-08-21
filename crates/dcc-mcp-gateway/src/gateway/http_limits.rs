@@ -130,9 +130,6 @@ mod tests {
         GatewayLimits {
             body_max_bytes: 1024,
             rate_limit_per_minute_per_ip: rate_limit,
-            read_retry_max: 2,
-            circuit_failure_threshold: 5,
-            circuit_open_secs: 30,
             xff_trusted_depth: 0,
         }
     }

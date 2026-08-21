@@ -200,9 +200,14 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
     let (mcp_url, stop) = spawn_fake_backend(app).await;
     let client = reqwest::Client::new();
 
-    let (tools, unloaded) = try_fetch_tools(&client, &mcp_url, Duration::from_secs(2))
-        .await
-        .expect("search");
+    let (tools, unloaded) = try_fetch_tools(
+        &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
+        &mcp_url,
+        Duration::from_secs(2),
+    )
+    .await
+    .expect("search");
     assert_eq!(unloaded.len(), 1);
     assert_eq!(unloaded[0].skill_name, "loadable-export");
     assert!(
@@ -255,6 +260,7 @@ async fn skill_rest_metadata_survives_fetch_and_describe() {
 
     let described = try_describe_tool(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         "ui_control__snapshot",
         Duration::from_secs(2),
@@ -408,6 +414,7 @@ async fn post_jsonrpc_forwards_session_header_when_provided() {
     let body = json!({"jsonrpc":"2.0","id":"x","method":"ping"});
     let result = post_jsonrpc(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         body,
         Some("session-abc"),
@@ -449,6 +456,7 @@ async fn post_jsonrpc_omits_session_header_when_none() {
     let client = reqwest::Client::new();
     let _ = post_jsonrpc(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         json!({"jsonrpc":"2.0","id":"x","method":"ping"}),
         None,
@@ -687,6 +695,7 @@ async fn call_backend_refuses_forward_while_backend_is_booting() {
     let client = reqwest::Client::new();
     let err = call_backend(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         "tools/list",
         None,
@@ -706,6 +715,7 @@ async fn call_backend_refuses_forward_while_backend_is_booting() {
 
     call_backend_with_observability(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         BackendJsonRpcCallRequest {
             method: "tools/call",
@@ -731,9 +741,14 @@ async fn try_fetch_resources_returns_backend_resources() {
     let (mcp_url, stop) = spawn_fake_backend(app).await;
 
     let client = reqwest::Client::new();
-    let resources = try_fetch_resources(&client, &mcp_url, Duration::from_secs(2))
-        .await
-        .expect("GET /v1/resources must succeed");
+    let resources = try_fetch_resources(
+        &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
+        &mcp_url,
+        Duration::from_secs(2),
+    )
+    .await
+    .expect("GET /v1/resources must succeed");
     assert_eq!(resources.len(), 2);
     assert_eq!(resources[0]["uri"], json!("scene://current"));
     assert_eq!(resources[1]["mimeType"], json!("image/png"));
@@ -749,7 +764,13 @@ async fn fetch_resources_returns_empty_on_error() {
     let (mcp_url, stop) = spawn_fake_backend(app).await;
 
     let client = reqwest::Client::new();
-    let resources = fetch_resources(&client, &mcp_url, Duration::from_secs(2)).await;
+    let resources = fetch_resources(
+        &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
+        &mcp_url,
+        Duration::from_secs(2),
+    )
+    .await;
     assert!(
         resources.is_empty(),
         "fetch_resources must fail-soft to an empty vector"
@@ -766,6 +787,7 @@ async fn read_resource_preserves_blob_bytes() {
     let client = reqwest::Client::new();
     let result = read_resource(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         "capture://current_window",
         Duration::from_secs(2),
@@ -822,6 +844,7 @@ async fn forward_tools_call_propagates_trace_context_headers() {
 
     forward_tools_call(
         &reqwest::Client::new(),
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         ForwardToolsCallRequest {
             tool_name: "maya.render",
@@ -905,6 +928,7 @@ async fn call_backend_with_observability_propagates_trace_and_captures_traffic()
 
     call_backend_with_observability(
         &reqwest::Client::new(),
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         BackendJsonRpcCallRequest {
             method: "tools/call",
@@ -997,6 +1021,7 @@ async fn subscribe_resource_forwards_subscribe_and_unsubscribe_methods() {
     let client = reqwest::Client::new();
     subscribe_resource(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         "scene://current",
         true,
@@ -1007,6 +1032,7 @@ async fn subscribe_resource_forwards_subscribe_and_unsubscribe_methods() {
     .expect("subscribe must succeed");
     subscribe_resource(
         &client,
+        &crate::gateway::resilience::GatewayResilienceState::default(),
         &mcp_url,
         "scene://current",
         false,
