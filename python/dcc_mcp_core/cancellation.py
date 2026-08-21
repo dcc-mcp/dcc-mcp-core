@@ -15,7 +15,7 @@ sprinkle inside long-running loops:
 
     def run(iterations: int = 100) -> dict:
         for _ in range(iterations):
-            check_cancelled()  # raises CancelledError when the caller cancels
+            check_cancelled()  # raises DccMcpCancelledError when cancelled
             do_one_unit_of_work()
         return skill_success("done")
 
@@ -58,6 +58,7 @@ __all__ = [
     "CancelToken",
     "CancellationProbe",
     "CancelledError",
+    "DccMcpCancelledError",
     "JobHandle",
     "check_cancelled",
     "check_dcc_cancelled",
@@ -71,7 +72,7 @@ __all__ = [
 ]
 
 
-class CancelledError(DccMcpError):
+class DccMcpCancelledError(DccMcpError):
     """Raised by :func:`check_cancelled` when the active request was cancelled.
 
     This remains in the plain :class:`Exception` lineage (not
@@ -79,9 +80,14 @@ class CancelledError(DccMcpError):
     :class:`asyncio.CancelledError`) because skill scripts may run in
     synchronous contexts that do not import either module.  The
     ``@skill_entry`` decorator's generic ``except Exception`` branch will
-    convert an unhandled :class:`CancelledError` into a standard skill
+    convert an unhandled :class:`DccMcpCancelledError` into a standard skill
     error dict, so most authors will never need to catch it directly.
     """
+
+
+# Deprecated compatibility alias. New code should use DccMcpCancelledError so
+# it cannot be confused with asyncio or concurrent.futures cancellation.
+CancelledError = DccMcpCancelledError
 
 
 @runtime_checkable
@@ -165,7 +171,7 @@ _current_job_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 
 
 def check_cancelled() -> None:
-    """Raise :class:`CancelledError` if the active request has been cancelled.
+    """Raise :class:`DccMcpCancelledError` if the request was cancelled.
 
     This is a no-op when invoked outside of a request context (for
     example from an interactive REPL, a unit test, or a DCC host that
@@ -174,14 +180,14 @@ def check_cancelled() -> None:
     the script harder to test in isolation.
 
     Raises:
-        CancelledError: If a :class:`CancelToken` is installed in the
+        DccMcpCancelledError: If a :class:`CancelToken` is installed in the
             current context and its :attr:`CancelToken.cancelled`
             property is ``True``.
 
     """
     token = _current_token.get()
     if token is not None and token.cancelled:
-        raise CancelledError("Request cancelled by client")
+        raise DccMcpCancelledError("Request cancelled by client")
 
 
 def current_cancel_token() -> CancellationProbe | None:
@@ -300,7 +306,7 @@ current_job: contextvars.ContextVar[JobHandle | None] = contextvars.ContextVar(
 def check_dcc_cancelled() -> None:
     """Honour both MCP-request and DCC-dispatcher cancellation signals.
 
-    Raises :class:`CancelledError` when either the active MCP request or
+    Raises :class:`DccMcpCancelledError` when either the active MCP request or
     the owning host dispatcher has signalled cancellation. Two layers
     are checked in order:
 
@@ -318,14 +324,14 @@ def check_dcc_cancelled() -> None:
     :func:`check_cancelled` so dispatcher-driven cancels are honoured.
 
     Raises:
-        CancelledError: If the MCP token or the per-job handle reports
+        DccMcpCancelledError: If the MCP token or the per-job handle reports
             cancellation.
 
     """
     check_cancelled()
     job = current_job.get()
     if job is not None and job.cancelled:
-        raise CancelledError("Job cancelled by dispatcher")
+        raise DccMcpCancelledError("Job cancelled by dispatcher")
 
 
 def set_current_job(job: JobHandle | None) -> contextvars.Token:

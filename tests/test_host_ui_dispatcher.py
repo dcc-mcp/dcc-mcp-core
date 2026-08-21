@@ -13,7 +13,6 @@ from dcc_mcp_core._server.host_ui_dispatcher import HostUiDispatcherBase
 from dcc_mcp_core._server.host_ui_dispatcher import HostUiJobEntry
 from dcc_mcp_core._server.host_ui_dispatcher import host_ui_outcome
 from dcc_mcp_core._server.host_ui_dispatcher import normalize_affinity
-from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import check_dcc_cancelled
 
 

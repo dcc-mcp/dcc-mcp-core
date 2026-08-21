@@ -454,6 +454,7 @@ _LAZY: dict[str, str] = {
     "CancellationProbe": "dcc_mcp_core.cancellation",
     "CancelToken": "dcc_mcp_core.cancellation",
     "CancelledError": "dcc_mcp_core.cancellation",
+    "DccMcpCancelledError": "dcc_mcp_core.cancellation",
     "JobHandle": "dcc_mcp_core.cancellation",
     "check_cancelled": "dcc_mcp_core.cancellation",
     "check_dcc_cancelled": "dcc_mcp_core.cancellation",

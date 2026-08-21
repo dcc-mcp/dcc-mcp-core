@@ -4,7 +4,7 @@ Cooperative cancellation support for DCC-MCP skill scripts (issue #318, #332, #5
 
 Skill scripts executed inside a `tools/call` request run as regular Python code and cannot be interrupted by the dispatcher. The MCP spec's `notifications/cancelled` message only helps if the running code checks for cancellation at appropriate points.
 
-**Exported symbols:** `CancellationProbe`, `CancelToken`, `CancelledError`, `JobHandle`, `check_cancelled`, `check_dcc_cancelled`, `current_cancel_token`, `current_job_id`, `current_job`, `reset_cancel_token`, `reset_current_job`, `set_cancel_token`, `set_current_job`
+**Exported symbols:** `CancellationProbe`, `CancelToken`, `DccMcpCancelledError`, `CancelledError`, `JobHandle`, `check_cancelled`, `check_dcc_cancelled`, `current_cancel_token`, `current_job_id`, `current_job`, `reset_cancel_token`, `reset_current_job`, `set_cancel_token`, `set_current_job`
 
 ## CancellationProbe
 
@@ -44,10 +44,10 @@ token.cancelled  # True
 | `cancelled` (property) | `bool` | Whether `cancel()` has been invoked |
 | `job_id` (property) | `str \| None` | Associated server-owned job id, when available |
 
-## CancelledError
+## DccMcpCancelledError
 
 ```python
-from dcc_mcp_core import CancelledError
+from dcc_mcp_core import DccMcpCancelledError
 ```
 
 Raised by `check_cancelled()` when the active request was cancelled. It derives
@@ -55,26 +55,30 @@ from `DccMcpError` and remains in the plain `Exception` lineage, so the
 `@skill_entry` decorator's generic `except Exception` branch converts an
 unhandled cancellation into a standard skill error dict.
 
+`CancelledError` remains as a deprecated compatibility alias. New code should
+use `DccMcpCancelledError` so catches cannot be confused with
+`asyncio.CancelledError` or `concurrent.futures.CancelledError`.
+
 ## check_cancelled
 
 ```python
 check_cancelled() -> None
 ```
 
-Raise `CancelledError` if the active request has been cancelled. No-op when invoked outside of a request context (e.g. from a REPL or unit test).
+Raise `DccMcpCancelledError` if the active request has been cancelled. No-op when invoked outside of a request context (e.g. from a REPL or unit test).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | (none) | | |
 
-**Raises:** `CancelledError` — if a `CancelToken` is installed and its `cancelled` property is `True`.
+**Raises:** `DccMcpCancelledError` — if a `CancelToken` is installed and its `cancelled` property is `True`.
 
 ```python
 from dcc_mcp_core import check_cancelled, skill_success
 
 def run(iterations: int = 100) -> dict:
     for _ in range(iterations):
-        check_cancelled()  # raises CancelledError when cancelled
+        check_cancelled()  # raises DccMcpCancelledError when cancelled
         do_one_unit_of_work()
     return skill_success("done")
 ```
@@ -156,7 +160,7 @@ Concrete implementations are free to expose additional fields (request id, progr
 check_dcc_cancelled() -> None
 ```
 
-Cheap probe that raises `CancelledError` if **either** the active MCP `CancelToken` *or* the per-job `JobHandle` reports cancellation. Skill scripts that can run outside a request context should call this instead of `check_cancelled`.
+Cheap probe that raises `DccMcpCancelledError` if **either** the active MCP `CancelToken` *or* the per-job `JobHandle` reports cancellation. Skill scripts that can run outside a request context should call this instead of `check_cancelled`.
 
 ```python
 from dcc_mcp_core import check_dcc_cancelled, skill_success

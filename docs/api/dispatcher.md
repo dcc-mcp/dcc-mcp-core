@@ -399,7 +399,7 @@ def main(frames):
         check_dcc_cancelled()      # honours both MCP token AND callable-job flag
         # equivalent manual probe:
         # job = current_callable_job.get()
-        # if job is not None and job.cancelled: raise CancelledError()
+        # if job is not None and job.cancelled: raise DccMcpCancelledError()
         render_frame(frame)
 ```
 
