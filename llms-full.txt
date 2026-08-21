@@ -3761,6 +3761,8 @@ dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
 # Override: DCC_MCP_CATALOG_PATH=/path/to/dcc-mcp-catalog.yml
 ```
 
+Rust API: `dcc_mcp_catalog::search_hits` returns lightweight `CatalogSearchHit` index/score references; the former catalog-local `SearchHit` name is a deprecated compatibility alias and is unrelated to `dcc_mcp_gateway_search::SearchHit<R>`.
+
 ### Gateway Observability (#766)
 
 ```

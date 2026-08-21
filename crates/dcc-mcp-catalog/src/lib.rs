@@ -1,7 +1,8 @@
 //! Public DCC-MCP catalog for ecosystem discovery.
 //!
-//! Provides [`CatalogEntry`] (a typed YAML/JSON record), and two discovery
-//! functions — [`search`] and [`describe`] — that can be wired up as
+//! Provides [`CatalogEntry`] (a typed YAML/JSON record), lightweight
+//! [`CatalogSearchHit`] results, and two discovery functions — [`search`] and
+//! [`describe`] — that can be wired up as
 //! gateway MCP tools (`dcc_catalog__search` / `dcc_catalog__describe`).
 //!
 //! # YAML format (`dcc-mcp-catalog.yml`)
@@ -281,12 +282,19 @@ pub fn load_from_str(text: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
 /// Storing indices instead of full [`CatalogEntry`] clones avoids allocating
 /// hundreds of entries before the caller trims to a paginated page.
 #[derive(Debug, Clone, Copy)]
-pub struct SearchHit {
+pub struct CatalogSearchHit {
     /// Index into the source `&[CatalogEntry]` slice.
     pub index: usize,
     /// Match quality score (higher = better match).
     pub score: u32,
 }
+
+/// Deprecated name for [`CatalogSearchHit`].
+///
+/// This catalog-local index reference is intentionally distinct from the
+/// record-bearing `dcc_mcp_gateway_search::SearchHit` ranking result.
+#[deprecated(since = "0.20.9", note = "use CatalogSearchHit")]
+pub type SearchHit = CatalogSearchHit;
 
 #[derive(Clone, Copy)]
 struct CatalogSearchRecord<'a> {
@@ -387,12 +395,12 @@ fn catalog_search_tokens(entry: &CatalogEntry) -> Vec<String> {
 ///
 /// Non-empty results are already ordered by descending relevance. Callers can
 /// paginate the lightweight hits before cloning entries via [`materialise_page`].
-pub fn search_hits(entries: &[CatalogEntry], query: &str) -> Vec<SearchHit> {
+pub fn search_hits(entries: &[CatalogEntry], query: &str) -> Vec<CatalogSearchHit> {
     if query.trim().is_empty() {
         return entries
             .iter()
             .enumerate()
-            .map(|(i, _)| SearchHit { index: i, score: 1 })
+            .map(|(i, _)| CatalogSearchHit { index: i, score: 1 })
             .collect();
     }
 
@@ -417,19 +425,19 @@ pub fn search_hits(entries: &[CatalogEntry], query: &str) -> Vec<SearchHit> {
 
     ranked
         .into_iter()
-        .map(|hit| SearchHit {
+        .map(|hit| CatalogSearchHit {
             index: hit.record.index,
             score: hit.score,
         })
         .collect()
 }
 
-/// Clone entries for a sorted page of [`SearchHit`]s.
+/// Clone entries for a sorted page of [`CatalogSearchHit`]s.
 ///
 /// `hits` is typically the result of [`search_hits`] after sorting and
 /// slicing to `offset..offset+limit`. Only the entries referenced by the
 /// final window are cloned.
-pub fn materialise_page(entries: &[CatalogEntry], hits: &[SearchHit]) -> Vec<CatalogEntry> {
+pub fn materialise_page(entries: &[CatalogEntry], hits: &[CatalogSearchHit]) -> Vec<CatalogEntry> {
     hits.iter().map(|h| entries[h.index].clone()).collect()
 }
 
