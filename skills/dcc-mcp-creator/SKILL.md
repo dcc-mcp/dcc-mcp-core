@@ -123,6 +123,9 @@ the server from its exact target environment. Gateway Admin is check-only.
    recorder, sandbox, screenshot-capturer, dispatcher, server, or instance-context
    globals. Standalone registration code may inject one state into both
    diagnostic registration helpers.
+   It also owns `feedback_store`, `script_execution_context`, and
+   `checkpoint_store`; inject them into core helpers instead of creating
+   adapter-level feedback buffers, persistent exec namespaces, or default stores.
    - For native visual UI fallback, reuse the bundled `ui-control` skill with
      standalone `dcc-cua` 0.4.0 or newer; do not add adapter-local capture,
      accessibility, or raw-input wrappers. Keep stateful UI calls in one

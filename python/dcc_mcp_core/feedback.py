@@ -67,19 +67,72 @@ from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
-# ── In-memory feedback store ───────────────────────────────────────────────
-
-_FEEDBACK_LOCK = threading.Lock()
-_FEEDBACK_STORE: list[dict[str, Any]] = []
 _MAX_FEEDBACK_ENTRIES = 500
 
 
-def _store_feedback(entry: dict[str, Any]) -> None:
-    """Append *entry* to the in-memory feedback store (thread-safe, capped)."""
-    with _FEEDBACK_LOCK:
-        _FEEDBACK_STORE.append(entry)
-        if len(_FEEDBACK_STORE) > _MAX_FEEDBACK_ENTRIES:
-            del _FEEDBACK_STORE[: len(_FEEDBACK_STORE) - _MAX_FEEDBACK_ENTRIES]
+class FeedbackStore:
+    """Thread-safe bounded feedback state for one server instance."""
+
+    def __init__(self, max_entries: int = _MAX_FEEDBACK_ENTRIES) -> None:
+        self._lock = threading.Lock()
+        self._entries: list[dict[str, Any]] = []
+        self._max_entries = max(1, int(max_entries))
+
+    def append(self, entry: dict[str, Any]) -> None:
+        """Append one entry and evict the oldest overflow."""
+        with self._lock:
+            self._entries.append(dict(entry))
+            if len(self._entries) > self._max_entries:
+                del self._entries[: len(self._entries) - self._max_entries]
+
+    def recent(
+        self,
+        *,
+        tool_name: str | None = None,
+        severity: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return matching entries newest first."""
+        with self._lock:
+            entries = [dict(entry) for entry in reversed(self._entries)]
+        if tool_name:
+            entries = [entry for entry in entries if entry.get("tool_name") == tool_name]
+        if severity:
+            entries = [entry for entry in entries if entry.get("severity") == severity]
+        return entries[: max(0, int(limit))]
+
+    def clear(self) -> int:
+        """Clear all entries and return the count removed."""
+        with self._lock:
+            count = len(self._entries)
+            self._entries.clear()
+        return count
+
+    def reset_for_tests(self) -> None:
+        """Clear mutable state between tests."""
+        self.clear()
+
+
+_DEFAULT_FEEDBACK_STORE = FeedbackStore()
+
+
+def get_default_feedback_store() -> FeedbackStore:
+    """Return the compatibility store used when no store is injected."""
+    return _DEFAULT_FEEDBACK_STORE
+
+
+def reset_default_feedback_store_for_tests() -> None:
+    """Reset the compatibility store between tests."""
+    _DEFAULT_FEEDBACK_STORE.reset_for_tests()
+
+
+def _feedback_store(store: FeedbackStore | None) -> FeedbackStore:
+    return store if store is not None else _DEFAULT_FEEDBACK_STORE
+
+
+def _store_feedback(entry: dict[str, Any], *, store: FeedbackStore | None = None) -> None:
+    """Append *entry* to an injected or compatibility feedback store."""
+    _feedback_store(store).append(entry)
 
 
 def get_feedback_entries(
@@ -87,6 +140,7 @@ def get_feedback_entries(
     tool_name: str | None = None,
     severity: str | None = None,
     limit: int = 50,
+    store: FeedbackStore | None = None,
 ) -> list[dict[str, Any]]:
     """Return recent feedback entries, newest first.
 
@@ -99,6 +153,8 @@ def get_feedback_entries(
         ``"suggestion"``).
     limit:
         Maximum number of entries to return (default 50).
+    store:
+        Instance-owned store; defaults to the compatibility store.
 
     Returns
     -------
@@ -107,21 +163,12 @@ def get_feedback_entries(
         ``attempt``, ``blocker``, ``severity``.
 
     """
-    with _FEEDBACK_LOCK:
-        entries = list(reversed(_FEEDBACK_STORE))
-    if tool_name:
-        entries = [e for e in entries if e.get("tool_name") == tool_name]
-    if severity:
-        entries = [e for e in entries if e.get("severity") == severity]
-    return entries[:limit]
+    return _feedback_store(store).recent(tool_name=tool_name, severity=severity, limit=limit)
 
 
-def clear_feedback() -> int:
+def clear_feedback(*, store: FeedbackStore | None = None) -> int:
     """Clear all in-memory feedback entries. Returns the count cleared."""
-    with _FEEDBACK_LOCK:
-        count = len(_FEEDBACK_STORE)
-        _FEEDBACK_STORE.clear()
-    return count
+    return _feedback_store(store).clear()
 
 
 # ── Rationale helpers ──────────────────────────────────────────────────────
@@ -246,7 +293,7 @@ _FEEDBACK_TOOL_DESCRIPTION = (
 )
 
 
-def _handle_feedback_report(params: str) -> str:
+def _handle_feedback_report(params: str, *, store: FeedbackStore | None = None) -> str:
     """IPC-style handler for ``dcc_feedback__report``."""
     try:
         args: dict[str, Any] = json_loads(params) if isinstance(params, str) else params
@@ -262,7 +309,7 @@ def _handle_feedback_report(params: str) -> str:
         "blocker": args.get("blocker", ""),
         "severity": args.get("severity", "blocked"),
     }
-    _store_feedback(entry)
+    _store_feedback(entry, store=store)
     logger.info(
         "dcc_feedback__report: id=%s tool=%s severity=%s",
         entry["id"],
@@ -279,6 +326,7 @@ def register_feedback_tool(
     server: Any,
     *,
     dcc_name: str = "dcc",
+    store: FeedbackStore | None = None,
 ) -> None:
     """Register the ``dcc_feedback__report`` MCP tool on *server*.
 
@@ -293,23 +341,28 @@ def register_feedback_tool(
         ``server.register_handler(name, handler)``.
     dcc_name:
         DCC name string used in the tool's ``dcc`` metadata field.
+    store:
+        Instance-owned store captured by the registered handler.
 
     Example
     -------
     .. code-block:: python
 
         from dcc_mcp_core import create_skill_server, McpHttpConfig
-        from dcc_mcp_core.feedback import register_feedback_tool
+        from dcc_mcp_core.feedback import FeedbackStore, register_feedback_tool
 
         server = create_skill_server("maya", McpHttpConfig(port=8765))
-        register_feedback_tool(server, dcc_name="maya")
+        feedback_store = FeedbackStore()
+        register_feedback_tool(
+            server, dcc_name="maya", store=feedback_store
+        )
         handle = server.start()
 
     """
 
     def _mcp_handler(params: Any) -> Any:
         params_str = json_dumps(params) if not isinstance(params, str) else params
-        result_str = _handle_feedback_report(params_str)
+        result_str = _handle_feedback_report(params_str, store=store)
         try:
             return json_loads(result_str)
         except (TypeError, ValueError):
@@ -335,9 +388,12 @@ def register_feedback_tool(
 # ── Public API ─────────────────────────────────────────────────────────────
 
 __all__ = [
+    "FeedbackStore",
     "clear_feedback",
     "extract_rationale",
+    "get_default_feedback_store",
     "get_feedback_entries",
     "make_rationale_meta",
     "register_feedback_tool",
+    "reset_default_feedback_store_for_tests",
 ]

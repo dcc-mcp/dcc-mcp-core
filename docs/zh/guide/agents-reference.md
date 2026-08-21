@@ -162,6 +162,10 @@ from dcc_mcp_core._core import DeferredExecutor   # 需要直接导入
 `diagnostic_state=` 传给两个注册函数，避免同一进程中的 Maya、Blender
 或 Photoshop 服务共享 recorder、capturer、dispatcher 与实例上下文。
 
+`DccServerBase` 还分别拥有 `feedback_store`、`script_execution_context` 和
+`checkpoint_store`。适配器应把这些组件传入 Core helper 的 `store=` 或
+`context=` 参数，不要再创建模块级 feedback buffer、脚本命名空间或默认存储。
+
 **Python 工具处理器返回 `ToolResultEnvelope`（#2183），不要手写字典：**
 ```python
 from dcc_mcp_core.result_envelope import ToolResultEnvelope

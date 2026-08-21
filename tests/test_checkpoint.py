@@ -10,16 +10,25 @@ from unittest.mock import patch
 
 import pytest
 
+import dcc_mcp_core
 from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.checkpoint import checkpoint_every
 from dcc_mcp_core.checkpoint import clear_checkpoint
 from dcc_mcp_core.checkpoint import configure_checkpoint_store
 from dcc_mcp_core.checkpoint import get_checkpoint
+from dcc_mcp_core.checkpoint import get_default_checkpoint_store
 from dcc_mcp_core.checkpoint import list_checkpoints
 from dcc_mcp_core.checkpoint import register_checkpoint_tools
+from dcc_mcp_core.checkpoint import reset_default_checkpoint_store_for_tests
 from dcc_mcp_core.checkpoint import save_checkpoint
 
 # ── CheckpointStore ────────────────────────────────────────────────────────
+
+
+def test_checkpoint_state_seams_are_public() -> None:
+    assert dcc_mcp_core.CheckpointStore is CheckpointStore
+    assert dcc_mcp_core.get_default_checkpoint_store is get_default_checkpoint_store
+    assert callable(dcc_mcp_core.reset_default_checkpoint_store_for_tests)
 
 
 class TestCheckpointStore:
@@ -97,10 +106,17 @@ class TestCheckpointStore:
 
 class TestModuleLevelHelpers:
     def setup_method(self) -> None:
-        # Ensure a clean store for each test
-        from dcc_mcp_core import checkpoint as cp_mod
+        reset_default_checkpoint_store_for_tests()
 
-        cp_mod._DEFAULT_STORE = CheckpointStore()
+    def test_default_store_reset_preserves_an_explicit_seam(self) -> None:
+        first = get_default_checkpoint_store()
+        save_checkpoint("job", {"value": 1})
+
+        reset_default_checkpoint_store_for_tests()
+        second = get_default_checkpoint_store()
+
+        assert first is not second
+        assert get_checkpoint("job") is None
 
     def test_save_and_get_checkpoint(self) -> None:
         save_checkpoint("job-x", {"i": 3}, progress_hint="3/10")

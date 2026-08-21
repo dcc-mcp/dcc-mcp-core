@@ -2239,6 +2239,12 @@ diagnostics should create one `DiagnosticRuntimeState(dcc_name)` and pass it as
 sandbox audit state, capturers, dispatchers, server handles, and DCC context
 isolated when Maya and Blender/Photoshop servers share a process.
 
+The same per-server rule applies to auxiliary Python state:
+`server.feedback_store`, `server.script_execution_context`, and
+`server.checkpoint_store`. Inject these into feedback registration, persistent
+script execution, and checkpoint helpers. Compatibility defaults have explicit
+test reset functions and are not an adapter ownership boundary.
+
 The bundled `dcc-diagnostics` skill's `screenshot.py` handler tries
 `DCC_MCP_OWNER_IPC` → IPC frame with take_screenshot request first and falls back
 to `Capturer.new_auto()` when no owner IPC is configured.

@@ -346,6 +346,11 @@ diagnostics, create one state and pass it as `diagnostic_state=` to both
 registration helpers so two DCC servers in one process never share recorder,
 capturer, dispatcher, or instance-context caches.
 
+The base server also exposes instance-owned `feedback_store`,
+`script_execution_context`, and `checkpoint_store`. Pass these through the
+corresponding core helper parameters when an adapter registers feedback,
+persistent script execution, or checkpoint tools.
+
 ## Development Setup
 
 ```bash

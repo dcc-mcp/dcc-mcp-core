@@ -10,12 +10,16 @@ import pytest
 import dcc_mcp_core
 from dcc_mcp_core.script_execution import FileBackedScriptExecutionParams
 from dcc_mcp_core.script_execution import ScriptExecutionCapture
+from dcc_mcp_core.script_execution import ScriptExecutionContext
 from dcc_mcp_core.script_execution import ScriptExecutionParams
 from dcc_mcp_core.script_execution import ScriptExecutionResult
 from dcc_mcp_core.script_execution import allow_script_materialization_root
 from dcc_mcp_core.script_execution import execute_with_context
+from dcc_mcp_core.script_execution import get_script_namespace
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 from dcc_mcp_core.script_execution import normalize_script_execution_params
+from dcc_mcp_core.script_execution import register_dcc_namespace
+from dcc_mcp_core.script_execution import reset_default_script_execution_context_for_tests
 from dcc_mcp_core.script_execution import validate_script_file_path
 
 
@@ -32,10 +36,43 @@ def test_script_execution_helpers_are_exported() -> None:
     assert "FileBackedScriptExecutionParams" in dcc_mcp_core.__all__
     assert "ScriptExecutionParams" in dcc_mcp_core.__all__
     assert "ScriptExecutionResult" in dcc_mcp_core.__all__
+    assert dcc_mcp_core.ScriptExecutionContext is ScriptExecutionContext
+    assert callable(dcc_mcp_core.get_default_script_execution_context)
+    assert callable(dcc_mcp_core.reset_default_script_execution_context_for_tests)
     assert "allow_script_materialization_root" in dcc_mcp_core.__all__
     assert "normalize_file_backed_script_execution_params" in dcc_mcp_core.__all__
     assert "normalize_script_execution_params" in dcc_mcp_core.__all__
     assert "validate_script_file_path" in dcc_mcp_core.__all__
+
+
+def test_script_execution_contexts_are_isolated() -> None:
+    maya = ScriptExecutionContext()
+    blender = ScriptExecutionContext()
+
+    assert execute_with_context("value = 20; result = value + 1", context=maya) == 21
+    assert execute_with_context("result = 'blender'", context=blender) == "blender"
+    assert execute_with_context("result = value + 2", context=maya) == 22
+    assert "value" not in get_script_namespace(context=blender)
+
+
+def test_dcc_namespaces_are_injected_per_context() -> None:
+    maya = ScriptExecutionContext()
+    photoshop = ScriptExecutionContext()
+    register_dcc_namespace({"host_name": "maya"}, context=maya)
+    register_dcc_namespace({"host_name": "photoshop"}, context=photoshop)
+
+    assert execute_with_context("result = host_name", context=maya) == "maya"
+    assert execute_with_context("result = host_name", context=photoshop) == "photoshop"
+
+
+def test_default_script_context_has_a_reset_seam() -> None:
+    reset_default_script_execution_context_for_tests()
+    execute_with_context("value = 7")
+    assert get_script_namespace()["value"] == 7
+
+    reset_default_script_execution_context_for_tests()
+
+    assert get_script_namespace() == {}
 
 
 def test_normalize_script_execution_params_accepts_code() -> None:

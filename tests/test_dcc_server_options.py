@@ -572,6 +572,9 @@ class TestDccServerBaseOptionsPath:
         assert first.diagnostic_state.server is first._server
         assert second.diagnostic_state.server is second._server
         assert first.diagnostic_state.instance_context["dcc_name"] == "houdini"
+        assert first.feedback_store is not second.feedback_store
+        assert first.script_execution_context is not second.script_execution_context
+        assert first.checkpoint_store is not second.checkpoint_store
 
 
 def test_dcc_server_base_requires_options_argument() -> None:

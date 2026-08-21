@@ -23,6 +23,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import threading
 import traceback
 from typing import Any
 from typing import Sequence
@@ -554,6 +555,7 @@ class ScriptExecutionResult:
 __all__ = [
     "FileBackedScriptExecutionParams",
     "ScriptExecutionCapture",
+    "ScriptExecutionContext",
     "ScriptExecutionParams",
     "ScriptExecutionResult",
     "ScriptExecutionSerializationError",
@@ -561,10 +563,12 @@ __all__ = [
     "cleanup_temp_scripts",
     "clear_script_namespace",
     "execute_with_context",
+    "get_default_script_execution_context",
     "get_script_namespace",
     "normalize_file_backed_script_execution_params",
     "normalize_script_execution_params",
     "register_dcc_namespace",
+    "reset_default_script_execution_context_for_tests",
     "validate_script_file_path",
     "write_temp_script",
 ]
@@ -635,19 +639,78 @@ def cleanup_temp_scripts() -> None:
 # ---------------------------------------------------------------------------
 # Persistent script namespace  (IDE-style variable sharing)
 # ---------------------------------------------------------------------------
-# ``_SCRIPT_NAMESPACE`` accumulates variables assigned by executed scripts,
+# ``ScriptExecutionContext`` accumulates variables assigned by executed scripts,
 # so that a later ``execute_python`` call can reference results from an
 # earlier call - the same way an IDE Python console persists state.
 #
-# ``_DCC_NAMESPACE`` holds the DCC application's live globals
+# Each context also holds the DCC application's live globals
 # (``cmds``, ``hou``, ``bpy``, ...).  Adapters populate it once at
-# startup via ``register_dcc_namespace(vars(__main__))``.
-
-_SCRIPT_NAMESPACE: dict[str, Any] = {}
-_DCC_NAMESPACE: dict[str, Any] = {}
+# at startup via ``register_dcc_namespace(vars(__main__), context=...)``.
 
 
-def register_dcc_namespace(ns: dict[str, Any]) -> None:
+class ScriptExecutionContext:
+    """Persistent script globals owned by one DCC server instance."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._dcc_namespace: dict[str, Any] = {}
+        self._script_namespace: dict[str, Any] = {}
+
+    def register_dcc_namespace(self, namespace: dict[str, Any]) -> None:
+        """Use *namespace* as the live DCC globals for later executions."""
+        with self._lock:
+            self._dcc_namespace = namespace
+
+    def script_namespace(self) -> dict[str, Any]:
+        """Return a shallow copy of persistent variables."""
+        with self._lock:
+            return dict(self._script_namespace)
+
+    def clear(self) -> None:
+        """Clear variables produced by earlier script executions."""
+        with self._lock:
+            self._script_namespace.clear()
+
+    def execute(self, code: str, *, filename: str = "<execute_python>") -> Any:
+        """Execute code and persist variables atomically in this context."""
+        with self._lock:
+            namespace: dict[str, Any] = {}
+            namespace.update(self._dcc_namespace)
+            namespace.update(self._script_namespace)
+            local_namespace: dict[str, Any] = {}
+            exec(compile(code, filename, "exec"), namespace, local_namespace)
+            self._script_namespace.update(local_namespace)
+            return local_namespace.get("result")
+
+    def reset_for_tests(self) -> None:
+        """Clear both DCC and persistent script namespaces."""
+        with self._lock:
+            self._dcc_namespace = {}
+            self._script_namespace.clear()
+
+
+_DEFAULT_SCRIPT_EXECUTION_CONTEXT = ScriptExecutionContext()
+
+
+def get_default_script_execution_context() -> ScriptExecutionContext:
+    """Return the compatibility context used when none is injected."""
+    return _DEFAULT_SCRIPT_EXECUTION_CONTEXT
+
+
+def reset_default_script_execution_context_for_tests() -> None:
+    """Reset the compatibility script context between tests."""
+    _DEFAULT_SCRIPT_EXECUTION_CONTEXT.reset_for_tests()
+
+
+def _script_context(context: ScriptExecutionContext | None) -> ScriptExecutionContext:
+    return context if context is not None else _DEFAULT_SCRIPT_EXECUTION_CONTEXT
+
+
+def register_dcc_namespace(
+    ns: dict[str, Any],
+    *,
+    context: ScriptExecutionContext | None = None,
+) -> None:
     """Make *ns* available as the DCC globals during script execution.
 
     Call once at adapter startup so that scripts can call DCC commands
@@ -658,39 +721,30 @@ def register_dcc_namespace(ns: dict[str, Any]) -> None:
 
         import __main__
         from dcc_mcp_core.script_execution import register_dcc_namespace
-        register_dcc_namespace(vars(__main__))
+        register_dcc_namespace(
+            vars(__main__), context=server.script_execution_context
+        )
 
     """
-    global _DCC_NAMESPACE
-    _DCC_NAMESPACE = ns
+    _script_context(context).register_dcc_namespace(ns)
 
 
-def get_script_namespace() -> dict[str, Any]:
+def get_script_namespace(*, context: ScriptExecutionContext | None = None) -> dict[str, Any]:
     """Return a copy of the persistent script namespace."""
-    return dict(_SCRIPT_NAMESPACE)
+    return _script_context(context).script_namespace()
 
 
-def clear_script_namespace() -> None:
+def clear_script_namespace(*, context: ScriptExecutionContext | None = None) -> None:
     """Reset the persistent script namespace (useful before a fresh workflow)."""
-    global _SCRIPT_NAMESPACE
-    _SCRIPT_NAMESPACE.clear()
+    _script_context(context).clear()
 
 
-def _make_exec_namespace() -> dict[str, Any]:
-    """Build the globals dict for ``exec()``.
-
-    Merge order (later wins):
-    1. ``_DCC_NAMESPACE``  - DCC application globals
-    2. ``_SCRIPT_NAMESPACE`` - variables from earlier executions
-    3. ``__builtins__`` - always available
-    """
-    ns: dict[str, Any] = {}
-    ns.update(_DCC_NAMESPACE)
-    ns.update(_SCRIPT_NAMESPACE)
-    return ns
-
-
-def execute_with_context(code: str, *, filename: str = "<execute_python>") -> Any:
+def execute_with_context(
+    code: str,
+    *,
+    filename: str = "<execute_python>",
+    context: ScriptExecutionContext | None = None,
+) -> Any:
     """Execute *code* with DCC globals + persistent namespace.
 
     Returns the value of the ``result`` variable if the script assigns one,
@@ -699,8 +753,4 @@ def execute_with_context(code: str, *, filename: str = "<execute_python>") -> An
     The persistent namespace is **updated in-place** after execution so
     that newly-assigned variables are visible to the next call.
     """
-    ns = _make_exec_namespace()
-    local_ns: dict[str, Any] = {}
-    exec(compile(code, filename, "exec"), ns, local_ns)
-    _SCRIPT_NAMESPACE.update(local_ns)
-    return local_ns.get("result")
+    return _script_context(context).execute(code, filename=filename)
