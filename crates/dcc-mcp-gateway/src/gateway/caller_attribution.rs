@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
@@ -11,7 +12,7 @@ use axum::response::Response;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use super::resilience::gateway_limits;
+use super::http_limits::GatewayIngressState;
 use crate::gateway::admin::trace::AgentContext;
 
 pub(crate) const INTERNAL_SOURCE_IP_HEADER: &str = "x-dcc-mcp-internal-source-ip";
@@ -79,7 +80,11 @@ impl ClientAttributionStore {
 /// These internal headers are overwritten at the gateway boundary so external
 /// clients cannot set `source_ip` or `forwarded_for` through ordinary request
 /// metadata. Handlers convert them into `AgentContext` server fields.
-pub(crate) async fn caller_attribution_middleware(mut req: Request<Body>, next: Next) -> Response {
+pub(crate) async fn caller_attribution_middleware(
+    axum::extract::State(state): axum::extract::State<Arc<GatewayIngressState>>,
+    mut req: Request<Body>,
+    next: Next,
+) -> Response {
     {
         let headers = req.headers_mut();
         headers.remove(INTERNAL_SOURCE_IP_HEADER);
@@ -92,7 +97,11 @@ pub(crate) async fn caller_attribution_middleware(mut req: Request<Body>, next: 
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(addr)| *addr)
         .unwrap_or_else(loopback_socket_addr);
-    let attribution = derive_client_network_attribution(&addr, req.headers());
+    let attribution = derive_client_network_attribution_with_depth(
+        &addr,
+        req.headers(),
+        state.limits().xff_trusted_depth as usize,
+    );
     if let Some(source_ip) = attribution.source_ip
         && let Ok(value) = HeaderValue::from_str(&source_ip)
     {
@@ -111,18 +120,6 @@ pub(crate) async fn caller_attribution_middleware(mut req: Request<Body>, next: 
 
 fn loopback_socket_addr() -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], 0))
-}
-
-#[must_use]
-pub(crate) fn derive_client_network_attribution(
-    connect: &SocketAddr,
-    headers: &HeaderMap,
-) -> ClientNetworkAttribution {
-    derive_client_network_attribution_with_depth(
-        connect,
-        headers,
-        gateway_limits().xff_trusted_depth as usize,
-    )
 }
 
 #[must_use]
@@ -145,8 +142,12 @@ pub(crate) fn derive_client_network_attribution_with_depth(
 }
 
 #[must_use]
-pub(crate) fn effective_client_ip(connect: &SocketAddr, headers: &HeaderMap) -> IpAddr {
-    derive_client_network_attribution(connect, headers)
+pub(crate) fn effective_client_ip(
+    connect: &SocketAddr,
+    headers: &HeaderMap,
+    trusted_depth: usize,
+) -> IpAddr {
+    derive_client_network_attribution_with_depth(connect, headers, trusted_depth)
         .source_ip
         .and_then(|value| value.parse::<IpAddr>().ok())
         .unwrap_or_else(|| connect.ip())

@@ -159,6 +159,9 @@ mod tests {
         let (yield_tx, _) = watch::channel(false);
         let (events_tx, _) = broadcast::channel::<String>(8);
         GatewayState {
+            ingress: std::sync::Arc::new(
+                crate::gateway::http_limits::GatewayIngressState::from_env(),
+            ),
             registry,
             http_instance_registry: Arc::new(parking_lot::RwLock::new(
                 crate::gateway::http_registration::HttpInstanceRegistry::default(),

@@ -856,6 +856,7 @@ pub(crate) async fn start_gateway_tasks(
 
     #[cfg_attr(not(feature = "admin"), allow(unused_mut))]
     let mut gw_state = GatewayState {
+        ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         registry: registry.clone(),
         http_instance_registry: http_instance_registry.clone(),
         mdns_instance_registry: mdns_instance_registry.clone(),
