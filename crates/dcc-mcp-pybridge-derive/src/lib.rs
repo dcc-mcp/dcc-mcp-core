@@ -9,7 +9,7 @@
 //!
 //! ## Status
 //!
-//! M2: full codegen. `#[derive(PyWrapper)]` reads the
+//! Production codegen. `#[derive(PyWrapper)]` reads the
 //! `#[py_wrapper(inner = "Foo", fields(...))]` attribute and emits a
 //! `#[pyo3::pymethods]` impl block containing one accessor per requested
 //! mode plus aggregated `__repr__` / `to_dict` if any field opts in.
@@ -26,6 +26,7 @@
 //!         port: u16    => [get, set, repr],
 //!         host: String => [get(by_str), repr],
 //!         tags: Vec<String> => [get(clone), set],
+//!         enabled => features.enabled: bool => [get, set],
 //!     ),
 //! )]
 //! #[pyclass(name = "McpHttpConfig")]

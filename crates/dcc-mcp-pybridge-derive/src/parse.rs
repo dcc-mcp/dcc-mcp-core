@@ -7,6 +7,7 @@
 //!     [ inner = "InnerType" , ]   // optional; absent = direct pyclass pattern
 //!     fields(
 //!         <ident> : <type> => [ <mode> (, <mode>)* ] ,
+//!         <ident> => <path> : <type> => [ <mode> (, <mode>)* ] ,
 //!         ...
 //!     )
 //! )
@@ -51,6 +52,10 @@ pub struct FieldDecl {
     /// to Python's `help()` output.
     pub attrs: Vec<Attribute>,
     pub name: Ident,
+    /// Rust field path below the configured wrapper base. Defaults to
+    /// [`Self::name`], while an explicit mapping such as
+    /// `port => server.port` supports nested aggregate types.
+    pub access_path: Vec<Ident>,
     pub ty: Type,
     pub modes: Vec<FieldMode>,
 }
@@ -112,6 +117,17 @@ impl Parse for FieldDecl {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let attrs = input.call(Attribute::parse_outer)?;
         let name: Ident = input.parse()?;
+        let access_path = if input.peek(Token![=>]) {
+            input.parse::<Token![=>]>()?;
+            let mut segments = vec![input.parse::<Ident>()?];
+            while input.peek(Token![.]) {
+                input.parse::<Token![.]>()?;
+                segments.push(input.parse::<Ident>()?);
+            }
+            segments
+        } else {
+            vec![name.clone()]
+        };
         input.parse::<Token![:]>()?;
         let ty: Type = input.parse()?;
         input.parse::<Token![=>]>()?;
@@ -129,6 +145,7 @@ impl Parse for FieldDecl {
         Ok(Self {
             attrs,
             name,
+            access_path,
             ty,
             modes,
         })
@@ -209,6 +226,25 @@ mod tests {
         assert_eq!(
             attr.fields[0].modes,
             vec![FieldMode::GetClone, FieldMode::Dict]
+        );
+        assert_eq!(attr.fields[0].access_path[0], "name");
+    }
+
+    #[test]
+    fn parses_nested_access_path() {
+        let attr = parse(
+            r#"inner = "Inner", fields(gateway_port => gateway.gateway_port: u16 => [get, set])"#,
+        )
+        .unwrap();
+        let field = &attr.fields[0];
+        assert_eq!(field.name, "gateway_port");
+        assert_eq!(
+            field
+                .access_path
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["gateway", "gateway_port"]
         );
     }
 

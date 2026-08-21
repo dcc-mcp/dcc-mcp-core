@@ -24,6 +24,12 @@ pub struct InnerCfg {
     pub port: u16,
     pub host: String,
     pub tags: Vec<String>,
+    pub nested: NestedCfg,
+}
+
+#[derive(Default)]
+pub struct NestedCfg {
+    pub enabled: bool,
 }
 
 #[pyclass(name = "WrapperCfg")]
@@ -34,6 +40,7 @@ pub struct InnerCfg {
         port: u16            => [get, set, repr, dict],
         host: String         => [get(by_str), repr, dict],
         tags: Vec<String>    => [get(clone), set, dict],
+        enabled => nested.enabled: bool => [get, set, repr, dict],
     ),
 )]
 pub struct WrapperCfg {

@@ -64,6 +64,7 @@ fn base_path(inner_field: Option<&Ident>) -> TokenStream2 {
 fn emit_accessor(field: &FieldDecl, mode: FieldMode, base: &TokenStream2) -> Option<TokenStream2> {
     let name = &field.name;
     let ty = &field.ty;
+    let access = access_path(field, base);
     // Per Python convention `pyo3` attaches docs to the **getter** so that
     // `help(SomeClass.field)` and `SomeClass.field.__doc__` both resolve.
     // Setters reuse the same doc transparently. Emit the captured `///`
@@ -73,33 +74,39 @@ fn emit_accessor(field: &FieldDecl, mode: FieldMode, base: &TokenStream2) -> Opt
         FieldMode::Get => quote! {
             #(#attrs)*
             #[getter]
-            fn #name(&self) -> #ty { #base #name }
+            fn #name(&self) -> #ty { #access }
         },
         FieldMode::GetByStr => quote! {
             #(#attrs)*
             #[getter]
-            fn #name(&self) -> &str { & #base #name }
+            fn #name(&self) -> &str { & #access }
         },
         FieldMode::GetClone => quote! {
             #(#attrs)*
             #[getter]
-            fn #name(&self) -> #ty { #base #name .clone() }
+            fn #name(&self) -> #ty { #access .clone() }
         },
         FieldMode::GetToString => quote! {
             #(#attrs)*
             #[getter]
-            fn #name(&self) -> #ty { #base #name .to_string() }
+            fn #name(&self) -> #ty { #access .to_string() }
         },
         FieldMode::Set => {
             let setter = format_ident!("set_{}", name);
             quote! {
                 #(#attrs)*
                 #[setter]
-                fn #setter (&mut self, value: #ty) { #base #name = value; }
+                fn #setter (&mut self, value: #ty) { #access = value; }
             }
         }
         FieldMode::Repr | FieldMode::Dict => return None,
     })
+}
+
+fn access_path(field: &FieldDecl, base: &TokenStream2) -> TokenStream2 {
+    let first = &field.access_path[0];
+    let rest = &field.access_path[1..];
+    quote! { #base #first #( . #rest )* }
 }
 
 fn emit_repr(struct_ident: &Ident, fields: &[FieldDecl], base: &TokenStream2) -> TokenStream2 {
@@ -110,7 +117,8 @@ fn emit_repr(struct_ident: &Ident, fields: &[FieldDecl], base: &TokenStream2) ->
         .map(|f| {
             let n = &f.name;
             let key = n.to_string();
-            quote! { format!("{}={:?}", #key, & #base #n) }
+            let access = access_path(f, base);
+            quote! { format!("{}={:?}", #key, & #access) }
         })
         .collect();
     quote! {
@@ -128,7 +136,8 @@ fn emit_to_dict(fields: &[FieldDecl], base: &TokenStream2) -> TokenStream2 {
         .map(|f| {
             let n = &f.name;
             let key = n.to_string();
-            quote! { _dict.set_item(#key, & #base #n)?; }
+            let access = access_path(f, base);
+            quote! { _dict.set_item(#key, & #access)?; }
         })
         .collect();
     quote! {

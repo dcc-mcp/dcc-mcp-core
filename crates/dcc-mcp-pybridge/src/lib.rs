@@ -46,7 +46,9 @@ pub use python::wrapper_helpers;
 /// pub struct PyMcpHttpConfig { /* \u2026 */ }
 /// ```
 ///
-/// The derive is currently a no-op stub (M1); full codegen lands in M2.
+/// The derive emits getters, setters, `__repr__`, and `to_dict` methods.
+/// Field mappings can target nested paths such as
+/// `gateway_port => gateway.gateway_port`.
 pub mod derive {
     pub use dcc_mcp_pybridge_derive::PyWrapper;
 }
