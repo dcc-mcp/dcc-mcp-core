@@ -23,6 +23,8 @@ from typing import Tuple
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from ._path_util import to_resolved_path as _to_path
+
 REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
 SUPPORTED_DISPATCH_HOST_RPC_SCHEMES = ("commandport", "qtserver", "ws", "wss")
@@ -437,15 +439,6 @@ def launch_sidecar(
 def default_registry_dir() -> str:
     """Return the shared FileRegistry directory without importing ``_core``."""
     return os.environ.get(REGISTRY_ENV) or str(Path(tempfile.gettempdir()) / "dcc-mcp-registry")
-
-
-def _to_path(path: Any) -> Optional[Path]:
-    if path in (None, ""):
-        return None
-    try:
-        return Path(str(path)).expanduser().resolve()
-    except OSError:
-        return Path(str(path)).expanduser().absolute()
 
 
 def _merged_env(env: Optional[Dict[str, str]]) -> Dict[str, str]:

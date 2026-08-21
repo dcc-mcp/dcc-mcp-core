@@ -140,6 +140,8 @@ Rust naming ownership: use `dcc_mcp_naming` for ecosystem-wide tool/action name 
 
 Python version ownership: use the import-light `dcc_mcp_core._version_util.parse_semver` helper for lifecycle and guardian decisions. It returns `None` for malformed numeric cores; callers must preserve unknown/fail-closed behavior rather than coercing invalid segments to zero.
 
+Python lifecycle path ownership: use the import-light `dcc_mcp_core._path_util.to_resolved_path` helper. It returns `None` for empty values, expands user paths, resolves when possible, and falls back to a lexical absolute path after filesystem resolution errors.
+
 **Key import pattern** (always use the top-level package):
 ```python
 from dcc_mcp_core import ToolRegistry, success_result, SkillScanner

@@ -41,6 +41,7 @@ from ._install_lifecycle_runtime import query_runtime_state
 from ._install_lifecycle_sidecar import build_sidecar_command
 from ._install_lifecycle_sidecar import launch_sidecar
 from ._install_lifecycle_sidecar import sidecar_host_rpc_dispatch_contract
+from ._path_util import to_resolved_path as _to_path
 from ._version_util import parse_semver as _parse_semver
 
 REZ_CACHE_ROOT_ENV = "DCC_MCP_REZ_LOCAL_CACHE_ROOT"
@@ -87,15 +88,6 @@ __all__ = [
     "stop_runtime_entries",
     "wait_for_sidecar_ready",
 ]
-
-
-def _to_path(path: Any) -> Optional[Path]:
-    if path in (None, ""):
-        return None
-    try:
-        return Path(str(path)).expanduser().resolve()
-    except OSError:
-        return Path(str(path)).expanduser().absolute()
 
 
 def _path_under(path: Optional[Path], root: Optional[Path]) -> bool:
