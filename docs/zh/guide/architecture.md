@@ -184,7 +184,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 **关键组件**：
 - `IpcChannelAdapter` — 基于 ipckit 的客户端/服务端 IPC 适配器，使用 DccLink 帧
 - `SocketServerAdapter` — 多客户端 TCP/UDS 监听器，用于服务端 IPC
-- `DccLinkFrame` — DccLink 线协议二进制帧类型（msg_type, seq, body）
+- `DccLinkFrame` — DccLink 线协议版本化二进制帧类型（version, msg_type, seq, body）
 - `TransportAddress` — 协议无关端点（TCP、命名管道、Unix Socket）
 - `FileRegistry` — 基于文件的服务发现（Gateway 使用）
 

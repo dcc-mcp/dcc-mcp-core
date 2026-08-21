@@ -161,7 +161,7 @@ registry.search_actions(category="geometry")   # still "search_actions"
 from dcc_mcp_core import DccLinkFrame, IpcChannelAdapter
 channel = IpcChannelAdapter.connect("dcc-mcp-maya-12345")  # Named Pipe / UDS
 channel.send_frame(DccLinkFrame(msg_type="Call", seq=1, body=b"{...}"))
-reply = channel.recv_frame()   # DccLinkFrame: msg_type, seq, body
+reply = channel.recv_frame()   # DccLinkFrame: version, msg_type, seq, body
 # Legacy FramedChannel.call / connect_ipc were REMOVED in v0.14 (#251).
 ```
 

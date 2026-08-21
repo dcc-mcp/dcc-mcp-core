@@ -7,7 +7,7 @@
 传输模块提供 AI 智能体与 DCC 应用之间的 **基于 DccLink 的 IPC 通信**。核心设计：
 
 - 同机连接优先使用 **Named Pipe**（Windows）/ **Unix Domain Socket**（macOS/Linux），亚毫秒延迟，零配置。
-- DccLink 适配器封装 `ipckit` 通道，使用二进制线格式：`[u32 len][u8 type][u64 seq][msgpack body]`。
+- DccLink 适配器封装 `ipckit` 通道，并使用版本化二进制线格式。
 - `IpcChannelAdapter.create(name)` + `wait_for_client()` 是推荐的服务端启动方式。
 - `IpcChannelAdapter.connect(name)` 是客户端连接入口。
 - `GracefulIpcChannelAdapter` 增加优雅关闭和 DCC 主线程集成。
@@ -15,9 +15,10 @@
 
 ## DccLinkFrame
 
-DCC-Link 帧，包含 `msg_type`、`seq` 和 `body` 字段。
+DCC-Link 帧，包含 `version`、`msg_type`、`seq` 和 `body` 字段。
 
-线格式：`[u32 len][u8 type][u64 seq][msgpack body]`。
+版本 1 线格式：`[u32 len][u8 0x80|version][u8 type][u64 seq][msgpack body]`。
+旧版 v0 帧省略带标记的版本字节，在滚动升级期间仍可读取。
 
 消息类型标签：1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong。
 
@@ -34,11 +35,13 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 | `msg_type` | `int` | — | 消息类型标签（1-8）。无效时抛出 `ValueError`。|
 | `seq` | `int` | — | 序列号。|
 | `body` | `bytes \| None` | `None` | 载荷字节。|
+| `version` | `int` | `1` | 线协议版本；仅在连接旧版对端时使用 `0`。|
 
 ### 属性
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
+| `version` | `int` | 线协议版本；解码旧版帧时为 `0` |
 | `msg_type` | `int` | 消息类型标签（1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong）|
 | `seq` | `int` | 序列号 |
 | `body` | `bytes` | 载荷字节 |
@@ -47,7 +50,7 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `encode()` | `bytes` | 将帧编码为 `[len][type][seq][body]` 字节 |
+| `encode()` | `bytes` | 编码版本化帧；`version=0` 时编码为旧版格式 |
 | `decode(data)` | `DccLinkFrame` | 从包含 4 字节长度前缀的字节中解码帧（静态方法）。格式错误时抛出 `RuntimeError`。|
 
 ### 示例
@@ -90,7 +93,7 @@ server.wait_for_client()
 
 frame = server.recv_frame()
 if frame is not None:
-    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"result")
+    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"result", version=frame.version)
     server.send_frame(reply)
 ```
 
@@ -146,7 +149,7 @@ server.wait_for_client()
 
 frame = server.recv_frame()
 if frame is not None:
-    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok")
+    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok", version=frame.version)
     server.send_frame(reply)
 
 server.shutdown()
@@ -381,10 +384,11 @@ session_id = mgr.get_or_create_session("maya", entry.instance_id)
 DccLink 帧使用以下二进制线格式：
 
 ```
-[u32 len][u8 type][u64 seq][msgpack body]
+[u32 len][u8 0x80|version][u8 type][u64 seq][msgpack body]
 ```
 
-- `len` — 4 字节大端序总帧长度（包含 type + seq + body）
+- `len` — 4 字节大端序载荷长度
+- `0x80|version` — 带标记的版本字节；仅旧版 v0 帧省略
 - `type` — 1 字节消息类型标签（1-8）
 - `seq` — 8 字节大端序序列号
 - `body` — MessagePack 编码的载荷

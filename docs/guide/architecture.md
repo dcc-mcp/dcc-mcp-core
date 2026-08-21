@@ -234,7 +234,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 **Key Components**:
 - `IpcChannelAdapter` — Client/server IPC adapter using DccLink frames over ipckit
 - `SocketServerAdapter` — Multi-client TCP/UDS listener for server-side IPC
-- `DccLinkFrame` — Binary frame type (msg_type, seq, body) for DccLink wire protocol
+- `DccLinkFrame` — Versioned binary frame type (version, msg_type, seq, body) for DccLink wire protocol
 - `TransportAddress` — Protocol-agnostic endpoint (TCP, named pipe, unix socket)
 
 **Wire Protocol**: MessagePack with 4-byte big-endian length prefix

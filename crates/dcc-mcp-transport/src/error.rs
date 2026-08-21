@@ -91,6 +91,10 @@ pub enum TransportError {
     #[error("frame too large: {size} bytes (max: {max_size} bytes)")]
     FrameTooLarge { size: usize, max_size: usize },
 
+    /// The peer used a DCC-Link wire version this build cannot decode.
+    #[error("unsupported DCC-Link protocol version {received} (supported: {supported})")]
+    UnsupportedDccLinkVersion { received: u8, supported: u8 },
+
     /// Peer closed the connection.
     #[error("connection closed by peer")]
     ConnectionClosed,

@@ -8,11 +8,7 @@ fn bench_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("dcclink_frame/encode");
 
     for body_size in [0, 64, 256, 1024, 4096] {
-        let frame = DccLinkFrame {
-            msg_type: DccLinkType::Call,
-            seq: 42,
-            body: vec![0xAB; body_size],
-        };
+        let frame = DccLinkFrame::new(DccLinkType::Call, 42, vec![0xAB; body_size]);
 
         group.throughput(Throughput::Bytes((4 + 1 + 8 + body_size) as u64));
         group.bench_with_input(BenchmarkId::new("body", body_size), &frame, |b, frame| {
@@ -29,11 +25,7 @@ fn bench_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("dcclink_frame/decode");
 
     for body_size in [0, 64, 256, 1024, 4096] {
-        let frame = DccLinkFrame {
-            msg_type: DccLinkType::Call,
-            seq: 42,
-            body: vec![0xAB; body_size],
-        };
+        let frame = DccLinkFrame::new(DccLinkType::Call, 42, vec![0xAB; body_size]);
         let encoded = frame.encode().unwrap();
 
         group.throughput(Throughput::Bytes(encoded.len() as u64));
@@ -55,11 +47,7 @@ fn bench_roundtrip(c: &mut Criterion) {
     let mut group = c.benchmark_group("dcclink_frame/roundtrip");
 
     for body_size in [0, 64, 256, 1024, 4096] {
-        let frame = DccLinkFrame {
-            msg_type: DccLinkType::Call,
-            seq: 42,
-            body: vec![0xAB; body_size],
-        };
+        let frame = DccLinkFrame::new(DccLinkType::Call, 42, vec![0xAB; body_size]);
 
         group.throughput(Throughput::Elements(1));
         group.bench_with_input(BenchmarkId::new("body", body_size), &frame, |b, frame| {

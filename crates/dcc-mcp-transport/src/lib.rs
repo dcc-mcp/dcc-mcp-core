@@ -3,7 +3,8 @@
 //! This crate provides the on-the-wire substrate for the DCC-MCP ecosystem:
 //!
 //! - **DCC-Link framing** — the
-//!   `[u32 len][u8 type][u64 seq][msgpack body]` frame (see [`DccLinkFrame`]).
+//!   `[u32 len][u8 version tag][u8 type][u64 seq][msgpack body]` frame (see
+//!   [`DccLinkFrame`]).
 //! - **Async IPC transport** — [`IpcStream`]/[`IpcListener`] backed by
 //!   [`ipckit::AsyncLocalSocketStream`]/[`AsyncLocalSocketListener`] for
 //!   Named Pipes (Windows) and Unix Domain Sockets (macOS/Linux).
@@ -47,7 +48,8 @@ pub mod python;
 // Re-export primary types
 pub use connector::{IpcStream, LocalSocketKind, MAX_FRAME_SIZE, connect};
 pub use dcc_link::{
-    DccLinkFrame, DccLinkType, GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
+    DCC_LINK_LEGACY_VERSION, DCC_LINK_PROTOCOL_VERSION, DccLinkFrame, DccLinkType,
+    GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
 };
 pub use discovery::ServiceRegistry;
 pub use discovery::types::{
