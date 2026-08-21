@@ -14,8 +14,9 @@ use serde::{Deserialize, Serialize};
 /// This is the **canonical** wire-format type for tool annotations. The
 /// `dcc-mcp-jsonrpc` crate re-exports this under the historical
 /// `McpToolAnnotations` name (#812 part 1). The `dcc-mcp-models` crate
-/// owns a sibling type with snake_case + alias support for SKILL.md
-/// frontmatter parsing — convert with `From` when crossing layers.
+/// owns the distinct `SkillToolAnnotations` source-metadata projection with
+/// snake_case + authoring aliases. Project it explicitly when crossing into
+/// this camelCase wire layer.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(

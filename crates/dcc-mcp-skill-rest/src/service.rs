@@ -29,7 +29,8 @@ use dcc_mcp_actions::{
     with_dispatch_job_context, with_execution_context,
 };
 use dcc_mcp_models::{
-    CallExample, ExecutionMode, NextTools, SkillRuntimeSummary, ThreadAffinity, ToolAnnotations,
+    CallExample, ExecutionMode, NextTools, SkillRuntimeSummary, SkillToolAnnotations,
+    ThreadAffinity,
 };
 use dcc_mcp_skills::SkillCatalog;
 
@@ -133,7 +134,7 @@ pub struct SkillListEntry {
     pub has_schema: bool,
     /// Human-readable scope label (`"repo"`, `"user"`, ...).
     pub scope: String,
-    /// MCP ToolAnnotations-style safety hints. Kept compact and omitted when
+    /// MCP SkillToolAnnotations-style safety hints. Kept compact and omitted when
     /// the backend has no declared hints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<Object>)]
@@ -258,7 +259,7 @@ pub struct DescribeResponse {
     #[schema(value_type = Object)]
     pub annotations: Value,
     /// Execution metadata and risk hints carried outside the MCP
-    /// ToolAnnotations namespace.
+    /// SkillToolAnnotations namespace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<Object>)]
     pub metadata: Option<Value>,
@@ -400,7 +401,7 @@ pub struct CatalogAction {
     pub input_schema: Value,
     pub loaded: bool,
     pub scope: String,
-    pub annotations: ToolAnnotations,
+    pub annotations: SkillToolAnnotations,
     pub execution: ExecutionMode,
     pub timeout_hint_secs: Option<u32>,
     pub job_strategy: dcc_mcp_models::JobStrategy,
@@ -1595,7 +1596,7 @@ fn next_tools_meta_value(next_tools: &NextTools) -> Option<Value> {
     Some(Value::Object(map))
 }
 
-fn safety_annotations(annotations: &ToolAnnotations) -> Option<Value> {
+fn safety_annotations(annotations: &SkillToolAnnotations) -> Option<Value> {
     let mut out = serde_json::Map::new();
     if let Some(title) = &annotations.title {
         out.insert("title".to_string(), Value::String(title.clone()));

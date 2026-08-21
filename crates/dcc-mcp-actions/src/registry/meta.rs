@@ -1,5 +1,5 @@
 use dcc_mcp_models::{
-    ExecutionMode, JobStrategy, NextTools, RegistryEntry, ThreadAffinity, ToolAnnotations,
+    ExecutionMode, JobStrategy, NextTools, RegistryEntry, SkillToolAnnotations, ThreadAffinity,
 };
 use serde::{Deserialize, Serialize};
 
@@ -91,8 +91,8 @@ pub struct ToolMeta {
     /// (`readOnlyHint`, `destructiveHint`, …). The dcc-mcp-core-specific
     /// `deferred_hint` lands in `_meta["dcc.deferred_hint"]` rather than
     /// inside the spec `annotations` map.
-    #[serde(default, skip_serializing_if = "ToolAnnotations::is_empty")]
-    pub annotations: ToolAnnotations,
+    #[serde(default, skip_serializing_if = "SkillToolAnnotations::is_empty")]
+    pub annotations: SkillToolAnnotations,
     /// Suggested follow-up tools surfaced on `CallToolResult._meta`
     /// under `dcc.next_tools` (issue #342).
     ///
@@ -138,7 +138,7 @@ impl Default for ToolMeta {
             job_strategy: JobStrategy::Monolithic,
             thread_affinity: ThreadAffinity::Any,
             enforce_thread_affinity: false,
-            annotations: ToolAnnotations::default(),
+            annotations: SkillToolAnnotations::default(),
             next_tools: NextTools::default(),
         }
     }

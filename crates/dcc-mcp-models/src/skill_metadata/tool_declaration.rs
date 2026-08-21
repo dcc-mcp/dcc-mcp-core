@@ -12,13 +12,14 @@ use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 // PyO3 bindings for these types live in `crate::python::tool_declaration`.
 
-// ── ToolAnnotations ───────────────────────────────────────────────────────
+// ── SkillToolAnnotations ─────────────────────────────────────────────────
 
 /// MCP tool behavioural annotations declared in the sibling `tools.yaml`
 /// file (or the SKILL.md `tools:` list).
 ///
-/// This mirrors the spec-defined `ToolAnnotations` object from MCP
-/// 2025-03-26 — all fields are optional, missing fields stay `None`.
+/// This is the skill-authoring projection of the spec-defined MCP
+/// `ToolAnnotations` object. It accepts snake_case and author-friendly aliases;
+/// all fields are optional and missing fields stay `None`.
 /// The one dcc-mcp-core-specific extension is `deferred_hint`, which is
 /// surfaced in the tool declaration's `_meta` slot (never inside the
 /// spec-standard `annotations` map — see issue #344).
@@ -33,7 +34,7 @@ use pyo3_stub_gen_derive::gen_stub_pyclass;
 ///       open_world_hint: false
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolAnnotations {
+pub struct SkillToolAnnotations {
     /// Human-readable display title for the tool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -92,7 +93,19 @@ pub struct ToolAnnotations {
     pub deferred_hint: Option<bool>,
 }
 
-impl ToolAnnotations {
+/// Compatibility name for skill-authoring annotations.
+///
+/// The canonical MCP wire type with this name is owned by
+/// `dcc-mcp-protocols`. New model-layer code should use
+/// [`SkillToolAnnotations`] so source metadata cannot be confused with its
+/// camelCase wire projection.
+#[deprecated(
+    since = "0.20.9",
+    note = "use SkillToolAnnotations; dcc_mcp_protocols::ToolAnnotations is the MCP wire type"
+)]
+pub type ToolAnnotations = SkillToolAnnotations;
+
+impl SkillToolAnnotations {
     /// Return `true` when every hint field is `None` — used to decide
     /// whether to emit an `annotations:` object at all.
     #[must_use]
@@ -338,8 +351,8 @@ pub struct ToolDeclaration {
     /// When both forms are present for the same tool, the nested
     /// `annotations:` map wins entirely (whole-map replacement, not
     /// per-field merge).
-    #[serde(default, skip_serializing_if = "ToolAnnotations::is_empty")]
-    pub annotations: ToolAnnotations,
+    #[serde(default, skip_serializing_if = "SkillToolAnnotations::is_empty")]
+    pub annotations: SkillToolAnnotations,
 
     /// DCC capabilities required by this tool (issue #354).
     ///
@@ -467,7 +480,7 @@ pub struct CallExample {
 //   * reject the legacy top-level `deferred:` field with a clear error,
 //   * fold the shorthand hint keys (`read_only_hint`, `destructive_hint`,
 //     `idempotent_hint`, `open_world_hint`, `deferred_hint`) that sit
-//     directly on the tool entry into `ToolAnnotations`,
+//     directly on the tool entry into `SkillToolAnnotations`,
 //   * honour the canonical nested `annotations:` map when present — and
 //     have it win whole-map over the shorthand form.
 impl<'de> serde::Deserialize<'de> for ToolDeclaration {
@@ -517,7 +530,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
 
             /// Canonical nested annotations map (wins when present).
             #[serde(default)]
-            annotations: Option<ToolAnnotations>,
+            annotations: Option<SkillToolAnnotations>,
 
             // Shorthand hint keys that sit directly on the tool entry
             // (backward compatibility). Accept snake_case, camelCase and
@@ -606,7 +619,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
         let annotations = if let Some(nested) = w.annotations {
             nested
         } else {
-            ToolAnnotations {
+            SkillToolAnnotations {
                 title: None,
                 read_only_hint: w.read_only_hint,
                 destructive_hint: w.destructive_hint,

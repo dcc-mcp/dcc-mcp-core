@@ -262,7 +262,7 @@ mod tests {
     use dcc_mcp_job::job::JobStatus;
     use dcc_mcp_jsonrpc::ToolContent;
     use dcc_mcp_models::{
-        ExecutionMode, SkillGroup, SkillMetadata, SkillScope, ThreadAffinity, ToolAnnotations,
+        ExecutionMode, SkillGroup, SkillMetadata, SkillScope, SkillToolAnnotations, ThreadAffinity,
         ToolDeclaration,
     };
     use dcc_mcp_skill_rest::StaticReadiness;
@@ -376,7 +376,7 @@ mod tests {
                 ToolDeclaration {
                     name: "inspect_selection".to_string(),
                     group: "inspection".to_string(),
-                    annotations: ToolAnnotations {
+                    annotations: SkillToolAnnotations {
                         read_only_hint: Some(true),
                         destructive_hint: Some(false),
                         open_world_hint: Some(false),

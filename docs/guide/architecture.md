@@ -205,7 +205,9 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 **Purpose**: MCP (Model Context Protocol) type definitions per 2025-03-26 spec.
 
 **Key Types**:
-- `ToolDefinition`, `ToolAnnotations` — MCP tool schema with behavior hints
+- `ToolDefinition`, `ToolAnnotations` — canonical camelCase MCP tool wire schema
+  and behavior hints; `dcc-mcp-models::SkillToolAnnotations` is the distinct
+  snake_case skill-authoring projection
 - `ResourceDefinition`, `ResourceTemplateDefinition`, `ResourceAnnotations` — MCP resource schema
 - `PromptDefinition`, `PromptArgument` — MCP prompt schema
 - `ToolCallErrorEnvelope` — structured `tools/call` wire failure; distinct from

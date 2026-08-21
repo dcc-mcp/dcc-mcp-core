@@ -231,7 +231,7 @@ mod tests {
 
     use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
     use dcc_mcp_job::job::{JobManager, JobProgress};
-    use dcc_mcp_models::{NextTools, ToolAnnotations};
+    use dcc_mcp_models::{NextTools, SkillToolAnnotations};
     use dcc_mcp_skills::SkillCatalog;
 
     #[test]
@@ -276,7 +276,7 @@ mod tests {
                 "properties": {"job_id": {"type": "string"}},
                 "required": ["job_id"],
             }),
-            annotations: ToolAnnotations {
+            annotations: SkillToolAnnotations {
                 read_only_hint: Some(true),
                 ..Default::default()
             },

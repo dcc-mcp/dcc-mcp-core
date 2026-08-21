@@ -1,5 +1,5 @@
 use super::*;
-use dcc_mcp_models::{ExecutionMode, JobStrategy, NextTools, ThreadAffinity, ToolAnnotations};
+use dcc_mcp_models::{ExecutionMode, JobStrategy, NextTools, SkillToolAnnotations, ThreadAffinity};
 
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pymethods;
@@ -198,7 +198,7 @@ impl ToolRegistry {
                 job_strategy,
                 thread_affinity,
                 enforce_thread_affinity,
-                annotations: ToolAnnotations::default(),
+                annotations: SkillToolAnnotations::default(),
                 next_tools: NextTools::default(),
             });
         }
@@ -287,7 +287,7 @@ impl ToolRegistry {
             job_strategy,
             thread_affinity,
             enforce_thread_affinity,
-            annotations: ToolAnnotations::default(),
+            annotations: SkillToolAnnotations::default(),
             next_tools: NextTools::default(),
         });
         Ok(())

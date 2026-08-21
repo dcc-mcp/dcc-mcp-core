@@ -1,4 +1,4 @@
-//! Tests for issue #344: ToolAnnotations from sibling tools.yaml.
+//! Tests for issue #344: SkillToolAnnotations from sibling tools.yaml.
 use super::*;
 
 /// Canonical nested `annotations:` map on a per-tool entry parses

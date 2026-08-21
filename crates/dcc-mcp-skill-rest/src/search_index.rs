@@ -6,7 +6,7 @@
 use serde_json::Value;
 
 use crate::service::CatalogAction;
-use dcc_mcp_models::ToolAnnotations;
+use dcc_mcp_models::SkillToolAnnotations;
 
 pub(crate) fn action_metadata(action: &CatalogAction) -> Value {
     action_metadata_with_options(action, true)
@@ -218,7 +218,7 @@ fn search_token_text(token: &str) -> &str {
         .unwrap_or(token)
 }
 
-fn action_risk(annotations: &ToolAnnotations) -> &'static str {
+fn action_risk(annotations: &SkillToolAnnotations) -> &'static str {
     if annotations.destructive_hint == Some(true) {
         "destructive"
     } else if annotations.open_world_hint == Some(true) {
