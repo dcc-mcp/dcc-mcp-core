@@ -192,6 +192,7 @@ export default defineConfig({
             {
               text: 'Agent Tools',
               items: [
+                { text: 'Errors', link: '/api/errors' },
                 { text: 'Cancellation', link: '/api/cancellation' },
                 { text: 'Checkpoint', link: '/api/checkpoint' },
                 { text: 'Docs Resources', link: '/api/docs-resources' },

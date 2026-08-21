@@ -20,9 +20,10 @@ from typing import Any
 
 from dcc_mcp_core._lazy import lazy_dir
 from dcc_mcp_core._lazy import resolve_lazy_symbol
+from dcc_mcp_core.errors import DccMcpError
 
 
-class SkillHelperError(Exception):
+class SkillHelperError(DccMcpError):
     """Base exception for skill-helper failures raised by future helpers."""
 
 

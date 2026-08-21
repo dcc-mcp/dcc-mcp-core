@@ -47,6 +47,7 @@ from typing import Mapping
 
 from dcc_mcp_core._typing import Protocol
 from dcc_mcp_core._typing import runtime_checkable
+from dcc_mcp_core.errors import DccMcpError
 
 __all__ = [
     "DEFAULT_DIM",
@@ -81,7 +82,7 @@ def _char_ngrams(token: str, n: int) -> list[str]:
     return [token[i : i + n] for i in range(len(token) - n + 1)]
 
 
-class EmbedderError(RuntimeError):
+class EmbedderError(DccMcpError, RuntimeError):
     """Raised when an embedder backend cannot be constructed or invoked."""
 
 

@@ -114,6 +114,11 @@ Import-light environment parsing uses `dcc_mcp_core.env`: `env_flag`,
 names in `dcc_mcp_core.constants` and pass caller-specific truth tokens or
 numeric bounds explicitly.
 
+Public Python exceptions share the import-light `dcc_mcp_core.DccMcpError`
+root. Specialized exceptions retain their prior built-in exception category
+through multiple inheritance. The Python class is an API-level catch boundary,
+not an alias for the Rust `dcc_mcp_models::DccMcpError` domain enum.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.

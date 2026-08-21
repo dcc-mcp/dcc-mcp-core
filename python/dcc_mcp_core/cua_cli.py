@@ -27,6 +27,8 @@ from typing import Optional
 from typing import Sequence
 from typing import Tuple
 
+from dcc_mcp_core.errors import DccMcpError
+
 CUA_BINARY_ENV = "DCC_MCP_CUA_BINARY"
 MINIMUM_CUA_VERSION = (0, 4, 0)
 MINIMUM_CUA_VERSION_TEXT = ".".join(str(part) for part in MINIMUM_CUA_VERSION)
@@ -43,7 +45,7 @@ _SHARED_IMAGE_MAGIC = 0x4355_4100_5348_4D01
 _STABLE_SEMVER = re.compile(r"^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(?:[+][0-9A-Za-z.-]+)?$")
 
 
-class CuaCliError(RuntimeError):
+class CuaCliError(DccMcpError, RuntimeError):
     """Structured failure at the standalone CUA process boundary."""
 
     def __init__(self, code: str, message: str) -> None:

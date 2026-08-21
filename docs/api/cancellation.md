@@ -50,7 +50,10 @@ token.cancelled  # True
 from dcc_mcp_core import CancelledError
 ```
 
-Raised by `check_cancelled()` when the active request was cancelled. Deliberately a plain `Exception` subclass — the `@skill_entry` decorator's generic `except Exception` branch will convert an unhandled `CancelledError` into a standard skill error dict.
+Raised by `check_cancelled()` when the active request was cancelled. It derives
+from `DccMcpError` and remains in the plain `Exception` lineage, so the
+`@skill_entry` decorator's generic `except Exception` branch converts an
+unhandled cancellation into a standard skill error dict.
 
 ## check_cancelled
 

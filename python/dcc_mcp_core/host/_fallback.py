@@ -9,8 +9,10 @@ import threading
 from typing import Any
 from typing import Callable
 
+from dcc_mcp_core.errors import DccMcpError
 
-class DispatchError(RuntimeError):
+
+class DispatchError(DccMcpError, RuntimeError):
     """Fallback dispatch error raised by the Python host dispatcher."""
 
 

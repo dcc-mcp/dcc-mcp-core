@@ -205,7 +205,7 @@ def test_explicit_none_clears_inherited_token() -> None:
 
 
 def test_cancelled_error_is_exception_subclass() -> None:
-    """CancelledError is a plain Exception subclass (not BaseException-only)."""
+    """CancelledError stays in the Exception lineage (not BaseException-only)."""
     assert issubclass(CancelledError, Exception)
     # Ensure @skill_entry's `except Exception` branch can catch it.
     try:

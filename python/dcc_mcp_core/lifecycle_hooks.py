@@ -23,6 +23,8 @@ import logging
 from typing import Any
 from typing import Callable
 
+from dcc_mcp_core.errors import DccMcpError
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +66,7 @@ class HookContext:
     session_id: str | None = None
 
 
-class HookDeny(Exception):
+class HookDeny(DccMcpError):
     """Raised by a policy hook to veto a discovery, load, or call event.
 
     Only meaningful for events listed in :meth:`HookEvent.policy_events`. The

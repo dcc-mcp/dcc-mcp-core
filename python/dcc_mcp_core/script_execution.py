@@ -29,6 +29,7 @@ from typing import Any
 from typing import Sequence
 from typing import TextIO
 
+from dcc_mcp_core.errors import DccMcpError
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
@@ -39,7 +40,7 @@ ScriptMaterializationPolicy = str
 _SCRIPT_MATERIALIZATION_POLICIES = {"off", "auto", "require"}
 
 
-class ScriptExecutionSerializationError(TypeError):
+class ScriptExecutionSerializationError(DccMcpError, TypeError):
     """Raised when a strict script result cannot be JSON-encoded."""
 
     pass

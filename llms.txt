@@ -605,9 +605,15 @@ tools:
 
 ### Cancellation (`dcc_mcp_core.cancellation`)
 
+All public Python exceptions derive from the import-light
+`dcc_mcp_core.DccMcpError` root. Specialized exceptions also retain their
+existing built-in base (`ValueError`, `RuntimeError`, or `TypeError`) so
+existing handlers remain compatible. This Python root is distinct from the
+Rust `dcc_mcp_models::DccMcpError` enum.
+
 - `CancellationProbe` (`Protocol`, runtime-checkable) — read-only contract exposed to skill code: `.cancelled -> bool`, `.job_id -> str | None`
 - `CancelToken(job_id=None)` — mutable pure-Python implementation for dispatchers; `.cancel()`, `.cancelled -> bool`, `.job_id -> str | None`
-- `CancelledError(Exception)` — raised by `check_cancelled()` / `check_dcc_cancelled()` when cancellation was signalled
+- `CancelledError(DccMcpError)` — raised by `check_cancelled()` / `check_dcc_cancelled()` when cancellation was signalled; remains an `Exception` subtype
 - `check_cancelled() -> None` — raise `CancelledError` if the active MCP request was cancelled (no-op outside request context)
 - `check_dcc_cancelled() -> None` (#522) — combines `check_cancelled()` with a per-job check; raises if either the MCP token OR the per-job `JobHandle` reports cancellation; use this in skills launched from a DCC dispatcher rather than an MCP request
 - `JobHandle` (`Protocol`, runtime-checkable) — contract for the per-job handle a host dispatcher publishes; only `cancelled: bool` is contractual

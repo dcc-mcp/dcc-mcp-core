@@ -148,6 +148,8 @@ Python lifecycle registry ownership: use `dcc_mcp_core._install_lifecycle_runtim
 
 Python environment parsing ownership: use the import-light `dcc_mcp_core.env` helpers (`env_flag`, `env_int`, `env_float`, `env_path`) and declare core runtime environment names in `dcc_mcp_core.constants`. Preserve caller policy through explicit truth tokens, numeric defaults, and bounds.
 
+Python exception ownership: public Python exceptions derive from the import-light `dcc_mcp_core.DccMcpError` root while retaining compatibility bases such as `ValueError`, `RuntimeError`, and `TypeError`. This Python class is distinct from the Rust `dcc_mcp_models::DccMcpError` enum.
+
 **Key import pattern** (always use the top-level package):
 ```python
 from dcc_mcp_core import ToolRegistry, success_result, SkillScanner

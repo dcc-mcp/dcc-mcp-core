@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 # type is only used for static analysis and runtime `isinstance` on 3.8+).
 from dcc_mcp_core._typing import Protocol
 from dcc_mcp_core._typing import runtime_checkable
+from dcc_mcp_core.errors import DccMcpError
 
 __all__ = [
     "CancelToken",
@@ -70,10 +71,10 @@ __all__ = [
 ]
 
 
-class CancelledError(Exception):
+class CancelledError(DccMcpError):
     """Raised by :func:`check_cancelled` when the active request was cancelled.
 
-    This is deliberately a plain :class:`Exception` subclass (not
+    This remains in the plain :class:`Exception` lineage (not
     :class:`concurrent.futures.CancelledError` or
     :class:`asyncio.CancelledError`) because skill scripts may run in
     synchronous contexts that do not import either module.  The

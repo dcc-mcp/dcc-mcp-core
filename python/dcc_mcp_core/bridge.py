@@ -44,6 +44,7 @@ import uuid
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
 from dcc_mcp_core._version_util import package_version
+from dcc_mcp_core.errors import DccMcpError
 
 # Keep native loading deferred: bridge construction only reuses an extension
 # that is already loaded, then falls back to distribution metadata.
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 # ── Exceptions ────────────────────────────────────────────────────────────────
 
 
-class BridgeError(Exception):
+class BridgeError(DccMcpError):
     """Base class for all DccBridge errors."""
 
 
