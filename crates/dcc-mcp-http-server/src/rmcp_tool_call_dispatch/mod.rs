@@ -48,7 +48,7 @@ pub async fn dispatch_rmcp_tool_call(
 ) -> Result<CallToolResult, String> {
     let arguments_value = coerce_tool_arguments_object(arguments)?;
 
-    if tool_name == "call_action" && state.lazy_actions {
+    if tool_name == "call_action" && state.features.lazy_actions {
         return handle_call_action_async(
             state,
             registry_ctx,
@@ -100,8 +100,10 @@ pub async fn dispatch_rmcp_tool_call(
             &arguments_value,
         )),
         "list_dynamic_tools" => Ok(handle_list_dynamic_tools_dynamic(state, session_id)),
-        "list_actions" if state.lazy_actions => Ok(handle_list_actions(state, &arguments_value)),
-        "describe_action" if state.lazy_actions => {
+        "list_actions" if state.features.lazy_actions => {
+            Ok(handle_list_actions(state, &arguments_value))
+        }
+        "describe_action" if state.features.lazy_actions => {
             Ok(handle_describe_action(state, &arguments_value, session_id))
         }
         name => {

@@ -24,13 +24,13 @@ pub fn assemble_full_tool_list(
 ) -> Vec<McpTool> {
     let mut tools: Vec<McpTool> = Vec::with_capacity(64);
     tools.extend_from_slice(build_core_tools());
-    if state.lazy_actions {
+    if state.features.lazy_actions {
         tools.extend(build_lazy_action_tools());
     }
 
     let actions = state.registry.list_actions(None);
 
-    let bare_eligible: HashSet<(String, String)> = if state.bare_tool_names {
+    let bare_eligible: HashSet<(String, String)> = if state.features.bare_tool_names {
         let inputs: Vec<BareNameInput<'_>> = actions
             .iter()
             .filter(|m| m.enabled)
@@ -64,7 +64,7 @@ pub fn assemble_full_tool_list(
         }
     }
 
-    if !state.exclude_group_stubs_from_tools_list {
+    if !state.features.exclude_group_stubs_from_tools_list {
         for ((skill_name, group), names) in &inactive_groups {
             let mut stub = build_group_stub(group, names);
             if let Some(skill_name) = skill_name {
@@ -88,7 +88,7 @@ pub fn assemble_full_tool_list(
         }
     }
 
-    if !state.exclude_skill_stubs_from_tools_list {
+    if !state.features.exclude_skill_stubs_from_tools_list {
         let unloaded = state.catalog.list_skills(Some("unloaded"));
         for summary in &unloaded {
             tools.push(build_skill_stub(summary));

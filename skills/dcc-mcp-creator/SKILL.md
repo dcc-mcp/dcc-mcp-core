@@ -264,6 +264,10 @@ would be unsafe.
   `GatewayState` through `GatewayResilienceState`. Pass that state through
   backend discovery and dispatch calls; never use a process-global circuit
   table, because one embedded gateway must not open another gateway's backend.
+- Pass the complete `McpHttpConfig.features` snapshot into HTTP runtime state
+  with `ServerStateBuilder::with_features`. Do not copy capability booleans
+  into loose `ServerState` fields; config and runtime routing must read the
+  same `FeatureFlags` source.
 - In Rust async gateway/adapter code, share `Arc<FileRegistry>` directly and
   call its `*_async` methods. `FileRegistry` is already internally synchronized;
   an outer `RwLock` adds no safety and holding an async guard across its

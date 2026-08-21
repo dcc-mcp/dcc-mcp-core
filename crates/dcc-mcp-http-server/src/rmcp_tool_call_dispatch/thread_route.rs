@@ -233,7 +233,7 @@ pub(super) async fn execute_threaded_dispatch(
         meta,
         thread_affinity,
         enforce_thread_affinity,
-        standalone_main_thread_execution: state.standalone_main_thread_execution,
+        standalone_main_thread_execution: state.features.standalone_main_thread_execution,
     })
     .await
     .map(|r| r.output)
