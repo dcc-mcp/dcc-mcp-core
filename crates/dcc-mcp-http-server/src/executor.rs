@@ -27,7 +27,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+use dcc_mcp_host::{QueueStats, WaitTimeSamples};
 use dcc_mcp_http_types::error::HttpError;
+
+/// Backward-compatible name for the shared dispatcher queue snapshot.
+pub type ExecutorQueueStats = QueueStats;
 
 /// Shared observability state for a [`DccExecutorHandle`] and its
 /// backing channel (issue #715).
@@ -51,7 +55,7 @@ pub(crate) struct ExecutorStats {
     /// to surface `oldest_submit_age`.
     pub submit_times: parking_lot::Mutex<VecDeque<Instant>>,
     /// Wait-time samples for completed jobs (bounded ring of 256).
-    pub wait_samples: parking_lot::Mutex<VecDeque<u64>>,
+    pub wait_samples: parking_lot::Mutex<WaitTimeSamples>,
 }
 
 impl ExecutorStats {
@@ -63,7 +67,7 @@ impl ExecutorStats {
             total_dequeued: AtomicU64::new(0),
             total_rejected: AtomicU64::new(0),
             submit_times: parking_lot::Mutex::new(VecDeque::new()),
-            wait_samples: parking_lot::Mutex::new(VecDeque::with_capacity(256)),
+            wait_samples: parking_lot::Mutex::new(WaitTimeSamples::new()),
         })
     }
 
@@ -76,11 +80,7 @@ impl ExecutorStats {
         let submitted_at = self.submit_times.lock().pop_front();
         if let Some(submitted) = submitted_at {
             let wait_ms = now.saturating_duration_since(submitted).as_millis() as u64;
-            let mut ring = self.wait_samples.lock();
-            if ring.len() == 256 {
-                ring.pop_front();
-            }
-            ring.push_back(wait_ms);
+            self.wait_samples.lock().observe(wait_ms);
         }
         self.total_dequeued.fetch_add(1, Ordering::Release);
     }
@@ -102,38 +102,8 @@ impl ExecutorStats {
     }
 
     pub(crate) fn percentiles(&self) -> (Option<u64>, Option<u64>, Option<u64>) {
-        let ring = self.wait_samples.lock();
-        if ring.is_empty() {
-            return (None, None, None);
-        }
-        let mut sorted: Vec<u64> = ring.iter().copied().collect();
-        drop(ring);
-        sorted.sort_unstable();
-        let pick = |q: f64| -> u64 {
-            let n = sorted.len();
-            let idx = ((q * n as f64).ceil() as usize)
-                .saturating_sub(1)
-                .min(n - 1);
-            sorted[idx]
-        };
-        (Some(pick(0.50)), Some(pick(0.95)), Some(pick(0.99)))
+        self.wait_samples.lock().percentiles()
     }
-}
-
-/// Public observability snapshot for the DCC main-thread executor
-/// queue (issue #715). Field names are the stable wire shape
-/// consumed by `diagnostics__process_status.queue.executor_*`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ExecutorQueueStats {
-    pub pending: usize,
-    pub capacity: usize,
-    pub total_enqueued: u64,
-    pub total_dequeued: u64,
-    pub total_rejected: u64,
-    pub oldest_wait_ms: Option<u64>,
-    pub wait_p50_ms: Option<u64>,
-    pub wait_p95_ms: Option<u64>,
-    pub wait_p99_ms: Option<u64>,
 }
 
 /// A boxed async-compatible task that runs on the DCC main thread.
@@ -199,7 +169,7 @@ impl DccExecutorHandle {
         let (p50, p95, p99) = self.stats.percentiles();
         ExecutorQueueStats {
             pending: self.stats.pending(),
-            capacity: self.stats.capacity,
+            capacity: Some(self.stats.capacity),
             total_enqueued: self.stats.total_enqueued.load(Ordering::Acquire),
             total_dequeued: self.stats.total_dequeued.load(Ordering::Acquire),
             total_rejected: self.stats.total_rejected.load(Ordering::Acquire),

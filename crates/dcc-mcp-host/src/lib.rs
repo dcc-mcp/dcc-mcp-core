@@ -467,27 +467,37 @@ pub struct QueueStats {
 /// 256 samples so the percentile compute stays O(n log n) over a
 /// small n; operators who need higher-resolution histograms scrape
 /// Prometheus instead.
-struct WaitTimeRing {
+#[derive(Debug)]
+pub struct WaitTimeSamples {
     samples: VecDeque<u64>,
 }
 
-impl WaitTimeRing {
+impl Default for WaitTimeSamples {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WaitTimeSamples {
     const CAPACITY: usize = 256;
 
-    fn new() -> Self {
+    /// Create an empty bounded sample ring.
+    pub fn new() -> Self {
         Self {
             samples: VecDeque::with_capacity(Self::CAPACITY),
         }
     }
 
-    fn observe(&mut self, wait_ms: u64) {
+    /// Record one enqueue-to-dequeue wait duration in milliseconds.
+    pub fn observe(&mut self, wait_ms: u64) {
         if self.samples.len() == Self::CAPACITY {
             self.samples.pop_front();
         }
         self.samples.push_back(wait_ms);
     }
 
-    fn percentiles(&self) -> (Option<u64>, Option<u64>, Option<u64>) {
+    /// Return p50, p95, and p99 over the retained samples.
+    pub fn percentiles(&self) -> (Option<u64>, Option<u64>, Option<u64>) {
         if self.samples.is_empty() {
             return (None, None, None);
         }
@@ -548,7 +558,7 @@ struct Shared {
     submit_times: Mutex<VecDeque<Instant>>,
     /// Bounded ring of recent completed-job wait-times for percentile
     /// surfacing.
-    wait_samples: Mutex<WaitTimeRing>,
+    wait_samples: Mutex<WaitTimeSamples>,
 }
 
 impl Shared {
@@ -568,7 +578,7 @@ impl Shared {
             total_dequeued: AtomicU64::new(0),
             total_rejected: AtomicU64::new(0),
             submit_times: Mutex::new(VecDeque::new()),
-            wait_samples: Mutex::new(WaitTimeRing::new()),
+            wait_samples: Mutex::new(WaitTimeSamples::new()),
         })
     }
 

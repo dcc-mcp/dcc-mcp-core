@@ -244,7 +244,7 @@ async fn execute_returns_queue_overloaded_on_saturation() {
     }
     let stats = handle.queue_stats();
     assert!(stats.total_rejected >= 1, "reject counter bumped");
-    assert_eq!(stats.capacity, 2, "capacity reported in snapshot");
+    assert_eq!(stats.capacity, Some(2), "capacity reported in snapshot");
 }
 
 /// Issue #715: the queue-stats snapshot tracks enqueued/dequeued
