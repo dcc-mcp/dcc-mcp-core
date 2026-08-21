@@ -23,6 +23,10 @@ from dcc_mcp_core._server.options import _BridgeExecution
 from dcc_mcp_core._server.options import _DispatcherExecution
 from dcc_mcp_core._server.options import _StandaloneMainThreadExecution
 from dcc_mcp_core._server.tools_list_policy import apply_tools_list_stub_policy
+from dcc_mcp_core.constants import ENV_DISABLE_FILE_LOGGING
+from dcc_mcp_core.constants import ENV_DISABLE_JOB_PERSISTENCE
+from dcc_mcp_core.constants import ENV_DISABLE_TELEMETRY
+from dcc_mcp_core.env import env_flag
 
 try:
     from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
@@ -129,16 +133,12 @@ CONTEXT_METADATA_ENV: dict[str, str] = {
 }
 
 
-def _env_enabled(disable_env_name: str) -> bool:
-    return os.environ.get(disable_env_name, "0") != "1"
-
-
 def resolve_observability_flags(options: ObservabilityOptions) -> ObservabilityFlags:
     """Return effective observability flags after env-var overrides."""
     return ObservabilityFlags(
-        file_logging=options.enable_file_logging and _env_enabled("DCC_MCP_DISABLE_FILE_LOGGING"),
-        job_persistence=options.enable_job_persistence and _env_enabled("DCC_MCP_DISABLE_JOB_PERSISTENCE"),
-        telemetry=options.enable_telemetry and _env_enabled("DCC_MCP_DISABLE_TELEMETRY"),
+        file_logging=options.enable_file_logging and not env_flag(ENV_DISABLE_FILE_LOGGING, truthy=("1",)),
+        job_persistence=options.enable_job_persistence and not env_flag(ENV_DISABLE_JOB_PERSISTENCE, truthy=("1",)),
+        telemetry=options.enable_telemetry and not env_flag(ENV_DISABLE_TELEMETRY, truthy=("1",)),
     )
 
 

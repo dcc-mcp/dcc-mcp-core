@@ -109,6 +109,11 @@ The import-light lifecycle runtime module owns `default_registry_dir`.
 Install and sidecar helpers re-export that callable instead of independently
 reconstructing the environment and temporary-directory fallback contract.
 
+Import-light environment parsing uses `dcc_mcp_core.env`: `env_flag`,
+`env_int`, `env_float`, and `env_path`. Core runtime callers keep environment
+names in `dcc_mcp_core.constants` and pass caller-specific truth tokens or
+numeric bounds explicitly.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.
