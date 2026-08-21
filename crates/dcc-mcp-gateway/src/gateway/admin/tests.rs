@@ -26,7 +26,7 @@ pub(in crate::gateway::admin) mod admin_tests {
 
     fn make_gateway_state() -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
-        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
         let (yield_tx, _) = watch::channel(false);
         let (events_tx, _) = broadcast::channel::<String>(8);
         GatewayState {
@@ -565,7 +565,7 @@ filters:
         let entry = make_service_entry("maya", "127.0.0.1", port, None);
         let instance_id = entry.instance_id;
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
         assert!(
@@ -612,7 +612,7 @@ filters:
             format!("http://127.0.0.1:{discovery_port}/mcp"),
         );
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
         let router = build_admin_router(AdminState::new(gs));
@@ -655,7 +655,7 @@ filters:
         );
         let instance_id = entry.instance_id;
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
 
@@ -731,7 +731,7 @@ filters:
         );
         let instance_id = entry.instance_id;
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
 
@@ -807,7 +807,7 @@ filters:
         assert_eq!(sidecar_calls.lock().len(), 1);
 
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             let key = dcc_mcp_transport::discovery::types::ServiceKey {
                 dcc_type: "maya".to_string(),
                 instance_id,
@@ -861,7 +861,7 @@ filters:
         let instance_id = entry.instance_id;
         let key = entry.key();
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
 
@@ -882,7 +882,7 @@ filters:
         assert_eq!(error["reason"], "lease_owner_mismatch");
         assert!(error.get("active_lease_owner").is_none());
         {
-            let registry = gs.registry.read().await;
+            let registry = &gs.registry;
             assert_eq!(
                 registry.get(&key).unwrap().lease_owner.as_deref(),
                 Some("workflow-a")
@@ -898,7 +898,7 @@ filters:
         let result: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(result["success"], true);
         {
-            let registry = gs.registry.read().await;
+            let registry = &gs.registry;
             assert!(registry.get(&key).unwrap().lease_owner.is_none());
         }
 
@@ -910,7 +910,7 @@ filters:
         assert_eq!(error["reason"], "no_active_lease");
 
         {
-            let registry = gs.registry.read().await;
+            let registry = &gs.registry;
             let mut expired = registry.get(&key).unwrap();
             expired.acquire_lease(
                 "expired-workflow",
@@ -955,7 +955,7 @@ filters:
         );
         let instance_id = entry.instance_id;
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
 
@@ -1032,7 +1032,7 @@ filters:
         let entry = make_service_entry("maya", "127.0.0.1", port, None);
         let instance_id = entry.instance_id;
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
         let modeling_slug = make_tool_slug("maya", &instance_id, "maya-modeling__create_sphere");
@@ -1136,7 +1136,7 @@ filters:
         let entry = make_service_entry("maya", "127.0.0.1", port, None);
         let instance_id = entry.instance_id;
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             registry.register(entry).unwrap();
         }
         let router = build_admin_router(AdminState::new(gs));
@@ -1808,7 +1808,7 @@ filters:
 
         let gs = make_gateway_state();
         {
-            let reg = gs.registry.write().await;
+            let reg = &gs.registry;
             reg.register(make_service_entry("maya", "127.0.0.1", 18813, Some(4242)))
                 .unwrap();
 
@@ -1840,7 +1840,7 @@ filters:
 
         let gs = make_gateway_state();
         {
-            let reg = gs.registry.write().await;
+            let reg = &gs.registry;
             reg.register(make_service_entry("maya", "127.0.0.1", 18813, Some(4242)))
                 .unwrap();
 
@@ -1865,7 +1865,7 @@ filters:
         let gs = make_gateway_state();
         // Inject one ServiceEntry into the registry.
         {
-            let reg = gs.registry.write().await;
+            let reg = &gs.registry;
             let mut entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
             entry
                 .metadata
@@ -1928,7 +1928,7 @@ filters:
 
         let gs = make_gateway_state();
         {
-            let reg = gs.registry.write().await;
+            let reg = &gs.registry;
             let mut booting = make_service_entry("3dsmax", "127.0.0.1", 0, Some(4244));
             booting.status = ServiceStatus::Booting;
             booting
@@ -1968,7 +1968,7 @@ filters:
     async fn test_admin_workers_hides_stale_registry_rows() {
         let gs = make_gateway_state();
         {
-            let reg = gs.registry.write().await;
+            let reg = &gs.registry;
             reg.register(make_service_entry("maya", "127.0.0.1", 18813, Some(4242)))
                 .unwrap();
 

@@ -1,6 +1,7 @@
 //! Unit tests for `FileRegistry`.
 
 use super::*;
+use std::sync::Arc;
 use uuid::Uuid;
 
 fn remove_sentinel_for_pid_fallback(registry: &FileRegistry, key: &ServiceKey) {
@@ -718,6 +719,41 @@ fn test_write_transaction_times_out_when_in_process_lock_is_held() {
             .contains("timed out waiting for in-process registry mutex"),
         "unexpected error: {err}"
     );
+}
+
+#[tokio::test(flavor = "current_thread")]
+#[allow(clippy::await_holding_lock)] // Intentional: proves the async writer waits off-runtime.
+async fn async_register_keeps_the_runtime_responsive_while_registry_is_contended() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(
+        FileRegistry::new_with_lock_policy(
+            dir.path(),
+            Duration::from_millis(500),
+            Duration::from_millis(5),
+        )
+        .unwrap(),
+    );
+    let held = registry.write_lock.lock().unwrap();
+    let writer = {
+        let registry = Arc::clone(&registry);
+        tokio::spawn(async move {
+            registry
+                .register_async(ServiceEntry::new("photoshop", "127.0.0.1", 18814))
+                .await
+        })
+    };
+
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    assert!(
+        !writer.is_finished(),
+        "contended registry write should wait on the blocking pool"
+    );
+    drop(held);
+    tokio::time::timeout(Duration::from_secs(1), writer)
+        .await
+        .expect("writer should finish after the lock is released")
+        .expect("blocking task should not panic")
+        .expect("registry write should succeed");
 }
 
 #[test]

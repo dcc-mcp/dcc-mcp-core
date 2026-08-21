@@ -95,8 +95,7 @@ pub async fn build_payload(
     use dcc_mcp_transport::discovery::types::ServiceStatus;
     match query {
         Query::Process { dcc_type } => {
-            let reg = gs.registry.read().await;
-            let all = gs.all_instances(&reg);
+            let all = gs.all_instances_async().await;
             let dcc_filter = dcc_type.as_deref();
 
             let mut live_count = 0usize;
@@ -151,8 +150,7 @@ pub async fn build_payload(
             }))
         }
         Query::Metrics => {
-            let reg = gs.registry.read().await;
-            let live_instances = gs.live_instances(&reg);
+            let live_instances = gs.live_instances_async().await;
             Ok(json!({
                 "success": true,
                 "message": "Gateway tool metrics summary",

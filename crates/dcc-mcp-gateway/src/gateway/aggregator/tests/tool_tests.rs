@@ -282,11 +282,11 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let instance_id = {
-        let r = registry.read().await;
+        let r = &registry;
         let entry =
             dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", port);
         let id = entry.instance_id;
@@ -295,7 +295,7 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
     };
     let gs = make_gateway_state(registry).await;
 
-    assert_eq!(gs.live_instances(&*gs.registry.read().await).len(), 1);
+    assert_eq!(gs.live_instances(&gs.registry).len(), 1);
 
     let result = aggregate_tools_list(&gs, None).await;
     let names: Vec<&str> = result["tools"]
@@ -372,11 +372,11 @@ async fn load_skill_backend_payload_failure_is_not_decorated_as_loaded() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     {
-        let r = registry.read().await;
+        let r = &registry;
         let entry =
             dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", port);
         r.register(entry).unwrap();
@@ -976,7 +976,7 @@ async fn search_evicts_cached_rows_for_instances_no_longer_live() {
     assert!(cold.contains("offline_houdini_tool"), "{cold}");
 
     {
-        let registry = gs.registry.read().await;
+        let registry = &gs.registry;
         let entry = registry
             .list_all()
             .into_iter()
@@ -1012,7 +1012,7 @@ async fn targeted_search_evicts_cached_rows_for_unreachable_instances() {
     assert!(cold.contains("unreachable_houdini_tool"), "{cold}");
 
     {
-        let registry = gs.registry.read().await;
+        let registry = &gs.registry;
         let mut entry = registry
             .list_all()
             .into_iter()
@@ -1230,11 +1230,11 @@ async fn load_skill_for_sidecar_row_uses_discovery_endpoint() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let instance_id = {
-        let r = registry.read().await;
+        let r = &registry;
         let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
             "maya",
             "127.0.0.1",
@@ -1599,11 +1599,11 @@ async fn rest_targeted_load_scopes_legacy_group_fallback_to_the_requested_skill(
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let instance_id = {
-        let r = registry.read().await;
+        let r = &registry;
         let mut entry =
             dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", port);
         entry.metadata.insert(

@@ -426,8 +426,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         abort.abort();
     }
     if let Some(key) = outcome.sentinel_key.take() {
-        let reg = runner.registry.read().await;
-        let _ = reg.deregister(&key);
+        let _ = runner.registry.deregister_async(key).await;
     }
 
     // Drop the pidfile guard so the file is cleaned up.
@@ -705,8 +704,7 @@ mod tests {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(2), supervisor).await;
         }
         if let Some(key) = outcome.sentinel_key.take() {
-            let reg = runner.registry.read().await;
-            let _ = reg.deregister(&key);
+            let _ = runner.registry.deregister_async(key).await;
         }
     }
 
@@ -770,8 +768,7 @@ mod tests {
             abort.abort();
         }
         if let Some(key) = outcome.sentinel_key.take() {
-            let reg = runner.registry.read().await;
-            let _ = reg.deregister(&key);
+            let _ = runner.registry.deregister_async(key).await;
         }
     }
 
@@ -819,11 +816,16 @@ mod tests {
         let maya_key = maya.key();
         let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", photoshop_port);
         let photoshop_key = photoshop.key();
-        {
-            let reg = runner.registry.read().await;
-            reg.register(maya).expect("register maya backend");
-            reg.register(photoshop).expect("register photoshop backend");
-        }
+        runner
+            .registry
+            .register_async(maya)
+            .await
+            .expect("register maya backend");
+        runner
+            .registry
+            .register_async(photoshop)
+            .await
+            .expect("register photoshop backend");
 
         tokio::time::sleep(std::time::Duration::from_secs(7)).await;
         assert_gateway_health(
@@ -833,20 +835,21 @@ mod tests {
         )
         .await;
 
-        {
-            let reg = runner.registry.read().await;
-            reg.deregister(&maya_key).expect("deregister first backend");
-        }
+        runner
+            .registry
+            .deregister_async(maya_key)
+            .await
+            .expect("deregister first backend");
         let _ = maya_stop.send(());
         tokio::time::sleep(std::time::Duration::from_secs(7)).await;
         assert_gateway_health(&client, gw_port, "while one routable DCC backend remains").await;
 
         let _ = photoshop_stop.send(());
-        {
-            let reg = runner.registry.read().await;
-            reg.update_status(&photoshop_key, ServiceStatus::Unreachable)
-                .expect("mark remaining backend unreachable");
-        }
+        runner
+            .registry
+            .update_status_async(photoshop_key, ServiceStatus::Unreachable)
+            .await
+            .expect("mark remaining backend unreachable");
         wait_gateway_health_down(&client, gw_port, std::time::Duration::from_secs(16)).await;
         cleanup_gateway_outcome(&runner, &mut outcome).await;
     }

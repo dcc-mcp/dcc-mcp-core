@@ -73,7 +73,7 @@ impl crate::gateway::middleware::AfterCallMiddleware for RejectAfter {
 
 fn test_gateway_state() -> GatewayState {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
@@ -196,10 +196,10 @@ async fn rich_image_gateway_state() -> (
     });
 
     let registry_dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(registry_dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(registry_dir.path()).unwrap());
     let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
     {
-        let registry = registry.read().await;
+        let registry = &registry;
         let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
             "maya",
             "127.0.0.1",

@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::RwLock;
-
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
@@ -28,7 +26,7 @@ fn port_zero_boot_reason(entry: &ServiceEntry) -> String {
 
 /// Spawn the periodic backend health-check task (issues #556 / #854).
 pub(crate) fn spawn_health_check_task(
-    registry: Arc<RwLock<FileRegistry>>,
+    registry: Arc<FileRegistry>,
     http_client: reqwest::Client,
     event_log: Arc<crate::gateway::event_log::EventLog>,
     instance_diagnostics: Arc<InstanceDiagnosticsStore>,
@@ -53,8 +51,10 @@ pub(crate) fn spawn_health_check_task(
         loop {
             interval.tick().await;
             let entries = {
-                let r = registry.read().await;
-                r.list_all()
+                registry
+                    .list_all_async()
+                    .await
+                    .unwrap_or_default()
                     .into_iter()
                     .filter(|e| {
                         e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
@@ -92,8 +92,9 @@ pub(crate) fn spawn_health_check_task(
                     let first_seen = port_zero_seen.insert(key.clone());
                     failure_counts.remove(&key);
                     if !matches!(entry.status, ServiceStatus::Booting) {
-                        let r = registry.read().await;
-                        let _ = r.update_status(&entry.key(), ServiceStatus::Booting);
+                        let _ = registry
+                            .update_status_async(entry.key(), ServiceStatus::Booting)
+                            .await;
                     }
                     if first_seen || !matches!(entry.status, ServiceStatus::Booting) {
                         let reason = port_zero_boot_reason(entry);
@@ -127,8 +128,12 @@ pub(crate) fn spawn_health_check_task(
                     let recovered_from_failure = failure_counts.remove(&key).is_some();
                     let was_not_available = !matches!(entry.status, ServiceStatus::Available);
                     if recovered_from_failure || was_not_available {
-                        let r = registry.read().await;
-                        let _ = r.update_status_if_unchanged(entry, ServiceStatus::Available);
+                        let _ = registry
+                            .update_status_if_unchanged_async(
+                                entry.clone(),
+                                ServiceStatus::Available,
+                            )
+                            .await;
                         tracing::info!(
                             dcc_type = %entry.dcc_type,
                             instance_id = %entry.instance_id,
@@ -143,8 +148,9 @@ pub(crate) fn spawn_health_check_task(
 
                 if outcome.is_alive() {
                     if !matches!(entry.status, ServiceStatus::Booting) {
-                        let r = registry.read().await;
-                        let _ = r.update_status_if_unchanged(entry, ServiceStatus::Booting);
+                        let _ = registry
+                            .update_status_if_unchanged_async(entry.clone(), ServiceStatus::Booting)
+                            .await;
                         tracing::info!(
                             dcc_type = %entry.dcc_type,
                             instance_id = %entry.instance_id,
@@ -178,8 +184,9 @@ pub(crate) fn spawn_health_check_task(
                 );
 
                 if count >= effective_failures {
-                    let r = registry.read().await;
-                    let _ = r.update_status_if_unchanged(entry, ServiceStatus::Unreachable);
+                    let _ = registry
+                        .update_status_if_unchanged_async(entry.clone(), ServiceStatus::Unreachable)
+                        .await;
                     crate::gateway::event_log::record_event(
                         &event_log,
                         #[cfg(feature = "prometheus")]
@@ -211,14 +218,14 @@ mod tests {
     #[tokio::test]
     async fn port_zero_rows_stay_booting_and_are_not_deregistered() {
         let dir = tempdir().unwrap();
-        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
         let mut entry = ServiceEntry::new("3dsmax", "127.0.0.1", 0);
         entry
             .metadata
             .insert("failure_reason".into(), "host-rpc connect failed".into());
         let key = entry.key();
         {
-            let reg = registry.write().await;
+            let reg = &registry;
             reg.register(entry).unwrap();
         }
 
@@ -241,7 +248,7 @@ mod tests {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         loop {
             let row = {
-                let reg = registry.read().await;
+                let reg = &registry;
                 reg.get(&key)
             };
             if let Some(row) = row
@@ -261,7 +268,7 @@ mod tests {
         }
         handle.abort();
 
-        let reg = registry.read().await;
+        let reg = &registry;
         let row = reg.get(&key).expect("port=0 row must remain registered");
         assert_eq!(row.status, ServiceStatus::Booting);
         assert_eq!(row.port, 0);
@@ -276,11 +283,11 @@ mod tests {
     #[tokio::test]
     async fn transport_failures_mark_unreachable_without_deregistering_live_owner() {
         let dir = tempdir().unwrap();
-        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
         let entry = ServiceEntry::new("houdini", "127.0.0.1", 9);
         let key = entry.key();
         {
-            let reg = registry.write().await;
+            let reg = &registry;
             reg.register(entry).unwrap();
         }
 
@@ -301,7 +308,7 @@ mod tests {
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
         loop {
-            let row = registry.read().await.get(&key);
+            let row = registry.get(&key);
             if row
                 .as_ref()
                 .is_some_and(|row| row.status == ServiceStatus::Unreachable)
@@ -314,7 +321,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(1100)).await;
         handle.abort();
 
-        let row = registry.read().await.get(&key);
+        let row = registry.get(&key);
         assert!(
             row.is_some(),
             "transport failures must not erase a live-owned row"

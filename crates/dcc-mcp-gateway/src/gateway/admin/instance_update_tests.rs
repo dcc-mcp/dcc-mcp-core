@@ -79,7 +79,7 @@ impl Drop for ScopedUpdateDataDir {
 
 fn make_gateway_state() -> GatewayState {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
@@ -299,7 +299,7 @@ fn make_service_entry(
 async fn test_admin_instance_update_reports_missing_manifest_config() {
     let gs = make_gateway_state();
     let instance_id = {
-        let reg = gs.registry.write().await;
+        let reg = &gs.registry;
         let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
         let instance_id = entry.instance_id.to_string();
         reg.register(entry).unwrap();
@@ -327,7 +327,7 @@ async fn test_admin_instance_update_reports_missing_manifest_config() {
 async fn test_admin_instance_update_requires_binary_version_for_non_server_binary() {
     let gs = make_gateway_state();
     let instance_id = {
-        let reg = gs.registry.write().await;
+        let reg = &gs.registry;
         let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
         let instance_id = entry.instance_id.to_string();
         reg.register(entry).unwrap();
@@ -365,7 +365,7 @@ async fn test_admin_instance_update_checks_manifest_without_manual_cli() {
     let mut gs = make_gateway_state();
     gs.update_manifest_url = Some(manifest_url);
     let instance_id = {
-        let reg = gs.registry.write().await;
+        let reg = &gs.registry;
         let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
         let instance_id = entry.instance_id.to_string();
         reg.register(entry).unwrap();
@@ -406,7 +406,7 @@ async fn test_admin_instance_update_rejects_available_manifest_without_asset_int
     let mut gs = make_gateway_state();
     gs.update_manifest_url = Some(manifest_url);
     let instance_id = {
-        let reg = gs.registry.write().await;
+        let reg = &gs.registry;
         let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
         let instance_id = entry.instance_id.to_string();
         reg.register(entry).unwrap();
@@ -442,7 +442,7 @@ async fn test_admin_instance_update_can_check_without_staging() {
     let mut gs = make_gateway_state();
     gs.update_manifest_url = Some(manifest_url);
     let instance_id = {
-        let reg = gs.registry.write().await;
+        let reg = &gs.registry;
         let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
         let instance_id = entry.instance_id.to_string();
         reg.register(entry).unwrap();
@@ -479,7 +479,7 @@ async fn test_admin_instance_update_never_stages_unbound_server_binary() {
     let mut gs = make_gateway_state();
     gs.update_manifest_url = Some(manifest_url);
     let instance_id = {
-        let reg = gs.registry.write().await;
+        let reg = &gs.registry;
         let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
         let instance_id = entry.instance_id.to_string();
         reg.register(entry).unwrap();
@@ -522,7 +522,7 @@ async fn test_admin_instance_update_is_check_only_for_non_server_binaries() {
         let mut gs = make_gateway_state();
         gs.update_manifest_url = Some(manifest_url);
         let instance_id = {
-            let reg = gs.registry.write().await;
+            let reg = &gs.registry;
             let entry = make_service_entry("photoshop", "127.0.0.1", 18814, Some(4243));
             let instance_id = entry.instance_id.to_string();
             reg.register(entry).unwrap();
@@ -566,7 +566,7 @@ async fn test_admin_instance_update_reports_manifest_http_error() {
     let mut gs = make_gateway_state();
     gs.update_manifest_url = Some(manifest_url);
     let instance_id = {
-        let reg = gs.registry.write().await;
+        let reg = &gs.registry;
         let entry = make_service_entry("maya", "127.0.0.1", 18813, Some(4242));
         let instance_id = entry.instance_id.to_string();
         reg.register(entry).unwrap();

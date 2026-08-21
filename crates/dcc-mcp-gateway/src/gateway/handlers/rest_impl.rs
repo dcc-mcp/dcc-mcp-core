@@ -161,17 +161,22 @@ async fn announce_gateway_handoff(
 
 async fn mark_active_gateway_sentinel_shutting_down(gs: &GatewayState) -> Option<ServiceEntry> {
     let sentinel = {
-        let registry = gs.registry.read().await;
         select_active_gateway_sentinel(
-            registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE),
+            gs.registry
+                .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+                .await
+                .unwrap_or_default(),
             &gs.own_host,
             gs.own_port,
         )
     }?;
     let key = sentinel.key();
     {
-        let registry = gs.registry.read().await;
-        if let Err(err) = registry.update_status(&key, ServiceStatus::ShuttingDown) {
+        if let Err(err) = gs
+            .registry
+            .update_status_async(key, ServiceStatus::ShuttingDown)
+            .await
+        {
             tracing::warn!(
                 error = %err,
                 instance_id = %sentinel.instance_id,
@@ -252,9 +257,9 @@ fn gateway_yield_unavailable_response(
 /// Also served under `GET /v1/instances` for consistency with the
 /// REST-backed dynamic-capability API (#654).
 pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoResponse {
-    let registry = gs.registry.read().await;
+    let registry = &gs.registry;
     let instances: Vec<Value> = gs
-        .live_instances(&registry)
+        .live_instances(registry)
         .into_iter()
         .map(|entry| gs.instance_json(&entry))
         .collect();
@@ -270,8 +275,7 @@ pub async fn handle_v1_instance_context(
     State(gs): State<GatewayState>,
     Path(instance_id): Path<String>,
 ) -> Response {
-    let registry = gs.registry.read().await;
-    let entry = match gs.resolve_instance(&registry, Some(&instance_id), None) {
+    let entry = match gs.resolve_instance_async(Some(&instance_id), None).await {
         Ok(entry) => entry,
         Err(error) => {
             return (
@@ -281,7 +285,6 @@ pub async fn handle_v1_instance_context(
                 .into_response();
         }
     };
-    drop(registry);
     Json(crate::gateway::instance_context::build_payload(&gs, entry).await).into_response()
 }
 
@@ -294,9 +297,9 @@ pub async fn handle_v1_healthz() -> impl IntoResponse {
 
 /// `GET /v1/readyz` — gateway readiness probe.
 pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoResponse {
-    let registry = gs.registry.read().await;
     let instances: Vec<Value> = gs
-        .live_instances(&registry)
+        .live_instances_async()
+        .await
         .into_iter()
         .map(|entry| {
             let row = gs.instance_json(&entry);
@@ -464,10 +467,8 @@ pub async fn handle_v1_skills(State(gs): State<GatewayState>) -> impl IntoRespon
 /// without a second HTTP round-trip.
 pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoResponse {
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
-    let registry = gs.registry.read().await;
-    let live_instances = gs.live_instances(&registry);
+    let live_instances = gs.live_instances_async().await;
     let instances: Vec<Value> = live_instances.iter().map(|e| gs.instance_json(e)).collect();
-    drop(registry);
     let records = gs.capability_index.snapshot().records;
     let policy_visible_records: Vec<_> = records
         .iter()
@@ -1028,19 +1029,15 @@ pub async fn handle_v1_dcc_instance_describe(
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
 
-    let registry = gs.registry.read().await;
-    let entry = match gs.resolve_instance(
-        &registry,
-        Some(instance_id.as_str()),
-        Some(dcc_type.as_str()),
-    ) {
+    let entry = match gs
+        .resolve_instance_async(Some(instance_id.as_str()), Some(dcc_type.as_str()))
+        .await
+    {
         Ok(e) => e,
         Err(err) => {
-            drop(registry);
             return resolve_instance_negotiated_response(&headers, &body, err);
         }
     };
-    drop(registry);
 
     if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
         return service_error_response_with_metadata(
@@ -1238,19 +1235,15 @@ pub async fn handle_v1_dcc_instance_call(
     let metadata = RestResponseMetadata::from_trace_context(&trace_context)
         .with_index_generation(index_generation(&gs.capability_index));
 
-    let registry = gs.registry.read().await;
-    let entry = match gs.resolve_instance(
-        &registry,
-        Some(instance_id.as_str()),
-        Some(dcc_type.as_str()),
-    ) {
+    let entry = match gs
+        .resolve_instance_async(Some(instance_id.as_str()), Some(dcc_type.as_str()))
+        .await
+    {
         Ok(e) => e,
         Err(err) => {
-            drop(registry);
             return resolve_instance_negotiated_response(&headers, &body, err);
         }
     };
-    drop(registry);
 
     if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
         return service_error_response_with_metadata(

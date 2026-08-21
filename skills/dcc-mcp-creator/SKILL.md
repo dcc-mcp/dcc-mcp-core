@@ -256,6 +256,10 @@ would be unsafe.
 - Keep registry heartbeat and HTTP readiness independent of the DCC main
   thread. A readiness/transport timeout marks the instance `unreachable`; it
   must not erase a row whose owner lock/PID or remote TTL is still valid.
+- In Rust async gateway/adapter code, share `Arc<FileRegistry>` directly and
+  call its `*_async` methods. `FileRegistry` is already internally synchronized;
+  an outer `RwLock` adds no safety and holding an async guard across its
+  flock/fsync transaction blocks the runtime.
 - Treat owner lock/PID death or remote TTL expiry as crash evidence. After a
   crash, the adapter cannot reconnect until the DCC or sidecar starts again.
 - Preserve stable `dcc_type`, scene/project metadata, and adapter identity so

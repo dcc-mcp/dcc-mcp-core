@@ -181,14 +181,13 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState, context: &InstanceC
 pub async fn build_workers_payload(gs: &GatewayState) -> Value {
     use dcc_mcp_transport::discovery::types::ServiceStatus;
 
-    let reg = gs.registry.read().await;
-    let live_instances = gs
-        .read_alive_instances(&reg)
-        .map(|(entries, _)| entries)
-        .unwrap_or_else(|_| gs.all_instances(&reg))
-        .into_iter()
-        .filter(|e| !e.is_stale(gs.stale_timeout))
-        .collect::<Vec<_>>();
+    let live_instances = match gs.read_alive_instances_async().await {
+        Ok((entries, _)) => entries,
+        Err(_) => gs.all_instances_async().await,
+    }
+    .into_iter()
+    .filter(|e| !e.is_stale(gs.stale_timeout))
+    .collect::<Vec<_>>();
 
     let mut live = 0usize;
     let mut stale_count = 0usize;

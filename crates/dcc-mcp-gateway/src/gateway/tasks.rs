@@ -57,7 +57,7 @@ async fn wait_for_gateway_yield(mut yield_rx: watch::Receiver<bool>) {
 }
 
 fn spawn_gateway_idle_shutdown_task(
-    registry: Arc<RwLock<FileRegistry>>,
+    registry: Arc<FileRegistry>,
     gw_state: GatewayState,
     yield_tx: Arc<watch::Sender<bool>>,
     grace: Duration,
@@ -69,8 +69,8 @@ fn spawn_gateway_idle_shutdown_task(
         loop {
             tokio::time::sleep(poll).await;
             let live_count = {
-                let reg = registry.read().await;
-                gw_state.live_instances(&reg).len()
+                let reg = &registry;
+                gw_state.live_instances(reg).len()
             };
 
             if live_count > 0 {
@@ -348,7 +348,7 @@ const ADMIN_AUDIT_RING_CAPACITY: usize = 512;
 pub(crate) async fn start_gateway_tasks(
     listener: tokio::net::TcpListener,
     remote_listener: Option<tokio::net::TcpListener>,
-    registry: Arc<RwLock<FileRegistry>>,
+    registry: Arc<FileRegistry>,
     stale_timeout: Duration,
     backend_timeout: Duration,
     async_dispatch_timeout: Duration,
@@ -452,13 +452,13 @@ pub(crate) async fn start_gateway_tasks(
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
-            let r = reg_cleanup.read().await;
-
             // Keep the sentinel fresh first — it's what `has_newer_sentinel`
             // and every consumer of `list_instances("__gateway__")` rely on.
-            let _ = r.heartbeat(&sentinel_key_cleanup);
+            let _ = reg_cleanup
+                .heartbeat_async(sentinel_key_cleanup.clone())
+                .await;
 
-            match r.cleanup_stale(stale_timeout) {
+            match reg_cleanup.cleanup_stale_async(stale_timeout).await {
                 Ok(n) if n > 0 => {
                     tracing::info!("Gateway: evicted {} stale instance(s)", n);
                     // Record one synthetic stale-eviction event per batch.
@@ -476,7 +476,7 @@ pub(crate) async fn start_gateway_tasks(
                 _ => {}
             }
 
-            match r.prune_dead_pids() {
+            match reg_cleanup.prune_dead_pids_async().await {
                 Ok(n) if n > 0 => {
                     tracing::info!("Gateway: reaped {} ghost entry/entries", n);
                     crate::gateway::event_log::record_event(
@@ -520,7 +520,11 @@ pub(crate) async fn start_gateway_tasks(
                 own_adapter_version.as_deref(),
                 own_adapter_dcc.as_deref(),
             );
-            if has_newer_sentinel(&r, own_info, stale_timeout) {
+            let sentinels = reg_cleanup
+                .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+                .await
+                .unwrap_or_default();
+            if super::sentinel::has_newer_sentinel_entries(sentinels, own_info, stale_timeout) {
                 tracing::info!(
                     current = %own_version,
                     adapter_version = ?own_adapter_version,
@@ -563,9 +567,10 @@ pub(crate) async fn start_gateway_tasks(
             interval.tick().await;
 
             let fingerprint = {
-                let r = reg_watch.read().await;
-                let entries: Vec<_> = r
-                    .list_all()
+                let entries: Vec<_> = reg_watch
+                    .list_all_async()
+                    .await
+                    .unwrap_or_default()
                     .into_iter()
                     .filter(|e| {
                         e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
@@ -744,8 +749,7 @@ pub(crate) async fn start_gateway_tasks(
     // Probe every registered port, but retain live-owned rows as Unreachable.
     // Owner/PID pruning above remains the authoritative local death test.
     {
-        let r = registry.read().await;
-        match r.prune_dead_pids() {
+        match registry.prune_dead_pids_async().await {
             Ok(n) if n > 0 => {
                 tracing::info!(
                     reaped = n,
@@ -755,7 +759,7 @@ pub(crate) async fn start_gateway_tasks(
             Err(e) => tracing::warn!("Gateway: pre-subscribe dead-PID sweep error: {e}"),
             _ => {}
         }
-        match r.cleanup_stale(stale_timeout) {
+        match registry.cleanup_stale_async(stale_timeout).await {
             Ok(n) if n > 0 => {
                 tracing::info!(
                     evicted = n,
@@ -765,7 +769,9 @@ pub(crate) async fn start_gateway_tasks(
             Err(e) => tracing::warn!("Gateway: pre-subscribe stale sweep error: {e}"),
             _ => {}
         }
-        match probe_and_mark_unreachable_instances(&r, stale_timeout, &own_host, own_port).await {
+        match probe_and_mark_unreachable_instances(&registry, stale_timeout, &own_host, own_port)
+            .await
+        {
             Ok(marked) if !marked.is_empty() => {
                 tracing::info!(
                     marked = marked.len(),
@@ -794,9 +800,10 @@ pub(crate) async fn start_gateway_tasks(
         loop {
             interval.tick().await;
             let urls: Vec<String> = {
-                let r = reg_sub.read().await;
-                let entries: Vec<_> = r
-                    .list_all()
+                let entries: Vec<_> = reg_sub
+                    .list_all_async()
+                    .await
+                    .unwrap_or_default()
                     .into_iter()
                     .filter(|e| {
                         e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE

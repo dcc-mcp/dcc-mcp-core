@@ -46,7 +46,7 @@ fn test_gateway_state_with_debug_routes(
     debug_routes_enabled: bool,
 ) -> GatewayState {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
@@ -324,7 +324,7 @@ async fn seed_policy_records(gs: &GatewayState) -> (String, String, String, Stri
     let maya = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
     let custom = uuid::Uuid::parse_str("12345678-1234-5678-9abc-123456789abc").unwrap();
     {
-        let registry = gs.registry.read().await;
+        let registry = &gs.registry;
         let mut maya_entry = ServiceEntry::new("maya", "127.0.0.1", 18801);
         maya_entry.instance_id = maya;
         registry.register(maya_entry).unwrap();
@@ -456,7 +456,7 @@ async fn gateway_readyz_summarises_instance_readiness_bits() {
         .metadata
         .insert("gateway_runtime_mode".into(), "embedded-fallback".into());
     {
-        let registry = gs.registry.read().await;
+        let registry = &gs.registry;
         registry.register(entry.clone()).unwrap();
         registry.register(unavailable_dispatch).unwrap();
     }
@@ -1319,7 +1319,7 @@ async fn gateway_yield_broadcasts_handoff_and_marks_sentinel_shutting_down() {
     let sentinel_key = sentinel.key();
     let sentinel_id = sentinel.instance_id.to_string();
     {
-        let registry = gs.registry.read().await;
+        let registry = &gs.registry;
         registry.register(sentinel).unwrap();
     }
 
@@ -1352,7 +1352,7 @@ async fn gateway_yield_broadcasts_handoff_and_marks_sentinel_shutting_down() {
     assert!(event["params"]["deadline_unix_secs"].as_f64().unwrap() > 0.0);
 
     {
-        let registry = gs.registry.read().await;
+        let registry = &gs.registry;
         let updated = registry.get(&sentinel_key).unwrap();
         assert_eq!(updated.status, ServiceStatus::ShuttingDown);
     }
@@ -1751,7 +1751,7 @@ async fn rest_load_skill_is_denied_in_read_only_gateway_policy() {
     });
     let iid = uuid::Uuid::parse_str("abcdef01-2345-6789-abcd-ef0123456789").unwrap();
     {
-        let registry = gs.registry.read().await;
+        let registry = &gs.registry;
         let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18801);
         entry.instance_id = iid;
         registry.register(entry).unwrap();

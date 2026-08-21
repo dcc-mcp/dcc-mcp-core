@@ -17,12 +17,14 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 
 /// `GET /admin/api/health` — service health summary.
 pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoResponse {
-    let registry = s.gateway.registry.read().await;
-    let all = s.gateway.all_instances(&registry);
-    let ready = s.gateway.live_instances(&registry).len();
-    let gateway_sentinels = registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+    let registry = s.gateway.registry.clone();
+    let all = s.gateway.all_instances_async().await;
+    let ready = s.gateway.live_instances_async().await.len();
+    let gateway_sentinels = registry
+        .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+        .await
+        .unwrap_or_default();
     let total = all.len();
-    drop(registry);
 
     let uptime_secs = s.started_at.elapsed().unwrap_or_default().as_secs();
 
@@ -145,12 +147,14 @@ pub(crate) fn gateway_self_rss_bytes() -> Option<u64> {
 /// 24-hour stability (crashes, reconnects, recoveries) into a single
 /// payload for the admin UI Reliability panel.
 pub async fn handle_admin_reliability(State(s): State<AdminState>) -> impl IntoResponse {
-    let registry = s.gateway.registry.read().await;
-    let all = s.gateway.all_instances(&registry);
-    let ready = s.gateway.live_instances(&registry).len();
+    let registry = s.gateway.registry.clone();
+    let all = s.gateway.all_instances_async().await;
+    let ready = s.gateway.live_instances_async().await.len();
     let total = all.len();
-    let gateway_sentinels = registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
-    drop(registry);
+    let gateway_sentinels = registry
+        .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+        .await
+        .unwrap_or_default();
 
     let uptime_secs = s.started_at.elapsed().unwrap_or_default().as_secs();
     let status = if ready > 0 || total == 0 {

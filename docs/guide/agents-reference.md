@@ -1453,13 +1453,14 @@ These hold after v0.14 and MUST NOT regress:
 After the v0.14.18 reliability batch, four invariants protect the
 gateway from stale or hostile FileRegistry state:
 
-1. **Heartbeat writes are atomic.** `FileRegistry::heartbeat` serialises
-   to a sibling tempfile and uses `tempfile::NamedTempFile::persist`
-   (atomic rename on POSIX, `MoveFileExW` on Windows). Concurrent
-   processes can never produce a half-written entry. On Windows, an
-   advisory `LockFileEx`/`UnlockFileEx` cycle around `persist` prevents
-   two writers from racing the rename. Do not bypass the helper — direct
-   `fs::write` would re-introduce the stomp window.
+1. **Heartbeat writes are atomic and off-runtime.** `FileRegistry` serialises
+   through its own interior synchronization and cross-process
+   `services.lock`, syncs a stable sibling tempfile, then atomically renames
+   it. Gateway code owns `Arc<FileRegistry>` directly—never wrap it in another
+   async lock—and uses the `*_async` methods so lock backoff, fsync, reload,
+   and rename run on Tokio's blocking pool. Do not bypass these helpers;
+   direct `fs::write` re-introduces the stomp window and synchronous calls in
+   an async handler can freeze unrelated gateway requests.
 2. **Dead instances are evicted by active probe, not just by TTL.** The
    gateway runtime spawns a TCP probe loop (`tasks.rs::health_check_handle`)
    that connects to each backend's listener every

@@ -188,18 +188,21 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
             offset,
             verbose,
         } => {
-            let reg = gs.registry.read().await;
-
             // ── Fetch raw entries ──────────────────────────────────────
             let (raw, evicted_dead) = if *include_dead {
-                (gs.all_instances(&reg), 0usize)
+                (gs.all_instances_async().await, 0usize)
             } else if *include_stale {
-                gs.read_alive_instances(&reg).map_err(|e| e.to_string())?
+                gs.read_alive_instances_async()
+                    .await
+                    .map_err(|e| e.to_string())?
             } else {
                 // Prune owner/host-dead file rows before projecting the same
                 // live+routable view used by REST routing and dispatch.
-                let (_, evicted) = gs.read_alive_instances(&reg).map_err(|e| e.to_string())?;
-                (gs.live_instances(&reg), evicted)
+                let (_, evicted) = gs
+                    .read_alive_instances_async()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                (gs.live_instances_async().await, evicted)
             };
 
             // ── Compute index health before filtering ──────────────────
@@ -303,11 +306,10 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
             Ok(resp)
         }
         Query::Single { instance_id } => {
-            let reg = gs.registry.read().await;
             let entry = gs
-                .resolve_instance(&reg, Some(instance_id.as_str()), None)
+                .resolve_instance_async(Some(instance_id.as_str()), None)
+                .await
                 .map_err(|err| err.to_string())?;
-            drop(reg);
             Ok(super::super::instance_context::build_payload(gs, entry).await)
         }
     }

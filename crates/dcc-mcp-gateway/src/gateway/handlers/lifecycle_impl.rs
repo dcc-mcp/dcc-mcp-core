@@ -20,19 +20,15 @@ pub async fn handle_v1_dcc_instance_stop(
     Path((dcc_type, instance_id)): Path<(String, String)>,
     Json(body): Json<StopInstanceBody>,
 ) -> Response {
-    let registry = gs.registry.read().await;
-    let entry = match gs.resolve_instance(
-        &registry,
-        Some(instance_id.as_str()),
-        Some(dcc_type.as_str()),
-    ) {
+    let entry = match gs
+        .resolve_instance_async(Some(instance_id.as_str()), Some(dcc_type.as_str()))
+        .await
+    {
         Ok(e) => e,
         Err(err) => {
-            drop(registry);
             return super::rest_impl::resolve_instance_http_response(err).into_response();
         }
     };
-    drop(registry);
 
     if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
         return (

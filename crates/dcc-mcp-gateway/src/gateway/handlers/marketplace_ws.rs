@@ -914,9 +914,9 @@ mod tests {
         }
 
         let dir = tempfile::tempdir().unwrap();
-        let registry = Arc::new(RwLock::new(
+        let registry = std::sync::Arc::new(
             dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-        ));
+        );
         let (yield_tx, _) = tokio::sync::watch::channel(false);
         let (gw_events_tx, _) = broadcast::channel::<String>(8);
         let gw_state = crate::gateway::state::GatewayState {

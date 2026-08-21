@@ -139,7 +139,7 @@ impl fmt::Display for ResolveInstanceError {
 /// (issue #839 — backwards-compatible SRP split).
 #[derive(Clone)]
 pub struct GatewayState {
-    pub registry: Arc<RwLock<FileRegistry>>,
+    pub registry: Arc<FileRegistry>,
     pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     pub mdns_instance_registry: Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
     pub relay_instance_registry: Arc<parking_lot::RwLock<RelayInstanceRegistry>>,
@@ -411,6 +411,11 @@ impl GatewayState {
         self.discovery().live_instances(registry)
     }
 
+    pub async fn live_instances_async(&self) -> Vec<ServiceEntry> {
+        self.prune_expired_http_instances();
+        self.discovery().live_instances_async().await
+    }
+
     /// Return every parseable registry row that an operator-facing tool
     /// (e.g. `list_dcc_instances`) should expose, regardless of liveness.
     ///
@@ -427,6 +432,11 @@ impl GatewayState {
         self.discovery().all_instances(registry)
     }
 
+    pub async fn all_instances_async(&self) -> Vec<ServiceEntry> {
+        self.prune_expired_http_instances();
+        self.discovery().all_instances_async().await
+    }
+
     /// Resolve a user-provided instance hint against the shared live-instance view.
     pub fn resolve_instance(
         &self,
@@ -434,59 +444,26 @@ impl GatewayState {
         instance_hint: Option<&str>,
         dcc_filter: Option<&str>,
     ) -> Result<ServiceEntry, ResolveInstanceError> {
-        const MIN_PREFIX_LEN: usize = 4;
-
         let candidates: Vec<ServiceEntry> = self
             .live_instances(registry)
             .into_iter()
             .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type.eq_ignore_ascii_case(f)))
             .collect();
+        resolve_instance_candidates(candidates, instance_hint, dcc_filter)
+    }
 
-        if let Some(raw_hint) = instance_hint.map(str::trim).filter(|hint| !hint.is_empty()) {
-            if let Ok(uuid) = Uuid::parse_str(raw_hint) {
-                return candidates
-                    .into_iter()
-                    .find(|e| e.instance_id == uuid)
-                    .ok_or_else(|| ResolveInstanceError::NoMatch {
-                        hint: Some(raw_hint.to_string()),
-                        dcc: dcc_filter.map(str::to_string),
-                    });
-            }
-
-            let hint = raw_hint.to_ascii_lowercase();
-            if hint.len() < MIN_PREFIX_LEN {
-                return Err(ResolveInstanceError::PrefixTooShort {
-                    prefix: raw_hint.to_string(),
-                    min_len: MIN_PREFIX_LEN,
-                });
-            }
-
-            let matches: Vec<ServiceEntry> = candidates
-                .into_iter()
-                .filter(|e| e.instance_id.simple().to_string().starts_with(&hint))
-                .collect();
-            return match matches.as_slice() {
-                [] => Err(ResolveInstanceError::NoMatch {
-                    hint: Some(raw_hint.to_string()),
-                    dcc: dcc_filter.map(str::to_string),
-                }),
-                [entry] => Ok(entry.clone()),
-                _ => Err(ResolveInstanceError::MultipleMatches {
-                    candidates: matches.iter().map(instance_candidate).collect(),
-                }),
-            };
-        }
-
-        match candidates.as_slice() {
-            [] => Err(ResolveInstanceError::NoMatch {
-                hint: None,
-                dcc: dcc_filter.map(str::to_string),
-            }),
-            [entry] => Ok(entry.clone()),
-            _ => Err(ResolveInstanceError::MultipleMatches {
-                candidates: candidates.iter().map(instance_candidate).collect(),
-            }),
-        }
+    pub async fn resolve_instance_async(
+        &self,
+        instance_hint: Option<&str>,
+        dcc_filter: Option<&str>,
+    ) -> Result<ServiceEntry, ResolveInstanceError> {
+        let candidates = self
+            .live_instances_async()
+            .await
+            .into_iter()
+            .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type.eq_ignore_ascii_case(f)))
+            .collect();
+        resolve_instance_candidates(candidates, instance_hint, dcc_filter)
     }
 
     /// Return operator-facing registry rows with dead owner/host entries pruned.
@@ -526,6 +503,13 @@ impl GatewayState {
         self.discovery().read_alive_instances(registry)
     }
 
+    pub async fn read_alive_instances_async(
+        &self,
+    ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
+        self.prune_expired_http_instances();
+        self.discovery().read_alive_instances_async().await
+    }
+
     fn prune_expired_http_instances(&self) {
         let expired = self
             .http_instance_registry
@@ -535,6 +519,56 @@ impl GatewayState {
             self.capability_index
                 .remove_instance_with_status(instance_id, "heartbeat-timeout");
         }
+    }
+}
+
+fn resolve_instance_candidates(
+    candidates: Vec<ServiceEntry>,
+    instance_hint: Option<&str>,
+    dcc_filter: Option<&str>,
+) -> Result<ServiceEntry, ResolveInstanceError> {
+    const MIN_PREFIX_LEN: usize = 4;
+    if let Some(raw_hint) = instance_hint.map(str::trim).filter(|hint| !hint.is_empty()) {
+        if let Ok(uuid) = Uuid::parse_str(raw_hint) {
+            return candidates
+                .into_iter()
+                .find(|e| e.instance_id == uuid)
+                .ok_or_else(|| ResolveInstanceError::NoMatch {
+                    hint: Some(raw_hint.to_string()),
+                    dcc: dcc_filter.map(str::to_string),
+                });
+        }
+        let hint = raw_hint.to_ascii_lowercase();
+        if hint.len() < MIN_PREFIX_LEN {
+            return Err(ResolveInstanceError::PrefixTooShort {
+                prefix: raw_hint.to_string(),
+                min_len: MIN_PREFIX_LEN,
+            });
+        }
+        let matches: Vec<ServiceEntry> = candidates
+            .into_iter()
+            .filter(|e| e.instance_id.simple().to_string().starts_with(&hint))
+            .collect();
+        return match matches.as_slice() {
+            [] => Err(ResolveInstanceError::NoMatch {
+                hint: Some(raw_hint.to_string()),
+                dcc: dcc_filter.map(str::to_string),
+            }),
+            [entry] => Ok(entry.clone()),
+            _ => Err(ResolveInstanceError::MultipleMatches {
+                candidates: matches.iter().map(instance_candidate).collect(),
+            }),
+        };
+    }
+    match candidates.as_slice() {
+        [] => Err(ResolveInstanceError::NoMatch {
+            hint: None,
+            dcc: dcc_filter.map(str::to_string),
+        }),
+        [entry] => Ok(entry.clone()),
+        _ => Err(ResolveInstanceError::MultipleMatches {
+            candidates: candidates.iter().map(instance_candidate).collect(),
+        }),
     }
 }
 
