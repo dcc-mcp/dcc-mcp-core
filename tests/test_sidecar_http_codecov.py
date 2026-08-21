@@ -309,36 +309,20 @@ class TestSidecarSkillServerCoverage:
 
 class TestServerBasePackageVersion:
     def test_uses_core_version_when_extension_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import types
-
-        import dcc_mcp_core
-
-        fake_core = types.ModuleType("dcc_mcp_core._core")
-        fake_core.__version__ = "9.9.9-core"
-        monkeypatch.setattr(dcc_mcp_core, "_core", fake_core)
-        monkeypatch.setattr(
-            "dcc_mcp_core.server_base.is_core_extension_available",
-            lambda: True,
-        )
+        monkeypatch.setattr("dcc_mcp_core._version_util._core_version", lambda _load: "9.9.9-core")
         from dcc_mcp_core.server_base import _package_version
 
         assert _package_version() == "9.9.9-core"
 
     def test_uses_distribution_metadata_when_core_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "dcc_mcp_core.server_base.is_core_extension_available",
-            lambda: False,
-        )
+        monkeypatch.setattr("dcc_mcp_core._version_util._core_version", lambda _load: None)
         monkeypatch.setattr(importlib_metadata, "version", lambda _name: "0.19.7")
         from dcc_mcp_core.server_base import _package_version
 
         assert _package_version() == "0.19.7"
 
     def test_falls_back_when_metadata_lookup_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "dcc_mcp_core.server_base.is_core_extension_available",
-            lambda: False,
-        )
+        monkeypatch.setattr("dcc_mcp_core._version_util._core_version", lambda _load: None)
 
         def _boom(_name: str) -> str:
             raise RuntimeError("no dist")

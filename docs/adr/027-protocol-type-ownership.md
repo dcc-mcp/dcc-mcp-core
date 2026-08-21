@@ -95,6 +95,11 @@ Python runtime version decisions use the import-light
 `None`; lifecycle planning reports unknown drift and gateway takeover fails
 closed instead of coercing malformed segments to zero.
 
+Python package-version reporting uses
+`dcc_mcp_core._version_util.package_version`. It reuses an already-loaded core,
+optionally loads the native extension for server construction, then checks
+distribution metadata before applying the caller's explicit fallback.
+
 Import-light lifecycle path coercion uses
 `dcc_mcp_core._path_util.to_resolved_path`. It expands user paths and resolves
 them when possible, while preserving the lexical absolute-path fallback for

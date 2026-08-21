@@ -8,6 +8,7 @@ native ``dcc_mcp_core._core`` extension or their adapter package.
 from __future__ import annotations
 
 import contextlib
+from functools import partial
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -23,23 +24,14 @@ from typing import Dict
 from typing import Iterator
 from typing import Optional
 
+from ._version_util import package_version
+
 _ERROR_LOG_LOCK = threading.Lock()
 _MAX_MESSAGE_CHARS = 8192
 _MAX_TRACEBACK_CHARS = 32768
 
 
-def _package_version() -> str:
-    try:
-        importlib_metadata = __import__("importlib.metadata", fromlist=["metadata"])
-    except ImportError:
-        try:
-            importlib_metadata = __import__("importlib_metadata")
-        except ImportError:
-            return "unknown"
-    try:
-        return str(importlib_metadata.version("dcc-mcp-core"))
-    except Exception:
-        return "unknown"
+_package_version = partial(package_version, fallback="unknown")
 
 
 def _default_log_dir() -> Path:
