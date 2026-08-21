@@ -54,6 +54,13 @@ deprecated compatibility alias. The two types are intentionally distinct and
 must be mapped at the boundary that knows the layer, public code, hint, and
 trace context.
 
+`dcc_mcp_protocols::ToolAnnotations` owns the camelCase MCP wire contract.
+Skill authoring needs different serde behavior, so the models-layer projection
+is named `dcc_mcp_models::SkillToolAnnotations`; its former `ToolAnnotations`
+name is a deprecated compatibility alias. `ToolDeclaration.annotations` uses
+the source projection, and the HTTP boundary projects only spec fields into
+the protocol type while keeping DCC extensions in `_meta`.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.

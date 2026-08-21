@@ -1163,6 +1163,12 @@ directly or add an explicit conversion when invariants differ. Application
 crates must not repeat generic JSON-RPC envelopes, MCP models, wire
 normalizers, or transport errors field-for-field.
 
+For tool safety hints, use `dcc_mcp_models::SkillToolAnnotations` while
+parsing or storing `tools.yaml`, and `dcc_mcp_protocols::ToolAnnotations` for
+the MCP wire projection. The former models-side `ToolAnnotations` name is a
+deprecated alias; extensions such as `deferred_hint` remain in `_meta` rather
+than leaking into the spec annotations object.
+
 ### Compile-time invariants
 
 - `cargo tree -p dcc-mcp-models --no-default-features` MUST NOT list

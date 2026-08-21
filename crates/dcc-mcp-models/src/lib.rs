@@ -23,12 +23,15 @@ pub use dcc_name::DccName;
 pub use error::DccMcpError;
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};
 pub use session::{Session, SessionEndReason, SessionStatus};
+#[allow(deprecated)]
+pub use skill_metadata::ToolAnnotations;
 pub use skill_metadata::{
     CallExample, ExecutionMode, JobStrategy, NextTools, Precondition, RecallContext, RiskLevel,
     SideEffects, SkillBranding, SkillDependencies, SkillDependency, SkillDependencyType,
     SkillGroup, SkillLinks, SkillMetadata, SkillPolicy, SkillRuntimeDescriptor, SkillRuntimeKind,
-    SkillRuntimeReport, SkillRuntimeState, SkillRuntimeSummary, SuccessMetrics, ThreadAffinity,
-    ToolAnnotations, ToolDeclaration, ToolRole, resolve_runtime_reports, summarize_runtime_reports,
+    SkillRuntimeReport, SkillRuntimeState, SkillRuntimeSummary, SkillToolAnnotations,
+    SuccessMetrics, ThreadAffinity, ToolDeclaration, ToolRole, resolve_runtime_reports,
+    summarize_runtime_reports,
 };
 pub use skill_scope::SkillScope;
 pub use state_delta::{

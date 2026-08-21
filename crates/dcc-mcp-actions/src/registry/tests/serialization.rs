@@ -26,7 +26,7 @@ fn test_action_meta_serde_round_trip() {
         job_strategy: dcc_mcp_models::JobStrategy::Isolated,
         thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
         enforce_thread_affinity: false,
-        annotations: dcc_mcp_models::ToolAnnotations::default(),
+        annotations: dcc_mcp_models::SkillToolAnnotations::default(),
         next_tools: dcc_mcp_models::NextTools::default(),
     };
     let json = serde_json::to_string(&meta).unwrap();

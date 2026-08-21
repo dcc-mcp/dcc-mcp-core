@@ -23,7 +23,7 @@
 
 use dcc_mcp_actions::dispatcher::ToolDispatcher;
 use dcc_mcp_actions::{ToolMeta, ToolRegistry};
-use dcc_mcp_models::ToolAnnotations;
+use dcc_mcp_models::SkillToolAnnotations;
 use serde_json::{Value, json};
 
 use crate::host::{WorkflowHost, cancel_handler, get_status_handler, run_handler};
@@ -124,7 +124,7 @@ fn meta_run() -> ToolMeta {
         }),
         output_schema: run_output_schema(),
         // Workflows usually mutate scenes → destructive.
-        annotations: ToolAnnotations {
+        annotations: SkillToolAnnotations {
             destructive_hint: Some(true),
             read_only_hint: Some(false),
             idempotent_hint: Some(false),
@@ -148,7 +148,7 @@ fn meta_get_status() -> ToolMeta {
             "properties": {"workflow_id": {"type": "string", "format": "uuid"}},
         }),
         output_schema: status_output_schema(),
-        annotations: ToolAnnotations {
+        annotations: SkillToolAnnotations {
             destructive_hint: Some(false),
             read_only_hint: Some(true),
             idempotent_hint: Some(true),
@@ -172,7 +172,7 @@ fn meta_cancel() -> ToolMeta {
             "properties": {"workflow_id": {"type": "string", "format": "uuid"}},
         }),
         output_schema: cancel_output_schema(),
-        annotations: ToolAnnotations {
+        annotations: SkillToolAnnotations {
             destructive_hint: Some(true),
             idempotent_hint: Some(true),
             read_only_hint: Some(false),
@@ -216,7 +216,7 @@ fn meta_lookup() -> ToolMeta {
                 },
             },
         }),
-        annotations: ToolAnnotations {
+        annotations: SkillToolAnnotations {
             read_only_hint: Some(true),
             destructive_hint: Some(false),
             idempotent_hint: Some(true),
@@ -261,7 +261,7 @@ fn meta_resume() -> ToolMeta {
             },
         }),
         output_schema: resume_output_schema(),
-        annotations: ToolAnnotations {
+        annotations: SkillToolAnnotations {
             destructive_hint: Some(true),
             read_only_hint: Some(false),
             idempotent_hint: Some(true),

@@ -1,4 +1,4 @@
-//! PyO3 bindings for `SkillGroup` / `ToolDeclaration` / `ToolAnnotations`.
+//! PyO3 bindings for `SkillGroup` / `ToolDeclaration` / `SkillToolAnnotations`.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyDictMethods};
@@ -6,7 +6,7 @@ use pyo3::types::{PyAnyMethods, PyDictMethods};
 use pyo3_stub_gen_derive::gen_stub_pymethods;
 
 use crate::skill_metadata::{
-    ExecutionMode, JobStrategy, NextTools, SkillGroup, ThreadAffinity, ToolAnnotations,
+    ExecutionMode, JobStrategy, NextTools, SkillGroup, SkillToolAnnotations, ThreadAffinity,
     ToolDeclaration,
 };
 
@@ -91,7 +91,7 @@ impl ToolDeclaration {
             thread_affinity,
             enforce_thread_affinity,
             _deferred_guard: None,
-            annotations: ToolAnnotations::default(),
+            annotations: SkillToolAnnotations::default(),
             required_capabilities: Vec::new(),
             search_aliases,
             // Recall metadata extensions (#1335) default to absent/empty.
@@ -212,19 +212,19 @@ impl ToolDeclaration {
         Python::attach(|py| {
             use pyo3::types::PyDict;
             let Some(obj) = value else {
-                self.annotations = ToolAnnotations::default();
+                self.annotations = SkillToolAnnotations::default();
                 return Ok(());
             };
             let bound = obj.bind(py);
             if bound.is_none() {
-                self.annotations = ToolAnnotations::default();
+                self.annotations = SkillToolAnnotations::default();
                 return Ok(());
             }
             let dict = bound.cast::<PyDict>().map_err(|_| {
                 pyo3::exceptions::PyTypeError::new_err("annotations must be a dict or None")
             })?;
 
-            self.annotations = ToolAnnotations {
+            self.annotations = SkillToolAnnotations {
                 title: get_dict_string(dict, &["title"])?,
                 read_only_hint: get_dict_bool(dict, &["read_only_hint", "readOnlyHint"])?,
                 destructive_hint: get_dict_bool(dict, &["destructive_hint", "destructiveHint"])?,

@@ -479,7 +479,7 @@ pub fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dcc_mcp_models::ToolAnnotations;
+    use dcc_mcp_models::SkillToolAnnotations;
 
     #[test]
     fn simplify_mcp_input_schema_removes_composition_but_keeps_shape() {
@@ -544,7 +544,7 @@ mod tests {
                     "calls": {"type": "array", "maxItems": 25}
                 }
             }),
-            annotations: ToolAnnotations {
+            annotations: SkillToolAnnotations {
                 destructive_hint: Some(true),
                 ..Default::default()
             },
