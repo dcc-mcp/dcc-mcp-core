@@ -46,6 +46,14 @@ deserializes `dcc-mcp-jsonrpc` envelopes directly. Marketplace method names,
 parameters, operation phases, and application error codes remain gateway-owned
 because they are specific to that application protocol.
 
+`dcc_mcp_models::DccMcpError` is the coarse domain classification used while
+errors bubble across crate boundaries. The structurally different MCP
+`tools/call` wire projection is named
+`dcc_mcp_protocols::ToolCallErrorEnvelope`; its former `DccMcpError` name is a
+deprecated compatibility alias. The two types are intentionally distinct and
+must be mapped at the boundary that knows the layer, public code, hint, and
+trace context.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.

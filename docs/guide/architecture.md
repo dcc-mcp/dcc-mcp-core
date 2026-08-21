@@ -208,6 +208,8 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `ToolDefinition`, `ToolAnnotations` — MCP tool schema with behavior hints
 - `ResourceDefinition`, `ResourceTemplateDefinition`, `ResourceAnnotations` — MCP resource schema
 - `PromptDefinition`, `PromptArgument` — MCP prompt schema
+- `ToolCallErrorEnvelope` — structured `tools/call` wire failure; distinct from
+  the `dcc-mcp-models::DccMcpError` domain classification
 - `DccAdapter` — DCC adapter capability descriptor
 - `BridgeKind` — Bridge type enum (Http, WebSocket, NamedPipe, Custom) for non-Python DCCs
 

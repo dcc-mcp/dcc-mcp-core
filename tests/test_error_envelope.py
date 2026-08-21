@@ -1,7 +1,7 @@
-"""Tests for the structured error envelope (DccMcpError) in tools/call responses.
+"""Tests for the structured error envelope (ToolCallErrorEnvelope) in tools/call responses.
 
 When tools/call hits an error path the server returns a JSON-serialised
-DccMcpError envelope inside the CallToolResult text content.  This test
+ToolCallErrorEnvelope inside the CallToolResult text content.  This test
 file verifies the envelope shape for the key error paths:
 
   - Unknown tool (ACTION_NOT_FOUND)
@@ -29,7 +29,7 @@ from dcc_mcp_core import ToolRegistry
 
 
 def _parse_error_envelope(body: dict[str, Any]) -> dict[str, Any]:
-    """Extract and parse the DccMcpError envelope from a tools/call response."""
+    """Extract and parse the ToolCallErrorEnvelope from a tools/call response."""
     result = body["result"]
     assert result["isError"] is True, "Expected isError=true"
     content = result["content"]
@@ -41,7 +41,7 @@ def _parse_error_envelope(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _assert_envelope_shape(envelope: dict[str, Any]) -> None:
-    """Assert that the envelope has the required DccMcpError fields."""
+    """Assert that the value has the required ToolCallErrorEnvelope fields."""
     assert "layer" in envelope, "Missing 'layer' field"
     assert "code" in envelope, "Missing 'code' field"
     assert "message" in envelope, "Missing 'message' field"
@@ -96,8 +96,8 @@ def error_envelope_server():
 # ── tests ────────────────────────────────────────────────────────────────
 
 
-class TestDccMcpErrorEnvelope:
-    """Verify that tools/call error responses contain a structured DccMcpError envelope."""
+class TestToolCallErrorEnvelope:
+    """Verify that tools/call errors contain a structured ToolCallErrorEnvelope."""
 
     def test_unknown_tool_returns_action_not_found(self, error_envelope_server):
         """Calling a completely unknown tool returns ACTION_NOT_FOUND."""
@@ -217,7 +217,7 @@ class TestDccMcpErrorEnvelope:
         assert len(set(trace_ids)) == 3, f"trace_ids should be unique, got: {trace_ids}"
 
     def test_envelope_is_valid_json(self, error_envelope_server):
-        """The error text content must be valid JSON parseable as DccMcpError."""
+        """The error text content must be valid JSON parseable as ToolCallErrorEnvelope."""
         url = error_envelope_server
         client = McpClient(url)
         code, body = client.post(

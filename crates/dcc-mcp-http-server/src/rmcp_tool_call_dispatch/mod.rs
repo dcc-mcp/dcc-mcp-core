@@ -12,7 +12,7 @@ pub(crate) use thread_route::{
 use serde_json::Value;
 
 use dcc_mcp_jsonrpc::{CallToolMeta, CallToolResult, coerce_tool_arguments_object};
-use dcc_mcp_protocols::error_envelope::DccMcpError;
+use dcc_mcp_protocols::error_envelope::ToolCallErrorEnvelope;
 
 use crate::dynamic_tools::DYNAMIC_TOOL_PREFIX;
 use crate::rmcp_registry_context::RegistryContext;
@@ -165,7 +165,7 @@ async fn handle_call_action_async(
         id.as_str(),
         "list_actions" | "describe_action" | "call_action"
     ) {
-        let envelope = DccMcpError::new(
+        let envelope = ToolCallErrorEnvelope::new(
             "registry",
             "RECURSIVE_META_CALL",
             format!("`call_action` refuses to dispatch meta-tool `{id}`."),
@@ -199,7 +199,7 @@ async fn dispatch_registry_tool(
     let action_meta = match state.registry.get_action(&resolved_name, None) {
         Some(meta) => meta,
         None => {
-            let envelope = DccMcpError::new(
+            let envelope = ToolCallErrorEnvelope::new(
                 "registry",
                 "ACTION_NOT_FOUND",
                 format!("Unknown tool: {tool_name}"),

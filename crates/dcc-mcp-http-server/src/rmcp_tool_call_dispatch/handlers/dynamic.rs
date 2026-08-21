@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use dcc_mcp_gateway_core::naming::skill_tool_name;
 use dcc_mcp_jsonrpc::{CallToolResult, ToolContent};
-use dcc_mcp_protocols::error_envelope::DccMcpError;
+use dcc_mcp_protocols::error_envelope::ToolCallErrorEnvelope;
 
 use crate::dynamic_tools::{
     build_execution_wrapper, handle_deregister_tool, handle_list_dynamic_tools,
@@ -60,7 +60,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_describe_action(
     };
 
     let Some(meta) = resolve_action_by_id(&state.registry, &id) else {
-        let envelope = DccMcpError::new(
+        let envelope = ToolCallErrorEnvelope::new(
             "registry",
             "ACTION_NOT_FOUND",
             format!("Unknown action id: {id}"),

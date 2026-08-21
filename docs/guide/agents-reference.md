@@ -1894,6 +1894,11 @@ A single error enum with `From<HttpError>`, `From<ProcessError>`, … impls.
 Crates keep their domain-specific enums (`HttpError`, `ProcessError`, …) and
 convert to `DccMcpError` at the public boundary. New top-level helpers should
 return `Result<T, DccMcpError>` rather than introducing yet another error type.
+This domain classification is not the MCP response body:
+`dcc_mcp_protocols::ToolCallErrorEnvelope` owns the structured `tools/call`
+wire projection (`layer`, public code, hint, details, trace id). Map between
+them only at a boundary that knows that protocol context. The former
+`dcc_mcp_protocols::DccMcpError` name is deprecated.
 
 ---
 
