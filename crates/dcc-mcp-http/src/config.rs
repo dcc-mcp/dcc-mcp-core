@@ -5,7 +5,9 @@
 //! round-trip HTTP configuration without depending on axum / tokio / reqwest /
 //! pyo3. This module preserves the historical `dcc_mcp_http::config::*` path.
 
+#[allow(deprecated)]
+pub use dcc_mcp_http_types::config::GatewayConfig;
 pub use dcc_mcp_http_types::config::{
-    FeatureFlags, GatewayConfig, InstanceConfig, JobConfig, JobRecoveryPolicy, McpHttpConfig,
+    FeatureFlags, GatewaySettings, InstanceConfig, JobConfig, JobRecoveryPolicy, McpHttpConfig,
     QueueConfig, ServerConfig, ServerSpawnMode, SessionConfig, TelemetryConfig, WorkflowConfig,
 };

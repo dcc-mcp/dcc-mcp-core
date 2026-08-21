@@ -5,8 +5,9 @@ use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 pub use super::relay_registration::RelaySourceConfig;
 
-// Keep aligned with dcc_mcp_http_types::config::GatewayConfig. Render and
-// simulation tools routinely exceed the former 10-second gateway default.
+// Keep the shared timeout default aligned with
+// dcc_mcp_http_types::config::GatewaySettings. Render and simulation tools
+// routinely exceed the former 10-second gateway default.
 const DEFAULT_BACKEND_TIMEOUT_MS: u64 = 120_000;
 
 fn official_update_manifest_url() -> Option<String> {

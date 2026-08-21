@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-// ── SessionConfig / GatewayConfig ─────────────────────────────────────────
+// ── SessionConfig ──────────────────────────────────────────────────────────
 
 /// Session lifecycle & tool-cache configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]

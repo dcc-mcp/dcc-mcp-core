@@ -16,10 +16,17 @@ pub struct RelaySourceConfig {
     pub poll_interval_secs: Option<u64>,
 }
 
-/// Gateway election, routing, and discovery configuration.
+/// Serializable gateway settings embedded in [`McpHttpConfig`].
+///
+/// These operator-facing settings are projected into the complete runtime
+/// `dcc_mcp_gateway::GatewayConfig` by the HTTP server boundary. Runtime-only
+/// middleware, authentication, persistence, and lifecycle state do not belong
+/// in this transport-neutral value type.
+///
+/// [`McpHttpConfig`]: super::McpHttpConfig
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct GatewayConfig {
+pub struct GatewaySettings {
     /// Gateway port to compete for. First process to bind wins the gateway
     /// and starts serving `/instances`, `/mcp`, `/mcp/{id}`, `/mcp/dcc/{type}`.
     /// `0` disables the gateway entirely. Default: 0 (disabled).
@@ -131,7 +138,7 @@ pub struct GatewayConfig {
     pub admin_path: String,
 }
 
-impl Default for GatewayConfig {
+impl Default for GatewaySettings {
     fn default() -> Self {
         Self {
             gateway_port: 0,
@@ -157,3 +164,14 @@ impl Default for GatewayConfig {
         }
     }
 }
+
+/// Compatibility name for HTTP server gateway settings.
+///
+/// The complete runtime configuration with this historical name is owned by
+/// `dcc-mcp-gateway`. New HTTP configuration code should use
+/// [`GatewaySettings`].
+#[deprecated(
+    since = "0.20.9",
+    note = "use GatewaySettings; dcc_mcp_gateway::GatewayConfig is the runtime type"
+)]
+pub type GatewayConfig = GatewaySettings;

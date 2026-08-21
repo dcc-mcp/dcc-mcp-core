@@ -25,7 +25,7 @@
 //! |-------------|-----------------------------------------------------------|
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
-//! | [`config`]  | [`McpHttpConfig`], [`ServerConfig`], [`SessionConfig`], [`GatewayConfig`], [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`], [`QueueConfig`] |
+//! | [`config`]  | [`McpHttpConfig`], [`ServerConfig`], [`SessionConfig`], [`GatewaySettings`], [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`], [`QueueConfig`] |
 //! | [`dynamic_tools`] | [`dynamic_tools::ToolSpec`] dynamic-tool registration wire type |
 //! | [`debug_session`] | [`debug_session::DebugSessionDescriptor`] optional debugger attach metadata |
 //! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
@@ -47,7 +47,7 @@
 //! | [`error::HttpError`]        |                                  |
 //! | [`config::ServerConfig`]    |                                  |
 //! | [`config::SessionConfig`]   |                                  |
-//! | [`config::GatewayConfig`]   |                                  |
+//! | [`config::GatewaySettings`] |                                  |
 //! | [`config::ServerSpawnMode`] |                                  |
 //! | [`config::JobRecoveryPolicy`]|                                 |
 //! | [`config::JobConfig`]       |                                  |
