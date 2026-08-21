@@ -29,6 +29,7 @@ mod endpoint_contracts {
             ingress: std::sync::Arc::new(
                 crate::gateway::http_limits::GatewayIngressState::from_env(),
             ),
+            resilience: std::sync::Arc::new(Default::default()),
             registry,
             http_instance_registry: Arc::new(parking_lot::RwLock::new(
                 crate::gateway::http_registration::HttpInstanceRegistry::default(),

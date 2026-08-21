@@ -21,12 +21,14 @@ pub async fn compute_tools_fingerprint(
     registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
+    resilience: &crate::gateway::resilience::GatewayResilienceState,
     backend_timeout: Duration,
 ) -> String {
     compute_tools_fingerprint_with_own(
         registry,
         stale_timeout,
         http_client,
+        resilience,
         backend_timeout,
         None,
         0,
@@ -40,6 +42,7 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
     registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
+    resilience: &crate::gateway::resilience::GatewayResilienceState,
     backend_timeout: Duration,
     own_host: Option<&str>,
     own_port: u16,
@@ -63,7 +66,7 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
 
     let futs = instances.iter().map(|entry| async move {
         let url = entry_discovery_mcp_url(entry);
-        let (tools, _unloaded) = fetch_tools(http_client, &url, backend_timeout).await;
+        let (tools, _unloaded) = fetch_tools(http_client, resilience, &url, backend_timeout).await;
         (entry.instance_id, tools)
     });
     let results = join_all(futs).await;

@@ -9,7 +9,6 @@ use axum::response::IntoResponse;
 use serde_json::{Value, json};
 
 use crate::gateway::admin::state::AdminState;
-use crate::gateway::resilience as gw_resilience;
 use crate::gateway::response_codec::{
     JSON_MIME, TOKEN_ESTIMATOR, TOON_MIME, default_rest_response_format,
 };
@@ -35,7 +34,8 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
     };
 
     let limits = s.gateway.ingress.limits();
-    let circuits = gw_resilience::circuits().snapshot_json();
+    let resilience = s.gateway.resilience.policy();
+    let circuits = s.gateway.resilience.circuits().snapshot_json();
     let rss_bytes = gateway_self_rss_bytes();
 
     (
@@ -58,9 +58,9 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
                 "body_max_bytes": limits.body_max_bytes,
                 "rate_limit_per_minute_per_ip": limits.rate_limit_per_minute_per_ip,
                 "xff_trusted_depth": limits.xff_trusted_depth,
-                "read_retry_max": limits.read_retry_max,
-                "circuit_failure_threshold": limits.circuit_failure_threshold,
-                "circuit_open_secs": limits.circuit_open_secs,
+                "read_retry_max": resilience.read_retry_max,
+                "circuit_failure_threshold": resilience.circuit_failure_threshold,
+                "circuit_open_secs": resilience.circuit_open_secs,
             },
             "circuits": circuits,
         })),
@@ -163,7 +163,8 @@ pub async fn handle_admin_reliability(State(s): State<AdminState>) -> impl IntoR
         "degraded"
     };
     let limits = s.gateway.ingress.limits();
-    let circuits = gw_resilience::circuits().snapshot_json();
+    let resilience = s.gateway.resilience.policy();
+    let circuits = s.gateway.resilience.circuits().snapshot_json();
     let rss_bytes = gateway_self_rss_bytes();
 
     // Stability: query sessions table for crash/reconnect/recovery counts
@@ -241,8 +242,9 @@ pub async fn handle_admin_reliability(State(s): State<AdminState>) -> impl IntoR
                 "limits": {
                     "body_max_bytes": limits.body_max_bytes,
                     "rate_limit_per_minute_per_ip": limits.rate_limit_per_minute_per_ip,
-                    "circuit_failure_threshold": limits.circuit_failure_threshold,
-                    "circuit_open_secs": limits.circuit_open_secs,
+                    "read_retry_max": resilience.read_retry_max,
+                    "circuit_failure_threshold": resilience.circuit_failure_threshold,
+                    "circuit_open_secs": resilience.circuit_open_secs,
                 },
                 "circuits": circuits,
             },

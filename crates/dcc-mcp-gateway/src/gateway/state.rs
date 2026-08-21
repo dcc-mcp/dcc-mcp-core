@@ -24,7 +24,7 @@
 //! | Sub-state         | Responsibility                                            |
 //! |-------------------|-----------------------------------------------------------|
 //! | [`DiscoveryState`]| File registry + staleness / visibility policy             |
-//! | [`RoutingState`]  | In-flight backend calls + timeouts + HTTP client          |
+//! | [`RoutingState`]  | Backend HTTP, timeout, retry, circuit, and in-flight state |
 //! | [`EventState`]    | Event fan-out (broadcast, SSE, subscriptions, event log)  |
 //! | [`ServerState`]   | Server identity, protocol negotiation, adapter metadata   |
 //!
@@ -60,6 +60,7 @@ use super::http_registration::{
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 use super::mdns_registration::MdnsInstanceRegistry;
 use super::relay_registration::RelayInstanceRegistry;
+use super::resilience::GatewayResilienceState;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{InstanceStatus, ServiceEntry, ServiceStatus};
@@ -142,6 +143,8 @@ impl fmt::Display for ResolveInstanceError {
 pub struct GatewayState {
     pub registry: Arc<FileRegistry>,
     pub ingress: Arc<GatewayIngressState>,
+    /// Gateway-scoped outbound retry policy and per-backend circuit table.
+    pub resilience: Arc<GatewayResilienceState>,
     pub http_instance_registry: Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     pub mdns_instance_registry: Arc<parking_lot::RwLock<MdnsInstanceRegistry>>,
     pub relay_instance_registry: Arc<parking_lot::RwLock<RelayInstanceRegistry>>,
@@ -344,6 +347,7 @@ impl GatewayState {
     pub fn routing(&self) -> RoutingState<'_> {
         RoutingState {
             http_client: &self.http_client,
+            resilience: &self.resilience,
             backend_timeout: self.backend_timeout,
             async_dispatch_timeout: self.async_dispatch_timeout,
             wait_terminal_timeout: self.wait_terminal_timeout,

@@ -26,6 +26,7 @@ use dcc_mcp_gateway_core::capability::compute_fingerprint;
 
 use crate::gateway::backend_client::{UnloadedCapabilityHint, try_fetch_tools};
 use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
+use crate::gateway::resilience::GatewayResilienceState;
 
 use super::builder::{
     BuildInput, backend_job_status_tool, build_records_from_backend, is_backend_job_tool,
@@ -62,6 +63,7 @@ const PROFILING_TARGET: &str = "dcc_mcp::profiling";
 pub async fn refresh_instance(
     index: &CapabilityIndex,
     http_client: &reqwest::Client,
+    resilience: &GatewayResilienceState,
     mcp_url: &str,
     instance_id: Uuid,
     dcc_type: &str,
@@ -70,7 +72,7 @@ pub async fn refresh_instance(
     diag_store: Option<&InstanceDiagnosticsStore>,
 ) -> bool {
     let (mut tools, unloaded_hints) =
-        match try_fetch_tools(http_client, mcp_url, backend_timeout).await {
+        match try_fetch_tools(http_client, resilience, mcp_url, backend_timeout).await {
             Ok(result) => result,
             Err(e) => {
                 tracing::warn!(

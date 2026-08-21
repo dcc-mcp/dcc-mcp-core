@@ -69,6 +69,7 @@ pub(super) async fn handle_resources_read(
                 let url = entry_discovery_mcp_url(&entry);
                 match crate::gateway::backend_client::read_resource(
                     &gs.http_client,
+                    &gs.resilience,
                     &url,
                     &backend_uri,
                     gs.backend_timeout,
@@ -206,6 +207,7 @@ pub(super) async fn handle_resource_subscription(
 
                 match crate::gateway::backend_client::subscribe_resource(
                     &gs.http_client,
+                    &gs.resilience,
                     &backend_url,
                     &backend_uri,
                     subscribe,
@@ -267,6 +269,7 @@ mod tests {
             ingress: std::sync::Arc::new(
                 crate::gateway::http_limits::GatewayIngressState::from_env(),
             ),
+            resilience: std::sync::Arc::new(Default::default()),
             registry,
             http_instance_registry: Arc::new(parking_lot::RwLock::new(
                 crate::gateway::http_registration::HttpInstanceRegistry::default(),

@@ -15,6 +15,7 @@ use crate::gateway::http_registration::HttpInstanceRegistry;
 use crate::gateway::mdns_registration::MdnsInstanceRegistry;
 use crate::gateway::middleware::MiddlewareChain;
 use crate::gateway::relay_registration::RelayInstanceRegistry;
+use crate::gateway::resilience::GatewayResilienceState;
 use dcc_mcp_gateway_core::PendingCall;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
@@ -57,13 +58,15 @@ pub struct DiscoveryState<'a> {
 
 /// Routing / dispatch view over gateway state (issue #839).
 ///
-/// Covers the per-call plumbing: outgoing HTTP, per-backend timeouts, and the
-/// in-flight pending-call table used so `notifications/cancelled` can reach
-/// the correct backend (issue #321 / #314).
+/// Covers the per-call plumbing: outgoing HTTP, per-backend timeouts, retry
+/// and circuit policy, and the in-flight pending-call table used so
+/// `notifications/cancelled` can reach the correct backend (issue #321 / #314).
 #[derive(Clone, Copy)]
 pub struct RoutingState<'a> {
     /// Shared reqwest client reused across all backend calls.
     pub http_client: &'a reqwest::Client,
+    /// Instance-owned retry policy and circuit-breaker observations.
+    pub resilience: &'a Arc<GatewayResilienceState>,
     /// Per-backend request timeout for gateway fan-out calls (issue #314).
     pub backend_timeout: Duration,
     /// Longer timeout applied when the outbound `tools/call` is async-opt-in

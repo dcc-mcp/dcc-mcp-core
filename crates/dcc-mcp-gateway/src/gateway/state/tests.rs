@@ -25,6 +25,7 @@ fn test_gateway_state_with_own_and_unknown(
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
         ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
+        resilience: std::sync::Arc::new(Default::default()),
         registry: reg,
         http_instance_registry: Arc::new(parking_lot::RwLock::new(
             crate::gateway::http_registration::HttpInstanceRegistry::default(),
@@ -1384,6 +1385,7 @@ async fn test_sub_state_views_carry_only_their_responsibility() {
 
     // Routing view — fields match the documented dispatch surface.
     let r = gs.routing();
+    assert!(Arc::ptr_eq(r.resilience, &gs.resilience));
     assert_eq!(r.backend_timeout, gs.backend_timeout);
     assert_eq!(r.async_dispatch_timeout, gs.async_dispatch_timeout);
     assert_eq!(r.wait_terminal_timeout, gs.wait_terminal_timeout);

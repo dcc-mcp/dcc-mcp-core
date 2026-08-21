@@ -97,6 +97,7 @@ pub(crate) async fn skill_mgmt_dispatch(
                     let _mutation_guard = mutation_gate.lock().await;
                     match call_backend(
                         &gs.http_client,
+                        &gs.resilience,
                         &url,
                         "tools/call",
                         Some(params),
@@ -257,6 +258,7 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             }
 
             let client = &gs.http_client;
+            let resilience = &gs.resilience;
             let backend_timeout = gs.backend_timeout;
             let params = json!({"name": tool, "arguments": args});
             let futs = targets.iter().map(|entry| {
@@ -265,6 +267,7 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
                 async move {
                     let res = call_backend(
                         client,
+                        resilience,
                         &url,
                         "tools/call",
                         Some(params),
