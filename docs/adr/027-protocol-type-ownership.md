@@ -76,6 +76,13 @@ lifecycle controls. The transport-neutral settings nested under
 into the runtime type by `dcc-mcp-http`. The HTTP type's former
 `GatewayConfig` name is a deprecated compatibility alias.
 
+`dcc_mcp_catalog::CatalogSearchHit` is a lightweight index-and-score reference
+into one product-catalog slice. It is intentionally distinct from the generic,
+record-bearing `dcc_mcp_gateway_search::SearchHit<R>` ranking result. The
+catalog type's former `SearchHit` name is a deprecated compatibility alias;
+catalog APIs use the explicit name so imports cannot imply that the two search
+domains share a contract.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.
