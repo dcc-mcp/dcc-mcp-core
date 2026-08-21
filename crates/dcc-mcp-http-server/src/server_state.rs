@@ -50,6 +50,7 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
+use dcc_mcp_http_types::config::FeatureFlags;
 use dcc_mcp_job::job::JobManager;
 use dcc_mcp_jsonrpc::ElicitationCreateResult;
 use dcc_mcp_skills::SkillCatalog;
@@ -82,9 +83,6 @@ pub struct ServerState {
     pub sessions: SessionManager,
     /// Optional DCC main-thread executor.
     pub executor: Option<DccExecutorHandle>,
-    /// Explicit opt-in for standalone/batch hosts where the in-process lane is
-    /// already safe for main-affinity calls even without a GUI dispatcher.
-    pub standalone_main_thread_execution: bool,
     /// Server name surfaced in `initialize`.
     pub server_name: String,
     /// Server version surfaced in `initialize`.
@@ -95,24 +93,15 @@ pub struct ServerState {
     pub in_flight: InFlightRequests,
     /// Pending `elicitation/create` requests keyed by request id.
     pub pending_elicitations: Arc<DashMap<String, oneshot::Sender<ElicitationCreateResult>>>,
-    /// Enables lazy action meta-tools.
-    pub lazy_actions: bool,
-    /// Enables bare tool names when unique.
-    pub bare_tool_names: bool,
-    /// Omit ``__skill__*`` stubs from ``tools/list`` when true.
-    pub exclude_skill_stubs_from_tools_list: bool,
-    /// Omit ``__group__*`` stubs from ``tools/list`` when true.
-    pub exclude_group_stubs_from_tools_list: bool,
+    /// Cohesive server capability switches copied from
+    /// [`dcc_mcp_http_types::config::McpHttpConfig`].
+    pub features: FeatureFlags,
     /// Capabilities declared by the hosting adapter.
     pub declared_capabilities: Arc<Vec<String>>,
     /// Async job manager.
     pub jobs: Arc<JobManager>,
     /// Job / workflow lifecycle notifier.
     pub job_notifier: JobNotifier,
-    /// Whether resources are enabled.
-    pub enable_resources: bool,
-    /// Whether prompts are enabled.
-    pub enable_prompts: bool,
     /// Registry generation used for per-session tool-list cache invalidation.
     pub registry_generation: Arc<AtomicU64>,
     /// Whether per-session tool-list cache is enabled.
@@ -138,21 +127,15 @@ impl ServerState {
                 catalog,
                 sessions: sessions.clone(),
                 executor: None,
-                standalone_main_thread_execution: false,
                 server_name: "dcc-mcp-http".to_owned(),
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
                 cancelled_requests: Arc::new(DashMap::new()),
                 in_flight: InFlightRequests::new(),
                 pending_elicitations: Arc::new(DashMap::new()),
-                lazy_actions: false,
-                bare_tool_names: true,
-                exclude_skill_stubs_from_tools_list: false,
-                exclude_group_stubs_from_tools_list: false,
+                features: FeatureFlags::default(),
                 declared_capabilities: Arc::new(Vec::new()),
                 jobs: Arc::new(JobManager::new()),
                 job_notifier: JobNotifier::new(sessions, true),
-                enable_resources: true,
-                enable_prompts: true,
                 registry_generation: Arc::new(AtomicU64::new(0)),
                 enable_tool_cache: true,
                 #[cfg(feature = "prometheus")]
@@ -206,7 +189,7 @@ impl ServerStateBuilder {
     /// embedding adapter has explicitly declared a standalone-safe main lane.
     #[must_use]
     pub fn with_standalone_main_thread_execution(mut self, enabled: bool) -> Self {
-        self.state.standalone_main_thread_execution = enabled;
+        self.state.features.standalone_main_thread_execution = enabled;
         self
     }
 
@@ -235,28 +218,28 @@ impl ServerStateBuilder {
     /// Enable or disable lazy action meta-tools.
     #[must_use]
     pub fn with_lazy_actions(mut self, lazy_actions: bool) -> Self {
-        self.state.lazy_actions = lazy_actions;
+        self.state.features.lazy_actions = lazy_actions;
         self
     }
 
     /// Enable or disable bare tool names.
     #[must_use]
     pub fn with_bare_tool_names(mut self, bare_tool_names: bool) -> Self {
-        self.state.bare_tool_names = bare_tool_names;
+        self.state.features.bare_tool_names = bare_tool_names;
         self
     }
 
     /// Omit unloaded-skill ``__skill__*`` stubs from ``tools/list``.
     #[must_use]
     pub fn with_exclude_skill_stubs_from_tools_list(mut self, exclude: bool) -> Self {
-        self.state.exclude_skill_stubs_from_tools_list = exclude;
+        self.state.features.exclude_skill_stubs_from_tools_list = exclude;
         self
     }
 
     /// Omit inactive-group ``__group__*`` stubs from ``tools/list``.
     #[must_use]
     pub fn with_exclude_group_stubs_from_tools_list(mut self, exclude: bool) -> Self {
-        self.state.exclude_group_stubs_from_tools_list = exclude;
+        self.state.features.exclude_group_stubs_from_tools_list = exclude;
         self
     }
 
@@ -284,14 +267,21 @@ impl ServerStateBuilder {
     /// Enable or disable resource handling.
     #[must_use]
     pub fn with_resources_enabled(mut self, enable_resources: bool) -> Self {
-        self.state.enable_resources = enable_resources;
+        self.state.features.enable_resources = enable_resources;
         self
     }
 
     /// Enable or disable prompt handling.
     #[must_use]
     pub fn with_prompts_enabled(mut self, enable_prompts: bool) -> Self {
-        self.state.enable_prompts = enable_prompts;
+        self.state.features.enable_prompts = enable_prompts;
+        self
+    }
+
+    /// Replace all server capability switches as one coherent snapshot.
+    #[must_use]
+    pub fn with_features(mut self, features: FeatureFlags) -> Self {
+        self.state.features = features;
         self
     }
 
@@ -319,3 +309,6 @@ impl ServerStateBuilder {
         self.state
     }
 }
+
+#[cfg(test)]
+mod tests;

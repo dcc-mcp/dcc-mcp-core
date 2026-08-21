@@ -35,7 +35,7 @@ pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
 
     // Build provider trait objects that bridge registries into the handler.
     let resource_provider: Option<Arc<dyn dcc_mcp_http_server::rmcp_providers::ResourceProvider>> =
-        if app_state.server.enable_resources {
+        if app_state.server.features.enable_resources {
             Some(Arc::new(ResourceRegistryProvider {
                 registry: app_state.resources.clone(),
             }))
@@ -44,7 +44,7 @@ pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
         };
 
     let prompt_provider: Option<Arc<dyn dcc_mcp_http_server::rmcp_providers::PromptProvider>> =
-        if app_state.server.enable_prompts {
+        if app_state.server.features.enable_prompts {
             Some(Arc::new(PromptRegistryProvider {
                 registry: app_state.prompts.clone(),
             }))
@@ -54,7 +54,7 @@ pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
 
     let prompts = app_state.prompts.clone();
     let server_hook = app_state.server.clone();
-    let enable_prompt_broadcast = app_state.server.enable_prompts;
+    let enable_prompt_broadcast = app_state.server.features.enable_prompts;
 
     let on_skill_catalog_mutated: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         prompts.invalidate();

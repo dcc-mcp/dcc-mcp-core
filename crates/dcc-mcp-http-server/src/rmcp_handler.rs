@@ -100,13 +100,13 @@ impl ServerHandler for DccMcpHandler {
         capabilities.tools = Some(ToolsCapability {
             list_changed: Some(true),
         });
-        if self.state.enable_resources {
+        if self.state.features.enable_resources {
             capabilities.resources = Some(rmcp::model::ResourcesCapability {
                 subscribe: Some(true),
                 list_changed: Some(true),
             });
         }
-        if self.state.enable_prompts {
+        if self.state.features.enable_prompts {
             capabilities.prompts = Some(rmcp::model::PromptsCapability {
                 list_changed: Some(false),
             });

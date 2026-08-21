@@ -76,7 +76,10 @@ pub(crate) fn build_initialize_result_from_value(
 }
 
 fn server_capabilities(state: &ServerState, client_wants_delta: bool) -> ServerCapabilities {
-    let mut caps = match (state.enable_resources, state.enable_prompts) {
+    let mut caps = match (
+        state.features.enable_resources,
+        state.features.enable_prompts,
+    ) {
         (true, true) => ServerCapabilities::builder()
             .enable_logging()
             .enable_tools()

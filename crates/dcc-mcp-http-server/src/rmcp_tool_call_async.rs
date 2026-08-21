@@ -122,8 +122,8 @@ async fn run_async_execution_lane(
     let call_meta = attach_job_id_to_meta(call_meta, &job_id);
     let dispatcher = state.dispatcher.as_ref().clone();
     let use_main_thread = use_main_thread_route(thread_affinity, state.executor.is_some());
-    let standalone_main =
-        state.standalone_main_thread_execution && matches!(thread_affinity, ThreadAffinity::Main);
+    let standalone_main = state.features.standalone_main_thread_execution
+        && matches!(thread_affinity, ThreadAffinity::Main);
 
     if matches!(thread_affinity, ThreadAffinity::Main)
         && state.executor.is_none()

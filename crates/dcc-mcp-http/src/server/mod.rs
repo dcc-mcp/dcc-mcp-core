@@ -560,27 +560,15 @@ impl McpHttpServer {
             dcc_mcp_http_server::ServerState::builder(self.registry, self.dispatcher, catalog)
                 .with_sessions(sessions)
                 .with_executor(self.executor)
-                .with_standalone_main_thread_execution(
-                    self.config.features.standalone_main_thread_execution,
-                )
+                .with_features(self.config.features.clone())
                 .with_server_identity(
                     self.config.server.server_name.clone(),
                     self.config.server.server_version.clone(),
                 )
                 .with_cancelled_requests(cancelled_requests)
-                .with_lazy_actions(self.config.features.lazy_actions)
-                .with_bare_tool_names(self.config.features.bare_tool_names)
-                .with_exclude_skill_stubs_from_tools_list(
-                    self.config.features.exclude_skill_stubs_from_tools_list,
-                )
-                .with_exclude_group_stubs_from_tools_list(
-                    self.config.features.exclude_group_stubs_from_tools_list,
-                )
                 .with_declared_capabilities(self.config.instance.declared_capabilities.clone())
                 .with_jobs(jobs)
                 .with_job_notifier(job_notifier)
-                .with_resources_enabled(self.config.features.enable_resources)
-                .with_prompts_enabled(self.config.features.enable_prompts)
                 .with_tool_cache_enabled(self.config.session.enable_tool_cache);
         #[cfg(feature = "prometheus")]
         let server_state = server_state.with_prometheus(prometheus.clone());

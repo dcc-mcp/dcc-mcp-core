@@ -1496,6 +1496,13 @@ with an explicit retry count, failure threshold, and open duration in tests;
 do not serialize tests around first-touch global configuration or share circuit
 failures between embedded gateways.
 
+HTTP capability switches remain one `FeatureFlags` value from configuration
+through runtime dispatch. Build `ServerState` with
+`ServerStateBuilder::with_features(config.features.clone())`; handlers read
+`state.features.*`. Do not mirror `lazy_actions`, bare-name, resources,
+prompts, stub-visibility, or standalone-main-thread flags as loose booleans,
+because partial copies let initialization and advertised capabilities drift.
+
 ### Gateway Prometheus Metrics (issue #559)
 
 `/metrics` is **off by default**. To turn it on, build any consumer of
