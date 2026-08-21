@@ -493,7 +493,7 @@ REST 面板由 5 个 trait 组成，每一个都可替换。默认开箱即用�
 | Trait | 默认实现 | 常见替换 |
 |---|---|---|
 | `SkillCatalogSource` | 真实 `SkillCatalog` | 测试夹具；对远程 registry 的只读缓存。 |
-| `ToolInvoker` | 基于 `ToolDispatcher` 的 `DispatcherInvoker` | 排队投递到 DCC 主线程的队列型 invoker。 |
+| `ToolInvoker` | 基于 `ToolDispatcher` 的异步 `DispatcherInvoker` | 异步等待 DCC 主线程调度，不为每次调用创建辅助 OS 线程或嵌套 runtime。 |
 | `AuthGate` | `AllowLocalhostGate` | 远程访问用 `BearerTokenGate::new(vec![token])`；企业用 SSO gate。 |
 | `AuditSink` | `NoopSink` | 追加 JSONL 的 `FileAuditSink`；中央审计的 Kafka producer。 |
 | `ReadinessProbe` | 静态 `Ready` | 与 DCC 主机的真实就绪信号挂钩，场景加载中变红。 |

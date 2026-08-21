@@ -494,7 +494,7 @@ async fn handle_call(
         return service_error_to_response(err);
     }
     let started = std::time::Instant::now();
-    match cfg.service.dispatch_call(&req) {
+    match cfg.service.dispatch_call(&req).await {
         Ok(disposition) => {
             let (out, pending) = disposition.into_parts();
             emit_audit(
@@ -592,6 +592,7 @@ async fn handle_dcc_backend_call(
     match cfg
         .service
         .call_backend_tool_for_dcc(dcc_type.as_str(), backend_tool, params)
+        .await
     {
         Ok(out) => {
             emit_audit(

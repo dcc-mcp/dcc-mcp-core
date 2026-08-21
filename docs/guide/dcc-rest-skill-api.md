@@ -59,7 +59,9 @@ Each collaborator is a **trait** so adapters (Maya/Blender/Houdini) can swap
 in their own implementation without touching the router. Defaults wire to:
 
 - `SkillCatalog` (`dcc-mcp-skills`) for the catalog source,
-- `ToolDispatcher` (`dcc-mcp-actions`) for invocation,
+- `ToolDispatcher` (`dcc-mcp-actions`) for invocation. `ToolInvoker` is async,
+  so host-aware implementations await their dispatcher instead of blocking a
+  REST worker or creating a helper OS thread,
 - empty `ResourceProvider` / `PromptProvider` defaults that adapters can replace,
 - `JobProvider` for job event streams and cancellation,
 - `AllowLocalhostGate` for auth (loopback-only),

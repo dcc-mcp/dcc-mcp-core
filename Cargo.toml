@@ -155,6 +155,7 @@ sha2 = "0.11"
 rand = "0.10"
 http = "1.0"
 futures = "0.3"
+async-trait = "0.1"
 
 # Safe zero-copy (de)serialisation for shared-memory headers.
 bytemuck = { version = "1.22", features = ["derive", "extern_crate_alloc", "min_const_generics"] }

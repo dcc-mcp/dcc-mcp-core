@@ -916,7 +916,7 @@ deployments replace the ones that matter to them.
 | Trait | Default | Common overrides |
 |---|---|---|
 | `SkillCatalogSource` | Live `SkillCatalog` | A test fixture that returns a canned action list; a read-through cache against a remote registry. |
-| `ToolInvoker` | `DispatcherInvoker` over `ToolDispatcher` | A queue-backed invoker that posts jobs onto the DCC main thread via `QueueDispatcher`. |
+| `ToolInvoker` | Async `DispatcherInvoker` over `ToolDispatcher` | An async queue-backed invoker that awaits DCC main-thread dispatch without creating a helper OS thread or nested runtime. |
 | `AuthGate` | `AllowLocalhostGate` | `BearerTokenGate::new(vec![token])` for remote access; a studio SSO gate for enterprise. |
 | `AuditSink` | `NoopSink` | A `FileAuditSink` that appends JSONL rows; a Kafka producer for central audit. |
 | `ReadinessProbe` | Static `Ready` | A probe that checks the DCC host's own `ready` signal and goes red while the scene is loading. |

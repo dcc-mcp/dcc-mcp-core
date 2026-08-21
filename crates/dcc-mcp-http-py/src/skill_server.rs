@@ -192,9 +192,7 @@ impl PyMcpHttpServer {
                 bridge_runtime,
                 depth,
             );
-            server = server
-                .with_executor(executor)
-                .with_host_bridge_runtime(bridge_runtime.clone());
+            server = server.with_executor(executor);
         }
         // Issue #714 — propagate the shared readiness probe into the
         // Rust server so both `/mcp` and `/v1/call` consult it.

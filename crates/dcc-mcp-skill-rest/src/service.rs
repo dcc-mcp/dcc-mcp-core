@@ -419,10 +419,12 @@ pub struct CatalogAction {
 /// Anything that can invoke a tool by name and return its output.
 ///
 /// The default [`DispatcherInvoker`] uses [`ToolDispatcher`]
-/// synchronously. Embedders that marshal to a host main thread swap
-/// in their own impl here (e.g. Maya's `DccExecutorHandle`).
+/// without blocking the REST worker. Embedders that marshal to a host main
+/// thread swap in their own async implementation here (for example through a
+/// `DccExecutorHandle`).
+#[async_trait::async_trait]
 pub trait ToolInvoker: Send + Sync {
-    fn invoke(
+    async fn invoke(
         &self,
         action_name: &str,
         params: Value,
@@ -449,14 +451,14 @@ pub trait ToolInvoker: Send + Sync {
     /// cancellation. Host-aware invokers should override this method so a
     /// queued task can be skipped and a running task can observe cooperative
     /// cancellation checkpoints.
-    fn invoke_with_cancellation(
+    async fn invoke_with_cancellation(
         &self,
         action_name: &str,
         params: Value,
         meta: Option<Value>,
         _cancellation: InvocationCancellation,
     ) -> Result<CallOutcome, ServiceError> {
-        self.invoke(action_name, params, meta)
+        self.invoke(action_name, params, meta).await
     }
 }
 
@@ -1049,8 +1051,9 @@ fn is_host_busy_dispatch_error(message: &str) -> bool {
         || lower.contains("queue overloaded")
 }
 
+#[async_trait::async_trait]
 impl ToolInvoker for DispatcherInvoker {
-    fn invoke(
+    async fn invoke(
         &self,
         action_name: &str,
         params: Value,
@@ -1059,7 +1062,7 @@ impl ToolInvoker for DispatcherInvoker {
         self.invoke_inner(action_name, params, meta, None)
     }
 
-    fn invoke_with_cancellation(
+    async fn invoke_with_cancellation(
         &self,
         action_name: &str,
         params: Value,
@@ -1326,9 +1329,9 @@ impl SkillRestService {
     }
 
     /// Invoke a tool by slug.
-    pub fn call(&self, req: &CallRequest) -> Result<CallOutcome, ServiceError> {
+    pub async fn call(&self, req: &CallRequest) -> Result<CallOutcome, ServiceError> {
         let action = self.resolve_callable_action(&req.tool_slug)?;
-        self.invoke_resolved(req, &action)
+        self.invoke_resolved(req, &action).await
     }
 
     /// Dispatch a REST call according to its declared execution contract.
@@ -1337,7 +1340,10 @@ impl SkillRestService {
     /// retain synchronous behavior. Runtimes with a job-aware invoker return
     /// a pending envelope immediately for explicitly asynchronous or
     /// timeout-hinted tools, matching MCP dispatch semantics.
-    pub fn dispatch_call(&self, req: &CallRequest) -> Result<CallDispatchOutcome, ServiceError> {
+    pub async fn dispatch_call(
+        &self,
+        req: &CallRequest,
+    ) -> Result<CallDispatchOutcome, ServiceError> {
         let action = self.resolve_callable_action(&req.tool_slug)?;
         if should_dispatch_async(req.meta.as_ref(), &action)
             && let Some(pending) = self.invoker.invoke_async(
@@ -1354,18 +1360,20 @@ impl SkillRestService {
             }));
         }
         self.invoke_resolved(req, &action)
+            .await
             .map(CallDispatchOutcome::Completed)
     }
 
-    fn invoke_resolved(
+    async fn invoke_resolved(
         &self,
         req: &CallRequest,
         action: &CatalogAction,
     ) -> Result<CallOutcome, ServiceError> {
         // Dispatcher registers under the action name, not the slug.
-        let mut outcome =
-            self.invoker
-                .invoke(&action.action_name, req.params.clone(), req.meta.clone())?;
+        let mut outcome = self
+            .invoker
+            .invoke(&action.action_name, req.params.clone(), req.meta.clone())
+            .await?;
         // Normalise the outcome to report the slug the caller used.
         outcome.slug = req.tool_slug.clone();
         Ok(outcome)
@@ -1391,7 +1399,7 @@ impl SkillRestService {
     ///
     /// Intended for `POST /v1/dcc/{dcc_type}/call` on a single-tenant HTTP server so
     /// non-MCP clients can skip composing the dotted `tool_slug` token.
-    pub fn call_backend_tool_for_dcc(
+    pub async fn call_backend_tool_for_dcc(
         &self,
         dcc_type: &str,
         backend_tool: &str,
@@ -1418,7 +1426,10 @@ impl SkillRestService {
             )
             .with_hint("call load_skill first"));
         }
-        let mut outcome = self.invoker.invoke(&action.action_name, params, None)?;
+        let mut outcome = self
+            .invoker
+            .invoke(&action.action_name, params, None)
+            .await?;
         outcome.slug = ToolSlug::build(&action.dcc, &action.skill_name, &action.action_name);
         Ok(outcome)
     }

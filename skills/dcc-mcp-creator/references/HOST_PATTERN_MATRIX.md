@@ -23,6 +23,9 @@ queues. JSON remains a transport boundary only (HTTP, MCP, IPC, or host RPC).
 - Import host modules inside callables or skill script entry points, never at
   package import time.
 - Mark scene-touching tools `affinity: main`.
+- Implement REST `ToolInvoker` ports asynchronously. Core awaits host dispatch
+  directly and carries the execution context in the routed request; adapters
+  must not create a helper OS thread or a second Tokio runtime per call.
 - Use `affinity: any` only for pure file, validation, serialization, or metadata
   operations.
 - If a tool can exceed two seconds, declare `execution: async` and a realistic
