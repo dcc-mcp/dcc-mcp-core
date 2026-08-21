@@ -9,7 +9,7 @@ repository.workspace = true
 description = "HostRpcClient trait + structured envelopes for the sidecar epic (RFC #998 Phase 2)"
 
 [dependencies]
-async-trait = "0.1"
+async-trait.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -8,13 +8,12 @@
 
 use std::sync::Arc;
 
-use dcc_mcp_actions::{DispatchExecutionContext, ToolDispatcher, with_execution_context};
+use dcc_mcp_actions::ToolDispatcher;
 use dcc_mcp_skill_rest::{
     CallOutcome, InvocationCancellation, ServiceError, ServiceErrorKind, ToolInvoker, ToolSlug,
     dispatch_error_to_service_error,
 };
 use serde_json::Value;
-use tokio::runtime::Handle;
 
 use crate::executor::DccExecutorHandle;
 use crate::rmcp_tool_call_dispatch::{
@@ -26,29 +25,18 @@ use crate::rmcp_tool_call_dispatch::{
 pub struct ThreadRoutedInvoker {
     dispatcher: Arc<ToolDispatcher>,
     executor: DccExecutorHandle,
-    /// Runtime that drains the host-bridge mpsc (see [`crate::host_bridge`]).
-    ///
-    /// [`dispatch_action_with_thread_routing`] must `.await` here — not on a
-    /// nested `current_thread` runtime — so `run_on_main_thread` can complete
-    /// while the dedicated HTTP thread is blocked in [`ToolInvoker::invoke`].
-    bridge_runtime: Handle,
 }
 
 impl ThreadRoutedInvoker {
     #[must_use]
-    pub fn new(
-        dispatcher: Arc<ToolDispatcher>,
-        executor: DccExecutorHandle,
-        bridge_runtime: Handle,
-    ) -> Self {
+    pub fn new(dispatcher: Arc<ToolDispatcher>, executor: DccExecutorHandle) -> Self {
         Self {
             dispatcher,
             executor,
-            bridge_runtime,
         }
     }
 
-    fn invoke_inner(
+    async fn invoke_inner(
         &self,
         action_name: &str,
         params: Value,
@@ -72,50 +60,23 @@ impl ThreadRoutedInvoker {
         let affinity = action_meta.thread_affinity;
         let enforce = action_meta.enforce_thread_affinity;
 
-        // `SkillRestService::call` is synchronous on the dedicated HTTP
-        // thread's `current_thread` runtime — `Handle::block_on` there
-        // panics. Hop to a plain OS thread and block on the host-bridge
-        // runtime so `run_on_main_thread` can `.await` the bridge mpsc.
-        let bridge_runtime = self.bridge_runtime.clone();
-        let host_dispatcher_attached = true;
-        let dispatch_result = std::thread::scope(|scope| {
-            let join = scope.spawn(move || {
-                with_execution_context(
-                    DispatchExecutionContext {
-                        host_dispatcher_attached: Some(host_dispatcher_attached),
-                    },
-                    || {
-                        let request = ThreadRoutingDispatch {
-                            dispatcher: dispatcher.as_ref().clone(),
-                            executor: Some(&executor),
-                            resolved_name: &action,
-                            call_params: params,
-                            meta,
-                            thread_affinity: affinity,
-                            enforce_thread_affinity: enforce,
-                            standalone_main_thread_execution: false,
-                        };
-                        match cancellation {
-                            Some(cancellation) => bridge_runtime.block_on(
-                                dispatch_action_with_thread_routing_cancellable(
-                                    request,
-                                    cancellation,
-                                ),
-                            ),
-                            None => bridge_runtime
-                                .block_on(dispatch_action_with_thread_routing(request)),
-                        }
-                    },
-                )
-                .map_err(dispatch_error_to_service_error)
-            });
-            join.join().map_err(|_| {
-                ServiceError::new(
-                    ServiceErrorKind::Internal,
-                    "thread-routed REST invoke panicked",
-                )
-            })?
-        })?;
+        let request = ThreadRoutingDispatch {
+            dispatcher: dispatcher.as_ref().clone(),
+            executor: Some(&executor),
+            resolved_name: &action,
+            call_params: params,
+            meta,
+            thread_affinity: affinity,
+            enforce_thread_affinity: enforce,
+            standalone_main_thread_execution: false,
+        };
+        let dispatch_result = match cancellation {
+            Some(cancellation) => {
+                dispatch_action_with_thread_routing_cancellable(request, cancellation).await
+            }
+            None => dispatch_action_with_thread_routing(request).await,
+        }
+        .map_err(dispatch_error_to_service_error)?;
 
         Ok(CallOutcome {
             slug: ToolSlug(action_name.to_string()),
@@ -125,17 +86,18 @@ impl ThreadRoutedInvoker {
     }
 }
 
+#[async_trait::async_trait]
 impl ToolInvoker for ThreadRoutedInvoker {
-    fn invoke(
+    async fn invoke(
         &self,
         action_name: &str,
         params: Value,
         meta: Option<Value>,
     ) -> Result<CallOutcome, ServiceError> {
-        self.invoke_inner(action_name, params, meta, None)
+        self.invoke_inner(action_name, params, meta, None).await
     }
 
-    fn invoke_with_cancellation(
+    async fn invoke_with_cancellation(
         &self,
         action_name: &str,
         params: Value,
@@ -143,6 +105,7 @@ impl ToolInvoker for ThreadRoutedInvoker {
         cancellation: InvocationCancellation,
     ) -> Result<CallOutcome, ServiceError> {
         self.invoke_inner(action_name, params, meta, Some(cancellation))
+            .await
     }
 }
 
@@ -197,16 +160,11 @@ mod tests {
             panic!("dispatcher tick thread saw no jobs");
         });
 
-        let invoker = ThreadRoutedInvoker::new(dispatcher, executor, bridge_rt);
-        // Production path: the dedicated HTTP thread is outside the bridge
-        // runtime; it calls `invoke` which `block_on`s the bridge runtime.
-        let outcome = std::thread::spawn(move || {
-            invoker
-                .invoke("thread_probe", json!({}), None)
-                .expect("main-thread REST invoke")
-        })
-        .join()
-        .expect("invoke thread");
+        let invoker = ThreadRoutedInvoker::new(dispatcher, executor);
+        let outcome = invoker
+            .invoke("thread_probe", json!({}), None)
+            .await
+            .expect("main-thread REST invoke");
         assert_eq!(outcome.output["ok"], true);
         ticker.join().unwrap();
     }
@@ -235,7 +193,7 @@ mod tests {
 
         let mut deferred = DeferredExecutor::new(8);
         let jobs = Arc::new(JobManager::new());
-        let routed = ThreadRoutedInvoker::new(dispatcher, deferred.handle(), Handle::current());
+        let routed = ThreadRoutedInvoker::new(dispatcher, deferred.handle());
         let invoker = JobAwareInvoker::new(Arc::new(routed), Arc::clone(&jobs));
         let pending = invoker
             .invoke_async(

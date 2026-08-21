@@ -152,14 +152,15 @@ struct ImmediatePendingInvoker {
     inner: DispatcherInvoker,
 }
 
+#[async_trait::async_trait]
 impl ToolInvoker for ImmediatePendingInvoker {
-    fn invoke(
+    async fn invoke(
         &self,
         action_name: &str,
         params: Value,
         meta: Option<Value>,
     ) -> Result<CallOutcome, ServiceError> {
-        self.inner.invoke(action_name, params, meta)
+        self.inner.invoke(action_name, params, meta).await
     }
 
     fn invoke_async(
@@ -251,6 +252,7 @@ async fn mcp_wrapper_and_rest_agree_on_call_output() {
             params: json!({"radius": 3.0}),
             meta: None,
         })
+        .await
         .expect("mcp call ok");
 
     // REST path.
@@ -1670,8 +1672,8 @@ async fn meta_passthrough_with_strict_schema_additional_properties_false() {
 
 // ── Scenario 6: service-layer meta passthrough ─────────────
 
-#[test]
-fn service_layer_call_passes_meta_through_to_invoker() {
+#[tokio::test]
+async fn service_layer_call_passes_meta_through_to_invoker() {
     let (svc, _, _) = fixture_meta_aware_tools();
 
     // Service-layer call (bypasses HTTP) — the same path the gateway
@@ -1685,6 +1687,7 @@ fn service_layer_call_passes_meta_through_to_invoker() {
                 "agent_context": {"actor_id": "svc-caller"}
             })),
         })
+        .await
         .expect("service call");
     let output = &outcome.output;
     assert_eq!(output["profile"], "staging");
@@ -1694,8 +1697,8 @@ fn service_layer_call_passes_meta_through_to_invoker() {
     );
 }
 
-#[test]
-fn service_layer_call_without_meta_is_backward_compatible() {
+#[tokio::test]
+async fn service_layer_call_without_meta_is_backward_compatible() {
     let (svc, _, _) = fixture_meta_aware_tools();
 
     let outcome = svc
@@ -1704,6 +1707,7 @@ fn service_layer_call_without_meta_is_backward_compatible() {
             params: json!({"service": "fpt"}),
             meta: None,
         })
+        .await
         .expect("service call");
     assert_eq!(outcome.output["profile"], "default");
 }

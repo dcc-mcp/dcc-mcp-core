@@ -46,14 +46,15 @@ impl JobAwareInvoker {
     }
 }
 
+#[async_trait::async_trait]
 impl ToolInvoker for JobAwareInvoker {
-    fn invoke(
+    async fn invoke(
         &self,
         action_name: &str,
         params: Value,
         meta: Option<Value>,
     ) -> Result<CallOutcome, ServiceError> {
-        self.inner.invoke(action_name, params, meta)
+        self.inner.invoke(action_name, params, meta).await
     }
 
     fn invoke_async(
@@ -82,29 +83,39 @@ impl ToolInvoker for JobAwareInvoker {
         let action_name = action_name.to_string();
         let spawned_job_id = job_id.clone();
         let meta = attach_job_id_to_meta(meta, &job_id);
+        // Long-running jobs may execute embedded Python. Keep that work on a
+        // stable blocking-pool thread (required by CPython 3.7 thread-state
+        // ownership) while still awaiting an async host dispatcher. This is
+        // only the explicit background-job path; synchronous REST calls await
+        // ToolInvoker directly and do not create a helper thread.
+        let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
-            if cancel_token.is_cancelled() {
-                let _ = jobs.acknowledge_cancel(&spawned_job_id);
-                return;
-            }
-            if jobs.start(&spawned_job_id).is_none() {
-                return;
-            }
-            let cancellation = InvocationCancellation::new(spawned_job_id.clone(), cancel_token);
-            let result =
-                invoker.invoke_with_cancellation(&action_name, params, meta, cancellation.clone());
-            if cancellation.cancel_token().is_cancelled() {
-                let _ = jobs.acknowledge_cancel(&spawned_job_id);
-                return;
-            }
-            match result {
-                Ok(outcome) => {
-                    let _ = jobs.complete(&spawned_job_id, outcome.output);
+            runtime.block_on(async move {
+                if cancel_token.is_cancelled() {
+                    let _ = jobs.acknowledge_cancel(&spawned_job_id);
+                    return;
                 }
-                Err(error) => {
-                    let _ = jobs.fail(&spawned_job_id, error.message);
+                if jobs.start(&spawned_job_id).is_none() {
+                    return;
                 }
-            }
+                let cancellation =
+                    InvocationCancellation::new(spawned_job_id.clone(), cancel_token);
+                let result = invoker
+                    .invoke_with_cancellation(&action_name, params, meta, cancellation.clone())
+                    .await;
+                if cancellation.cancel_token().is_cancelled() {
+                    let _ = jobs.acknowledge_cancel(&spawned_job_id);
+                    return;
+                }
+                match result {
+                    Ok(outcome) => {
+                        let _ = jobs.complete(&spawned_job_id, outcome.output);
+                    }
+                    Err(error) => {
+                        let _ = jobs.fail(&spawned_job_id, error.message);
+                    }
+                }
+            });
         });
 
         Ok(Some(PendingCall::new(job_id, parent_job_id)))
@@ -123,8 +134,9 @@ mod tests {
 
     struct EchoInvoker;
 
+    #[async_trait::async_trait]
     impl ToolInvoker for EchoInvoker {
-        fn invoke(
+        async fn invoke(
             &self,
             action_name: &str,
             params: Value,
@@ -140,8 +152,9 @@ mod tests {
 
     struct MetaCapturingInvoker(Arc<Mutex<Option<Value>>>);
 
+    #[async_trait::async_trait]
     impl ToolInvoker for MetaCapturingInvoker {
-        fn invoke(
+        async fn invoke(
             &self,
             action_name: &str,
             _params: Value,
@@ -161,8 +174,9 @@ mod tests {
         release: Arc<std::sync::atomic::AtomicBool>,
     }
 
+    #[async_trait::async_trait]
     impl ToolInvoker for BlockingInvoker {
-        fn invoke(
+        async fn invoke(
             &self,
             action_name: &str,
             _params: Value,

@@ -72,8 +72,9 @@ impl FakeInvoker {
     }
 }
 
+#[async_trait::async_trait]
 impl ToolInvoker for FakeInvoker {
-    fn invoke(
+    async fn invoke(
         &self,
         name: &str,
         params: Value,
@@ -729,8 +730,8 @@ fn describe_unknown_slug_is_404_class() {
     assert_eq!(err.kind, ServiceErrorKind::UnknownSlug);
 }
 
-#[test]
-fn call_rejects_unloaded_skill() {
+#[tokio::test]
+async fn call_rejects_unloaded_skill() {
     let (svc, _) = build_service(vec![sphere_action(false)]);
     let err = svc
         .call(&CallRequest {
@@ -738,6 +739,7 @@ fn call_rejects_unloaded_skill() {
             params: Value::Null,
             meta: None,
         })
+        .await
         .unwrap_err();
     assert_eq!(err.kind, ServiceErrorKind::SkillNotLoaded);
 }
@@ -768,8 +770,8 @@ fn queue_overload_maps_to_host_busy() {
     }
 }
 
-#[test]
-fn call_dispatches_and_normalises_slug() {
+#[tokio::test]
+async fn call_dispatches_and_normalises_slug() {
     let (svc, inv) = build_service(vec![sphere_action(true)]);
     inv.set_next(Ok(serde_json::json!({"created": 1})));
     let out = svc
@@ -778,6 +780,7 @@ fn call_dispatches_and_normalises_slug() {
             params: serde_json::json!({"radius": 1.5}),
             meta: None,
         })
+        .await
         .unwrap();
     assert_eq!(out.slug.0, "maya.spheres.create_sphere");
     assert_eq!(out.output["created"], 1);
@@ -787,8 +790,8 @@ fn call_dispatches_and_normalises_slug() {
     assert_eq!(calls[0].1["radius"], 1.5);
 }
 
-#[test]
-fn invalid_slug_format_is_bad_request() {
+#[tokio::test]
+async fn invalid_slug_format_is_bad_request() {
     let (svc, _) = build_service(vec![sphere_action(true)]);
     let err = svc
         .call(&CallRequest {
@@ -796,6 +799,7 @@ fn invalid_slug_format_is_bad_request() {
             params: Value::Null,
             meta: None,
         })
+        .await
         .unwrap_err();
     assert_eq!(err.kind, ServiceErrorKind::BadRequest);
 }

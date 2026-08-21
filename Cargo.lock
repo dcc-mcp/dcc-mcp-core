@@ -1477,6 +1477,7 @@ dependencies = [
 name = "dcc-mcp-http-server"
 version = "0.20.8"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
  "chrono",
  "dashmap",
@@ -1834,6 +1835,7 @@ dependencies = [
 name = "dcc-mcp-skill-rest"
 version = "0.20.8"
 dependencies = [
+ "async-trait",
  "axum",
  "axum-test",
  "chrono",
