@@ -2,11 +2,12 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use dcc_mcp_host_rpc::HostRpcError;
+use dcc_mcp_jsonrpc::negotiate_protocol_version;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::trace::trace_context_from_headers;
-use super::{MCP_PROTOCOL_VERSION, SIDECAR_SERVER_NAME, SidecarMcpState};
+use super::{SIDECAR_SERVER_NAME, SidecarMcpState};
 
 #[derive(Debug, Deserialize)]
 struct JsonRpcRequest {
@@ -100,7 +101,7 @@ async fn dispatch(
     id: Value,
 ) -> Value {
     match req.method.as_str() {
-        "initialize" => initialize_response(id, &state.server_version),
+        "initialize" => initialize_response(id, &state.server_version, req),
         "ping" => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
         "tools/call" => handle_tools_call(state, headers, id, req).await,
         other => json!({
@@ -118,12 +119,18 @@ async fn dispatch(
     }
 }
 
-fn initialize_response(id: Value, server_version: &str) -> Value {
+fn initialize_response(id: Value, server_version: &str, req: &JsonRpcRequest) -> Value {
+    let requested_protocol_version = req
+        .params
+        .as_ref()
+        .and_then(|params| params.get("protocolVersion"))
+        .and_then(Value::as_str);
+    let protocol_version = negotiate_protocol_version(requested_protocol_version);
     json!({
         "jsonrpc": "2.0",
         "id": id,
         "result": {
-            "protocolVersion": MCP_PROTOCOL_VERSION,
+            "protocolVersion": protocol_version,
             "capabilities": {
                 "tools": {"listChanged": false}
             },
