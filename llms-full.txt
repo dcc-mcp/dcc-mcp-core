@@ -138,6 +138,8 @@ crates/
 
 Rust naming ownership: use `dcc_mcp_naming` for ecosystem-wide tool/action name validation and `dcc_mcp_gateway_core::capability_naming` for gateway instance/skill projection, codecs, and bare-name collision policy. The former gateway-core `naming` module path is a deprecated compatibility alias.
 
+Python version ownership: use the import-light `dcc_mcp_core._version_util.parse_semver` helper for lifecycle and guardian decisions. It returns `None` for malformed numeric cores; callers must preserve unknown/fail-closed behavior rather than coercing invalid segments to zero.
+
 **Key import pattern** (always use the top-level package):
 ```python
 from dcc_mcp_core import ToolRegistry, success_result, SkillScanner

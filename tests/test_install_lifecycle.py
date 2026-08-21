@@ -1893,6 +1893,11 @@ def test_plan_runtime_updates_does_not_treat_dcc_version_as_core_version() -> No
     assert plan["verification_required_count"] == 1
 
 
+def test_compare_version_reports_malformed_numeric_core_as_unknown() -> None:
+    assert lifecycle._compare_version("release", "0.17.21") == "unknown"
+    assert lifecycle._compare_version("0.17.20", "1.two.3") == "unknown"
+
+
 def test_plan_runtime_updates_marks_host_only_runtime_manual() -> None:
     plan = lifecycle.plan_runtime_updates(
         [

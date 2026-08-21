@@ -20,6 +20,7 @@ from urllib.request import Request
 from urllib.request import urlopen
 import uuid
 
+from dcc_mcp_core._version_util import parse_semver as _parse_semver
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.install_lifecycle import default_registry_dir
 
@@ -740,32 +741,11 @@ class GatewayDaemonGuardian:
         return payload
 
 
-# ── Semver helpers (aligned with Rust crates/dcc-mcp-gateway/src/gateway/version.rs) ──
-
-
-def _parse_semver(v: str) -> tuple[int, int, int]:
-    """Parse a semver string like ``"0.18.15"`` or ``"v1.2.3-rc1"`` into a triple.
-
-    Handles leading ``v`` prefixes and pre-release suffixes.
-    Missing components default to 0.
-    """
-    stripped = v.strip().lstrip("vV")
-    parts: list[int] = []
-    for segment in stripped.split("."):
-        # Strip pre-release suffix (everything after first '-')
-        numeric = segment.split("-")[0]
-        try:
-            parts.append(int(numeric))
-        except (ValueError, TypeError):
-            parts.append(0)
-    while len(parts) < 3:
-        parts.append(0)
-    return (parts[0], parts[1], parts[2])
-
-
 def _is_newer_version(candidate: str, current: str) -> bool:
     """Return True when *candidate* is strictly newer than *current*."""
-    return _parse_semver(candidate) > _parse_semver(current)
+    candidate_semver = _parse_semver(candidate)
+    current_semver = _parse_semver(current)
+    return candidate_semver is not None and current_semver is not None and candidate_semver > current_semver
 
 
 def _get_core_version() -> str:
