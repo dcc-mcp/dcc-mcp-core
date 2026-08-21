@@ -314,6 +314,9 @@ cmd, env = build_gateway_daemon_command(
 - `ServiceEntry.version` remains the DCC application version. Core registration
   paths publish `dcc_mcp_server_version` separately and classify the runtime as
   `dcc_mcp_instance_type=gui|standalone` for Admin diagnostics.
+- `ServiceEntry.schema_version` owns the file-row contract. Missing versions
+  are legacy schema 0, current writers emit schema 1, and a higher schema stops
+  loading or mutation without quarantining or rewriting `services.json`.
 - The daemon hosts the gateway plane only; DCC backends handle tool execution.
 - If the daemon crashes, any surviving guardian restarts it within ~10-15 s (two probe misses + re-ensure time).
 - When all routable backends exit, the daemon shuts down after `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` (manual CLI default 30 s; daemon auto-ensure default 300 s), unless `DCC_MCP_GATEWAY_PERSIST=1`.

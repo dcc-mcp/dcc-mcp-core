@@ -5,6 +5,7 @@ mod file_registry_async;
 mod liveness;
 #[cfg(feature = "mdns")]
 pub mod mdns;
+mod registry_format;
 pub mod types;
 
 use std::time::Duration;

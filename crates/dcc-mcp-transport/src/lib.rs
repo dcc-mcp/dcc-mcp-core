@@ -53,7 +53,8 @@ pub use dcc_link::{
 };
 pub use discovery::ServiceRegistry;
 pub use discovery::types::{
-    DispatchStatus, InstanceStatus, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
+    DispatchStatus, InstanceStatus, SERVICE_ENTRY_LEGACY_SCHEMA_VERSION,
+    SERVICE_ENTRY_SCHEMA_VERSION, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
 };
 pub use error::{TransportError, TransportResult};
 pub use event_bridge::{EventBridge, EventBridgeService, NoopBridge};

@@ -1569,6 +1569,7 @@ addr = scheme.select_address(dcc_type="maya", host="127.0.0.1", port=18812, pid=
 ### ServiceEntry
 
 ```python
+entry.schema_version      # int (current rows: 1; missing legacy field: 0)
 entry.dcc_type           # str
 entry.instance_id        # str
 entry.host, entry.port   # str, int
@@ -1582,6 +1583,9 @@ entry.is_ipc             # bool
 entry.effective_address()  # -> TransportAddress (transport_address or TCP fallback)
 entry.to_dict()
 ```
+
+FileRegistry accepts legacy/current service-entry schemas and rejects a higher
+version without quarantining or rewriting `services.json`.
 
 ### ServiceStatus
 

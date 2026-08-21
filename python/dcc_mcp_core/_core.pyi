@@ -2293,6 +2293,11 @@ class ServiceEntry:
     ```
     """
     @property
+    def schema_version(self) -> builtins.int:
+        r"""
+        Version of the serialized service-registry schema.
+        """
+    @property
     def dcc_type(self) -> builtins.str:
         r"""
         DCC application type (e.g. "maya", "houdini", "blender").

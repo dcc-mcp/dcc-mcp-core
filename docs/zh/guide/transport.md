@@ -307,6 +307,7 @@ addr = TransportScheme.AUTO.select_address("maya", "127.0.0.1", 18812, pid=12345
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
+| `schema_version` | `int` | 注册表行 schema 版本；新行使用 `1`，缺少该字段的旧行按版本 `0` 读取 |
 | `dcc_type` | `str` | DCC 类型，如 `"maya"` |
 | `instance_id` | `str` | UUID 字符串 |
 | `host` | `str` | 主机地址 |
@@ -318,6 +319,8 @@ addr = TransportScheme.AUTO.select_address("maya", "127.0.0.1", 18812, pid=12345
 | `status` | `ServiceStatus` | 实例状态 |
 | `transport_address` | `TransportAddress \| None` | 首选 IPC 地址 |
 | `last_heartbeat_ms` | `int` | 最后心跳时间戳（Unix 毫秒）|
+
+文件注册表读取端支持 `0..=1`。更高版本属于升级边界：加载和修改都会返回明确的不支持 schema 错误，并保留原始 `services.json`。格式错误的 JSON 仍属于独立的损坏场景，继续按原有逻辑隔离。
 
 ### ServiceStatus
 

@@ -271,6 +271,7 @@ fn make_service_entry(
     use std::time::SystemTime;
     let now = SystemTime::now();
     ServiceEntry {
+        schema_version: dcc_mcp_transport::SERVICE_ENTRY_SCHEMA_VERSION,
         dcc_type: dcc_type.into(),
         instance_id: uuid::Uuid::new_v4(),
         host: host.into(),

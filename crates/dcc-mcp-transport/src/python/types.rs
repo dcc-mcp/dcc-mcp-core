@@ -488,6 +488,9 @@ impl From<&PyTransportScheme> for TransportScheme {
 #[pyclass(name = "ServiceEntry", from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyServiceEntry {
+    /// Version of the serialized service-registry schema.
+    #[pyo3(get)]
+    pub schema_version: u16,
     /// DCC application type (e.g. "maya", "houdini", "blender").
     #[pyo3(get)]
     pub dcc_type: String,
@@ -588,6 +591,7 @@ impl PyServiceEntry {
     /// Convert to a dictionary for backward compatibility.
     fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
+        dict.set_item("schema_version", self.schema_version)?;
         dict.set_item("dcc_type", &self.dcc_type)?;
         dict.set_item("instance_id", &self.instance_id)?;
         dict.set_item("host", &self.host)?;
@@ -632,6 +636,7 @@ impl From<&ServiceEntry> for PyServiceEntry {
             .unwrap_or_default()
             .as_millis() as u64;
         Self {
+            schema_version: entry.schema_version,
             dcc_type: entry.dcc_type.clone(),
             instance_id: entry.instance_id.to_string(),
             host: entry.host.clone(),
@@ -676,6 +681,34 @@ mod tests {
             // last_heartbeat_ms must be a valid Unix epoch ms (within 2 seconds of now)
             assert!(py_entry.last_heartbeat_ms > 0);
             assert!(now_ms.abs_diff(py_entry.last_heartbeat_ms) < 2000);
+        }
+
+        #[test]
+        fn test_schema_version_is_exposed() {
+            let rust_entry = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+            let py_entry = PyServiceEntry::from(&rust_entry);
+
+            assert_eq!(py_entry.schema_version, rust_entry.schema_version);
+        }
+
+        #[test]
+        fn test_schema_version_is_in_python_dict() {
+            Python::initialize();
+            Python::attach(|py| -> PyResult<()> {
+                let rust_entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+                let py_entry = PyServiceEntry::from(&rust_entry);
+                let value = py_entry.to_dict(py)?;
+                let dict = value.bind(py).cast::<PyDict>()?;
+
+                assert_eq!(
+                    dict.get_item("schema_version")?
+                        .expect("schema_version must be present")
+                        .extract::<u16>()?,
+                    rust_entry.schema_version
+                );
+                Ok(())
+            })
+            .unwrap();
         }
 
         #[test]

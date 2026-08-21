@@ -468,7 +468,7 @@ tools:
 
 **Service Discovery** (still available):
 - `TransportAddress`, `TransportScheme` — address types for service discovery
-- `ServiceEntry` — discovered service metadata
+- `ServiceEntry` — discovered service metadata; `schema_version` is `1` for current rows and `0` for legacy rows with no version. FileRegistry rejects higher versions without quarantining or rewriting `services.json`.
 - `ServiceStatus` — service health status
 
 ### MCP HTTP Server (`dcc_mcp_core`)

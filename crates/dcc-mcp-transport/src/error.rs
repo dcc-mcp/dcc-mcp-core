@@ -55,6 +55,10 @@ pub enum TransportError {
     #[error("registry file error: {0}")]
     RegistryFile(String),
 
+    /// A registry row uses a schema newer than this build understands.
+    #[error("unsupported service-entry schema version {received} (supported: {supported})")]
+    UnsupportedServiceEntrySchemaVersion { received: u64, supported: u16 },
+
     /// Transport is already shut down.
     #[error("transport is shut down")]
     Shutdown,
@@ -252,6 +256,18 @@ mod tests {
         }
 
         #[test]
+        fn unsupported_service_entry_schema_version_display() {
+            let err = TransportError::UnsupportedServiceEntrySchemaVersion {
+                received: 7,
+                supported: 1,
+            };
+            let s = err.to_string();
+            assert!(s.contains('7'), "{s}");
+            assert!(s.contains('1'), "{s}");
+            assert!(s.contains("service-entry schema"), "{s}");
+        }
+
+        #[test]
         fn shutdown_display() {
             let err = TransportError::Shutdown;
             let s = err.to_string();
@@ -439,6 +455,10 @@ mod tests {
                 TransportError::Serialization("e".to_string()),
                 TransportError::Io(std::io::Error::other("test")),
                 TransportError::RegistryFile("f".to_string()),
+                TransportError::UnsupportedServiceEntrySchemaVersion {
+                    received: 2,
+                    supported: 1,
+                },
                 TransportError::Shutdown,
                 TransportError::SessionNotFound {
                     session_id: "s".to_string(),
