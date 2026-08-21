@@ -55,6 +55,8 @@ from typing import List
 from typing import Mapping
 from typing import Optional
 
+from dcc_mcp_core.errors import DccMcpError
+
 __all__ = [
     "AssetAttribution",
     "AssetDescriptor",
@@ -157,7 +159,7 @@ class ImportWarningCode:
 # ---------------------------------------------------------------------------
 
 
-class AssetImportValidationError(ValueError):
+class AssetImportValidationError(DccMcpError, ValueError):
     """Raised by :meth:`AssetDescriptor.validate` on hard validation failures.
 
     Inherits from :class:`ValueError` so callers that already catch ``ValueError``

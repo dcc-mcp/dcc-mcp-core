@@ -68,6 +68,7 @@ _LAZY: dict[str, str] = {
     "DccError": "dcc_mcp_core._core",
     "DccErrorCode": "dcc_mcp_core._core",
     "DccInfo": "dcc_mcp_core._core",
+    "DccMcpError": "dcc_mcp_core.errors",
     "DccLinkFrame": "dcc_mcp_core._core",
     "EventBus": "dcc_mcp_core._core",
     "FileLoggingConfig": "dcc_mcp_core._core",

@@ -14,6 +14,8 @@ from typing import Callable
 from typing import Iterable
 from typing import Mapping
 
+from dcc_mcp_core.errors import DccMcpError
+
 __all__ = [
     "DccBlockedCall",
     "DccGuardrailError",
@@ -21,7 +23,7 @@ __all__ = [
 ]
 
 
-class DccGuardrailError(RuntimeError):
+class DccGuardrailError(DccMcpError, RuntimeError):
     """Raised when a weak guardrail blocks a known-dangerous call."""
 
 

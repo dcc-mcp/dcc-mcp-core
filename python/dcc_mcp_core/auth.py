@@ -57,6 +57,8 @@ import os
 import secrets
 from typing import Any
 
+from dcc_mcp_core.errors import DccMcpError
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -69,7 +71,7 @@ __all__ = [
 ]
 
 
-class TokenValidationError(Exception):
+class TokenValidationError(DccMcpError):
     """Raised when a Bearer token fails validation."""
 
 

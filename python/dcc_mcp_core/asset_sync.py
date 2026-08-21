@@ -27,6 +27,8 @@ from typing import Mapping
 from typing import Optional
 from typing import Union
 
+from dcc_mcp_core.errors import DccMcpError
+
 __all__ = [
     "AssetSyncConflictError",
     "AssetSyncRevision",
@@ -35,11 +37,11 @@ __all__ = [
 ]
 
 
-class AssetSyncValidationError(ValueError):
+class AssetSyncValidationError(DccMcpError, ValueError):
     """Raised when a sync request or manifest violates the public contract."""
 
 
-class AssetSyncConflictError(RuntimeError):
+class AssetSyncConflictError(DccMcpError, RuntimeError):
     """Raised when optimistic revision preconditions do not match the head."""
 
 
