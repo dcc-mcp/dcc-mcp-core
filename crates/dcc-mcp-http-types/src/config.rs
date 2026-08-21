@@ -24,7 +24,9 @@ mod workflow;
 
 pub use aggregate::McpHttpConfig;
 pub use feature_flags::FeatureFlags;
-pub use gateway::{GatewayConfig, RelaySourceConfig};
+#[allow(deprecated)]
+pub use gateway::GatewayConfig;
+pub use gateway::{GatewaySettings, RelaySourceConfig};
 pub use instance::InstanceConfig;
 pub use job::{JobConfig, JobRecoveryPolicy};
 pub use queue::QueueConfig;

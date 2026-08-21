@@ -72,7 +72,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-gateway-ensure # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-sidecar       # Per-DCC sidecar + gateway daemon guardian runtime
-├── dcc-mcp-http-types    # Pure HTTP wire/config/value types, McpHttpConfig
+├── dcc-mcp-http-types    # Pure HTTP wire/config/value types, McpHttpConfig + GatewaySettings
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
 ├── dcc-mcp-http-py       # PyO3 binding boundary for HTTP APIs
 ├── dcc-mcp-http          # Embedded MCP HTTP facade + compatibility re-exports

@@ -59,7 +59,7 @@ fn all_mcp_http_config_fields_have_py_getters() {
     let _ = cfg.enable_prompts();
     let _ = cfg.standalone_main_thread_execution();
 
-    // ── GatewayConfig ────────────────────────────────────────────
+    // ── GatewaySettings ──────────────────────────────────────────
     let _ = cfg.gateway_port();
     let _ = cfg.gateway_remote_host();
     let _ = cfg.gateway_remote_port();

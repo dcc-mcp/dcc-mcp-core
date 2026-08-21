@@ -349,7 +349,7 @@ impl PyMcpHttpConfig {
         self.inner.features.standalone_main_thread_execution = v;
     }
 
-    // ── GatewayConfig getters/setters ───────────────────────────────
+    // ── GatewaySettings getters/setters ─────────────────────────────
 
     /// Gateway port to compete for. ``0`` disables the gateway.
     #[getter]

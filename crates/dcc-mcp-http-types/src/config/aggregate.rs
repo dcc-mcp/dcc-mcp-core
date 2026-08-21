@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use dcc_mcp_gateway_core::policy::GatewayPolicy;
 
 use super::{
-    FeatureFlags, GatewayConfig, InstanceConfig, JobConfig, JobRecoveryPolicy, QueueConfig,
+    FeatureFlags, GatewaySettings, InstanceConfig, JobConfig, JobRecoveryPolicy, QueueConfig,
     RelaySourceConfig, ServerConfig, ServerSpawnMode, SessionConfig, TelemetryConfig,
     WorkflowConfig,
 };
@@ -26,7 +26,7 @@ use super::{
 /// | `server` | [`ServerConfig`] | Core server identity & transport |
 /// | `instance` | [`InstanceConfig`] | DCC registration metadata |
 /// | `session` | [`SessionConfig`] | Session lifecycle & tool-cache |
-/// | `gateway` | [`GatewayConfig`] | Gateway election, routing, discovery |
+/// | `gateway` | [`GatewaySettings`] | Gateway election, routing, discovery |
 /// | `queue` | [`QueueConfig`] | Queue depth & backpressure |
 /// | `telemetry` | [`TelemetryConfig`] | Prometheus metrics |
 /// | `features` | [`FeatureFlags`] | Opt-in capability switches |
@@ -50,7 +50,7 @@ pub struct McpHttpConfig {
     pub session: SessionConfig,
 
     /// Gateway election, routing, and discovery.
-    pub gateway: GatewayConfig,
+    pub gateway: GatewaySettings,
 
     /// Queue depth & backpressure.
     pub queue: QueueConfig,

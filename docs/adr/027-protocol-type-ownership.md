@@ -68,6 +68,14 @@ re-export the shared implementation and retain their former `TransportError`
 names as deprecated aliases. The broader `dcc_mcp_transport::TransportError`
 continues to own IPC sessions, pools, reconnects, and registry failures.
 
+`dcc_mcp_gateway::GatewayConfig` owns the complete gateway runtime
+configuration, including middleware, authentication, persistence, and
+lifecycle controls. The transport-neutral settings nested under
+`McpHttpConfig.gateway` are named
+`dcc_mcp_http_types::config::GatewaySettings` and are explicitly projected
+into the runtime type by `dcc-mcp-http`. The HTTP type's former
+`GatewayConfig` name is a deprecated compatibility alias.
+
 Crate consolidation is not required by this decision. A future merge of
 `wire`, `jsonrpc`, or `protocols` needs separate dependency and compatibility
 evidence; removing duplicate definitions is sufficient.
