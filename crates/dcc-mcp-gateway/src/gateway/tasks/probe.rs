@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -12,13 +13,14 @@ use futures::future::join_all;
 /// startup by `N × timeout` (sequential behaviour made 4+ instances flaky on
 /// busy hosts where each connect approached the deadline).
 pub(crate) async fn probe_and_mark_unreachable_instances(
-    registry: &FileRegistry,
+    registry: &Arc<FileRegistry>,
     stale_timeout: Duration,
     own_host: &str,
     own_port: u16,
 ) -> TransportResult<Vec<ServiceEntry>> {
     let entries: Vec<_> = registry
-        .list_all()
+        .list_all_async()
+        .await?
         .into_iter()
         .filter(|e| {
             e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
@@ -58,10 +60,13 @@ pub(crate) async fn probe_and_mark_unreachable_instances(
     let mut marked = Vec::new();
     for (observed, reachable, addr, dcc_type, instance_id) in outcomes {
         if !reachable {
-            if registry.update_status_if_unchanged(
-                &observed,
-                dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable,
-            )? {
+            if registry
+                .update_status_if_unchanged_async(
+                    observed.clone(),
+                    dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable,
+                )
+                .await?
+            {
                 tracing::info!(
                     dcc_type = %dcc_type,
                     instance_id = %instance_id,
@@ -144,7 +149,7 @@ mod tests {
     #[tokio::test]
     async fn startup_probe_skips_port_zero_rows() {
         let dir = tempdir().unwrap();
-        let registry = FileRegistry::new(dir.path()).unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
         let entry = ServiceEntry::new("3dsmax", "127.0.0.1", 0);
         let key = entry.key();
         registry.register(entry).unwrap();
@@ -168,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn startup_probe_marks_unreachable_row_without_removing_it() {
         let dir = tempdir().unwrap();
-        let registry = FileRegistry::new(dir.path()).unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);

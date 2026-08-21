@@ -18,9 +18,7 @@ use super::*;
 /// is skipped — see issue #419. Pass `None`/`0` to disable the filter;
 /// tests that do not care about self-exclusion use this form.
 pub async fn compute_tools_fingerprint(
-    registry: &std::sync::Arc<
-        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
-    >,
+    registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
     backend_timeout: Duration,
@@ -39,9 +37,7 @@ pub async fn compute_tools_fingerprint(
 /// Same as [`compute_tools_fingerprint`] but also filters out the gateway's
 /// own plain-instance row (issue #419).
 pub(crate) async fn compute_tools_fingerprint_with_own(
-    registry: &std::sync::Arc<
-        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
-    >,
+    registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
     backend_timeout: Duration,
@@ -49,8 +45,10 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
     own_port: u16,
 ) -> String {
     let instances: Vec<ServiceEntry> = {
-        let reg = registry.read().await;
-        reg.list_all()
+        registry
+            .list_all_async()
+            .await
+            .unwrap_or_default()
             .into_iter()
             .filter(|e| {
                 !e.is_stale(stale_timeout)

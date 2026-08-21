@@ -100,12 +100,11 @@ pub async fn handle_admin_instances(
         || include_stale
         || include_dead;
 
-    let registry = s.gateway.registry.read().await;
     let (entries, evicted_dead) = if registry_view {
         if include_dead {
-            (s.gateway.all_instances(&registry), 0usize)
+            (s.gateway.all_instances_async().await, 0usize)
         } else {
-            match s.gateway.read_alive_instances(&registry) {
+            match s.gateway.read_alive_instances_async().await {
                 Ok((entries, evicted)) => (entries, evicted),
                 Err(err) => {
                     return (
@@ -120,7 +119,7 @@ pub async fn handle_admin_instances(
             }
         }
     } else {
-        (s.gateway.live_instances(&registry), 0usize)
+        (s.gateway.live_instances_async().await, 0usize)
     };
 
     let known_total = entries.len();
@@ -381,10 +380,9 @@ async fn admin_find_instance_entry(
             .into_response());
     }
 
-    let registry = s.gateway.registry.read().await;
-    let entries = match s.gateway.read_alive_instances(&registry) {
+    let entries = match s.gateway.read_alive_instances_async().await {
         Ok((entries, _)) => entries,
-        Err(_) => s.gateway.all_instances(&registry),
+        Err(_) => s.gateway.all_instances_async().await,
     };
     let filter_lower = filter.to_ascii_lowercase();
     let mut matches = entries

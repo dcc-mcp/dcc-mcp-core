@@ -3,12 +3,12 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast, watch};
 
-fn test_gateway_state(reg: Arc<RwLock<FileRegistry>>) -> GatewayState {
+fn test_gateway_state(reg: Arc<FileRegistry>) -> GatewayState {
     test_gateway_state_with_own(reg, "127.0.0.1", 9765)
 }
 
 fn test_gateway_state_with_own(
-    reg: Arc<RwLock<FileRegistry>>,
+    reg: Arc<FileRegistry>,
     own_host: &str,
     own_port: u16,
 ) -> GatewayState {
@@ -16,7 +16,7 @@ fn test_gateway_state_with_own(
 }
 
 fn test_gateway_state_with_own_and_unknown(
-    reg: Arc<RwLock<FileRegistry>>,
+    reg: Arc<FileRegistry>,
     own_host: &str,
     own_port: u16,
     allow_unknown_tools: bool,
@@ -89,10 +89,10 @@ fn test_gateway_state_with_own_and_unknown(
 #[tokio::test]
 async fn test_live_instances_excludes_gateway_sentinel() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
         sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
         r.register(sentinel).unwrap();
@@ -102,7 +102,7 @@ async fn test_live_instances_excludes_gateway_sentinel() {
     }
 
     let gs = test_gateway_state(registry.clone());
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
     assert_eq!(live.len(), 1, "only the maya row should be returned");
     assert_eq!(live[0].dcc_type, "maya");
     assert!(
@@ -114,7 +114,7 @@ async fn test_live_instances_excludes_gateway_sentinel() {
 #[tokio::test]
 async fn live_instances_includes_http_registered_rows() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let gs = test_gateway_state(registry.clone());
     let instance_id = uuid::Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap();
     {
@@ -135,8 +135,8 @@ async fn live_instances_includes_http_registered_rows() {
             .unwrap();
     }
 
-    let registry = registry.read().await;
-    let live = gs.live_instances(&registry);
+    let registry = &registry;
+    let live = gs.live_instances(registry);
     assert_eq!(live.len(), 1);
     assert_eq!(live[0].instance_id, instance_id);
     let row = gs.instance_json(&live[0]);
@@ -151,7 +151,7 @@ async fn live_instances_includes_http_registered_rows() {
 #[tokio::test]
 async fn live_instances_includes_mdns_rows_and_http_wins_conflicts() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let gs = test_gateway_state(registry.clone());
     let instance_id = uuid::Uuid::parse_str("55555555-5555-4555-8555-555555555555").unwrap();
     let now = std::time::SystemTime::now();
@@ -191,8 +191,8 @@ async fn live_instances_includes_mdns_rows_and_http_wins_conflicts() {
             .unwrap();
     }
 
-    let registry = registry.read().await;
-    let live = gs.live_instances(&registry);
+    let registry = &registry;
+    let live = gs.live_instances(registry);
     assert_eq!(live.len(), 1);
     let row = gs.instance_json(&live[0]);
     assert_eq!(row["source"], "http");
@@ -206,7 +206,7 @@ async fn live_instances_includes_mdns_rows_and_http_wins_conflicts() {
 #[tokio::test]
 async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let gs = test_gateway_state(registry.clone());
     let http_id = uuid::Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
     let relay_id = uuid::Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
@@ -215,7 +215,7 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
     let now = std::time::SystemTime::now();
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut stale_file_shadow = ServiceEntry::new("maya", "127.0.0.1", 1001);
         stale_file_shadow.instance_id = http_id;
         r.register(stale_file_shadow).unwrap();
@@ -291,8 +291,8 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
         )
         .unwrap();
 
-    let registry = registry.read().await;
-    let live = gs.live_instances(&registry);
+    let registry = &registry;
+    let live = gs.live_instances(registry);
     let sources: Vec<_> = live
         .iter()
         .map(|entry| crate::gateway::http_registration::entry_registry_source(entry).to_string())
@@ -346,10 +346,10 @@ async fn live_instances_merges_file_mdns_relay_and_http_in_priority_order() {
 #[tokio::test]
 async fn test_live_instances_excludes_gateway_self_row() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         // The sentinel + the gateway's own DCC row share host/port.
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
         sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
@@ -365,7 +365,7 @@ async fn test_live_instances_excludes_gateway_self_row() {
     }
 
     let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
     assert_eq!(
         live.len(),
         1,
@@ -381,10 +381,10 @@ async fn test_live_instances_excludes_gateway_self_row() {
 #[tokio::test]
 async fn test_live_instances_self_row_localhost_aliases() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         // Self row advertised as "localhost" — must still be filtered
         // when the gateway is bound to 127.0.0.1.
         let maya_self = ServiceEntry::new("maya", "localhost", 9765);
@@ -392,7 +392,7 @@ async fn test_live_instances_self_row_localhost_aliases() {
     }
 
     let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
     assert!(
         live.is_empty(),
         "self row with localhost alias must be filtered; got {live:#?}"
@@ -404,10 +404,10 @@ async fn test_live_instances_self_row_localhost_aliases() {
 #[tokio::test]
 async fn test_live_instances_excludes_status_stale_immediately() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut stale = ServiceEntry::new("maya", "127.0.0.1", 18812);
         stale.status = ServiceStatus::Stale;
         r.register(stale).unwrap();
@@ -417,7 +417,7 @@ async fn test_live_instances_excludes_status_stale_immediately() {
     }
 
     let gs = test_gateway_state(registry.clone());
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
     assert_eq!(live.len(), 1, "only the non-stale row should remain");
     assert_eq!(live[0].dcc_type, "photoshop");
 }
@@ -425,10 +425,10 @@ async fn test_live_instances_excludes_status_stale_immediately() {
 #[tokio::test]
 async fn test_live_instances_excludes_unroutable_statuses_from_liveness_view() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         for (dcc, status, port) in [
             ("maya", ServiceStatus::Booting, 18812),
             ("blender", ServiceStatus::Unreachable, 18813),
@@ -444,7 +444,7 @@ async fn test_live_instances_excludes_unroutable_statuses_from_liveness_view() {
     }
 
     let gs = test_gateway_state(registry.clone());
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
     assert_eq!(live.len(), 1, "only the routable row should remain");
     assert_eq!(live[0].dcc_type, "zbrush");
 }
@@ -452,10 +452,10 @@ async fn test_live_instances_excludes_unroutable_statuses_from_liveness_view() {
 #[tokio::test]
 async fn test_live_instances_prefers_sidecar_for_same_dcc_pid() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut in_process = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(4242);
         in_process.version = Some("2026".into());
         r.register(in_process).unwrap();
@@ -471,7 +471,7 @@ async fn test_live_instances_prefers_sidecar_for_same_dcc_pid() {
     }
 
     let gs = test_gateway_state(registry.clone());
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
 
     assert_eq!(live.len(), 1, "sidecar should replace same-pid adapter row");
     assert_eq!(live[0].port, 28812);
@@ -643,11 +643,11 @@ fn test_entry_json_marks_dispatch_not_reported_for_in_process_servers() {
 #[tokio::test]
 async fn test_instance_json_reports_ui_control_availability_from_capabilities() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let mut entry = ServiceEntry::new("python", "127.0.0.1", 18812);
     entry.instance_id = uuid::Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap();
     {
-        let r = registry.read().await;
+        let r = &registry;
         r.register(entry.clone()).unwrap();
     }
 
@@ -683,7 +683,7 @@ async fn test_instance_json_reports_ui_control_availability_from_capabilities() 
 #[tokio::test]
 async fn test_instance_json_reports_ui_control_disabled_by_policy() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 18812);
     entry
         .metadata
@@ -693,7 +693,7 @@ async fn test_instance_json_reports_ui_control_disabled_by_policy() {
         "adapter policy denied UI automation".into(),
     );
     {
-        let r = registry.read().await;
+        let r = &registry;
         r.register(entry.clone()).unwrap();
     }
 
@@ -713,10 +713,10 @@ async fn test_instance_json_reports_ui_control_disabled_by_policy() {
 #[tokio::test]
 async fn test_live_instances_stale_sidecar_does_not_hide_live_adapter() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let in_process = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(4242);
         r.register(in_process).unwrap();
 
@@ -729,7 +729,7 @@ async fn test_live_instances_stale_sidecar_does_not_hide_live_adapter() {
     }
 
     let gs = test_gateway_state(registry.clone());
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
 
     assert_eq!(
         live.len(),
@@ -743,26 +743,26 @@ async fn test_live_instances_stale_sidecar_does_not_hide_live_adapter() {
 #[tokio::test]
 async fn test_resolve_instance_accepts_short_and_unique_prefix() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let instance_id = uuid::Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
         maya.instance_id = instance_id;
         r.register(maya).unwrap();
     }
 
     let gs = test_gateway_state(registry.clone());
-    let reg = registry.read().await;
+    let reg = &registry;
     assert_eq!(
-        gs.resolve_instance(&reg, Some("abcdef01"), None)
+        gs.resolve_instance(reg, Some("abcdef01"), None)
             .unwrap()
             .instance_id,
         instance_id
     );
     assert_eq!(
-        gs.resolve_instance(&reg, Some("abcd"), Some("maya"))
+        gs.resolve_instance(reg, Some("abcd"), Some("maya"))
             .unwrap()
             .instance_id,
         instance_id
@@ -772,10 +772,10 @@ async fn test_resolve_instance_accepts_short_and_unique_prefix() {
 #[tokio::test]
 async fn test_resolve_instance_rejects_short_and_ambiguous_prefixes() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut a = ServiceEntry::new("maya", "127.0.0.1", 18812);
         a.instance_id = uuid::Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         r.register(a).unwrap();
@@ -785,13 +785,13 @@ async fn test_resolve_instance_rejects_short_and_ambiguous_prefixes() {
     }
 
     let gs = test_gateway_state(registry.clone());
-    let reg = registry.read().await;
-    let too_short = gs.resolve_instance(&reg, Some("ab"), None).unwrap_err();
+    let reg = &registry;
+    let too_short = gs.resolve_instance(reg, Some("ab"), None).unwrap_err();
     assert!(matches!(
         too_short,
         ResolveInstanceError::PrefixTooShort { .. }
     ));
-    let ambiguous = gs.resolve_instance(&reg, Some("abcdef"), None).unwrap_err();
+    let ambiguous = gs.resolve_instance(reg, Some("abcdef"), None).unwrap_err();
     assert!(matches!(
         ambiguous,
         ResolveInstanceError::MultipleMatches { .. }
@@ -803,10 +803,10 @@ async fn test_resolve_instance_rejects_short_and_ambiguous_prefixes() {
 #[tokio::test]
 async fn test_live_instances_hides_unknown_by_default() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let unknown = ServiceEntry::new("unknown", "127.0.0.1", 18812);
         r.register(unknown).unwrap();
 
@@ -815,7 +815,7 @@ async fn test_live_instances_hides_unknown_by_default() {
     }
 
     let gs = test_gateway_state_with_own_and_unknown(registry.clone(), "127.0.0.1", 9765, false);
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
     assert_eq!(live.len(), 1, "only the maya row should be returned");
     assert_eq!(live[0].dcc_type, "maya");
     assert!(
@@ -831,10 +831,10 @@ async fn test_live_instances_hides_unknown_by_default() {
 #[tokio::test]
 async fn test_live_instances_shows_unknown_when_allowed() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let unknown = ServiceEntry::new("unknown", "127.0.0.1", 18812);
         r.register(unknown).unwrap();
 
@@ -843,7 +843,7 @@ async fn test_live_instances_shows_unknown_when_allowed() {
     }
 
     let gs = test_gateway_state_with_own_and_unknown(registry.clone(), "127.0.0.1", 9765, true);
-    let live = gs.live_instances(&*registry.read().await);
+    let live = gs.live_instances(registry.as_ref());
     assert_eq!(live.len(), 2, "both rows should be returned when allowed");
     assert!(
         live.iter()
@@ -859,10 +859,10 @@ async fn test_live_instances_shows_unknown_when_allowed() {
 #[tokio::test]
 async fn test_all_instances_keeps_stale_and_unknown() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         // The bookkeeping sentinel — must always be filtered.
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
         sentinel.version = Some("0.14.18".into());
@@ -884,7 +884,7 @@ async fn test_all_instances_keeps_stale_and_unknown() {
     }
 
     let gs = test_gateway_state_with_own_and_unknown(registry.clone(), "127.0.0.1", 9765, false);
-    let all = gs.all_instances(&*registry.read().await);
+    let all = gs.all_instances(registry.as_ref());
 
     assert_eq!(
         all.len(),
@@ -1065,11 +1065,11 @@ async fn test_read_alive_instances_prunes_dead_pid() {
 
     // Reader handle represents the gateway process — keeps the
     // `live` row's sentinel lock held for the duration of the test.
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     let live_id;
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut live = ServiceEntry::new("maya", "127.0.0.1", 18812);
         live.pid = Some(std::process::id());
         live_id = live.instance_id;
@@ -1100,7 +1100,7 @@ async fn test_read_alive_instances_prunes_dead_pid() {
 
     let gs = test_gateway_state(registry.clone());
     let (alive, evicted) = gs
-        .read_alive_instances(&*registry.read().await)
+        .read_alive_instances(registry.as_ref())
         .expect("read_alive_instances must succeed");
 
     assert_eq!(evicted, 1, "exactly one dead row must be evicted");
@@ -1110,7 +1110,7 @@ async fn test_read_alive_instances_prunes_dead_pid() {
 
     // The dead row must also be gone from services.json — not just
     // filtered out of the returned slice.
-    let raw = gs.all_instances(&*registry.read().await);
+    let raw = gs.all_instances(registry.as_ref());
     assert!(
         raw.iter().all(|e| e.instance_id != dead_id),
         "dead row must be purged from the on-disk registry after read_alive_instances",
@@ -1122,10 +1122,10 @@ async fn test_read_alive_instances_prunes_dead_pid() {
 #[tokio::test]
 async fn test_read_alive_instances_keeps_rows_without_pid() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         // `ServiceEntry::new` defaults pid to the current process; null
         // it out to simulate a legacy registration that predates the
         // pid field.
@@ -1136,7 +1136,7 @@ async fn test_read_alive_instances_keeps_rows_without_pid() {
 
     let gs = test_gateway_state(registry.clone());
     let (alive, evicted) = gs
-        .read_alive_instances(&*registry.read().await)
+        .read_alive_instances(registry.as_ref())
         .expect("read_alive_instances must succeed");
 
     assert_eq!(evicted, 0);
@@ -1155,10 +1155,10 @@ async fn test_read_alive_instances_keeps_rows_without_pid() {
 #[tokio::test]
 async fn test_read_alive_instances_filters_sentinel_and_self() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
 
         // Sentinel row — carries the current pid (looks alive) but
         // must still be excluded.
@@ -1181,7 +1181,7 @@ async fn test_read_alive_instances_filters_sentinel_and_self() {
 
     let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
     let (alive, evicted) = gs
-        .read_alive_instances(&*registry.read().await)
+        .read_alive_instances(registry.as_ref())
         .expect("read_alive_instances must succeed");
 
     assert_eq!(evicted, 0, "no rows were dead; nothing should be evicted");
@@ -1202,10 +1202,10 @@ async fn test_read_alive_instances_filters_sentinel_and_self() {
 #[tokio::test]
 async fn gateway_instances_resource_lists_many_dcc_rows_without_gateway_sentinel() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
         sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
         r.register(sentinel).unwrap();
@@ -1260,10 +1260,10 @@ async fn gateway_instances_resource_lists_many_dcc_rows_without_gateway_sentinel
 #[tokio::test]
 async fn gateway_instances_resource_defaults_to_live_routable_rows() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         r.register(ServiceEntry::new("maya", "127.0.0.1", 18812))
             .unwrap();
 
@@ -1310,10 +1310,10 @@ async fn gateway_instances_resource_defaults_to_live_routable_rows() {
 #[tokio::test]
 async fn gateway_instances_resource_rejects_ambiguous_instance_prefix() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut first = ServiceEntry::new("maya", "127.0.0.1", 18812);
         first.instance_id = uuid::Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         r.register(first).unwrap();
@@ -1346,10 +1346,10 @@ async fn gateway_instances_resource_rejects_ambiguous_instance_prefix() {
 #[tokio::test]
 async fn test_discovery_view_matches_gateway_state() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
 
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
         sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
         r.register(sentinel).unwrap();
@@ -1358,8 +1358,8 @@ async fn test_discovery_view_matches_gateway_state() {
     }
 
     let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
-    let via_gs = gs.live_instances(&*registry.read().await);
-    let via_view = gs.discovery().live_instances(&*registry.read().await);
+    let via_gs = gs.live_instances(registry.as_ref());
+    let via_view = gs.discovery().live_instances(registry.as_ref());
     assert_eq!(via_gs.len(), via_view.len());
     assert_eq!(via_gs[0].dcc_type, via_view[0].dcc_type);
     assert_eq!(via_gs[0].port, via_view[0].port);
@@ -1378,7 +1378,7 @@ async fn test_discovery_view_matches_gateway_state() {
 #[tokio::test]
 async fn test_sub_state_views_carry_only_their_responsibility() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
     let gs = test_gateway_state(registry);
 
     // Routing view — fields match the documented dispatch surface.

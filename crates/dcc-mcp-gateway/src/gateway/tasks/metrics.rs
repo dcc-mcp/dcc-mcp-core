@@ -3,14 +3,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::RwLock;
-
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceStatus};
 
 /// Spawn the Prometheus instance-count updater (issue #559).
 pub(crate) fn spawn_metrics_updater(
-    registry: Arc<RwLock<FileRegistry>>,
+    registry: Arc<FileRegistry>,
     stale_timeout: Duration,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -18,8 +16,7 @@ pub(crate) fn spawn_metrics_updater(
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
-            let r = registry.read().await;
-            let all = r.list_all();
+            let all = registry.list_all_async().await.unwrap_or_default();
             let active = all
                 .iter()
                 .filter(|e| {

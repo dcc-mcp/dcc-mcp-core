@@ -230,9 +230,7 @@ impl PromptsGetError {
 /// skill, so the gateway's watcher task can broadcast a single
 /// `notifications/prompts/list_changed` to connected SSE clients.
 pub(crate) async fn compute_prompts_fingerprint_with_own(
-    registry: &std::sync::Arc<
-        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
-    >,
+    registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
     backend_timeout: Duration,
@@ -240,8 +238,10 @@ pub(crate) async fn compute_prompts_fingerprint_with_own(
     own_port: u16,
 ) -> String {
     let instances: Vec<_> = {
-        let reg = registry.read().await;
-        reg.list_all()
+        registry
+            .list_all_async()
+            .await
+            .unwrap_or_default()
             .into_iter()
             .filter(|e| {
                 !e.is_stale(stale_timeout)
@@ -278,9 +278,7 @@ pub(crate) async fn compute_prompts_fingerprint_with_own(
 /// disables the own-instance filter. Kept symmetric with
 /// [`super::fingerprint::compute_tools_fingerprint`].
 pub async fn compute_prompts_fingerprint(
-    registry: &std::sync::Arc<
-        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
-    >,
+    registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
     backend_timeout: Duration,

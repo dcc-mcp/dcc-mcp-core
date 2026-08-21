@@ -14,8 +14,8 @@ pub(crate) fn is_fingerprint_eligible_instance(entry: &ServiceEntry) -> bool {
 }
 
 pub(crate) async fn live_backends(gs: &GatewayState) -> Vec<ServiceEntry> {
-    let reg = gs.registry.read().await;
-    gs.live_instances(&reg)
+    gs.live_instances_async()
+        .await
         .into_iter()
         .filter(|e| e.dcc_type != super::GATEWAY_SENTINEL_DCC_TYPE)
         .collect()
@@ -36,8 +36,7 @@ pub(crate) async fn find_instance_by_prefix(
     gs: &GatewayState,
     prefix: &str,
 ) -> Option<ServiceEntry> {
-    let reg = gs.registry.read().await;
-    gs.resolve_instance(&reg, Some(prefix), None).ok()
+    gs.resolve_instance_async(Some(prefix), None).await.ok()
 }
 
 pub(crate) async fn resolve_target(
@@ -45,8 +44,8 @@ pub(crate) async fn resolve_target(
     instance_id: Option<&str>,
     dcc_filter: Option<&str>,
 ) -> Result<ServiceEntry, String> {
-    let reg = gs.registry.read().await;
-    gs.resolve_instance(&reg, instance_id, dcc_filter)
+    gs.resolve_instance_async(instance_id, dcc_filter)
+        .await
         .map_err(|err| err.to_string())
 }
 

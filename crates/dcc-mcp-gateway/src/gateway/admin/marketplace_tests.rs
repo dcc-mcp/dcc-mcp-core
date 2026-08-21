@@ -65,7 +65,7 @@ impl Drop for ScopedMarketplaceInstallRoot {
 
 fn make_gateway_state() -> GatewayState {
     let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let registry = std::sync::Arc::new(FileRegistry::new(dir.path()).unwrap());
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {

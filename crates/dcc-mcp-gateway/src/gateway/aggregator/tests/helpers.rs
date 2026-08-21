@@ -64,9 +64,7 @@ pub(crate) async fn spawn_prompts_backend(
 
 /// Build a GatewayState with the supplied registry.
 pub(crate) async fn make_gateway_state(
-    registry: std::sync::Arc<
-        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
-    >,
+    registry: std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
 ) -> crate::gateway::GatewayState {
     let (yield_tx, _) = tokio::sync::watch::channel(false);
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
@@ -383,12 +381,12 @@ pub(crate) async fn gateway_state_with_instances(
     Vec<uuid::Uuid>,
 ) {
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let mut ids = Vec::new();
     {
-        let r = registry.read().await;
+        let r = &registry;
         for (dcc_type, port) in instances {
             let entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
                 *dcc_type,

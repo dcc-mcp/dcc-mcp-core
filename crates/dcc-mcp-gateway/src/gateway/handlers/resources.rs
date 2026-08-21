@@ -93,8 +93,7 @@ pub(super) async fn handle_resources_read(
     }
 
     let parts: Vec<&str> = uri.trim_start_matches("dcc://").splitn(2, '/').collect();
-    let registry = gs.registry.read().await;
-    let found = gs.live_instances(&registry).into_iter().find(|entry| {
+    let found = gs.live_instances_async().await.into_iter().find(|entry| {
         parts.len() == 2
             && entry.dcc_type == parts[0]
             && entry.instance_id.to_string().starts_with(parts[1])
@@ -257,7 +256,7 @@ mod tests {
 
     fn test_gs_with_events(events: Vec<ContendEvent>) -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
-        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
         let (yield_tx, _) = watch::channel(false);
         let (events_tx, _) = broadcast::channel::<String>(8);
         let log = Arc::new(crate::gateway::event_log::EventLog::new());
@@ -395,7 +394,7 @@ mod tests {
     async fn gateway_instances_resource_includes_lifecycle_hints() {
         let gs = test_gs_with_events(Vec::new());
         {
-            let registry = gs.registry.write().await;
+            let registry = &gs.registry;
             let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
             entry.version = Some("2026".into());
             entry.adapter_version = Some("1.2.0".into());

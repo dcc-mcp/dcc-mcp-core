@@ -60,22 +60,32 @@ pub fn has_newer_sentinel(
     own: super::ElectionInfo<'_>,
     stale_timeout: Duration,
 ) -> bool {
-    reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE)
-        .into_iter()
-        .any(|e| {
-            if e.is_stale(stale_timeout) {
-                return false;
-            }
-            let Some(crate_v) = e.version.as_deref() else {
-                return false;
-            };
-            let resident = super::ElectionInfo::new(
-                crate_v,
-                e.adapter_version.as_deref(),
-                e.adapter_dcc.as_deref(),
-            );
-            super::is_newer_election(resident, own)
-        })
+    has_newer_sentinel_entries(
+        reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE),
+        own,
+        stale_timeout,
+    )
+}
+
+pub(crate) fn has_newer_sentinel_entries(
+    entries: Vec<dcc_mcp_transport::discovery::types::ServiceEntry>,
+    own: super::ElectionInfo<'_>,
+    stale_timeout: Duration,
+) -> bool {
+    entries.into_iter().any(|e| {
+        if e.is_stale(stale_timeout) {
+            return false;
+        }
+        let Some(crate_v) = e.version.as_deref() else {
+            return false;
+        };
+        let resident = super::ElectionInfo::new(
+            crate_v,
+            e.adapter_version.as_deref(),
+            e.adapter_dcc.as_deref(),
+        );
+        super::is_newer_election(resident, own)
+    })
 }
 
 #[cfg(test)]

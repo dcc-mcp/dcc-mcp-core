@@ -43,14 +43,16 @@ impl SidecarGatewayControl {
             abort.abort();
         }
         let mut failover = self.failover.write().await;
-        if let Some(sentinel_key) = failover.sentinel_key.take() {
-            let reg = self.gateway_handle.registry();
-            if let Ok(registry) = reg.try_read() {
-                let _ = registry.deregister(&sentinel_key);
-            }
-        }
+        let sentinel_key = failover.sentinel_key.take();
         abort_failover_handles(&mut failover);
         drop(failover);
+        if let Some(sentinel_key) = sentinel_key {
+            let _ = self
+                .gateway_handle
+                .registry()
+                .deregister_async(sentinel_key)
+                .await;
+        }
         drop(self.gateway_handle);
     }
 }

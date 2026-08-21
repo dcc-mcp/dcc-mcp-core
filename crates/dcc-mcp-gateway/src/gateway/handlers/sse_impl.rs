@@ -153,9 +153,9 @@ mod tests {
 
     fn make_gateway_state() -> GatewayState {
         let dir = tempfile::tempdir().unwrap();
-        let registry = Arc::new(RwLock::new(
+        let registry = std::sync::Arc::new(
             dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-        ));
+        );
         let (yield_tx, _) = watch::channel(false);
         let (events_tx, _) = broadcast::channel::<String>(8);
         GatewayState {

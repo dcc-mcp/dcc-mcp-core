@@ -5,9 +5,9 @@ use serde_json::{Value, json};
 #[tokio::test]
 async fn aggregate_prompts_list_zero_backends_returns_empty_array() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let gs = make_gateway_state(registry).await;
 
     let result = aggregate_prompts_list(&gs).await;
@@ -20,11 +20,11 @@ async fn aggregate_prompts_list_merges_and_prefixes_across_backends() {
     let (addr_b, stop_b) = spawn_prompts_backend("render_frame", "blender-B").await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let (iid_a, iid_b) = {
-        let r = registry.read().await;
+        let r = &registry;
         let (host_a, port_a) = parse_addr(&addr_a);
         let (host_b, port_b) = parse_addr(&addr_b);
         let entry_a =
@@ -73,11 +73,11 @@ async fn aggregate_prompts_list_reports_failed_backend_without_hiding_healthy_pr
     let (addr_b, stop_b) = spawn_prompts_backend("render_frame", "blender-B").await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     {
-        let r = registry.read().await;
+        let r = &registry;
         let (host_a, port_a) = parse_addr(&addr_a);
         let (host_b, port_b) = parse_addr(&addr_b);
         r.register(dcc_mcp_transport::discovery::types::ServiceEntry::new(
@@ -128,11 +128,11 @@ async fn route_prompts_get_decodes_prefix_and_routes_to_owning_backend() {
     let (addr_b, stop_b) = spawn_prompts_backend("render_frame", "blender-B").await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let (iid_a, iid_b) = {
-        let r = registry.read().await;
+        let r = &registry;
         let (host_a, port_a) = parse_addr(&addr_a);
         let (host_b, port_b) = parse_addr(&addr_b);
         let entry_a =
@@ -174,9 +174,9 @@ async fn route_prompts_get_decodes_prefix_and_routes_to_owning_backend() {
 #[tokio::test]
 async fn route_prompts_get_with_unknown_prefix_returns_routing_error() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let gs = make_gateway_state(registry).await;
 
     let err = route_prompts_get(&gs, "i_deadbeef__whatever", None, None)
@@ -189,9 +189,9 @@ async fn route_prompts_get_with_unknown_prefix_returns_routing_error() {
 #[tokio::test]
 async fn gateway_mcp_initialize_advertises_prompts_capability() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let gs = make_gateway_state(registry).await;
     let router = crate::gateway::build_gateway_router(gs);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -252,11 +252,11 @@ async fn gateway_mcp_executes_search_load_call_before_optional_describe() {
 
     let (backend_port, stop_backend, backend_mcp_calls) = spawn_canonical_workflow_backend().await;
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
             "maya",
             "127.0.0.1",
@@ -526,9 +526,9 @@ async fn gateway_mcp_concurrent_initialize_completes_within_one_second() {
     use std::time::{Duration, Instant};
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let gs = make_gateway_state(registry).await;
     let router = crate::gateway::build_gateway_router(gs);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -591,9 +591,9 @@ async fn gateway_mcp_initialize_does_not_wait_for_protocol_cache_lock() {
     use std::time::Duration;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let gs = make_gateway_state(registry).await;
     let lock = gs.protocol_version.clone();
     let hold = tokio::spawn(async move {
@@ -686,11 +686,11 @@ async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     {
-        let r = registry.read().await;
+        let r = &registry;
         let entry =
             dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", port);
         r.register(entry).unwrap();

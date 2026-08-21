@@ -81,8 +81,8 @@ pub async fn aggregate_resources_list(gs: &GatewayState) -> Value {
     // Tier 1: admin instance pointers — same payload the handler used
     // before #732, kept as an operator affordance.
     let admin_pointers: Vec<Value> = {
-        let registry = gs.registry.read().await;
-        gs.live_instances(&registry)
+        gs.live_instances_async()
+            .await
             .into_iter()
             .filter(|entry| entry.dcc_type != GATEWAY_SENTINEL_DCC_TYPE)
             .map(|entry| {
@@ -180,9 +180,7 @@ pub async fn aggregate_resources_list(gs: &GatewayState) -> Value {
 /// so emitting a list_changed for a pure description edit would be
 /// wasteful churn).
 pub(crate) async fn compute_resources_fingerprint_with_own(
-    registry: &std::sync::Arc<
-        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
-    >,
+    registry: &std::sync::Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
     backend_timeout: Duration,
@@ -190,8 +188,10 @@ pub(crate) async fn compute_resources_fingerprint_with_own(
     own_port: u16,
 ) -> String {
     let instances: Vec<ServiceEntry> = {
-        let reg = registry.read().await;
-        reg.list_all()
+        registry
+            .list_all_async()
+            .await
+            .unwrap_or_default()
             .into_iter()
             .filter(|e| {
                 !e.is_stale(stale_timeout)

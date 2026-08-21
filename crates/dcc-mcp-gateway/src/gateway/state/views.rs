@@ -36,7 +36,7 @@ const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 #[derive(Clone, Copy)]
 pub struct DiscoveryState<'a> {
     /// Shared read/write handle on the file-backed service registry.
-    pub registry: &'a Arc<RwLock<FileRegistry>>,
+    pub registry: &'a Arc<FileRegistry>,
     /// Shared in-memory registration source for remote HTTP-registered rows.
     pub http_instance_registry: &'a Arc<parking_lot::RwLock<HttpInstanceRegistry>>,
     /// Shared in-memory source for LAN mDNS-discovered rows.
@@ -125,7 +125,14 @@ pub struct ServerState<'a> {
 impl<'a> DiscoveryState<'a> {
     /// See [`GatewayState::live_instances`].
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        let file_entries = registry.list_all();
+        self.live_instances_from(registry.list_all())
+    }
+
+    pub async fn live_instances_async(&self) -> Vec<ServiceEntry> {
+        self.live_instances_from(self.registry.list_all_async().await.unwrap_or_default())
+    }
+
+    fn live_instances_from(&self, file_entries: Vec<ServiceEntry>) -> Vec<ServiceEntry> {
         let filtered: Vec<ServiceEntry> = file_entries
             .iter()
             .filter(|e| {
@@ -149,7 +156,14 @@ impl<'a> DiscoveryState<'a> {
 
     /// See [`GatewayState::all_instances`].
     pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        let file_entries = registry.list_all();
+        self.all_instances_from(registry.list_all())
+    }
+
+    pub async fn all_instances_async(&self) -> Vec<ServiceEntry> {
+        self.all_instances_from(self.registry.list_all_async().await.unwrap_or_default())
+    }
+
+    fn all_instances_from(&self, file_entries: Vec<ServiceEntry>) -> Vec<ServiceEntry> {
         let filtered = file_entries
             .iter()
             .filter(|e| {
@@ -175,6 +189,24 @@ impl<'a> DiscoveryState<'a> {
             })
             .collect();
         let file_entries = registry.list_all();
+        Ok((
+            self.merge_remote_entries(filtered, &file_entries, true),
+            evicted,
+        ))
+    }
+
+    pub async fn read_alive_instances_async(
+        &self,
+    ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
+        let (raw, evicted) = self.registry.read_alive_async().await?;
+        let file_entries = raw.clone();
+        let filtered = raw
+            .into_iter()
+            .filter(|e| {
+                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                    && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
+            })
+            .collect();
         Ok((
             self.merge_remote_entries(filtered, &file_entries, true),
             evicted,

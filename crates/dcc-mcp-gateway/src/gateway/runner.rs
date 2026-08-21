@@ -41,73 +41,76 @@ fn apply_live_snapshot(entry: &mut ServiceEntry, snapshot: &LiveSnapshot) {
     entry.touch();
 }
 
-fn refresh_or_republish_registration(
-    registry: &FileRegistry,
-    key: &ServiceKey,
-    template: &ServiceEntry,
-    provider: Option<&MetadataProvider>,
-    registration_active: &std::sync::atomic::AtomicBool,
+async fn refresh_or_republish_registration(
+    registry: Arc<FileRegistry>,
+    key: ServiceKey,
+    template: ServiceEntry,
+    snapshot: Option<LiveSnapshot>,
+    registration_active: Arc<std::sync::atomic::AtomicBool>,
 ) {
-    let (refresh_result, snapshot) = if let Some(provider) = provider {
-        let snapshot = provider();
-        let documents = if snapshot.documents.is_empty() {
-            None
-        } else {
-            Some(snapshot.documents.as_slice())
-        };
-        let display_name = if documents.is_some() {
-            snapshot.display_name.as_deref()
-        } else {
-            None
-        };
-        let refresh_result = registry.update_snapshot(
-            key,
-            ServiceSnapshot {
-                scene: snapshot.scene.as_deref(),
-                version: snapshot.version.as_deref(),
-                documents,
-                display_name,
-                metadata: Some(&snapshot.metadata),
-            },
-        );
-        (refresh_result, Some(snapshot))
-    } else {
-        (registry.heartbeat(key), None)
-    };
-
-    match refresh_result {
-        Ok(true) => {}
-        Ok(false) if registration_active.load(std::sync::atomic::Ordering::Acquire) => {
-            let mut recovered = template.clone();
-            if let Some(snapshot) = &snapshot {
-                apply_live_snapshot(&mut recovered, snapshot);
+    let task = tokio::task::spawn_blocking(move || {
+        let refresh_result = if let Some(snapshot) = &snapshot {
+            let documents = if snapshot.documents.is_empty() {
+                None
             } else {
-                recovered.touch();
+                Some(snapshot.documents.as_slice())
+            };
+            let display_name = if documents.is_some() {
+                snapshot.display_name.as_deref()
+            } else {
+                None
+            };
+            registry.update_snapshot(
+                &key,
+                ServiceSnapshot {
+                    scene: snapshot.scene.as_deref(),
+                    version: snapshot.version.as_deref(),
+                    documents,
+                    display_name,
+                    metadata: Some(&snapshot.metadata),
+                },
+            )
+        } else {
+            registry.heartbeat(&key)
+        };
+
+        match refresh_result {
+            Ok(true) => {}
+            Ok(false) if registration_active.load(std::sync::atomic::Ordering::Acquire) => {
+                let mut recovered = template;
+                if let Some(snapshot) = &snapshot {
+                    apply_live_snapshot(&mut recovered, snapshot);
+                } else {
+                    recovered.touch();
+                }
+                if !registration_active.load(std::sync::atomic::Ordering::Acquire) {
+                    return;
+                }
+                match registry.register(recovered) {
+                    Ok(()) => tracing::warn!(
+                        dcc_type = %key.dcc_type,
+                        instance_id = %key.instance_id,
+                        "FileRegistry row disappeared; heartbeat re-registered the live instance"
+                    ),
+                    Err(error) => tracing::warn!(
+                        error = %error,
+                        dcc_type = %key.dcc_type,
+                        instance_id = %key.instance_id,
+                        "heartbeat failed to re-register the missing FileRegistry row"
+                    ),
+                }
             }
-            if !registration_active.load(std::sync::atomic::Ordering::Acquire) {
-                return;
-            }
-            match registry.register(recovered) {
-                Ok(()) => tracing::warn!(
-                    dcc_type = %key.dcc_type,
-                    instance_id = %key.instance_id,
-                    "FileRegistry row disappeared; heartbeat re-registered the live instance"
-                ),
-                Err(error) => tracing::warn!(
-                    error = %error,
-                    dcc_type = %key.dcc_type,
-                    instance_id = %key.instance_id,
-                    "heartbeat failed to re-register the missing FileRegistry row"
-                ),
-            }
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                error = %error,
+                dcc_type = %key.dcc_type,
+                instance_id = %key.instance_id,
+                "FileRegistry heartbeat refresh failed"
+            ),
         }
-        Ok(false) => {}
-        Err(error) => tracing::warn!(
-            error = %error,
-            dcc_type = %key.dcc_type,
-            instance_id = %key.instance_id,
-            "FileRegistry heartbeat refresh failed"
-        ),
+    });
+    if let Err(error) = task.await {
+        tracing::warn!(%error, "FileRegistry heartbeat task panicked");
     }
 }
 
@@ -117,7 +120,7 @@ pub struct GatewayRunner {
     /// Gateway configuration.
     pub config: GatewayConfig,
     /// Shared file-based service registry.
-    pub registry: Arc<RwLock<FileRegistry>>,
+    pub registry: Arc<FileRegistry>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +146,7 @@ impl GatewayRunner {
         let registry = FileRegistry::new(&dir)?;
         Ok(Self {
             config,
-            registry: Arc::new(RwLock::new(registry)),
+            registry: Arc::new(registry),
         })
     }
 
@@ -188,10 +191,7 @@ impl GatewayRunner {
         let registration_active = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         // ── Register in FileRegistry ─────────────────────────────────────
-        {
-            let reg = self.registry.read().await;
-            reg.register(entry)?;
-        }
+        self.registry.register_async(entry).await?;
         tracing::info!(instance = %service_key.instance_id, "Registered in FileRegistry");
 
         // ── Heartbeat task ────────────────────────────────────────────────
@@ -223,14 +223,15 @@ impl GatewayRunner {
                             if !active.load(std::sync::atomic::Ordering::Acquire) {
                                 break;
                             }
-                            let r = reg.read().await;
+                            let snapshot = provider.as_ref().map(|provider| provider());
                             refresh_or_republish_registration(
-                                &r,
-                                &key_inner,
-                                &template,
-                                provider.as_ref(),
-                                &active,
-                            );
+                                reg.clone(),
+                                key_inner.clone(),
+                                template.clone(),
+                                snapshot,
+                                active.clone(),
+                            )
+                            .await;
                         }
                     })
                     .catch_unwind()
@@ -340,10 +341,7 @@ impl GatewayRunner {
         // The prune is cheap on a healthy registry (no rows to evict,
         // no I/O). The flush only happens when at least one row is
         // dropped. RFC #998 follow-up (2026-05-16).
-        let pruned = {
-            let reg = self.registry.read().await;
-            reg.prune_dead_entries().unwrap_or(0)
-        };
+        let pruned = self.registry.prune_dead_entries_async().await.unwrap_or(0);
         if pruned > 0 {
             tracing::info!(
                 port = self.config.gateway_port,
@@ -374,10 +372,13 @@ impl GatewayRunner {
                 // #998 follow-up (sentinel-rotation pollution observed
                 // in three-Maya live session, 2026-05-16).
                 {
-                    let reg = self.registry.read().await;
-                    let existing = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+                    let existing = self
+                        .registry
+                        .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+                        .await
+                        .unwrap_or_default();
                     for entry in &existing {
-                        let _ = reg.deregister(&entry.key());
+                        let _ = self.registry.deregister_async(entry.key()).await;
                     }
                     if !existing.is_empty() {
                         tracing::info!(
@@ -412,10 +413,7 @@ impl GatewayRunner {
                     self.config.gateway_idle_timeout_secs,
                 );
                 let sentinel_key = sentinel.key();
-                {
-                    let reg = self.registry.read().await;
-                    let _ = reg.register(sentinel);
-                }
+                let _ = self.registry.register_async(sentinel).await;
 
                 let remote_listener = self.bind_remote_gateway_listener().await;
 
@@ -484,10 +482,7 @@ impl GatewayRunner {
                         // Issue #718: the sentinel was written before
                         // `start_gateway_tasks` failed. Clean it up now
                         // so peers don't see a phantom gateway.
-                        {
-                            let reg = self.registry.read().await;
-                            let _ = reg.deregister(&sentinel_key);
-                        }
+                        let _ = self.registry.deregister_async(sentinel_key.clone()).await;
                         Ok(ElectionOutcome {
                             is_gateway: false,
                             gateway_abort: None,
@@ -505,8 +500,10 @@ impl GatewayRunner {
                 // Read the sentinel so logs and optional cooperative-yield
                 // requests can identify the resident gateway profile.
                 let resident = {
-                    let reg = self.registry.read().await;
-                    reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+                    self.registry
+                        .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+                        .await
+                        .unwrap_or_default()
                         .into_iter()
                         .next()
                 };
@@ -660,10 +657,7 @@ impl GatewayRunner {
                 gateway_idle_timeout_secs,
             );
             let challenge_sentinel_key = challenge_sentinel.key();
-            {
-                let reg = registry.read().await;
-                let _ = reg.register(challenge_sentinel);
-            }
+            let _ = registry.register_async(challenge_sentinel).await;
             let _challenge_guard = PromotedGatewayGuard {
                 abort: None,
                 registry: registry.clone(),
@@ -706,10 +700,12 @@ impl GatewayRunner {
                     // ``register`` next to those rows, leaving N stale
                     // sentinels per port. RFC #998 follow-up.
                     {
-                        let reg = registry.read().await;
-                        let existing = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
+                        let existing = registry
+                            .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+                            .await
+                            .unwrap_or_default();
                         for entry in &existing {
-                            let _ = reg.deregister(&entry.key());
+                            let _ = registry.deregister_async(entry.key()).await;
                         }
                         if !existing.is_empty() {
                             tracing::info!(
@@ -733,10 +729,7 @@ impl GatewayRunner {
                         gateway_idle_timeout_secs,
                     );
                     let sentinel_key = sentinel.key();
-                    {
-                        let reg = registry.read().await;
-                        let _ = reg.register(sentinel);
-                    }
+                    let _ = registry.register_async(sentinel).await;
 
                     let remote_listener =
                         bind_remote_gateway_listener(remote_host.clone(), remote_gateway_port)
@@ -795,8 +788,7 @@ impl GatewayRunner {
                         }
                         Err(e) => {
                             tracing::error!("Challenger: failed to start gateway tasks: {e}");
-                            let reg = registry.read().await;
-                            let _ = reg.deregister(&sentinel_key);
+                            let _ = registry.deregister_async(sentinel_key.clone()).await;
                         }
                     }
                     return;
@@ -932,7 +924,7 @@ async fn probe_resident_gateway_health(
 
 struct PromotedGatewayGuard {
     abort: Option<AbortHandle>,
-    registry: Arc<RwLock<FileRegistry>>,
+    registry: Arc<FileRegistry>,
     sentinel_key: Option<ServiceKey>,
 }
 
@@ -941,10 +933,8 @@ impl Drop for PromotedGatewayGuard {
         if let Some(abort) = self.abort.take() {
             abort.abort();
         }
-        if let Some(key) = self.sentinel_key.take()
-            && let Ok(registry) = self.registry.try_read()
-        {
-            let _ = registry.deregister(&key);
+        if let Some(key) = self.sentinel_key.take() {
+            let _ = self.registry.deregister(&key);
         }
     }
 }

@@ -80,12 +80,12 @@ async fn gateway_rest_v1_call_batch_refreshes_a_cold_live_instance_index() {
     let (backend_port, stop_backend) = spawn_echo_backend().await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
             "maya",
             "127.0.0.1",
@@ -143,12 +143,12 @@ async fn gateway_rest_v1_call_batch_refreshes_a_cold_live_instance_index() {
 async fn gateway_rest_forces_refresh_when_a_live_slug_is_missing_from_a_fresh_index() {
     let (backend_port, stop_backend) = spawn_echo_backend().await;
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
             "maya",
             "127.0.0.1",
@@ -213,12 +213,12 @@ async fn gateway_rest_v1_call_batch_mixed_success_failure_continues_on_error() {
     let (backend_port, _stop_backend) = spawn_echo_backend().await;
 
     let dir = tempfile::tempdir().unwrap();
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+    let registry = std::sync::Arc::new(
         dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
-    ));
+    );
     let instance_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
     {
-        let r = registry.read().await;
+        let r = &registry;
         let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
             "maya",
             "127.0.0.1",

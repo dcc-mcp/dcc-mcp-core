@@ -34,10 +34,11 @@ pub async fn tool_acquire_instance(gs: &GatewayState, args: &Value) -> Result<St
         .unwrap_or(3600)
         .max(1);
 
-    let reg = gs.registry.read().await;
+    let reg = &gs.registry;
     let resolved_instance_id = if instance_id.is_some() {
         Some(
-            gs.resolve_instance(&reg, instance_id, Some(dcc_type))
+            gs.resolve_instance_async(instance_id, Some(dcc_type))
+                .await
                 .map_err(|err| err.to_string())?
                 .instance_id
                 .to_string(),
@@ -46,13 +47,14 @@ pub async fn tool_acquire_instance(gs: &GatewayState, args: &Value) -> Result<St
         None
     };
     let Some(entry) = reg
-        .acquire_lease(
-            dcc_type,
-            resolved_instance_id.as_deref(),
-            owner,
+        .acquire_lease_async(
+            dcc_type.to_string(),
+            resolved_instance_id,
+            owner.to_string(),
             current_job_id,
             Some(std::time::Duration::from_secs(ttl_secs)),
         )
+        .await
         .map_err(|e| e.to_string())?
     else {
         return Err(format!(
@@ -75,10 +77,11 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
         .get("instance_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "Provide instance_id".to_string())?;
-    let reg = gs.registry.read().await;
+    let reg = &gs.registry;
 
     let entry = gs
-        .resolve_instance(&reg, Some(instance_id), None)
+        .resolve_instance_async(Some(instance_id), None)
+        .await
         .map_err(|err| err.to_string())?;
     let key = ServiceKey {
         dcc_type: entry.dcc_type.clone(),
@@ -129,7 +132,8 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
     }
 
     let Some(released) = reg
-        .release_lease(&key, Some(owner))
+        .release_lease_async(key, Some(owner.to_string()))
+        .await
         .map_err(|e| e.to_string())?
     else {
         return Err(serde_json::to_string_pretty(&json!({

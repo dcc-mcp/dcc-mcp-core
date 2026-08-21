@@ -8,11 +8,10 @@ pub async fn handle_proxy_instance(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let registry = gs.registry.read().await;
     let entry = gs
-        .resolve_instance(&registry, Some(instance_id.as_str()), None)
+        .resolve_instance_async(Some(instance_id.as_str()), None)
+        .await
         .ok();
-    drop(registry);
 
     match entry {
         Some(entry) => {
@@ -38,13 +37,12 @@ pub async fn handle_proxy_dcc(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let registry = gs.registry.read().await;
     let mut candidates = gs
-        .live_instances(&registry)
+        .live_instances_async()
+        .await
         .into_iter()
         .filter(|entry| entry.dcc_type == dcc_type)
         .collect::<Vec<_>>();
-    drop(registry);
 
     if candidates.is_empty() {
         return (

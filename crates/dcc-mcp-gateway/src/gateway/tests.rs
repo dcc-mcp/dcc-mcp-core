@@ -356,7 +356,7 @@ async fn wait_gateway_sentinel_version(runner: &GatewayRunner, expected: &str, t
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let observed = {
-            let reg = runner.registry.read().await;
+            let reg = &runner.registry;
             let versions: Vec<_> = reg
                 .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
                 .into_iter()
@@ -425,7 +425,7 @@ async fn test_gateway_winner_stamps_human_readable_name_on_sentinel() {
     let outcome = runner.run_election().await.unwrap();
 
     assert!(outcome.is_gateway, "free local port must win election");
-    let reg = runner.registry.read().await;
+    let reg = &runner.registry;
     let sentinels = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
     assert_eq!(sentinels.len(), 1);
     let sentinel = &sentinels[0];
@@ -485,7 +485,6 @@ async fn test_gateway_winner_stamps_human_readable_name_on_sentinel() {
             .map(String::as_str),
         Some("30")
     );
-    drop(reg);
 
     if let Some(abort) = outcome.gateway_abort {
         abort.abort();
@@ -565,7 +564,7 @@ async fn test_gateway_handle_drop_deregisters_instance_row() {
 
     // Row must exist while the handle is alive.
     {
-        let reg = runner.registry.read().await;
+        let reg = &runner.registry;
         assert!(
             reg.get(&key).is_some(),
             "instance row must be present before Drop"
@@ -575,7 +574,7 @@ async fn test_gateway_handle_drop_deregisters_instance_row() {
     // Drop the handle → `Drop::drop` must deregister the instance row.
     drop(handle);
 
-    let reg = runner.registry.read().await;
+    let reg = &runner.registry;
     assert!(
         reg.get(&key).is_none(),
         "GatewayHandle::Drop must remove the instance row from FileRegistry (issue #718)"
@@ -622,7 +621,7 @@ async fn test_gateway_heartbeat_merges_live_instance_metadata() {
     )
     .await;
     {
-        let reg = runner.registry.read().await;
+        let reg = &runner.registry;
         let row = reg.get(&key).expect("registered row");
         assert_eq!(
             row.metadata.get("gateway_runtime_mode").map(String::as_str),
@@ -654,7 +653,7 @@ async fn wait_for_metadata_heartbeat(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
         {
-            let reg = runner.registry.read().await;
+            let reg = &runner.registry;
             let row = reg.get(key).expect("registered row");
             let metadata_matches = row.metadata.get(name).map(String::as_str) == expected_value;
             let heartbeat_advanced =
@@ -777,7 +776,7 @@ async fn test_gateway_heartbeat_reregisters_missing_instance_row() {
     let handle = runner.start(entry, Some(provider)).await.unwrap();
 
     {
-        let reg = runner.registry.read().await;
+        let reg = &runner.registry;
         assert!(reg.deregister(&key).unwrap().is_some());
         assert!(reg.get(&key).is_none());
     }
@@ -785,7 +784,7 @@ async fn test_gateway_heartbeat_reregisters_missing_instance_row() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
         {
-            let reg = runner.registry.read().await;
+            let reg = &runner.registry;
             if let Some(row) = reg.get(&key) {
                 assert_eq!(row.scene.as_deref(), Some("recovered.blend"));
                 assert_eq!(row.version.as_deref(), Some("5.0.1"));
@@ -827,12 +826,12 @@ async fn test_gateway_heartbeat_recovery_stops_after_explicit_deregister() {
     let mut handle = runner.start(entry, None).await.unwrap();
 
     {
-        let reg = runner.registry.read().await;
+        let reg = &runner.registry;
         assert!(reg.deregister(&key).unwrap().is_some());
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
-        if runner.registry.read().await.get(&key).is_some() {
+        if runner.registry.get(&key).is_some() {
             break;
         }
         assert!(
@@ -845,7 +844,7 @@ async fn test_gateway_heartbeat_recovery_stops_after_explicit_deregister() {
     handle.deregister_all();
     tokio::time::sleep(Duration::from_millis(1_200)).await;
     assert!(
-        runner.registry.read().await.get(&key).is_none(),
+        runner.registry.get(&key).is_none(),
         "shutdown heartbeat must not republish an explicitly deregistered row"
     );
 
@@ -872,7 +871,7 @@ async fn test_explicit_deregister_all_is_idempotent() {
     handle.deregister_all();
 
     {
-        let reg = runner.registry.read().await;
+        let reg = &runner.registry;
         assert!(
             reg.get(&key).is_none(),
             "explicit deregister_all must remove instance row immediately (issue #718)"
@@ -881,7 +880,7 @@ async fn test_explicit_deregister_all_is_idempotent() {
 
     // Idempotency: a subsequent Drop must be a clean no-op.
     drop(handle);
-    let reg = runner.registry.read().await;
+    let reg = &runner.registry;
     assert!(
         reg.get(&key).is_none(),
         "second deregister (via Drop) must remain a no-op"
@@ -922,7 +921,7 @@ async fn test_gateway_winner_drop_deregisters_instance_and_sentinel() {
     // semantics when we actually won.
     if handle.is_gateway {
         {
-            let reg = runner.registry.read().await;
+            let reg = &runner.registry;
             assert!(
                 reg.get(&instance_key).is_some(),
                 "instance row must exist before shutdown"
@@ -936,7 +935,7 @@ async fn test_gateway_winner_drop_deregisters_instance_and_sentinel() {
 
         drop(handle);
 
-        let reg = runner.registry.read().await;
+        let reg = &runner.registry;
         assert!(
             reg.get(&instance_key).is_none(),
             "winner Drop must remove the instance row (issue #718)"
@@ -949,7 +948,7 @@ async fn test_gateway_winner_drop_deregisters_instance_and_sentinel() {
     } else {
         // Non-winner fallback — at least the instance row must go.
         drop(handle);
-        let reg = runner.registry.read().await;
+        let reg = &runner.registry;
         assert!(reg.get(&instance_key).is_none());
     }
 }
@@ -1021,7 +1020,7 @@ async fn test_run_election_prunes_dead_gateway_sentinel_before_resident_lookup()
     // would have written its own sentinel beside it without pruning;
     // the loss branch's resident lookup would have returned the ghost
     // and refused to challenge. Either way, "0.99.99" must not survive.
-    let reg = runner.registry.read().await;
+    let reg = &runner.registry;
     let surviving: Vec<_> = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
     assert!(
         surviving
@@ -1133,7 +1132,7 @@ async fn test_run_election_win_clears_stale_live_owner_sentinels() {
     // Critical assertion: exactly ONE __gateway__ sentinel survives.
     // Pre-fix this was 3 (both ghosts + ours). The winner's sweep
     // (RFC #998 follow-up) drops the two ghosts before registering.
-    let reg = runner.registry.read().await;
+    let reg = &runner.registry;
     let surviving: Vec<_> = reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE);
     assert_eq!(
         surviving.len(),
