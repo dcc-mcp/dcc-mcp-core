@@ -33,6 +33,8 @@ use axum::{
     http::{StatusCode, header},
     response::IntoResponse,
 };
+use dcc_mcp_jsonrpc::error_codes::{INTERNAL_ERROR, INVALID_REQUEST};
+use dcc_mcp_jsonrpc::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::sync::{RwLock, broadcast, mpsc};
@@ -281,7 +283,7 @@ async fn serve_socket(socket: WebSocket, state: MarketplaceWsState) {
                 }
                 Message::Binary(_) => {
                     // We only accept text frames
-                    let err = serde_json::to_string(&JsonRpcError::new(
+                    let err = serde_json::to_string(&JsonRpcResponse::error_with_data(
                         None,
                         INVALID_REQUEST,
                         "Binary frames not supported".to_string(),
@@ -311,13 +313,13 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
         Ok(req) => req,
         Err(e) => {
             warn!("Failed to parse JSON-RPC request: {e}");
-            let err = JsonRpcError::parse_error();
+            let err = JsonRpcResponse::parse_error();
             return Some(serde_json::to_string(&err).unwrap_or_default());
         }
     };
 
     if request.jsonrpc != "2.0" {
-        let err = JsonRpcError::invalid_request();
+        let err = JsonRpcResponse::invalid_request();
         return Some(serde_json::to_string(&err).unwrap_or_default());
     }
 
@@ -349,7 +351,7 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
                 None
             } else {
                 Some(
-                    serde_json::to_string(&JsonRpcSuccess::new(
+                    serde_json::to_string(&JsonRpcResponse::success(
                         request.id,
                         Value::String("pong".into()),
                     ))
@@ -361,7 +363,7 @@ async fn handle_message(state: &MarketplaceWsState, text: &str) -> Option<String
             if is_notification {
                 None
             } else {
-                let err = JsonRpcError::method_not_found(request.id.clone(), &request.method);
+                let err = JsonRpcResponse::method_not_found(request.id.clone(), &request.method);
                 Some(serde_json::to_string(&err).unwrap_or_default())
             }
         }
@@ -375,7 +377,7 @@ async fn handle_hello(id: Option<Value>) -> String {
         "protocol": "dcc-mcp-marketplace.v1",
         "version": env!("CARGO_PKG_VERSION"),
     });
-    serde_json::to_string(&JsonRpcSuccess::new(id, result)).unwrap_or_default()
+    serde_json::to_string(&JsonRpcResponse::success(id, result)).unwrap_or_default()
 }
 
 async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> String {
@@ -408,7 +410,7 @@ async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> S
                     })
                 })
                 .collect();
-            serde_json::to_string(&JsonRpcSuccess::new(
+            serde_json::to_string(&JsonRpcResponse::success(
                 id,
                 serde_json::json!({ "entries": entries }),
             ))
@@ -416,7 +418,8 @@ async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> S
         }
         Err(err) => {
             let (code, msg) = marketplace_error_to_rpc(&err);
-            serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::error_with_data(id, code, msg, None))
+                .unwrap_or_default()
         }
     }
 }
@@ -440,7 +443,7 @@ async fn handle_installed_list(state: &MarketplaceWsState, id: Option<Value>) ->
                     })
                 })
                 .collect();
-            serde_json::to_string(&JsonRpcSuccess::new(
+            serde_json::to_string(&JsonRpcResponse::success(
                 id,
                 serde_json::json!({ "packages": packages }),
             ))
@@ -448,7 +451,8 @@ async fn handle_installed_list(state: &MarketplaceWsState, id: Option<Value>) ->
         }
         Err(err) => {
             let (code, msg) = marketplace_error_to_rpc(&err);
-            serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::error_with_data(id, code, msg, None))
+                .unwrap_or_default()
         }
     }
 }
@@ -464,11 +468,11 @@ async fn handle_install(
     {
         Ok(Some(p)) => p,
         Ok(None) => {
-            return serde_json::to_string(&JsonRpcError::invalid_params(id, "params required"))
+            return serde_json::to_string(&JsonRpcResponse::invalid_params(id, "params required"))
                 .unwrap_or_default();
         }
         Err(e) => {
-            return serde_json::to_string(&JsonRpcError::invalid_params(
+            return serde_json::to_string(&JsonRpcResponse::invalid_params(
                 id,
                 &format!("invalid install params: {e}"),
             ))
@@ -600,7 +604,7 @@ async fn handle_install(
                 "path": result.path,
                 "reload_required": result.reload_required,
             });
-            serde_json::to_string(&JsonRpcSuccess::new(id, response)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::success(id, response)).unwrap_or_default()
         }
         Err(err) => {
             // Emit operation.failed
@@ -619,7 +623,8 @@ async fn handle_install(
             );
 
             let (code, msg) = marketplace_error_to_rpc(&err);
-            serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::error_with_data(id, code, msg, None))
+                .unwrap_or_default()
         }
     }
 }
@@ -635,11 +640,11 @@ async fn handle_uninstall(
     {
         Ok(Some(p)) => p,
         Ok(None) => {
-            return serde_json::to_string(&JsonRpcError::invalid_params(id, "params required"))
+            return serde_json::to_string(&JsonRpcResponse::invalid_params(id, "params required"))
                 .unwrap_or_default();
         }
         Err(e) => {
-            return serde_json::to_string(&JsonRpcError::invalid_params(
+            return serde_json::to_string(&JsonRpcResponse::invalid_params(
                 id,
                 &format!("invalid uninstall params: {e}"),
             ))
@@ -743,7 +748,7 @@ async fn handle_uninstall(
                 "path": result.path,
                 "reload_required": result.reload_required,
             });
-            serde_json::to_string(&JsonRpcSuccess::new(id, response)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::success(id, response)).unwrap_or_default()
         }
         Err(err) => {
             let _ = state.events_tx.send(
@@ -761,7 +766,8 @@ async fn handle_uninstall(
             );
 
             let (code, msg) = marketplace_error_to_rpc(&err);
-            serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::error_with_data(id, code, msg, None))
+                .unwrap_or_default()
         }
     }
 }
@@ -780,7 +786,7 @@ async fn handle_sources_list(state: &MarketplaceWsState, id: Option<Value>) -> S
                     })
                 })
                 .collect();
-            serde_json::to_string(&JsonRpcSuccess::new(
+            serde_json::to_string(&JsonRpcResponse::success(
                 id,
                 serde_json::json!({ "sources": items }),
             ))
@@ -788,7 +794,8 @@ async fn handle_sources_list(state: &MarketplaceWsState, id: Option<Value>) -> S
         }
         Err(err) => {
             let (code, msg) = marketplace_error_to_rpc(&err);
-            serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::error_with_data(id, code, msg, None))
+                .unwrap_or_default()
         }
     }
 }
@@ -804,11 +811,11 @@ async fn handle_sources_add(
     {
         Ok(Some(p)) => p,
         Ok(None) => {
-            return serde_json::to_string(&JsonRpcError::invalid_params(id, "params required"))
+            return serde_json::to_string(&JsonRpcResponse::invalid_params(id, "params required"))
                 .unwrap_or_default();
         }
         Err(e) => {
-            return serde_json::to_string(&JsonRpcError::invalid_params(
+            return serde_json::to_string(&JsonRpcResponse::invalid_params(
                 id,
                 &format!("invalid params: {e}"),
             ))
@@ -829,7 +836,7 @@ async fn handle_sources_add(
                     })
                 })
                 .collect();
-            serde_json::to_string(&JsonRpcSuccess::new(
+            serde_json::to_string(&JsonRpcResponse::success(
                 id,
                 serde_json::json!({ "sources": items }),
             ))
@@ -837,7 +844,8 @@ async fn handle_sources_add(
         }
         Err(err) => {
             let (code, msg) = marketplace_error_to_rpc(&err);
-            serde_json::to_string(&JsonRpcError::new(id, code, msg, None)).unwrap_or_default()
+            serde_json::to_string(&JsonRpcResponse::error_with_data(id, code, msg, None))
+                .unwrap_or_default()
         }
     }
 }
@@ -850,7 +858,7 @@ async fn handle_sources_remove(
     // MarketplaceService doesn't have a remove_source method — reserved for future.
     // Use INTERNAL_ERROR with data.reason=not_implemented to avoid confusing
     // clients with METHOD_NOT_FOUND.
-    serde_json::to_string(&JsonRpcError::new(
+    serde_json::to_string(&JsonRpcResponse::error_with_data(
         id,
         INTERNAL_ERROR,
         "sources.remove not yet implemented".to_string(),
@@ -870,7 +878,7 @@ async fn handle_subscribe(
     {
         Ok(Some(p)) => p,
         _ => {
-            let err = JsonRpcError::invalid_params(id.clone(), "topics array required");
+            let err = JsonRpcResponse::invalid_params(id.clone(), "topics array required");
             return Some(serde_json::to_string(&err).unwrap_or_default());
         }
     };
@@ -886,8 +894,11 @@ async fn handle_subscribe(
         None
     } else {
         Some(
-            serde_json::to_string(&JsonRpcSuccess::new(id, Value::String("subscribed".into())))
-                .unwrap_or_default(),
+            serde_json::to_string(&JsonRpcResponse::success(
+                id,
+                Value::String("subscribed".into()),
+            ))
+            .unwrap_or_default(),
         )
     }
 }
@@ -1018,7 +1029,7 @@ mod tests {
             "protocol": "dcc-mcp-marketplace.v1",
             "version": env!("CARGO_PKG_VERSION"),
         });
-        let resp = JsonRpcSuccess::new(Some(Value::Number(1.into())), result);
+        let resp = JsonRpcResponse::success(Some(Value::Number(1.into())), result);
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"protocol\":\"dcc-mcp-marketplace.v1\""));
         assert!(json.contains("\"id\":1"));
@@ -1027,7 +1038,7 @@ mod tests {
     /// Verify handle_sources_remove uses INTERNAL_ERROR not METHOD_NOT_FOUND.
     #[test]
     fn test_sources_remove_uses_internal_error() {
-        let json = serde_json::to_string(&JsonRpcError::new(
+        let json = serde_json::to_string(&JsonRpcResponse::error_with_data(
             Some(Value::Number(1.into())),
             INTERNAL_ERROR,
             "sources.remove not yet implemented".to_string(),
@@ -1054,7 +1065,7 @@ mod tests {
     fn test_subscribe_invalid_params_returns_error_directly() {
         // Simulate what handle_subscribe would return for invalid params
         let err =
-            JsonRpcError::invalid_params(Some(Value::Number(1.into())), "topics array required");
+            JsonRpcResponse::invalid_params(Some(Value::Number(1.into())), "topics array required");
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("\"code\":-32602"));
         assert!(json.contains("topics array required"));
@@ -1117,7 +1128,7 @@ mod tests {
     /// Verify subscribe response (not notification) returns "subscribed".
     #[test]
     fn test_subscribe_success_response() {
-        let resp = JsonRpcSuccess::new(
+        let resp = JsonRpcResponse::success(
             Some(Value::Number(1.into())),
             Value::String("subscribed".into()),
         );

@@ -252,7 +252,7 @@ Rust workspace with package membership defined by the root `Cargo.toml`, using P
 
 The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New code should import the extracted crates directly:
 
-- **`dcc-mcp-jsonrpc`** — MCP 2025-03-26 JSON-RPC builders. Zero axum/tokio dependency, so standalone clients/CLIs can use it.
+- **`dcc-mcp-jsonrpc`** — canonical transport-neutral JSON-RPC envelopes, standard error codes, and MCP builders. Zero axum/tokio dependency, so gateway applications and standalone clients/CLIs share one wire shape.
 - **`dcc-mcp-wire`** — canonical MCP/REST call envelopes, validation, and argument/meta normalization shared by JSON-RPC, gateway, REST, and Python host wrappers.
 - **`dcc-mcp-job`** — async job tracker + pluggable persistence. Owns the optional `job-persist-sqlite` feature; `dcc-mcp-http` forwards the flag.
 - **`dcc-mcp-skill-rest`** — per-DCC `/v1/*` REST skill API. Owns the `utoipa` OpenAPI generator.
@@ -271,7 +271,7 @@ crates/
 ├── dcc-mcp-actions/        # ToolRegistry, ToolDispatcher, EventBus, validation
 ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, resolver
 ├── dcc-mcp-protocols/      # MCP Tool/Resource/Prompt/DccAdapter models
-├── dcc-mcp-jsonrpc/        # JSON-RPC builders
+├── dcc-mcp-jsonrpc/        # Canonical JSON-RPC envelopes + MCP builders
 ├── dcc-mcp-wire/           # Canonical MCP/REST call envelopes + normalization
 ├── dcc-mcp-job/            # Async job tracker + optional persistence
 ├── dcc-mcp-skill-rest/     # Per-DCC /v1/* REST skill API

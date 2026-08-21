@@ -31,6 +31,7 @@ Decision / Consequences / Alternatives considered.
 | 024 | [Immutable Marketplace Install Sources](./024-immutable-marketplace-install-sources.md) | Accepted |
 | 025 | [Pinned Pip Adapter Artifacts](./025-pinned-pip-adapter-artifacts.md) | Accepted |
 | 026 | [Verify Official Release Metadata with Sigstore](./026-sigstore-release-metadata.md) | Accepted |
+| 027 | [Assign One Owner to Every Cross-Crate Protocol Type](./027-protocol-type-ownership.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any
