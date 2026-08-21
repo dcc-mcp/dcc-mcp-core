@@ -27,9 +27,10 @@ from typing import Optional
 from typing import Sequence
 from typing import Tuple
 
+from dcc_mcp_core.constants import ENV_CUA_BINARY
 from dcc_mcp_core.errors import DccMcpError
 
-CUA_BINARY_ENV = "DCC_MCP_CUA_BINARY"
+CUA_BINARY_ENV = ENV_CUA_BINARY
 MINIMUM_CUA_VERSION = (0, 4, 0)
 MINIMUM_CUA_VERSION_TEXT = ".".join(str(part) for part in MINIMUM_CUA_VERSION)
 _MANIFEST_TIMEOUT_SECONDS = 5.0

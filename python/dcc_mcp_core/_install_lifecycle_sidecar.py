@@ -24,8 +24,14 @@ from uuid import UUID
 
 from ._install_lifecycle_runtime import default_registry_dir
 from ._path_util import to_resolved_path as _to_path
+from .constants import ENV_GATEWAY_HOST
+from .constants import ENV_GATEWAY_NAME
+from .constants import ENV_GATEWAY_PORT
+from .constants import ENV_PYTHON_EXECUTABLE
+from .constants import ENV_REGISTRY_DIR
+from .constants import ENV_SERVER_BIN
 
-REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
+REGISTRY_ENV = ENV_REGISTRY_DIR
 ROLE_PER_DCC_SIDECAR = "per-dcc-sidecar"
 SUPPORTED_DISPATCH_HOST_RPC_SCHEMES = ("commandport", "qtserver", "ws", "wss")
 TEST_ONLY_HOST_RPC_SCHEMES = ("stub",)
@@ -173,7 +179,7 @@ def build_sidecar_command(
         return _failed("invalid_watch_pid", "watch_pid must be a positive process id.")
 
     port = _parse_port(
-        gateway_port if gateway_port is not None else environment.get("DCC_MCP_GATEWAY_PORT"),
+        gateway_port if gateway_port is not None else environment.get(ENV_GATEWAY_PORT),
         default=9765,
     )
     if port is None:
@@ -215,8 +221,8 @@ def build_sidecar_command(
     _append_flag_value(command, "--display-name", display_name)
     _append_flag_value(command, "--adapter-version", adapter_version)
     _append_flag_value(command, "--discovery-mcp-url", discovery_mcp_url)
-    _append_flag_value(command, "--gateway-host", gateway_host or environment.get("DCC_MCP_GATEWAY_HOST"))
-    _append_flag_value(command, "--gateway-name", gateway_name or environment.get("DCC_MCP_GATEWAY_NAME"))
+    _append_flag_value(command, "--gateway-host", gateway_host or environment.get(ENV_GATEWAY_HOST))
+    _append_flag_value(command, "--gateway-name", gateway_name or environment.get(ENV_GATEWAY_NAME))
     _append_flag_value(command, "--gateway-remote-host", gateway_remote_host)
     if remote_port is not None:
         command.extend(["--gateway-remote-port", str(remote_port)])
@@ -237,12 +243,12 @@ def build_sidecar_command(
 
     env_set = {
         REGISTRY_ENV: str(registry_path),
-        "DCC_MCP_GATEWAY_PORT": str(port),
+        ENV_GATEWAY_PORT: str(port),
     }
     if gateway_host:
-        env_set["DCC_MCP_GATEWAY_HOST"] = str(gateway_host)
+        env_set[ENV_GATEWAY_HOST] = str(gateway_host)
     if gateway_name:
-        env_set["DCC_MCP_GATEWAY_NAME"] = str(gateway_name)
+        env_set[ENV_GATEWAY_NAME] = str(gateway_name)
 
     return {
         "success": True,
@@ -482,7 +488,7 @@ def _resolve_server_bin(server_bin: Optional[str], env: Dict[str, str]) -> str:
 
 def _server_binary_diagnostic(server_bin: Optional[str], env: Dict[str, str]) -> Dict[str, Any]:
     explicit = str(server_bin or "").strip()
-    env_configured = str(env.get("DCC_MCP_SERVER_BIN") or "").strip()
+    env_configured = str(env.get(ENV_SERVER_BIN) or "").strip()
     configured = explicit or env_configured
     command = _resolve_server_bin(server_bin, env)
     resolved_path = shutil.which(command, path=env.get("PATH"))
@@ -501,7 +507,7 @@ def _server_binary_diagnostic(server_bin: Optional[str], env: Dict[str, str]) ->
 
 
 def _configured_server_bin(server_bin: Optional[str], env: Dict[str, str]) -> str:
-    return str(server_bin or "").strip() or str(env.get("DCC_MCP_SERVER_BIN") or "").strip()
+    return str(server_bin or "").strip() or str(env.get(ENV_SERVER_BIN) or "").strip()
 
 
 def _probe_server_binary_version(
@@ -876,7 +882,7 @@ def _build_readiness_command(
     registry_path: Path,
     instance_id: Optional[str],
 ) -> List[str]:
-    python_bin = str(env.get("DCC_MCP_PYTHON_EXECUTABLE") or sys.executable)
+    python_bin = str(env.get(ENV_PYTHON_EXECUTABLE) or sys.executable)
     return [
         python_bin,
         "-m",

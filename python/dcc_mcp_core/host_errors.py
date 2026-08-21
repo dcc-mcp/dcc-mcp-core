@@ -25,6 +25,8 @@ from typing import Iterator
 from typing import Optional
 
 from ._version_util import package_version
+from .constants import ENV_DISABLE_FILE_LOGGING
+from .constants import ENV_LOG_DIR
 
 _ERROR_LOG_LOCK = threading.Lock()
 _MAX_MESSAGE_CHARS = 8192
@@ -35,7 +37,7 @@ _package_version = partial(package_version, fallback="unknown")
 
 
 def _default_log_dir() -> Path:
-    configured = os.environ.get("DCC_MCP_LOG_DIR")
+    configured = os.environ.get(ENV_LOG_DIR)
     if configured:
         return Path(configured)
     if sys.platform == "win32":
@@ -156,7 +158,7 @@ def record_bootstrap_error(
         "python_executable": sys.executable,
         "metadata": metadata or {},
     }
-    enabled = os.environ.get("DCC_MCP_DISABLE_FILE_LOGGING", "0") != "1"
+    enabled = os.environ.get(ENV_DISABLE_FILE_LOGGING, "0") != "1"
     return _write_host_error_event(event, log_dir=log_dir, enabled=enabled)
 
 

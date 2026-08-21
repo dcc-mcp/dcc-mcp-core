@@ -67,6 +67,7 @@ from dcc_mcp_core import json_loads
 from dcc_mcp_core._server.diagnostic_state import DiagnosticRuntimeState
 from dcc_mcp_core._server.diagnostic_state import get_default_diagnostic_state
 from dcc_mcp_core.constants import CATEGORY_DIAGNOSTICS
+from dcc_mcp_core.constants import ENV_IPC_ADDRESS
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
@@ -690,7 +691,7 @@ def register_diagnostic_handlers(
 
 def _set_ipc_address_env(dcc_name: str = "dcc") -> None:
     """Derive and export ``DCC_MCP_IPC_ADDRESS`` for skill subprocesses."""
-    if os.environ.get("DCC_MCP_IPC_ADDRESS"):
+    if os.environ.get(ENV_IPC_ADDRESS):
         return  # respect any externally-configured override
 
     try:
@@ -698,7 +699,7 @@ def _set_ipc_address_env(dcc_name: str = "dcc") -> None:
 
         addr = TransportAddress.default_local(dcc_name, os.getpid())
         addr_str = str(addr)
-        os.environ["DCC_MCP_IPC_ADDRESS"] = addr_str
+        os.environ[ENV_IPC_ADDRESS] = addr_str
         logger.debug("Set DCC_MCP_IPC_ADDRESS=%s (dcc=%r)", addr_str, dcc_name)
     except Exception as exc:
         logger.debug("Could not derive default IPC address for dcc=%r: %s", dcc_name, exc)

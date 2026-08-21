@@ -21,13 +21,20 @@ from urllib.request import urlopen
 import uuid
 
 from dcc_mcp_core._version_util import parse_semver as _parse_semver
+from dcc_mcp_core.constants import ENV_CORE_VERSION
+from dcc_mcp_core.constants import ENV_DCC_TYPE
 from dcc_mcp_core.constants import ENV_GATEWAY_ENSURE_TIMEOUT_SECS
 from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_FAILURES
 from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_INTERVAL
 from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX
 from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_RESTART_TIMEOUT
 from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_TIMEOUT
+from dcc_mcp_core.constants import ENV_GATEWAY_IDLE_TIMEOUT_SECS
 from dcc_mcp_core.constants import ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS
+from dcc_mcp_core.constants import ENV_GATEWAY_PERSIST
+from dcc_mcp_core.constants import ENV_GATEWAY_PORT
+from dcc_mcp_core.constants import ENV_REGISTRY_DIR
+from dcc_mcp_core.constants import ENV_SERVER_BIN
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.env import env_float
 from dcc_mcp_core.env import env_int
@@ -119,7 +126,7 @@ def _request_gateway_yield(
 
 
 def _resolve_server_bin() -> str:
-    explicit = (os.environ.get("DCC_MCP_SERVER_BIN") or "").strip()
+    explicit = (os.environ.get(ENV_SERVER_BIN) or "").strip()
     if explicit:
         return explicit
     try:
@@ -264,7 +271,7 @@ def _wait_managed_gateway_ready(
 def _resolve_gateway_persist(gateway_persist: bool | None) -> bool:
     if gateway_persist is not None:
         return bool(gateway_persist)
-    return (os.environ.get("DCC_MCP_GATEWAY_PERSIST") or "").strip().lower() in {
+    return (os.environ.get(ENV_GATEWAY_PERSIST) or "").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -275,7 +282,7 @@ def _resolve_gateway_persist(gateway_persist: bool | None) -> bool:
 def _resolve_gateway_idle_timeout_secs(gateway_idle_timeout_secs: int | None) -> int | None:
     if gateway_idle_timeout_secs is not None:
         return max(int(gateway_idle_timeout_secs), 0)
-    raw = (os.environ.get("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS") or "").strip()
+    raw = (os.environ.get(ENV_GATEWAY_IDLE_TIMEOUT_SECS) or "").strip()
     if not raw:
         return _AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT
     try:
@@ -312,16 +319,16 @@ def build_gateway_daemon_command(
         cmd.extend(["--gateway-idle-timeout-secs", str(idle_timeout)])
 
     env = os.environ.copy()
-    if not env.get("DCC_MCP_GATEWAY_PORT"):
-        env["DCC_MCP_GATEWAY_PORT"] = str(gateway_port)
+    if not env.get(ENV_GATEWAY_PORT):
+        env[ENV_GATEWAY_PORT] = str(gateway_port)
     registry_path = _resolve_registry_dir(registry_dir)
-    env["DCC_MCP_REGISTRY_DIR"] = str(registry_path)
-    if dcc_type and not env.get("DCC_MCP_DCC_TYPE"):
-        env["DCC_MCP_DCC_TYPE"] = dcc_type
+    env[ENV_REGISTRY_DIR] = str(registry_path)
+    if dcc_type and not env.get(ENV_DCC_TYPE):
+        env[ENV_DCC_TYPE] = dcc_type
     if persist:
-        env["DCC_MCP_GATEWAY_PERSIST"] = "1"
+        env[ENV_GATEWAY_PERSIST] = "1"
     if idle_timeout is not None:
-        env["DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS"] = str(idle_timeout)
+        env[ENV_GATEWAY_IDLE_TIMEOUT_SECS] = str(idle_timeout)
     return cmd, env
 
 
@@ -767,7 +774,7 @@ def _get_core_version() -> str:
     Checks ``DCC_MCP_CORE_VERSION`` env var first, then tries to read from the
     installed ``dcc_mcp_core`` package metadata.
     """
-    env_version = (os.environ.get("DCC_MCP_CORE_VERSION") or "").strip()
+    env_version = (os.environ.get(ENV_CORE_VERSION) or "").strip()
     if env_version:
         return env_version
     try:

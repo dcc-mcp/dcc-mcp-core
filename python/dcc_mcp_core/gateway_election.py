@@ -43,11 +43,15 @@ import threading
 from typing import Any
 from typing import Callable
 
+from dcc_mcp_core.constants import ENV_GATEWAY_PROBE_FAILURES
+from dcc_mcp_core.constants import ENV_GATEWAY_PROBE_INTERVAL
+from dcc_mcp_core.constants import ENV_GATEWAY_PROBE_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
-_PROBE_INTERVAL = int(os.environ.get("DCC_MCP_GATEWAY_PROBE_INTERVAL", "1"))
-_PROBE_TIMEOUT = float(os.environ.get("DCC_MCP_GATEWAY_PROBE_TIMEOUT", "2"))
-_PROBE_FAILURES = int(os.environ.get("DCC_MCP_GATEWAY_PROBE_FAILURES", "2"))
+_PROBE_INTERVAL = int(os.environ.get(ENV_GATEWAY_PROBE_INTERVAL, "1"))
+_PROBE_TIMEOUT = float(os.environ.get(ENV_GATEWAY_PROBE_TIMEOUT, "2"))
+_PROBE_FAILURES = int(os.environ.get(ENV_GATEWAY_PROBE_FAILURES, "2"))
 _GATEWAY_HOST = "127.0.0.1"
 _DEFAULT_GATEWAY_PORT = 9765
 

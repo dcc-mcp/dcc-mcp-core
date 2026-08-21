@@ -112,7 +112,9 @@ reconstructing the environment and temporary-directory fallback contract.
 Import-light environment parsing uses `dcc_mcp_core.env`: `env_flag`,
 `env_int`, `env_float`, and `env_path`. Core runtime callers keep environment
 names in `dcc_mcp_core.constants` and pass caller-specific truth tokens or
-numeric bounds explicitly.
+numeric bounds explicitly. Bundled skill scripts retain local names so copied
+skills remain self-contained; an AST ownership test prevents new runtime
+literals outside the constants module.
 
 Public Python exceptions share the import-light `dcc_mcp_core.DccMcpError`
 root. Specialized exceptions retain their prior built-in exception category

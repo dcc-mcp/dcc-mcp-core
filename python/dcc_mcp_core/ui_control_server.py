@@ -15,6 +15,14 @@ from typing import Sequence
 from dcc_mcp_core import HostExecutionBridge
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
+from dcc_mcp_core.constants import ENV_CUA_ALLOW_RAW_INPUT
+from dcc_mcp_core.constants import ENV_CUA_BINARY
+from dcc_mcp_core.constants import ENV_DISABLE_ACCUMULATED_SKILLS
+from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_UI_CONTROL_BACKEND
+from dcc_mcp_core.constants import ENV_UI_CONTROL_DCC_TYPE
+from dcc_mcp_core.constants import ENV_UI_CONTROL_PROCESS_ID
+from dcc_mcp_core.constants import ENV_UI_CONTROL_WINDOW_HANDLE
 from dcc_mcp_core.cua_cli import inspect_cua_contract
 from dcc_mcp_core.cua_cli import resolve_cua_command
 
@@ -84,17 +92,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     cua_command = resolve_cua_command(configured_binary)
     cua_contract = inspect_cua_contract(cua_command)
 
-    os.environ["DCC_MCP_UI_CONTROL_BACKEND"] = "cua"
-    os.environ["DCC_MCP_CUA_BINARY"] = cua_command[0]
-    os.environ["DCC_MCP_UI_CONTROL_DCC_TYPE"] = str(args.application_label)
-    os.environ["DCC_MCP_UI_CONTROL_WINDOW_HANDLE"] = str(args.window_handle)
-    os.environ["DCC_MCP_UI_CONTROL_PROCESS_ID"] = str(args.process_id)
-    os.environ["DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"] = "1"
-    os.environ["DCC_MCP_DISABLE_ACCUMULATED_SKILLS"] = "1"
+    os.environ[ENV_UI_CONTROL_BACKEND] = "cua"
+    os.environ[ENV_CUA_BINARY] = cua_command[0]
+    os.environ[ENV_UI_CONTROL_DCC_TYPE] = str(args.application_label)
+    os.environ[ENV_UI_CONTROL_WINDOW_HANDLE] = str(args.window_handle)
+    os.environ[ENV_UI_CONTROL_PROCESS_ID] = str(args.process_id)
+    os.environ[ENV_DISABLE_DEFAULT_SKILL_PATHS] = "1"
+    os.environ[ENV_DISABLE_ACCUMULATED_SKILLS] = "1"
     if args.allow_raw_input:
-        os.environ["DCC_MCP_CUA_ALLOW_RAW_INPUT"] = "true"
+        os.environ[ENV_CUA_ALLOW_RAW_INPUT] = "true"
     else:
-        os.environ["DCC_MCP_CUA_ALLOW_RAW_INPUT"] = "false"
+        os.environ[ENV_CUA_ALLOW_RAW_INPUT] = "false"
 
     registry_dir.mkdir(parents=True, exist_ok=True)
     config = McpHttpConfig(

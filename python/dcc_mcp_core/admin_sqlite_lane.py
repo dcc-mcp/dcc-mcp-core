@@ -30,12 +30,13 @@ import sqlite3
 import tempfile
 from typing import Sequence
 
+from dcc_mcp_core.constants import ENV_GATEWAY_ADMIN_DB
+from dcc_mcp_core.constants import ENV_REGISTRY_DIR
+
 logger = logging.getLogger(__name__)
 
 # Mirror of the Rust constants in `crates/dcc-mcp-db/src/domain/env.rs`.
 # Keep both lists in sync if either side changes.
-ENV_GATEWAY_ADMIN_DB = "DCC_MCP_GATEWAY_ADMIN_DB"
-ENV_REGISTRY_DIR = "DCC_MCP_REGISTRY_DIR"
 GATEWAY_ADMIN_SQLITE_FILENAME = "gateway_admin.sqlite"
 
 

@@ -19,6 +19,9 @@ import re
 from typing import Any
 from typing import Optional
 
+from dcc_mcp_core.constants import ENV_DCC_EXCLUDE_STUBS_FROM_TOOLS_LIST_TEMPLATE
+from dcc_mcp_core.constants import ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST
+
 __all__ = [
     "ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST",
     "ToolsListStubPolicy",
@@ -27,9 +30,6 @@ __all__ = [
     "env_truthy",
     "resolve_tools_list_stub_policy",
 ]
-
-#: Global env var — applies to every DCC unless overridden per-DCC.
-ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST = "DCC_MCP_EXCLUDE_STUBS_FROM_TOOLS_LIST"
 
 
 def env_truthy(name: str) -> bool:
@@ -42,7 +42,7 @@ def dcc_exclude_stubs_env_name(dcc_name: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "_", (dcc_name or "").strip()).strip("_").upper()
     if not slug:
         raise ValueError("dcc_name must be non-empty")
-    return f"DCC_MCP_{slug}_EXCLUDE_STUBS_FROM_TOOLS_LIST"
+    return ENV_DCC_EXCLUDE_STUBS_FROM_TOOLS_LIST_TEMPLATE.format(slug)
 
 
 @dataclass(frozen=True)
