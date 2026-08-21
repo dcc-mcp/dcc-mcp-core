@@ -19,11 +19,7 @@ fn channel_name(tag: &str) -> String {
 }
 
 fn ping_frame(seq: u64) -> DccLinkFrame {
-    DccLinkFrame {
-        msg_type: DccLinkType::Ping,
-        seq,
-        body: vec![],
-    }
+    DccLinkFrame::new(DccLinkType::Ping, seq, vec![])
 }
 
 // ── Client disconnect detection ──────────────────────────────────────────────
@@ -62,11 +58,7 @@ fn client_can_reconnect_after_server_restart() {
     server1.wait_for_client().unwrap();
 
     // Round-trip on first connection.
-    let frame = DccLinkFrame {
-        msg_type: DccLinkType::Call,
-        seq: 1,
-        body: b"hello".to_vec(),
-    };
+    let frame = DccLinkFrame::new(DccLinkType::Call, 1, b"hello".to_vec());
     client1.send_frame(&frame).unwrap();
     let recv1 = server1.recv_frame().unwrap();
     assert_eq!(recv1.seq, 1);
@@ -84,11 +76,7 @@ fn client_can_reconnect_after_server_restart() {
     server2.wait_for_client().unwrap();
 
     // Round-trip on second connection.
-    let frame2 = DccLinkFrame {
-        msg_type: DccLinkType::Call,
-        seq: 2,
-        body: b"world".to_vec(),
-    };
+    let frame2 = DccLinkFrame::new(DccLinkType::Call, 2, b"world".to_vec());
     server2.send_frame(&frame2).unwrap();
     let recv2 = client2.recv_frame().unwrap();
     assert_eq!(recv2.seq, 2);
@@ -109,11 +97,7 @@ fn small_frame_roundtrip() {
 
     // 1 KB body.
     let body = vec![0xDE; 1024];
-    let frame = DccLinkFrame {
-        msg_type: DccLinkType::Push,
-        seq: 42,
-        body: body.clone(),
-    };
+    let frame = DccLinkFrame::new(DccLinkType::Push, 42, body.clone());
 
     // Server sends to client.
     server.send_frame(&frame).unwrap();

@@ -22,6 +22,7 @@ class TestDccLinkFrame:
 
     def test_create_with_body(self) -> None:
         frame = DccLinkFrame(msg_type=1, seq=42, body=b"hello")
+        assert frame.version == 1
         assert frame.msg_type == 1
         assert frame.seq == 42
         assert frame.body == b"hello"
@@ -34,14 +35,27 @@ class TestDccLinkFrame:
         with pytest.raises(ValueError, match="unknown DccLinkType"):
             DccLinkFrame(msg_type=255, seq=0)
 
+    def test_rejects_unsupported_protocol_version(self) -> None:
+        with pytest.raises(ValueError, match="unsupported DCC-Link protocol version"):
+            DccLinkFrame(msg_type=1, seq=0, version=2)
+
     def test_encode_decode_roundtrip(self) -> None:
         frame = DccLinkFrame(msg_type=1, seq=99, body=b"\x01\x02\x03")
         encoded = frame.encode()
         assert isinstance(encoded, bytes)
         decoded = DccLinkFrame.decode(encoded)
         assert decoded.msg_type == 1
+        assert decoded.version == 1
         assert decoded.seq == 99
         assert decoded.body == b"\x01\x02\x03"
+
+    def test_legacy_frame_roundtrip(self) -> None:
+        frame = DccLinkFrame(msg_type=2, seq=7, body=b"legacy", version=0)
+        encoded = frame.encode()
+        assert encoded[4] == 2
+        decoded = DccLinkFrame.decode(encoded)
+        assert decoded.version == 0
+        assert decoded.encode() == encoded
 
     def test_repr(self) -> None:
         frame = DccLinkFrame(msg_type=1, seq=0, body=b"abc")

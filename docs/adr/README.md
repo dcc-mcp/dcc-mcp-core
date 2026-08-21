@@ -32,6 +32,7 @@ Decision / Consequences / Alternatives considered.
 | 025 | [Pinned Pip Adapter Artifacts](./025-pinned-pip-adapter-artifacts.md) | Accepted |
 | 026 | [Verify Official Release Metadata with Sigstore](./026-sigstore-release-metadata.md) | Accepted |
 | 027 | [Assign One Owner to Every Cross-Crate Protocol Type](./027-protocol-type-ownership.md) | Accepted |
+| 028 | [Version DCC-Link Frames with a Tagged Header](./028-version-dcc-link-frames.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any

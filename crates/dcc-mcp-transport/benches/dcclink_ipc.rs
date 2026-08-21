@@ -10,11 +10,7 @@ use dcc_mcp_transport::{DccLinkFrame, DccLinkType, GracefulIpcChannelAdapter, Ip
 
 /// Sample frame with configurable body size.
 fn sample_frame(body_size: usize) -> DccLinkFrame {
-    DccLinkFrame {
-        msg_type: DccLinkType::Call,
-        seq: 1,
-        body: vec![0xAB; body_size],
-    }
+    DccLinkFrame::new(DccLinkType::Call, 1, vec![0xAB; body_size])
 }
 
 /// Benchmark IpcChannelAdapter round-trip: client sends, server echoes back.
@@ -50,6 +46,7 @@ fn bench_ipc_roundtrip(c: &mut Criterion) {
                             break;
                         };
                         let reply = DccLinkFrame {
+                            version: recv.version,
                             msg_type: DccLinkType::Reply,
                             seq: recv.seq,
                             body: recv.body,
@@ -117,6 +114,7 @@ fn bench_graceful_roundtrip(c: &mut Criterion) {
                             break;
                         };
                         let reply = DccLinkFrame {
+                            version: recv.version,
                             msg_type: DccLinkType::Reply,
                             seq: recv.seq,
                             body: recv.body,
@@ -206,6 +204,7 @@ fn bench_10k_rps_p99(c: &mut Criterion) {
                 break;
             };
             let reply = DccLinkFrame {
+                version: recv.version,
                 msg_type: DccLinkType::Reply,
                 seq: recv.seq,
                 body: recv.body,
@@ -217,11 +216,7 @@ fn bench_10k_rps_p99(c: &mut Criterion) {
     });
 
     // Tiny 32-byte body — typical for action metadata dispatch frames.
-    let frame = DccLinkFrame {
-        msg_type: DccLinkType::Call,
-        seq: 1,
-        body: vec![0xAB; 32],
-    };
+    let frame = DccLinkFrame::new(DccLinkType::Call, 1, vec![0xAB; 32]);
 
     group.bench_function("IpcChannelAdapter/32B", |b| {
         b.iter(|| {

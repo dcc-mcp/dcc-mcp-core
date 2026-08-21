@@ -13,7 +13,7 @@ The Transport layer (`dcc-mcp-transport` crate) provides IPC communication betwe
 
 ## Overview
 
-The new transport API is built around **DccLink adapters** — thin wrappers over `ipckit` IPC channels that use a binary wire format (`[u32 len][u8 type][u64 seq][msgpack body]`) for efficient framed communication.
+The new transport API is built around **DccLink adapters** — thin wrappers over `ipckit` IPC channels that use a versioned binary wire format for efficient framed communication.
 
 ```python
 from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
@@ -36,7 +36,9 @@ print(received.body)  # b"hello"
 
 ## DccLinkFrame
 
-Binary wire frame for DCC-Link protocol. Wire format: `[u32 len][u8 type][u64 seq][msgpack body]`.
+Binary wire frame for DCC-Link protocol. Version 1 uses
+`[u32 len][u8 0x80|version][u8 type][u64 seq][msgpack body]`. The high bit
+distinguishes versioned frames from the legacy version 0 format.
 
 ### Message Types
 
@@ -64,11 +66,13 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 | `msg_type` | `int` | Message type tag (1-8) |
 | `seq` | `int` | Sequence number |
 | `body` | `bytes \| None` | Payload bytes (defaults to `b""`) |
+| `version` | `int` | Wire version (defaults to `1`; use `0` only during legacy rollout) |
 
 ### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `version` | `int` | Wire version; decoded legacy frames report `0` |
 | `msg_type` | `int` | Message type tag (1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong) |
 | `seq` | `int` | Sequence number |
 | `body` | `bytes` | Payload bytes |
@@ -77,7 +81,7 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `encode()` | `bytes` | Encode the frame to `[len][type][seq][body]` bytes |
+| `encode()` | `bytes` | Encode a versioned frame, or the legacy format when `version=0` |
 | `decode(data)` | `DccLinkFrame` | Decode a frame from bytes including the 4-byte length prefix (static) |
 
 ```python
@@ -133,7 +137,7 @@ if received is not None:
     print(received.body)      # b"execute_python"
 
     # Server sends a Reply frame
-    reply = DccLinkFrame(msg_type=2, seq=0, body=b"ok")
+    reply = DccLinkFrame(msg_type=2, seq=0, body=b"ok", version=received.version)
     server.send_frame(reply)
 
 # Client receives the reply
@@ -353,7 +357,7 @@ while True:
         break  # channel closed
     if frame.msg_type == 1:  # Call
         # Process the request...
-        reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok")
+        reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok", version=frame.version)
         server.send_frame(reply)
 
 server.shutdown()

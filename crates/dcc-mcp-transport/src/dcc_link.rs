@@ -1,7 +1,7 @@
 //! DCC-Link wire frame and ipckit adapters.
 //!
 //! This module introduces an explicit DCC-Link frame format:
-//! `[u32 len][u8 type][u64 seq][msgpack body]`.
+//! `[u32 len][u8 version tag][u8 type][u64 seq][msgpack body]`.
 //! It provides:
 //! - `DccLinkFrame` encode/decode helpers
 //! - `IpcChannelAdapter` over `ipckit::IpcChannel<Vec<u8>>`
@@ -13,6 +13,14 @@ use std::time::Duration;
 use ipckit::{GracefulIpcChannel, IpcChannel, SocketServer, SocketServerConfig};
 
 use crate::error::{TransportError, TransportResult};
+
+/// Current DCC-Link wire protocol version.
+pub const DCC_LINK_PROTOCOL_VERSION: u8 = 1;
+
+/// Version assigned to frames written before an explicit version byte existed.
+pub const DCC_LINK_LEGACY_VERSION: u8 = 0;
+
+const VERSION_TAG_FLAG: u8 = 0x80;
 
 /// DCC-Link message type tags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,17 +59,49 @@ impl TryFrom<u8> for DccLinkType {
 /// A DCC-Link frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DccLinkFrame {
+    pub version: u8,
     pub msg_type: DccLinkType,
     pub seq: u64,
     pub body: Vec<u8>,
 }
 
 impl DccLinkFrame {
-    const HEADER_LEN: usize = 1 + 8;
+    const LEGACY_HEADER_LEN: usize = 1 + 8;
+    const VERSIONED_HEADER_LEN: usize = 1 + 1 + 8;
 
-    /// Encode to `[len][type][seq][body]` where `len = 1 + 8 + body.len()`.
+    /// Construct a frame using the current wire protocol version.
+    pub fn new(msg_type: DccLinkType, seq: u64, body: Vec<u8>) -> Self {
+        Self {
+            version: DCC_LINK_PROTOCOL_VERSION,
+            msg_type,
+            seq,
+            body,
+        }
+    }
+
+    /// Construct a legacy frame for the read-first rolling-upgrade phase.
+    pub fn legacy(msg_type: DccLinkType, seq: u64, body: Vec<u8>) -> Self {
+        Self {
+            version: DCC_LINK_LEGACY_VERSION,
+            msg_type,
+            seq,
+            body,
+        }
+    }
+
+    /// Encode a versioned frame, or the legacy format when `version == 0`.
     pub fn encode(&self) -> TransportResult<Vec<u8>> {
-        let payload_len = Self::HEADER_LEN + self.body.len();
+        let header_len = match self.version {
+            DCC_LINK_LEGACY_VERSION => Self::LEGACY_HEADER_LEN,
+            DCC_LINK_PROTOCOL_VERSION => Self::VERSIONED_HEADER_LEN,
+            received => {
+                return Err(TransportError::UnsupportedDccLinkVersion {
+                    received,
+                    supported: DCC_LINK_PROTOCOL_VERSION,
+                });
+            }
+        };
+        let payload_len = header_len + self.body.len();
         let len_u32 = u32::try_from(payload_len).map_err(|_| TransportError::FrameTooLarge {
             size: payload_len,
             max_size: u32::MAX as usize,
@@ -69,6 +109,9 @@ impl DccLinkFrame {
 
         let mut out = Vec::with_capacity(4 + payload_len);
         out.extend_from_slice(&len_u32.to_be_bytes());
+        if self.version != DCC_LINK_LEGACY_VERSION {
+            out.push(VERSION_TAG_FLAG | self.version);
+        }
         out.push(self.msg_type as u8);
         out.extend_from_slice(&self.seq.to_be_bytes());
         out.extend_from_slice(&self.body);
@@ -77,7 +120,7 @@ impl DccLinkFrame {
 
     /// Decode from a full frame buffer including the 4-byte length prefix.
     pub fn decode(frame: &[u8]) -> TransportResult<Self> {
-        if frame.len() < 4 + Self::HEADER_LEN {
+        if frame.len() < 4 + Self::LEGACY_HEADER_LEN {
             return Err(TransportError::Serialization(
                 "dcc-link frame too short".to_string(),
             ));
@@ -91,13 +134,39 @@ impl DccLinkFrame {
             )));
         }
 
-        let msg_type = DccLinkType::try_from(frame[4])?;
+        let (version, type_offset, seq_offset, body_offset) = if frame[4] & VERSION_TAG_FLAG != 0 {
+            let version = frame[4] & !VERSION_TAG_FLAG;
+            if version != DCC_LINK_PROTOCOL_VERSION {
+                return Err(TransportError::UnsupportedDccLinkVersion {
+                    received: version,
+                    supported: DCC_LINK_PROTOCOL_VERSION,
+                });
+            }
+            if frame.len() < 4 + Self::VERSIONED_HEADER_LEN {
+                return Err(TransportError::Serialization(
+                    "dcc-link versioned frame too short".to_string(),
+                ));
+            }
+            (version, 5, 6, 14)
+        } else {
+            (DCC_LINK_LEGACY_VERSION, 4, 5, 13)
+        };
+
+        let msg_type = DccLinkType::try_from(frame[type_offset])?;
         let seq = u64::from_be_bytes([
-            frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11], frame[12],
+            frame[seq_offset],
+            frame[seq_offset + 1],
+            frame[seq_offset + 2],
+            frame[seq_offset + 3],
+            frame[seq_offset + 4],
+            frame[seq_offset + 5],
+            frame[seq_offset + 6],
+            frame[seq_offset + 7],
         ]);
-        let body = frame[13..].to_vec();
+        let body = frame[body_offset..].to_vec();
 
         Ok(Self {
+            version,
             msg_type,
             seq,
             body,
@@ -254,6 +323,7 @@ mod tests {
     #[test]
     fn dcc_link_frame_roundtrip() {
         let frame = DccLinkFrame {
+            version: DCC_LINK_PROTOCOL_VERSION,
             msg_type: DccLinkType::Call,
             seq: 42,
             body: vec![1, 2, 3, 4],
@@ -261,6 +331,56 @@ mod tests {
         let encoded = frame.encode().unwrap();
         let decoded = DccLinkFrame::decode(&encoded).unwrap();
         assert_eq!(decoded, frame);
+        assert_eq!(encoded[4], VERSION_TAG_FLAG | DCC_LINK_PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn dcc_link_frame_decodes_and_preserves_legacy_wire_format() {
+        let frame = DccLinkFrame::legacy(DccLinkType::Reply, 7, vec![9, 8]);
+        let encoded = frame.encode().unwrap();
+        assert_eq!(encoded[4], DccLinkType::Reply as u8);
+
+        let decoded = DccLinkFrame::decode(&encoded).unwrap();
+        assert_eq!(decoded, frame);
+        assert_eq!(decoded.encode().unwrap(), encoded);
+    }
+
+    #[test]
+    fn dcc_link_frame_rejects_unsupported_version_on_encode_and_decode() {
+        let unsupported = DCC_LINK_PROTOCOL_VERSION + 1;
+        let frame = DccLinkFrame {
+            version: unsupported,
+            msg_type: DccLinkType::Call,
+            seq: 1,
+            body: vec![],
+        };
+        assert!(matches!(
+            frame.encode(),
+            Err(TransportError::UnsupportedDccLinkVersion { received, .. })
+                if received == unsupported
+        ));
+
+        let bytes = vec![
+            0,
+            0,
+            0,
+            10,
+            VERSION_TAG_FLAG | unsupported,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+        ];
+        assert!(matches!(
+            DccLinkFrame::decode(&bytes),
+            Err(TransportError::UnsupportedDccLinkVersion { received, .. })
+                if received == unsupported
+        ));
     }
 
     #[test]

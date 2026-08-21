@@ -12,7 +12,7 @@
 
 ## 概览
 
-新传输 API 围绕 **DccLink 适配器** 构建 —— 这是对 `ipckit` IPC 通道的轻量封装，使用二进制线格式（`[u32 len][u8 type][u64 seq][msgpack body]`）实现高效帧通信。
+新传输 API 围绕 **DccLink 适配器** 构建 —— 这是对 `ipckit` IPC 通道的轻量封装，使用版本化二进制线格式实现高效帧通信。
 
 ```python
 from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
@@ -35,7 +35,8 @@ print(received.body)  # b"hello"
 
 ## DccLinkFrame
 
-DCC-Link 协议的二进制线帧。线格式：`[u32 len][u8 type][u64 seq][msgpack body]`。
+DCC-Link 协议的二进制线帧。版本 1 使用
+`[u32 len][u8 0x80|version][u8 type][u64 seq][msgpack body]`；版本字节的高位用于区分旧版 v0 帧。
 
 ### 消息类型
 
@@ -63,11 +64,13 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 | `msg_type` | `int` | 消息类型标签（1-8）|
 | `seq` | `int` | 序列号 |
 | `body` | `bytes \| None` | 载荷字节（默认 `b""`）|
+| `version` | `int` | 线协议版本（默认 `1`；仅在旧版滚动升级期间使用 `0`）|
 
 ### 属性
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
+| `version` | `int` | 线协议版本；解码旧版帧时为 `0` |
 | `msg_type` | `int` | 消息类型标签（1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong）|
 | `seq` | `int` | 序列号 |
 | `body` | `bytes` | 载荷字节 |
@@ -76,7 +79,7 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `encode()` | `bytes` | 将帧编码为 `[len][type][seq][body]` 字节 |
+| `encode()` | `bytes` | 编码版本化帧；`version=0` 时编码为旧版格式 |
 | `decode(data)` | `DccLinkFrame` | 从包含 4 字节长度前缀的字节中解码帧（静态方法）|
 
 ```python
@@ -132,7 +135,7 @@ if received is not None:
     print(received.body)      # b"execute_python"
 
     # 服务端发送 Reply 帧
-    reply = DccLinkFrame(msg_type=2, seq=0, body=b"ok")
+    reply = DccLinkFrame(msg_type=2, seq=0, body=b"ok", version=received.version)
     server.send_frame(reply)
 
 # 客户端接收回复
@@ -352,7 +355,7 @@ while True:
         break  # 通道已关闭
     if frame.msg_type == 1:  # Call
         # 处理请求...
-        reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok")
+        reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok", version=frame.version)
         server.send_frame(reply)
 
 server.shutdown()

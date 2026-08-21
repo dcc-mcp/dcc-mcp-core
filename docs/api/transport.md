@@ -7,7 +7,7 @@
 The transport module provides **DccLink-based IPC communication** between AI agents and DCC applications. Key design decisions:
 
 - **Named Pipes** (Windows) and **Unix Domain Sockets** (macOS/Linux) are preferred for same-machine connections — sub-millisecond latency, zero configuration.
-- DccLink adapters wrap `ipckit` channels with a binary wire format: `[u32 len][u8 type][u64 seq][msgpack body]`.
+- DccLink adapters wrap `ipckit` channels with a versioned binary wire format.
 - `IpcChannelAdapter.create(name)` + `wait_for_client()` is the recommended server setup.
 - `IpcChannelAdapter.connect(name)` is the client-side entry point.
 - `GracefulIpcChannelAdapter` adds graceful shutdown and DCC main-thread integration.
@@ -15,9 +15,11 @@ The transport module provides **DccLink-based IPC communication** between AI age
 
 ## DccLinkFrame
 
-A DCC-Link frame with `msg_type`, `seq`, and `body` fields.
+A DCC-Link frame with `version`, `msg_type`, `seq`, and `body` fields.
 
-Wire format: `[u32 len][u8 type][u64 seq][msgpack body]`.
+Version 1 wire format:
+`[u32 len][u8 0x80|version][u8 type][u64 seq][msgpack body]`. Legacy version 0
+frames omit the tagged version byte and remain readable during rollout.
 
 Message type tags: 1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong.
 
@@ -34,11 +36,13 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 | `msg_type` | `int` | — | Message type tag (1-8). Raises `ValueError` if invalid. |
 | `seq` | `int` | — | Sequence number. |
 | `body` | `bytes \| None` | `None` | Payload bytes. |
+| `version` | `int` | `1` | Wire version. Use `0` only for a legacy peer. |
 
 ### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `version` | `int` | Wire version; decoded legacy frames report `0` |
 | `msg_type` | `int` | Message type tag (1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong) |
 | `seq` | `int` | Sequence number |
 | `body` | `bytes` | Payload bytes |
@@ -47,7 +51,7 @@ frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `encode()` | `bytes` | Encode the frame to `[len][type][seq][body]` bytes |
+| `encode()` | `bytes` | Encode a versioned frame, or the legacy format when `version=0` |
 | `decode(data)` | `DccLinkFrame` | Decode a frame from bytes including the 4-byte length prefix (static). Raises `RuntimeError` if malformed. |
 
 ### Example
@@ -90,7 +94,7 @@ server.wait_for_client()
 
 frame = server.recv_frame()
 if frame is not None:
-    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"result")
+    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"result", version=frame.version)
     server.send_frame(reply)
 ```
 
@@ -146,7 +150,7 @@ server.wait_for_client()
 
 frame = server.recv_frame()
 if frame is not None:
-    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok")
+    reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok", version=frame.version)
     server.send_frame(reply)
 
 server.shutdown()
@@ -310,10 +314,11 @@ Enum for DCC service instance status.
 DccLink frames use the following binary wire format:
 
 ```
-[u32 len][u8 type][u64 seq][msgpack body]
+[u32 len][u8 0x80|version][u8 type][u64 seq][msgpack body]
 ```
 
-- `len` — 4-byte big-endian total frame length (including type + seq + body)
+- `len` — 4-byte big-endian payload length
+- `0x80|version` — tagged version byte; absent only in legacy version 0 frames
 - `type` — 1-byte message type tag (1-8)
 - `seq` — 8-byte big-endian sequence number
 - `body` — MessagePack-encoded payload

@@ -1,7 +1,7 @@
 //! Python bindings for the DCC-Link adapter types.
 //!
 //! Exposes:
-//! - [`PyDccLinkFrame`] — DCC-Link frame with msg_type, seq, body
+//! - [`PyDccLinkFrame`] — DCC-Link frame with version, msg_type, seq, body
 //! - [`PyIpcChannelAdapter`] — thin wrapper over `ipckit::IpcChannel`
 //! - [`PyGracefulIpcChannelAdapter`] — graceful channel with shutdown
 //! - [`PySocketServerAdapter`] — multi-client Unix socket / named-pipe server
@@ -35,18 +35,21 @@ use std::time::Duration;
 
 #[cfg(feature = "python-bindings")]
 use crate::dcc_link::{
-    DccLinkFrame, DccLinkType, GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
+    DCC_LINK_LEGACY_VERSION, DCC_LINK_PROTOCOL_VERSION, DccLinkFrame, DccLinkType,
+    GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
 };
 
 // ── PyDccLinkFrame ──────────────────────────────────────────────────────────
 
-/// A DCC-Link frame with ``msg_type``, ``seq``, and ``body`` fields.
+/// A DCC-Link frame with ``version``, ``msg_type``, ``seq``, and ``body`` fields.
 ///
 /// Args:
 ///     msg_type: Integer message type tag (1=Call, 2=Reply, 3=Err,
 ///               4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong).
 ///     seq:      Sequence number (uint64).
 ///     body:     Payload bytes.
+///     version:  Wire protocol version. Defaults to the current version; use
+///               0 only while communicating with a legacy peer.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "DccLinkFrame", from_py_object)]
@@ -60,17 +63,29 @@ pub struct PyDccLinkFrame {
 #[pymethods]
 impl PyDccLinkFrame {
     #[new]
-    #[pyo3(signature = (msg_type, seq, body=None))]
-    fn new(msg_type: u8, seq: u64, body: Option<Vec<u8>>) -> PyResult<Self> {
+    #[pyo3(signature = (msg_type, seq, body=None, version=DCC_LINK_PROTOCOL_VERSION))]
+    fn new(msg_type: u8, seq: u64, body: Option<Vec<u8>>, version: u8) -> PyResult<Self> {
         let msg_type = DccLinkType::try_from(msg_type)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        if ![DCC_LINK_LEGACY_VERSION, DCC_LINK_PROTOCOL_VERSION].contains(&version) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unsupported DCC-Link protocol version {version} (supported: {DCC_LINK_PROTOCOL_VERSION})"
+            )));
+        }
         Ok(Self {
             inner: DccLinkFrame {
+                version,
                 msg_type,
                 seq,
                 body: body.unwrap_or_default(),
             },
         })
+    }
+
+    /// DCC-Link wire protocol version (``0`` identifies a legacy frame).
+    #[getter]
+    fn version(&self) -> u8 {
+        self.inner.version
     }
 
     /// Message type tag (1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel,
@@ -92,7 +107,7 @@ impl PyDccLinkFrame {
         self.inner.body.clone()
     }
 
-    /// Encode the frame to bytes (``[len][type][seq][body]``).
+    /// Encode the frame to bytes (``[len][version tag][type][seq][body]``).
     fn encode(&self) -> PyResult<Vec<u8>> {
         self.inner
             .encode()
@@ -109,7 +124,8 @@ impl PyDccLinkFrame {
 
     fn __repr__(&self) -> String {
         format!(
-            "DccLinkFrame(msg_type={}, seq={}, body={} bytes)",
+            "DccLinkFrame(version={}, msg_type={}, seq={}, body={} bytes)",
+            self.inner.version,
             self.inner.msg_type as u8,
             self.inner.seq,
             self.inner.body.len()
@@ -417,7 +433,8 @@ mod tests {
     #[cfg(feature = "python-bindings")]
     #[test]
     fn test_py_dcc_link_frame_new() {
-        let frame = PyDccLinkFrame::new(1, 42, Some(vec![1, 2, 3])).unwrap();
+        let frame =
+            PyDccLinkFrame::new(1, 42, Some(vec![1, 2, 3]), DCC_LINK_PROTOCOL_VERSION).unwrap();
         assert_eq!(frame.msg_type(), 1);
         assert_eq!(frame.seq(), 42);
         assert_eq!(frame.body(), &[1, 2, 3]);
@@ -426,14 +443,15 @@ mod tests {
     #[cfg(feature = "python-bindings")]
     #[test]
     fn test_py_dcc_link_frame_rejects_bad_type() {
-        let result = PyDccLinkFrame::new(255, 0, None);
+        let result = PyDccLinkFrame::new(255, 0, None, DCC_LINK_PROTOCOL_VERSION);
         assert!(result.is_err());
     }
 
     #[cfg(feature = "python-bindings")]
     #[test]
     fn test_py_dcc_link_frame_encode_decode() {
-        let frame = PyDccLinkFrame::new(1, 99, Some(vec![4, 5, 6])).unwrap();
+        let frame =
+            PyDccLinkFrame::new(1, 99, Some(vec![4, 5, 6]), DCC_LINK_PROTOCOL_VERSION).unwrap();
         let encoded = frame.encode().unwrap();
         let decoded = PyDccLinkFrame::decode(encoded).unwrap();
         assert_eq!(decoded.msg_type(), 1);

@@ -715,14 +715,21 @@ class DccInfo:
 @typing.final
 class DccLinkFrame:
     r"""
-    A DCC-Link frame with ``msg_type``, ``seq``, and ``body`` fields.
+    A DCC-Link frame with ``version``, ``msg_type``, ``seq``, and ``body`` fields.
 
     Args:
         msg_type: Integer message type tag (1=Call, 2=Reply, 3=Err,
                   4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong).
         seq:      Sequence number (uint64).
         body:     Payload bytes.
+        version:  Wire protocol version. Defaults to the current version; use
+                  0 only while communicating with a legacy peer.
     """
+    @property
+    def version(self) -> builtins.int:
+        r"""
+        DCC-Link wire protocol version (``0`` identifies a legacy frame).
+        """
     @property
     def msg_type(self) -> builtins.int:
         r"""
@@ -739,10 +746,10 @@ class DccLinkFrame:
         r"""
         Payload bytes.
         """
-    def __new__(cls, msg_type: builtins.int, seq: builtins.int, body: typing.Optional[builtins.bytes] = None) -> DccLinkFrame: ...
+    def __new__(cls, msg_type: builtins.int, seq: builtins.int, body: typing.Optional[builtins.bytes] = None, version: builtins.int = 1) -> DccLinkFrame: ...
     def encode(self) -> builtins.bytes:
         r"""
-        Encode the frame to bytes (``[len][type][seq][body]``).
+        Encode the frame to bytes (``[len][version tag][type][seq][body]``).
         """
     @staticmethod
     def decode(data: builtins.bytes) -> DccLinkFrame:
