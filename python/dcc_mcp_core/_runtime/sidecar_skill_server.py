@@ -22,6 +22,7 @@ from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
 from dcc_mcp_core.constants import ENV_SKILL_PATHS
 from dcc_mcp_core.constants import ENV_TEAM_SKILL_PATHS
 from dcc_mcp_core.constants import ENV_USER_SKILL_PATHS
+from dcc_mcp_core.env import env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +107,9 @@ class SidecarBackedSkillServer:
         paths = [(path, "repo") for path in self._pending_skill_paths]
         paths.extend((path, "repo") for path in get_app_skill_paths_from_env(self._dcc_name))
         paths.extend((path, "repo") for path in get_skill_paths_from_env())
-        if self._accumulated and not _env_flag_enabled(ENV_DISABLE_ACCUMULATED_SKILLS):
+        if self._accumulated and not env_flag(ENV_DISABLE_ACCUMULATED_SKILLS):
             paths.extend(_accumulated_skill_paths(self._dcc_name))
-        if not _env_flag_enabled(ENV_DISABLE_DEFAULT_SKILL_PATHS):
+        if not env_flag(ENV_DISABLE_DEFAULT_SKILL_PATHS):
             local = Path(get_local_skills_dir(self._dcc_name))
             with suppress(OSError):
                 local.mkdir(parents=True, exist_ok=True)
@@ -238,11 +239,6 @@ def _resolve_mcp_url(launch: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return "http://127.0.0.1:0/mcp"
-
-
-def _env_flag_enabled(name: str) -> bool:
-    value = os.environ.get(name, "")
-    return value == "1" or value.lower() == "true"
 
 
 def _accumulated_skill_paths(dcc_name: str) -> list[tuple[str, str]]:

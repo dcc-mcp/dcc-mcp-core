@@ -21,18 +21,24 @@ from urllib.request import urlopen
 import uuid
 
 from dcc_mcp_core._version_util import parse_semver as _parse_semver
+from dcc_mcp_core.constants import ENV_GATEWAY_ENSURE_TIMEOUT_SECS
+from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_FAILURES
+from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_INTERVAL
+from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX
+from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_RESTART_TIMEOUT
+from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_TIMEOUT
+from dcc_mcp_core.constants import ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS
 from dcc_mcp_core.daemon_launch import launch_detached
+from dcc_mcp_core.env import env_float
+from dcc_mcp_core.env import env_int
 from dcc_mcp_core.install_lifecycle import default_registry_dir
 
 logger = logging.getLogger(__name__)
 
 _LAUNCH_LOCK = "gateway-launch.lock"
-_LAUNCH_LOCK_STALE_SECS_ENV = "DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS"
 _LAUNCH_LOCK_STALE_SECS_DEFAULT = 30.0
-_ENSURE_TIMEOUT_ENV = "DCC_MCP_GATEWAY_ENSURE_TIMEOUT_SECS"
 _ENSURE_TIMEOUT_DEFAULT = 15.0
 _AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT = 300
-_REENSURE_JITTER_ENV = "DCC_MCP_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX"
 _REENSURE_JITTER_DEFAULT = 2.0
 
 
@@ -176,7 +182,7 @@ class _LaunchLock:
 
 
 def _launch_lock_stale_secs() -> float:
-    return _float_env(_LAUNCH_LOCK_STALE_SECS_ENV, _LAUNCH_LOCK_STALE_SECS_DEFAULT)
+    return env_float(ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS, _LAUNCH_LOCK_STALE_SECS_DEFAULT, minimum=0.1)
 
 
 def _remove_stale_launch_lock(path: Path, stale_after_secs: float) -> bool:
@@ -458,7 +464,7 @@ def _resolve_ensure_timeout(timeout_secs: float | None) -> float:
     """Resolve the ensure timeout: explicit arg > env var > default (15s)."""
     if timeout_secs is not None:
         return max(float(timeout_secs), 0.1)
-    return _float_env(_ENSURE_TIMEOUT_ENV, _ENSURE_TIMEOUT_DEFAULT)
+    return env_float(ENV_GATEWAY_ENSURE_TIMEOUT_SECS, _ENSURE_TIMEOUT_DEFAULT, minimum=0.1)
 
 
 def ensure_gateway_daemon(
@@ -578,27 +584,34 @@ class GatewayDaemonGuardian:
         self.gateway_port = gateway_port
         self.registry_dir = registry_dir
         self.dcc_type = dcc_type
-        self.probe_interval_secs = probe_interval_secs or _float_env(
-            "DCC_MCP_GATEWAY_GUARDIAN_INTERVAL",
+        self.probe_interval_secs = probe_interval_secs or env_float(
+            ENV_GATEWAY_GUARDIAN_INTERVAL,
             5.0,
+            minimum=0.1,
         )
-        self.probe_timeout_secs = probe_timeout_secs or _float_env(
-            "DCC_MCP_GATEWAY_GUARDIAN_TIMEOUT",
+        self.probe_timeout_secs = probe_timeout_secs or env_float(
+            ENV_GATEWAY_GUARDIAN_TIMEOUT,
             0.5,
+            minimum=0.1,
         )
-        self.restart_timeout_secs = restart_timeout_secs or _float_env(
-            "DCC_MCP_GATEWAY_GUARDIAN_RESTART_TIMEOUT",
-            _float_env(_ENSURE_TIMEOUT_ENV, _ENSURE_TIMEOUT_DEFAULT),
+        self.restart_timeout_secs = restart_timeout_secs or env_float(
+            ENV_GATEWAY_GUARDIAN_RESTART_TIMEOUT,
+            env_float(ENV_GATEWAY_ENSURE_TIMEOUT_SECS, _ENSURE_TIMEOUT_DEFAULT, minimum=0.1),
+            minimum=0.1,
         )
         self.reensure_jitter_max_secs = max(
             0.0,
             reensure_jitter_max_secs
             if reensure_jitter_max_secs is not None
-            else _float_env(_REENSURE_JITTER_ENV, _REENSURE_JITTER_DEFAULT),
+            else env_float(
+                ENV_GATEWAY_GUARDIAN_REENSURE_JITTER_MAX,
+                _REENSURE_JITTER_DEFAULT,
+                minimum=0.1,
+            ),
         )
         self.failure_threshold = max(
             1,
-            failure_threshold or _int_env("DCC_MCP_GATEWAY_GUARDIAN_FAILURES", 2),
+            failure_threshold or env_int(ENV_GATEWAY_GUARDIAN_FAILURES, 2),
         )
         self.status_callback = status_callback
         self._stop = threading.Event()
@@ -944,17 +957,3 @@ def _read_managed_gateway_version_from_registry(
         if pid > 0 and isinstance(instance_id, str) and instance_id and isinstance(version, str):
             return version
     return None
-
-
-def _float_env(name: str, default: float) -> float:
-    try:
-        return max(float(os.environ.get(name, "") or default), 0.1)
-    except ValueError:
-        return default
-
-
-def _int_env(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, "") or default)
-    except ValueError:
-        return default
