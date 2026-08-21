@@ -41,6 +41,7 @@ from ._install_lifecycle_runtime import query_runtime_state
 from ._install_lifecycle_sidecar import build_sidecar_command
 from ._install_lifecycle_sidecar import launch_sidecar
 from ._install_lifecycle_sidecar import sidecar_host_rpc_dispatch_contract
+from ._version_util import parse_semver as _parse_semver
 
 REZ_CACHE_ROOT_ENV = "DCC_MCP_REZ_LOCAL_CACHE_ROOT"
 DEPLOYMENT_MODE_ENV = "DCC_MCP_DEPLOYMENT_MODE"
@@ -515,18 +516,6 @@ def _compare_version(current: Optional[str], target: Optional[str]) -> str:
     if current_semver > target_semver:
         return "newer"
     return "equal"
-
-
-def _parse_semver(value: str) -> Optional[Tuple[int, int, int]]:
-    text = str(value).strip().lstrip("vV")
-    text = re.split(r"[-+]", text, maxsplit=1)[0]
-    parts = text.split(".")
-    if not parts or any(not part.isdigit() for part in parts[:3]):
-        return None
-    padded = [int(part) for part in parts[:3]]
-    while len(padded) < 3:
-        padded.append(0)
-    return tuple(padded[:3])
 
 
 def _restart_action(

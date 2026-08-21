@@ -951,11 +951,18 @@ def test_parse_semver_with_prerelease():
     assert gg._parse_semver("v2.3.4-beta.2") == (2, 3, 4)
 
 
+def test_parse_semver_rejects_invalid_numeric_core():
+    assert gg._parse_semver("release") is None
+    assert gg._parse_semver("1.two.3") is None
+
+
 def test_is_newer_version():
     assert gg._is_newer_version("1.0.0", "0.9.0") is True
     assert gg._is_newer_version("0.18.15", "0.18.6") is True
     assert gg._is_newer_version("0.18.6", "0.18.15") is False
     assert gg._is_newer_version("1.0.0", "1.0.0") is False
+    assert gg._is_newer_version("release", "0.18.6") is False
+    assert gg._is_newer_version("1.0.0", "unknown") is False
 
 
 def test_get_core_version_env_override(monkeypatch):
