@@ -11,7 +11,7 @@ use dcc_mcp_jsonrpc::{
     error_codes::{BACKEND_NOT_READY, CAPABILITY_MISSING},
 };
 use dcc_mcp_models::NextTools;
-use dcc_mcp_protocols::error_envelope::DccMcpError;
+use dcc_mcp_protocols::error_envelope::ToolCallErrorEnvelope;
 
 use crate::mcp_tool_catalog::missing_capabilities;
 use crate::mcp_tool_list_builder::{group_stub_name, parse_group_stub_name};
@@ -273,7 +273,7 @@ fn record_native_image_error(rich: &mut serde_json::Map<String, Value>, message:
 pub(crate) fn dispatch_err_result(tool_name: &str, msg: impl Into<String>) -> CallToolResult {
     let err_msg = msg.into();
     if err_msg.contains("no handler registered") {
-        let envelope = DccMcpError::new(
+        let envelope = ToolCallErrorEnvelope::new(
             "instance",
             "NO_HANDLER",
             format!("Tool '{tool_name}' is registered but has no handler."),
@@ -311,7 +311,7 @@ fn resolve_group_stub(state: &ServerState, tool_name: &str) -> Option<(Option<St
 
 pub(crate) fn handle_stub_tool(state: &ServerState, tool_name: &str) -> Option<CallToolResult> {
     if let Some(skill_name) = tool_name.strip_prefix("__skill__") {
-        let envelope = DccMcpError::new(
+        let envelope = ToolCallErrorEnvelope::new(
             "gateway",
             "SKILL_NOT_LOADED",
             format!("Skill '{skill_name}' is not loaded."),
@@ -323,7 +323,7 @@ pub(crate) fn handle_stub_tool(state: &ServerState, tool_name: &str) -> Option<C
         return Some(CallToolResult::error(envelope.to_json().to_string()));
     }
     if let Some((skill_name, group_name)) = resolve_group_stub(state, tool_name) {
-        let envelope = DccMcpError::new(
+        let envelope = ToolCallErrorEnvelope::new(
             "gateway",
             "GROUP_NOT_ACTIVATED",
             match skill_name.as_deref() {

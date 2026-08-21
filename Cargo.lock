@@ -1652,6 +1652,7 @@ dependencies = [
 name = "dcc-mcp-protocols"
 version = "0.20.8"
 dependencies = [
+ "dcc-mcp-models",
  "parking_lot",
  "pyo3",
  "pyo3-stub-gen",

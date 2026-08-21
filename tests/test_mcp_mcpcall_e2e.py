@@ -545,11 +545,11 @@ class TestMcpcallToolCall:
         _, _, url, name = simple_server
         result = _mcpcall_call(url, name, "this_tool_does_not_exist")
         # mcpcall returns either the MCP CallToolResult (isError=true) or
-        # the parsed DccMcpError envelope (layer/code/message) depending on
+        # the parsed ToolCallErrorEnvelope (layer/code/message) depending on
         # how it handles the JSON text content.
         is_mcp_error = result.get("isError") is True
         is_envelope = result.get("code") == "ACTION_NOT_FOUND"
-        assert is_mcp_error or is_envelope, f"Expected isError=true or DccMcpError envelope, got: {result}"
+        assert is_mcp_error or is_envelope, f"Expected isError=true or ToolCallErrorEnvelope, got: {result}"
 
 
 # ---------------------------------------------------------------------------

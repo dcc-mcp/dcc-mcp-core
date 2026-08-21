@@ -27,4 +27,5 @@ python-bindings = ["pyo3"]
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 
 [dev-dependencies]
+dcc-mcp-models = { workspace = true }
 serde_json = { workspace = true }

@@ -21,7 +21,8 @@ pub use bridge::{
     BridgeDisconnect, BridgeEvent, BridgeHello, BridgeHelloAck, BridgeMessage, BridgeParseError,
     BridgeRequest, BridgeResponse, RequestId, RpcError,
 };
-pub use error_envelope::DccMcpError;
+#[allow(deprecated)]
+pub use error_envelope::{DccMcpError, ToolCallErrorEnvelope};
 pub use types::{
     DEFAULT_MIME_TYPE, PromptArgument, PromptDefinition, ResourceAnnotations, ResourceDefinition,
     ResourceTemplateDefinition, ToolAnnotations, ToolDefinition,
