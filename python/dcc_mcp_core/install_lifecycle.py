@@ -43,9 +43,11 @@ from ._install_lifecycle_sidecar import launch_sidecar
 from ._install_lifecycle_sidecar import sidecar_host_rpc_dispatch_contract
 from ._path_util import to_resolved_path as _to_path
 from ._version_util import parse_semver as _parse_semver
+from .constants import ENV_DEPLOYMENT_MODE
+from .constants import ENV_REZ_LOCAL_CACHE_ROOT
 
-REZ_CACHE_ROOT_ENV = "DCC_MCP_REZ_LOCAL_CACHE_ROOT"
-DEPLOYMENT_MODE_ENV = "DCC_MCP_DEPLOYMENT_MODE"
+REZ_CACHE_ROOT_ENV = ENV_REZ_LOCAL_CACHE_ROOT
+DEPLOYMENT_MODE_ENV = ENV_DEPLOYMENT_MODE
 
 DEFAULT_DEPLOYMENT_PACKAGES = ("dcc_mcp_core", "dcc_mcp_server")
 _RUNTIME_VERSION_KEYS = {

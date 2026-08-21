@@ -17,7 +17,10 @@ from typing import Any
 from dcc_mcp_core._runtime.skill_paths import skill_env_slug
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
+from dcc_mcp_core.constants import ENV_DCC_SKILL_PATHS_TEMPLATE
 from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_MARKETPLACE_INSTALL_ROOT
+from dcc_mcp_core.constants import ENV_SKILL_PATHS
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.skill import _get_bundled_skill_discovery_paths
 from dcc_mcp_core.skills.builtin import register_all_builtin_skills
@@ -33,14 +36,14 @@ except ImportError:
         return [part for part in (piece.strip() for piece in raw.split(os.pathsep)) if part]
 
     def get_app_skill_paths_from_env(dcc_name: str) -> list[str]:
-        env_name = f"DCC_MCP_{skill_env_slug(dcc_name)}_SKILL_PATHS"
+        env_name = ENV_DCC_SKILL_PATHS_TEMPLATE.format(skill_env_slug(dcc_name))
         return _split_skill_paths(os.environ.get(env_name, ""))
 
     def get_local_skills_dir(dcc_name: str) -> str:
         return str(Path.home() / ".dcc-mcp" / dcc_name.lower() / "skills")
 
     def get_skill_paths_from_env() -> list[str]:
-        return _split_skill_paths(os.environ.get("DCC_MCP_SKILL_PATHS", ""))
+        return _split_skill_paths(os.environ.get(ENV_SKILL_PATHS, ""))
 
     def get_skills_dir(dcc_name: str | None = None) -> str:
         base = Path.home() / ".dcc-mcp" / "skills"
@@ -113,7 +116,7 @@ class SkillDiscoveryController:
             try:
                 marketplace_root = Path(
                     os.environ.get(
-                        "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+                        ENV_MARKETPLACE_INSTALL_ROOT,
                         str(Path.home() / ".dcc-mcp" / "marketplace"),
                     )
                 )

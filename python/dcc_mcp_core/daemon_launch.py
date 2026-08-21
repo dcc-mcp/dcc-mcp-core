@@ -28,6 +28,8 @@ from typing import Any
 from typing import Mapping
 from typing import Sequence
 
+from dcc_mcp_core.constants import ENV_DAEMONIZED
+
 # ------------------------------------------------------------------
 # Detached subprocess helpers
 # ------------------------------------------------------------------
@@ -215,7 +217,7 @@ class Daemon:
 
     def _daemonize_windows(self) -> None:
         # Already daemonized — sentinel env var set by the respawn below.
-        if os.environ.get("DCC_MCP__DAEMONIZED") == "1":
+        if os.environ.get(ENV_DAEMONIZED) == "1":
             self._setup_daemon_environment()
             return
 
@@ -224,7 +226,7 @@ class Daemon:
         exe = sys.executable
         args = [exe, *sys.argv]
         env = dict(os.environ)
-        env["DCC_MCP__DAEMONIZED"] = "1"
+        env[ENV_DAEMONIZED] = "1"
 
         flags = 0
         flags |= getattr(subprocess, "DETACHED_PROCESS", 0x0000_0008)

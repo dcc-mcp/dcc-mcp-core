@@ -23,7 +23,9 @@ from typing import Any
 from typing import Mapping
 import uuid
 
-SCRIPT_MATERIALIZATION_ROOT_ENV = "DCC_MCP_SCRIPT_MATERIALIZATION_ROOT"
+from dcc_mcp_core.constants import ENV_SCRIPT_MATERIALIZATION_ROOT
+
+SCRIPT_MATERIALIZATION_ROOT_ENV = ENV_SCRIPT_MATERIALIZATION_ROOT
 DEFAULT_SCRIPT_MATERIALIZATION_ROOT = Path.home() / ".dcc-mcp"
 
 _SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")

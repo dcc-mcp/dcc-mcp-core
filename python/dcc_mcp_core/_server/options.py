@@ -33,6 +33,15 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Union
 
+from dcc_mcp_core.constants import ENV_DCC_INSTANCE_TYPE_TEMPLATE
+from dcc_mcp_core.constants import ENV_DCC_PORT_TEMPLATE
+from dcc_mcp_core.constants import ENV_GATEWAY_PORT
+from dcc_mcp_core.constants import ENV_HOST_RPC
+from dcc_mcp_core.constants import ENV_INSTANCE_TYPE
+from dcc_mcp_core.constants import ENV_REGISTRY_DIR
+from dcc_mcp_core.constants import ENV_SERVER_BIN
+from dcc_mcp_core.constants import ENV_STRICT_GATEWAY
+
 if TYPE_CHECKING:
     from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
     from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
@@ -91,15 +100,15 @@ class GatewayOptions:
         """
         resolved_port = port
         if resolved_port is None:
-            env_val = os.environ.get("DCC_MCP_GATEWAY_PORT", "")
+            env_val = os.environ.get(ENV_GATEWAY_PORT, "")
             resolved_port = int(env_val) if env_val.isdigit() else None
 
         resolved_registry_dir = registry_dir
         if resolved_registry_dir is None:
-            resolved_registry_dir = os.environ.get("DCC_MCP_REGISTRY_DIR", "") or None
+            resolved_registry_dir = os.environ.get(ENV_REGISTRY_DIR, "") or None
 
         resolved_strict = strict_gateway or (
-            os.environ.get("DCC_MCP_STRICT_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
+            os.environ.get(ENV_STRICT_GATEWAY, "").strip().lower() in {"1", "true", "yes", "on"}
         )
 
         return cls(
@@ -236,10 +245,10 @@ class SidecarOptions:
     ) -> SidecarOptions:
         resolved_host_rpc = host_rpc
         if resolved_host_rpc is None:
-            resolved_host_rpc = os.environ.get("DCC_MCP_HOST_RPC", "") or None
+            resolved_host_rpc = os.environ.get(ENV_HOST_RPC, "") or None
         resolved_server_bin = server_bin
         if resolved_server_bin is None:
-            resolved_server_bin = os.environ.get("DCC_MCP_SERVER_BIN", "") or None
+            resolved_server_bin = os.environ.get(ENV_SERVER_BIN, "") or None
         return cls(
             host_rpc=resolved_host_rpc,
             adapter_version=adapter_version,
@@ -370,7 +379,7 @@ class DccServerOptions:
         if standalone_main_thread and (dispatcher is not None or execution_bridge is not None):
             raise ValueError("standalone_main_thread cannot be combined with dispatcher or execution_bridge")
 
-        port_env = "DCC_MCP_{}_PORT".format(
+        port_env = ENV_DCC_PORT_TEMPLATE.format(
             "".join(character if character.isalnum() else "_" for character in dcc_name.upper())
         )
         raw_port: object = port if port is not None else os.environ.get(port_env, "0")
@@ -381,12 +390,12 @@ class DccServerOptions:
         if not 0 <= resolved_port <= 65535:
             raise ValueError(f"{port_env} must be an integer between 0 and 65535")
 
-        instance_type_env = "DCC_MCP_{}_INSTANCE_TYPE".format(
+        instance_type_env = ENV_DCC_INSTANCE_TYPE_TEMPLATE.format(
             "".join(character if character.isalnum() else "_" for character in dcc_name.upper())
         )
         resolved_instance_type = instance_type
         if resolved_instance_type is None:
-            resolved_instance_type = os.environ.get(instance_type_env, os.environ.get("DCC_MCP_INSTANCE_TYPE"))
+            resolved_instance_type = os.environ.get(instance_type_env, os.environ.get(ENV_INSTANCE_TYPE))
 
         gateway = GatewayOptions.from_env(
             port=gateway_port,

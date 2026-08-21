@@ -10,6 +10,8 @@ from typing import Any
 
 from dcc_mcp_core._server.gateway_guardian import GatewayDaemonGuardian
 from dcc_mcp_core._server.gateway_guardian import ensure_gateway_daemon
+from dcc_mcp_core.constants import ENV_GUARDIAN_WATCHDOG_INTERVAL
+from dcc_mcp_core.constants import ENV_STRICT_GATEWAY
 from dcc_mcp_core.gateway_election import DccGatewayElection
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 _RETRY_COUNT = 2
 _RETRY_INTERVAL_SECS = 2.0
 
-_WATCHDOG_INTERVAL_ENV = "DCC_MCP_GUARDIAN_WATCHDOG_INTERVAL"
+_WATCHDOG_INTERVAL_ENV = ENV_GUARDIAN_WATCHDOG_INTERVAL
 
 
 def _resolve_watchdog_interval() -> float:
@@ -112,7 +114,7 @@ class ServerRuntimeController:
 
         # All attempts exhausted — decide: strict vs fallback
         strict = bool(getattr(owner, "_strict_gateway", False)) or (
-            os.environ.get("DCC_MCP_STRICT_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
+            os.environ.get(ENV_STRICT_GATEWAY, "").strip().lower() in {"1", "true", "yes", "on"}
         )
         if strict:
             raise RuntimeError(

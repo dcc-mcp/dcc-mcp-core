@@ -22,6 +22,11 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dcc_mcp_core.constants import ENV_DISABLE_FILE_LOGGING
+from dcc_mcp_core.constants import ENV_DISABLE_JOB_PERSISTENCE
+from dcc_mcp_core.constants import ENV_DISABLE_TELEMETRY
+from dcc_mcp_core.constants import ENV_LOG_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,7 +35,7 @@ class FileLoggingManager:
 
     def __init__(self, dcc_name: str, *, enabled: bool = True) -> None:
         self._dcc_name = dcc_name
-        self._enabled = enabled and os.environ.get("DCC_MCP_DISABLE_FILE_LOGGING", "0") != "1"
+        self._enabled = enabled and os.environ.get(ENV_DISABLE_FILE_LOGGING, "0") != "1"
         self._log_dir: str = ""
 
     @property
@@ -50,7 +55,7 @@ class FileLoggingManager:
             from dcc_mcp_core import get_log_dir
             from dcc_mcp_core import init_file_logging
 
-            log_dir = os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
+            log_dir = os.environ.get(ENV_LOG_DIR) or get_log_dir()
             pid = os.getpid()
             cfg = FileLoggingConfig(
                 directory=log_dir,
@@ -78,7 +83,7 @@ class JobPersistenceManager:
 
     def __init__(self, dcc_name: str, *, enabled: bool = True, log_dir: str = "") -> None:
         self._dcc_name = dcc_name
-        self._enabled = enabled and os.environ.get("DCC_MCP_DISABLE_JOB_PERSISTENCE", "0") != "1"
+        self._enabled = enabled and os.environ.get(ENV_DISABLE_JOB_PERSISTENCE, "0") != "1"
         self._log_dir = log_dir
 
     @property
@@ -120,7 +125,7 @@ class JobPersistenceManager:
         try:
             from dcc_mcp_core import get_log_dir
 
-            db_dir = self._log_dir or os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
+            db_dir = self._log_dir or os.environ.get(ENV_LOG_DIR) or get_log_dir()
             return str(Path(db_dir) / f"dcc-mcp-{self._dcc_name}-jobs.db")
         except Exception as exc:
             logger.debug("[%s] Could not resolve job persistence path: %s", self._dcc_name, exc)
@@ -133,7 +138,7 @@ class TelemetryManager:
     def __init__(self, dcc_name: str, dcc_pid: int, *, enabled: bool = True) -> None:
         self._dcc_name = dcc_name
         self._dcc_pid = dcc_pid
-        self._enabled = enabled and os.environ.get("DCC_MCP_DISABLE_TELEMETRY", "0") != "1"
+        self._enabled = enabled and os.environ.get(ENV_DISABLE_TELEMETRY, "0") != "1"
 
     @property
     def enabled(self) -> bool:

@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Mapping
 
+from dcc_mcp_core.constants import ENV_DEFAULT_TOOLS
+from dcc_mcp_core.constants import ENV_MINIMAL
+
 if TYPE_CHECKING:
     pass
 
@@ -55,8 +58,8 @@ class MinimalModeConfig:
 
     skills: tuple[str, ...]
     deactivate_groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
-    env_var_minimal: str = "DCC_MCP_MINIMAL"
-    env_var_default_tools: str = "DCC_MCP_DEFAULT_TOOLS"
+    env_var_minimal: str = ENV_MINIMAL
+    env_var_default_tools: str = ENV_DEFAULT_TOOLS
 
 
 _FALSY = frozenset({"", "0", "false", "no", "off"})

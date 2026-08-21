@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
+from dcc_mcp_core.constants import ENV_DCC_SKILL_PATHS_TEMPLATE
+from dcc_mcp_core.constants import ENV_SKILL_PATHS
 
 
 def skill_env_slug(dcc_name: str) -> str:
@@ -18,7 +20,7 @@ def get_skill_paths_from_env() -> list[str]:
         from dcc_mcp_core._core import get_skill_paths_from_env as _impl
 
         return list(_impl())
-    raw = os.environ.get("DCC_MCP_SKILL_PATHS", "")
+    raw = os.environ.get(ENV_SKILL_PATHS, "")
     if not raw.strip():
         return []
     return [part.strip() for part in raw.split(os.pathsep) if part.strip()]
@@ -29,7 +31,7 @@ def get_app_skill_paths_from_env(dcc_name: str) -> list[str]:
         from dcc_mcp_core._core import get_app_skill_paths_from_env as _impl
 
         return list(_impl(dcc_name))
-    env_name = f"DCC_MCP_{skill_env_slug(dcc_name)}_SKILL_PATHS"
+    env_name = ENV_DCC_SKILL_PATHS_TEMPLATE.format(skill_env_slug(dcc_name))
     raw = os.environ.get(env_name, "")
     if not raw.strip():
         return []

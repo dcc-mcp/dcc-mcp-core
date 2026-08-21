@@ -7,6 +7,7 @@ from typing import Any
 
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.sidecar_skill_server import SidecarBackedSkillServer
+from dcc_mcp_core.constants import ENV_HOST_RPC
 
 
 def create_adapter_server(
@@ -40,7 +41,7 @@ def _resolve_host_rpc(sidecar: Any) -> str:
         value = getattr(sidecar, "host_rpc", None)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return str(os.environ.get("DCC_MCP_HOST_RPC", "")).strip()
+    return str(os.environ.get(ENV_HOST_RPC, "")).strip()
 
 
 def _resolve_watch_pid(options: Any | None) -> int | None:

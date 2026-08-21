@@ -20,7 +20,9 @@ from dcc_mcp_core._runtime.tool_registry_py import PurePythonToolRegistry
 from dcc_mcp_core.constants import ENV_DISABLE_ACCUMULATED_SKILLS
 from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
 from dcc_mcp_core.constants import ENV_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_TEAM_DCC_SKILL_PATHS_TEMPLATE
 from dcc_mcp_core.constants import ENV_TEAM_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_USER_DCC_SKILL_PATHS_TEMPLATE
 from dcc_mcp_core.constants import ENV_USER_SKILL_PATHS
 from dcc_mcp_core.env import env_flag
 
@@ -244,9 +246,9 @@ def _resolve_mcp_url(launch: dict[str, Any]) -> str:
 def _accumulated_skill_paths(dcc_name: str) -> list[tuple[str, str]]:
     app = skill_env_slug(dcc_name or "dcc")
     names = (
-        (f"DCC_MCP_USER_{app}_SKILL_PATHS", "user"),
+        (ENV_USER_DCC_SKILL_PATHS_TEMPLATE.format(app), "user"),
         (ENV_USER_SKILL_PATHS, "user"),
-        (f"DCC_MCP_TEAM_{app}_SKILL_PATHS", "team"),
+        (ENV_TEAM_DCC_SKILL_PATHS_TEMPLATE.format(app), "team"),
         (ENV_TEAM_SKILL_PATHS, "team"),
     )
     paths: list[tuple[str, str]] = []
