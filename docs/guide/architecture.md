@@ -361,11 +361,12 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-gateway-core
 
-**Purpose**: Pure gateway domain layer for capability records, slug helpers, search queries/pages/hits, and ranking/scoring. It has no HTTP, async runtime, file-registry, or `dcc-mcp-gateway` dependency.
+**Purpose**: Pure gateway domain layer for capability records, lock-free index state, slug helpers, search queries/pages/hits, and ranking/scoring. It has no direct HTTP, async-runtime, file-registry, or `dcc-mcp-gateway` dependency.
 
 **Key Components**:
 - `PendingCall` — gateway-to-backend cancellation correlation primitive.
 - `CapabilityRecord` — compact per-tool search/dispatch record.
+- `CapabilityIndexState`, `IndexSnapshot`, `InstanceFingerprint`, `InstanceTombstone` — synchronization-free per-instance mutation, snapshot, and lifecycle rules.
 - `SearchQuery`, `SearchHit`, `SearchPage`, `SearchMode` — token-budgeted capability search contract.
 - `capability_naming` — gateway instance/skill name projection and bare-name collision policy; delegates wire-name validation to `dcc-mcp-naming`.
 - `ExactScorer`, `FuzzyScorer`, `SubstringScorer`, `StrategyScorer` — pluggable ranking strategies.
@@ -383,7 +384,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 **Purpose**: Multi-DCC gateway application/infrastructure: registry probing, dynamic MCP wrappers, `/v1/*` REST facade, routing, diagnostics, and admin surface.
 
 **Key Components**:
-- `CapabilityIndex` + refresh tasks — build records from live per-DCC instances and evict stale ones.
+- `CapabilityIndex` + refresh tasks — concurrent application wrapper over core index state; coordinates live per-DCC refreshes and evicts stale instances.
 - `search`, `describe`, `load_skill`, `call` — fixed gateway MCP workflow tools over the dynamic capability index; `/v1/*` routes are the pure HTTP twin.
 - Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, plus diagnostics/resources/prompts aggregation.
 - Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health.
