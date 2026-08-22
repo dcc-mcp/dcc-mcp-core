@@ -46,10 +46,36 @@ def _verify_profile(profile: str) -> None:
         from dcc_mcp_core import ENV_TEAM_SKILL_PATHS
         from dcc_mcp_core import ENV_USER_SKILL_PATHS
         from dcc_mcp_core import create_skill_server
+        from dcc_mcp_core import json_dumps
+        from dcc_mcp_core import json_loads
         from dcc_mcp_core import parse_skill_md
+        from dcc_mcp_core import skills_helper
+        import dcc_mcp_core._json_codec as json_codec
         from dcc_mcp_core.host import BlockingDispatcher
         from dcc_mcp_core.host import StandaloneHost
         from dcc_mcp_core.skill import skill_success
+        from dcc_mcp_core.wire import normalize_tool_arguments
+        from dcc_mcp_core.wire import normalize_tool_meta
+
+        if json_dumps is not skills_helper.json_dumps or json_dumps is not json_codec.json_dumps:
+            raise RuntimeError("lite_py37 json_dumps aliases do not share one callable")
+        if json_loads is not skills_helper.json_loads or json_loads is not json_codec.json_loads:
+            raise RuntimeError("lite_py37 json_loads aliases do not share one callable")
+        if json_loads(json_dumps({"name": "café"}, ensure_ascii=False)) != {"name": "café"}:
+            raise RuntimeError("lite_py37 stdlib JSON fallback failed round-trip")
+        if normalize_tool_arguments(None) != {} or normalize_tool_arguments("") != {}:
+            raise RuntimeError("lite_py37 arguments normalization defaults diverged")
+        if normalize_tool_arguments('{"name":"cube"}') != {"name": "cube"}:
+            raise RuntimeError("lite_py37 arguments object-string normalization failed")
+        if normalize_tool_meta(None) is not None or normalize_tool_meta("") is not None:
+            raise RuntimeError("lite_py37 meta normalization defaults diverged")
+        for invalid in ("not json", [], 42, True, "[]", "42", "true"):
+            try:
+                normalize_tool_arguments(invalid)
+            except ValueError:
+                pass
+            else:
+                raise RuntimeError("lite_py37 arguments accepted a non-object root")
 
         if ENV_DISABLE_DEFAULT_SKILL_PATHS != "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS":
             raise RuntimeError("lite_py37 exposed an invalid default-skill-path flag")

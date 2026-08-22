@@ -2,8 +2,9 @@
 //!
 //! Provides a single source of truth for converting between Python objects and
 //! `serde_json::Value`, eliminating duplicate implementations across crates.
-//! Also exposes high-performance `json_dumps` / `json_loads` pyfunctions that
-//! serve as drop-in replacements for Python's `json.dumps()` / `json.loads()`.
+//! Also exposes the native `json_dumps` / `json_loads` pyfunctions used by
+//! dcc-mcp-core's dependency-light JSON API.  Their intentionally narrow
+//! signature and serde conversion semantics are not a stdlib drop-in contract.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList};

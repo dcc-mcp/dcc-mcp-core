@@ -575,8 +575,9 @@ from dcc_mcp_core.skills_helper import (
 )
 ```
 
-The JSON and YAML helpers are backed by the Rust/PyO3 bridge and remain
-available as backwards-compatible top-level imports:
+The JSON helpers prefer the Rust/PyO3 backend and fall back to stdlib in a
+py37-lite installation; YAML remains Rust-backed. They remain available as
+backwards-compatible top-level imports:
 
 ```python
 from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads
@@ -585,6 +586,13 @@ payload = json_loads('{"name": "cube"}')
 text = json_dumps(payload, ensure_ascii=False)
 config = yaml_loads("enabled: true\n")
 ```
+
+The JSON helpers intentionally expose a narrow dependency-light contract, not
+the complete stdlib API. Exact Unicode escaping and indentation, integer
+range, non-finite floats, accepted container/object types, arbitrary keyword
+arguments, and file-oriented APIs may differ between the native codec and
+`json`. Use stdlib JSON directly for canonical bytes, hashes, length budgets,
+or behavior outside this documented helper surface.
 
 For files, prefer the source-aware helpers so UTF-8 handling, byte limits, and
 parse errors are consistent across skills:
@@ -673,7 +681,7 @@ except SkillHttpError as exc:
 `http_request()` returns an `HttpResponse` object with `status`, `headers`,
 `bytes`, `text`, `json()`, `url`, `elapsed_ms`, and `truncated`. Convenience
 helpers `http_get_json()` and `http_post_json()` require a 2xx status and parse
-the response with the same Rust-backed JSON codec as `json_loads()`. Response
+the response with the same selected JSON backend as `json_loads()`. Response
 bodies are bounded by `max_bytes`; truncated responses remain inspectable via
 `response.bytes` / `response.text`, and `response.json()` raises
 `SkillHttpError(kind="response-truncated")`.

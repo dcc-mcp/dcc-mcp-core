@@ -184,8 +184,8 @@ packet，再获取 `/v1/debug/issue-reports/{request_id}`。默认结果为 publ
 | `params` | ❌ | `arguments` 的向后兼容别名。新客户端优先使用 `arguments`，这样 REST 和 MCP 示例保持一致。 |
 | `meta` | ❌ | MCP 风格的元信息侧车。缺失 / `null` 会归一化为 absent；提供时必须是 object（或 object-shaped JSON string）。认得这几个键：`progressToken`、`dcc.async`、`dcc.wait_for_terminal`。 |
 
-规范归一化规则在 `dcc-mcp-wire`；Python host wrapper 可以复用
-`dcc_mcp_core.host.normalize_tool_arguments()` 和 `normalize_tool_meta()`，
+规范归一化规则在 `dcc-mcp-wire`；Python wrapper 可以复用
+`dcc_mcp_core.wire.normalize_tool_arguments()` 和 `normalize_tool_meta()`，
 不要自己手写 JSON coercion。
 
 ### 成功响应 — `200 OK`

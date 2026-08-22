@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
+
+from dcc_mcp_core._json_codec import json_loads
 
 
 def _normalize_object_root(value: Any, *, allow_none: bool, label: str) -> dict[str, Any] | None:
@@ -16,8 +17,8 @@ def _normalize_object_root(value: Any, *, allow_none: bool, label: str) -> dict[
         if not text:
             return None if allow_none else {}
         try:
-            decoded = json.loads(text)
-        except json.JSONDecodeError as exc:
+            decoded = json_loads(text)
+        except ValueError as exc:
             raise ValueError(f"{label}-string-not-json") from exc
         if isinstance(decoded, dict):
             return decoded

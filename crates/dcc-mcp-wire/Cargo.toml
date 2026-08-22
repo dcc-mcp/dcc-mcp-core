@@ -15,11 +15,13 @@ release = true
 
 [features]
 default = []
+# The default Rust crate remains protocol-only.  Python bindings reuse
+# dcc-mcp-pybridge as the sole PyAny <-> serde_json::Value conversion owner.
 python-bindings = ["pyo3", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 
 [dependencies]
-# Internal — pure protocol types only; avoids circular imports.
+# Internal — the pybridge edge is optional and enabled only for PyO3 exports.
 dcc-mcp-protocols = { workspace = true }
 dcc-mcp-pybridge = { workspace = true, optional = true }
 

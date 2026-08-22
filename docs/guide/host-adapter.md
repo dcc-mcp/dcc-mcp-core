@@ -246,7 +246,7 @@ normalize wrapper payloads with the shared helpers instead of reimplementing JSO
 coercion:
 
 ```python
-from dcc_mcp_core.host import normalize_tool_arguments, normalize_tool_meta
+from dcc_mcp_core.wire import normalize_tool_arguments, normalize_tool_meta
 
 arguments = normalize_tool_arguments(payload.get("arguments"))
 meta = normalize_tool_meta(payload.get("meta"))

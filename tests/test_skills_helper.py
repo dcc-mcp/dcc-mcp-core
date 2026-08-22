@@ -12,6 +12,7 @@ import time
 import pytest
 
 import dcc_mcp_core
+from dcc_mcp_core import _json_codec
 from dcc_mcp_core import skills_helper
 from dcc_mcp_core.skills_helper import HttpStatusError
 from dcc_mcp_core.skills_helper import SkillCodecError
@@ -35,10 +36,7 @@ def test_skills_helper_json_yaml_codecs_roundtrip() -> None:
 
 
 def test_skills_helper_json_codecs_fall_back_without_core(monkeypatch) -> None:
-    def missing_core(_name: str):
-        raise ModuleNotFoundError("No module named 'dcc_mcp_core._core'", name="dcc_mcp_core._core")
-
-    monkeypatch.setattr(skills_helper, "_core_symbol", missing_core)
+    monkeypatch.setattr(_json_codec, "_optional_core_symbol", lambda _name: None)
 
     encoded = skills_helper.json_dumps({"name": "café"}, ensure_ascii=False)
 
@@ -47,6 +45,8 @@ def test_skills_helper_json_codecs_fall_back_without_core(monkeypatch) -> None:
 
 
 def test_legacy_top_level_codecs_reexport_skills_helper() -> None:
+    assert skills_helper.json_dumps is _json_codec.json_dumps
+    assert skills_helper.json_loads is _json_codec.json_loads
     assert dcc_mcp_core.json_dumps is skills_helper.json_dumps
     assert dcc_mcp_core.json_loads is skills_helper.json_loads
     assert dcc_mcp_core.yaml_dumps is skills_helper.yaml_dumps

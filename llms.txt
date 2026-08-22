@@ -163,10 +163,10 @@ legacy unsigned staging, and does not replace a running server.
 | Singleton DCC server factory | `create_dcc_server(instance_holder, lock, server_class, ...)` / `make_start_stop(ServerClass)` — zero-boilerplate singleton server pattern |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` with `SkillValidationIssue` list |
 | Rust-backed skill helpers (issues #1255, #1256, #1257, #1258) | `from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads, http_request, http_get_json, http_post_json, load_json_file, dump_json_file, atomic_write_text, file_digest, ensure_within_root, compress_bytes, decompress_bytes, SkillCodecError, SkillFileError, SkillHttpError, skill_success, check_cancelled` — canonical skill-authoring namespace for dependency-light helper APIs; legacy top-level codec imports still work |
-| Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` plus `load_json_file(...)` / `load_yaml_file(...)` — zero-dependency serialization, canonically exported from `dcc_mcp_core.skills_helper`; TOML runtime helpers are intentionally deferred until a real skill runtime use case appears |
+| Dependency-light JSON/YAML | `json_dumps(obj)` / `json_loads(s)` prefer the native Rust backend and fall back to stdlib only in py37-lite; `yaml_dumps(obj)` / `yaml_loads(s)` remain Rust-backed. Canonically exported from `dcc_mcp_core.skills_helper`; the JSON helpers are not a complete stdlib drop-in. TOML runtime helpers are intentionally deferred until a real skill runtime use case appears |
 | Rust-backed skill file helpers | `ensure_within_root(root, path, must_exist=False)` rejects traversal outside trusted roots; `atomic_write_text/bytes(path, data, root=None, max_bytes=...)` write via same-directory temp files; `file_digest(...)` / `bytes_digest(...)` expose SHA-256; `compress_bytes(...)` / `decompress_bytes(...)` use bounded LZ4 frames. Use `FileRef` / `artefact_put_file` when handing files between tools. |
-| Rust-backed skill HTTP helpers (#1256) | `http_request(method, url, headers=None, query=None, json=None, body=None, timeout_ms=5000, max_bytes=1048576, raise_for_status=False)` returns `HttpResponse(status, headers, bytes, text, json(), url, elapsed_ms, truncated)`; `http_get_json` and `http_post_json` require 2xx and parse with the Rust JSON codec. Catch `SkillHttpError` / `HttpStatusError`; use `redact_http_headers` before echoing headers into errors or audit metadata. |
-| Canonical MCP/REST wire normalization | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python host wrappers: `from dcc_mcp_core.host import normalize_tool_arguments, normalize_tool_meta`. Missing / `null` / empty-string arguments become `{}`; objects pass through; object-shaped JSON strings are accepted; arrays/numbers/booleans/non-object strings are rejected. |
+| Rust-backed skill HTTP helpers (#1256) | `http_request(method, url, headers=None, query=None, json=None, body=None, timeout_ms=5000, max_bytes=1048576, raise_for_status=False)` returns `HttpResponse(status, headers, bytes, text, json(), url, elapsed_ms, truncated)`; `http_get_json` and `http_post_json` require 2xx and parse with the selected native-first JSON backend. Catch `SkillHttpError` / `HttpStatusError`; use `redact_http_headers` before echoing headers into errors or audit metadata. |
+| Canonical MCP/REST wire normalization | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python: `from dcc_mcp_core.wire import normalize_tool_arguments, normalize_tool_meta` (`dcc_mcp_core.host` aliases remain compatibility-only). Missing / `null` / empty-string arguments become `{}`; objects pass through; object-shaped JSON strings are accepted; arrays/numbers/booleans/non-object strings are rejected. |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
@@ -257,7 +257,7 @@ Rust workspace with package membership defined by the root `Cargo.toml`, using P
 The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New code should import the extracted crates directly:
 
 - **`dcc-mcp-jsonrpc`** — canonical transport-neutral JSON-RPC envelopes, standard error codes, and MCP builders. Zero axum/tokio dependency, so gateway applications and standalone clients/CLIs share one wire shape.
-- **`dcc-mcp-wire`** — canonical MCP/REST call envelopes, validation, and argument/meta normalization shared by JSON-RPC, gateway, REST, and Python host wrappers.
+- **`dcc-mcp-wire`** — canonical MCP/REST call envelopes, validation, and argument/meta normalization shared by JSON-RPC, gateway, REST, and Python `dcc_mcp_core.wire` wrappers.
 - **`dcc-mcp-job`** — async job tracker + pluggable persistence. Owns the optional `job-persist-sqlite` feature; `dcc-mcp-http` forwards the flag.
 - **`dcc-mcp-skill-rest`** — per-DCC `/v1/*` REST skill API. Owns the `utoipa` OpenAPI generator.
 - **`dcc-mcp-gateway-core`** — pure gateway domain types and algorithms (`CapabilityRecord`, search query/page/hit types, slug helpers, ranking scorers) with no HTTP or async runtime dependency.
@@ -796,10 +796,11 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 - `TOOL_NAME_RE` / `ACTION_ID_RE` — regex patterns for client-safe tool names and internal action IDs
 - `MAX_TOOL_NAME_LEN = 64` — maximum tool name length
 
-### Serialization — Rust-Powered (`dcc_mcp_core.skills_helper`)
+### Serialization — Native-First (`dcc_mcp_core.skills_helper`)
 
-- `json_dumps(obj) -> str` — serialize to JSON string (zero-dependency, Rust-powered)
-- `json_loads(s) -> obj` — deserialize from JSON string (zero-dependency, Rust-powered)
+- `json_dumps(obj) -> str` — serialize to JSON with the native Rust backend when present, or stdlib in py37-lite
+- `json_loads(s) -> obj` — deserialize JSON with the native Rust backend when present, or stdlib in py37-lite
+- The JSON helpers expose a narrow compatibility surface, not full `json.dumps` / `json.loads` parity; formatting, numeric limits, non-finite values, accepted object types, arbitrary kwargs, and file APIs can differ.
 - `yaml_dumps(obj) -> str` — serialize to YAML string (zero-dependency, Rust-powered)
 - `yaml_loads(s) -> obj` — deserialize from YAML string (zero-dependency, Rust-powered)
 - `load_text(path, max_bytes=None) -> str` / `dump_text(path, text) -> Path` — explicit UTF-8 file helpers

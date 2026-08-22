@@ -83,7 +83,7 @@ and external issue creation require human review and user authorization.
 | Enable three-tier agent memory | `MemoryRecorder(InMemoryMemoryStore()).install(hooks)` — auto-records skill/tool events, injects summaries (#1334) |
 | Query agent memory | `store.query(MemoryQuery(layer=MemoryLayer.WORKING, key_prefix="tool_call:"))` → sorted `tuple[MemoryEntry, ...]` (#1334) |
 | Register all built-in MCP tools | `register_all_builtin_skills(server, dcc_name=..., skills=...)` — idempotent one-call registration (#1332) |
-| Normalize MCP/REST call payloads | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python host wrappers: `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` |
+| Normalize MCP/REST call payloads | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python: `dcc_mcp_core.wire.normalize_tool_arguments()` / `normalize_tool_meta()` (`host` aliases are compatibility-only) |
 
 ---
 
@@ -676,8 +676,10 @@ from dcc_mcp_core.skills_helper import (
 )
 ```
 
-Canonical skill-authoring namespace for Rust-backed, dependency-light helpers.
-Use it for JSON/YAML codecs, bounded file/path helpers, standard result helpers,
+Canonical skill-authoring namespace for dependency-light helpers. JSON prefers
+the native Rust backend and falls back to stdlib in py37-lite; it is not a full
+stdlib drop-in. YAML remains Rust-backed. Use this namespace for codecs,
+bounded file/path helpers, standard result helpers,
 schema validation, MCP/REST argument normalization, and cancellation checks.
 Legacy imports such as `from dcc_mcp_core import json_dumps` remain
 compatibility re-exports of the same functions. Use `load_json_file` /

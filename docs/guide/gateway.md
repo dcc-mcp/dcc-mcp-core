@@ -1046,7 +1046,7 @@ inside `arguments`. Missing / `null` / empty-string arguments normalize to `{}`;
 object roots pass through; object-shaped JSON strings are accepted for connector
 compatibility; arrays, numbers, booleans, and non-object strings are rejected by
 `dcc-mcp-wire`. Host adapters and connectors should reuse
-`dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` instead
+`dcc_mcp_core.wire.normalize_tool_arguments()` / `normalize_tool_meta()` instead
 of each reimplementing coercion.
 
 ## Resources and Prompts Aggregation (#731, #732, #818)

@@ -357,7 +357,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `normalize_meta` — optional sidecar normalization for MCP `_meta` / REST `meta` objects.
 - `WireError::kind()` — stable error taxonomy consumed by gateway and REST responses.
 
-**Python host wrappers**: `dcc_mcp_core.host.normalize_tool_arguments()` and `normalize_tool_meta()` expose the same normalization contract for adapters and connectors.
+**Python interface**: `dcc_mcp_core.wire.normalize_tool_arguments()` and `normalize_tool_meta()` expose the same normalization contract for adapters and connectors. The `dcc_mcp_core.host` names remain compatibility aliases only.
 
 ### dcc-mcp-gateway-core
 

@@ -339,8 +339,8 @@ Gateway resources/prompts:
 | Skill hot-reload | `DccSkillHotReloader(dcc_name, server).enable(paths)` |
 | Singleton server factory | `make_start_stop(ServerClass)` → `(start_fn, stop_fn)` |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` |
-| Zero-dep JSON/YAML | `json_dumps/loads` / `yaml_dumps/loads` (Rust-powered) |
-| Canonical MCP/REST call envelopes | Rust `dcc-mcp-wire::{decode_call_tool, decode_rest_call, normalize_arguments, normalize_meta}`; Python wrappers `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()` |
+| Zero-dep JSON/YAML | `json_dumps/loads` (native Rust preferred, stdlib fallback in py37-lite) / `yaml_dumps/loads` (Rust-backed); the JSON helpers are a narrow package contract, not a stdlib drop-in |
+| Canonical MCP/REST call envelopes | Rust `dcc-mcp-wire::{decode_call_tool, decode_rest_call, normalize_arguments, normalize_meta}`; Python `dcc_mcp_core.wire.normalize_tool_arguments()` / `normalize_tool_meta()` (`host` aliases are compatibility-only) |
 | Typed handler return envelope | `ToolResultEnvelope.ok("msg", **ctx).to_dict()` / `ToolResultEnvelope.fail("msg", error="code").to_dict()` from `dcc_mcp_core.result_envelope`; `dcc_mcp_core.ToolResult` is the distinct Rust runtime model. Tool errors use a string code and structured details under `_meta["dcc.error"]` (#2183) |
 | Centralised metadata keys | `from dcc_mcp_core import METADATA_*, LAYER_*, CATEGORY_*` — re-exported at top level; also available from `dcc_mcp_core.constants`. Never inline `"dcc-mcp.recipes"` etc. (#487) |
 | Custom JSON-RPC method (Rust) | `MethodRouter::register(method, Arc::new(handler))` — implement `MethodHandler` trait (#492) |
@@ -446,7 +446,7 @@ restarts because the field is `#[serde(default)]`.
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level keys (v0.15+ / #356)
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level (also in `constants` sub-module); no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
 7. **Return `ToolResultEnvelope` from Python tool handlers** → `ToolResultEnvelope.ok("...", **ctx).to_dict()` (or `success_(...)`); `error` is a string code and structured diagnostics belong under namespaced `_meta` entries (#2183)
-8. **Gateway REST `/v1/call` / `/v1/call_batch` payloads accept only `tool_slug`, `arguments`, and `meta`** → put backend fields (`code`, `file_path`, `radius`, …) inside `arguments`; use `dcc-mcp-wire` / `dcc_mcp_core.host.normalize_tool_arguments()` for shared normalization
+8. **Gateway REST `/v1/call` / `/v1/call_batch` payloads accept only `tool_slug`, `arguments`, and `meta`** → put backend fields (`code`, `file_path`, `radius`, …) inside `arguments`; use `dcc-mcp-wire` / `dcc_mcp_core.wire.normalize_tool_arguments()` for shared normalization
 9. **Lifecycle hooks — policy events propagate `HookDeny`, observation events swallow it** → `BEFORE_SKILL_LOAD`, `BEFORE_TOOL_CALL`, `BEFORE_SEARCH` are policy; all others are observation-only. Raising `HookDeny` from an observation event is silently logged (#1337)
 10. **Lifecycle hooks — `off()` removes by identity (`is`), not equality** → store the handler reference; `hooks.off(event, lambda ctx: ...)` never matches (#1337)
 11. **Agent memory — `MemoryRecorder.install()` must be called** → the recorder does nothing until wired to a `LifecycleHooks` instance; forgetting `install()` means zero memory is recorded (#1334)

@@ -7,8 +7,12 @@
 //! # Dependency direction (issue #969)
 //!
 //! ```text
-//! dcc-mcp-wire  →  dcc-mcp-protocols  (one edge, no circular)
+//! dcc-mcp-wire  →  dcc-mcp-protocols
+//!       └────── →  dcc-mcp-pybridge  (`python-bindings` only)
 //! ```
+//!
+//! The optional PyO3 edge reuses `dcc-mcp-pybridge::py_json`; this crate does
+//! not own or duplicate Python ↔ `serde_json::Value` conversion logic.
 //!
 //! `dcc-mcp-jsonrpc` depends on this crate and re-exports `coerce_tool_arguments_object`.
 //!
