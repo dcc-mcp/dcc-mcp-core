@@ -8,17 +8,16 @@
 //! | [`search`]         | `SearchQuery`, `SearchHit`, pagination — delegates to `dcc-mcp-gateway-search` |
 //! | [`search_ranking`] | Re-exports scorers / [`SearchRecord`] from `dcc-mcp-gateway-search` |
 //! | [`index`]          | lock-free index state, snapshots, fingerprints, tombstones  |
-//! | [`builder`]        | `BuildOutcome` — output of the per-instance record builder   |
+//! | [`builder`]        | Pure per-instance MCP tool-to-capability record builder      |
 //! | [`refresh`]        | `RefreshReason` — why a refresh cycle is running             |
 //!
 //! The concurrent `CapabilityIndex` wrapper (which owns synchronization
-//! and refresh gates), the `build_records_from_backend` builder (which
-//! borrows backend `&[McpTool]`), and the
-//! `refresh_instance` lifecycle driver (which owns a `reqwest::Client`)
-//! all live in `dcc-mcp-gateway` because they carry runtime state the
-//! domain layer has no business holding. The *wire types* — query
-//! parameters, result rows, snapshot view, builder output, and
-//! refresh-reason classification — live here so any REST/admin client
+//! and refresh gates) and the `refresh_instance` lifecycle driver (which
+//! owns a `reqwest::Client`) live in `dcc-mcp-gateway` because they carry
+//! runtime state the domain layer has no business holding. The pure
+//! builder and *wire types* — query parameters, result rows, snapshot
+//! view, builder output, and refresh-reason classification — live here
+//! so any REST/admin client
 //! talking to the gateway can deserialise domain payloads without pulling
 //! the full gateway crate.
 //!
@@ -36,7 +35,10 @@ pub mod search_ranking;
 // Re-export each submodule's public surface from the capability
 // facade so historical paths (`dcc_mcp_gateway_core::capability::
 // CapabilityRecord` etc.) keep working verbatim.
-pub use builder::BuildOutcome;
+pub use builder::{
+    BuildInput, BuildOutcome, backend_job_status_tool, build_records_from_backend,
+    is_backend_job_tool,
+};
 pub use index::{
     CapabilityIndexState, IndexSnapshot, InstanceFingerprint, InstanceTombstone,
     compute_fingerprint,

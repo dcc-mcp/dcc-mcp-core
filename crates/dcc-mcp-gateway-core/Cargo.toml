@@ -7,7 +7,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Domain layer for the DCC MCP gateway — pure types, no HTTP/IO."
+description = "Domain layer for the DCC MCP gateway — pure logic and types, no HTTP/IO."
 keywords = ["mcp", "gateway", "domain", "clean-architecture"]
 categories = ["api-bindings"]
 
@@ -18,15 +18,14 @@ workspace = true
 # Domain types are part of the REST wire contract (`POST /v1/search`
 # returns CapabilityRecord arrays), so serde is a hard dependency.
 serde = { workspace = true }
+serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 dcc-mcp-gateway-search = { workspace = true }
+dcc-mcp-jsonrpc = { workspace = true }
 # `naming` domain depends on the tool-name validator and emits one-shot
 # warnings through `tracing`. Both are pure / facade-only deps so the
 # inward dependency direction is preserved.
 dcc-mcp-naming = { workspace = true }
 tracing = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
-
-[dev-dependencies]
-serde_json = { workspace = true }

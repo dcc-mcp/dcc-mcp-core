@@ -1330,6 +1330,7 @@ version = "0.20.8"
 dependencies = [
  "chrono",
  "dcc-mcp-gateway-search",
+ "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",
  "serde",
  "serde_json",
