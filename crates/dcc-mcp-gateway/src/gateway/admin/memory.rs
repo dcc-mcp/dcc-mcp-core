@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use dcc_mcp_gateway_admin::memory_summary;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -38,7 +38,7 @@ pub async fn handle_admin_memory(
         return Json(json!({
             "enabled": false,
             "memory": [],
-            "summary": build_memory_summary(&[]),
+            "summary": memory_summary(&[]),
             "error": "admin sqlite lane disabled",
         }))
         .into_response();
@@ -58,7 +58,7 @@ pub async fn handle_admin_memory(
     Json(json!({
         "enabled": true,
         "memory": rows,
-        "summary": build_memory_summary(&rows),
+        "summary": memory_summary(&rows),
     }))
     .into_response()
 }
@@ -115,59 +115,6 @@ async fn wait_until_agent_memory_id_removed(
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     tracing::warn!(memory_id = id, "agent memory id not removed after 2 s poll");
-}
-
-fn build_memory_summary(rows: &[Value]) -> Value {
-    let mut by_dcc = BTreeMap::<String, usize>::new();
-    let mut positive = 0usize;
-    let mut negative = 0usize;
-    let mut ok_count = 0u64;
-    let mut fail_count = 0u64;
-
-    for row in rows {
-        let dcc = row
-            .get("dcc_name")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_string();
-        *by_dcc.entry(dcc).or_default() += 1;
-        let score = row.get("score").and_then(Value::as_f64).unwrap_or(0.0);
-        if score > 0.0 {
-            positive += 1;
-        } else if score < 0.0 {
-            negative += 1;
-        }
-        let (ok, fail) = outcome_counts(row.get("payload").unwrap_or(&Value::Null));
-        ok_count += ok;
-        fail_count += fail;
-    }
-    let hit_rate_pct = if ok_count + fail_count > 0 {
-        Some((ok_count as f64 / (ok_count + fail_count) as f64) * 100.0)
-    } else {
-        None
-    };
-    json!({
-        "total": rows.len(),
-        "by_dcc": by_dcc,
-        "positive": positive,
-        "negative": negative,
-        "ok_count": ok_count,
-        "fail_count": fail_count,
-        "hit_rate_pct": hit_rate_pct,
-    })
-}
-
-fn outcome_counts(payload: &Value) -> (u64, u64) {
-    let ok = payload.get("ok_count").and_then(Value::as_u64);
-    let fail = payload.get("fail_count").and_then(Value::as_u64);
-    if ok.is_some() || fail.is_some() {
-        return (ok.unwrap_or(0), fail.unwrap_or(0));
-    }
-    match payload.get("ok").and_then(Value::as_bool) {
-        Some(true) => (1, 0),
-        Some(false) => (0, 1),
-        None => (0, 0),
-    }
 }
 
 fn clean(value: Option<String>) -> Option<String> {
