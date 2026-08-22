@@ -1,14 +1,14 @@
 //! Reproducible experiment projections backed by the existing session timeline.
 
-use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
+use dcc_mcp_gateway_admin::{project_experiment_detail, project_experiment_list};
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use super::recordings::caller_session;
 use super::state::AdminState;
@@ -272,7 +272,7 @@ pub(crate) fn experiment_list_payload(
         return Err(ExperimentReadError::SqliteUnavailable);
     };
     let experiments = lane.reader().list_experiments(limit.clamp(1, 1_000));
-    Ok(json!({"total": experiments.len(), "experiments": experiments}))
+    Ok(project_experiment_list(experiments))
 }
 
 pub(crate) fn experiment_detail_payload(
@@ -288,39 +288,7 @@ pub(crate) fn experiment_detail_payload(
     let events = lane
         .reader()
         .list_experiment_events(experiment_id, MAX_EVENTS);
-    let Some(experiment) = events
-        .iter()
-        .find(|event| event["event_type"] == "experiment.created")
-        .cloned()
-    else {
-        return Err(ExperimentReadError::NotFound);
-    };
-
-    let mut runs = BTreeMap::<String, Value>::new();
-    let mut judge_results = Vec::new();
-    for event in &events {
-        match event["event_type"].as_str().unwrap_or_default() {
-            value if value.starts_with("experiment.run.") => {
-                if let Some(run_id) = event["run_id"].as_str() {
-                    runs.insert(run_id.to_owned(), event.clone());
-                }
-            }
-            "experiment.judge.result" => judge_results.push(event.clone()),
-            _ => {}
-        }
-    }
-    let runs = runs.into_values().collect::<Vec<_>>();
-    let session_dag = session_dag(&runs);
-    let metrics = summary_metrics(&runs, &judge_results);
-
-    Ok(json!({
-        "experiment": experiment,
-        "runs": runs,
-        "session_dag": session_dag,
-        "judge_results": judge_results,
-        "metrics": metrics,
-        "events": events,
-    }))
+    project_experiment_detail(events).ok_or(ExperimentReadError::NotFound)
 }
 
 fn validate_create(body: &CreateExperimentBody) -> Result<(), &'static str> {
@@ -346,56 +314,6 @@ fn validate_create(body: &CreateExperimentBody) -> Result<(), &'static str> {
         return Err("invalid or oversized experiment definition");
     }
     Ok(())
-}
-
-fn session_dag(runs: &[Value]) -> Value {
-    let nodes = runs
-        .iter()
-        .map(|run| {
-            json!({
-                "run_id": run["run_id"],
-                "session_id": run["session_id"],
-                "parent_run_id": run["parent_run_id"],
-                "parent_session_id": run["parent_session_id"],
-                "status": run["status"],
-            })
-        })
-        .collect::<Vec<_>>();
-    let edges = runs
-        .iter()
-        .filter_map(|run| {
-            let from = run["parent_run_id"]
-                .as_str()
-                .or_else(|| run["parent_session_id"].as_str())?;
-            Some(json!({
-                "from": from,
-                "to": run["run_id"].as_str().unwrap_or_default(),
-            }))
-        })
-        .collect::<Vec<_>>();
-    json!({"nodes": nodes, "edges": edges})
-}
-
-fn summary_metrics(runs: &[Value], judges: &[Value]) -> Value {
-    let mut run_counts = Map::new();
-    let mut judge_counts = Map::new();
-    for run in runs {
-        increment(&mut run_counts, run["status"].as_str().unwrap_or("unknown"));
-    }
-    for judge in judges {
-        increment(
-            &mut judge_counts,
-            judge["status"].as_str().unwrap_or("unknown"),
-        );
-    }
-    run_counts.insert("total".into(), json!(runs.len()));
-    judge_counts.insert("total".into(), json!(judges.len()));
-    json!({"runs": run_counts, "judges": judge_counts})
-}
-
-fn increment(counts: &mut Map<String, Value>, key: &str) {
-    let next = counts.get(key).and_then(Value::as_u64).unwrap_or(0) + 1;
-    counts.insert(key.to_owned(), json!(next));
 }
 
 fn valid_id(value: &str) -> bool {

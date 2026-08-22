@@ -2,7 +2,7 @@
 //!
 //! This crate owns admin-facing audit, trace, caller-context, compact projection,
 //! link, issue-report, statistics, analytics, governance, artifact, activity, task-outcome,
-//! debug-bundle, postmortem, agent-trace packet, memory-summary, skill-path, and traffic projections
+//! debug-bundle, postmortem, agent-trace packet, memory-summary, experiment, skill-path, and traffic projections
 //! independently of gateway routing state.
 //! It also owns the Vite/npm build script and generated dashboard payload; the Node.js
 //! toolchain only runs when `embed` is enabled.
@@ -17,6 +17,7 @@ mod audit;
 mod debug;
 /// Admin trace and caller-attribution value types.
 pub mod domain;
+mod experiments;
 mod governance;
 mod issue_report;
 mod links;
@@ -52,6 +53,7 @@ pub use domain::trace::{
     TokenTelemetry, TraceContext, TraceContextHeader, TracePayload, TraceSpan, estimate_tokens,
     parse_traceparent,
 };
+pub use experiments::{project_experiment_detail, project_experiment_list};
 pub use governance::{
     GovernanceCaptureDecision, GovernanceMiddlewareState, governance_payload, governance_stats,
 };
