@@ -54,10 +54,11 @@ print-wheel-features-py37:
 
 # ── Admin UI ──────────────────────────────────────────────────────────────────
 #
-# The Vite bundle is written to crates/dcc-mcp-gateway/src/gateway/admin/generated/
+# The Vite bundle is written to crates/dcc-mcp-gateway-admin/src/generated/
 # and is intentionally gitignored. It is rebuilt automatically whenever Cargo compiles
 # `dcc-mcp-gateway` with the `admin` feature (wheel builds, local `cargo check`, etc.);
-# `crates/dcc-mcp-gateway/build.rs` runs `vx npm ci` (if needed) and `vx npm run build`.
+# `crates/dcc-mcp-gateway-admin/build.rs` installs dependencies with `vx npm`
+# and builds with the vx-managed Node runtime.
 #
 # Use these recipes when you iterate on JSX/CSS only and want fast rebuilds without
 # recompiling the whole Rust workspace.
@@ -66,11 +67,12 @@ print-wheel-features-py37:
 # Note: npm ci skips optional deps by default; use --include=optional to
 # ensure native bindings (rolldown) are installed and the Vite build succeeds.
 admin-install:
-    vx npm --prefix admin-ui ci
+    cd admin-ui; vx npm ci --ignore-scripts --include=optional
 
 # Build the React admin UI into the Rust-embedded generated HTML
 admin-build: admin-install
-    vx npm --prefix admin-ui run build
+    vx node admin-ui/node_modules/typescript/bin/tsc -b admin-ui/tsconfig.json
+    vx node admin-ui/node_modules/vite/bin/vite.js build admin-ui --config admin-ui/vite.config.ts
 
 # ── Rust ──────────────────────────────────────────────────────────────────────
 

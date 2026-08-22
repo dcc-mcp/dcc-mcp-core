@@ -1,0 +1,23 @@
+[package]
+name = "dcc-mcp-gateway-admin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Build boundary and embedded frontend asset for the DCC-MCP gateway admin dashboard."
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+embed = []
+
+[build-dependencies]
+dunce = "1.0"

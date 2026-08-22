@@ -142,7 +142,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: admin-ui-bundle
-          path: crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
+          path: crates/dcc-mcp-gateway-admin/src/generated/index.html
 
   # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
@@ -233,7 +233,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: admin-ui-bundle
-          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+          path: crates/dcc-mcp-gateway-admin/src/generated
 
       - name: Use pre-built admin UI for Linux builds
         if: matrix.os == 'ubuntu-latest'

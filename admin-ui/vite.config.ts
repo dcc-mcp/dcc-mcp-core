@@ -19,6 +19,6 @@ export default defineConfig({
     assetsInlineLimit: Number.MAX_SAFE_INTEGER,
     cssCodeSplit: false,
     emptyOutDir: true,
-    outDir: '../crates/dcc-mcp-gateway/src/gateway/admin/generated',
+    outDir: '../crates/dcc-mcp-gateway-admin/src/generated',
   },
 });
