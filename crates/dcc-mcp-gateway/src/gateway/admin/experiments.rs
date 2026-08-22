@@ -1,4 +1,4 @@
-//! Reproducible experiment projections backed by the existing session timeline.
+//! Reproducible experiment HTTP and persistence adapters.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -6,14 +6,17 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use dcc_mcp_gateway_admin::{project_experiment_detail, project_experiment_list};
+use dcc_mcp_gateway_admin::{
+    ExperimentJudgeValidation, project_experiment_detail, project_experiment_list,
+    valid_experiment_id, validate_experiment_definition, validate_experiment_judge,
+    validate_experiment_run,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::recordings::caller_session;
 use super::state::AdminState;
 
-const MAX_METADATA_BYTES: usize = 16 * 1024;
 const MAX_EVENTS: usize = 1_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,7 +116,15 @@ pub async fn handle_experiment_create(
     let Some(session_id) = caller_session(&headers) else {
         return session_required();
     };
-    if let Err(message) = validate_create(&body) {
+    if let Err(message) = validate_experiment_definition(
+        &body.name,
+        &body.scenario_id,
+        &body.description,
+        body.workflow_id.as_deref(),
+        body.recording_id.as_deref(),
+        &body.tags,
+        &body.metadata,
+    ) {
         return invalid_request(message);
     }
     let Some(lane) = &state.admin_sqlite_lane else {
@@ -147,30 +158,22 @@ pub async fn handle_experiment_run(
     let Some(session_id) = caller_session(&headers) else {
         return session_required();
     };
-    if !valid_id(&experiment_id) {
+    if !valid_experiment_id(&experiment_id) {
         return invalid_request("experiment_id must be a bounded identifier");
     }
     let run_id = body
         .run_id
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    if !valid_id(&run_id)
-        || !matches!(
-            body.status.as_str(),
-            "pending" | "running" | "passed" | "failed" | "error" | "cancelled"
-        )
-        || body
-            .parent_run_id
-            .as_deref()
-            .is_some_and(|value| !valid_id(value))
-        || body
-            .parent_session_id
-            .as_deref()
-            .is_some_and(|value| !valid_id(value))
-        || !bounded_json(&body.parameters)
-        || !bounded_json(&body.metrics)
-        || !valid_evidence(&body.evidence)
-    {
-        return invalid_request("invalid or oversized experiment run payload");
+    if let Err(message) = validate_experiment_run(
+        &run_id,
+        &body.status,
+        body.parent_run_id.as_deref(),
+        body.parent_session_id.as_deref(),
+        &body.parameters,
+        &body.metrics,
+        &body.evidence,
+    ) {
+        return invalid_request(message);
     }
     let Some(lane) = &state.admin_sqlite_lane else {
         return sqlite_unavailable();
@@ -203,22 +206,21 @@ pub async fn handle_experiment_judge_result(
     let Some(session_id) = caller_session(&headers) else {
         return session_required();
     };
-    if !valid_id(&experiment_id)
-        || !valid_id(&body.run_id)
-        || !valid_id(&body.evaluator_id)
-        || body.evaluator_version.is_empty()
-        || body.evaluator_version.len() > 64
-        || body.rubric_hash.is_empty()
-        || body.rubric_hash.len() > 256
-        || !matches!(body.status.as_str(), "passed" | "failed" | "error")
-        || body.summary.len() > 2_048
-        || !bounded_json(&body.scores)
-        || !valid_evidence(&body.evidence)
-        || body
-            .cost
-            .is_some_and(|value| !value.is_finite() || value < 0.0)
-    {
+    if !valid_experiment_id(&experiment_id) {
         return invalid_request("invalid or oversized judge result payload");
+    }
+    if let Err(message) = validate_experiment_judge(ExperimentJudgeValidation {
+        run_id: &body.run_id,
+        evaluator_id: &body.evaluator_id,
+        evaluator_version: &body.evaluator_version,
+        rubric_hash: &body.rubric_hash,
+        status: &body.status,
+        scores: &body.scores,
+        summary: &body.summary,
+        cost: body.cost,
+        evidence: &body.evidence,
+    }) {
+        return invalid_request(message);
     }
     let Some(lane) = &state.admin_sqlite_lane else {
         return sqlite_unavailable();
@@ -279,7 +281,7 @@ pub(crate) fn experiment_detail_payload(
     state: &AdminState,
     experiment_id: &str,
 ) -> Result<Value, ExperimentReadError> {
-    if !valid_id(experiment_id) {
+    if !valid_experiment_id(experiment_id) {
         return Err(ExperimentReadError::InvalidId);
     }
     let Some(lane) = &state.admin_sqlite_lane else {
@@ -289,52 +291,6 @@ pub(crate) fn experiment_detail_payload(
         .reader()
         .list_experiment_events(experiment_id, MAX_EVENTS);
     project_experiment_detail(events).ok_or(ExperimentReadError::NotFound)
-}
-
-fn validate_create(body: &CreateExperimentBody) -> Result<(), &'static str> {
-    if body.name.trim().is_empty()
-        || body.name.len() > 256
-        || !valid_id(&body.scenario_id)
-        || body.description.len() > 2_048
-        || body
-            .workflow_id
-            .as_deref()
-            .is_some_and(|value| !valid_id(value))
-        || body
-            .recording_id
-            .as_deref()
-            .is_some_and(|value| !valid_id(value))
-        || body.tags.len() > 32
-        || body
-            .tags
-            .iter()
-            .any(|value| value.is_empty() || value.len() > 64)
-        || !bounded_json(&body.metadata)
-    {
-        return Err("invalid or oversized experiment definition");
-    }
-    Ok(())
-}
-
-fn valid_id(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 256
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
-}
-
-fn bounded_json(value: &Value) -> bool {
-    serde_json::to_vec(value)
-        .map(|bytes| bytes.len() <= MAX_METADATA_BYTES)
-        .unwrap_or(false)
-}
-
-fn valid_evidence(values: &[String]) -> bool {
-    values.len() <= 32
-        && values
-            .iter()
-            .all(|value| !value.is_empty() && value.len() <= 2_048)
 }
 
 fn now_ms() -> u64 {

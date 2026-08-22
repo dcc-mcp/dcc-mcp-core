@@ -53,7 +53,11 @@ pub use domain::trace::{
     TokenTelemetry, TraceContext, TraceContextHeader, TracePayload, TraceSpan, estimate_tokens,
     parse_traceparent,
 };
-pub use experiments::{project_experiment_detail, project_experiment_list};
+pub use experiments::{
+    ExperimentJudgeValidation, project_experiment_detail, project_experiment_list,
+    valid_experiment_id, validate_experiment_definition, validate_experiment_judge,
+    validate_experiment_run,
+};
 pub use governance::{
     GovernanceCaptureDecision, GovernanceMiddlewareState, governance_payload, governance_stats,
 };
