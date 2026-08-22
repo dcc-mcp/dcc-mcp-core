@@ -779,8 +779,8 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ToolValidator": "dcc_mcp_core.skills_helper",
     "validate_action_result": "dcc_mcp_core._core",
     # Shared MCP/REST call envelope normalization.
-    "normalize_tool_arguments": "dcc_mcp_core.host",
-    "normalize_tool_meta": "dcc_mcp_core.host",
+    "normalize_tool_arguments": "dcc_mcp_core.wire",
+    "normalize_tool_meta": "dcc_mcp_core.wire",
     # Schema derivation helpers.
     "derive_parameters_schema": "dcc_mcp_core.schema",
     "derive_schema": "dcc_mcp_core.schema",

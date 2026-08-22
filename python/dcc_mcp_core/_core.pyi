@@ -158,6 +158,8 @@ __all__ = [
     "lz4_compress",
     "lz4_decompress",
     "mpu_to_units",
+    "normalize_tool_arguments",
+    "normalize_tool_meta",
     "parse_skill_md",
     "scan_and_load",
     "scan_and_load_lenient",
@@ -4529,6 +4531,16 @@ def lz4_decompress(data: builtins.bytes, max_bytes: typing.Optional[builtins.int
 def mpu_to_units(mpu: builtins.float) -> builtins.str:
     r"""
     Convert meters per unit to a unit string.
+    """
+
+def normalize_tool_arguments(arguments: typing.Optional[typing.Any] = None) -> typing.Any:
+    r"""
+    Normalize Python ``arguments`` for MCP ``tools/call`` and REST ``/v1/call``.
+    """
+
+def normalize_tool_meta(meta: typing.Optional[typing.Any] = None) -> typing.Any:
+    r"""
+    Normalize Python ``_meta`` to an object or ``None``.
     """
 
 def parse_skill_md(skill_dir: builtins.str) -> typing.Optional[SkillMetadata]:

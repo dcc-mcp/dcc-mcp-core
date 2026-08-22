@@ -15,12 +15,13 @@ release = true
 
 [features]
 default = []
-python-bindings = ["pyo3"]
+python-bindings = ["pyo3", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 
 [dependencies]
 # Internal — pure protocol types only; avoids circular imports.
 dcc-mcp-protocols = { workspace = true }
+dcc-mcp-pybridge = { workspace = true, optional = true }
 
 # Workspace shared
 serde = { workspace = true }

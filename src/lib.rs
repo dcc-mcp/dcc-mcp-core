@@ -26,6 +26,7 @@ pub use dcc_mcp_skills as skills;
 pub use dcc_mcp_telemetry as telemetry;
 pub use dcc_mcp_transport as transport;
 pub use dcc_mcp_usd as usd;
+pub use dcc_mcp_wire as wire;
 
 #[cfg(feature = "workflow")]
 pub use dcc_mcp_workflow as workflow;
@@ -82,6 +83,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_http(m)?;
     register_artefact(m)?;
     register_host(m)?;
+    register_wire(m)?;
     register_naming(m)?;
     register_constants(m)?;
     #[cfg(feature = "workflow")]
@@ -327,6 +329,11 @@ fn register_artefact(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(feature = "python-bindings")]
 fn register_host(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dcc_mcp_host::python::register(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_wire(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_wire::python::register(m)
 }
 
 #[cfg(all(feature = "python-bindings", feature = "workflow"))]
