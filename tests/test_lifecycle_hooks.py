@@ -190,7 +190,7 @@ class TestDccServerBaseBridge:
     """``DccServerBase.register_lifecycle_hooks`` must bridge load events."""
 
     def _make_server(self):
-        from dcc_mcp_core._testing import make_test_server
+        from _support import make_test_server
 
         return make_test_server(server=_FakeInnerServer(), dcc_name="bridge-dcc")
 

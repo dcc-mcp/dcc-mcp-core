@@ -71,42 +71,27 @@ console, or SDK callback still belongs to the adapter; forward it through
 `server.report_host_error(message, source="3dsmax.listener")`. Do not replace
 `sys.stdout` or `sys.stderr` process-wide.
 
-## Rez Or Filesystem Deployment Layout
+## Rez Deployment Layout
 
-Pipeline teams can use the same bootstrap script before packages are formally
-built. Resolve package roots first, then prepend the returned paths to the
-process environment that launches the sidecar or gateway:
+Resolve `dcc_mcp_core`, `dcc_mcp_server`, and the adapter package in the active
+Rez environment before launching the DCC. Rez publishes each resolved root as
+`REZ_<PACKAGE>_ROOT`; the bootstrap helper converts those roots into the
+`PYTHONPATH` and `PATH` entries needed by the sidecar or gateway:
 
 ```python
 from dcc_mcp_core.install_lifecycle import resolve_deployment_layout
 
-layout = resolve_deployment_layout(
-    r"G:\_thm\rez_local_cache\ext",
-    adapter_package="dcc_mcp_maya",
-)
+layout = resolve_deployment_layout(adapter_package="dcc_mcp_maya")
 
 python_paths = layout["environment"]["prepend"]["PYTHONPATH"]
 path_entries = layout["environment"]["prepend"]["PATH"]
 ```
 
-When Rez is active, the helper prefers `REZ_<PACKAGE>_ROOT` variables such as
+The helper reads `REZ_<PACKAGE>_ROOT` variables such as
 `REZ_DCC_MCP_CORE_ROOT`, `REZ_DCC_MCP_SERVER_ROOT`, and
-`REZ_DCC_MCP_MAYA_ROOT`. Without Rez, pass a shared cache root or explicit
-`package_roots` mapping:
-
-```python
-layout = resolve_deployment_layout(
-    package_roots={
-        "dcc_mcp_core": r"G:\_thm\rez_local_cache\ext\dcc_mcp_core",
-        "dcc_mcp_server": r"G:\_thm\rez_local_cache\ext\dcc_mcp_server",
-        "dcc_mcp_maya": r"G:\_thm\rez_local_cache\ext\dcc_mcp_maya",
-    },
-    adapter_package="dcc_mcp_maya",
-)
-```
-
-This keeps development, loose internal drops, and packaged Rez deployments on
-one code path.
+`REZ_DCC_MCP_MAYA_ROOT`. Treat the resolved Rez environment as the deployment
+contract; do not embed workstation-specific package-cache paths in adapter
+startup scripts.
 
 ## Import-Light Sidecar Launch
 
@@ -450,16 +435,17 @@ hook:
 }
 ```
 
-Run the same helpers from a subprocess when a DCC-specific installer needs a
-JSON-only control path:
+Use the dedicated console entry point when a DCC-specific installer needs a
+JSON-only control path. `python -m dcc_mcp_core.install_lifecycle` remains a
+compatibility alias.
 
 ```bash
-python -m dcc_mcp_core.install_lifecycle inspect C:\path\to\adapter
-python -m dcc_mcp_core.install_lifecycle stop --dcc-type 3dsmax
-python -m dcc_mcp_core.install_lifecycle layout --cache-root G:\_thm\rez_local_cache\ext --adapter-package dcc_mcp_maya
-python -m dcc_mcp_core.install_lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
-python -m dcc_mcp_core.install_lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
-python -m dcc_mcp_core.install_lifecycle sidecar-ready --dcc maya --timeout-secs 5
-python -m dcc_mcp_core.install_lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
-python -m dcc_mcp_core.install_lifecycle remove C:\path\to\adapter
+dcc-mcp-install-lifecycle inspect C:\path\to\adapter
+dcc-mcp-install-lifecycle stop --dcc-type 3dsmax
+dcc-mcp-install-lifecycle layout --adapter-package dcc_mcp_maya
+dcc-mcp-install-lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
+dcc-mcp-install-lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
+dcc-mcp-install-lifecycle sidecar-ready --dcc maya --timeout-secs 5
+dcc-mcp-install-lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
+dcc-mcp-install-lifecycle remove C:\path\to\adapter
 ```

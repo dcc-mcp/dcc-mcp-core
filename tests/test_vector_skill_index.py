@@ -7,9 +7,12 @@ import math
 
 import pytest
 
-from dcc_mcp_core.semantic_skill_index import LexicalSkillIndex
-from dcc_mcp_core.semantic_skill_index import RrfFusionIndex
-from dcc_mcp_core.semantic_skill_index import SkillDocument
+from dcc_mcp_core.skill_index import InMemoryVectorStore as CanonicalInMemoryVectorStore
+from dcc_mcp_core.skill_index import LexicalSkillIndex
+from dcc_mcp_core.skill_index import RrfFusionIndex
+from dcc_mcp_core.skill_index import SkillDocument
+from dcc_mcp_core.skill_index import VectorSkillIndex as CanonicalVectorSkillIndex
+from dcc_mcp_core.skill_index import VectorStore as CanonicalVectorStore
 from dcc_mcp_core.vector_embedder import DEFAULT_DIM
 from dcc_mcp_core.vector_embedder import Embedder
 from dcc_mcp_core.vector_embedder import EmbedderError
@@ -18,6 +21,12 @@ from dcc_mcp_core.vector_embedder import OnnxEmbedder
 from dcc_mcp_core.vector_skill_index import InMemoryVectorStore
 from dcc_mcp_core.vector_skill_index import VectorSkillIndex
 from dcc_mcp_core.vector_skill_index import VectorStore
+
+
+def test_vector_skill_index_compatibility_aliases_are_identical() -> None:
+    assert InMemoryVectorStore is CanonicalInMemoryVectorStore
+    assert VectorSkillIndex is CanonicalVectorSkillIndex
+    assert VectorStore is CanonicalVectorStore
 
 
 def _l2_norm(vec: array) -> float:
