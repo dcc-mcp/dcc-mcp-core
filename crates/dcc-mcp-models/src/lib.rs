@@ -1,9 +1,10 @@
-//! dcc-mcp-models: ActionResultModel, SkillMetadata, SkillScope, DccMcpError, DccName,
-//! Session, ToolCallEvent, and aggregate statistics types for observability (PIP-2751).
+//! dcc-mcp-models: shared domain types for actions, skills, instance status,
+//! sessions, errors, and observability.
 
 mod action_result;
 mod dcc_name;
 mod error;
+mod instance_status;
 pub mod registry;
 pub mod session;
 mod skill_metadata;
@@ -21,6 +22,7 @@ pub use action_result::{
 };
 pub use dcc_name::DccName;
 pub use error::DccMcpError;
+pub use instance_status::{DispatchStatus, InstanceStatus, ServiceStatus};
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};
 pub use session::{Session, SessionEndReason, SessionStatus};
 #[allow(deprecated)]

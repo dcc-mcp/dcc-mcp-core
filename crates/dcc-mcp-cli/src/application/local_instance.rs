@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use anyhow::Context;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{
-    GATEWAY_SENTINEL_DCC_TYPE, InstanceStatus, ServiceEntry, ServiceStatus,
+    GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus, instance_status_from_entry,
 };
 use serde_json::{Value, json};
 
@@ -236,7 +236,7 @@ pub(crate) fn direct_control_ready(entry: &ServiceEntry) -> bool {
         .metadata
         .get(ROLE_METADATA_KEY)
         .is_some_and(|role| role == ROLE_PER_DCC_SIDECAR);
-    let instance_status = InstanceStatus::from_entry(entry, false, is_sidecar);
+    let instance_status = instance_status_from_entry(entry, false);
     let status_ok = matches!(
         instance_status.status,
         ServiceStatus::Available | ServiceStatus::Busy
@@ -253,8 +253,7 @@ pub(crate) fn direct_control_ready(entry: &ServiceEntry) -> bool {
 
 pub(crate) fn direct_control_report(entry: &ServiceEntry) -> Value {
     let role = entry.metadata.get(ROLE_METADATA_KEY).map(String::as_str);
-    let is_sidecar = role == Some(ROLE_PER_DCC_SIDECAR);
-    let instance_status = InstanceStatus::from_entry(entry, false, is_sidecar);
+    let instance_status = instance_status_from_entry(entry, false);
     let ready = direct_control_ready(entry);
     let reason = if ready {
         Value::Null

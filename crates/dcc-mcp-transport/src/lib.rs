@@ -55,6 +55,7 @@ pub use discovery::ServiceRegistry;
 pub use discovery::types::{
     DispatchStatus, InstanceStatus, SERVICE_ENTRY_LEGACY_SCHEMA_VERSION,
     SERVICE_ENTRY_SCHEMA_VERSION, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
+    dispatch_status_from_entry, instance_status_from_entry,
 };
 pub use error::{TransportError, TransportResult};
 pub use event_bridge::{EventBridge, EventBridgeService, NoopBridge};

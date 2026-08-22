@@ -26,7 +26,7 @@ use dcc_mcp_gateway_core::policy::{GatewayPolicy, GatewayPolicyDenial, GatewayPo
 use dcc_mcp_jsonrpc::McpTool;
 use dcc_mcp_transport::discovery::{
     file_registry::FileRegistry,
-    types::{InstanceStatus, ServiceEntry},
+    types::{ServiceEntry, instance_status_from_entry},
 };
 
 use crate::gateway::admin::trace::TraceContext;
@@ -508,11 +508,7 @@ fn unroutable_instance_error(
     known_entry: Option<&ServiceEntry>,
 ) -> ServiceError {
     if let Some(entry) = known_entry {
-        let status = InstanceStatus::from_entry(
-            entry,
-            entry.is_stale(gs.stale_timeout),
-            entry_uses_sidecar_dispatch(entry),
-        );
+        let status = instance_status_from_entry(entry, entry.is_stale(gs.stale_timeout));
         return ServiceError::new(
             "instance-offline",
             format!(

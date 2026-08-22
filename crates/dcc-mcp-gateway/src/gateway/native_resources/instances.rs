@@ -16,7 +16,7 @@
 
 use serde_json::{Value, json};
 
-use dcc_mcp_transport::discovery::types::{InstanceStatus, ServiceEntry};
+use dcc_mcp_transport::discovery::types::{ServiceEntry, instance_status_from_entry};
 
 use super::super::state::GatewayState;
 use super::util::{parse_bool, parse_query, split_uri};
@@ -355,11 +355,7 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
     };
 
     // ADR 018: unified instance_status block (canonical status representation).
-    let instance_status = InstanceStatus::from_entry(
-        e,
-        stale,
-        super::super::http_registration::entry_uses_sidecar_dispatch(e),
-    );
+    let instance_status = instance_status_from_entry(e, stale);
 
     json!({
         "instance_id":    e.instance_id.to_string(),
