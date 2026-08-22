@@ -39,6 +39,15 @@ def _import_without_core(monkeypatch, *module_names: str):
 
     dcc_mcp_core.__dict__.pop("_core", None)
     for name in module_names:
+        existing = sys.modules.get(name)
+        if existing is not None:
+            parent_name, _, child_name = name.rpartition(".")
+            parent = sys.modules.get(parent_name)
+            if parent is not None and getattr(parent, child_name, None) is existing:
+                # Import machinery rewrites this attribute when the child is
+                # re-imported. Track it alongside sys.modules so monkeypatch
+                # restores one coherent module graph after the test.
+                monkeypatch.setattr(parent, child_name, existing)
         monkeypatch.delitem(sys.modules, name, raising=False)
     return {name: importlib.import_module(name) for name in module_names}
 
