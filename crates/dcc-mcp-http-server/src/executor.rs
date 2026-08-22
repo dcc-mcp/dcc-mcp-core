@@ -28,7 +28,30 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use dcc_mcp_host::{QueueStats, WaitTimeSamples};
-use dcc_mcp_http_types::error::HttpError;
+use thiserror::Error;
+
+/// Errors produced by the DCC main-thread execution bridge.
+///
+/// This contract is transport-neutral. HTTP, MCP, or embedded callers map it
+/// into their own boundary error taxonomy instead of making the executor
+/// depend on one transport's error type.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ExecutorError {
+    /// The executor channel or a task's result channel was closed.
+    #[error("executor channel closed")]
+    Closed,
+
+    /// The bounded queue did not drain before the configured send timeout.
+    #[error("queue overloaded (depth={depth}/{capacity}); retry in {retry_after_secs}s")]
+    QueueOverloaded {
+        /// Current queue depth at the moment the dispatch was rejected.
+        depth: usize,
+        /// Maximum queue depth.
+        capacity: usize,
+        /// Suggested delay before retrying.
+        retry_after_secs: u64,
+    },
+}
 
 /// Backward-compatible name for the shared dispatcher queue snapshot.
 pub type ExecutorQueueStats = QueueStats;
@@ -46,7 +69,7 @@ pub(crate) struct ExecutorStats {
     /// Configured channel capacity (`send_timeout` blocks when full).
     pub capacity: usize,
     /// How long `execute` will block on a full channel before
-    /// surfacing [`HttpError::QueueOverloaded`].
+    /// surfacing [`ExecutorError::QueueOverloaded`].
     pub send_timeout: Duration,
     pub total_enqueued: AtomicU64,
     pub total_dequeued: AtomicU64,
@@ -188,15 +211,15 @@ impl DccExecutorHandle {
     /// capacity, the caller blocks for up to the handle's configured
     /// send-timeout (default 2 s) waiting for the main thread to
     /// drain. If it still does not drain, the call returns
-    /// [`HttpError::QueueOverloaded`] — callers can
-    /// distinguish this from [`HttpError::ExecutorClosed`]
+    /// [`ExecutorError::QueueOverloaded`] — callers can
+    /// distinguish this from [`ExecutorError::Closed`]
     /// and decide whether to retry or fail over.
-    pub async fn execute(&self, func: DccTaskFn) -> Result<String, HttpError> {
+    pub async fn execute(&self, func: DccTaskFn) -> Result<String, ExecutorError> {
         self.execute_typed(func).await
     }
 
     /// Submit a typed task without serializing its result inside the process.
-    pub async fn execute_typed<T, F>(&self, func: F) -> Result<T, HttpError>
+    pub async fn execute_typed<T, F>(&self, func: F) -> Result<T, ExecutorError>
     where
         T: Send + 'static,
         F: FnOnce() -> T + Send + 'static,
@@ -208,10 +231,10 @@ impl DccExecutorHandle {
             }),
         };
         self.enqueue(task).await?;
-        result_rx.await.map_err(|_| HttpError::ExecutorClosed)
+        result_rx.await.map_err(|_| ExecutorError::Closed)
     }
 
-    async fn enqueue(&self, task: DccTask) -> Result<(), HttpError> {
+    async fn enqueue(&self, task: DccTask) -> Result<(), ExecutorError> {
         let submit_attempted_at = Instant::now();
         let timeout = self.stats.send_timeout;
         let send_res = if timeout.is_zero() {
@@ -225,7 +248,7 @@ impl DccExecutorHandle {
                     // Timed out waiting on a full channel. Canonical
                     // overload signal.
                     self.stats.record_reject();
-                    return Err(HttpError::QueueOverloaded {
+                    return Err(ExecutorError::QueueOverloaded {
                         depth: self.stats.pending(),
                         capacity: self.stats.capacity,
                         retry_after_secs: 1,
@@ -239,7 +262,7 @@ impl DccExecutorHandle {
             }
             Err(()) => {
                 self.stats.record_reject();
-                return Err(HttpError::ExecutorClosed);
+                return Err(ExecutorError::Closed);
             }
         }
 
@@ -409,7 +432,7 @@ impl DccExecutorHandle {
     /// ```
     ///
     /// Returns `Err` if the executor has been shut down.
-    pub async fn yield_frame(&self) -> Result<(), HttpError> {
+    pub async fn yield_frame(&self) -> Result<(), ExecutorError> {
         self.execute(Box::new(String::new)).await.map(|_| ())
     }
 }

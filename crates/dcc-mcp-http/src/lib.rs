@@ -89,7 +89,7 @@ pub use dcc_mcp_skill_rest::{
 };
 pub use dynamic_tools::{DYNAMIC_TOOL_PREFIX, DynamicToolError, SessionDynamicTools, ToolSpec};
 pub use error::{HttpError, HttpResult};
-pub use executor::{DccExecutorHandle, DeferredExecutor, ExecutorQueueStats};
+pub use executor::{DccExecutorHandle, DeferredExecutor, ExecutorError, ExecutorQueueStats};
 pub use job::{Job, JobEvent, JobManager, JobProgress, JobStatus, JobSubscriber};
 #[cfg(feature = "job-persist-sqlite")]
 pub use job_storage::SqliteStorage;
