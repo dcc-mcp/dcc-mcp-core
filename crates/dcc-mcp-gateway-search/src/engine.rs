@@ -3,6 +3,8 @@
 use crate::query::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
 use crate::ranking::{FuzzyScorer, Scorer, SubstringScorer};
 use crate::record::SearchRecord;
+use crate::{LAYER_DOMAIN, LAYER_EXAMPLE, LAYER_INFRASTRUCTURE, LAYER_THIN_HARNESS};
+use crate::{RankPolicy, apply_rank_policy};
 
 /// Rank `records` against `query` and return the first page of hits.
 #[must_use]
@@ -85,6 +87,12 @@ pub fn rank_all<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> 
         }
     }
     let has_clauses = !clauses.is_empty();
+    let explicit_layer = query.tags.iter().any(|tag| {
+        matches!(
+            tag.trim().to_ascii_lowercase().as_str(),
+            LAYER_DOMAIN | LAYER_THIN_HARNESS | LAYER_INFRASTRUCTURE | LAYER_EXAMPLE
+        )
+    });
 
     let candidates: Vec<&R> = records
         .iter()
@@ -126,6 +134,7 @@ pub fn rank_all<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> 
                 &clauses,
                 has_clauses,
                 scene.as_deref(),
+                explicit_layer,
             )
         }
         SearchMode::Exact => {
@@ -136,6 +145,7 @@ pub fn rank_all<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> 
                 &clauses,
                 has_clauses,
                 scene.as_deref(),
+                explicit_layer,
             )
         }
     };
@@ -153,6 +163,7 @@ pub fn rank_all<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> 
     hits.sort_by(|a, b| {
         b.score
             .cmp(&a.score)
+            .then_with(|| b.record.rank_scope().cmp(&a.record.rank_scope()))
             .then_with(|| a.record.tool_slug().cmp(b.record.tool_slug()))
     });
 
@@ -193,10 +204,11 @@ fn rank_multi<R: SearchRecord + Clone, S: Scorer>(
     clauses: &[String],
     has_clauses: bool,
     scene: Option<&str>,
+    explicit_layer: bool,
 ) -> Vec<SearchHit<R>> {
     candidates
         .iter()
-        .map(|r| {
+        .filter_map(|r| {
             let breakdown = if has_clauses {
                 clauses
                     .iter()
@@ -206,12 +218,26 @@ fn rank_multi<R: SearchRecord + Clone, S: Scorer>(
             } else {
                 Default::default()
             };
-            SearchHit {
+            let exact_name = clauses.iter().any(|clause| {
+                r.backend_tool().eq_ignore_ascii_case(clause)
+                    || r.skill_name()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(clause))
+            });
+            let score = apply_rank_policy(
+                breakdown.score,
+                r.rank_layer(),
+                r.rank_path_source(),
+                RankPolicy {
+                    exact_name,
+                    explicit_layer,
+                },
+            );
+            score.map(|score| SearchHit {
                 record: (*r).clone(),
                 rank: 0,
-                score: breakdown.score,
+                score: if exact_name { u32::MAX } else { score },
                 match_reasons: breakdown.match_reasons,
-            }
+            })
         })
         .filter(|hit| !has_clauses || hit.score > 0)
         .collect()

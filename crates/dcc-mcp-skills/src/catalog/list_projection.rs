@@ -263,6 +263,11 @@ fn skill_summary_from_value(v: &Value) -> Option<SkillSummary> {
             .and_then(Value::as_str)
             .unwrap_or("repo")
             .to_string(),
+        path_source: v
+            .get("path_source")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
         implicit_invocation: v
             .get("implicit_invocation")
             .and_then(Value::as_bool)
@@ -294,6 +299,7 @@ mod tests {
             status: "discovered".to_string(),
             missing_dependencies: Vec::new(),
             scope: "repo".to_string(),
+            path_source: "unknown".to_string(),
             implicit_invocation: true,
             layer: None,
             stage: Some("scene".to_string()),

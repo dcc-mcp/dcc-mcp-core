@@ -308,10 +308,9 @@ pub struct GatewayState {
     pub gateway_persist: bool,
     pub gateway_idle_timeout_secs: u64,
 
-    /// Whether semantic search boosting is enabled for `mode=hybrid` queries.
+    /// Reserved semantic-search configuration compatibility flag.
     ///
-    /// Default: `false`. When `false`, `mode=hybrid` silently falls back to
-    /// `mode=fuzzy`.  Mirrors [`GatewayConfig::semantic_search_enabled`].
+    /// `mode=hybrid` currently always falls back to the canonical fuzzy scorer.
     pub semantic_search_enabled: bool,
 
     /// SQLite persistence lane for tool-call events, sessions, and

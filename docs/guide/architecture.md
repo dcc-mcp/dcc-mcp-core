@@ -377,7 +377,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-gateway-search
 
-**Purpose**: Reusable search/query/ranking engine for the gateway capability index. Keep tokenization, fuzzy/exact matching, pagination, and record projection here so `dcc-mcp-gateway` stays focused on HTTP/MCP orchestration and registry refresh.
+**Purpose**: Canonical Rust search/query/ranking engine for skill catalogs, per-DCC REST, and the gateway capability index. Its `SearchRecord` and `Scorer` contracts own tokenization, fuzzy/exact matching, rank policy, pagination, and record projection so every production discovery surface returns consistent ordering.
 
 **Dependencies**: Pure search dependencies only; no axum, reqwest, registry, or admin UI coupling.
 

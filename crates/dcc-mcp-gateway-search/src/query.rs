@@ -12,9 +12,9 @@ pub enum SearchMode {
     Fuzzy,
     /// Substring-only matching (legacy deterministic table).
     Exact,
-    /// Hybrid ranking: fuzzy (BM25 + nucleo) primary, semantic boost
-    /// applied when the gateway semantic provider is configured.
-    /// Falls back to [`SearchMode::Fuzzy`] when semantic deps are absent.
+    /// Reserved compatibility mode; currently uses the shared fuzzy scorer.
+    /// The gateway reports the semantic backend as inactive until a real
+    /// production integration is available.
     Hybrid,
 }
 

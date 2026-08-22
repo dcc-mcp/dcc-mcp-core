@@ -1223,7 +1223,7 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "instance_id": {"type": "string", "description": "Target instance UUID or unique prefix."},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "tags_any": {"type": "array", "items": {"type": "string"}, "description": "OR tag filter — rows carrying any of these tags pass. tags remains AND."},
-                    "mode": {"type": "string", "enum": ["fuzzy", "exact", "hybrid"], "default": "fuzzy", "description": "Search mode: fuzzy (default, BM25+nucleo), exact (substring), hybrid (fuzzy + semantic boost when configured)."},
+                    "mode": {"type": "string", "enum": ["fuzzy", "exact", "hybrid"], "default": "fuzzy", "description": "Search mode: canonical fuzzy scorer (default), exact substring matching, or hybrid (currently the same fuzzy scorer)."},
                     "limit": {"type": "integer", "minimum": 0},
                     "response_format": {"type": "string", "enum": ["json", "toon"], "description": "Wrapper-level output format. Prefer MCP params._meta.response_format for clients that keep tool arguments pure."},
                     "compact": {"type": "boolean", "description": "Alias for response_format=toon when true."}

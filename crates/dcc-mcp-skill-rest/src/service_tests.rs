@@ -105,6 +105,8 @@ fn sphere_action(loaded: bool) -> CatalogAction {
         input_schema: serde_json::json!({"type":"object"}),
         loaded,
         scope: "repo".into(),
+        layer: None,
+        path_source: "unknown".into(),
         annotations: Default::default(),
         execution: Default::default(),
         timeout_hint_secs: None,
@@ -428,6 +430,8 @@ fn search_matches_aliases_and_schema_tokens_without_schema_expansion() {
         }),
         loaded: true,
         scope: "repo".into(),
+        layer: None,
+        path_source: "unknown".into(),
         annotations: Default::default(),
         execution: Default::default(),
         timeout_hint_secs: None,
@@ -694,6 +698,7 @@ fn catalog_source_lists_discovered_tools_with_input_schema() {
     let hit = svc
         .search(&SearchRequest {
             query: Some("action_python".into()),
+            tags: vec!["example".into()],
             loaded_only: false,
             ..Default::default()
         })

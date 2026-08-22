@@ -24,6 +24,10 @@ pub struct UnloadedCapabilityHint {
     pub summary: String,
     /// Extra non-wire search tokens.
     pub search_tokens: Vec<String>,
+    /// Skill-layer rank hint supplied by the per-DCC REST catalog.
+    pub rank_layer: Option<String>,
+    /// Discovery-path rank hint supplied by the per-DCC REST catalog.
+    pub rank_path_source: Option<String>,
     /// Progressive groups advertised by the skill.
     pub available_groups: Vec<CapabilityGroupInfo>,
     /// Progressive group containing this tool, when known.
@@ -106,7 +110,8 @@ fn build_unloaded_records(
                 hint.tool_group,
             )
             .with_available_groups(hint.available_groups)
-            .with_search_tokens(hint.search_tokens);
+            .with_search_tokens(hint.search_tokens)
+            .with_rank_policy(hint.rank_layer, hint.rank_path_source);
             record.instance_id = instance_id;
             record.tool_slug = tool_slug(dcc_type, &instance_id, &hint.tool_name);
             Some(record)
@@ -192,6 +197,8 @@ mod tests {
             tool_name: tool.to_string(),
             summary: format!("Discover {tool}"),
             search_tokens: vec!["discover".to_string()],
+            rank_layer: None,
+            rank_path_source: None,
             available_groups: Vec::new(),
             tool_group: None,
         }

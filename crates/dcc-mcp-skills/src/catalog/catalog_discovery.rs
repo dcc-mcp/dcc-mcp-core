@@ -100,7 +100,6 @@ impl SkillCatalog {
             after_group_change_hook: RwLock::new(None),
             after_scoped_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
-            inverted_index: RwLock::new(IndexGuard::default()),
             dcc_shards: DashMap::new(),
         }
     }
@@ -125,7 +124,6 @@ impl SkillCatalog {
             after_group_change_hook: RwLock::new(None),
             after_scoped_group_change_hook: RwLock::new(None),
             active_groups: DashSet::new(),
-            inverted_index: RwLock::new(IndexGuard::default()),
             dcc_shards: DashMap::new(),
         }
     }
@@ -296,7 +294,6 @@ impl SkillCatalog {
         };
 
         let mut new_count = 0;
-        let mut new_names = Vec::new();
         for (skill, path_source) in result.skills {
             let name = skill.name.clone();
             let dcc = skill.dcc.clone();
@@ -313,14 +310,10 @@ impl SkillCatalog {
                     ),
                 );
                 self.shard_insert(&name, &dcc);
-                new_names.push(name);
                 new_count += 1;
             }
         }
         self.refresh_dependency_states();
-        for name in new_names {
-            self.sync_search_index(&name);
-        }
 
         if !result.skipped.is_empty() {
             self.record_skipped_diagnostics(&result.skipped, SkillScope::Repo);
@@ -358,7 +351,6 @@ impl SkillCatalog {
         let mut added = 0usize;
         let mut updated = 0usize;
         let mut loaded_to_reload = Vec::new();
-        let mut index_updates = Vec::new();
 
         for (skill, path_source) in result.skills {
             let name = skill.name.clone();
@@ -380,7 +372,6 @@ impl SkillCatalog {
                         loaded_to_reload.push(name.clone());
                     }
                     updated += 1;
-                    index_updates.push(name.clone());
                 }
                 // Update shard if dcc changed.
                 self.shard_move(&name, &old_dcc, &dcc);
@@ -396,7 +387,6 @@ impl SkillCatalog {
                     ),
                 );
                 self.shard_insert(&name, &dcc);
-                index_updates.push(name.clone());
                 added += 1;
             }
         }
@@ -422,10 +412,6 @@ impl SkillCatalog {
             if let Err(err) = self.load_skill(&name) {
                 tracing::warn!(skill = %name, error = %err, "SkillCatalog: failed to reload changed skill during rediscovery");
             }
-        }
-
-        for name in index_updates {
-            self.sync_search_index(&name);
         }
 
         if !result.skipped.is_empty() {
@@ -475,7 +461,6 @@ impl SkillCatalog {
             self.shard_insert(&name, &dcc);
         }
         self.refresh_dependency_states();
-        self.sync_search_index(&name);
     }
 
     /// Discover skills from paths grouped by [`SkillScope`].
@@ -485,7 +470,6 @@ impl SkillCatalog {
         dcc_name: Option<&str>,
     ) -> usize {
         let mut total_new = 0;
-        let mut new_names = Vec::new();
         for (scope, paths) in scoped_paths {
             let result =
                 match crate::loader::scan_and_load_lenient(Some(paths.as_slice()), dcc_name) {
@@ -524,15 +508,11 @@ impl SkillCatalog {
                         ),
                     );
                     self.shard_insert(&name, &dcc);
-                    new_names.push(name);
                     total_new += 1;
                 }
             }
         }
         self.refresh_dependency_states();
-        for name in new_names {
-            self.sync_search_index(&name);
-        }
         tracing::info!(
             "SkillCatalog::discover_scoped: {} new skill(s) across {} scope(s)",
             total_new,

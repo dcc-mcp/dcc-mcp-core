@@ -229,7 +229,6 @@ impl SkillCatalog {
             ),
         );
         self.refresh_dependency_states();
-        self.sync_search_index(&skill_name);
         self.load_skill(&skill_name)
     }
 
@@ -651,7 +650,6 @@ impl SkillCatalog {
             entry.state = SkillState::Loaded;
             entry.registered_tools = registered.clone();
         }
-        self.sync_search_index(skill_name);
         self.loaded.insert(skill_name.to_string());
         self.notify_after_load_hook(skill_name, metadata, &registered);
 
@@ -765,7 +763,6 @@ impl SkillCatalog {
         let removed = self.entries.remove(skill_name).is_some();
         if removed {
             self.refresh_dependency_states();
-            self.sync_search_index(skill_name);
         }
         removed
     }
@@ -783,7 +780,6 @@ impl SkillCatalog {
         self.entries.clear();
         self.skipped.clear();
         self.dcc_shards.clear();
-        *self.inverted_index.write() = Default::default();
     }
 
     /// Replay a persisted set of loaded skills + active groups (#1405).

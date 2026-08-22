@@ -86,7 +86,7 @@ pub struct SkillEntry {
     /// for backward compatibility when persisted state lacks the field.
     #[serde(default)]
     pub path_source: crate::catalog::scoring::SkillPathSource,
-    /// Pre-computed tokenised field representation for BM25 scoring.
+    /// Pre-computed tokenised fields used by candidate selection and ranking.
     /// Computed once at discovery/load time, reused on every search.
     #[serde(default)]
     pub field_tokens: crate::catalog::scoring::FieldTokens,
@@ -127,6 +127,9 @@ pub struct SkillSummary {
     pub missing_dependencies: Vec<String>,
     /// Trust level / origin scope of this skill (e.g. `"repo"`, `"user"`, `"system"`).
     pub scope: String,
+    /// Discovery path source used by the shared ranking policy.
+    #[serde(default)]
+    pub path_source: String,
     /// `true` when this skill declares `allow_implicit_invocation: false`.
     pub implicit_invocation: bool,
     /// Architectural layer from `metadata.dcc-mcp.layer`

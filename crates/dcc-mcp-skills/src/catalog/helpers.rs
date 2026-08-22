@@ -43,6 +43,7 @@ pub fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
         status: e.state.status().to_string(),
         missing_dependencies: e.state.missing_dependencies(),
         scope: e.scope.label().to_string(),
+        path_source: e.path_source.label().to_string(),
         implicit_invocation: e
             .metadata
             .policy

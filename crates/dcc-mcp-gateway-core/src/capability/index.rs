@@ -74,6 +74,8 @@ pub fn compute_fingerprint(records: &[CapabilityRecord]) -> InstanceFingerprint 
         for t in &r.search_tokens {
             t.hash(&mut hasher);
         }
+        r.rank_layer.hash(&mut hasher);
+        r.rank_path_source.hash(&mut hasher);
     }
     InstanceFingerprint(hasher.finish())
 }

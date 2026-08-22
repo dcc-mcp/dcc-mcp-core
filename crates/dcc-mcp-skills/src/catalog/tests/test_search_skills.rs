@@ -125,15 +125,31 @@ fn test_search_skills_returns_matching_skills() {
     assert!(names.contains(&"a"), "search_skills must include 'a'");
 }
 
-// ── PIP-2469: inverted index integration tests ──────────────────────────
+#[test]
+fn test_search_skills_uses_shared_fuzzy_recall_without_exact_index_pruning() {
+    let catalog = make_test_catalog();
+    let mut maya = make_test_skill("maya-primitives", "maya", &[]);
+    maya.description = "Create polygon spheres and cubes".to_string();
+    catalog.add_skill(maya);
+    let mut photoshop = make_test_skill("photoshop-export", "photoshop", &[]);
+    photoshop.description = "Export the active image document".to_string();
+    catalog.add_skill(photoshop);
+
+    let results = catalog.search_skills(Some("polgyon sphere"), &[], None, None, None);
+
+    assert_eq!(
+        results.first().map(|hit| hit.name.as_str()),
+        Some("maya-primitives")
+    );
+}
+
+// ── Shared scorer determinism and mutation tests ────────────────────────
 
 #[test]
-fn test_search_skills_with_inverted_index_same_results() {
-    // search_skills with inverted index must return identical results as
-    // search_skills without (the linear path is a correctness baseline).
+fn test_search_skills_repeated_query_is_stable() {
     let catalog = make_test_catalog();
 
-    // Add enough skills to trigger index usage.
+    // Add enough skills to exercise deterministic ranking at catalog scale.
     let words = ["polygon", "bevel", "render", "bake", "simulate"];
     for i in 0..50 {
         let name = format!("maya-skill-{i:03}");
@@ -143,7 +159,7 @@ fn test_search_skills_with_inverted_index_same_results() {
         catalog.add_skill(skill);
     }
 
-    // First query builds the index, second uses it.
+    // Repeated queries must remain stable.
     let results1 = catalog.search_skills(Some("polygon bevel"), &[], None, None, None);
     let results2 = catalog.search_skills(Some("polygon bevel"), &[], None, None, None);
 
@@ -162,10 +178,10 @@ fn test_search_skills_with_inverted_index_same_results() {
 }
 
 #[test]
-fn test_search_skills_index_updates_incrementally_on_add() {
+fn test_search_skills_reflects_add() {
     let catalog = make_test_catalog();
 
-    // Populate and query once to build index.
+    // Populate and query once.
     catalog.add_skill(make_test_skill("maya-modeling", "maya", &[]));
     let _ = catalog.search_skills(Some("modeling"), &[], None, None, None);
 
@@ -173,9 +189,7 @@ fn test_search_skills_index_updates_incrementally_on_add() {
     let mut new_skill = make_test_skill("maya-bevel", "maya", &[]);
     new_skill.description = "bevel polygon edges".to_string();
     catalog.add_skill(new_skill);
-    assert!(!catalog.inverted_index.read().is_stale());
-
-    // Search again without a full rebuild; the new skill must appear.
+    // Search again; the new skill must appear.
     let results = catalog.search_skills(Some("bevel"), &[], None, None, None);
     assert!(
         results.iter().any(|s| s.name == "maya-bevel"),
@@ -184,19 +198,17 @@ fn test_search_skills_index_updates_incrementally_on_add() {
 }
 
 #[test]
-fn test_search_skills_index_updates_incrementally_on_remove() {
+fn test_search_skills_reflects_remove() {
     let catalog = make_test_catalog();
 
     catalog.add_skill(make_test_skill("maya-modeling", "maya", &[]));
     catalog.add_skill(make_test_skill("maya-bevel", "maya", &[]));
 
-    // Build index.
+    // Prime search state.
     let _ = catalog.search_skills(Some("maya"), &[], None, None, None);
 
     // Remove a skill.
     assert!(catalog.remove_skill("maya-bevel"));
-    assert!(!catalog.inverted_index.read().is_stale());
-
     // Search again — removed skill must not appear.
     let results = catalog.search_skills(Some("maya"), &[], None, None, None);
     assert!(
@@ -210,40 +222,28 @@ fn test_search_skills_index_updates_incrementally_on_remove() {
 }
 
 #[test]
-fn test_search_skills_index_stale_flag_cleared_after_rebuild() {
+fn test_search_skills_query_is_deterministic_after_add() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("maya-modeling", "maya", &[]));
 
-    // Initially stale.
-    assert!(catalog.inverted_index.read().is_stale());
-
-    // Query builds the index.
-    let _ = catalog.search_skills(Some("modeling"), &[], None, None, None);
-
-    // Now not stale.
-    assert!(!catalog.inverted_index.read().is_stale());
+    let first = catalog.search_skills(Some("modeling"), &[], None, None, None);
+    let second = catalog.search_skills(Some("modeling"), &[], None, None, None);
+    assert_eq!(first[0].name, second[0].name);
 }
 
 #[test]
-fn test_search_skills_empty_query_skips_index() {
-    // Empty query must not build or use the inverted index.
+fn test_search_skills_empty_query_returns_catalog() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("maya-modeling", "maya", &[]));
 
     let results = catalog.search_skills(None, &[], None, None, None);
     assert_eq!(results.len(), 1);
-
-    // Index should still be stale (empty query path skips index).
-    assert!(catalog.inverted_index.read().is_stale());
 }
 
-// ── PIP-2469 P2: indexed vs linear parity and multi-filter regression ──
+// ── Cross-catalog parity and multi-filter regression ────────────────────
 
 #[test]
-fn test_search_skills_indexed_vs_linear_parity() {
-    // Force the index path and verify results match a forced-linear path
-    // for the same catalog state, same filter, same query. This catches
-    // the P0 class of bug where index doc_idx is wrong.
+fn test_search_skills_cross_catalog_parity() {
     let catalog = make_test_catalog();
 
     let words = [
@@ -275,14 +275,11 @@ fn test_search_skills_indexed_vs_linear_parity() {
     ];
 
     for (tags, dcc) in &filters {
-        // Indexed path (builds or reuses index).
+        // First catalog.
         let indexed = catalog.search_skills(Some(query), tags, *dcc, None, None);
         let indexed_names: Vec<String> = indexed.iter().map(|s| s.name.clone()).collect();
 
-        // Force linear path by invalidating index but NOT allowing rebuild
-        // (we check staleness directly — the linear fallback in prune_with_index
-        // happens when tokens are empty or prefiltered is empty, so instead we
-        // compare against a fresh catalog that never built an index).
+        // Equivalent fresh catalog.
         let fresh = make_test_catalog();
         for i in 0..30 {
             let name = format!("maya-skill-{:03}", i);
@@ -298,14 +295,12 @@ fn test_search_skills_indexed_vs_linear_parity() {
             skill.tags = vec![words[(i + 3) % words.len()].to_string()];
             fresh.add_skill(skill);
         }
-        // Force linear path by setting index stale and never querying without
-        // filter first (the empty query doesn't build index).
         let linear = fresh.search_skills(Some(query), tags, *dcc, None, None);
         let linear_names: Vec<String> = linear.iter().map(|s| s.name.clone()).collect();
 
         assert_eq!(
             indexed_names, linear_names,
-            "indexed vs linear result order mismatch for tags={:?} dcc={:?}",
+            "cross-catalog result order mismatch for tags={:?} dcc={:?}",
             tags, dcc
         );
         assert_eq!(
@@ -319,9 +314,8 @@ fn test_search_skills_indexed_vs_linear_parity() {
 }
 
 #[test]
-fn test_search_skills_multi_filter_index_integrity() {
-    // Multi-filter sequence: dcc=None → dcc=maya → tags=[...] — the index
-    // must remain correct across filter changes (P0 regression).
+fn test_search_skills_multi_filter_integrity() {
+    // Multi-filter sequence must remain correct across filter changes.
     let catalog = make_test_catalog();
 
     let words = ["polygon", "bevel", "render", "bake", "simulate"];
@@ -340,7 +334,7 @@ fn test_search_skills_multi_filter_index_integrity() {
 
     let query = "polygon";
 
-    // Step 1: no filter — builds index from full 40-entry catalog.
+    // Step 1: no filter.
     let r1 = catalog.search_skills(Some(query), &[], None, None, None);
     assert!(!r1.is_empty(), "step 1 must return results");
 

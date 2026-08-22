@@ -67,6 +67,8 @@ pub(crate) fn search_metadata(action: &CatalogAction) -> Option<Value> {
     let has_runtime = action.runtime.is_some();
     if !has_non_default_execution
         && !has_runtime
+        && action.layer.is_none()
+        && action.path_source.is_empty()
         && action.search_aliases.is_empty()
         && action.search_tokens.is_empty()
     {
@@ -79,6 +81,15 @@ pub(crate) fn search_metadata(action: &CatalogAction) -> Option<Value> {
         serde_json::json!({"dcc": {}})
     };
     if let Some(dcc) = metadata.get_mut("dcc").and_then(Value::as_object_mut) {
+        if let Some(layer) = action.layer.as_deref() {
+            dcc.insert("rankLayer".to_string(), Value::String(layer.to_string()));
+        }
+        if !action.path_source.is_empty() {
+            dcc.insert(
+                "rankPathSource".to_string(),
+                Value::String(action.path_source.clone()),
+            );
+        }
         if !action.search_aliases.is_empty() {
             dcc.insert(
                 "searchAliases".to_string(),
@@ -98,27 +109,6 @@ pub(crate) fn search_metadata(action: &CatalogAction) -> Option<Value> {
         obj.insert("runtime".to_string(), serde_json::json!(runtime));
     }
     Some(metadata)
-}
-
-pub(crate) fn search_haystack(action: &CatalogAction) -> String {
-    let mut hay = String::new();
-    for part in [
-        action.action_name.as_str(),
-        action.skill_name.as_str(),
-        action.description.as_str(),
-    ] {
-        hay.push(' ');
-        hay.push_str(&part.to_ascii_lowercase());
-    }
-    hay.push(' ');
-    hay.push_str(&action.tags.join(" ").to_ascii_lowercase());
-    hay.push(' ');
-    hay.push_str(&action.search_aliases.join(" ").to_ascii_lowercase());
-    for token in &action.search_tokens {
-        hay.push(' ');
-        hay.push_str(&search_token_text(token).to_ascii_lowercase());
-    }
-    hay
 }
 
 pub(crate) fn merged_search_aliases(
@@ -208,14 +198,6 @@ fn collect_schema_search_tokens(schema: &Value, depth: usize, out: &mut Vec<Stri
             return;
         }
     }
-}
-
-fn search_token_text(token: &str) -> &str {
-    token
-        .strip_prefix("alias:")
-        .or_else(|| token.strip_prefix("schema:"))
-        .or_else(|| token.strip_prefix("required:"))
-        .unwrap_or(token)
 }
 
 fn action_risk(annotations: &SkillToolAnnotations) -> &'static str {

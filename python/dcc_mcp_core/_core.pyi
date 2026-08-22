@@ -2909,6 +2909,11 @@ class SkillSummary:
         Trust level / origin scope of this skill (e.g. `"repo"`, `"user"`, `"system"`).
         """
     @property
+    def path_source(self) -> builtins.str:
+        r"""
+        Discovery path source used by the shared ranking policy.
+        """
+    @property
     def implicit_invocation(self) -> builtins.bool:
         r"""
         `true` when this skill declares `allow_implicit_invocation: false`.
