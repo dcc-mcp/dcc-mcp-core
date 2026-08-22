@@ -262,7 +262,7 @@ The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New
 - **`dcc-mcp-skill-rest`** — per-DCC `/v1/*` REST skill API. Owns the `utoipa` OpenAPI generator.
 - **`dcc-mcp-gateway-core`** — pure gateway domain types and algorithms (`CapabilityRecord`, search query/page/hit types, slug helpers, ranking scorers) with no HTTP or async runtime dependency.
 - **`dcc-mcp-gateway-search`** — canonical Rust `SearchRecord`/`Scorer` contracts used by skill catalogs, per-DCC REST, and gateway search, including shared fuzzy/exact matching, rank policy, and pagination.
-- **`dcc-mcp-gateway-admin`** — admin audit/trace/caller-context/token-telemetry domain, bounded audit/trace logs, compact agent-facing, link, issue-report, statistics, and audit-analytics projections, plus the optional embedded dashboard asset.
+- **`dcc-mcp-gateway-admin`** — admin audit/trace/caller-context/token-telemetry domain, bounded audit/trace logs, compact agent-facing, link, issue-report, statistics, audit-analytics, and governance projections, plus the optional embedded dashboard asset.
 - **`dcc-mcp-gateway`** — multi-DCC gateway app/infrastructure: registry probing, REST facade, and dynamic-capability MCP wrappers. It depends inward on `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, `dcc-mcp-gateway-admin`, and `dcc-mcp-wire`.
 - **`dcc-mcp-http-types`** — pure HTTP wire/config/value types (`HttpError`, `JobConfig`, `InstanceConfig`, `TelemetryConfig`, `FeatureFlags`, prompt/resource/output/session values), re-exported by `dcc-mcp-http` for compatibility.
 - **`dcc-mcp-http-server`** — reusable runtime support for the embedded server (core tool builders, executor bridge, session state, in-flight cancellation/progress, notifications, workspace roots) without axum/PyO3.
@@ -282,7 +282,7 @@ crates/
 ├── dcc-mcp-skill-rest/     # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core/   # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search/ # Reusable capability search/ranking engine
-├── dcc-mcp-gateway-admin/  # Admin audit/trace/caller/projection/report/stats/analytics domain + embedded dashboard boundary
+├── dcc-mcp-gateway-admin/  # Admin audit/trace/caller/projection/report/stats/analytics/governance domain + embedded dashboard boundary
 ├── dcc-mcp-gateway/        # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-gateway-ensure/ # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-http-types/     # Pure HTTP wire/config/value types, McpHttpConfig
