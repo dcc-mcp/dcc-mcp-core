@@ -29,4 +29,5 @@ embed = []
 dunce = "1.0"
 
 [dev-dependencies]
+dcc-mcp-test-utils.workspace = true
 proptest = "1.5"
