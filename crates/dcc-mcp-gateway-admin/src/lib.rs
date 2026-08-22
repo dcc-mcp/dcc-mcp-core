@@ -1,7 +1,8 @@
 //! Domain and embedded frontend boundary for the DCC-MCP gateway admin dashboard.
 //!
 //! This crate owns admin-facing audit, trace, caller-context, compact projection,
-//! link, issue-report, statistics, and analytics contracts independently of gateway routing state.
+//! link, issue-report, statistics, analytics, and governance contracts independently of gateway
+//! routing state.
 //! It also owns the Vite/npm build script and generated dashboard payload; the Node.js
 //! toolchain only runs when `embed` is enabled.
 
@@ -11,6 +12,7 @@ mod analytics;
 mod audit;
 /// Admin trace and caller-attribution value types.
 pub mod domain;
+mod governance;
 mod issue_report;
 mod links;
 mod projection;
@@ -32,6 +34,9 @@ pub use domain::trace::{
     MAX_AGENT_CONTEXT_STRING_BYTES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TOKEN_ESTIMATOR,
     TokenTelemetry, TraceContext, TraceContextHeader, TracePayload, TraceSpan, estimate_tokens,
     parse_traceparent,
+};
+pub use governance::{
+    GovernanceCaptureDecision, GovernanceMiddlewareState, governance_payload, governance_stats,
 };
 pub use issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
 pub use links::AdminLinkBuilder;
