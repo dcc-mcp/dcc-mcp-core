@@ -260,6 +260,12 @@ pub struct CapabilityRecord {
     /// These improve recall without expanding the public search response.
     #[serde(default, skip_serializing, skip_deserializing)]
     pub search_tokens: Vec<String>,
+    /// Internal skill-layer rank hint shared by every Rust search surface.
+    #[serde(default, skip_serializing, skip_deserializing)]
+    pub rank_layer: Option<String>,
+    /// Internal discovery-path rank hint shared by every Rust search surface.
+    #[serde(default, skip_serializing, skip_deserializing)]
+    pub rank_path_source: Option<String>,
     /// DCC type bucket (e.g. `"maya"`).
     pub dcc_type: String,
     /// UUID of the owning instance, serialised as a canonical string.
@@ -336,6 +342,8 @@ impl CapabilityRecord {
             summary: normalise_summary(summary),
             tags,
             search_tokens: Vec::new(),
+            rank_layer: None,
+            rank_path_source: None,
             dcc_type,
             instance_id,
             has_schema,
@@ -380,6 +388,14 @@ impl CapabilityRecord {
         self
     }
 
+    /// Attach internal rank-policy metadata without expanding the REST wire.
+    #[must_use]
+    pub fn with_rank_policy(mut self, layer: Option<String>, path_source: Option<String>) -> Self {
+        self.rank_layer = layer.filter(|value| !value.is_empty());
+        self.rank_path_source = path_source.filter(|value| !value.is_empty());
+        self
+    }
+
     /// Mark this record as a discovery-only meta-tool that must not be
     /// dispatched via sidecar `tools/call`.
     #[must_use]
@@ -417,6 +433,8 @@ impl CapabilityRecord {
             summary: normalise_summary(tool_description),
             tags: Vec::new(),
             search_tokens: Vec::new(),
+            rank_layer: None,
+            rank_path_source: None,
             dcc_type: dcc_type.to_string(),
             instance_id: nil,
             has_schema: false, // unknown until loaded
@@ -490,6 +508,14 @@ impl dcc_mcp_gateway_search::SearchRecord for CapabilityRecord {
 
     fn search_tokens(&self) -> &[String] {
         &self.search_tokens
+    }
+
+    fn rank_layer(&self) -> Option<&str> {
+        self.rank_layer.as_deref()
+    }
+
+    fn rank_path_source(&self) -> Option<&str> {
+        self.rank_path_source.as_deref()
     }
 
     fn dcc_type(&self) -> &str {

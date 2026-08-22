@@ -601,7 +601,7 @@ the exact skill name.
 The layer penalty and the `example` exclusion are bypassed when the caller filters
 by a known layer name through `tags=` (case-insensitive), e.g.
 `search_skills(tags=["thin-harness"])` or `search_skills(tags=["infrastructure"])`.
-The raw BM25 order is honoured inside the filtered slice.
+The raw shared-scorer order is honoured inside the filtered slice.
 :::
 
 ### Description pattern: explicit negative routing
@@ -1208,26 +1208,27 @@ doc = SkillDocument(
 hit = SkillSearchHit(skill_id="maya-geometry", score=0.85, rank=1)
 ```
 
-### Gateway Hybrid Search Mode (opt-in)
+### Search modes and optional Python semantic indexes
 
 The Rust gateway daemon supports three search modes via the `mode` parameter
 in the unified `search` tool:
 
 | `mode` | Strategy | Default |
 |--------|----------|---------|
-| `fuzzy` | BM25 + nucleo fuzzy matching with prefix/subsequence bonuses | Yes |
+| `fuzzy` | Canonical Rust fuzzy scorer with prefix/subsequence bonuses | Yes |
 | `exact` | Substring-only matching (legacy deterministic table) | No |
-| `hybrid` | Fuzzy primary + semantic boost when the gateway is configured | No |
+| `hybrid` | Reserved compatibility mode; currently falls back to `fuzzy` | No |
 
-`mode=hybrid` currently maps to `mode=fuzzy` internally (Phase 1 wire-up).
-When the gateway is configured with `semantic_search_enabled: true`, a future
-release will apply semantic embedding similarity to boost conceptual recall.
-
-**Enable semantic search**:
+Python `LexicalSkillIndex`, `VectorSkillIndex`, and `RrfFusionIndex` remain
+optional application-level/offline utilities. They are not a second ranking
+backend for the Rust skill catalog, REST server, or gateway. Installing the
+semantic extra makes those Python utilities available only:
 ```bash
 pip install 'dcc-mcp-core[semantic]'
-export DCC_MCP_SEMANTIC_SEARCH_ENABLED=1
 ```
+
+The gateway's `semantic_search_enabled` compatibility flag is reserved and
+does not claim or activate a semantic production backend.
 
 The search response includes a `semantic` object indicating whether the
 semantic provider is active and whether a hybrid→fuzzy downgrade occurred:
@@ -1686,42 +1687,30 @@ schemas.
 
 #### How `search_skills` ranks results
 
-Since dcc-mcp-core 0.15 (issue [#343](https://github.com/dcc-mcp/dcc-mcp-core/issues/343))
-the ranker is a tokenised BM25-lite scorer. It is deterministic — the same
-skill set + query always yields the same order.
+Skill catalogs, per-DCC REST search, and gateway search share the
+`dcc-mcp-gateway-search::Scorer` contract. The default is the same deterministic
+fuzzy scorer on every surface, so the same records + query yield the same order.
 
-**Tokeniser** — lowercase, split on `[\s_\-.,;:/]+`, drop a small stopword
-list (`a, an, the, of, and, or, to, for, with, from`). No stemming, no
-fuzzy match.
+**Matching** — case-insensitive exact, prefix, substring, and subsequence
+matching with typo tolerance. Names, aliases, tags, descriptions, DCC type,
+search hints, and sibling tool metadata project into the shared record contract.
 
-**Field weights**
+**Field priority** — exact/prefix tool or skill names rank highest, followed
+by aliases and schema/search terms, tags, and descriptions. The scorer exposes
+match reasons for gateway results instead of publishing unstable numeric
+weights as an API contract.
 
-| Field | Weight |
-|-------|-------:|
-| `name`                                   | 5.0 |
-| `dcc` (exact token match only)           | 4.0 |
-| `tags`                                   | 3.0 |
-| `search_hint`                            | 3.0 |
-| `search_aliases`                         | 3.0 |
-| `description`                            | 2.0 |
-| sibling tool names (from `tools.yaml`)   | 2.0 |
-| sibling tool search aliases              | 2.0 |
-| sibling tool descriptions                | 1.0 |
-
-**Scoring** — standard BM25 per query token with `k1=1.2`, `b=0.75`, document
-length = total tokens across all weighted fields. The per-field contributions
-are multiplied by the weights above and summed across query tokens.
+**Scoring** — field-weighted integer scores are produced by the canonical fuzzy
+scorer, then the shared layer/path-source rank policy is applied once.
 
 **Tie-breaks** (in order)
 
 1. **Exact-name fast-path** — if the query equals a skill's name
    (case-insensitive, after trimming), that skill sorts first unconditionally.
-2. **Name-substring hit** — skills whose `name` contains the query as a
-   raw substring rank above equal-scoring skills that don't.
-3. **Scope precedence** — `Admin > System > User > Repo`.
-4. **Alphabetical name**.
+2. **Scope precedence** — `Admin > System > Team > User > Repo`.
+3. **Alphabetical name/tool slug**.
 
-Skills with a total score of `0.0` (and no exact-name match) are dropped.
+Skills with a total score of `0` (and no exact-name match) are dropped.
 The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 `create_skill_server()` only calls `discover()` at startup — skills are **not** automatically loaded. This keeps the initial tool list small and lets agents load only what they need.

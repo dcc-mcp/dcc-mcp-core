@@ -22,6 +22,10 @@ pub trait SearchRecord {
     fn search_tokens(&self) -> &[String] {
         &[]
     }
+    /// Search aliases kept separate from schema/generic tokens.
+    fn search_aliases(&self) -> &[String] {
+        &[]
+    }
     /// DCC bucket (`maya`, `blender`, …).
     fn dcc_type(&self) -> &str;
     /// Owning instance id.
@@ -42,5 +46,17 @@ pub trait SearchRecord {
     /// Defaults to `None` so existing implementations stay valid.
     fn risk(&self) -> Option<&str> {
         None
+    }
+    /// Architectural skill layer used by the shared rank policy.
+    fn rank_layer(&self) -> Option<&str> {
+        None
+    }
+    /// Discovery path source used by the shared rank policy.
+    fn rank_path_source(&self) -> Option<&str> {
+        None
+    }
+    /// Stable scope precedence used after score ties.
+    fn rank_scope(&self) -> u8 {
+        0
     }
 }

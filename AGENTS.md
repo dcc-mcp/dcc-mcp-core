@@ -279,7 +279,7 @@ Gateway resources/prompts:
 | Trim old log files | `prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce retention (#558) |
 | Prometheus `/metrics` (gateway) | Build `dcc-mcp-http` with `--features prometheus`; `attach_gateway_metrics_route` + `dcc_mcp_telemetry::PrometheusExporter` expose `dcc_mcp_instances_total{status}`, `dcc_mcp_tools_total{dcc_type}`, request duration / failure counters at `GET /metrics` (#559) |
 | Skill scoping | `SkillScope` (Repo → User → Team → System → Admin) |
-| Lexical + vector skill search (Python) | `RrfFusionIndex().register("lex", LexicalSkillIndex()).register("vec", VectorSkillIndex())` — fuses BM25 with hashing-trick dense vectors so morphology variants and inflected queries (`rendering` vs `render`) still recall the right skill (#1333 + #1393) |
+| Optional offline semantic indexes (Python) | `RrfFusionIndex().register("lex", LexicalSkillIndex()).register("vec", VectorSkillIndex())` remains an opt-in application utility. Production Rust skill catalog, REST, and gateway discovery all use the single `dcc-mcp-gateway-search::Scorer` contract; the Python utility is not a second server ranking path (#2184). |
 | Local-only dense embeddings, zero-dep default | `VectorSkillIndex()` ships `HashedEmbedder` + `InMemoryVectorStore` by default — no ONNX / FAISS in the base wheel. Install `pip install 'dcc-mcp-core[semantic]'` to enable `OnnxEmbedder`: the three-tier backend prefers the Rust-native `dcc-mcp-core-semantic` companion wheel (fastembed-rs + ONNX Runtime, releases the GIL during inference, #1395), falls back to the pure-Python `fastembed` package, and finally raises `EmbedderError`. Override model / cache via `DCC_MCP_EMBED_MODEL` and `DCC_MCP_EMBED_MODEL_DIR` env vars so studios can pre-place the ONNX model on a shared mount (#1393) |
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |
 | Declarative progressive loading on startup | `MinimalModeConfig(skills=…, deactivate_groups=…)` → pass to `register_builtin_actions(minimal_mode=…)` (#525) |
@@ -384,7 +384,7 @@ flow for neutral queries:
 The penalty and the `example` exclusion are bypassed when the caller filters
 by a known layer name through `tags=` (case-insensitive), e.g.
 `search_skills(tags=["example"])` or `search_skills(tags=["infrastructure"])`,
-so the raw BM25 order is honoured inside the filtered slice.
+so the raw shared-scorer order is honoured inside the filtered slice.
 
 ### Skill path-source rank (#1403)
 

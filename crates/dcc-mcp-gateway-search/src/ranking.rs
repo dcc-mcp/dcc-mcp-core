@@ -118,6 +118,10 @@ fn relaxed_multiword_haystack_score(r: &dyn SearchRecord, q: &str) -> u32 {
         hay.push(' ');
         hay.push_str(&search_token_text(t).to_ascii_lowercase());
     }
+    for alias in r.search_aliases() {
+        hay.push(' ');
+        hay.push_str(&alias.to_ascii_lowercase());
+    }
 
     let words: Vec<&str> = q.split_whitespace().filter(|w| w.len() >= 2).collect();
     if words.len() < 2 {
@@ -311,8 +315,15 @@ impl Scorer for FuzzyScorer {
         if !q.is_empty() {
             let tool_lexical = token_match_score(q, r.backend_tool(), 18, 12, 8);
             let summary_lexical = token_match_score(q, r.summary(), 8, 5, 3);
-            let alias_tokens =
+            let mut alias_tokens = r.search_aliases().join(" ");
+            let prefixed_aliases =
                 search_tokens_joined(r.search_tokens().iter().filter(|t| t.starts_with("alias:")));
+            if !prefixed_aliases.is_empty() {
+                if !alias_tokens.is_empty() {
+                    alias_tokens.push(' ');
+                }
+                alias_tokens.push_str(&prefixed_aliases);
+            }
             let schema_tokens = search_tokens_joined(
                 r.search_tokens()
                     .iter()
@@ -398,6 +409,12 @@ impl Scorer for FuzzyScorer {
             add_component(&mut out, best_schema, "schema_fuzzy");
 
             let mut best_alias = 0;
+            for alias in r.search_aliases() {
+                let s = self.score_field(&pattern, alias, 5, false);
+                if s > best_alias {
+                    best_alias = s;
+                }
+            }
             for token in r.search_tokens() {
                 if let Some(alias) = token.strip_prefix("alias:") {
                     let s = self.score_field(&pattern, alias, 5, false);

@@ -803,29 +803,27 @@ fn ui_control_uses_discovery_dispatch(entry: &ServiceEntry, record: &CapabilityR
 
 /// Shared helper for both MCP and REST search paths.
 ///
-/// When `mode=hybrid` is requested but semantic search is not enabled,
-/// silently downgrades to `mode=fuzzy` and builds a diagnostic
+/// `mode=hybrid` is reserved but has no production semantic backend, so it
+/// downgrades to `mode=fuzzy` and builds an honest diagnostic
 /// `semantic` object for the response. Returns the (possibly downgraded)
 /// query and the `semantic` JSON field the caller should merge into its
 /// response payload.
 pub fn apply_search_mode_downgrade(
     mut query: SearchQuery,
-    semantic_search_enabled: bool,
+    _semantic_search_enabled: bool,
 ) -> (SearchQuery, Value) {
-    let hybrid_downgraded = query.mode == SearchMode::Hybrid && !semantic_search_enabled;
+    let hybrid_downgraded = query.mode == SearchMode::Hybrid;
     if hybrid_downgraded {
         query.mode = SearchMode::Fuzzy;
     }
-    let semantic = if hybrid_downgraded {
-        json!({
-            "active": false,
-            "note": "mode=hybrid requested but semantic search is not enabled; fell back to mode=fuzzy"
-        })
-    } else {
-        json!({
-            "active": semantic_search_enabled,
-        })
-    };
+    let semantic = json!({
+        "active": false,
+        "note": if hybrid_downgraded {
+            "mode=hybrid has no production semantic backend; fell back to mode=fuzzy"
+        } else {
+            "Python semantic indexes are optional application utilities, not a gateway ranking backend"
+        }
+    });
     (query, semantic)
 }
 
@@ -2233,5 +2231,24 @@ mod unit_tests {
             "success": true,
             "output": {"success": true}
         })));
+    }
+
+    #[test]
+    fn hybrid_mode_never_claims_an_unwired_semantic_backend() {
+        let query = SearchQuery {
+            mode: SearchMode::Hybrid,
+            ..SearchQuery::default()
+        };
+
+        let (query, diagnostic) = apply_search_mode_downgrade(query, true);
+
+        assert_eq!(query.mode, SearchMode::Fuzzy);
+        assert_eq!(diagnostic["active"], false);
+        assert!(
+            diagnostic["note"]
+                .as_str()
+                .unwrap()
+                .contains("no production")
+        );
     }
 }

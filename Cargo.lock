@@ -1842,6 +1842,7 @@ dependencies = [
  "axum-test",
  "chrono",
  "dcc-mcp-actions",
+ "dcc-mcp-gateway-search",
  "dcc-mcp-models",
  "dcc-mcp-skills",
  "dcc-mcp-test-utils",
@@ -1866,6 +1867,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "dcc-mcp-actions",
+ "dcc-mcp-gateway-search",
  "dcc-mcp-models",
  "dcc-mcp-naming",
  "dcc-mcp-paths",
@@ -1884,6 +1886,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
+ "uuid",
  "workspace-hack",
 ]
 

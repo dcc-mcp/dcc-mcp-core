@@ -418,6 +418,12 @@ pub async fn try_fetch_tools(
                     tool_name: action,
                     summary: description,
                     search_tokens: rest_metadata_search_tokens(metadata),
+                    rank_layer: rest_metadata_string(metadata, "rankLayer", "rank_layer"),
+                    rank_path_source: rest_metadata_string(
+                        metadata,
+                        "rankPathSource",
+                        "rank_path_source",
+                    ),
                     available_groups,
                     tool_group,
                 });
@@ -549,6 +555,17 @@ fn rest_metadata_search_tokens(value: Option<&Value>) -> Vec<String> {
     append_metadata_values(dcc.get("searchTokens"), "", &mut out);
     append_metadata_values(dcc.get("search_tokens"), "", &mut out);
     out
+}
+
+fn rest_metadata_string(value: Option<&Value>, camel: &str, snake: &str) -> Option<String> {
+    value
+        .and_then(Value::as_object)
+        .and_then(|map| map.get("dcc"))
+        .and_then(Value::as_object)
+        .and_then(|dcc| dcc.get(camel).or_else(|| dcc.get(snake)))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn append_metadata_values(value: Option<&Value>, prefix: &str, out: &mut Vec<String>) {

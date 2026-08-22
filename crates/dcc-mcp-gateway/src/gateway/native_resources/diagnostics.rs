@@ -171,17 +171,9 @@ pub async fn build_payload(
                 "success": true,
                 "message": "Gateway search and capability diagnostics",
                 "semantic_provider": {
-                    "active": gs.semantic_search_enabled,
-                    "backend": if gs.semantic_search_enabled {
-                        "dcc-mcp-gateway-search (lexical + semantic boost available)"
-                    } else {
-                        "dcc-mcp-gateway-search (lexical only)"
-                    },
-                    "note": if gs.semantic_search_enabled {
-                        "Semantic boost available for mode=hybrid queries."
-                    } else {
-                        "Semantic ranking is not yet supported in the Rust gateway daemon."
-                    },
+                    "active": false,
+                    "backend": "dcc-mcp-gateway-search (canonical fuzzy scorer)",
+                    "note": "Python semantic indexes are optional application utilities, not a gateway ranking backend.",
                 },
                 "capability_index": {
                     "total_records": total_records,

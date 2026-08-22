@@ -1,16 +1,14 @@
-//! Criterion benchmarks for BM25 skill search scoring.
+//! Criterion benchmarks for the shared skill search scorer.
 //!
-//! Measures the impact of pre-computed `FieldTokens` caching (PIP-2467).
-//! Generates synthetic skill catalogues at 1k / 5k / 10k scale and runs
-//! `score_skills` (re-tokenise every call) vs `score_skills_with_tokens`
-//! (cached tokens) to quantify the allocation/CPU saving.
+//! Generates synthetic skill catalogues at 1k / 5k / 10k scale and measures
+//! the production shared-ranking path plus the optional exact-token index.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use dcc_mcp_actions::ToolRegistry;
-use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
+use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::catalog::inverted_index::InvertedIndex;
-use dcc_mcp_skills::catalog::scoring::{FieldTokens, score_skills, score_skills_with_tokens};
+use dcc_mcp_skills::catalog::scoring::FieldTokens;
 use rand::RngExt;
 use std::hint::black_box;
 use std::sync::Arc;
@@ -149,33 +147,11 @@ fn synthetic_catalogue(
 
 // ── Benchmark groups ────────────────────────────────────────────────────
 
-fn bench_score_skills(c: &mut Criterion) {
+fn bench_inverted_index(c: &mut Criterion) {
     for n in [1_000usize, 5_000, 10_000] {
-        let (metas, fields, doc_lens, names) = synthetic_catalogue(n);
-        let skill_refs: Vec<&SkillMetadata> = metas.iter().collect();
-        let scopes: Vec<SkillScope> = vec![SkillScope::Repo; n];
-
-        let group_label = format!("score_skills_{n}_skills");
-        c.bench_function(&format!("re_tokenize/{group_label}"), |b| {
-            b.iter(|| {
-                let _ = score_skills("polygon bevel", &skill_refs, &scopes, false, None);
-            })
-        });
-
-        c.bench_function(&format!("cached_tokens/{group_label}"), |b| {
-            b.iter(|| {
-                let field_refs: Vec<&FieldTokens> = fields.iter().collect();
-                let _ = score_skills_with_tokens(
-                    "polygon bevel",
-                    &skill_refs,
-                    &scopes,
-                    false,
-                    None,
-                    &field_refs,
-                    &doc_lens,
-                );
-            })
-        });
+        let (_metas, fields, doc_lens, names) = synthetic_catalogue(n);
+        let group_label = format!("search_index_{n}_skills");
+        black_box(doc_lens);
 
         // ── PIP-2469: inverted index vs linear scan ──
         let names_and_fields: Vec<(&str, &FieldTokens)> = names
@@ -231,5 +207,5 @@ fn bench_catalog_search(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench_score_skills, bench_catalog_search);
+criterion_group!(benches, bench_inverted_index, bench_catalog_search);
 criterion_main!(benches);

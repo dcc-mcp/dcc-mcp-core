@@ -245,7 +245,8 @@ pub struct GatewayConfig {
     /// falls back to `mode=fuzzy`.
     ///
     /// Default: `false`. Wired via sidecar `--semantic-search-enabled`
-    /// / `DCC_MCP_SEMANTIC_SEARCH_ENABLED=1`.
+    /// / `DCC_MCP_SEMANTIC_SEARCH_ENABLED=1`. Reserved for compatibility;
+    /// no production semantic ranker is currently wired to gateway search.
     pub semantic_search_enabled: bool,
 }
 

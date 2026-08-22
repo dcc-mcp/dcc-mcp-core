@@ -122,6 +122,7 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
         let callable_id = tool.name.clone();
         let tags = extract_tags(&tool.annotations, tool.meta.as_ref());
         let search_tokens = extract_search_tokens(tool);
+        let (rank_layer, rank_path_source) = extract_rank_policy(tool.meta.as_ref());
         let has_schema =
             has_meaningful_schema(&tool.input_schema) || meta_declares_schema(tool.meta.as_ref());
         let summary = if tool.description.is_empty() && has_schema {
@@ -157,6 +158,7 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
             )
             .with_available_groups(available_groups)
             .with_search_tokens(search_tokens)
+            .with_rank_policy(rank_layer, rank_path_source)
             .with_discovery_only(discovery_only),
         );
     }
@@ -322,6 +324,28 @@ fn extract_search_tokens(tool: &McpTool) -> Vec<String> {
     }
     tokens.extend(schema_search_tokens(&tool.input_schema));
     tokens
+}
+
+fn extract_rank_policy(
+    meta: Option<&serde_json::Map<String, Value>>,
+) -> (Option<String>, Option<String>) {
+    let Some(dcc) = meta
+        .and_then(|map| map.get("dcc"))
+        .and_then(Value::as_object)
+    else {
+        return (None, None);
+    };
+    let value = |camel: &str, snake: &str| {
+        dcc.get(camel)
+            .or_else(|| dcc.get(snake))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    (
+        value("rankLayer", "rank_layer"),
+        value("rankPathSource", "rank_path_source"),
+    )
 }
 
 fn meta_search_values(
@@ -676,6 +700,8 @@ mod unit_tests {
             json!({
                 "dcc": {
                     "skill": "photoshop-export",
+                    "rankLayer": "domain",
+                    "rankPathSource": "local_dev",
                     "searchAliases": ["write file", "export image"],
                     "searchTokens": ["schema:existing_hint"]
                 }
@@ -693,6 +719,8 @@ mod unit_tests {
                 .search_tokens
                 .contains(&"alias:write file".to_string())
         );
+        assert_eq!(record.rank_layer.as_deref(), Some("domain"));
+        assert_eq!(record.rank_path_source.as_deref(), Some("local_dev"));
         assert!(
             record
                 .search_tokens
@@ -719,6 +747,8 @@ mod unit_tests {
             serialized.get("search_tokens").is_none(),
             "search-only tokens must not become public gateway search fields"
         );
+        assert!(serialized.get("rank_layer").is_none());
+        assert!(serialized.get("rank_path_source").is_none());
     }
 
     #[test]
