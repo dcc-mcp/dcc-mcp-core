@@ -4,36 +4,20 @@
 
 对于必须保持导入轻量级的安装程序和卸载程序代码，请使用 `dcc_mcp_core.install_lifecycle`。该模块仅使用 Python 标准库，不会导入 `_core`。
 
-## Rez 或文件系统部署布局
+## Rez 部署布局
 
-流水线团队可以在包正式构建之前使用相同的引导脚本。首先解析包根目录，然后将返回的路径前置到启动伴生进程或网关的进程环境中：
+启动 DCC 前，先在当前 Rez 环境中解析 `dcc_mcp_core`、`dcc_mcp_server` 和适配器包。Rez 会通过 `REZ_<PACKAGE>_ROOT` 发布每个包的根目录；引导辅助函数会将这些根目录转换为 sidecar 或网关所需的 `PYTHONPATH` 与 `PATH`：
 
 ```python
 from dcc_mcp_core.install_lifecycle import resolve_deployment_layout
 
-layout = resolve_deployment_layout(
-    r"G:\_thm\rez_local_cache\ext",
-    adapter_package="dcc_mcp_maya",
-)
+layout = resolve_deployment_layout(adapter_package="dcc_mcp_maya")
 
 python_paths = layout["environment"]["prepend"]["PYTHONPATH"]
 path_entries = layout["environment"]["prepend"]["PATH"]
 ```
 
-当 Rez 激活时，辅助工具优先使用 `REZ_<PACKAGE>_ROOT` 变量，如 `REZ_DCC_MCP_CORE_ROOT`、`REZ_DCC_MCP_SERVER_ROOT` 和 `REZ_DCC_MCP_MAYA_ROOT`。没有 Rez 时，传递共享缓存根目录或显式 `package_roots` 映射：
-
-```python
-layout = resolve_deployment_layout(
-    package_roots={
-        "dcc_mcp_core": r"G:\_thm\rez_local_cache\ext\dcc_mcp_core",
-        "dcc_mcp_server": r"G:\_thm\rez_local_cache\ext\dcc_mcp_server",
-        "dcc_mcp_maya": r"G:\_thm\rez_local_cache\ext\dcc_mcp_maya",
-    },
-    adapter_package="dcc_mcp_maya",
-)
-```
-
-这使开发、松散内部交付和打包的 Rez 部署保持在同一代码路径上。
+辅助工具读取 `REZ_DCC_MCP_CORE_ROOT`、`REZ_DCC_MCP_SERVER_ROOT` 和 `REZ_DCC_MCP_MAYA_ROOT` 等变量。应将解析后的 Rez 环境视为部署契约，不要在适配器启动脚本中写入工作站专用的包缓存路径。
 
 ## 轻量 sidecar 启动
 
@@ -286,14 +270,15 @@ replaced = safe_replace_tree(staged_payload, install_root)
 }
 ```
 
-当 DCC 特定的安装程序需要仅 JSON 的控制路径时，从子进程运行相同的辅助工具：
+当 DCC 特定的安装程序需要仅 JSON 的控制路径时，使用专用控制台入口。
+`python -m dcc_mcp_core.install_lifecycle` 继续作为兼容别名：
 
 ```bash
-python -m dcc_mcp_core.install_lifecycle inspect C:\path\to\adapter
-python -m dcc_mcp_core.install_lifecycle stop --dcc-type 3dsmax
-python -m dcc_mcp_core.install_lifecycle layout --cache-root G:\_thm\rez_local_cache\ext --adapter-package dcc_mcp_maya
-python -m dcc_mcp_core.install_lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
-python -m dcc_mcp_core.install_lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
-python -m dcc_mcp_core.install_lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
-python -m dcc_mcp_core.install_lifecycle remove C:\path\to\adapter
+dcc-mcp-install-lifecycle inspect C:\path\to\adapter
+dcc-mcp-install-lifecycle stop --dcc-type 3dsmax
+dcc-mcp-install-lifecycle layout --adapter-package dcc_mcp_maya
+dcc-mcp-install-lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
+dcc-mcp-install-lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
+dcc-mcp-install-lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
+dcc-mcp-install-lifecycle remove C:\path\to\adapter
 ```

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from _support import make_test_server
 import dcc_mcp_core
 from dcc_mcp_core import AdapterInstructionSet
 from dcc_mcp_core import DccContextSnapshot
@@ -16,7 +17,6 @@ from dcc_mcp_core import append_context_snapshot
 from dcc_mcp_core import build_visual_feedback_context
 from dcc_mcp_core import register_adapter_instruction_resources
 from dcc_mcp_core import shape_response
-from dcc_mcp_core._testing import make_test_server
 from dcc_mcp_core.server_base import DccServerBase
 
 

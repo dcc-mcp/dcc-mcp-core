@@ -412,7 +412,7 @@ dcc-mcp-core 提供词法 + 向量融合索引，使词形变体和变形查询�
 ### 标准融合设置
 
 ```python
-from dcc_mcp_core import LexicalSkillIndex, RrfFusionIndex, VectorSkillIndex
+from dcc_mcp_core.skill_index import LexicalSkillIndex, RrfFusionIndex, VectorSkillIndex
 
 fused = (
     RrfFusionIndex()
@@ -430,6 +430,10 @@ hits = fused.search("如何创建多边形球体", k=8)
 | `LexicalSkillIndex` | BM25 风格关键词匹配 | 零依赖（纯 Python） |
 | `VectorSkillIndex` | 密集嵌入相似度搜索 | 默认零依赖（`HashedEmbedder` + `InMemoryVectorStore`） |
 | `RrfFusionIndex` | 互惠排名融合合并器（Cormack et al. 2009） | 零依赖 |
+
+`dcc_mcp_core.skill_index` 是规范命名空间。顶层导出以及原有的
+`semantic_skill_index` / `vector_skill_index` 模块继续作为保持对象 identity
+的兼容别名。
 | `HashedEmbedder` | 确定性特征哈希嵌入器（dim=256 时约 5µs/文档） | 零依赖 |
 | `OnnxEmbedder` | 高质量神经嵌入（三层后端） | 可选：`dcc-mcp-core-semantic` 或 `fastembed` |
 

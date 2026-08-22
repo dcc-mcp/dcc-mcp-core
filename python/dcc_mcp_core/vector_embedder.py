@@ -73,7 +73,7 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def _tokens(text: str) -> list[str]:
-    """Lowercase token extraction. Matches the regex used by ``semantic_skill_index._tokenise``."""
+    """Lowercase token extraction matching the lexical skill index."""
     return [tok.lower() for tok in _TOKEN_RE.findall(text)]
 
 

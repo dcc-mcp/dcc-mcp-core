@@ -393,7 +393,7 @@ class TestDccServerBase:
 
     def _make_server(self, tmp_path, dcc_name="fake-dcc"):
         """Create a DccServerBase without calling the real __init__ (no Rust deps)."""
-        from dcc_mcp_core._testing import make_test_server
+        from _support import make_test_server
 
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(exist_ok=True)

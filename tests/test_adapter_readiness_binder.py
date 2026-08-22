@@ -9,12 +9,12 @@ import time
 import urllib.error
 import urllib.request
 
+from _support import make_test_server
 from dcc_mcp_core import AdapterReadinessBinder
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import readiness_report_subset
-from dcc_mcp_core._testing import make_test_server
 from dcc_mcp_core.host import QueueDispatcher
 
 

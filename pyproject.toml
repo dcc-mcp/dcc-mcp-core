@@ -44,6 +44,7 @@ dependencies = [
 ]
 
 [project.scripts]
+dcc-mcp-install-lifecycle = "dcc_mcp_core.install_lifecycle_cli:main"
 dcc-mcp-ui-control-server = "dcc_mcp_core.ui_control_server:cli"
 
 [project.optional-dependencies]
@@ -172,6 +173,7 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/spatial.py" = ["UP006", "UP007", "UP045"]
 "skills/spatial-interchange/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/install_lifecycle.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/install_lifecycle_cli.py" = ["UP006", "UP007", "UP045"]
 "python/dcc_mcp_core/ui_control_server.py" = ["UP045"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
 "__init__.py" = ["F401"]

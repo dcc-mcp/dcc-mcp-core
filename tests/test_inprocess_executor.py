@@ -1237,7 +1237,7 @@ def test_register_inprocess_executor_with_dispatcher_routes(tmp_path: Path) -> N
 
 
 def test_bridge_cleans_on_skill_unload_and_every_server_stop(tmp_path: Path) -> None:
-    from dcc_mcp_core._testing import make_test_server
+    from _support import make_test_server
 
     class _EventBus:
         def __init__(self) -> None:

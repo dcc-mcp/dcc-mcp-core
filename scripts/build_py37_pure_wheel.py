@@ -45,6 +45,15 @@ def _read_runtime_requirements() -> list[str]:
     return re.findall(r'"([^"]+)"', match.group(1))
 
 
+def _read_console_scripts() -> dict[str, str]:
+    """Read ``project.scripts`` so lite and native wheels expose the same CLIs."""
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^\[project\.scripts\]\s*(.*?)(?=^\[)", text)
+    if not match:
+        return {}
+    return dict(re.findall(r'^([^\s=]+)\s*=\s*"([^"]+)"\s*$', match.group(1), re.MULTILINE))
+
+
 def main() -> int:
     """Assemble a pure-Python wheel from ``python/dcc_mcp_core``."""
     _ensure_wheel()
@@ -68,6 +77,10 @@ def main() -> int:
         metadata["Requires-Dist"] = requirement
 
     wheel_meta = "Wheel-Version: 1.0\nGenerator: build_py37_pure_wheel\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+    console_scripts = _read_console_scripts()
+    entry_points = "[console_scripts]\n{}".format(
+        "".join(f"{name} = {target}\n" for name, target in sorted(console_scripts.items()))
+    )
 
     with WheelFile(str(wheel_path), "w") as wf:
         for file_path in sorted(PACKAGE_DIR.rglob("*")):
@@ -80,6 +93,8 @@ def main() -> int:
 
         wf.writestr(f"{dist_info}/METADATA", metadata.as_string())
         wf.writestr(f"{dist_info}/WHEEL", wheel_meta)
+        if console_scripts:
+            wf.writestr(f"{dist_info}/entry_points.txt", entry_points)
 
     print(f"Built wheel: {wheel_path}")
     return 0

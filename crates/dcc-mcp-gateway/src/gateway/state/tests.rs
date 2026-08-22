@@ -498,7 +498,7 @@ fn test_entry_json_exposes_lifecycle_metadata_for_admin() {
     );
     entry.metadata.insert(
         "install_root".into(),
-        "G:\\_thm\\rez_local_cache\\ext\\dcc_mcp_maya".into(),
+        "C:\\rez\\packages\\dcc_mcp_maya".into(),
     );
     entry
         .metadata

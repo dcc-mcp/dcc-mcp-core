@@ -96,7 +96,7 @@ def test_store_evicts_on_unload(isolated_admin_env: Path) -> None:
 def test_server_persistence_uses_the_scoped_group_observer(
     isolated_admin_env: Path,
 ) -> None:
-    from dcc_mcp_core._testing import make_test_server
+    from _support import make_test_server
 
     class _InnerServer:
         def __init__(self) -> None:
@@ -130,7 +130,7 @@ def test_server_persistence_uses_the_scoped_group_observer(
 def test_server_persistence_falls_back_for_an_older_binding(
     isolated_admin_env: Path,
 ) -> None:
-    from dcc_mcp_core._testing import make_test_server
+    from _support import make_test_server
 
     class _OldInnerServer:
         def __init__(self) -> None:

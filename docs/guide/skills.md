@@ -1147,7 +1147,7 @@ and inflected queries (`rendering` vs `render`) still recall the right skill.
 ### Standard fusion setup
 
 ```python
-from dcc_mcp_core import LexicalSkillIndex, RrfFusionIndex, VectorSkillIndex
+from dcc_mcp_core.skill_index import LexicalSkillIndex, RrfFusionIndex, VectorSkillIndex
 
 fused = (
     RrfFusionIndex()
@@ -1165,6 +1165,10 @@ hits = fused.search("how do i create a polygon sphere", k=8)
 | `LexicalSkillIndex` | BM25-style keyword matching | Zero deps (pure Python) |
 | `VectorSkillIndex` | Dense embedding similarity search | Zero deps by default (`HashedEmbedder` + `InMemoryVectorStore`) |
 | `RrfFusionIndex` | Reciprocal Rank Fusion combiner (Cormack et al. 2009) | Zero deps |
+
+`dcc_mcp_core.skill_index` is the canonical namespace. Top-level exports and
+the former `semantic_skill_index` / `vector_skill_index` modules remain
+identity-preserving compatibility aliases.
 | `HashedEmbedder` | Deterministic feature-hashing embedder (~5 µs/doc at dim=256) | Zero deps |
 | `OnnxEmbedder` | High-quality neural embeddings (three-tier backend) | Optional: `dcc-mcp-core-semantic` or `fastembed` |
 
@@ -1193,7 +1197,7 @@ Environment variables for model overrides:
 ### `SkillDocument` and `SkillSearchHit`
 
 ```python
-from dcc_mcp_core.semantic_skill_index import SkillDocument, SkillSearchHit
+from dcc_mcp_core.skill_index import SkillDocument, SkillSearchHit
 
 doc = SkillDocument(
     skill_id="maya-geometry",
