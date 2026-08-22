@@ -54,7 +54,7 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-skill-rest   # Per-DCC /v1/* REST Skill API
 ├── dcc-mcp-gateway-core # 纯 gateway 领域/search/ranking 类型
 ├── dcc-mcp-gateway-search # 能力搜索/排序引擎
-├── dcc-mcp-gateway-admin # Admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/debug/agent-trace/memory/skill-path/traffic 领域和可选嵌入式 dashboard 资产
+├── dcc-mcp-gateway-admin # Admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/debug/agent-trace/memory/experiment/skill-path/traffic 领域和可选嵌入式 dashboard 资产
 ├── dcc-mcp-gateway      # Multi-DCC 网关应用层和动态 wrappers
 ├── dcc-mcp-http-types   # 纯 HTTP 线协议/配置/值类型、McpHttpConfig
 ├── dcc-mcp-http-server  # 可复用 HTTP runtime 支撑层
@@ -102,7 +102,7 @@ dcc-mcp-gateway-core ← 纯 gateway 领域/search/ranking 类型
        ↓
 dcc-mcp-gateway-search ← 可复用能力搜索/排序引擎
        ↓
-dcc-mcp-gateway-admin ← Admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/debug/agent-trace/memory/skill-path/traffic 领域和可选嵌入式 dashboard 资产
+dcc-mcp-gateway-admin ← Admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/debug/agent-trace/memory/experiment/skill-path/traffic 领域和可选嵌入式 dashboard 资产
        ↓
 dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-gateway-search, dcc-mcp-gateway-admin, dcc-mcp-wire, dcc-mcp-transport
        ↓
@@ -293,7 +293,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `CapabilityIndex` + refresh tasks — 从活跃 per-DCC 实例构建 capability records，并剔除 stale 实例
 - `search`、`describe` — 固定的只读 gateway MCP 发现工具，覆盖动态 capability index；`/v1/call` 与 `/v1/call_batch` 是执行面
 - Gateway REST facade — `POST /v1/search`、`/v1/describe`、`/v1/call` 以及 diagnostics/resources/prompts 聚合
-- Admin/dashboard — `/admin/api/*` 只读检查 instances、tools、calls、traces、stats、workers、logs、health。Audit、trace、caller context、token telemetry、有界 audit/trace log、面向 agent 的 compact projection、链接 projection、issue-report 隐私、纯统计、audit analytics、governance、artifact、activity timeline、task outcome、debug bundle、postmortem、agent-trace packet、memory summary、隐私安全的 skill-path 与 metadata-only traffic 契约由 `dcc-mcp-gateway-admin` 持有；gateway crate 保留持久化、HTTP adapter 和兼容导入路径。
+- Admin/dashboard — `/admin/api/*` 只读检查 instances、tools、calls、traces、stats、workers、logs、health。Audit、trace、caller context、token telemetry、有界 audit/trace log、面向 agent 的 compact projection、链接 projection、issue-report 隐私、纯统计、audit analytics、governance、artifact、activity timeline、task outcome、debug bundle、postmortem、agent-trace packet、memory summary、experiment、隐私安全的 skill-path 与 metadata-only traffic 契约由 `dcc-mcp-gateway-admin` 持有；gateway crate 保留持久化、HTTP adapter 和兼容导入路径。
 
 ### dcc-mcp-http-types
 
