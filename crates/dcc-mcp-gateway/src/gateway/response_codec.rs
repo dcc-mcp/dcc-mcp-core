@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 
 pub(crate) const TOON_MIME: &str = "application/toon";
 pub(crate) const JSON_MIME: &str = "application/json";
-pub(crate) const TOKEN_ESTIMATOR: &str = "dcc-mcp-byte4-v1";
+pub(crate) use dcc_mcp_gateway_admin::TOKEN_ESTIMATOR;
 pub(crate) const DEFAULT_RESPONSE_FORMAT_ENV: &str = "DCC_MCP_GATEWAY_RESPONSE_FORMAT";
 pub(crate) const LEGACY_RESPONSE_FORMAT_ENV: &str = "DCC_MCP_RESPONSE_FORMAT";
 
@@ -185,9 +185,15 @@ pub(crate) fn token_telemetry_for_response(
     encode_response(legacy_json, compact_json, format)
         .ok()
         .map(|encoded| {
-            crate::gateway::admin::trace::TokenTelemetry::from_accounting(
-                encoded.format,
-                encoded.accounting,
+            let accounting = encoded.accounting;
+            crate::gateway::admin::trace::TokenTelemetry::from_parts(
+                encoded.format.as_str(),
+                accounting.original_bytes,
+                accounting.returned_bytes,
+                accounting.original_tokens,
+                accounting.returned_tokens,
+                accounting.saved_tokens,
+                accounting.savings_percent(),
             )
         })
 }
@@ -471,13 +477,7 @@ fn accept_format(headers: &HeaderMap) -> Option<ResponseFormat> {
     None
 }
 
-pub(crate) fn estimate_tokens(body: &[u8]) -> usize {
-    if body.is_empty() {
-        0
-    } else {
-        body.len().div_ceil(4)
-    }
-}
+pub(crate) use dcc_mcp_gateway_admin::estimate_tokens;
 
 fn attach_accounting_headers(
     headers: &mut HeaderMap,

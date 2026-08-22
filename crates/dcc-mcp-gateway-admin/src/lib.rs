@@ -1,11 +1,27 @@
-//! Embedded frontend boundary for the DCC-MCP gateway admin dashboard.
+//! Domain and embedded frontend boundary for the DCC-MCP gateway admin dashboard.
 //!
-//! This crate deliberately owns the Vite/npm build script and the generated
-//! dashboard payload. The gateway application depends on this crate only when
-//! its `admin` feature is enabled, so non-admin gateway builds never execute a
-//! Node.js toolchain.
+//! This crate owns admin-facing trace and caller-context contracts independently
+//! of gateway routing state. It also owns the Vite/npm build script and generated
+//! dashboard payload; the Node.js toolchain only runs when `embed` is enabled.
 
 #![forbid(unsafe_code)]
+
+/// Admin trace and caller-attribution value types.
+pub mod domain;
+mod trace_log;
+
+pub use domain::agent_context::{
+    AgentContext, AgentContextTrust, INTERNAL_AUTH_SUBJECT_HEADER, INTERNAL_FORWARDED_FOR_HEADER,
+    INTERNAL_SOURCE_IP_HEADER, TRUST_AUTH, TRUST_HEADER, TRUST_SELF_REPORTED, TRUST_SERVER_DERIVED,
+    TRUST_TRUSTED_PROXY,
+};
+pub use domain::trace::{
+    DispatchTrace, LlmUsage, MAX_AGENT_CONTEXT_LIST_ITEMS, MAX_AGENT_CONTEXT_METADATA_BYTES,
+    MAX_AGENT_CONTEXT_STRING_BYTES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TOKEN_ESTIMATOR,
+    TokenTelemetry, TraceContext, TraceContextHeader, TracePayload, TraceSpan, estimate_tokens,
+    parse_traceparent,
+};
+pub use trace_log::TraceLog;
 
 /// The Vite-built React admin dashboard HTML page.
 #[cfg(feature = "embed")]

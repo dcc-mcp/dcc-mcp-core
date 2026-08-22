@@ -20,12 +20,13 @@ use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use crate::gateway::admin::trace_log::TraceLog;
+pub use crate::trace_log::TraceLog;
 
 // Re-export agent context types from the split module.
 pub use super::agent_context::{
-    AgentContext, AgentContextTrust, TRUST_AUTH, TRUST_HEADER, TRUST_SELF_REPORTED,
-    TRUST_SERVER_DERIVED, TRUST_TRUSTED_PROXY,
+    AgentContext, AgentContextTrust, INTERNAL_AUTH_SUBJECT_HEADER, INTERNAL_FORWARDED_FOR_HEADER,
+    INTERNAL_SOURCE_IP_HEADER, TRUST_AUTH, TRUST_HEADER, TRUST_SELF_REPORTED, TRUST_SERVER_DERIVED,
+    TRUST_TRUSTED_PROXY,
 };
 
 // ── Trace Context ────────────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ pub struct TraceContext {
 impl TraceContext {
     /// Build context for an HTTP request, preserving `x-request-id` separately
     /// from any W3C `traceparent` trace id.
+    #[must_use]
     pub fn from_headers(headers: &HeaderMap) -> Self {
         let request_id = header_str(headers, "x-request-id")
             .or_else(|| header_str(headers, "x-correlation-id"))
@@ -121,6 +123,7 @@ impl TraceContext {
         }
     }
 
+    #[must_use]
     pub fn traceparent(&self) -> Option<String> {
         let span_id = self.span_id.as_deref()?;
         Some(format!(
@@ -139,6 +142,7 @@ struct ParsedTraceParent {
     trace_flags: String,
 }
 
+#[must_use]
 pub fn parse_traceparent(value: &str) -> Option<TraceContextHeader> {
     parse_traceparent_inner(value).map(|p| TraceContextHeader {
         trace_id: p.trace_id,
@@ -236,11 +240,12 @@ pub struct TracePayload {
 
 impl TracePayload {
     /// Build a `TracePayload`, truncating at `cap` bytes if necessary.
+    #[must_use]
     pub fn from_value(v: &Value, cap: usize) -> Self {
         let raw = serde_json::to_string(v).unwrap_or_default();
         let original_size = raw.len();
         let truncated = original_size > cap;
-        let estimated_tokens = crate::gateway::response_codec::estimate_tokens(raw.as_bytes());
+        let estimated_tokens = estimate_tokens(raw.as_bytes());
         let content = if truncated {
             // Truncate at a valid UTF-8 boundary.
             let boundary = raw
@@ -267,12 +272,14 @@ impl TracePayload {
     /// The gateway stores request arguments for admin traces and audit rows.
     /// Ad-hoc script source can be large and sensitive, so default capture
     /// keeps the shape and records that source existed without storing it.
+    #[must_use]
     pub fn from_input_value(v: &Value, cap: usize) -> Self {
         let mut redacted = v.clone();
         redact_sensitive_input_fields(&mut redacted);
         Self::from_value(&redacted, cap)
     }
 
+    #[must_use]
     pub fn from_str(s: &str, cap: usize) -> Self {
         let original_size = s.len();
         let truncated = original_size > cap;
@@ -293,9 +300,7 @@ impl TracePayload {
             mime_type: "text/plain".to_string(),
             truncated,
             original_size,
-            estimated_tokens: Some(crate::gateway::response_codec::estimate_tokens(
-                s.as_bytes(),
-            )),
+            estimated_tokens: Some(estimate_tokens(s.as_bytes())),
         }
     }
 }
@@ -368,25 +373,45 @@ pub struct TokenTelemetry {
 }
 
 impl TokenTelemetry {
-    pub(crate) fn from_accounting(
-        format: crate::gateway::response_codec::ResponseFormat,
-        accounting: crate::gateway::response_codec::TokenAccounting,
+    /// Build telemetry from response-codec accounting primitives.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts(
+        response_format: impl Into<String>,
+        original_bytes: usize,
+        returned_bytes: usize,
+        original_tokens: usize,
+        returned_tokens: usize,
+        saved_tokens: usize,
+        savings_percent: f64,
     ) -> Self {
         Self {
-            response_format: format.as_str().to_string(),
-            token_estimator: crate::gateway::response_codec::TOKEN_ESTIMATOR.to_string(),
-            original_bytes: accounting.original_bytes,
-            returned_bytes: accounting.returned_bytes,
-            original_tokens: accounting.original_tokens,
-            returned_tokens: accounting.returned_tokens,
-            saved_tokens: accounting.saved_tokens,
-            savings_pct: round_two(accounting.savings_percent()),
+            response_format: response_format.into(),
+            token_estimator: TOKEN_ESTIMATOR.to_string(),
+            original_bytes,
+            returned_bytes,
+            original_tokens,
+            returned_tokens,
+            saved_tokens,
+            savings_pct: round_two(savings_percent),
         }
     }
 
     #[must_use]
     pub fn is_legacy_json(&self) -> bool {
         self.response_format == "json" && self.saved_tokens == 0
+    }
+}
+
+/// Stable identifier for the gateway's deterministic byte-based estimator.
+pub const TOKEN_ESTIMATOR: &str = "dcc-mcp-byte4-v1";
+
+/// Estimate token count without a tokenizer runtime.
+#[must_use]
+pub fn estimate_tokens(body: &[u8]) -> usize {
+    if body.is_empty() {
+        0
+    } else {
+        body.len().div_ceil(4)
     }
 }
 
@@ -475,6 +500,7 @@ impl TraceSpan {
         }
     }
 
+    #[must_use]
     pub fn with_error(mut self) -> Self {
         self.ok = false;
         self
@@ -556,26 +582,32 @@ pub struct DispatchTrace {
 }
 
 impl DispatchTrace {
+    #[must_use]
     pub fn span_count(&self) -> usize {
         self.spans.len()
     }
 
+    #[must_use]
     pub fn input_bytes(&self) -> Option<usize> {
         self.input.as_ref().map(|p| p.original_size)
     }
 
+    #[must_use]
     pub fn output_bytes(&self) -> Option<usize> {
         self.output.as_ref().map(|p| p.original_size)
     }
 
+    #[must_use]
     pub fn input_tokens(&self) -> Option<usize> {
         self.input.as_ref().and_then(|p| p.estimated_tokens)
     }
 
+    #[must_use]
     pub fn output_tokens(&self) -> Option<usize> {
         self.output.as_ref().and_then(|p| p.estimated_tokens)
     }
 
+    #[must_use]
     pub fn total_tokens(&self) -> Option<usize> {
         match (self.input_tokens(), self.output_tokens()) {
             (Some(input), Some(output)) => Some(input.saturating_add(output)),
@@ -585,6 +617,7 @@ impl DispatchTrace {
         }
     }
 
+    #[must_use]
     pub fn slowest_span(&self) -> Option<(&TraceSpan, u64)> {
         self.spans
             .iter()

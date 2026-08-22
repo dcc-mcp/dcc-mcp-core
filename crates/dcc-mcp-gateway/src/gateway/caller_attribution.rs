@@ -14,10 +14,10 @@ use tokio::sync::RwLock;
 
 use super::http_limits::GatewayIngressState;
 use crate::gateway::admin::trace::AgentContext;
+pub(crate) use dcc_mcp_gateway_admin::{
+    INTERNAL_AUTH_SUBJECT_HEADER, INTERNAL_FORWARDED_FOR_HEADER, INTERNAL_SOURCE_IP_HEADER,
+};
 
-pub(crate) const INTERNAL_SOURCE_IP_HEADER: &str = "x-dcc-mcp-internal-source-ip";
-pub(crate) const INTERNAL_FORWARDED_FOR_HEADER: &str = "x-dcc-mcp-internal-forwarded-for";
-pub(crate) const INTERNAL_AUTH_SUBJECT_HEADER: &str = "x-dcc-mcp-internal-auth-subject";
 const MAX_MCP_CLIENT_SESSIONS: usize = 512;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -151,18 +151,6 @@ pub(crate) fn effective_client_ip(
         .source_ip
         .and_then(|value| value.parse::<IpAddr>().ok())
         .unwrap_or_else(|| connect.ip())
-}
-
-#[must_use]
-pub(crate) fn internal_network_attribution(headers: &HeaderMap) -> ClientNetworkAttribution {
-    ClientNetworkAttribution {
-        source_ip: header_str(headers, INTERNAL_SOURCE_IP_HEADER),
-        forwarded_for: headers
-            .get(INTERNAL_FORWARDED_FOR_HEADER)
-            .and_then(|value| value.to_str().ok())
-            .map(parse_ip_list)
-            .unwrap_or_default(),
-    }
 }
 
 fn effective_client_ip_from_chain(

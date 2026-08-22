@@ -2,7 +2,7 @@
 
 use parking_lot::Mutex;
 
-use super::trace::DispatchTrace;
+use crate::domain::trace::DispatchTrace;
 
 /// Bounded ring buffer of completed traces.
 pub struct TraceLog {
@@ -13,6 +13,7 @@ pub struct TraceLog {
 impl TraceLog {
     pub const DEFAULT_CAPACITY: usize = 200;
 
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         Self {
             buf: Mutex::new(Vec::with_capacity(capacity.min(TraceLog::DEFAULT_CAPACITY))),

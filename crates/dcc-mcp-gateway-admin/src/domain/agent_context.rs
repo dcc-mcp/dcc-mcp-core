@@ -8,10 +8,17 @@ use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::gateway::admin::domain::trace::{
+use super::trace::{
     MAX_AGENT_CONTEXT_LIST_ITEMS, MAX_AGENT_CONTEXT_METADATA_BYTES, MAX_AGENT_CONTEXT_STRING_BYTES,
     parse_traceparent,
 };
+
+/// Internal ingress header populated with the server-derived source address.
+pub const INTERNAL_SOURCE_IP_HEADER: &str = "x-dcc-mcp-internal-source-ip";
+/// Internal ingress header populated with the trusted forwarded-for chain.
+pub const INTERNAL_FORWARDED_FOR_HEADER: &str = "x-dcc-mcp-internal-forwarded-for";
+/// Internal ingress header populated with an authenticated subject.
+pub const INTERNAL_AUTH_SUBJECT_HEADER: &str = "x-dcc-mcp-internal-auth-subject";
 
 // ── Trust constants ──────────────────────────────────────────────────────────
 
@@ -65,6 +72,7 @@ pub struct AgentContextTrust {
 }
 
 impl AgentContextTrust {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.actor_id.is_none()
             && self.actor_name.is_none()
@@ -363,6 +371,7 @@ impl AgentContext {
         }
     }
 
+    #[must_use]
     pub fn from_request_parts(
         headers: &HeaderMap,
         body: Option<&Value>,
@@ -378,17 +387,29 @@ impl AgentContext {
         if ctx.is_empty() { None } else { Some(ctx) }
     }
 
+    #[must_use]
     pub fn from_request_parts_with_server_network(
         headers: &HeaderMap,
         body: Option<&Value>,
         meta: Option<&Value>,
     ) -> Option<Self> {
         let mut ctx = Self::from_request_parts(headers, body, meta).unwrap_or_default();
-        let network = crate::gateway::caller_attribution::internal_network_attribution(headers);
-        ctx = ctx.with_server_network_source(network.source_ip, network.forwarded_for);
+        let source_ip = header_str(headers, INTERNAL_SOURCE_IP_HEADER);
+        let forwarded_for = header_str(headers, INTERNAL_FORWARDED_FOR_HEADER)
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        ctx = ctx.with_server_network_source(source_ip, forwarded_for);
         if ctx.is_empty() { None } else { Some(ctx) }
     }
 
+    #[must_use]
     pub fn display_name(&self) -> Option<&str> {
         self.actor_name
             .as_deref()
@@ -708,11 +729,7 @@ fn merge_header_agent_context(ctx: &mut AgentContext, headers: &HeaderMap) {
         headers,
         "x-dcc-mcp-client-host",
     );
-    if let Some(value) = header_str(
-        headers,
-        crate::gateway::caller_attribution::INTERNAL_AUTH_SUBJECT_HEADER,
-    )
-    .map(bound_context_string)
+    if let Some(value) = header_str(headers, INTERNAL_AUTH_SUBJECT_HEADER).map(bound_context_string)
     {
         ctx.auth_subject = Some(value);
         set_trust(&mut ctx.trust.auth_subject, TRUST_AUTH);
@@ -888,7 +905,7 @@ fn sanitize_context_metadata(value: Value) -> Value {
     }
 }
 
-pub(crate) fn is_high_sensitivity_agent_key(key: &str) -> bool {
+pub fn is_high_sensitivity_agent_key(key: &str) -> bool {
     let normalised = key
         .chars()
         .filter(|ch| *ch != '_' && *ch != '-' && *ch != ' ')
