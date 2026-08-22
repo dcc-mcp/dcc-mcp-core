@@ -9,10 +9,9 @@
 //! cross-DCC dispatcher trait lives in `dcc-mcp-host`. Both solve the
 //! same "tokio worker → DCC main thread" problem, with different
 //! contracts and ownership stories. Rather than unify them into a
-//! single trait — which would drag HTTP-specific concerns
-//! (`dcc_mcp_http_types::HttpError`, the `DccTaskFn` string-return
-//! convention) into the host-runtime abstraction — we keep both and
-//! provide a one-directional adapter here.
+//! single trait — which would drag the server queue's `DccTaskFn`
+//! string-return convention into the host-runtime abstraction — we
+//! keep both and provide a one-directional adapter here.
 //!
 //! # Responsibility (SRP)
 //!
@@ -152,10 +151,7 @@ mod tests {
             .execute(Box::new(|| panic!("boom in closure")))
             .await
             .unwrap_err();
-        assert!(matches!(
-            error,
-            dcc_mcp_http_types::error::HttpError::ExecutorClosed
-        ));
+        assert!(matches!(error, crate::executor::ExecutorError::Closed));
     }
 
     /// After dispatcher shutdown, typed task result channels close.
@@ -170,9 +166,6 @@ mod tests {
             .execute(Box::new(|| "never runs".to_string()))
             .await
             .unwrap_err();
-        assert!(matches!(
-            error,
-            dcc_mcp_http_types::error::HttpError::ExecutorClosed
-        ));
+        assert!(matches!(error, crate::executor::ExecutorError::Closed));
     }
 }

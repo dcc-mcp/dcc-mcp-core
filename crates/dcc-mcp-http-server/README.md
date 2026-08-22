@@ -20,7 +20,8 @@ dcc-mcp-http-types  (wire/config/value types)
 ## What lives here
 
 - fixed core-tool descriptor builders (`build_core_tools`),
-- host/main-thread execution bridges (`DccExecutorHandle`, `DeferredExecutor`),
+- host/main-thread execution bridges (`DccExecutorHandle`, `DeferredExecutor`)
+  with their transport-neutral `ExecutorError` contract,
 - session state and connection-scoped `tools/list` cache,
 - in-flight request cancellation and progress routing,
 - job/workflow notifications,

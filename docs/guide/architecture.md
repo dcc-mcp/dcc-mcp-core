@@ -417,7 +417,9 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 **Key Components**:
 - `build_core_tools` — constructs the fixed core MCP tool descriptors.
-- `DccExecutorHandle`, `DeferredExecutor` — host/main-thread execution bridge.
+- `DccExecutorHandle`, `DeferredExecutor`, `ExecutorError` — host/main-thread
+  execution bridge with a transport-neutral error contract; protocol/HTTP
+  callers translate failures at their boundary.
 - `McpSession`, `SessionManager`, `ToolListSnapshot` — session state and connection-scoped `tools/list` cache.
 - `InFlightRequests`, `CancelToken`, `ProgressReporter` — cancellation/progress routing.
 - `JobNotifier`, `WorkflowUpdate`, `WorkspaceRoots` — job/workflow notifications and root resolution.

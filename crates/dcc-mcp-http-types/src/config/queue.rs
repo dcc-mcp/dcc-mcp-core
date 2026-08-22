@@ -13,7 +13,7 @@ pub struct QueueConfig {
     /// full, the HTTP worker blocks for up to [`Self::queue_send_timeout_ms`]
     /// waiting for the DCC main thread to drain; if the drain does not
     /// happen in time, the call returns a structured
-    /// `HttpError::QueueOverloaded`.
+    /// transport-neutral executor overload error.
     ///
     /// Default: `16`. Override via
     /// `--queue-deferred-cap=<N>` / `MCP_QUEUE_DEFERRED_CAP`.
@@ -46,7 +46,7 @@ pub struct QueueConfig {
     pub host_queue_depth: usize,
 
     /// How long an HTTP worker will block on a full executor channel
-    /// before returning `HttpError::QueueOverloaded`
+    /// before returning the executor's structured overload error
     /// (issue #715).
     ///
     /// Chose "block with timeout" over "immediate error" so healthy

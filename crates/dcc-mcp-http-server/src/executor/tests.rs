@@ -231,7 +231,7 @@ async fn execute_returns_queue_overloaded_on_saturation() {
         .await
         .expect_err("saturation must fail");
     match err {
-        HttpError::QueueOverloaded {
+        ExecutorError::QueueOverloaded {
             depth,
             capacity,
             retry_after_secs,

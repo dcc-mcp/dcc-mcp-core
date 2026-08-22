@@ -47,7 +47,7 @@ pub use dynamic_tools::{
     build_register_tool_descriptor, handle_deregister_tool, handle_list_dynamic_tools,
     handle_register_tool,
 };
-pub use executor::{DccExecutorHandle, DeferredExecutor, ExecutorQueueStats};
+pub use executor::{DccExecutorHandle, DeferredExecutor, ExecutorError, ExecutorQueueStats};
 pub use handlers::{build_core_tools, build_core_tools_inner};
 pub use host_bridge::{
     DEFAULT_BRIDGE_QUEUE_DEPTH, dispatcher_to_executor_handle,
