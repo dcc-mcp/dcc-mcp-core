@@ -1,6 +1,6 @@
 # 内置 Admin 仪表盘
 
-网关内置一个嵌入式 `/admin` Web 仪表盘（issue #772）。运行时仍由二进制提供单个 HTML 资产；贡献者在 `admin-ui/` 中维护 Vite/React 源码，`dcc-mcp-gateway-admin` 持有 audit/trace/caller 领域契约、面向 agent 的 compact projection、链接 projection、issue-report 隐私契约、纯统计、audit analytics、governance、artifact、activity timeline、task outcome、debug bundle、postmortem、agent-trace packet 与 metadata-only traffic projection，并负责可选的前端构建与嵌入资产；gateway crate 只保留数据源和 HTTP adapter。未启用网关 `admin` feature 的构建不会执行 Node/Vite 构建边界。
+网关内置一个嵌入式 `/admin` Web 仪表盘（issue #772）。运行时仍由二进制提供单个 HTML 资产；贡献者在 `admin-ui/` 中维护 Vite/React 源码，`dcc-mcp-gateway-admin` 持有 audit/trace/caller 领域契约、面向 agent 的 compact projection、链接 projection、issue-report 隐私契约、纯统计、audit analytics、governance、artifact、activity timeline、task outcome、debug bundle、postmortem、agent-trace packet、memory summary 与 metadata-only traffic projection，并负责可选的前端构建与嵌入资产；gateway crate 只保留数据源和 HTTP adapter。未启用网关 `admin` feature 的构建不会执行 Node/Vite 构建边界。
 
 ## 启用方式与默认值
 
