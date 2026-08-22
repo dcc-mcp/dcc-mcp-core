@@ -1,6 +1,6 @@
 # dcc-mcp-gateway-core
 
-Domain layer for the DCC MCP gateway — pure types with no direct HTTP or
+Domain layer for the DCC MCP gateway — pure logic and types with no direct HTTP or
 async-runtime dependency, and no dependency on `dcc-mcp-gateway`.
 
 This crate is the innermost layer of the Clean-Architecture split called
@@ -19,6 +19,9 @@ The lock-free `CapabilityIndexState` owns per-instance slices, unloaded
 records, snapshots, fingerprints, and bounded lifecycle tombstones. The
 gateway wrapper supplies synchronization, cache generations, clocks, and
 async refresh gates without leaking those runtime concerns inward.
+The deterministic capability builder translates transport-neutral
+`dcc-mcp-jsonrpc` `McpTool` values into indexed domain records; backend HTTP
+fetching and lifecycle orchestration remain in `dcc-mcp-gateway`.
 
 ## Stability
 
