@@ -2,14 +2,14 @@
 
 适配器安装程序通常在其正在更新的 DCC 进程内运行。在 Windows 上，导入 `dcc_mcp_core._core` 会加载 `_core.pyd`；该原生模块会保持锁定状态直到进程退出，因此在删除适配器捆绑的包树时，卸载或升级可能会失败。
 
-对于必须保持导入轻量级的安装程序和卸载程序代码，请使用 `dcc_mcp_core.install_lifecycle`。该模块仅使用 Python 标准库，不会导入 `_core`。
+对于必须保持导入轻量级的安装程序和卸载程序代码，请使用 `dcc_mcp_core.deployment`。该命名空间仅使用 Python 标准库，不会导入 `_core`；`dcc_mcp_core.install_lifecycle` 保留为兼容别名。
 
 ## Rez 部署布局
 
 启动 DCC 前，先在当前 Rez 环境中解析 `dcc_mcp_core`、`dcc_mcp_server` 和适配器包。Rez 会通过 `REZ_<PACKAGE>_ROOT` 发布每个包的根目录；引导辅助函数会将这些根目录转换为 sidecar 或网关所需的 `PYTHONPATH` 与 `PATH`：
 
 ```python
-from dcc_mcp_core.install_lifecycle import resolve_deployment_layout
+from dcc_mcp_core.deployment import resolve_deployment_layout
 
 layout = resolve_deployment_layout(adapter_package="dcc_mcp_maya")
 
@@ -25,7 +25,7 @@ DCC 插件可以在应用启动钩子里构造或启动每个 DCC 对应的 side
 不导入 `_core`，也不阻塞主进程：
 
 ```python
-from dcc_mcp_core.install_lifecycle import launch_sidecar
+from dcc_mcp_core.deployment import launch_sidecar
 
 result = launch_sidecar(
     dcc_type="maya",
@@ -94,7 +94,7 @@ dispatcher 或 skills 的 host RPC bridge；`launch_sidecar()` 只负责启动�
 用它证明启动 ready。
 
 ```python
-from dcc_mcp_core.install_lifecycle import build_sidecar_command
+from dcc_mcp_core.deployment import build_sidecar_command
 
 contract = build_sidecar_command(
     dcc_type="houdini",
@@ -137,7 +137,7 @@ installer 或 supervisor 调用。只有当其他 supervisor 已经负责该检�
 ## 导入轻量级预检
 
 ```python
-from dcc_mcp_core.install_lifecycle import inspect_install_root
+from dcc_mcp_core.deployment import inspect_install_root
 
 diagnostic = inspect_install_root(r"C:\Users\me\Documents\3dsMax\scripts\dcc_mcp_3dsmax")
 if diagnostic["requires_restart"]:
@@ -160,8 +160,8 @@ if diagnostic["requires_restart"]:
 安装程序可以检查共享的 FileRegistry，而无需创建任何 Rust 支持的对象：
 
 ```python
-from dcc_mcp_core.install_lifecycle import query_runtime_state
-from dcc_mcp_core.install_lifecycle import stop_runtime_entries
+from dcc_mcp_core.deployment import query_runtime_state
+from dcc_mcp_core.deployment import stop_runtime_entries
 
 state = query_runtime_state(dcc_type="3dsmax", role="per-dcc-sidecar")
 stop = stop_runtime_entries(dcc_type="3dsmax")
@@ -193,8 +193,8 @@ Gateway 实例表面（`gateway://instances`、`GET /v1/instances` 和
 网关可以同时看到多个 DCC 运行时。例如，Maya 可能仍在运行旧的伴生进程，而 3ds Max 已经启动了更新的版本。独立处理每个注册的实例，并从注册表元数据规划重启：
 
 ```python
-from dcc_mcp_core.install_lifecycle import plan_runtime_updates
-from dcc_mcp_core.install_lifecycle import query_runtime_state
+from dcc_mcp_core.deployment import plan_runtime_updates
+from dcc_mcp_core.deployment import query_runtime_state
 
 state = query_runtime_state()
 plan = plan_runtime_updates(
@@ -248,8 +248,8 @@ plan = plan_runtime_updates(
 ## 安全删除或替换
 
 ```python
-from dcc_mcp_core.install_lifecycle import safe_remove_tree
-from dcc_mcp_core.install_lifecycle import safe_replace_tree
+from dcc_mcp_core.deployment import safe_remove_tree
+from dcc_mcp_core.deployment import safe_replace_tree
 
 removed = safe_remove_tree(install_root)
 replaced = safe_replace_tree(staged_payload, install_root)

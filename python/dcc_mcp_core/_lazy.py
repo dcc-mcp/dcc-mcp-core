@@ -32,6 +32,8 @@ import importlib
 import sys
 from typing import Any
 
+_MISSING = object()
+
 
 def resolve_lazy_symbol(
     name: str,
@@ -96,10 +98,13 @@ def resolve_lazy_symbol(
         raise AttributeError(f"module {module_name!r} has no attribute {name!r}")
 
     mod = importlib.import_module(module_path)
-    value = getattr(mod, name, None)
+    value = getattr(mod, name, _MISSING)
 
-    if value is None and (optional is None or name not in optional):
+    if value is _MISSING and (optional is None or name not in optional):
         raise AttributeError(f"module {module_path!r} has no attribute {name!r}")
+
+    if value is _MISSING:
+        value = None
 
     # Cache on the calling module so subsequent accesses skip __getattr__.
     caller_mod = sys.modules[module_name]

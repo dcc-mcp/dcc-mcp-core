@@ -649,40 +649,20 @@ assert 0.0 <= stats["summary_hit_rate"] <= 1.0
 
 ---
 
-**Phase hook signature mismatch — non-fatal, CI-invisible (PIP-2479, PIP-2468):**
+**Registration phase ownership:**
 
-``_registration.py`` dispatches phase hooks with calling conventions that
-vary by phase — 3 hooks receive a ``RegistrationContext`` argument and 7
-receive nothing. If an adapter override has the wrong parameter count,
-``run_registration_phases`` catches the ``TypeError`` as non-fatal
-(``except Exception`` at line 80 of ``_registration.py``), logs it, and
-continues — the tools for that phase silently fail to register.
+Standard registration behavior is self-contained in ``_registration.py``;
+``DccServerBase`` no longer duplicates ten private ``_register_*`` /
+``_attach_*`` methods. Add a new ``RegistrationPhase`` when an adapter needs a
+host-specific step and pass it to ``run_registration(phases=...)``. Legacy
+subclass hook overrides remain callable for one compatibility window, but new
+code must not add another phase-shaped method to ``DccServerBase``.
 
-```python
-# server_base.py — definition (DccServerBase)
-def _register_introspect_tools(self) -> None:      # ← no `context` arg
-    ...
-
-# _registration.py — call site (IntrospectToolsPhase.run)
-server._register_introspect_tools()                 # ← 0 args passed
-
-# Adapting override with wrong signature:
-def _register_introspect_tools(self, context): ...  # ← TypeError at runtime!
-# → caught as non-fatal by run_registration_phases → phase marked failed
-# → tools never registered → CI still GREEN because test uses MockServer
-```
-
-**Prevention:**
-
-1. **Static**: verify that every ``DccServerBase`` phase hook method signature
-   matches its caller in ``_registration.py`` — see
-   ``tests/test_phase_hook_signature_consistency.py`` for the automated check.
-2. **Integration**: every adapter must have at least one test that runs
-   ``get_standard_phases()`` against the real server class (not ``MockServer``)
-   and asserts no ``TypeError``.
-3. **Code review**: before approving PRs that touch registration or phase hooks,
-   check that the caller signature in ``_registration.py`` matches the hook
-   definition in ``server_base.py`` (or the adapter subclass).
+The architecture tests enforce both this ownership rule and the flat-module
+freeze. Public adapter imports belong to ownership-oriented namespaces such as
+``dcc_mcp_core.server``, ``dcc_mcp_core.runtime``,
+``dcc_mcp_core.deployment``, and ``dcc_mcp_core.host``; do not import
+``dcc_mcp_core._server`` from adapter code.
 
 ---
 

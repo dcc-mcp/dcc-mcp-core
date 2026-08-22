@@ -226,7 +226,7 @@ def test_server_base_reload_refreshes_existing_skill_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A marketplace update must replace an existing skill definition on disk."""
-    monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
+    monkeypatch.setenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", "1")
     skill_root = tmp_path_factory.mktemp("marketplace-skills")
     _write_tool_skill(skill_root, "lookdev-turntable", "old_preset")
 

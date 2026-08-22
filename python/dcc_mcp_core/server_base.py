@@ -85,6 +85,11 @@ _package_version = partial(package_version, fallback=_PKG_VERSION, load_core=Tru
 class DccServerBase:
     """Base MCP server for any DCC application.
 
+    The class-level methods are a compatibility facade. New adapter code should
+    compose through :attr:`skill_discovery`, :attr:`execution`,
+    :attr:`lifecycle`, and :attr:`observability` so new capabilities do not
+    expand the inherited surface.
+
     Pass a :class:`~dcc_mcp_core._server.options.DccServerOptions` instance
     (typically from :meth:`DccServerOptions.from_env`). All generic skill
     management, hot-reload, and gateway election logic lives here so DCC
@@ -231,6 +236,26 @@ class DccServerBase:
             ctrl = ObservabilityFacade(self)
             self._observability = ctrl
         return ctrl
+
+    @property
+    def skill_discovery(self) -> SkillDiscoveryController:
+        """Return the component that owns skill discovery and registration."""
+        return self._get_skill_discovery()
+
+    @property
+    def execution(self) -> ExecutionBridgeBinder:
+        """Return the component that owns host execution bindings."""
+        return self._get_execution()
+
+    @property
+    def lifecycle(self) -> LifecycleController:
+        """Return the component that owns server and gateway lifecycle."""
+        return self._get_lifecycle_ctrl()
+
+    @property
+    def observability(self) -> ObservabilityFacade:
+        """Return the component that owns resources, telemetry, and host errors."""
+        return self._get_observability()
 
     def _get_diagnostic_state(self) -> DiagnosticRuntimeState:
         state = self.__dict__.get("_diagnostic_state")
@@ -419,84 +444,6 @@ class DccServerBase:
         # Store report for diagnostics
         self._registration_report = report
         return report
-
-    # ── Builtin registration phases (PIP-689) ───────────────────────────
-
-    def _register_core_builtin_actions(self, context: Any) -> None:
-        """Discover skills via the base-class registration path (phase helper)."""
-        self.register_builtin_actions(
-            extra_skill_paths=context.extra_skill_paths,
-            include_bundled=context.include_bundled,
-            minimal_mode=context.minimal_mode,
-        )
-
-    def _run_strict_skill_scan_phase(self, context: Any) -> None:
-        """Run strict skill validation when enabled (phase helper)."""
-        # Default implementation does nothing; adapters override if they support strict scan.
-        pass
-
-    def _register_metadata_driven_tools(self, context: Any) -> None:
-        """Register ``recipes__*`` and ``skill_refs__*`` (phase helper)."""
-        try:
-            from dcc_mcp_core.metadata_registration import register_metadata_driven_tools
-        except ImportError:
-            return
-        paths = self.collect_skill_search_paths(
-            extra_paths=context.extra_skill_paths,
-            include_bundled=context.include_bundled,
-            filter_existing=True,
-        )
-        report = register_metadata_driven_tools(self._server, dcc_name=self._dcc_name, extra_paths=paths)
-        if not report.ok:
-            logger.debug(
-                "[%s] metadata_driven_tools: %d registered, %d skipped, %d failed",
-                self._dcc_name,
-                report.registered_count,
-                report.skipped_count,
-                report.failed_count,
-            )
-
-    def _register_introspect_tools(self, context: Any | None = None) -> None:
-        """Register the four ``dcc_introspect__*`` tools (phase helper)."""
-        try:
-            from dcc_mcp_core.introspect import register_introspect_tools
-        except ImportError:
-            return
-        register_introspect_tools(self._server, dcc_name=self._dcc_name)
-
-    def _register_feedback_tool(self, context: Any | None = None) -> None:
-        """Register the ``dcc_feedback__report`` MCP tool (phase helper)."""
-        try:
-            from dcc_mcp_core.feedback import register_feedback_tool
-        except ImportError:
-            return
-        register_feedback_tool(self._server, dcc_name=self._dcc_name, store=self.feedback_store)
-
-    def _register_qt_ui_inspector(self, context: Any | None = None) -> None:
-        """Adopt the shared core ``qt_ui_inspector__*`` tools (phase helper)."""
-        # Default does nothing; adapters override to wire their specific Qt integration.
-        pass
-
-    def _register_capability_manifest_tool(self, context: Any | None = None) -> None:
-        """Register the ``dcc_capability_manifest`` MCP tool (phase helper)."""
-        # Default does nothing; adapters override to wire their specific builder.
-        pass
-
-    def _attach_project_tools(self, context: Any | None = None) -> None:
-        """Register the four ``project_*`` MCP tools (phase helper)."""
-        # Default does nothing; adapters override if they support project tools.
-        pass
-
-    def _attach_resources(self, context: Any | None = None) -> None:
-        """Publish host-specific dynamic resource producers (phase helper)."""
-        # Default does nothing; adapters override if they support resources.
-        pass
-
-    def _mark_skill_catalog_ready(self, context: Any | None = None) -> None:
-        """Signal that the skill catalog has been populated (phase helper)."""
-        readiness = getattr(self, "_readiness", None)
-        if readiness is not None and hasattr(readiness, "mark_skill_catalog_ready"):
-            readiness.mark_skill_catalog_ready()
 
     def reload_skill_paths(
         self,

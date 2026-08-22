@@ -35,6 +35,7 @@ Decision / Consequences / Alternatives considered.
 | 028 | [Version DCC-Link Frames with a Tagged Header](./028-version-dcc-link-frames.md) | Accepted |
 | 029 | [Bound Service Registry Schema Evolution](./029-bound-service-registry-schema-evolution.md) | Accepted |
 | 030 | [Preserve Published Crate Identities Across Boundary Cleanup](./030-preserve-published-crate-identities.md) | Accepted |
+| 031 | [Python API Ownership and Compatibility Boundaries](./031-python-api-ownership.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any

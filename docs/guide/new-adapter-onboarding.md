@@ -72,7 +72,7 @@ from dcc_mcp_core import (
     AdapterReadinessBinder,
     register_all_builtin_skills,
 )
-from dcc_mcp_core.install_lifecycle import build_sidecar_command
+from dcc_mcp_core.deployment import build_sidecar_command
 
 ADAPTER_VERSION = "0.1.0"
 

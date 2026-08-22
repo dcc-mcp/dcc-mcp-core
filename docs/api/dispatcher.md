@@ -26,7 +26,7 @@ into reusable contracts so each adapter only supplies host-specific glue.
 | Interactive DCC (Maya UI, Blender UI, Houdini desktop) | `HostUiDispatcherBase` — subclass + `poke_host_pump()` + host timer/`BaseDccPump` |
 | Wire a single `dispatch_callable(func, *args, **kwargs)` shim | `BaseDccCallableDispatcher` (#521) |
 | Full submit / cancel / shutdown contract | `BaseDccCallableDispatcherFull` (#520) |
-| Sidecar-to-DCC transport for Qt-bearing hosts | `dcc_mcp_core.qt_dispatcher.start_qt_server` + `qtserver://` |
+| Sidecar-to-DCC transport for Qt-bearing hosts | `dcc_mcp_core.host.qt_dispatcher.start_qt_server` + `qtserver://` |
 | Script-backed sidecar dispatch handler | `SidecarActionDispatcher` (#1274) |
 | Batch / `mayapy` / pytest (no UI thread) | `InProcessCallableDispatcher` only — **do not** subclass `HostUiDispatcherBase` |
 | Cooperative idle-tick that drains a queue (Maya `scriptJob(event=['idle', …])`) | `BaseDccPump` (#520) |
@@ -49,7 +49,7 @@ Mari, and similar hosts) should use the public package module instead of
 vendoring a local copy of the JSON-line TCP server:
 
 ```python
-from dcc_mcp_core.qt_dispatcher import start_qt_server
+from dcc_mcp_core.host.qt_dispatcher import start_qt_server
 
 handle = start_qt_server(
     port=0,
@@ -80,7 +80,7 @@ actions and keep host-specific registration glue outside the dispatcher.
 Migration notes:
 
 - Maya should replace vendored `_qt_dispatcher.py` copies with
-  `dcc_mcp_core.qt_dispatcher.start_qt_server(...)`; Maya-specific code should
+  `dcc_mcp_core.host.qt_dispatcher.start_qt_server(...)`; Maya-specific code should
   only resolve the running server, register the action dispatch callback, and
   provide session metadata.
 - 3ds Max should replace custom `sidecar/qt_bridge.py` TCP request handling
@@ -100,7 +100,7 @@ registered action or bundled skill `source_file`, executes through an adapter
 hook, and normalizes the result envelope.
 
 ```python
-from dcc_mcp_core.qt_dispatcher import start_qt_server
+from dcc_mcp_core.host.qt_dispatcher import start_qt_server
 from dcc_mcp_core.sidecar import SidecarActionDispatcher
 
 dispatcher = SidecarActionDispatcher(

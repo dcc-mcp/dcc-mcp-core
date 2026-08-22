@@ -234,6 +234,13 @@ Gateway resources/prompts:
 4. `python/dcc_mcp_core/__init__.py` — every top-level Python re-export
 5. Generated stub `python/dcc_mcp_core/_core.pyi` — parameter names/types after a `stub-gen` or development build; do not treat it as checked-in source of truth
 
+Python ownership namespaces: adapter-facing server contracts live in
+`dcc_mcp_core.server`, runtime/fallback contracts in `dcc_mcp_core.runtime`,
+Rez deployment helpers in `dcc_mcp_core.deployment`, host transports in
+`dcc_mcp_core.host`, and non-stable APIs in `dcc_mcp_core.experimental`.
+Historical flat modules remain compatibility imports; do not add new top-level
+Python modules or source stable exports from private packages.
+
 ---
 
 ## Decision Tables — Find the Right API

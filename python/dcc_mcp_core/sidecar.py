@@ -4,7 +4,7 @@ This module owns the DCC-neutral part of a Qt sidecar ``dispatch`` handler:
 validate the payload, locate the active adapter server, resolve the script
 source for the requested action, execute through an adapter-provided hook, and
 return a JSON-safe result envelope. Transport stays in
-``dcc_mcp_core.qt_dispatcher`` / ``qtserver://``; host-specific execution stays
+``dcc_mcp_core.host.qt_dispatcher`` / ``qtserver://``; host-specific execution stays
 inside each adapter.
 """
 
@@ -70,7 +70,7 @@ class SidecarActionDispatcher:
     """Dispatch script-backed sidecar actions through adapter-owned hooks.
 
     ``SidecarActionDispatcher`` is intentionally transport-agnostic. Use it as
-    the ``dispatch_handler`` for :func:`dcc_mcp_core.qt_dispatcher.start_qt_server`
+    the ``dispatch_handler`` for :func:`dcc_mcp_core.host.qt_dispatcher.start_qt_server`
     or from an existing sidecar RPC endpoint; do not use it as a replacement
     for ``HostRpcClient`` when the adapter already talks to a host-native
     command protocol directly.
