@@ -93,7 +93,9 @@ fn governance_capture_decisions(
         .collect()
 }
 
-fn governance_capture_decision(decision: &TrafficCaptureDecision) -> GovernanceCaptureDecision {
+pub(super) fn governance_capture_decision(
+    decision: &TrafficCaptureDecision,
+) -> GovernanceCaptureDecision {
     GovernanceCaptureDecision {
         timestamp: decision.timestamp,
         request_id: decision.request_id.clone(),
