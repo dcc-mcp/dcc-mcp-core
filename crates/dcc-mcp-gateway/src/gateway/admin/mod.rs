@@ -26,7 +26,7 @@
 //! The runtime UI is a single inline HTML string (`admin/html.rs`). The
 //! `dcc-mcp-gateway-admin` crate owns the trace domain, compact, link,
 //! issue-report, statistics, analytics, governance, artifact, activity, task-outcome,
-//! debug-bundle, postmortem, agent-trace packet, memory-summary, and traffic projections,
+//! debug-bundle, postmortem, agent-trace packet, memory-summary, skill-path, and traffic projections,
 //! Vite/npm build boundary, and embedded asset; this module owns the
 //! gateway-specific data-source/HTTP adapters and API handlers.
 //!
