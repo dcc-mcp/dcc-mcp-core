@@ -144,7 +144,7 @@ Python package version ownership: use `dcc_mcp_core._version_util.package_versio
 
 Python lifecycle path ownership: use the import-light `dcc_mcp_core._path_util.to_resolved_path` helper. It returns `None` for empty values, expands user paths, resolves when possible, and falls back to a lexical absolute path after filesystem resolution errors.
 
-Python lifecycle registry ownership: use `dcc_mcp_core._install_lifecycle_runtime.default_registry_dir`. Public install-lifecycle and internal sidecar callers re-export the same import-light callable so the environment and temporary-directory fallback contract cannot drift.
+Python lifecycle registry ownership: use `dcc_mcp_core.deployment.default_registry_dir`. The historical install-lifecycle module and internal sidecar callers re-export the same import-light callable so the environment and temporary-directory fallback contract cannot drift.
 
 Python environment parsing ownership: use the import-light `dcc_mcp_core.env` helpers (`env_flag`, `env_int`, `env_float`, `env_path`) and declare core runtime environment names in `dcc_mcp_core.constants`. Preserve caller policy through explicit truth tokens, numeric defaults, and bounds.
 

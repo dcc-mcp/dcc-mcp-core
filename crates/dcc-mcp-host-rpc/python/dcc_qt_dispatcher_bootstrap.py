@@ -8,8 +8,8 @@ requiring the dispatcher Python source to exist on disk.
 How the Rust client uses this file
 ==================================
 
-1. ``include_str!("../../../python/dcc_mcp_core/qt_dispatcher.py")`` — embed
-   the canonical ``dcc_mcp_core.qt_dispatcher`` source directly from the
+1. ``include_str!("../../../python/dcc_mcp_core/host/qt_dispatcher.py")`` — embed
+   the canonical ``dcc_mcp_core.host.qt_dispatcher`` source directly from the
    workspace root (the single source of truth).
 2. ``include_str!("../python/dcc_qt_dispatcher_bootstrap.py")`` —
    embed this file's source.
@@ -45,7 +45,7 @@ Why a separate file
 ===================
 
 Splitting bootstrap (this file) from the dispatcher source
-(``dcc_mcp_core.qt_dispatcher``) lets each be unit-tested with stock Python
+(``dcc_mcp_core.host.qt_dispatcher``) lets each be unit-tested with stock Python
 in CI — the dispatcher's pure-Python parts (``_DispatchRegistry``,
 ``execute`` semantics) run without Qt; the bootstrap's installer
 logic runs without any TCP socket. Both are then re-tested by the

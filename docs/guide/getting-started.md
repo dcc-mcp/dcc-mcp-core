@@ -329,7 +329,7 @@ construction time.
 from pathlib import Path
 
 from dcc_mcp_core import DccServerBase
-from dcc_mcp_core._server.options import DccServerOptions
+from dcc_mcp_core.server import DccServerOptions
 
 skills_dir = Path(__file__).parent / "skills"
 opts = DccServerOptions.from_env("maya", skills_dir, dcc_pid=12345)

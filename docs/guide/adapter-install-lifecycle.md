@@ -5,7 +5,7 @@ Windows, importing `dcc_mcp_core._core` loads `_core.pyd`; that native module
 stays locked until the process exits, so an uninstall or upgrade can fail while
 removing the adapter's bundled package tree.
 
-Use `dcc_mcp_core.install_lifecycle` for installer and uninstaller code that
+Use `dcc_mcp_core.deployment` for installer and uninstaller code that
 must stay import-light. The module uses only the Python standard library and
 does not import `_core`.
 
@@ -79,7 +79,7 @@ Rez environment before launching the DCC. Rez publishes each resolved root as
 `PYTHONPATH` and `PATH` entries needed by the sidecar or gateway:
 
 ```python
-from dcc_mcp_core.install_lifecycle import resolve_deployment_layout
+from dcc_mcp_core.deployment import resolve_deployment_layout
 
 layout = resolve_deployment_layout(adapter_package="dcc_mcp_maya")
 
@@ -99,7 +99,7 @@ DCC plugins that run at application startup can build or launch the per-DCC
 sidecar without importing `_core` or blocking the host process:
 
 ```python
-from dcc_mcp_core.install_lifecycle import launch_sidecar
+from dcc_mcp_core.deployment import launch_sidecar
 
 result = launch_sidecar(
     dcc_type="maya",
@@ -181,8 +181,8 @@ first call instead of a generic transport error, so installers can distinguish
 partial adapter installs from gateway routing failures.
 
 ```python
-from dcc_mcp_core.install_lifecycle import build_sidecar_command
-from dcc_mcp_core.install_lifecycle import wait_for_sidecar_ready
+from dcc_mcp_core.deployment import build_sidecar_command
+from dcc_mcp_core.deployment import wait_for_sidecar_ready
 
 contract = build_sidecar_command(
     dcc_type="houdini",
@@ -274,7 +274,7 @@ bounded timeout in `wait_for_sidecar_ready()`.
 ## Import-Light Preflight
 
 ```python
-from dcc_mcp_core.install_lifecycle import inspect_install_root
+from dcc_mcp_core.deployment import inspect_install_root
 
 diagnostic = inspect_install_root(r"C:\Users\me\Documents\3dsMax\scripts\dcc_mcp_3dsmax")
 if diagnostic["requires_restart"]:
@@ -299,9 +299,9 @@ Installers can inspect the shared FileRegistry without creating any Rust-backed
 objects:
 
 ```python
-from dcc_mcp_core.install_lifecycle import query_runtime_state
-from dcc_mcp_core.install_lifecycle import sidecar_readiness_status
-from dcc_mcp_core.install_lifecycle import stop_runtime_entries
+from dcc_mcp_core.deployment import query_runtime_state
+from dcc_mcp_core.deployment import sidecar_readiness_status
+from dcc_mcp_core.deployment import stop_runtime_entries
 
 state = query_runtime_state(dcc_type="3dsmax", role="per-dcc-sidecar")
 ready = sidecar_readiness_status(dcc_type="3dsmax")
@@ -340,8 +340,8 @@ running an old sidecar while 3ds Max has already started a newer one. Treat each
 registered instance independently and plan restarts from registry metadata:
 
 ```python
-from dcc_mcp_core.install_lifecycle import plan_runtime_updates
-from dcc_mcp_core.install_lifecycle import query_runtime_state
+from dcc_mcp_core.deployment import plan_runtime_updates
+from dcc_mcp_core.deployment import query_runtime_state
 
 state = query_runtime_state()
 plan = plan_runtime_updates(
@@ -411,8 +411,8 @@ process directly.
 ## Safe Remove Or Replace
 
 ```python
-from dcc_mcp_core.install_lifecycle import safe_remove_tree
-from dcc_mcp_core.install_lifecycle import safe_replace_tree
+from dcc_mcp_core.deployment import safe_remove_tree
+from dcc_mcp_core.deployment import safe_replace_tree
 
 removed = safe_remove_tree(install_root)
 replaced = safe_replace_tree(staged_payload, install_root)
@@ -436,8 +436,8 @@ hook:
 ```
 
 Use the dedicated console entry point when a DCC-specific installer needs a
-JSON-only control path. `python -m dcc_mcp_core.install_lifecycle` remains a
-compatibility alias.
+JSON-only control path. `dcc_mcp_core.install_lifecycle` and
+`python -m dcc_mcp_core.install_lifecycle` remain compatibility aliases.
 
 ```bash
 dcc-mcp-install-lifecycle inspect C:\path\to\adapter

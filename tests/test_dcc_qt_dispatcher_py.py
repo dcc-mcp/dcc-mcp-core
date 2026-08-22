@@ -3,7 +3,7 @@
 The Rust :mod:`dcc_mcp_host_rpc::qtserver` module embeds the canonical
 dispatcher source directly via ``include_str!``:
 
-* ``python/dcc_mcp_core/qt_dispatcher.py``
+* ``python/dcc_mcp_core/host/qt_dispatcher.py``
   — the single canonical source of the ``QtCommandServer`` +
     ``_DispatchRegistry`` implementation. Embedded by Rust at build time.
 * ``crates/dcc-mcp-host-rpc/python/dcc_qt_dispatcher_bootstrap.py``
@@ -37,7 +37,7 @@ from typing import Iterator
 # Import third-party modules
 import pytest
 
-DISPATCHER_PATH = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "qt_dispatcher.py"
+DISPATCHER_PATH = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "host" / "qt_dispatcher.py"
 BOOTSTRAP_PATH = (
     Path(__file__).parent.parent / "crates" / "dcc-mcp-host-rpc" / "python" / "dcc_qt_dispatcher_bootstrap.py"
 )
@@ -51,7 +51,7 @@ def _read(path: Path) -> str:
 def test_canonical_dispatcher_source_exists() -> None:
     """The canonical dispatcher source must exist so the Rust crate's
     ``include_str!`` resolves at build time.  Any rename or deletion of
-    ``python/dcc_mcp_core/qt_dispatcher.py`` would break the qtserver
+    ``python/dcc_mcp_core/host/qt_dispatcher.py`` would break the qtserver
     wire path and must fail this test.
     """
     assert DISPATCHER_PATH.is_file(), (
@@ -63,7 +63,7 @@ def test_canonical_dispatcher_source_exists() -> None:
 
 @pytest.fixture
 def dispatcher_module() -> Iterator[types.ModuleType]:
-    """Exec ``dcc_mcp_core.qt_dispatcher`` into a fresh module-style namespace
+    """Exec ``dcc_mcp_core.host.qt_dispatcher`` into a fresh module-style namespace
     and yield it. The module mimics what the bootstrap installs under
     ``sys.modules['_dcc_qt_dispatcher']`` inside a real DCC.
     """

@@ -6,7 +6,7 @@
 
 | 适配器形态 | 使用 | 适配器仍需负责 |
 |------------|------|----------------|
-| 携带 Qt 的 DCC 伴生进程（Maya、Houdini、3ds Max、Nuke、Cinema 4D、Substance Painter、Mari） | `dcc_mcp_core.qt_dispatcher.start_qt_server` 和 `qtserver://` Rust 客户端 | 插件启动/关闭、会话元数据和宿主动作回调 |
+| 携带 Qt 的 DCC 伴生进程（Maya、Houdini、3ds Max、Nuke、Cinema 4D、Substance Painter、Mari） | `dcc_mcp_core.host.qt_dispatcher.start_qt_server` 和 `qtserver://` Rust 客户端 | 插件启动/关闭、会话元数据和宿主动作回调 |
 | 脚本支撑的伴生进程动作分发 | `SidecarActionDispatcher` 作为 Qt 分发处理器 | `server_provider`、`action_resolver` 和执行器钩子如 `maya_executor(...)` 或 `script_executor(...)` |
 | 具有主线程亲和性的交互式 UI 宿主 | `HostUiDispatcherBase` 子类加上 `HostPumpController` | `poke_host_pump()` 和用于宿主定时器原语的小型 `HostPumpTimerAdapter` |
 | 非 Qt UI 宿主，具有原生定时器 | `HostUiDispatcherBase` 加上自定义的 `HostPumpTimerAdapter` | 仅定时器安装/卸载/调度映射 |
@@ -19,7 +19,7 @@
 ## 迁移清单
 
 1. 清点本地调度器文件，并使用上述决策表对每个文件进行分类。
-2. 使用 `dcc_mcp_core.qt_dispatcher.start_qt_server(...)` 替换 JSON 行 Qt 服务器副本。
+2. 使用 `dcc_mcp_core.host.qt_dispatcher.start_qt_server(...)` 替换 JSON 行 Qt 服务器副本。
 3. 为脚本支撑的技能动作组合 `SidecarActionDispatcher`。将动作查找保留在适配器中，但让核心规范化载荷、缺失源错误、执行器异常和 JSON 安全结果信封。
 4. 使用 `HostUiDispatcherBase` 子类替换本地 UI 线程作业队列。仅实现 `poke_host_pump()` 和可选的诊断钩子，如 `format_exception_error`、`format_timeout_error`、`on_job_queued`、`on_job_started` 和 `on_job_finished`。
 5. 将定时器生命周期移入 `HostPumpController`。将宿主的空闲回调、.NET 定时器、Blender 定时器或 Qt `QTimer` 映射到 `HostPumpTimerAdapter`。

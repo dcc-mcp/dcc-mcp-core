@@ -10,7 +10,7 @@ standard result envelopes.
 
 | Adapter shape | Use | Adapter still owns |
 |---------------|-----|--------------------|
-| Qt-bearing DCC sidecar (Maya, Houdini, 3ds Max, Nuke, Cinema 4D, Substance Painter, Mari) | `dcc_mcp_core.qt_dispatcher.start_qt_server` and the `qtserver://` Rust client | Plugin startup/shutdown, session metadata, and the host action callback |
+| Qt-bearing DCC sidecar (Maya, Houdini, 3ds Max, Nuke, Cinema 4D, Substance Painter, Mari) | `dcc_mcp_core.host.qt_dispatcher.start_qt_server` and the `qtserver://` Rust client | Plugin startup/shutdown, session metadata, and the host action callback |
 | Script-backed sidecar action dispatch | `SidecarActionDispatcher` as the Qt dispatch handler | `server_provider`, `action_resolver`, and an executor hook such as `maya_executor(...)` or `script_executor(...)` |
 | Interactive UI host with main-thread affinity | `HostUiDispatcherBase` subclass plus `HostPumpController` | `poke_host_pump()` and a tiny `HostPumpTimerAdapter` for the host timer primitive |
 | Non-Qt UI host with a native timer | `HostUiDispatcherBase` plus a custom `HostPumpTimerAdapter` | Timer install/uninstall/schedule mapping only |
@@ -27,7 +27,7 @@ repositories after these primitives are available.
 1. Inventory local dispatcher files and classify each one with the decision
    table above.
 2. Replace JSON-line Qt server copies with
-   `dcc_mcp_core.qt_dispatcher.start_qt_server(...)`.
+   `dcc_mcp_core.host.qt_dispatcher.start_qt_server(...)`.
 3. Compose `SidecarActionDispatcher` for script-backed skill actions. Keep
    action lookup in the adapter, but let core normalize payloads, missing-source
    errors, executor exceptions, and JSON-safe result envelopes.
