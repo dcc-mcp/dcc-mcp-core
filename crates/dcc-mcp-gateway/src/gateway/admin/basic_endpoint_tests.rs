@@ -292,6 +292,7 @@ mod endpoint_contracts {
             "/api/logs",
             "/api/stats",
             "/api/governance",
+            "/api/artifacts",
             "/api/traces",
             "/api/workflows",
         ] {
