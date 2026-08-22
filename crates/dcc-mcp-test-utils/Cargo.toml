@@ -9,4 +9,13 @@ repository.workspace = true
 description = "Shared test utilities for dcc-mcp-core workspace crates"
 
 [dependencies]
+dcc-mcp-skill-rest = { workspace = true, optional = true, features = ["test-fixtures"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+skill-rest = ["dep:dcc-mcp-skill-rest"]
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

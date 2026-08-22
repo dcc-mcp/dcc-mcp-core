@@ -1919,6 +1919,9 @@ dependencies = [
 name = "dcc-mcp-test-utils"
 version = "0.20.8"
 dependencies = [
+ "dcc-mcp-skill-rest",
+ "serde_json",
+ "tokio",
  "workspace-hack",
 ]
 

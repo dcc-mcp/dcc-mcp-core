@@ -1,97 +1,6 @@
 use super::*;
+use crate::testing::{InMemorySkillCatalog as FakeCatalog, RecordingToolInvoker as FakeInvoker};
 use std::sync::Mutex;
-
-/// In-memory test fake. Lets us drive the service without spinning
-/// up a real SkillCatalog/ToolDispatcher — keeps unit tests
-/// dependency-free.
-#[derive(Default)]
-struct FakeCatalog {
-    actions: Mutex<Vec<CatalogAction>>,
-}
-
-impl FakeCatalog {
-    fn push(&self, a: CatalogAction) {
-        self.actions.lock().unwrap().push(a);
-    }
-}
-
-impl SkillCatalogSource for FakeCatalog {
-    fn list_actions(&self) -> Vec<CatalogAction> {
-        self.actions.lock().unwrap().clone()
-    }
-    fn is_loaded(&self, name: &str) -> bool {
-        self.actions
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|a| a.skill_name == name && a.loaded)
-    }
-    fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, ServiceError> {
-        let mut actions = self.actions.lock().unwrap();
-        let mut loaded = Vec::new();
-        for action in actions.iter_mut().filter(|a| a.skill_name == skill_name) {
-            action.loaded = true;
-            loaded.push(action.action_name.clone());
-        }
-        if loaded.is_empty() {
-            Err(ServiceError::new(
-                ServiceErrorKind::NotFound,
-                format!("skill not found: {skill_name}"),
-            ))
-        } else {
-            Ok(loaded)
-        }
-    }
-    fn unload_skill(&self, skill_name: &str) -> Result<usize, ServiceError> {
-        let mut actions = self.actions.lock().unwrap();
-        let mut removed = 0usize;
-        for action in actions.iter_mut().filter(|a| a.skill_name == skill_name) {
-            action.loaded = false;
-            removed += 1;
-        }
-        if removed == 0 {
-            Err(ServiceError::new(
-                ServiceErrorKind::NotFound,
-                format!("skill not found: {skill_name}"),
-            ))
-        } else {
-            Ok(removed)
-        }
-    }
-}
-
-#[derive(Default)]
-struct FakeInvoker {
-    calls: Mutex<Vec<(String, Value, Option<Value>)>>,
-    next: Mutex<Option<Result<Value, ServiceError>>>,
-}
-
-impl FakeInvoker {
-    fn set_next(&self, r: Result<Value, ServiceError>) {
-        *self.next.lock().unwrap() = Some(r);
-    }
-}
-
-#[async_trait::async_trait]
-impl ToolInvoker for FakeInvoker {
-    async fn invoke(
-        &self,
-        name: &str,
-        params: Value,
-        meta: Option<Value>,
-    ) -> Result<CallOutcome, ServiceError> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push((name.to_owned(), params.clone(), meta));
-        let r = self.next.lock().unwrap().take().unwrap_or(Ok(Value::Null));
-        r.map(|v| CallOutcome {
-            slug: ToolSlug(name.to_owned()),
-            output: v,
-            validation_skipped: false,
-        })
-    }
-}
 
 fn sphere_action(loaded: bool) -> CatalogAction {
     CatalogAction {
@@ -121,10 +30,7 @@ fn sphere_action(loaded: bool) -> CatalogAction {
 }
 
 fn build_service(actions: Vec<CatalogAction>) -> (SkillRestService, Arc<FakeInvoker>) {
-    let cat = Arc::new(FakeCatalog::default());
-    for a in actions {
-        cat.push(a);
-    }
+    let cat = Arc::new(FakeCatalog::new(actions));
     let inv = Arc::new(FakeInvoker::default());
     let svc = SkillRestService::new(cat, inv.clone());
     (svc, inv)
@@ -789,10 +695,10 @@ async fn call_dispatches_and_normalises_slug() {
         .unwrap();
     assert_eq!(out.slug.0, "maya.spheres.create_sphere");
     assert_eq!(out.output["created"], 1);
-    let calls = inv.calls.lock().unwrap();
+    let calls = inv.calls();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].0, "create_sphere");
-    assert_eq!(calls[0].1["radius"], 1.5);
+    assert_eq!(calls[0].action_name, "create_sphere");
+    assert_eq!(calls[0].params["radius"], 1.5);
 }
 
 #[tokio::test]

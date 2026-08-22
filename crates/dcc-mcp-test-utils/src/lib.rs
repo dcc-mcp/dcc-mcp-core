@@ -6,6 +6,21 @@
 //! must use [`EnvVarGuard`] or [`EnvVarsGuard`] to safely save/restore the
 //! previous value and to serialise concurrent access within the same crate.
 //!
+//! # Feature-gated domain fixtures
+//!
+//! Enable `skill-rest` for the canonical in-memory catalog, recording
+//! invoker, deterministic auth gate, audit sink, and real-router harness:
+//!
+//! ```ignore
+//! use dcc_mcp_test_utils::skill_rest::{
+//!     InMemorySkillCatalog, RecordingToolInvoker, SkillRestTestHarness,
+//! };
+//! ```
+//!
+//! Trait-specific implementations remain physically owned by
+//! `dcc-mcp-skill-rest`; this crate re-exports them so workspace tests have one
+//! fixture entry point without introducing a production dependency cycle.
+//!
 //! ```ignore
 //! use dcc_mcp_test_utils::{EnvVarGuard, EnvVarsGuard};
 //!
@@ -17,6 +32,13 @@
 //! ```
 
 use std::sync::{Mutex, MutexGuard};
+
+/// Per-DCC REST fixtures, re-exported from their trait owner to keep the
+/// production dependency graph acyclic.
+#[cfg(feature = "skill-rest")]
+pub mod skill_rest {
+    pub use dcc_mcp_skill_rest::testing::*;
+}
 
 /// Global lock that serialises all env-var mutations within this crate's
 /// test binary.  Without this, concurrent tests that call `set_var` /
@@ -150,5 +172,46 @@ mod tests {
         ]);
         assert_eq!(std::env::var("DCC_MCP_TEST_UTILS_A").unwrap(), "1");
         assert_eq!(std::env::var("DCC_MCP_TEST_UTILS_B").unwrap(), "2");
+    }
+}
+
+#[cfg(all(test, feature = "skill-rest"))]
+mod skill_rest_fixture_tests {
+    use std::sync::Arc;
+
+    use dcc_mcp_skill_rest::SkillRestService;
+    use serde_json::{Value, json};
+
+    use crate::skill_rest::{
+        InMemorySkillCatalog, RecordingToolInvoker, SkillRestTestHarness, catalog_action,
+    };
+
+    #[tokio::test]
+    async fn shared_harness_exercises_real_router_and_records_invocation() {
+        let mut action = catalog_action("create_sphere", "geometry", "maya", true);
+        action.description = "Create a polygon sphere".to_string();
+        let catalog = Arc::new(InMemorySkillCatalog::new([action]));
+        let invoker = Arc::new(RecordingToolInvoker::default());
+        invoker.set_next(Ok(json!({"name": "pSphere1"})));
+        let service = SkillRestService::new(catalog, invoker.clone());
+        let harness = SkillRestTestHarness::new(service);
+
+        let search = harness
+            .server
+            .post("/v1/search")
+            .json(&json!({"query": "sphere"}))
+            .await;
+        search.assert_status_ok();
+        let body: Value = search.json();
+        let slug = body["hits"][0]["slug"].as_str().unwrap();
+
+        let call = harness
+            .server
+            .post("/v1/call")
+            .json(&json!({"tool_slug": slug, "params": {"radius": 2.0}}))
+            .await;
+        call.assert_status_ok();
+        assert_eq!(invoker.calls()[0].action_name, "create_sphere");
+        assert_eq!(harness.audit.len(), 2);
     }
 }

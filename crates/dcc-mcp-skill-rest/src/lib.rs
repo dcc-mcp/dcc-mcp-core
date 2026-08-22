@@ -74,6 +74,9 @@ mod search_index;
 mod service;
 mod thread_affinity_diagnostics;
 
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod testing;
+
 #[cfg(test)]
 mod tests;
 
