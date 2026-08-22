@@ -63,7 +63,9 @@ use super::relay_registration::RelayInstanceRegistry;
 use super::resilience::GatewayResilienceState;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{InstanceStatus, ServiceEntry, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{
+    ServiceEntry, ServiceStatus, instance_status_from_entry,
+};
 
 use super::middleware::MiddlewareChain;
 
@@ -756,11 +758,7 @@ fn dispatch_json(e: &ServiceEntry, stale: bool) -> Value {
 /// is kept alongside it for backward compatibility and will be removed in a
 /// future release.
 fn instance_status_json(e: &ServiceEntry, stale: bool) -> Value {
-    let is = InstanceStatus::from_entry(
-        e,
-        stale,
-        super::http_registration::entry_uses_sidecar_dispatch(e),
-    );
+    let is = instance_status_from_entry(e, stale);
     json!({
         "status": is.status.to_string(),
         "dispatch_status": is.dispatch_status.to_string(),

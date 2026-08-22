@@ -1927,6 +1927,7 @@ version = "0.20.8"
 dependencies = [
  "criterion",
  "dashmap",
+ "dcc-mcp-models",
  "dcc-mcp-pybridge",
  "fs4",
  "ipckit",
