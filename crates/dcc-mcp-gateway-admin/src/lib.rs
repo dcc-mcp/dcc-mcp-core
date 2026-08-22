@@ -2,7 +2,7 @@
 //!
 //! This crate owns admin-facing audit, trace, caller-context, compact projection,
 //! link, issue-report, statistics, analytics, governance, artifact, activity, task-outcome,
-//! and traffic projections independently of gateway routing state.
+//! debug-bundle, postmortem, and traffic projections independently of gateway routing state.
 //! It also owns the Vite/npm build script and generated dashboard payload; the Node.js
 //! toolchain only runs when `embed` is enabled.
 
@@ -12,6 +12,7 @@ mod activity;
 mod analytics;
 mod artifacts;
 mod audit;
+mod debug;
 /// Admin trace and caller-attribution value types.
 pub mod domain;
 mod governance;
@@ -34,6 +35,7 @@ pub use analytics::{
 };
 pub use artifacts::{ArtifactFilter, artifact_payload, artifact_refs};
 pub use audit::{AdminAuditRecord, AuditLog};
+pub use debug::debug_bundle_payload;
 pub use domain::agent_context::{
     AgentContext, AgentContextTrust, INTERNAL_AUTH_SUBJECT_HEADER, INTERNAL_FORWARDED_FOR_HEADER,
     INTERNAL_SOURCE_IP_HEADER, TRUST_AUTH, TRUST_HEADER, TRUST_SELF_REPORTED, TRUST_SERVER_DERIVED,

@@ -69,7 +69,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search # Reusable capability search/query/ranking engine
-├── dcc-mcp-gateway-admin # Admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/traffic domain + optional embedded dashboard asset
+├── dcc-mcp-gateway-admin # Admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/debug/traffic domain + optional embedded dashboard asset
 ├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-gateway-ensure # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-sidecar       # Per-DCC sidecar + gateway daemon guardian runtime
@@ -122,7 +122,7 @@ dcc-mcp-gateway-core ← pure gateway domain/search/ranking types
        ↓
 dcc-mcp-gateway-search ← reusable search/query/ranking engine
        ↓
-dcc-mcp-gateway-admin ← admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/traffic domain + optional embedded dashboard asset
+dcc-mcp-gateway-admin ← admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/debug/traffic domain + optional embedded dashboard asset
        ↓
 dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-gateway-search, dcc-mcp-gateway-admin, dcc-mcp-wire, dcc-mcp-transport
 
@@ -392,7 +392,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `CapabilityIndex` + refresh tasks — concurrent application wrapper over core index state; coordinates live per-DCC refreshes and evicts stale instances.
 - `search`, `describe`, `load_skill`, `call` — fixed gateway MCP workflow tools over the dynamic capability index; `/v1/*` routes are the pure HTTP twin.
 - Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, plus diagnostics/resources/prompts aggregation.
-- Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health. Audit, trace, caller-context, token-telemetry, bounded audit/trace-log, compact agent-facing projection, link projection, issue-report privacy, pure statistics, audit-analytics, governance, artifact, activity-timeline, task-outcome, and metadata-only traffic contracts are owned by `dcc-mcp-gateway-admin`; gateway-specific persistence and HTTP adapters remain in the gateway crate.
+- Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health. Audit, trace, caller-context, token-telemetry, bounded audit/trace-log, compact agent-facing projection, link projection, issue-report privacy, pure statistics, audit-analytics, governance, artifact, activity-timeline, task-outcome, debug-bundle, postmortem, and metadata-only traffic contracts are owned by `dcc-mcp-gateway-admin`; gateway-specific persistence and HTTP adapters remain in the gateway crate.
 
 **Dependencies**: `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, `dcc-mcp-gateway-admin`, `dcc-mcp-wire`, `dcc-mcp-transport`, `dcc-mcp-skill-rest`, `reqwest`, `tokio`.
 
