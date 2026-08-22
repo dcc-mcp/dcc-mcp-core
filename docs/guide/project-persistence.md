@@ -131,8 +131,9 @@ if scene_path:
 ## Best practices for state serialization
 
 - **Keep `metadata` JSON-serialisable.**  `DccProject.save` uses the shared
-  `json_dumps` helper; non-JSON values raise at save time, not mysteriously
-  later on reload.
+  `json_dumps` helper. Validate application objects before saving rather than
+  relying on the native and py37-lite backends to reject every unsupported
+  Python value identically.
 - **Prefer paths that make sense outside the current machine.**  Absolute
   paths with drive letters travel badly; where possible, store scene-relative
   paths (or resolvable tokens like `$SHOT_ROOT/char.ma`) and resolve at read

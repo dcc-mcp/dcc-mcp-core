@@ -166,6 +166,11 @@ as `ensure_within_root`, `atomic_write_text`, `load_json_file`,
 `ToolValidator`, `normalize_tool_arguments`, result helpers, and cancellation
 checks from the same namespace so scripts do not mix helper import paths.
 
+JSON uses the native Rust backend when available and stdlib in py37-lite. It
+is a narrow helper contract rather than a full stdlib drop-in; keep using
+stdlib directly where exact canonical bytes, hashing, length budgets, or
+unsupported `json` keyword/file APIs are part of the contract.
+
 Keep a domain-specific dependency only when it owns behavior that
 `skills_helper` intentionally does not cover: sessions, streaming, multipart
 upload, custom retry/auth flows, SDK-specific API models, non-JSON protocols,

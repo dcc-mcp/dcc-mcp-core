@@ -10,18 +10,22 @@ use crate::py_json::{json_value_to_pyobject, py_any_to_json_value, unescape_unic
 
 /// Serialize a Python object to a JSON string using Rust's serde_json.
 ///
-/// This is a high-performance drop-in replacement for `json.dumps()`.
-/// Equivalent to: ``json.dumps(obj, ensure_ascii=True, indent=None)``.
+/// This is the native backend for dcc-mcp-core's dependency-light JSON API.
+/// It accepts the package's compatibility parameters but is not a complete
+/// replacement for Python's ``json.dumps``.  Formatting, numeric limits,
+/// non-finite floats, accepted container/object types, keyword arguments, and
+/// file APIs follow the narrower PyO3/serde bridge contract.
 ///
 /// Parameters
 /// ----------
 /// obj : Any
 ///     The Python object to serialize.
 /// ensure_ascii : bool, optional
-///     If True (default), escape non-ASCII characters. If False, output
-///     raw Unicode characters.
+///     Compatibility parameter retained by the package API. Exact stdlib
+///     Unicode escaping parity is not currently part of the contract.
 /// indent : int or None, optional
-///     If given, pretty-print with the specified number of spaces.
+///     If given, enable serde_json pretty-printing.  Exact stdlib indentation
+///     width parity is not currently part of the contract.
 #[pyfunction]
 #[pyo3(signature = (obj, *, ensure_ascii=true, indent=None))]
 pub fn json_dumps(
@@ -46,8 +50,9 @@ pub fn json_dumps(
 
 /// Deserialize a JSON string to a Python object using Rust's serde_json.
 ///
-/// This is a high-performance drop-in replacement for `json.loads()`.
-/// Returns a Python dict, list, string, number, bool, or None.
+/// This is the native backend for dcc-mcp-core's dependency-light JSON API,
+/// not a complete replacement for Python's ``json.loads``.  It accepts text
+/// and returns the subset representable by the shared PyO3/serde bridge.
 #[pyfunction]
 pub fn json_loads(py: Python, s: &str) -> PyResult<Py<PyAny>> {
     let value: serde_json::Value = serde_json::from_str(s)

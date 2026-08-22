@@ -226,7 +226,7 @@ Follow progress through `GET /v1/jobs/{id}/events` or cancel with
 `DELETE /v1/jobs/{id}`; the DCC HTTP worker remains responsive while the host
 main thread performs the job.
 
-The canonical normalization rules live in `dcc-mcp-wire`; Python host wrappers can reuse them via `dcc_mcp_core.host.normalize_tool_arguments()` and `normalize_tool_meta()` instead of hand-rolling JSON coercion.
+The canonical normalization rules live in `dcc-mcp-wire`; Python wrappers can reuse them via `dcc_mcp_core.wire.normalize_tool_arguments()` and `normalize_tool_meta()` instead of hand-rolling JSON coercion. The `dcc_mcp_core.host` names remain compatibility aliases.
 
 ### Wrapper payloads and object-shaped arguments
 

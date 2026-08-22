@@ -86,6 +86,31 @@ def test_host_namespace_falls_back_without_core(monkeypatch) -> None:
     assert wire.normalize_tool_meta(None) is None
 
 
+def test_json_codec_and_aliases_import_without_core(monkeypatch) -> None:
+    import dcc_mcp_core
+
+    for name in ("json_dumps", "json_loads"):
+        dcc_mcp_core.__dict__.pop(name, None)
+
+    modules = _import_without_core(
+        monkeypatch,
+        "dcc_mcp_core._json_codec",
+        "dcc_mcp_core.skills_helper",
+        "dcc_mcp_core.wire._fallback",
+        "dcc_mcp_core.wire",
+    )
+    codec = modules["dcc_mcp_core._json_codec"]
+    skills_helper = modules["dcc_mcp_core.skills_helper"]
+    wire = modules["dcc_mcp_core.wire"]
+
+    assert skills_helper.json_dumps is codec.json_dumps
+    assert skills_helper.json_loads is codec.json_loads
+    assert dcc_mcp_core.json_dumps is skills_helper.json_dumps
+    assert dcc_mcp_core.json_loads is skills_helper.json_loads
+    assert codec.json_loads(codec.json_dumps({"name": "café"}, ensure_ascii=False)) == {"name": "café"}
+    assert wire.normalize_tool_arguments('{"name": "cube"}') == {"name": "cube"}
+
+
 def test_server_and_skill_helpers_fallback_without_core(monkeypatch, tmp_path) -> None:
     modules = _import_without_core(
         monkeypatch,

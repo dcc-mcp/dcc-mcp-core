@@ -126,8 +126,9 @@ if scene_path:
 
 ## 状态序列化的最佳实践
 
-- **`metadata` 保持可 JSON 序列化。** `DccProject.save` 用共享的
-  `json_dumps` 辅助；非 JSON 值会在保存时报错，而不是在重新加载时神秘失败。
+- **`metadata` 保持可 JSON 序列化。** `DccProject.save` 使用共享的
+  `json_dumps`；保存前应主动校验应用对象，不要依赖 native 与 py37-lite
+  backend 对所有不支持的 Python 值都以完全相同的方式拒绝。
 - **尽量用跨机器仍然有意义的路径。** 带盘符的绝对路径很难迁移；尽量存储
   相对场景路径（或可解析的 token，如 `$SHOT_ROOT/char.ma`），读的时候再解析。
 - **不要存密钥。** 项目状态和场景一起落盘、一起流转；视其为生产流水线内
