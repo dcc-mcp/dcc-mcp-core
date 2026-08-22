@@ -1,11 +1,10 @@
-//! Pure value types describing the gateway capability index snapshot.
+//! Pure state and value types for the gateway capability index.
 //!
 //! These are the *read-side* shapes a REST or MCP handler sees when it
-//! takes a snapshot of the capability index. The mutable
-//! `CapabilityIndex` itself — which owns a `parking_lot::RwLock` and a
-//! `BTreeMap` of per-instance state — stays in `dcc-mcp-gateway`
-//! because it carries runtime state the domain layer has no business
-//! holding (issue #845).
+//! takes a snapshot of the capability index. [`CapabilityIndexState`]
+//! owns the lock-free domain state and mutation rules. The gateway
+//! crate wraps it in synchronization and keeps refresh coordination,
+//! clocks, and async gates at the application boundary (issue #845).
 //!
 //! # Why split snapshot from index
 //!
@@ -17,14 +16,16 @@
 //! without depending on the gateway crate's tokio / axum / parking_lot
 //! footprint.
 
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use uuid::Uuid;
 
 use super::record::CapabilityRecord;
+
+const MAX_INSTANCE_TOMBSTONES: usize = 256;
 
 /// Stable fingerprint of one instance's contribution to the index.
 ///
@@ -95,6 +96,206 @@ pub struct IndexSnapshot {
     /// diagnostics can trace which `refresh_instance` cycles produced
     /// which snapshot.
     pub fingerprints: HashMap<Uuid, InstanceFingerprint>,
+}
+
+/// Bounded lifecycle provenance for an instance removed from the live index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceTombstone {
+    /// Removed gateway instance.
+    pub instance_id: Uuid,
+    /// Canonical DCC type associated with the last live record.
+    pub dcc_type: String,
+    /// Last observed lifecycle status, such as `exited` or `host-died`.
+    pub previous_status: String,
+}
+
+#[derive(Debug)]
+struct InstanceSlice {
+    records: Arc<[CapabilityRecord]>,
+    fingerprint: InstanceFingerprint,
+}
+
+/// Lock-free domain state behind the gateway's concurrent capability index.
+///
+/// This type deliberately knows nothing about async refreshes, wall clocks,
+/// HTTP clients, or synchronization. Callers provide exclusive access and
+/// use the returned `changed` flags to maintain their own cache generation.
+#[derive(Debug, Default)]
+pub struct CapabilityIndexState {
+    per_instance: BTreeMap<Uuid, InstanceSlice>,
+    tombstones: VecDeque<InstanceTombstone>,
+    unloaded: Arc<[CapabilityRecord]>,
+}
+
+impl CapabilityIndexState {
+    /// Replace an instance slice and report `(previous_fingerprint, changed)`.
+    pub fn upsert_instance(
+        &mut self,
+        instance_id: Uuid,
+        records: Vec<CapabilityRecord>,
+        fingerprint: InstanceFingerprint,
+    ) -> (Option<InstanceFingerprint>, bool) {
+        if records.is_empty() {
+            let previous = self
+                .per_instance
+                .remove(&instance_id)
+                .map(|slice| slice.fingerprint);
+            return (previous, previous.is_some());
+        }
+
+        self.tombstones.retain(|row| row.instance_id != instance_id);
+        if let Some(current) = self.per_instance.get(&instance_id)
+            && current.fingerprint == fingerprint
+            && current.records.as_ref() == records.as_slice()
+        {
+            return (Some(current.fingerprint), false);
+        }
+
+        let previous = self
+            .per_instance
+            .insert(
+                instance_id,
+                InstanceSlice {
+                    records: Arc::from(records),
+                    fingerprint,
+                },
+            )
+            .map(|slice| slice.fingerprint);
+        (previous, true)
+    }
+
+    /// Remove an instance slice.
+    pub fn remove_instance(&mut self, instance_id: Uuid) -> bool {
+        self.per_instance.remove(&instance_id).is_some()
+    }
+
+    /// Remove an instance while retaining bounded lifecycle provenance.
+    ///
+    /// Returns `(was_live, changed)`. A later status for an existing
+    /// tombstone changes provenance even when the instance is already absent.
+    pub fn remove_instance_with_status(
+        &mut self,
+        instance_id: Uuid,
+        previous_status: &str,
+    ) -> (bool, bool) {
+        let removed = self.per_instance.remove(&instance_id);
+        let dcc_type = removed
+            .as_ref()
+            .and_then(|slice| slice.records.first())
+            .map(|record| record.dcc_type.clone())
+            .or_else(|| {
+                self.tombstones
+                    .iter()
+                    .find(|row| row.instance_id == instance_id)
+                    .map(|row| row.dcc_type.clone())
+            });
+        let Some(dcc_type) = dcc_type else {
+            return (removed.is_some(), false);
+        };
+
+        self.tombstones.retain(|row| row.instance_id != instance_id);
+        if self.tombstones.len() == MAX_INSTANCE_TOMBSTONES {
+            self.tombstones.pop_front();
+        }
+        self.tombstones.push_back(InstanceTombstone {
+            instance_id,
+            dcc_type,
+            previous_status: previous_status.to_string(),
+        });
+        (removed.is_some(), true)
+    }
+
+    /// Resolve the newest unique lifecycle row by DCC and UUID/prefix.
+    #[must_use]
+    pub fn instance_tombstone(
+        &self,
+        dcc_type: &str,
+        instance_hint: &str,
+    ) -> Option<InstanceTombstone> {
+        let exact = Uuid::parse_str(instance_hint).ok();
+        let prefix = instance_hint.to_ascii_lowercase();
+        let mut matches = self.tombstones.iter().rev().filter(|row| {
+            row.dcc_type.eq_ignore_ascii_case(dcc_type)
+                && exact.map_or_else(
+                    || {
+                        row.instance_id
+                            .simple()
+                            .to_string()
+                            .starts_with(prefix.as_str())
+                    },
+                    |id| row.instance_id == id,
+                )
+        });
+        let row = matches.next()?.clone();
+        matches.next().is_none().then_some(row)
+    }
+
+    /// Return indexed instance ids in stable UUID order.
+    #[must_use]
+    pub fn instance_ids(&self) -> Vec<Uuid> {
+        self.per_instance.keys().copied().collect()
+    }
+
+    /// Build an immutable, deterministically ordered snapshot.
+    #[must_use]
+    pub fn snapshot(&self) -> IndexSnapshot {
+        let loaded_count: usize = self
+            .per_instance
+            .values()
+            .map(|slice| slice.records.len())
+            .sum();
+        let mut records = Vec::with_capacity(loaded_count + self.unloaded.len());
+        let mut fingerprints = HashMap::with_capacity(self.per_instance.len());
+        for (instance_id, slice) in &self.per_instance {
+            fingerprints.insert(*instance_id, slice.fingerprint);
+            records.extend_from_slice(&slice.records);
+        }
+        records.extend_from_slice(&self.unloaded);
+        records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
+        IndexSnapshot {
+            records: Arc::from(records),
+            fingerprints,
+        }
+    }
+
+    /// Return the fingerprint stored for one instance.
+    #[must_use]
+    pub fn fingerprint_for(&self, instance_id: Uuid) -> Option<InstanceFingerprint> {
+        self.per_instance
+            .get(&instance_id)
+            .map(|slice| slice.fingerprint)
+    }
+
+    /// Count live records across all instances.
+    #[must_use]
+    pub fn total_records(&self) -> usize {
+        self.per_instance
+            .values()
+            .map(|slice| slice.records.len())
+            .sum()
+    }
+
+    /// Count tracked live instances.
+    #[must_use]
+    pub fn instance_count(&self) -> usize {
+        self.per_instance.len()
+    }
+
+    /// Replace unloaded-skill records, returning whether content changed.
+    pub fn set_unloaded_records(&mut self, mut records: Vec<CapabilityRecord>) -> bool {
+        records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
+        if self.unloaded.as_ref() == records.as_slice() {
+            return false;
+        }
+        self.unloaded = Arc::from(records);
+        true
+    }
+
+    /// Count unloaded-skill records.
+    #[must_use]
+    pub fn unloaded_count(&self) -> usize {
+        self.unloaded.len()
+    }
 }
 
 impl IndexSnapshot {
@@ -258,6 +459,82 @@ mod tests {
         assert_eq!(
             snap.fingerprints.get(&iid),
             Some(&InstanceFingerprint(0xdead_beef))
+        );
+    }
+
+    #[test]
+    fn state_upsert_snapshot_and_remove_are_consistent() {
+        let maya = Uuid::from_u128(1);
+        let photoshop = Uuid::from_u128(2);
+        let mut state = CapabilityIndexState::default();
+        let mut maya_record = make_record("maya.00000000.create_sphere");
+        maya_record.instance_id = maya;
+        let mut photoshop_record = make_record("photoshop.00000000.open_document");
+        photoshop_record.instance_id = photoshop;
+        photoshop_record.dcc_type = "photoshop".into();
+
+        assert_eq!(
+            state.upsert_instance(maya, vec![maya_record], InstanceFingerprint(10)),
+            (None, true)
+        );
+        assert_eq!(
+            state.upsert_instance(photoshop, vec![photoshop_record], InstanceFingerprint(20)),
+            (None, true)
+        );
+        assert_eq!(state.instance_ids(), [maya, photoshop]);
+        assert_eq!(state.snapshot().records.len(), 2);
+        assert!(state.remove_instance(maya));
+        assert_eq!(state.fingerprint_for(maya), None);
+        assert_eq!(state.total_records(), 1);
+    }
+
+    #[test]
+    fn identical_upsert_and_unloaded_replacement_are_noops() {
+        let iid = Uuid::from_u128(3);
+        let record = make_record("custom.00000000.inspect");
+        let mut state = CapabilityIndexState::default();
+        assert!(
+            state
+                .upsert_instance(iid, vec![record.clone()], InstanceFingerprint(1))
+                .1
+        );
+        assert!(
+            !state
+                .upsert_instance(iid, vec![record.clone()], InstanceFingerprint(1))
+                .1
+        );
+        assert!(state.set_unloaded_records(vec![record.clone()]));
+        assert!(!state.set_unloaded_records(vec![record]));
+    }
+
+    #[test]
+    fn tombstones_track_latest_status_and_clear_on_return() {
+        let iid = Uuid::from_u128(4);
+        let mut record = make_record("zbrush.00000000.get_scene");
+        record.instance_id = iid;
+        record.dcc_type = "zbrush".into();
+        let mut state = CapabilityIndexState::default();
+        state.upsert_instance(iid, vec![record.clone()], InstanceFingerprint(1));
+
+        assert_eq!(
+            state.remove_instance_with_status(iid, "exited"),
+            (true, true)
+        );
+        assert_eq!(
+            state
+                .instance_tombstone("zbrush", &iid.to_string())
+                .map(|row| row.previous_status),
+            Some("exited".into())
+        );
+        assert_eq!(
+            state.remove_instance_with_status(iid, "host-died"),
+            (false, true)
+        );
+        state.upsert_instance(iid, vec![record], InstanceFingerprint(2));
+        assert!(
+            state
+                .instance_tombstone("zbrush", &iid.to_string())
+                .is_none()
         );
     }
 }

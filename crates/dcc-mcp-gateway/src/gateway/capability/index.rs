@@ -13,7 +13,7 @@
 //!
 //! # Read-side wire types (issue #845)
 //!
-//! [`InstanceFingerprint`] and [`IndexSnapshot`] were migrated to
+//! The lock-free state, [`InstanceFingerprint`], and [`IndexSnapshot`] live in
 //! [`dcc_mcp_gateway_core::capability::index`] so external Rust
 //! tooling can consume the snapshot shape without depending on this
 //! crate's tokio / axum / parking_lot footprint. They are re-exported
@@ -21,7 +21,7 @@
 //! `crate::gateway::capability::index::{InstanceFingerprint,
 //! IndexSnapshot}` paths working unchanged.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -33,16 +33,10 @@ use uuid::Uuid;
 
 use super::record::CapabilityRecord;
 
-pub use dcc_mcp_gateway_core::capability::index::{IndexSnapshot, InstanceFingerprint};
-
-const MAX_INSTANCE_TOMBSTONES: usize = 256;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InstanceTombstone {
-    pub(crate) instance_id: Uuid,
-    pub(crate) dcc_type: String,
-    pub(crate) previous_status: String,
-}
+use dcc_mcp_gateway_core::capability::index::CapabilityIndexState;
+pub use dcc_mcp_gateway_core::capability::index::{
+    IndexSnapshot, InstanceFingerprint, InstanceTombstone,
+};
 
 /// The canonical gateway-scoped capability index.
 ///
@@ -56,7 +50,7 @@ pub struct CapabilityIndex {
     /// A `BTreeMap` keeps the ordering stable without paying for a
     /// `HashMap::iter` resort on every snapshot build — the index is
     /// small enough that the log-n insert cost is noise.
-    inner: RwLock<InnerState>,
+    inner: RwLock<CapabilityIndexState>,
     /// Process-unique identity plus a monotonic content revision.
     ///
     /// This keeps cache validation O(1): callers do not need to clone and hash
@@ -81,30 +75,11 @@ pub struct CapabilityIndex {
     search_refresh_completed: RwLock<HashMap<Uuid, Instant>>,
 }
 
-#[derive(Default)]
-struct InnerState {
-    per_instance: BTreeMap<Uuid, InstanceSlice>,
-    /// Bounded lifecycle provenance for slugs whose instance was removed.
-    ///
-    /// ponytail: linear lookup is bounded at 256 rows; add a secondary map
-    /// only if high-churn gateways make this measurable.
-    tombstones: VecDeque<InstanceTombstone>,
-    /// Records built from unloaded skill metadata (discovered but not
-    /// yet loaded). These are indexed so `search_tools` can find
-    /// skills that aren't connected yet.
-    unloaded: Arc<[CapabilityRecord]>,
-}
-
-struct InstanceSlice {
-    records: Arc<[CapabilityRecord]>,
-    fingerprint: InstanceFingerprint,
-}
-
 impl CapabilityIndex {
     /// Create an empty index.
     pub fn new() -> Self {
         Self {
-            inner: RwLock::new(InnerState::default()),
+            inner: RwLock::new(CapabilityIndexState::default()),
             generation_seed: Uuid::new_v4(),
             revision: AtomicU64::new(0),
             refresh_checkpoint: Mutex::new(None),
@@ -135,49 +110,23 @@ impl CapabilityIndex {
         records: Vec<CapabilityRecord>,
         fingerprint: InstanceFingerprint,
     ) -> Option<InstanceFingerprint> {
-        let mut guard = self.inner.write();
-        if records.is_empty() {
-            let previous = guard
-                .per_instance
-                .remove(&instance_id)
-                .map(|s| s.fingerprint);
-            if previous.is_some() {
-                self.bump_revision();
-            }
-            return previous;
+        let (previous, changed) =
+            self.inner
+                .write()
+                .upsert_instance(instance_id, records, fingerprint);
+        if changed {
+            self.bump_revision();
         }
-        guard
-            .tombstones
-            .retain(|row| row.instance_id != instance_id);
-        if let Some(current) = guard.per_instance.get(&instance_id)
-            && current.fingerprint == fingerprint
-            && current.records.as_ref() == records.as_slice()
-        {
-            return Some(current.fingerprint);
-        }
-        let previous = guard
-            .per_instance
-            .insert(
-                instance_id,
-                InstanceSlice {
-                    records: Arc::from(records),
-                    fingerprint,
-                },
-            )
-            .map(|s| s.fingerprint);
-        self.bump_revision();
         previous
     }
 
     /// Drop every record belonging to `instance_id`. Returns `true`
     /// if the instance was present.
     pub fn remove_instance(&self, instance_id: Uuid) -> bool {
-        let mut guard = self.inner.write();
-        let removed = guard.per_instance.remove(&instance_id).is_some();
+        let removed = self.inner.write().remove_instance(instance_id);
         if removed {
             self.bump_revision();
         }
-        drop(guard);
         self.search_refresh_completed.write().remove(&instance_id);
         removed
     }
@@ -188,36 +137,15 @@ impl CapabilityIndex {
         instance_id: Uuid,
         previous_status: &str,
     ) -> bool {
-        let mut guard = self.inner.write();
-        let removed = guard.per_instance.remove(&instance_id);
-        let dcc_type = removed
-            .as_ref()
-            .and_then(|slice| slice.records.first())
-            .map(|record| record.dcc_type.clone())
-            .or_else(|| {
-                guard
-                    .tombstones
-                    .iter()
-                    .find(|row| row.instance_id == instance_id)
-                    .map(|row| row.dcc_type.clone())
-            });
-        if let Some(dcc_type) = dcc_type {
-            guard
-                .tombstones
-                .retain(|row| row.instance_id != instance_id);
-            if guard.tombstones.len() == MAX_INSTANCE_TOMBSTONES {
-                guard.tombstones.pop_front();
-            }
-            guard.tombstones.push_back(InstanceTombstone {
-                instance_id,
-                dcc_type,
-                previous_status: previous_status.to_string(),
-            });
+        let (removed, changed) = self
+            .inner
+            .write()
+            .remove_instance_with_status(instance_id, previous_status);
+        if changed {
             self.bump_revision();
         }
-        drop(guard);
         self.search_refresh_completed.write().remove(&instance_id);
-        removed.is_some()
+        removed
     }
 
     /// Resolve the most recent lifecycle row by DCC and UUID/prefix.
@@ -226,28 +154,14 @@ impl CapabilityIndex {
         dcc_type: &str,
         instance_hint: &str,
     ) -> Option<InstanceTombstone> {
-        let guard = self.inner.read();
-        let exact = Uuid::parse_str(instance_hint).ok();
-        let prefix = instance_hint.to_ascii_lowercase();
-        let mut matches = guard.tombstones.iter().rev().filter(|row| {
-            row.dcc_type.eq_ignore_ascii_case(dcc_type)
-                && exact.map_or_else(
-                    || {
-                        row.instance_id
-                            .simple()
-                            .to_string()
-                            .starts_with(prefix.as_str())
-                    },
-                    |id| row.instance_id == id,
-                )
-        });
-        let row = matches.next()?.clone();
-        matches.next().is_none().then_some(row)
+        self.inner
+            .read()
+            .instance_tombstone(dcc_type, instance_hint)
     }
 
     /// Return indexed instance ids without cloning or sorting capability rows.
     pub(crate) fn instance_ids(&self) -> Vec<Uuid> {
-        self.inner.read().per_instance.keys().copied().collect()
+        self.inner.read().instance_ids()
     }
 
     pub(crate) fn search_refresh_is_recent(
@@ -295,7 +209,7 @@ impl CapabilityIndex {
     /// that aren't connected yet.
     pub fn snapshot(&self) -> IndexSnapshot {
         let guard = self.inner.read();
-        Self::snapshot_locked(&guard)
+        guard.snapshot()
     }
 
     /// Return a coherent owned snapshot and its generation.
@@ -305,7 +219,7 @@ impl CapabilityIndex {
     /// generation that produced them.
     pub fn snapshot_with_generation(&self) -> (IndexSnapshot, String) {
         let guard = self.inner.read();
-        let snapshot = Self::snapshot_locked(&guard);
+        let snapshot = guard.snapshot();
         let generation = self.generation_string(self.revision.load(Ordering::Acquire));
         (snapshot, generation)
     }
@@ -313,28 +227,6 @@ impl CapabilityIndex {
     /// Return the current opaque generation without cloning index records.
     pub fn generation(&self) -> String {
         self.generation_string(self.revision.load(Ordering::Acquire))
-    }
-
-    fn snapshot_locked(guard: &InnerState) -> IndexSnapshot {
-        let loaded_count: usize = guard.per_instance.values().map(|s| s.records.len()).sum();
-        let unloaded_count = guard.unloaded.len();
-        let mut records: Vec<CapabilityRecord> = Vec::with_capacity(loaded_count + unloaded_count);
-        let mut fingerprints: HashMap<Uuid, InstanceFingerprint> =
-            HashMap::with_capacity(guard.per_instance.len());
-        for (iid, slice) in guard.per_instance.iter() {
-            fingerprints.insert(*iid, slice.fingerprint);
-            records.extend_from_slice(&slice.records);
-        }
-        // Append unloaded skill records so they appear in search results.
-        records.extend_from_slice(&guard.unloaded);
-        // Stable order: by slug — the builder already sorts per-
-        // instance, so this sort is effectively a merge of sorted
-        // runs and stays cheap.
-        records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
-        IndexSnapshot {
-            records: Arc::from(records),
-            fingerprints,
-        }
     }
 
     fn bump_revision(&self) {
@@ -349,26 +241,17 @@ impl CapabilityIndex {
     /// any. Used by the refresh loop to short-circuit when the
     /// backend reports an identical `tools/list` shape.
     pub fn fingerprint_for(&self, instance_id: Uuid) -> Option<InstanceFingerprint> {
-        self.inner
-            .read()
-            .per_instance
-            .get(&instance_id)
-            .map(|s| s.fingerprint)
+        self.inner.read().fingerprint_for(instance_id)
     }
 
     /// Count live records across every instance; diagnostics-only.
     pub fn total_records(&self) -> usize {
-        self.inner
-            .read()
-            .per_instance
-            .values()
-            .map(|s| s.records.len())
-            .sum()
+        self.inner.read().total_records()
     }
 
     /// Count tracked instances; diagnostics-only.
     pub fn instance_count(&self) -> usize {
-        self.inner.read().per_instance.len()
+        self.inner.read().instance_count()
     }
 
     /// Replace the unloaded-skill records with `records`.
@@ -382,21 +265,14 @@ impl CapabilityIndex {
     /// to avoid a direct dependency from `dcc-mcp-gateway` on
     /// `dcc-mcp-models`.
     pub fn set_unloaded_records(&self, records: Vec<CapabilityRecord>) {
-        let mut guard = self.inner.write();
-        // Keep unloaded records sorted so `snapshot()` doesn't need
-        // to re-sort them separately.
-        let mut sorted = records;
-        sorted.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
-        if guard.unloaded.as_ref() == sorted.as_slice() {
-            return;
+        if self.inner.write().set_unloaded_records(records) {
+            self.bump_revision();
         }
-        guard.unloaded = Arc::from(sorted);
-        self.bump_revision();
     }
 
     /// Number of unloaded skill records currently indexed; diagnostics-only.
     pub fn unloaded_count(&self) -> usize {
-        self.inner.read().unloaded.len()
+        self.inner.read().unloaded_count()
     }
 }
 
