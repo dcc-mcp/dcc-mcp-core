@@ -1329,7 +1329,13 @@ dependencies = [
 name = "dcc-mcp-gateway-admin"
 version = "0.20.8"
 dependencies = [
+ "axum",
  "dunce",
+ "parking_lot",
+ "proptest",
+ "serde",
+ "serde_json",
+ "uuid",
  "workspace-hack",
 ]
 
@@ -8533,10 +8539,12 @@ dependencies = [
  "percent-encoding",
  "phf 0.11.3",
  "phf_shared 0.11.3",
+ "ppv-lite86",
  "proc-macro2",
  "quote",
  "rand 0.8.6",
  "rand 0.9.4",
+ "rand_chacha 0.9.0",
  "rand_core 0.6.4",
  "regex",
  "regex-automata",

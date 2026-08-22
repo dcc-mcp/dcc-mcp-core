@@ -17,7 +17,7 @@ dcc-mcp-db = { path = "../dcc-mcp-db", default-features = false }
 dcc-mcp-models = { workspace = true }
 dcc-mcp-actions = { workspace = true }
 dcc-mcp-gateway-core = { workspace = true }
-dcc-mcp-gateway-admin = { workspace = true, optional = true, features = ["embed"] }
+dcc-mcp-gateway-admin = { workspace = true }
 dcc-mcp-jsonrpc = { workspace = true }
 dcc-mcp-naming = { workspace = true }
 dcc-mcp-transport = { workspace = true }
@@ -74,7 +74,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # (opentelemetry / opentelemetry_sdk / opentelemetry-stdout) still compiles via
 # `dcc-mcp-telemetry`; opt-in gating of the OTel stack is a separate follow-up.
 default = []
-admin = ["dep:dcc-mcp-gateway-admin"]
+admin = ["dcc-mcp-gateway-admin/embed"]
 admin-persist-sqlite = ["admin", "dcc-mcp-db/gateway-admin-sqlite"]
 telemetry = ["dep:dcc-mcp-telemetry", "dep:opentelemetry"]
 prometheus = ["telemetry", "dcc-mcp-telemetry/prometheus", "dep:prometheus"]

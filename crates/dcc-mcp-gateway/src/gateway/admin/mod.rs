@@ -118,7 +118,6 @@ pub mod sqlite_lane;
 pub mod state;
 pub mod stats;
 pub mod trace;
-mod trace_log;
 #[cfg(feature = "admin")]
 mod traffic;
 #[cfg(feature = "admin")]

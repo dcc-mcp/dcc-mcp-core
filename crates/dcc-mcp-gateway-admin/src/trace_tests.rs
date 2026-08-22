@@ -315,12 +315,9 @@ fn caller_attribution_network_source_can_be_added_by_server_boundary() {
 fn caller_attribution_reads_only_internal_server_network_headers() {
     let mut headers = HeaderMap::new();
     headers.insert("x-dcc-mcp-source-ip", "203.0.113.99".parse().unwrap());
+    headers.insert(INTERNAL_SOURCE_IP_HEADER, "192.0.2.44".parse().unwrap());
     headers.insert(
-        crate::gateway::caller_attribution::INTERNAL_SOURCE_IP_HEADER,
-        "192.0.2.44".parse().unwrap(),
-    );
-    headers.insert(
-        crate::gateway::caller_attribution::INTERNAL_FORWARDED_FOR_HEADER,
+        INTERNAL_FORWARDED_FOR_HEADER,
         "198.51.100.2, 203.0.113.3".parse().unwrap(),
     );
     let body = json!({
@@ -348,7 +345,7 @@ fn caller_attribution_auth_subject_prefers_internal_auth_boundary() {
     let mut headers = HeaderMap::new();
     headers.insert("x-dcc-mcp-auth-subject", "header:spoofed".parse().unwrap());
     headers.insert(
-        crate::gateway::caller_attribution::INTERNAL_AUTH_SUBJECT_HEADER,
+        INTERNAL_AUTH_SUBJECT_HEADER,
         "oauth:artist-1".parse().unwrap(),
     );
     let body = json!({
@@ -366,10 +363,7 @@ fn caller_attribution_auth_subject_prefers_internal_auth_boundary() {
 #[test]
 fn caller_attribution_ignores_mcp_meta_network_spoofing() {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        crate::gateway::caller_attribution::INTERNAL_SOURCE_IP_HEADER,
-        "192.0.2.44".parse().unwrap(),
-    );
+    headers.insert(INTERNAL_SOURCE_IP_HEADER, "192.0.2.44".parse().unwrap());
     let meta = json!({
         "agent_context": {
             "actor_id": "artist-1",
