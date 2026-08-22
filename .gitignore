@@ -30,7 +30,7 @@ admin-ui/node_modules
 admin-ui/node_modules/
 admin-ui/playwright-report/
 admin-ui/test-results/
-crates/dcc-mcp-gateway/src/gateway/admin/generated/
+crates/dcc-mcp-gateway-admin/src/generated/
 /venv/
 /run_pycharm.bat
 /.nox/

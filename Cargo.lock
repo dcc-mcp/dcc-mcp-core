@@ -1283,6 +1283,7 @@ dependencies = [
  "dcc-mcp-attestation",
  "dcc-mcp-catalog",
  "dcc-mcp-db",
+ "dcc-mcp-gateway-admin",
  "dcc-mcp-gateway-core",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-marketplace",
@@ -1295,7 +1296,6 @@ dependencies = [
  "dcc-mcp-transport",
  "dcc-mcp-updater",
  "dcc-mcp-workflow",
- "dunce",
  "futures",
  "futures-util",
  "http",
@@ -1322,6 +1322,14 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-gateway-admin"
+version = "0.20.8"
+dependencies = [
+ "dunce",
  "workspace-hack",
 ]
 

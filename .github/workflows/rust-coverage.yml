@@ -38,7 +38,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
       # `dcc-mcp-server` enables `dcc-mcp-gateway/admin` by default, so
-      # `cargo llvm-cov --workspace` triggers `crates/dcc-mcp-gateway/build.rs`
+      # `cargo llvm-cov --workspace` triggers `crates/dcc-mcp-gateway-admin/build.rs`
       # which runs `npm ci --ignore-scripts` inside `admin-ui/`. Concurrent
       # cargo + npm in coverage mode hits a known npm bug (`Exit handler
       # never called!`) that crashes the build script. Pre-build the admin

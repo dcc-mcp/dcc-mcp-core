@@ -126,7 +126,7 @@ runs:
 
     # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
     # UI on the GitHub runner (vx + Node from vx.toml), then tell
-    # `crates/dcc-mcp-gateway/build.rs` to skip `vx npm` inside the container.
+    # `crates/dcc-mcp-gateway-admin/build.rs` to skip `vx npm` inside the container.
     # This must run *before* stubgen: stubgen triggers `cargo` which compiles
     # `dcc-mcp-gateway` with the `admin` feature; without a pre-built bundle,
     # build.rs would invoke npm during stubgen (Windows CI failed on invalid
@@ -163,7 +163,7 @@ runs:
           vx npm --prefix admin-ui install "$LIGHTNING_PKG" --no-save --ignore-scripts
         fi
         vx npm --prefix admin-ui run build
-        test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
+        test -f crates/dcc-mcp-gateway-admin/src/generated/index.html
 
     - name: Generate type stubs
       if: inputs.generate-stubs == 'true' && inputs.python-version != '3.7'

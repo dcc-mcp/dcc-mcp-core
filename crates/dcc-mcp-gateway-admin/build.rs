@@ -1,6 +1,6 @@
-//! Materialise `src/gateway/admin/generated/index.html` via the Vite admin bundle.
+//! Materialise `src/generated/index.html` via the Vite admin bundle.
 //!
-//! When the `admin` feature is enabled, this script runs `vx npm …` from the
+//! When the `embed` feature is enabled, this script runs `vx npm …` from the
 //! `admin-ui` directory (Node is resolved via the parent `vx.toml`) or falls
 //! back to plain `npm` with `current_dir(admin-ui)` when `vx` is not on `PATH`.
 //! Build-only installs pass `--ignore-scripts` so the Playwright browser
@@ -22,7 +22,7 @@ fn workspace_root(manifest_dir: &Path) -> Result<PathBuf, String> {
         .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)
-        .ok_or_else(|| "expected Cargo.toml under crates/dcc-mcp-gateway".to_string())
+        .ok_or_else(|| "expected Cargo.toml under crates/dcc-mcp-gateway-admin".to_string())
 }
 
 /// Run `vx npm …` from `admin-ui/`, or `npm …` from `admin-ui/` if `vx`
@@ -85,8 +85,49 @@ fn run_npm_or_vx(admin_ui: &Path, npm_args: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+/// Run a package-local JavaScript entry point with the vx-managed Node runtime.
+fn run_node_or_vx(admin_ui: &Path, script: &str, args: &[&str]) -> Result<(), String> {
+    let mut node_argv = vec![script];
+    node_argv.extend_from_slice(args);
+
+    let vx_result = Command::new("vx")
+        .arg("node")
+        .args(&node_argv)
+        .current_dir(admin_ui)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status();
+
+    match vx_result {
+        Ok(status) if status.success() => return Ok(()),
+        Ok(status) => println!(
+            "cargo:warning=`vx node {}` exited with {status}; trying plain `node`",
+            node_argv.join(" ")
+        ),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            println!("cargo:warning=vx not on PATH; trying plain `node`");
+        }
+        Err(e) => return Err(format!("failed to spawn `vx node`: {e}")),
+    }
+
+    let status = Command::new("node")
+        .args(&node_argv)
+        .current_dir(admin_ui)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| format!("failed to spawn `node`: {e}"))?;
+    if !status.success() {
+        return Err(format!(
+            "`node {}` exited with {status}",
+            node_argv.join(" ")
+        ));
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
-    if std::env::var_os("CARGO_FEATURE_ADMIN").is_none() {
+    if std::env::var_os("CARGO_FEATURE_EMBED").is_none() {
         return Ok(());
     }
 
@@ -96,7 +137,7 @@ fn main() -> Result<(), String> {
     let ws = workspace_root(&manifest_dir)?;
     let admin_ui = dunce::canonicalize(ws.join("admin-ui"))
         .map_err(|e| format!("failed to canonicalize admin-ui path: {e}"))?;
-    let out = manifest_dir.join("src/gateway/admin/generated/index.html");
+    let out = manifest_dir.join("src/generated/index.html");
 
     println!(
         "cargo:rerun-if-changed={}",
@@ -151,8 +192,10 @@ fn main() -> Result<(), String> {
         run_npm_or_vx(&admin_ui, &["ci", "--ignore-scripts"])?;
     }
 
-    println!("cargo:warning=Building admin-ui bundle (vx npm run build or npm run build)");
-    run_npm_or_vx(&admin_ui, &["run", "build"])?;
+    println!("cargo:warning=Type-checking admin-ui bundle");
+    run_node_or_vx(&admin_ui, "node_modules/typescript/bin/tsc", &["-b"])?;
+    println!("cargo:warning=Building admin-ui bundle");
+    run_node_or_vx(&admin_ui, "node_modules/vite/bin/vite.js", &["build"])?;
 
     if !out.is_file() {
         return Err(format!("admin build did not write {}", out.display()));

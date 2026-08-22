@@ -6,12 +6,15 @@
 //!
 //! It is published as its own crate so that:
 //! 1. Touching gateway code does not trigger a full recompile of the
-//!    embedded MCP HTTP server (and vice versa) — gateway is the
-//!    biggest module by far (~11k LoC across 53 files), so the
-//!    incremental-build win is substantial.
+//!    embedded MCP HTTP server (and vice versa).
 //! 2. Downstream binaries that *only* need an embedded server (e.g.
 //!    DCC adapters that never participate in gateway election) no
 //!    longer have to compile the gateway code path.
+//!
+//! The optional dashboard frontend and its Node/Vite build lifecycle are
+//! isolated in `dcc-mcp-gateway-admin`. This crate contains only the gateway
+//! application and its Rust-side admin adapter; builds without the `admin`
+//! feature do not compile or run the frontend build crate.
 //!
 //! For backwards compatibility the entire surface is re-exported from
 //! `dcc_mcp_http` under the historical `dcc_mcp_http::gateway` path —

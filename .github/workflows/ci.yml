@@ -100,7 +100,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: admin-ui-bundle
-          path: crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
+          path: crates/dcc-mcp-gateway-admin/src/generated/index.html
 
   # ── Rust checks ────────────────────────────────────────────────────────────
   # Keep the PR critical path focused:
@@ -184,7 +184,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: admin-ui-bundle
-          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+          path: crates/dcc-mcp-gateway-admin/src/generated
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -337,7 +337,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: admin-ui-bundle
-          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+          path: crates/dcc-mcp-gateway-admin/src/generated
       # Use the same composite wheel builder as release builds and py3.7 CI.
       # It owns Rust/Python setup, Cargo cache, sccache, feature resolution,
       # wheel-content validation, and artifact upload, avoiding duplicated
@@ -397,7 +397,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: admin-ui-bundle
-          path: crates/dcc-mcp-gateway/src/gateway/admin/generated
+          path: crates/dcc-mcp-gateway-admin/src/generated
       - uses: ./.github/actions/build-wheel
         with:
           target: ${{ matrix.target }}

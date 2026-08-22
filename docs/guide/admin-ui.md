@@ -1,6 +1,6 @@
 # Built-in Admin Dashboard
 
-The gateway ships an embedded `/admin` web dashboard (issue #772). At runtime it is a single HTML payload served from the binary; contributors edit the Vite/React source in `admin-ui/`, and `crates/dcc-mcp-gateway/build.rs` embeds the built asset during Cargo builds.
+The gateway ships an embedded `/admin` web dashboard (issue #772). At runtime it is a single HTML payload served from the binary; contributors edit the Vite/React source in `admin-ui/`, and `crates/dcc-mcp-gateway-admin/build.rs` owns the optional frontend build and embedded asset. Builds that do not enable the gateway `admin` feature never execute the Node/Vite build boundary.
 
 ## Activation and Defaults
 

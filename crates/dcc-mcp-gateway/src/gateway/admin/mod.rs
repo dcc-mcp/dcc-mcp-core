@@ -23,9 +23,9 @@
 //!
 //! # Architecture
 //!
-//! The entire UI is a single inline HTML string (`admin/html.rs`) bundled into
-//! the binary via a Rust `const`.  No `npm`, no CDN, no `build.rs`.
-//! Vanilla JS polls the JSON API endpoints every 5 seconds.
+//! The runtime UI is a single inline HTML string (`admin/html.rs`). The
+//! `dcc-mcp-gateway-admin` crate owns the Vite/npm build boundary and embedded
+//! asset; this module owns the gateway-specific HTTP adapter and API handlers.
 //!
 //! # Module layout (PIP-687 split)
 //!
