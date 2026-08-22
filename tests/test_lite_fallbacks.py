@@ -14,6 +14,8 @@ _FALLBACK_PUBLIC_NAMES = (
     "ReadinessProbe",
     "correct_python_executable",
     "is_gui_executable",
+    "json_dumps",
+    "json_loads",
     "parse_skill_md",
     "scan_and_load_strict",
 )
@@ -37,7 +39,7 @@ def _import_without_core(monkeypatch, *module_names: str):
 
     dcc_mcp_core.__dict__.pop("_core", None)
     for name in module_names:
-        sys.modules.pop(name, None)
+        monkeypatch.delitem(sys.modules, name, raising=False)
     return {name: importlib.import_module(name) for name in module_names}
 
 
