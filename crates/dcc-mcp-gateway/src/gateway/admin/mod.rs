@@ -24,8 +24,8 @@
 //! # Architecture
 //!
 //! The runtime UI is a single inline HTML string (`admin/html.rs`). The
-//! `dcc-mcp-gateway-admin` crate owns the trace domain, compact projections,
-//! Vite/npm build boundary, and embedded asset; this module owns the
+//! `dcc-mcp-gateway-admin` crate owns the trace domain, compact and link
+//! projections, Vite/npm build boundary, and embedded asset; this module owns the
 //! gateway-specific HTTP adapter and API handlers.
 //!
 //! # Module layout (PIP-687 split)
