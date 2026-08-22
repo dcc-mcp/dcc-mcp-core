@@ -9,7 +9,7 @@
 //! | [`search_ranking`] | Re-exports scorers / [`SearchRecord`] from `dcc-mcp-gateway-search` |
 //! | [`index`]          | lock-free index state, snapshots, fingerprints, tombstones  |
 //! | [`builder`]        | Pure per-instance MCP tool-to-capability record builder      |
-//! | [`refresh`]        | `RefreshReason` — why a refresh cycle is running             |
+//! | [`refresh`]        | Pure refresh-slice assembly, no-op policy, and reason types  |
 //!
 //! The concurrent `CapabilityIndex` wrapper (which owns synchronization
 //! and refresh gates) and the `refresh_instance` lifecycle driver (which
@@ -47,7 +47,9 @@ pub use record::{
     CapabilityAnnotations, CapabilityGroupInfo, CapabilityMetadata, CapabilityRecord,
     SCHEMA_AVAILABLE, is_valid_dcc_bucket, parse_slug, tool_slug,
 };
-pub use refresh::RefreshReason;
+pub use refresh::{
+    RefreshBuildOutcome, RefreshReason, UnloadedCapabilityHint, build_refresh_records,
+};
 pub use search::{
     DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,
     search, search_page,

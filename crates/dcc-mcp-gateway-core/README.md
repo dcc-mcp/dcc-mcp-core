@@ -22,6 +22,9 @@ async refresh gates without leaking those runtime concerns inward.
 The deterministic capability builder translates transport-neutral
 `dcc-mcp-jsonrpc` `McpTool` values into indexed domain records; backend HTTP
 fetching and lifecycle orchestration remain in `dcc-mcp-gateway`.
+Refresh assembly combines those live records with instance-scoped unloaded
+skill hints, then sorts and fingerprints the complete slice. The gateway
+runtime only performs I/O, observability, synchronization, and the final upsert.
 
 ## Stability
 

@@ -1,30 +1,26 @@
 //! Lifecycle glue between the backend registry and the capability
 //! index.
 //!
-//! The refresh layer is intentionally thin: it delegates the pure
-//! work of "given a backend tools/list, produce records" to
-//! [`super::builder::build_records_from_backend`] and only adds the
-//! I/O — `fetch_tools` on demand, and tracing on lifecycle
-//! transitions.
+//! The refresh layer is intentionally thin: it fetches backend state,
+//! delegates deterministic record building and refresh-slice assembly to
+//! `dcc-mcp-gateway-core`, then applies the result to the concurrent index.
+//! Resilience, diagnostics, metrics, and lifecycle tracing stay here.
 //!
 //! # Wire type relocation (issue #845)
 //!
-//! [`RefreshReason`] was migrated to
-//! [`dcc_mcp_gateway_core::capability::refresh`] so external Rust
-//! tooling (admin dashboards, CLI inspectors, log scrapers) can
-//! match on the reason without depending on this crate's tokio /
-//! reqwest footprint. Re-exported below to keep the historical
-//! `crate::gateway::capability::refresh::RefreshReason` path working
-//! unchanged.
+//! Pure refresh types and assembly rules live in
+//! [`dcc_mcp_gateway_core::capability::refresh`] so tests and tooling do
+//! not depend on this crate's Tokio/Reqwest footprint. `RefreshReason` is
+//! re-exported below to keep its historical path working unchanged.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use uuid::Uuid;
 
-use dcc_mcp_gateway_core::capability::compute_fingerprint;
+use dcc_mcp_gateway_core::capability::build_refresh_records;
 
-use crate::gateway::backend_client::{UnloadedCapabilityHint, try_fetch_tools};
+use crate::gateway::backend_client::try_fetch_tools;
 use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 use crate::gateway::resilience::GatewayResilienceState;
 
@@ -32,7 +28,6 @@ use super::builder::{
     BuildInput, backend_job_status_tool, build_records_from_backend, is_backend_job_tool,
 };
 use super::index::CapabilityIndex;
-use super::record::{CapabilityRecord, tool_slug};
 
 pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 
@@ -107,36 +102,34 @@ pub async fn refresh_instance(
             backend_tools: &tools,
         })
     });
-    let mut records = outcome.records;
-    let loaded_records_len = records.len();
-    let mut unloaded_records = build_unloaded_records(unloaded_hints, instance_id, dcc_type);
-    let unloaded_count = unloaded_records.len();
-    records.append(&mut unloaded_records);
-    records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
-    let fingerprint = tracing::trace_span!(
+    let refresh = tracing::trace_span!(
         target: PROFILING_TARGET,
         "capability.discovery.fingerprint",
         instance = %instance_id,
-        records = records.len(),
+        loaded = outcome.records.len(),
+        unloaded_hints = unloaded_hints.len(),
     )
-    .in_scope(|| compute_fingerprint(&records));
+    .in_scope(|| build_refresh_records(outcome, unloaded_hints, instance_id, dcc_type));
 
     // Short-circuit when nothing changed. This is the common path —
     // most periodic refreshes find an identical tool list.
-    if let Some(prev) = index.fingerprint_for(instance_id)
-        && prev == fingerprint
-        && !records.is_empty()
-    {
+    let previous = index.fingerprint_for(instance_id);
+    if refresh.is_unchanged(previous) {
         tracing::trace!(
             instance = %instance_id,
             reason = reason.as_str(),
-            records = records.len(),
+            records = refresh.records.len(),
             "capability index: no-op refresh (fingerprint unchanged)",
         );
         return false;
     }
 
-    let records_len = records.len();
+    let records_len = refresh.records.len();
+    let fingerprint = refresh.fingerprint;
+    let loaded_count = refresh.loaded;
+    let unloaded_count = refresh.unloaded;
+    let skipped_count = refresh.skipped;
+    let records = refresh.records;
     let prev = tracing::trace_span!(
         target: PROFILING_TARGET,
         "capability.discovery.upsert",
@@ -150,40 +143,13 @@ pub async fn refresh_instance(
         dcc = dcc_type,
         reason = reason.as_str(),
         records = records_len,
-        loaded = loaded_records_len,
+        loaded = loaded_count,
         unloaded = unloaded_count,
-        skipped = outcome.skipped,
+        skipped = skipped_count,
         fingerprint_changed = ?prev.map(|f| f != fingerprint),
         "capability index: refreshed",
     );
     true
-}
-
-fn build_unloaded_records(
-    unloaded_hints: Vec<UnloadedCapabilityHint>,
-    instance_id: Uuid,
-    dcc_type: &str,
-) -> Vec<CapabilityRecord> {
-    unloaded_hints
-        .into_iter()
-        .filter_map(|hint| {
-            if hint.tool_name.is_empty() {
-                return None;
-            }
-            let mut rec = CapabilityRecord::from_skill_tool(
-                &hint.skill_name,
-                &hint.tool_name,
-                &hint.summary,
-                dcc_type,
-                hint.tool_group.clone(),
-            )
-            .with_available_groups(hint.available_groups)
-            .with_search_tokens(hint.search_tokens);
-            rec.instance_id = instance_id;
-            rec.tool_slug = tool_slug(dcc_type, &instance_id, &hint.tool_name);
-            Some(rec)
-        })
-        .collect()
 }
 
 /// Drop every record for `instance_id`. Safe to call even if the
@@ -212,7 +178,18 @@ pub fn remove_instance_with_status(
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use dcc_mcp_gateway_core::capability::index::InstanceFingerprint;
+    use dcc_mcp_gateway_core::capability::{
+        BuildOutcome, CapabilityRecord, UnloadedCapabilityHint, compute_fingerprint,
+        index::InstanceFingerprint,
+    };
+
+    fn build_unloaded_records(
+        hints: Vec<UnloadedCapabilityHint>,
+        instance_id: Uuid,
+        dcc_type: &str,
+    ) -> Vec<CapabilityRecord> {
+        build_refresh_records(BuildOutcome::default(), hints, instance_id, dcc_type).records
+    }
 
     #[test]
     fn refresh_reason_label_is_stable() {

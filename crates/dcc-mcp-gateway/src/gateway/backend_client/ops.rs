@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use dcc_mcp_gateway_core::capability::CapabilityGroupInfo;
 use dcc_mcp_jsonrpc::{McpPrompt, McpTool};
 
 use crate::gateway::admin::trace::TraceContext;
-use crate::gateway::capability::CapabilityGroupInfo;
 use crate::gateway::metrics::record_gateway_backend_error_kind;
 use crate::gateway::resilience::{
     GatewayResilienceState, is_circuit_worthy_rest_error, is_retryable_rest_error, jittered_backoff,
@@ -31,15 +31,7 @@ fn action_matches_group_tool(action: &str, group_tool_name: &str) -> bool {
         .is_some_and(|(_, bare)| bare == group_tool_name)
 }
 
-#[derive(Debug, Clone)]
-pub struct UnloadedCapabilityHint {
-    pub skill_name: String,
-    pub tool_name: String,
-    pub summary: String,
-    pub search_tokens: Vec<String>,
-    pub available_groups: Vec<CapabilityGroupInfo>,
-    pub tool_group: Option<String>,
-}
+pub use dcc_mcp_gateway_core::capability::UnloadedCapabilityHint;
 
 async fn rest_get_idempotent(
     client: &reqwest::Client,

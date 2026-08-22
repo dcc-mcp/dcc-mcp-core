@@ -361,13 +361,14 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-gateway-core
 
-**Purpose**: Pure gateway domain layer for capability records, lock-free index state, deterministic MCP tool-to-record building, slug helpers, search queries/pages/hits, and ranking/scoring. It has no direct HTTP, async-runtime, file-registry, or `dcc-mcp-gateway` dependency.
+**Purpose**: Pure gateway domain layer for capability records, lock-free index state, deterministic MCP tool-to-record building and refresh-slice assembly, slug helpers, search queries/pages/hits, and ranking/scoring. It has no direct HTTP, async-runtime, file-registry, or `dcc-mcp-gateway` dependency.
 
 **Key Components**:
 - `PendingCall` — gateway-to-backend cancellation correlation primitive.
 - `CapabilityRecord` — compact per-tool search/dispatch record.
 - `CapabilityIndexState`, `IndexSnapshot`, `InstanceFingerprint`, `InstanceTombstone` — synchronization-free per-instance mutation, snapshot, and lifecycle rules.
 - `BuildInput`, `BuildOutcome`, `build_records_from_backend` — deterministic translation from transport-neutral MCP `tools/list` values into sorted capability records; HTTP fetching remains in `dcc-mcp-gateway`.
+- `UnloadedCapabilityHint`, `RefreshBuildOutcome`, `build_refresh_records` — instance-scoped unloaded-tool projection, complete-slice sorting/fingerprinting, and no-op policy; resilience, diagnostics, metrics, and index synchronization remain in `dcc-mcp-gateway`.
 - `SearchQuery`, `SearchHit`, `SearchPage`, `SearchMode` — token-budgeted capability search contract.
 - `capability_naming` — gateway instance/skill name projection and bare-name collision policy; delegates wire-name validation to `dcc-mcp-naming`.
 - `ExactScorer`, `FuzzyScorer`, `SubstringScorer`, `StrategyScorer` — pluggable ranking strategies.
