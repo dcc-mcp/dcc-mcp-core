@@ -1,6 +1,6 @@
 # Built-in Admin Dashboard
 
-The gateway ships an embedded `/admin` web dashboard (issue #772). At runtime it is a single HTML payload served from the binary; contributors edit the Vite/React source in `admin-ui/`, and `dcc-mcp-gateway-admin` owns the trace/caller domain, compact agent-facing, link, and issue-report projections, and the optional frontend build and embedded asset. Builds that do not enable the gateway `admin` feature never execute the Node/Vite build boundary.
+The gateway ships an embedded `/admin` web dashboard (issue #772). At runtime it is a single HTML payload served from the binary; contributors edit the Vite/React source in `admin-ui/`, and `dcc-mcp-gateway-admin` owns the trace/caller domain, compact agent-facing, link, issue-report, and statistics projections, plus the optional frontend build and embedded asset. The gateway crate retains only data-source and HTTP adapters for those contracts. Builds that do not enable the gateway `admin` feature never execute the Node/Vite build boundary.
 
 ## Activation and Defaults
 
