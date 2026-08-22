@@ -17,7 +17,6 @@
 
 use std::sync::Arc;
 
-use axum::Router;
 use axum_test::TestServer;
 use serde_json::{Value, json};
 
@@ -36,6 +35,7 @@ use super::service::{
     CallOutcome, CatalogSource, DispatcherInvoker, PendingCall, SkillRestService, ToolInvoker,
     ToolSlug,
 };
+use super::testing::SkillRestTestHarness;
 
 // ── Fixture ──────────────────────────────────────────────────────────
 
@@ -91,14 +91,8 @@ fn fixture_loaded_spheres() -> (SkillRestService, Arc<ToolRegistry>, Arc<ToolDis
 }
 
 fn build_server(service: SkillRestService) -> (TestServer, Arc<VecAuditSink>) {
-    let sink = Arc::new(VecAuditSink::new());
-    let cfg = SkillRestConfig::new(service)
-        .with_audit(sink.clone())
-        .with_readiness(Arc::new(StaticReadiness::fully_ready()))
-        .with_auth(Arc::new(AllowLocalhostGate::new()));
-    let app: Router = build_skill_rest_router(cfg);
-    let server = TestServer::new(app);
-    (server, sink)
+    let harness = SkillRestTestHarness::new(service);
+    (harness.server, harness.audit)
 }
 
 // ── High-value scenarios ─────────────────────────────────────────────
