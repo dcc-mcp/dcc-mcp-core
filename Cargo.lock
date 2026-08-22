@@ -1106,7 +1106,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "dcc-mcp-actions"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dashmap",
  "dcc-mcp-models",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-artefact"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "chrono",
  "hex",
@@ -1144,7 +1144,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-attestation"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "sha2 0.11.0",
  "sigstore-verify",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-capture"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "image",
  "libc",
@@ -1172,7 +1172,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-catalog"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-gateway-search",
  "jsonschema",
@@ -1187,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-cli"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "axum",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-core"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-db"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-models",
  "dcc-mcp-paths",
@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1327,7 +1327,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-admin"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "axum",
  "chrono",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-core"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "chrono",
  "dcc-mcp-gateway-search",
@@ -1357,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-ensure"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "dcc-mcp-test-utils",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-search"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "nucleo-matcher",
  "serde",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-host"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -1398,7 +1398,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-host-rpc"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "axum",
  "axum-test",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http-py"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
@@ -1490,7 +1490,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http-server"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1524,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http-types"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "base64 0.22.1",
  "dcc-mcp-gateway-core",
@@ -1539,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-job"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "chrono",
  "dashmap",
@@ -1556,7 +1556,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-jsonrpc"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-protocols",
  "dcc-mcp-wire",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-logging"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-paths",
  "parking_lot",
@@ -1584,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-marketplace"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-attestation",
  "dcc-mcp-catalog",
@@ -1604,7 +1604,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-models"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-naming",
  "dcc-mcp-pybridge",
@@ -1621,7 +1621,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-naming"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "pyo3",
  "pyo3-stub-gen",
@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-paths"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dirs",
  "pyo3",
@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-process"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-models",
  "ipckit",
@@ -1665,7 +1665,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-protocols"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-models",
  "parking_lot",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-pybridge-derive",
  "pyo3",
@@ -1695,7 +1695,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge-derive"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-sandbox"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-pybridge",
  "parking_lot",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-scheduler"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "axum",
  "bytes",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-semantic"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -1765,7 +1765,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-server"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "axum",
@@ -1805,7 +1805,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-shm"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "bytemuck",
  "ipckit",
@@ -1825,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-sidecar"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "axum",
@@ -1850,7 +1850,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skill-rest"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "async-trait",
  "axum",
@@ -1877,7 +1877,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skills"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "criterion",
  "dashmap",
@@ -1907,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-telemetry"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -1932,7 +1932,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-test-utils"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-skill-rest",
  "serde_json",
@@ -1942,7 +1942,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-transport"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "criterion",
  "dashmap",
@@ -1971,7 +1971,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-agent"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "clap",
@@ -1987,7 +1987,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-protocol"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "jsonwebtoken",
  "rmp-serde",
@@ -2000,7 +2000,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-relay"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "axum",
@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-updater"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "anyhow",
  "fs4",
@@ -2040,7 +2040,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-usd"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-protocols",
  "pyo3",
@@ -2056,7 +2056,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-wire"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "dcc-mcp-protocols",
  "dcc-mcp-pybridge",
@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-workflow"
-version = "0.20.8"
+version = "0.20.9"
 dependencies = [
  "base64 0.22.1",
  "chrono",

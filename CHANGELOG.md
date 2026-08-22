@@ -5,6 +5,92 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.9](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.8...v0.20.9) (2026-08-22)
+
+
+### Features
+
+* pin pip adapter artifacts ([ba031b7](https://github.com/dcc-mcp/dcc-mcp-core/commit/ba031b741e6cdcb1c2c81a4dd1ee68888812dd95))
+* version DCC-Link frames ([f4be4ba](https://github.com/dcc-mcp/dcc-mcp-core/commit/f4be4baaf253380a29447c10de5d89d02fdc0907))
+* version service registry entries ([2c6a96a](https://github.com/dcc-mcp/dcc-mcp-core/commit/2c6a96acc8eb4fe8c066db89ffd5a7599bf73b18))
+
+
+### Bug Fixes
+
+* **build:** stop default wheel compiling admin UI, bundled SQLite, and Prometheus ([46f4c93](https://github.com/dcc-mcp/dcc-mcp-core/commit/46f4c935998de4a381d4739279cd81e2e2723720)), closes [#2182](https://github.com/dcc-mcp/dcc-mcp-core/issues/2182)
+* preserve immutable release artifacts ([4851b45](https://github.com/dcc-mcp/dcc-mcp-core/commit/4851b450d258dc23c6d5e8b935705e1bbb3b8ecb))
+* require immutable marketplace sources ([6cf42d7](https://github.com/dcc-mcp/dcc-mcp-core/commit/6cf42d73c9ac442aeb712250df0d108f09adeb0e))
+* require verified binary updates ([#2203](https://github.com/dcc-mcp/dcc-mcp-core/issues/2203)) ([e065015](https://github.com/dcc-mcp/dcc-mcp-core/commit/e0650154e6e277c8778735d398aefec551f20453))
+* unify MCP protocol negotiation ([07c84d1](https://github.com/dcc-mcp/dcc-mcp-core/commit/07c84d1eb36df37a7eb064f93f565784fb77e2d9))
+* unify tool result envelope contracts ([#2202](https://github.com/dcc-mcp/dcc-mcp-core/issues/2202)) ([8be66f4](https://github.com/dcc-mcp/dcc-mcp-core/commit/8be66f416442f93502fdb781216ef53c22f1fce9))
+* verify official release metadata provenance ([c7bff3f](https://github.com/dcc-mcp/dcc-mcp-core/commit/c7bff3fc6f90298c5217cd65bb7f4f648ea7d94e))
+
+
+### Performance Improvements
+
+* avoid catalog clones before search pruning ([859c865](https://github.com/dcc-mcp/dcc-mcp-core/commit/859c865eec3fd61f321cdc9688860f45cf0e5ff0))
+* preserve typed main-thread dispatch results ([5ea907d](https://github.com/dcc-mcp/dcc-mcp-core/commit/5ea907d01039f90d0fc6a670a3594a40ec4b3e5b))
+* update skill search index incrementally ([3d19c6d](https://github.com/dcc-mcp/dcc-mcp-core/commit/3d19c6d44f2cd3cf9150a7fbb71868fd97304069))
+
+
+### Code Refactoring
+
+* adopt PyWrapper for nested configs ([5b6c905](https://github.com/dcc-mcp/dcc-mcp-core/commit/5b6c90592274b09f61f3615d133fc4c748ed7a57))
+* centralize JSON-RPC envelopes ([dde3387](https://github.com/dcc-mcp/dcc-mcp-core/commit/dde3387ece7fc836a2b7f3706da4e3e8f9b808ef))
+* centralize lifecycle path coercion ([c712663](https://github.com/dcc-mcp/dcc-mcp-core/commit/c7126633f3981fc135c7e650b1c23bdf5367e17e))
+* centralize lifecycle registry path ([fd4b03d](https://github.com/dcc-mcp/dcc-mcp-core/commit/fd4b03df7f3fb0ede7746d8014daba5fa1e98c5c))
+* centralize Python environment names ([5b4133a](https://github.com/dcc-mcp/dcc-mcp-core/commit/5b4133a48d3bf579610e6a826adcb77e5e65e8c0))
+* centralize Python environment parsing ([0fe60c7](https://github.com/dcc-mcp/dcc-mcp-core/commit/0fe60c71fc37a2b7935ad08f5da090a10a673a54))
+* centralize Python JSON backend selection ([bbd50d2](https://github.com/dcc-mcp/dcc-mcp-core/commit/bbd50d2c7c757526791abfefcd139b61d7b6ea50))
+* centralize Python package version resolution ([fa31258](https://github.com/dcc-mcp/dcc-mcp-core/commit/fa31258aa5d3fd0405f0c7f6654a07fbf30df1fa))
+* centralize Python semver parsing ([a026169](https://github.com/dcc-mcp/dcc-mcp-core/commit/a026169d03cd11f8ede3c7025f48a8230e3e17f9))
+* centralize workspace dependencies ([01a22f3](https://github.com/dcc-mcp/dcc-mcp-core/commit/01a22f328de10e114ea395715d476b4eed9e6d56))
+* clarify project ownership boundaries ([81d4d1e](https://github.com/dcc-mcp/dcc-mcp-core/commit/81d4d1e5af047114cf181a596cec1f850e864952))
+* decouple executor errors from HTTP ([e756d7c](https://github.com/dcc-mcp/dcc-mcp-core/commit/e756d7c479717838f49c60517fdcfcd47d7eb672))
+* decouple lite fallback from py37 ([b92b0e5](https://github.com/dcc-mcp/dcc-mcp-core/commit/b92b0e54d8603530b26709f43e99891a34378ac3))
+* define Python API ownership ([c708cd5](https://github.com/dcc-mcp/dcc-mcp-core/commit/c708cd5e6cbb2b63563eefe994b382c9f0db69e7))
+* disambiguate cancellation error ([fbd742d](https://github.com/dcc-mcp/dcc-mcp-core/commit/fbd742d6a376cb178701fe06d4708aa8912dcd46))
+* distinguish catalog search hits ([3c914d3](https://github.com/dcc-mcp/dcc-mcp-core/commit/3c914d3eaed5f1cd72351cb235170a673db7cbbc))
+* distinguish gateway capability naming ([72c4cd6](https://github.com/dcc-mcp/dcc-mcp-core/commit/72c4cd68f90b969e2b615922346ff90e4328581b))
+* distinguish gateway settings ([b93463e](https://github.com/dcc-mcp/dcc-mcp-core/commit/b93463e856516117c7ab8037653f4a7cb313d737))
+* distinguish skill tool annotations ([44d58e4](https://github.com/dcc-mcp/dcc-mcp-core/commit/44d58e46a2cb94ec8517a2ac5cc25c9862b761d7))
+* distinguish tool call error envelopes ([18e4be8](https://github.com/dcc-mcp/dcc-mcp-core/commit/18e4be83509fe5627ae7ef0dad02684c0b9eeaa7))
+* extract admin activity projection ([#2281](https://github.com/dcc-mcp/dcc-mcp-core/issues/2281)) ([0e27f35](https://github.com/dcc-mcp/dcc-mcp-core/commit/0e27f350b599169e8366b0961cbc2d332c40cffc))
+* extract admin artifact projection ([#2280](https://github.com/dcc-mcp/dcc-mcp-core/issues/2280)) ([61fb98d](https://github.com/dcc-mcp/dcc-mcp-core/commit/61fb98d5a1dcac8f0669b76f92fe06df0c800e71))
+* extract admin debug projection ([#2283](https://github.com/dcc-mcp/dcc-mcp-core/issues/2283)) ([65d2b1e](https://github.com/dcc-mcp/dcc-mcp-core/commit/65d2b1e0b112edf067a160c1e254e5c25401427f))
+* extract admin task projection ([#2282](https://github.com/dcc-mcp/dcc-mcp-core/issues/2282)) ([ab4057f](https://github.com/dcc-mcp/dcc-mcp-core/commit/ab4057fee6f2bdfddda5095eb866bd46b9b2ab0b))
+* extract admin traffic projection ([0e59f60](https://github.com/dcc-mcp/dcc-mcp-core/commit/0e59f60075c83cba26d11bb283f30389ae2ab720))
+* extract gateway admin analytics ([f508bbd](https://github.com/dcc-mcp/dcc-mcp-core/commit/f508bbdc204f7787aa5895d26141a8a00fe73fcf))
+* extract gateway admin audit domain ([0bdd735](https://github.com/dcc-mcp/dcc-mcp-core/commit/0bdd735ae3010457ba84884958e80f080cc3c1cb))
+* extract gateway admin governance ([4473f91](https://github.com/dcc-mcp/dcc-mcp-core/commit/4473f91ca5a5285ed2f22d8b884d518d0a54d00f))
+* extract gateway admin issue reports ([2a73ed5](https://github.com/dcc-mcp/dcc-mcp-core/commit/2a73ed5eedf3d443f2cabda9c98b972629e0cfb7))
+* extract gateway admin links ([b91b5cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/b91b5cc4e0bbb4d0a459b8b23416293cea718cb7))
+* extract gateway admin projections ([807739a](https://github.com/dcc-mcp/dcc-mcp-core/commit/807739a0ca12fb83b723c8456446c3ce187f3d15))
+* extract gateway admin statistics ([75f9251](https://github.com/dcc-mcp/dcc-mcp-core/commit/75f9251cbae5695f722130d5fdc195d19dc0bbe3))
+* extract gateway admin trace domain ([3e394c3](https://github.com/dcc-mcp/dcc-mcp-core/commit/3e394c3d8bafb9e620e8b994e3547de3fb51cf2a))
+* isolate diagnostic runtime state ([acb28c0](https://github.com/dcc-mcp/dcc-mcp-core/commit/acb28c067ef1780ee22bc6e4adef92f08f746389))
+* isolate gateway admin asset build ([63cc222](https://github.com/dcc-mcp/dcc-mcp-core/commit/63cc2226ca0db07c496069bf8749b34374515913))
+* isolate gateway ingress state ([5343aa7](https://github.com/dcc-mcp/dcc-mcp-core/commit/5343aa7e5bfc89d7f85ab7149068abc444815697))
+* isolate gateway resilience state ([d4b8860](https://github.com/dcc-mcp/dcc-mcp-core/commit/d4b8860672225c2c4211aaec89b129a9086ddab0))
+* isolate Python runtime state ([27d4ae4](https://github.com/dcc-mcp/dcc-mcp-core/commit/27d4ae4715604f05476f5199ff503495b52d6fb7))
+* make REST tool invocation async ([9467907](https://github.com/dcc-mcp/dcc-mcp-core/commit/946790729a5d28e47907b4ac5969a5b74ae385f1))
+* move capability builder to core ([1f85300](https://github.com/dcc-mcp/dcc-mcp-core/commit/1f85300b55c904afa77ee65dc72e0bce6ee5d1ac))
+* move capability index state to core ([1f2d507](https://github.com/dcc-mcp/dcc-mcp-core/commit/1f2d507171df19e8faccac711b4091f7d6a8bb83))
+* move capability refresh logic to core ([72b7bd8](https://github.com/dcc-mcp/dcc-mcp-core/commit/72b7bd88a78f5c12c405aed5635b13a3d2f27cd6))
+* move instance status policy to models ([fdef4ea](https://github.com/dcc-mcp/dcc-mcp-core/commit/fdef4ea9ae73d45a88c9e1d45c0eb6b624d9f5ea))
+* move registry I/O off async runtime ([b70d2bf](https://github.com/dcc-mcp/dcc-mcp-core/commit/b70d2bf0f216bf5b95ab66f540e882b3736c7ca3))
+* move wire bindings out of host ([2d8acb9](https://github.com/dcc-mcp/dcc-mcp-core/commit/2d8acb9b7cd6af33f0d24f3265afce8fb793da73))
+* share main-thread queue statistics ([40821ef](https://github.com/dcc-mcp/dcc-mcp-core/commit/40821ef6bb8fff849f7dd6f7f598a41acfa1bb7f))
+* share tunnel frame transport ([828e9b6](https://github.com/dcc-mcp/dcc-mcp-core/commit/828e9b6a9b316a8bcb1a882f9d188c5a9f1694eb))
+* unify HTTP server feature flags ([7db5168](https://github.com/dcc-mcp/dcc-mcp-core/commit/7db51684c375240d4588bc23e514146847fb54fe))
+* unify Python exception hierarchy ([c5b571e](https://github.com/dcc-mcp/dcc-mcp-core/commit/c5b571e4719fcec77da3281d34ff7196ee811f91))
+* unify search scoring ([b5e3d76](https://github.com/dcc-mcp/dcc-mcp-core/commit/b5e3d76f3f925125285ae5770bb798152454277e))
+
+
+### Documentation
+
+* **build:** correct feature comments to reflect actual default wheel footprint ([20ba5dc](https://github.com/dcc-mcp/dcc-mcp-core/commit/20ba5dc5397c5d8e16dcba4740d08d629d8c7411))
+
 ## [0.20.8](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.7...v0.20.8) (2026-08-18)
 
 
