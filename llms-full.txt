@@ -109,7 +109,7 @@ crates/
 ├── dcc-mcp-skill-rest/   # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core/ # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search/ # Reusable capability search/ranking engine
-├── dcc-mcp-gateway-admin/  # Admin trace/caller/projection domain + embedded dashboard boundary
+├── dcc-mcp-gateway-admin/  # Admin trace/caller/projection/report domain + embedded dashboard boundary
 ├── dcc-mcp-gateway-ensure/ # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-gateway/      # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-http-types/   # Pure HTTP wire/config/value types

@@ -293,7 +293,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `CapabilityIndex` + refresh tasks — 从活跃 per-DCC 实例构建 capability records，并剔除 stale 实例
 - `search`、`describe` — 固定的只读 gateway MCP 发现工具，覆盖动态 capability index；`/v1/call` 与 `/v1/call_batch` 是执行面
 - Gateway REST facade — `POST /v1/search`、`/v1/describe`、`/v1/call` 以及 diagnostics/resources/prompts 聚合
-- Admin/dashboard — `/admin/api/*` 只读检查 instances、tools、calls、traces、stats、workers、logs、health。Trace、caller context、token telemetry、有界 trace log、面向 agent 的 compact projection 与链接 projection 契约由 `dcc-mcp-gateway-admin` 持有；gateway crate 保留兼容导入路径。
+- Admin/dashboard — `/admin/api/*` 只读检查 instances、tools、calls、traces、stats、workers、logs、health。Trace、caller context、token telemetry、有界 trace log、面向 agent 的 compact projection、链接 projection 与 issue-report 隐私契约由 `dcc-mcp-gateway-admin` 持有；gateway crate 保留兼容导入路径。
 
 ### dcc-mcp-http-types
 

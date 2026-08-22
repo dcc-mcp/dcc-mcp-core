@@ -392,7 +392,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 - `CapabilityIndex` + refresh tasks — concurrent application wrapper over core index state; coordinates live per-DCC refreshes and evicts stale instances.
 - `search`, `describe`, `load_skill`, `call` — fixed gateway MCP workflow tools over the dynamic capability index; `/v1/*` routes are the pure HTTP twin.
 - Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, plus diagnostics/resources/prompts aggregation.
-- Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health. Trace, caller-context, token-telemetry, bounded trace-log, compact agent-facing projection, and link projection contracts are owned by `dcc-mcp-gateway-admin`; compatibility paths remain available from the gateway crate.
+- Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health. Trace, caller-context, token-telemetry, bounded trace-log, compact agent-facing projection, link projection, and issue-report privacy contracts are owned by `dcc-mcp-gateway-admin`; compatibility paths remain available from the gateway crate.
 
 **Dependencies**: `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, `dcc-mcp-gateway-admin`, `dcc-mcp-wire`, `dcc-mcp-transport`, `dcc-mcp-skill-rest`, `reqwest`, `tokio`.
 
