@@ -1,14 +1,118 @@
-//! Refresh-cycle telemetry types (issue #845).
+//! Pure capability refresh assembly and telemetry types.
 //!
-//! The mutable refresh loop — `refresh_instance`, `remove_instance`,
-//! and the I/O it drives via `reqwest` — stays in `dcc-mcp-gateway`
-//! because it carries runtime state. Only the *enum that classifies
-//! why a refresh ran* lives here, so external Rust tooling
-//! (operator dashboards, CLI inspectors) can match on the reason
-//! without depending on the gateway crate's tokio / reqwest /
-//! parking_lot footprint.
+//! The mutable refresh loop and its `reqwest` I/O stay in
+//! `dcc-mcp-gateway`. This module owns the deterministic part: combining
+//! loaded builder output with unloaded skill hints, assigning
+//! instance-scoped slugs, sorting, fingerprinting, and classifying no-op
+//! refreshes.
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use super::builder::BuildOutcome;
+use super::index::{InstanceFingerprint, compute_fingerprint};
+use super::record::{CapabilityGroupInfo, CapabilityRecord, tool_slug};
+
+/// Search metadata for one tool belonging to an unloaded skill.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnloadedCapabilityHint {
+    /// Owning skill package name.
+    pub skill_name: String,
+    /// Backend callable name that becomes routable after loading.
+    pub tool_name: String,
+    /// Search summary shown before the skill is loaded.
+    pub summary: String,
+    /// Extra non-wire search tokens.
+    pub search_tokens: Vec<String>,
+    /// Progressive groups advertised by the skill.
+    pub available_groups: Vec<CapabilityGroupInfo>,
+    /// Progressive group containing this tool, when known.
+    pub tool_group: Option<String>,
+}
+
+/// Fully assembled per-instance slice ready for an index upsert.
+#[derive(Debug, Clone, Default)]
+pub struct RefreshBuildOutcome {
+    /// Loaded and unloaded records, sorted by stable tool slug.
+    pub records: Vec<CapabilityRecord>,
+    /// Fingerprint covering the complete sorted slice.
+    pub fingerprint: InstanceFingerprint,
+    /// Number of records built from the live backend tool list.
+    pub loaded: usize,
+    /// Number of valid unloaded hints converted to records.
+    pub unloaded: usize,
+    /// Number of live backend tools rejected by the builder.
+    pub skipped: usize,
+}
+
+impl RefreshBuildOutcome {
+    /// Return whether a non-empty slice matches the currently indexed fingerprint.
+    ///
+    /// Empty slices deliberately return `false`: the runtime must upsert them so a
+    /// backend that removed every capability also removes its stale index slice.
+    #[must_use]
+    pub fn is_unchanged(&self, previous: Option<InstanceFingerprint>) -> bool {
+        !self.records.is_empty() && previous == Some(self.fingerprint)
+    }
+}
+
+/// Combine live builder output with unloaded skill hints for one DCC instance.
+#[must_use]
+pub fn build_refresh_records(
+    loaded: BuildOutcome,
+    unloaded_hints: Vec<UnloadedCapabilityHint>,
+    instance_id: Uuid,
+    dcc_type: &str,
+) -> RefreshBuildOutcome {
+    let BuildOutcome {
+        mut records,
+        skipped,
+        ..
+    } = loaded;
+    let loaded = records.len();
+    records.extend(build_unloaded_records(
+        unloaded_hints,
+        instance_id,
+        dcc_type,
+    ));
+    records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
+    let unloaded = records.len().saturating_sub(loaded);
+    let fingerprint = compute_fingerprint(&records);
+    RefreshBuildOutcome {
+        records,
+        fingerprint,
+        loaded,
+        unloaded,
+        skipped,
+    }
+}
+
+fn build_unloaded_records(
+    unloaded_hints: Vec<UnloadedCapabilityHint>,
+    instance_id: Uuid,
+    dcc_type: &str,
+) -> Vec<CapabilityRecord> {
+    unloaded_hints
+        .into_iter()
+        .filter_map(|hint| {
+            if hint.tool_name.is_empty() {
+                return None;
+            }
+            let mut record = CapabilityRecord::from_skill_tool(
+                &hint.skill_name,
+                &hint.tool_name,
+                &hint.summary,
+                dcc_type,
+                hint.tool_group,
+            )
+            .with_available_groups(hint.available_groups)
+            .with_search_tokens(hint.search_tokens);
+            record.instance_id = instance_id;
+            record.tool_slug = tool_slug(dcc_type, &instance_id, &hint.tool_name);
+            Some(record)
+        })
+        .collect()
+}
 
 /// Why a refresh cycle is running.
 ///
@@ -46,6 +150,7 @@ impl RefreshReason {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability::record::CapabilityRecord;
 
     #[test]
     fn refresh_reason_as_str_is_stable() {
@@ -79,5 +184,77 @@ mod tests {
 
         let back: RefreshReason = serde_json::from_str("\"periodic\"").unwrap();
         assert_eq!(back, RefreshReason::Periodic);
+    }
+
+    fn hint(skill: &str, tool: &str) -> UnloadedCapabilityHint {
+        UnloadedCapabilityHint {
+            skill_name: skill.to_string(),
+            tool_name: tool.to_string(),
+            summary: format!("Discover {tool}"),
+            search_tokens: vec!["discover".to_string()],
+            available_groups: Vec::new(),
+            tool_group: None,
+        }
+    }
+
+    #[test]
+    fn refresh_records_merge_loaded_and_unloaded_photoshop_tools() {
+        let instance_id = Uuid::from_u128(0xfeed_0000_0000_0000_0000_0000_0000_0001);
+        let loaded_record = CapabilityRecord::new(
+            tool_slug("photoshop", &instance_id, "read_document"),
+            "read_document".to_string(),
+            "read_document".to_string(),
+            Some("photoshop-document".to_string()),
+            "Read the active document",
+            vec!["read".to_string()],
+            "photoshop".to_string(),
+            instance_id,
+            false,
+            true,
+            None,
+        );
+        let outcome = build_refresh_records(
+            BuildOutcome {
+                records: vec![loaded_record],
+                fingerprint: InstanceFingerprint(1),
+                skipped: 2,
+            },
+            vec![
+                hint("photoshop-export", "export_document"),
+                hint("broken", ""),
+            ],
+            instance_id,
+            "photoshop",
+        );
+
+        assert_eq!(outcome.loaded, 1);
+        assert_eq!(outcome.unloaded, 1);
+        assert_eq!(outcome.skipped, 2);
+        assert_eq!(outcome.records.len(), 2);
+        assert_eq!(outcome.records[0].backend_tool, "export_document");
+        assert!(!outcome.records[0].loaded);
+        assert!(outcome.records[0].tool_slug.contains(".feed0000."));
+        assert_eq!(outcome.records[1].backend_tool, "read_document");
+        assert_ne!(outcome.fingerprint, InstanceFingerprint::default());
+    }
+
+    #[test]
+    fn unchanged_policy_preserves_empty_slice_removal() {
+        let empty = build_refresh_records(
+            BuildOutcome::default(),
+            Vec::new(),
+            Uuid::from_u128(7),
+            "zbrush",
+        );
+        assert!(!empty.is_unchanged(Some(empty.fingerprint)));
+
+        let non_empty = build_refresh_records(
+            BuildOutcome::default(),
+            vec![hint("custom-inspection", "inspect_scene")],
+            Uuid::from_u128(8),
+            "custom",
+        );
+        assert!(non_empty.is_unchanged(Some(non_empty.fingerprint)));
+        assert!(!non_empty.is_unchanged(None));
     }
 }
