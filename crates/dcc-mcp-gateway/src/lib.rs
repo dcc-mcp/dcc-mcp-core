@@ -11,7 +11,7 @@
 //!    DCC adapters that never participate in gateway election) no
 //!    longer have to compile the gateway code path.
 //!
-//! The admin audit/trace domain, compact response, link, issue-report, and statistics
+//! The admin audit/trace domain, compact response, link, issue-report, statistics, and analytics
 //! projections, optional dashboard frontend, and Node/Vite build lifecycle are
 //! isolated in `dcc-mcp-gateway-admin`. This crate contains only the gateway
 //! application and its Rust-side admin adapters; builds without the `admin`
