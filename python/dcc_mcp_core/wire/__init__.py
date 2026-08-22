@@ -1,4 +1,4 @@
-"""Python wrappers for host-facing MCP wire normalization helpers."""
+"""Canonical Python interface for MCP wire normalization."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ try:
     from dcc_mcp_core._core import normalize_tool_arguments as _normalize_tool_arguments
     from dcc_mcp_core._core import normalize_tool_meta as _normalize_tool_meta
 except ImportError:
-    from dcc_mcp_core.host._fallback import normalize_tool_arguments as _normalize_tool_arguments
-    from dcc_mcp_core.host._fallback import normalize_tool_meta as _normalize_tool_meta
+    from dcc_mcp_core.wire._fallback import normalize_tool_arguments as _normalize_tool_arguments
+    from dcc_mcp_core.wire._fallback import normalize_tool_meta as _normalize_tool_meta
 
 
 def normalize_tool_arguments(arguments: Any = None) -> dict[str, Any]:
@@ -20,3 +20,6 @@ def normalize_tool_arguments(arguments: Any = None) -> dict[str, Any]:
 def normalize_tool_meta(meta: Any = None) -> dict[str, Any] | None:
     """Normalize raw tool ``_meta`` to a dict or ``None``."""
     return _normalize_tool_meta(meta)
+
+
+__all__ = ["normalize_tool_arguments", "normalize_tool_meta"]

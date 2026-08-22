@@ -1246,6 +1246,7 @@ dependencies = [
  "dcc-mcp-telemetry",
  "dcc-mcp-transport",
  "dcc-mcp-usd",
+ "dcc-mcp-wire",
  "dcc-mcp-workflow",
  "pyo3",
  "pyo3-stub-gen",
@@ -1370,13 +1371,10 @@ dependencies = [
 name = "dcc-mcp-host"
 version = "0.20.8"
 dependencies = [
- "dcc-mcp-pybridge",
- "dcc-mcp-wire",
  "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
- "serde_json",
  "thiserror",
  "tokio",
  "tracing",
@@ -2040,6 +2038,7 @@ name = "dcc-mcp-wire"
 version = "0.20.8"
 dependencies = [
  "dcc-mcp-protocols",
+ "dcc-mcp-pybridge",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",

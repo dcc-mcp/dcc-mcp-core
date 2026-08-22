@@ -53,13 +53,15 @@ def test_host_namespace_falls_back_without_core(monkeypatch) -> None:
     modules = _import_without_core(
         monkeypatch,
         "dcc_mcp_core.host._protocols",
-        "dcc_mcp_core.host._wire",
+        "dcc_mcp_core.wire._fallback",
+        "dcc_mcp_core.wire",
         "dcc_mcp_core.host._adapter",
         "dcc_mcp_core.host._standalone",
         "dcc_mcp_core.host._fallback",
         "dcc_mcp_core.host",
     )
     host = modules["dcc_mcp_core.host"]
+    wire = modules["dcc_mcp_core.wire"]
     fallback = modules["dcc_mcp_core.host._fallback"]
 
     assert host.BlockingDispatcher is fallback.BlockingDispatcher
@@ -80,6 +82,8 @@ def test_host_namespace_falls_back_without_core(monkeypatch) -> None:
 
     assert host.normalize_tool_arguments('{"radius": 2}') == {"radius": 2}
     assert host.normalize_tool_meta(None) is None
+    assert wire.normalize_tool_arguments('{"radius": 2}') == {"radius": 2}
+    assert wire.normalize_tool_meta(None) is None
 
 
 def test_server_and_skill_helpers_fallback_without_core(monkeypatch, tmp_path) -> None:

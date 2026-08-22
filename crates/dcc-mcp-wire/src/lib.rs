@@ -26,6 +26,8 @@
 
 pub mod error;
 pub mod normalize;
+#[cfg(feature = "python-bindings")]
+pub mod python;
 pub mod validate;
 pub mod wire;
 
