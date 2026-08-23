@@ -7,7 +7,7 @@ use dcc_mcp_gateway_admin::{
 };
 use serde_json::{Value, json};
 
-use super::state::{AdminAuditRecord, AdminState};
+use super::super::state::{AdminAuditRecord, AdminState};
 use crate::gateway::traffic::{TrafficCaptureDecision, TrafficCaptureSnapshot};
 
 /// Build a read-only governance payload for Admin and `/v1/debug/governance`.

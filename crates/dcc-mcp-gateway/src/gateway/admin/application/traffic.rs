@@ -6,7 +6,11 @@ use serde_json::Value;
 use super::governance::governance_capture_decision;
 use crate::gateway::traffic::{TrafficCapture, TrafficCaptureSnapshot};
 
-pub(super) fn build_traffic_payload(capture: &TrafficCapture, limit: usize, links: Value) -> Value {
+pub(in crate::gateway::admin) fn build_traffic_payload(
+    capture: &TrafficCapture,
+    limit: usize,
+    links: Value,
+) -> Value {
     let frames = capture
         .recent_frames(limit)
         .into_iter()
@@ -16,7 +20,10 @@ pub(super) fn build_traffic_payload(capture: &TrafficCapture, limit: usize, link
     traffic_payload(frames, &snapshot, links)
 }
 
-pub(super) fn build_traffic_export_body(capture: &TrafficCapture, limit: usize) -> String {
+pub(in crate::gateway::admin) fn build_traffic_export_body(
+    capture: &TrafficCapture,
+    limit: usize,
+) -> String {
     let frames = capture
         .recent_frames(limit)
         .into_iter()

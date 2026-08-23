@@ -474,7 +474,7 @@ pub async fn handle_admin_tools(State(s): State<AdminState>) -> impl IntoRespons
 pub async fn handle_admin_skills(State(s): State<AdminState>) -> impl IntoResponse {
     reload_skill_paths_and_refresh_backends(&s, RefreshReason::Periodic).await;
     let records = s.gateway.capability_index.snapshot().records;
-    Json(crate::gateway::admin::skill_health::build_skill_inventory_payload(&s, records).await)
+    Json(super::skill_health::build_skill_inventory_payload(&s, records).await)
 }
 
 fn admin_skill_query_name(params: &AdminSkillDetailQuery) -> Option<&str> {
@@ -1101,7 +1101,7 @@ pub async fn handle_admin_stats(
                 obj.insert("p95_ms".to_string(), json!(stats.latency_ms.p95_ms));
                 obj.insert(
                     "governance".to_string(),
-                    crate::gateway::admin::governance::build_governance_stats(&s),
+                    super::governance::build_governance_stats(&s),
                 );
                 obj.insert(
                     "avg_tokens_per_call".to_string(),
@@ -1138,7 +1138,7 @@ pub async fn handle_admin_stats(
             "payload_token_estimator": TOKEN_ESTIMATOR,
             "payload_token_usage": dcc_mcp_gateway_admin::PayloadTokenUsageStats::empty(0),
             "token_usage": dcc_mcp_gateway_admin::TokenUsageStats::default(),
-            "governance": crate::gateway::admin::governance::build_governance_stats(&s),
+            "governance": super::governance::build_governance_stats(&s),
             });
             debug_response(&headers, &params, StatusCode::OK, root.clone(), Some(root))
         }

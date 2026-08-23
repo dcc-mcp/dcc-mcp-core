@@ -81,7 +81,7 @@ pub(super) async fn build_skill_inventory_payload(
     )
 }
 
-pub(super) fn build_skill_paths_payload(state: &AdminState) -> Value {
+pub(in crate::gateway::admin) fn build_skill_paths_payload(state: &AdminState) -> Value {
     let paths = build_skill_path_rows(state);
     let missing = paths
         .iter()

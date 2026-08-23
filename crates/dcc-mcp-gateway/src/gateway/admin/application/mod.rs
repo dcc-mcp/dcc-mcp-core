@@ -5,6 +5,18 @@
 //! axum responses.
 
 #[cfg(feature = "admin")]
+pub mod analytics;
+
+#[cfg(feature = "admin")]
+pub mod governance;
+
+#[cfg(feature = "admin")]
+pub(super) mod skill_health;
+
+#[cfg(feature = "admin")]
+pub(super) mod traffic;
+
+#[cfg(feature = "admin")]
 pub mod handlers;
 
 #[cfg(feature = "admin")]
