@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::gateway::state::GatewayState;
 
-use super::stats::StatsAggregator;
+use super::infra::StatsAggregator;
 use super::trace::TraceLog;
 
 pub use dcc_mcp_gateway_admin::{AdminAuditRecord, AuditLog, DurableAuditStore};

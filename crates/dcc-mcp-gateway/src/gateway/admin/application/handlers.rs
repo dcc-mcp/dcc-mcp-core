@@ -1073,7 +1073,7 @@ pub async fn handle_admin_stats(
     headers: HeaderMap,
     axum::extract::Query(params): axum::extract::Query<DebugListQuery>,
 ) -> impl IntoResponse {
-    use crate::gateway::admin::stats::StatsRange;
+    use crate::gateway::admin::StatsRange;
 
     let range_str = params.range();
     let range = StatsRange::from_str(range_str);
@@ -1136,8 +1136,8 @@ pub async fn handle_admin_stats(
             "avg_total_tokens_per_call": 0.0,
             "avg_tokens_per_call": 0.0,
             "payload_token_estimator": TOKEN_ESTIMATOR,
-            "payload_token_usage": crate::gateway::admin::stats::PayloadTokenUsageStats::empty(0),
-            "token_usage": crate::gateway::admin::stats::TokenUsageStats::default(),
+            "payload_token_usage": dcc_mcp_gateway_admin::PayloadTokenUsageStats::empty(0),
+            "token_usage": dcc_mcp_gateway_admin::TokenUsageStats::default(),
             "governance": crate::gateway::admin::governance::build_governance_stats(&s),
             });
             debug_response(&headers, &params, StatusCode::OK, root.clone(), Some(root))

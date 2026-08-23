@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use dcc_mcp_gateway_admin::{DispatchTrace, TraceLog, compute_stats_filtered};
 
-use super::sqlite_lane::AdminSqliteReader;
+use super::super::sqlite_lane::AdminSqliteReader;
 
 pub use dcc_mcp_gateway_admin::{
     AttributionFacet, GatewayStats, LatencyStats, PayloadTokenUsageStats, StatsFilter, StatsRange,

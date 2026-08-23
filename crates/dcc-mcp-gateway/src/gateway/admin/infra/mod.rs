@@ -4,12 +4,16 @@
 
 pub mod activity;
 pub(crate) mod audit_sink;
+pub mod stats;
 
 #[cfg(feature = "admin")]
 pub(crate) mod integrations;
 
 pub use activity::*;
 pub use audit_sink::AdminAuditSink;
+pub use stats::{
+    GatewayStats, LatencyStats, StatsAggregator, StatsFilter, StatsRange, StatsStatus, TopEntry,
+};
 
 #[cfg(feature = "admin")]
 pub use integrations::*;
