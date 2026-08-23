@@ -1338,6 +1338,7 @@ dependencies = [
  "dunce",
  "parking_lot",
  "proptest",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "tempfile",

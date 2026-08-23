@@ -19,6 +19,7 @@ dcc-mcp-db = { path = "../dcc-mcp-db", default-features = false, optional = true
 dcc-mcp-models.workspace = true
 dcc-mcp-transport.workspace = true
 parking_lot.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
