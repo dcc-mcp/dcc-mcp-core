@@ -3,7 +3,7 @@
 //! This crate owns admin-facing audit, trace, caller-context, compact projection,
 //! link, issue-report, statistics, analytics, governance, artifact, activity, task-outcome,
 //! durable audit, debug-bundle, postmortem, agent-trace packet, memory-summary, experiment,
-//! skill-path, skill-health, traffic, and WeCom webhook policy
+//! skill-path, skill-health, traffic, worker, and WeCom webhook policy
 //! independently of gateway routing state.
 //! It also owns the Vite/npm build script and generated dashboard payload; the Node.js
 //! toolchain only runs when `embed` is enabled.
@@ -36,6 +36,7 @@ mod tasks;
 mod trace_log;
 mod traffic;
 mod wecom;
+mod workers;
 
 pub use activity::{
     ActivityCorrelation, ActivityEvent, GatewayActivityInput, activity_payload,
@@ -99,6 +100,7 @@ pub use traffic::{TrafficProjectionSnapshot, traffic_jsonl_export, traffic_paylo
 pub use wecom::{
     WECOM_WEBHOOK_URL_HINT, strict_wecom_webhook_url_looks_valid, summarize_wecom_response,
 };
+pub use workers::{WorkerHealth, WorkerSnapshot, workers_payload};
 
 /// The Vite-built React admin dashboard HTML page.
 #[cfg(feature = "embed")]

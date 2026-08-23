@@ -12,7 +12,8 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::{Value, json};
+use dcc_mcp_gateway_admin::{WorkerHealth, WorkerSnapshot, workers_payload};
+use serde_json::Value;
 
 use crate::gateway::http_registration::{MCP_URL_METADATA_KEY, entry_mcp_url};
 use crate::gateway::instance_context::InstanceContext;
@@ -84,10 +85,15 @@ fn gateway_recovery_driver(
     })
 }
 
-/// Build a single Worker JSON record from a `ServiceEntry`.
+/// Map gateway runtime state into the backend-neutral admin worker contract.
 ///
-/// Stable, low-allocation snapshot used by `GET /admin/api/workers`.
-fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState, context: &InstanceContext) -> Value {
+/// Infrastructure discovery and context collection remain owned by the gateway;
+/// the admin crate owns the stable JSON projection.
+fn entry_to_worker(
+    e: &ServiceEntry,
+    gs: &GatewayState,
+    context: &InstanceContext,
+) -> WorkerSnapshot {
     let stale = e.is_stale(gs.stale_timeout);
     let status = if stale {
         "stale".to_string()
@@ -128,48 +134,48 @@ fn entry_to_worker_json(e: &ServiceEntry, gs: &GatewayState, context: &InstanceC
     let server_version =
         super::update::instance_server_binary_version(e).map(|(version, _)| version);
 
-    json!({
-        "instance_id":          e.instance_id.to_string(),
-        "dcc_type":             e.dcc_type,
-        "display_name":         e.display_name,
-        "pid":                  e.pid,
-        "host_pid":             e.host_pid,
-        "mcp_url":              entry_mcp_url(e),
-        "host":                 e.host,
-        "port":                 e.port,
-        "status":               status,
-        "stale":                stale,
-        "uptime_secs":          uptime_secs,
-        "registered_at_unix":   registered_secs,
-        "last_heartbeat_unix":  last_heartbeat_secs,
-        "version":              e.version,
-        "server_version":       server_version,
-        "adapter_version":      e.adapter_version,
-        "instance_type":        instance_type(e),
-        "adapter_dcc":          e.adapter_dcc,
-        "scene":                context.scene,
-        "documents":            context.documents,
-        "loaded_skills":        context.loaded_skills,
-        "loaded_skill_count":   context.loaded_skill_count,
-        "action_count":         context.action_count,
-        "performance":          crate::gateway::instance_context::performance_json(context),
-        "failure_reason":       e.metadata.get("failure_reason").cloned(),
-        "failure_stage":        e.metadata.get("failure_stage").cloned(),
-        "dispatch_status":      dispatch_status,
-        "dispatch_ready":       dispatch_ready,
-        "dispatch_ready_at_unix": metadata_text(e, DISPATCH_READY_AT_UNIX_METADATA_KEY),
-        "host_rpc_uri":         metadata_text(e, HOST_RPC_URI_METADATA_KEY),
-        "host_rpc_scheme":      metadata_text(e, HOST_RPC_SCHEME_METADATA_KEY),
-        "gateway_runtime_mode":  gateway_runtime_mode,
-        "gateway_guardian_enabled": gateway_guardian_enabled,
-        "gateway_recovery_driver": recovery_driver,
-        "registration_refresh_mode": registration_refresh_mode,
-        "metadata":             e.metadata,
-        "cpu_percent":          context.process.cpu_percent,
-        "memory_bytes":         context.process.memory_bytes,
-        "virtual_memory_bytes": context.process.virtual_memory_bytes,
-        "backend_context_error": context.backend_context_error,
-    })
+    WorkerSnapshot {
+        instance_id: e.instance_id.to_string(),
+        dcc_type: e.dcc_type.clone(),
+        display_name: e.display_name.clone(),
+        pid: e.pid,
+        host_pid: e.host_pid,
+        mcp_url: entry_mcp_url(e),
+        host: e.host.clone(),
+        port: e.port,
+        status,
+        stale,
+        uptime_secs,
+        registered_at_unix: registered_secs,
+        last_heartbeat_unix: last_heartbeat_secs,
+        version: e.version.clone(),
+        server_version,
+        adapter_version: e.adapter_version.clone(),
+        instance_type: instance_type(e),
+        adapter_dcc: e.adapter_dcc.clone(),
+        scene: context.scene.clone(),
+        documents: context.documents.clone(),
+        loaded_skills: context.loaded_skills.clone(),
+        loaded_skill_count: context.loaded_skill_count,
+        action_count: context.action_count,
+        performance: crate::gateway::instance_context::performance_json(context),
+        failure_reason: e.metadata.get("failure_reason").cloned(),
+        failure_stage: e.metadata.get("failure_stage").cloned(),
+        dispatch_status,
+        dispatch_ready,
+        dispatch_ready_at_unix: metadata_text(e, DISPATCH_READY_AT_UNIX_METADATA_KEY),
+        host_rpc_uri: metadata_text(e, HOST_RPC_URI_METADATA_KEY),
+        host_rpc_scheme: metadata_text(e, HOST_RPC_SCHEME_METADATA_KEY),
+        gateway_runtime_mode,
+        gateway_guardian_enabled,
+        gateway_recovery_driver: recovery_driver,
+        registration_refresh_mode,
+        metadata: serde_json::to_value(&e.metadata).unwrap_or_default(),
+        cpu_percent: context.process.cpu_percent,
+        memory_bytes: context.process.memory_bytes,
+        virtual_memory_bytes: context.process.virtual_memory_bytes,
+        backend_context_error: context.backend_context_error.clone(),
+    }
 }
 
 /// Snapshot every alive instance into a Workers payload.
@@ -189,35 +195,23 @@ pub async fn build_workers_payload(gs: &GatewayState) -> Value {
     .filter(|e| !e.is_stale(gs.stale_timeout))
     .collect::<Vec<_>>();
 
-    let mut live = 0usize;
-    let mut stale_count = 0usize;
-    let mut unhealthy = 0usize;
     let contexts = crate::gateway::instance_context::collect(gs, &live_instances).await;
-    let workers: Vec<Value> = live_instances
+    let workers = live_instances
         .iter()
         .map(|e| {
             let stale = e.is_stale(gs.stale_timeout);
-            if stale {
-                stale_count += 1;
+            let health = if stale {
+                WorkerHealth::Stale
             } else if matches!(e.status, ServiceStatus::Available | ServiceStatus::Busy) {
-                live += 1;
+                WorkerHealth::Live
             } else {
-                unhealthy += 1;
-            }
+                WorkerHealth::Unhealthy
+            };
             let context = contexts.get(&e.instance_id).cloned().unwrap_or_default();
-            entry_to_worker_json(e, gs, &context)
+            (entry_to_worker(e, gs, &context), health)
         })
         .collect();
-
-    json!({
-        "total": workers.len(),
-        "summary": {
-            "live":      live,
-            "stale":     stale_count,
-            "unhealthy": unhealthy,
-        },
-        "workers": workers,
-    })
+    workers_payload(workers)
 }
 
 #[cfg(test)]
