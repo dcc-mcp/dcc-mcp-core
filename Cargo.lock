@@ -1331,7 +1331,10 @@ version = "0.20.8"
 dependencies = [
  "axum",
  "chrono",
+ "dcc-mcp-db",
+ "dcc-mcp-models",
  "dcc-mcp-test-utils",
+ "dcc-mcp-transport",
  "dunce",
  "parking_lot",
  "proptest",

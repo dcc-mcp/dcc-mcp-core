@@ -22,6 +22,7 @@ _DEFAULT_FEATURE_EXCEPTIONS = {
     ("dcc-mcp-cli", "dcc-mcp-sidecar"),
     ("dcc-mcp-gateway", "dcc-mcp-db"),
     ("dcc-mcp-gateway", "dcc-mcp-skills"),
+    ("dcc-mcp-gateway-admin", "dcc-mcp-db"),
     ("dcc-mcp-server", "dcc-mcp-http"),
     ("dcc-mcp-server", "dcc-mcp-sidecar"),
 }
