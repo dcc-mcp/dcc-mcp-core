@@ -17,11 +17,11 @@ pub use dcc_mcp_gateway_admin::{
     ActivityCorrelation, ActivityEvent, TaskArtifact, TaskRelated, TaskSnapshot, TaskValidation,
 };
 
-#[cfg(feature = "admin")]
-use crate::gateway::admin::links::AdminLinkBuilder;
 use crate::gateway::admin::state::{AdminAuditRecord, AdminState};
 use crate::gateway::admin::trace::DispatchTrace;
 use crate::gateway::event_log::ContendEvent;
+#[cfg(feature = "admin")]
+use dcc_mcp_gateway_admin::AdminLinkBuilder;
 
 pub async fn build_activity_payload(state: &AdminState, limit: usize) -> Value {
     let fetch_limit = limit.saturating_mul(2).max(200);

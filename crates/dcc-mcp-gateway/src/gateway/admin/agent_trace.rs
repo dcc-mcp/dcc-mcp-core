@@ -7,8 +7,8 @@ use axum::response::IntoResponse;
 use dcc_mcp_gateway_admin::agent_trace_packet;
 use serde_json::{Value, json};
 
-use super::links::AdminLinkBuilder;
 use super::state::AdminState;
+use dcc_mcp_gateway_admin::AdminLinkBuilder;
 /// `GET /v1/debug/agent-traces/{lookup_id}` — compact agent packet by trace id or request id.
 pub async fn handle_v1_debug_agent_trace_packet(
     State(s): State<AdminState>,
