@@ -20,6 +20,7 @@ dcc-mcp-<dcc>/
 │   └── test_skills.py
 ├── pyproject.toml
 ├── README.md
+├── install.md                # Agent-first lifecycle runbook
 ├── release-please-config.json
 └── .github/
     └── workflows/
@@ -57,7 +58,54 @@ target-version = "py39"
 line-length = 100
 ```
 
-## 3. adapter_version & Readiness Boilerplate
+## 3. Install SOP v1
+
+Copy [templates/adapter-install.md](templates/adapter-install.md) to the
+repository root as `install.md` and follow the complete
+[Adapter Install SOP v1](adapter-install-sop.md). Replace every placeholder
+with tested host facts.
+
+The adapter-owned executable surface is:
+
+```text
+dcc-mcp-<dcc> install|status|verify|uninstall|upgrade
+```
+
+All applicable verbs use `--json --yes --dry-run --dcc-path --python`, emit
+the packaged `dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json`
+contract, and preserve the stable exit mapping `0/10/20/30/40/50`. Import the
+shared constants and schema from the ownership namespace:
+
+```python
+from dcc_mcp_core.deployment import INSTALL_EXIT_CODES
+from dcc_mcp_core.deployment import load_install_sop_schema
+```
+
+Before the first release, prove these behaviors:
+
+- default and `--dry-run` produce a complete non-mutating plan;
+- `--dcc-path` selects the matching host version/profile and `--python`
+  selects the exact target interpreter;
+- install performs host enablement, writes a versioned receipt, and chains the
+  public `verify` path;
+- upgrade stages before replacement and restores the prior receipt/state on
+  failure;
+- uninstall consumes the receipt, removes only adapter-owned files, and is
+  idempotent;
+- verify checks digest, package/version, target-interpreter import, bootstrap
+  diagnostics, and a typed readiness probe where the host can run; and
+- plan/install/status/verify/uninstall/upgrade JSON validates against the
+  shared schema with machine-executable `next_steps`.
+
+The adapter catalog `instructions_url` must be:
+
+```text
+https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-<dcc>/main/install.md
+```
+
+The README links to `install.md`; it does not duplicate or weaken the runbook.
+
+## 4. adapter_version & Readiness Boilerplate
 
 Reference implementation (based on the Maya / 3ds Max adapter pattern):
 
@@ -119,7 +167,7 @@ def stop_server(server):
 See [adapter-runtime-contracts.md](adapter-runtime-contracts.md) for the full
 contract.
 
-## 4. Multica Project Binding
+## 5. Multica Project Binding
 
 When the adapter repository is managed through Multica, bind these resources:
 
@@ -140,7 +188,7 @@ When the adapter repository is managed through Multica, bind these resources:
 }
 ```
 
-## 5. CI/CD Snippet
+## 6. CI/CD Snippet
 
 Minimum CI workflow (`.github/workflows/ci.yml`):
 
@@ -165,7 +213,13 @@ jobs:
       - run: pytest
 ```
 
-## 6. First Skill Package
+Add an executable Install SOP round trip to the adapter tests: plan -> dry-run
+no mutation -> install/receipt -> verify/status -> uninstall -> idempotent
+uninstall. Inject a commit/receipt failure and prove the previous installation
+is restored. Do not fake readiness or a restart-required result when the real
+host is unavailable.
+
+## 7. First Skill Package
 
 Create a minimal `skills/<dcc>-scripting/SKILL.md` ping tool to prove the
 skill pipeline works end-to-end:
@@ -186,16 +240,18 @@ Plus a sibling `tools.yaml` with one tool definition and a `scripts/` directory
 with the implementation. Refer to the `skills/dcc-mcp-skills-creator/SKILL.md`
 skill for detailed authoring guidance.
 
-## 7. VRS Smoke Trace
+## 8. VRS Smoke Trace
 
 Add one VRS trace under `tests/vrs/traces/<dcc>-smoke.jsonl` to verify the
 gateway can discover the new adapter. Copy the pattern from
 `tests/vrs/traces/` and adjust `dcc_type` / expected tool slugs.
 
-## 8. Post-Onboarding
+## 9. Post-Onboarding
 
 - [ ] Submit a PR to core adding the adapter row to the
       [Adapter Compatibility Matrix](adapter-compatibility-matrix.md).
-- [ ] Verify the gateway smoke runs (see [adapter-release-checklist.md](adapter-release-checklist.md#2-gateway-smoke-steps)).
+- [ ] Verify the gateway smoke runs (see [adapter-release-checklist.md](adapter-release-checklist.md#3-gateway-smoke-steps)).
+- [ ] Verify the Install SOP release gates pass (see
+      [adapter-release-checklist.md](adapter-release-checklist.md#1-install-sop-v1)).
 - [ ] File a core issue if any adapter-local code should be escalated
       (see `skills/dcc-mcp-creator/references/CORE_ESCALATION_CHECKLIST.md`).

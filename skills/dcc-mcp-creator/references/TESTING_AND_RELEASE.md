@@ -14,6 +14,21 @@ HTTP-level smoke when behavior crosses process boundaries.
 | Gateway | multi-instance routing, policy, compact responses, debug traces |
 | Live DCC | one host smoke that creates/queries/cleans up real scene state |
 | Packaging | wheel or plugin archive installs into the target host runtime |
+| Install SOP | `plan -> execute -> verify -> status -> uninstall`, including rollback |
+
+## Install SOP Gate
+
+Adapter lifecycle commands must follow
+[`adapter-install-sop.md`](../../../docs/guide/adapter-install-sop.md). Import
+`load_install_sop_schema()` and `INSTALL_EXIT_CODES` from
+`dcc_mcp_core.deployment` so machine-readable results and process exit codes
+stay compatible across adapters.
+
+Exercise the complete `plan -> execute -> verify -> status -> uninstall`
+round trip in CI. The gate must also prove that failed replacement restores the
+previous usable install, stale receipt paths are diagnosed precisely, and
+bootstrap failures remain visible. A mock may prove the contract when the real
+DCC cannot run in CI; retain the documented live-host validation gap.
 
 ## Validation Commands
 
