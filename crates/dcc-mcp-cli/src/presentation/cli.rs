@@ -1078,7 +1078,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
         }
         Command::Lint(lint_args) => {
-            let result = lint::run_lint_cmd(&lint_args)?;
+            let result = lint::run_lint_cmd(&lint_args).await?;
             failed = result.failed;
             if failed {
                 exit_code = ExitCode::InvalidInput;

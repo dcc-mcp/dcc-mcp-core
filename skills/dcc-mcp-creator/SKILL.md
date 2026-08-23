@@ -250,9 +250,10 @@ return bake_frames()
   `job_strategy: chunked`. The bridge rejects a declared chunked tool that
   returns a monolithic value.
 - Any operation that can exceed the caller's synchronous timeout must return a
-  job envelope. Declare `execution: async` or a positive `timeout_hint_secs`;
-  Core promotes either declaration through `JobManager` instead of allowing a
-  timed-out synchronous call to leave a stale transport response queued.
+  job envelope. Declare `execution: async` and provide a realistic positive
+  `timeout_hint_secs`; Core routes the execution declaration through
+  `JobManager`. A timeout hint only sizes client/runtime budgets and never
+  promotes an `execution: sync` tool to an async job.
 - Yield one bounded host-API callable per step. A returned string becomes the
   progress message.
 - `submit_chunked_runner()` advances at most one step per host pump tick, so

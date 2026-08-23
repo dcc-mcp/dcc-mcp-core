@@ -285,8 +285,11 @@ Admin 实例页对所有 binary 都只做检查；gateway 无法证明本机或�
 暂存 server 自身；独立的 `dcc-cua` CLI 单独更新。
 
 `lint` 复用生产 `dcc-mcp-skills` validator，因此本地检查与运行时加载会因同一类
-结构问题失败。CI 也通过 `just lint-skills` 显式传入仓库 skill roots，跑同一条
-`dcc-mcp-cli lint <PATH...>` 路径。
+结构问题失败。它还会加载每个同级 `tools.yaml` 工具表，并使用确定性的 mock
+handler 通过 Core 真实路由调用每项声明：同步声明必须返回结果，异步声明必须返回
+pending job envelope；探测过程不会执行 adapter 或 DCC 代码。CI 也通过
+`just lint-skills` 显式传入仓库 skill roots，跑同一条 `dcc-mcp-cli lint <PATH...>`
+路径。
 
 ### CLI 安装资产
 

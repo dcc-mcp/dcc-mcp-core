@@ -44,8 +44,7 @@ pub(super) fn async_dispatch_config(
     let meta_dcc = call_meta.and_then(|m| m.dcc.as_ref());
     let async_opt_in = meta_dcc.is_some_and(|dcc| dcc.r#async);
     let progress_token = call_meta.and_then(|m| m.progress_token.clone());
-    let action_declares_async = matches!(action_meta.execution, ExecutionMode::Async)
-        || action_meta.timeout_hint_secs.unwrap_or(0) > 0;
+    let action_declares_async = matches!(action_meta.execution, ExecutionMode::Async);
 
     if !(async_opt_in || progress_token.is_some() || action_declares_async) {
         return None;

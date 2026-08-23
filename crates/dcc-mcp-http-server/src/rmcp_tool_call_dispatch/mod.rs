@@ -1229,6 +1229,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sync_tool_with_timeout_hint_returns_result_payload() {
+        let registry = ToolRegistry::new();
+        let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
+
+        registry.register_action(ToolMeta {
+            name: "sync_probe".to_string(),
+            description: "sync execution contract probe".to_string(),
+            dcc: "blender".to_string(),
+            input_schema: json!({"type": "object"}),
+            execution: ExecutionMode::Sync,
+            timeout_hint_secs: Some(5),
+            thread_affinity: ThreadAffinity::Any,
+            ..Default::default()
+        });
+        dispatcher.register_handler("sync_probe", |_| Ok(json!({"ok": true})));
+
+        let registry = Arc::new(registry);
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "sync_probe",
+            Some(json!({})),
+            None,
+        )
+        .await
+        .expect("sync probe should dispatch");
+
+        assert_eq!(result.structured_content, Some(json!({"ok": true})));
+        assert!(
+            state.jobs.list().is_empty(),
+            "sync tools must not create jobs"
+        );
+    }
+
+    #[tokio::test]
     async fn async_main_thread_job_preserves_typed_dispatch_result() {
         let registry = ToolRegistry::new();
         let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
@@ -1239,7 +1281,7 @@ mod tests {
             description: "main-thread async job".to_string(),
             dcc: "maya".to_string(),
             input_schema: json!({"type": "object"}),
-            execution: ExecutionMode::Sync,
+            execution: ExecutionMode::Async,
             timeout_hint_secs: Some(5),
             thread_affinity: ThreadAffinity::Main,
             ..Default::default()
