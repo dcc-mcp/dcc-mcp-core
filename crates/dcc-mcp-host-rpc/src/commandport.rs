@@ -283,17 +283,25 @@ impl HostRpcClient for CommandPortClient {
             Ok(_) => {
                 let line = buf.trim_end_matches(['\r', '\n']);
                 if line.is_empty() {
-                    // Maya commandPort returns an empty line when the
-                    // Python expression evaluated to `None`. Map to
-                    // `null` rather than failing — agents see a
-                    // structured "no result" envelope.
-                    return Ok(Value::Null);
+                    return Err(HostRpcError::transport(format!(
+                        "commandport transport desync for {action}: expected response request_id {request_id:?}, got <missing>",
+                    )));
                 }
-                serde_json::from_str::<Value>(line).map_err(|e| {
+                let response = serde_json::from_str::<Value>(line).map_err(|e| {
                     HostRpcError::transport(format!(
                         "commandport returned non-JSON line ({e}); raw: {line:?}",
                     ))
-                })
+                })?;
+                let expected_id = Value::String(request_id.to_string());
+                if response.get("request_id") != Some(&expected_id) {
+                    return Err(HostRpcError::transport(format!(
+                        "commandport transport desync for {action}: expected response request_id {request_id:?}, got {}",
+                        response
+                            .get("request_id")
+                            .map_or_else(|| "<missing>".to_string(), Value::to_string),
+                    )));
+                }
+                Ok(response)
             }
             Err(e) => Err(io_error_to_host_rpc(
                 e,
@@ -549,7 +557,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn connect_call_close_roundtrip() {
         let (port, request_rx) = spawn_fake_command_port(
-            r#"{"success":true,"object_name":"pSphere1"}"#.to_string(),
+            r#"{"success":true,"request_id":"req-test-1","object_name":"pSphere1"}"#.to_string(),
             true,
         )
         .await;
@@ -592,6 +600,92 @@ mod tests {
 
         client.close().await;
         assert!(!client.is_alive(), "client should NOT be alive after close");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_response_id_is_rejected_before_the_payload_is_delivered() {
+        let (port, _request_rx) = spawn_fake_command_port(
+            r#"{"success":true,"request_id":"previous-call","object_name":"pSphere1"}"#.to_string(),
+            true,
+        )
+        .await;
+
+        let mut client = CommandPortClient::new();
+        client
+            .connect(
+                &format!("commandport://127.0.0.1:{port}"),
+                Duration::from_secs(2),
+            )
+            .await
+            .expect("connect");
+
+        let error = client
+            .call(
+                "maya_primitives__create_sphere",
+                serde_json::json!({"radius": 1.0}),
+                "current-call",
+            )
+            .await
+            .expect_err("a stale commandPort response must fail closed");
+
+        match error {
+            HostRpcError::TransportError { message } => {
+                assert!(message.contains("transport desync"), "{message}");
+                assert!(message.contains("current-call"), "{message}");
+                assert!(message.contains("previous-call"), "{message}");
+            }
+            other => panic!("expected TransportError, got {other:?}"),
+        }
+        client.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn slow_then_fast_off_by_one_responses_never_cross_request_boundaries() {
+        let (port, _requests) = spawn_fake_command_port_multi(
+            vec![
+                "None".to_string(),
+                r#"{"success":true,"request_id":"previous-call","value":"stale"}"#.to_string(),
+                r#"{"success":true,"request_id":"slow-call","value":"slow-result"}"#.to_string(),
+            ],
+            true,
+        )
+        .await;
+
+        let mut client = CommandPortClient::new();
+        client
+            .connect(
+                &format!("commandport://127.0.0.1:{port}"),
+                Duration::from_secs(2),
+            )
+            .await
+            .expect("connect");
+
+        let slow_error = client
+            .call(
+                "maya_scripting__execute_python",
+                serde_json::json!({"code": "slow()"}),
+                "slow-call",
+            )
+            .await
+            .expect_err("the stale response before a slow result must be rejected");
+        let fast_error = client
+            .call(
+                "maya_scene__get_session_info",
+                serde_json::json!({}),
+                "fast-call",
+            )
+            .await
+            .expect_err("the slow result must not be delivered to the following fast call");
+
+        for error in [slow_error, fast_error] {
+            match error {
+                HostRpcError::TransportError { message } => {
+                    assert!(message.contains("transport desync"), "{message}");
+                }
+                other => panic!("expected TransportError, got {other:?}"),
+            }
+        }
+        client.close().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -639,9 +733,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn empty_response_line_maps_to_null() {
-        // Maya returns an empty line when the Python expression
-        // evaluated to None — common for fire-and-forget setters.
+    async fn empty_response_line_is_a_transport_desync() {
         let (port, _request_rx) = spawn_fake_command_port(String::new(), true).await;
 
         let mut client = CommandPortClient::new();
@@ -652,18 +744,21 @@ mod tests {
             )
             .await
             .expect("connect");
-        let response = client
+        let error = client
             .call(
                 "maya_scene__set_unit",
                 serde_json::json!({"unit": "cm"}),
                 "req-null",
             )
             .await
-            .expect("empty response is valid (None → Null)");
-        assert!(
-            response.is_null(),
-            "empty response line must deserialize to Value::Null, got {response:?}",
-        );
+            .expect_err("an uncorrelated empty response must fail closed");
+        match error {
+            HostRpcError::TransportError { message } => {
+                assert!(message.contains("transport desync"), "{message}");
+                assert!(message.contains("req-null"), "{message}");
+            }
+            other => panic!("expected TransportError, got {other:?}"),
+        }
         client.close().await;
     }
 

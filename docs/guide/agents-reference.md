@@ -64,6 +64,14 @@ body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
 # use the adapter's typed status/cancellation contract.
 ```
 
+**Execution response correlation:** Every tool call carries a unique request
+id. JSON-RPC responses must echo `id`, sidecar payload responses must echo
+top-level `request_id`, and gateway REST responses must echo `X-Request-ID`.
+The gateway and CLI reject missing or mismatched echoes as `transport desync`;
+they must never deliver that payload as the current call's result. Adapter
+transport tests must include a slow call followed by fast calls on one session
+and assert that no response crosses request boundaries.
+
 **`ToolRegistry.register()` — keyword args only, no positional:**
 ```python
 registry.register(name="my_tool", description="...", dcc="maya")

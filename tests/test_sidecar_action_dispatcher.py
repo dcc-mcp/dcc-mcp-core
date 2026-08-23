@@ -83,6 +83,7 @@ def test_maya_style_executor_resolves_registered_action_source(tmp_path: Path) -
         "success": True,
         "message": "created cube",
         "context": {"object_name": "pCube1"},
+        "request_id": "req-1",
     }
     assert calls == [
         {
@@ -122,6 +123,7 @@ def test_3dsmax_style_executor_wraps_plain_script_result(tmp_path: Path) -> None
     assert result == {
         "success": True,
         "message": "Sidecar action dispatched",
+        "request_id": "req-2",
         "context": {
             "dcc_name": "3dsmax",
             "action": "max__create_box",
@@ -131,6 +133,29 @@ def test_3dsmax_style_executor_wraps_plain_script_result(tmp_path: Path) -> None
         },
     }
     assert calls == [(str(script), {"length": 10})]
+
+
+def test_sidecar_dispatcher_preserves_a_mismatched_executor_request_id(tmp_path: Path) -> None:
+    script = tmp_path / "stale.py"
+    script.write_text("def main(): return None\n", encoding="utf-8")
+    dispatcher = SidecarActionDispatcher(
+        "maya",
+        server_provider=lambda: object(),
+        executor=lambda _request: {
+            "success": True,
+            "request_id": "previous-call",
+        },
+    )
+
+    result = dispatcher.dispatch_payload(
+        {
+            "action": "maya__stale",
+            "source_file": str(script),
+            "request_id": "current-call",
+        },
+    )
+
+    assert result["request_id"] == "previous-call"
 
 
 @pytest.mark.parametrize(
@@ -155,6 +180,16 @@ def test_malformed_payloads_return_payload_malformed(payload: Any, reason: str |
     assert result["error"] == ERROR_PAYLOAD_MALFORMED
     if reason is not None:
         assert result["context"]["reason"] == reason
+
+
+def test_malformed_sidecar_response_echoes_a_valid_caller_request_id() -> None:
+    dispatcher = SidecarActionDispatcher("maya", server_provider=lambda: object())
+
+    result = dispatcher.dispatch_payload({"request_id": "req-malformed"})
+
+    assert result["success"] is False
+    assert result["error"] == ERROR_PAYLOAD_MALFORMED
+    assert result["request_id"] == "req-malformed"
 
 
 def test_server_provider_none_returns_server_not_running(tmp_path: Path) -> None:

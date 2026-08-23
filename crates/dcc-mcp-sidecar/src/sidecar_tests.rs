@@ -863,7 +863,9 @@ async fn commandport_sidecar_dispatches_tools_call_to_fake_server() {
             let _ = reader.read_line(&mut call_line).await;
             let _ = call_line_tx.send(call_line);
             let _ = write_half
-                .write_all(br#"{"success":true,"object_name":"pSphere1"}"#)
+                .write_all(
+                    br#"{"success":true,"request_id":"sidecar-call-1","object_name":"pSphere1"}"#,
+                )
                 .await;
             let _ = write_half.write_all(b"\n").await;
             let _ = write_half.flush().await;

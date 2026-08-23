@@ -283,7 +283,7 @@ impl Default for GatewayResilienceState {
 /// Classify `rest_get` / `rest_post` string errors for **read** retries.
 #[must_use]
 pub fn is_retryable_rest_error(err: &str) -> bool {
-    if err.contains("transport error") {
+    if err.contains("transport error") || err.contains("transport desync") {
         return true;
     }
     // `rest_get` errors look like `"{url}: HTTP {status}: ..."`
@@ -310,7 +310,8 @@ pub(crate) fn is_circuit_worthy_jsonrpc_error(err: &BackendCallError) -> bool {
         BackendCallError::Transport { .. }
         | BackendCallError::ReadBody { .. }
         | BackendCallError::Unreachable { .. }
-        | BackendCallError::Booting { .. } => true,
+        | BackendCallError::Booting { .. }
+        | BackendCallError::ResponseIdMismatch { .. } => true,
         BackendCallError::Http { status, .. } => status
             .split_whitespace()
             .next()

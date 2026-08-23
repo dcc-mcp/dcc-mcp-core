@@ -194,6 +194,7 @@ the server from its exact target environment. Gateway Admin is check-only.
    - The sidecar MCP listener is dispatch-only. A py37-lite factory can expose local skill metadata, but it cannot advertise or activate declarative skills through the gateway. Require a native py37 wheel for that path, or provide a separate discovery MCP URL; never report lite `load_skill` success without an executable catalog.
    - Wrap the outer adapter import/start block with `capture_bootstrap_errors(...)`; it is stdlib-only, records pre-MCP failures, and re-raises for the DCC's native error UI. `DccServerBase` already captures Python error logs and uncaught exceptions into the shared log plus `output://` / `events://`. Forward host-native console callbacks with `server.report_host_error(...)`; do not replace global stdout/stderr or add an adapter-local error store.
    - For DCC-Link IPC upgrades, deploy readers that accept current version 1 and legacy version 0 before switching writers to the default versioned frame. Use `DccLinkFrame(..., version=0)` only during that compatibility window, preserve an incoming frame's version in its reply, and treat `unsupported DCC-Link protocol version` as an explicit peer-upgrade failure rather than retrying body decoding.
+   - Preserve one caller-generated request id across every execution hop. JSON-RPC responses must echo `id`; commandPort-style sidecar responses must echo top-level `request_id`; gateway REST responses must echo `X-Request-ID`. Never replace an explicit response id with the current request id, because that can disguise a stale response. Treat a missing or mismatched echo as `transport desync`, fail closed, and regression-test a slow call followed by fast calls on the same connection.
    - Registry producers must write `ServiceEntry.schema_version` using `SERVICE_ENTRY_SCHEMA_VERSION`; rows with no field are legacy version 0. Consumers may read legacy/current rows but must reject a higher schema version without quarantining, deleting, or rewriting `services.json`. Treat that error as an explicit peer-upgrade requirement, not as corrupt JSON.
 10. Pass `instance_id` to sidecar launch helpers only when it is a real UUID for the DCC service. During early startup, omit it or pass `None`; `build_sidecar_command()` rejects cosmetic values such as `"unknown"` with `success=false` and `reason="invalid_instance_id"` so adapters do not spawn a child that can only fail with a CLI argument error.
     After `DccServerBase.start()`, use `server.instance_id` when adapter UI or
@@ -248,6 +249,10 @@ return bake_frames()
 - Declare `execution: async`, `affinity: main`, and
   `job_strategy: chunked`. The bridge rejects a declared chunked tool that
   returns a monolithic value.
+- Any operation that can exceed the caller's synchronous timeout must return a
+  job envelope. Declare `execution: async` or a positive `timeout_hint_secs`;
+  Core promotes either declaration through `JobManager` instead of allowing a
+  timed-out synchronous call to leave a stale transport response queued.
 - Yield one bounded host-API callable per step. A returned string becomes the
   progress message.
 - `submit_chunked_runner()` advances at most one step per host pump tick, so

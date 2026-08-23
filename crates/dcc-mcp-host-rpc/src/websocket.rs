@@ -248,11 +248,13 @@ fn interpret_envelope(
     action: &str,
     request_id: &str,
 ) -> Result<Value, HostRpcError> {
-    if let Some(id) = envelope.get("id")
-        && id != request_id
-    {
+    let expected_id = Value::String(request_id.to_string());
+    if envelope.get("id") != Some(&expected_id) {
         return Err(HostRpcError::transport(format!(
-            "websocket response id mismatch for {action}: expected {request_id:?}, got {id}",
+            "websocket transport desync for {action}: expected response id {request_id:?}, got {}",
+            envelope
+                .get("id")
+                .map_or_else(|| "<missing>".to_string(), Value::to_string),
         )));
     }
     if let Some(result) = envelope.get("result").cloned() {
@@ -341,6 +343,24 @@ mod tests {
                 assert_eq!(envelope["error"]["message"], "Photoshop failed");
             }
             other => panic!("expected BackendError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_response_without_id_is_a_transport_desync() {
+        let error = interpret_envelope(
+            json!({"jsonrpc": "2.0", "result": {"success": true}}),
+            "photoshop_layers__list",
+            "req-current",
+        )
+        .unwrap_err();
+
+        match error {
+            HostRpcError::TransportError { message } => {
+                assert!(message.contains("transport desync"), "{message}");
+                assert!(message.contains("req-current"), "{message}");
+            }
+            other => panic!("expected TransportError, got {other:?}"),
         }
     }
 

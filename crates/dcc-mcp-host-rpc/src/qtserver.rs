@@ -253,7 +253,7 @@ impl HostRpcClient for QtServerClient {
                         "qtserver returned non-JSON line ({e}); raw: {line:?}",
                     ))
                 })?;
-                interpret_envelope(envelope, action)
+                interpret_envelope(envelope, action, request_id)
             }
             Err(e) => Err(io_error_to_host_rpc(
                 e,
@@ -324,7 +324,20 @@ fn io_error_to_host_rpc(
 ///   violation. The Qt dispatcher must produce one of the two
 ///   well-formed shapes per request; a malformed reply is a wire
 ///   contract violation, not a user-visible error.
-fn interpret_envelope(envelope: Value, action: &str) -> Result<Value, HostRpcError> {
+fn interpret_envelope(
+    envelope: Value,
+    action: &str,
+    request_id: &str,
+) -> Result<Value, HostRpcError> {
+    let expected_id = Value::String(request_id.to_string());
+    if envelope.get("id") != Some(&expected_id) {
+        return Err(HostRpcError::transport(format!(
+            "qtserver transport desync for {action}: expected response id {request_id:?}, got {}",
+            envelope
+                .get("id")
+                .map_or_else(|| "<missing>".to_string(), Value::to_string),
+        )));
+    }
     if let Some(result) = envelope.get("result").cloned() {
         return Ok(result);
     }
@@ -563,7 +576,7 @@ mod tests {
     #[test]
     fn interpret_envelope_extracts_result() {
         let env = json!({"id": "req-1", "result": {"value": 42}});
-        let value = interpret_envelope(env, "any").unwrap();
+        let value = interpret_envelope(env, "any", "req-1").unwrap();
         assert_eq!(value, json!({"value": 42}));
     }
 
@@ -581,7 +594,8 @@ mod tests {
         });
         let env = json!({"id": "req-domain-error", "result": domain_result.clone()});
 
-        let value = interpret_envelope(env, "maya_scene__create_sphere").unwrap();
+        let value =
+            interpret_envelope(env, "maya_scene__create_sphere", "req-domain-error").unwrap();
 
         assert_eq!(value, domain_result);
     }
@@ -592,7 +606,7 @@ mod tests {
             "id": "req-2",
             "error": {"code": "handler-exception", "message": "BoomError: blew up"},
         });
-        let err = interpret_envelope(env, "maya_scene__crash").unwrap_err();
+        let err = interpret_envelope(env, "maya_scene__crash", "req-2").unwrap_err();
         match err {
             HostRpcError::TransportError { message } => {
                 assert!(message.contains("handler-exception"), "{message}");
@@ -606,8 +620,22 @@ mod tests {
     #[test]
     fn interpret_envelope_rejects_malformed_envelope() {
         let env = json!({"id": "req-3"}); // no result, no error
-        let err = interpret_envelope(env, "any").unwrap_err();
+        let err = interpret_envelope(env, "any", "req-3").unwrap_err();
         assert!(matches!(err, HostRpcError::TransportError { .. }));
+    }
+
+    #[test]
+    fn interpret_envelope_rejects_a_stale_response_id() {
+        let env = json!({"id": "previous-call", "result": {"value": 42}});
+        let err = interpret_envelope(env, "maya_scene__create_sphere", "current-call").unwrap_err();
+        match err {
+            HostRpcError::TransportError { message } => {
+                assert!(message.contains("transport desync"), "{message}");
+                assert!(message.contains("current-call"), "{message}");
+                assert!(message.contains("previous-call"), "{message}");
+            }
+            other => panic!("expected TransportError, got {other:?}"),
+        }
     }
 
     // ── connect / call roundtrip against a fake Qt server ────────────────

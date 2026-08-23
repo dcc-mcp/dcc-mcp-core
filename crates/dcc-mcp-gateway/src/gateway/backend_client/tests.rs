@@ -471,6 +471,39 @@ async fn post_jsonrpc_omits_session_header_when_none() {
     let _ = stop.send(());
 }
 
+#[tokio::test]
+async fn post_jsonrpc_rejects_a_stale_response_id() {
+    let app = axum::Router::new().route(
+        "/mcp",
+        axum::routing::post(|| async {
+            axum::Json(json!({
+                "jsonrpc": "2.0",
+                "id": "previous-call",
+                "result": {"ok": true}
+            }))
+        }),
+    );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+    let error = post_jsonrpc(
+        &reqwest::Client::new(),
+        &crate::gateway::resilience::GatewayResilienceState::default(),
+        &mcp_url,
+        json!({"jsonrpc":"2.0","id":"current-call","method":"ping"}),
+        None,
+        Duration::from_secs(2),
+    )
+    .await
+    .expect_err("a response from the previous call must fail closed");
+
+    assert!(
+        matches!(error, BackendCallError::ResponseIdMismatch { .. }),
+        "unexpected error: {error:?}",
+    );
+    assert!(error.to_string().contains("transport desync"));
+    let _ = stop.send(());
+}
+
 #[test]
 fn parses_success_result() {
     let body = r#"{"jsonrpc":"2.0","id":"gw-1","result":{"tools":[]}}"#;
@@ -827,7 +860,7 @@ async fn forward_tools_call_propagates_trace_context_headers() {
                     header("traceparent"),
                     header("tracestate"),
                 ));
-                axum::Json(json!({"success": true}))
+                axum::Json(json!({"success": true, "request_id": "req-forward"}))
             }
         }),
     );
@@ -867,6 +900,88 @@ async fn forward_tools_call_propagates_trace_context_headers() {
         "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     );
     assert_eq!(seen[0].3, "vendor=value");
+    let _ = stop.send(());
+}
+
+#[tokio::test]
+async fn forward_tools_call_rejects_a_stale_response_request_id() {
+    let app = axum::Router::new().route(
+        "/v1/call",
+        axum::routing::post(|| async {
+            axum::Json(json!({
+                "success": true,
+                "request_id": "previous-call"
+            }))
+        }),
+    );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+    let error = forward_tools_call(
+        &reqwest::Client::new(),
+        &crate::gateway::resilience::GatewayResilienceState::default(),
+        &mcp_url,
+        ForwardToolsCallRequest {
+            tool_name: "maya.render",
+            arguments: Some(json!({})),
+            meta: None,
+            request_id: Some("current-call".into()),
+            trace_context: None,
+            traffic_capture: None,
+            timeout: Duration::from_secs(2),
+        },
+    )
+    .await
+    .expect_err("a stale backend REST response must fail closed");
+
+    assert!(
+        error.contains("transport desync"),
+        "unexpected error: {error}"
+    );
+    assert!(error.contains("current-call"));
+    assert!(error.contains("previous-call"));
+    let _ = stop.send(());
+}
+
+#[tokio::test]
+async fn forward_tools_call_rejects_a_stale_error_response_request_id() {
+    let app = axum::Router::new().route(
+        "/v1/call",
+        axum::routing::post(|| async {
+            (
+                axum::http::StatusCode::BAD_REQUEST,
+                axum::Json(json!({
+                    "success": false,
+                    "request_id": "previous-call",
+                    "error": {"kind": "invalid-arguments", "message": "bad input"}
+                })),
+            )
+        }),
+    );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+    let error = forward_tools_call(
+        &reqwest::Client::new(),
+        &crate::gateway::resilience::GatewayResilienceState::default(),
+        &mcp_url,
+        ForwardToolsCallRequest {
+            tool_name: "maya.render",
+            arguments: Some(json!({})),
+            meta: None,
+            request_id: Some("current-call".into()),
+            trace_context: None,
+            traffic_capture: None,
+            timeout: Duration::from_secs(2),
+        },
+    )
+    .await
+    .expect_err("a stale backend REST error must fail closed before status handling");
+
+    assert!(
+        error.contains("transport desync"),
+        "unexpected error: {error}"
+    );
+    assert!(error.contains("current-call"));
+    assert!(error.contains("previous-call"));
     let _ = stop.send(());
 }
 
@@ -933,7 +1048,7 @@ async fn call_backend_with_observability_propagates_trace_and_captures_traffic()
         BackendJsonRpcCallRequest {
             method: "tools/call",
             params: Some(json!({"name": "maya_primitives__create_sphere", "arguments": {}})),
-            request_id: None,
+            request_id: Some("req-jsonrpc".into()),
             require_ready: true,
             trace_context: Some(&trace_context),
             traffic_capture: Some(&capture),

@@ -224,19 +224,25 @@ pub(crate) async fn spawn_canonical_workflow_backend() -> (
         )
         .route(
             "/v1/call",
-            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
-                axum::Json(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": format!(
-                            "called {} with {}",
-                            body.get("tool_slug").and_then(Value::as_str).unwrap_or(""),
-                            body.get("arguments").cloned().unwrap_or_else(|| json!({}))
-                        )
-                    }],
-                    "isError": false
-                }))
-            }),
+            axum::routing::post(
+                |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| async move {
+                    let request_id = headers
+                        .get("x-request-id")
+                        .and_then(|value| value.to_str().ok());
+                    axum::Json(json!({
+                        "content": [{
+                            "type": "text",
+                            "text": format!(
+                                "called {} with {}",
+                                body.get("tool_slug").and_then(Value::as_str).unwrap_or(""),
+                                body.get("arguments").cloned().unwrap_or_else(|| json!({}))
+                            )
+                        }],
+                        "isError": false,
+                        "request_id": request_id
+                    }))
+                },
+            ),
         )
         .route(
             "/mcp",

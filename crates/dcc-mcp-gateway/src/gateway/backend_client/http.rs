@@ -67,7 +67,7 @@ pub(super) async fn rest_post(
     body: Value,
     timeout: Duration,
 ) -> Result<Value, String> {
-    rest_post_with_trace_context(client, url, body, timeout, None).await
+    rest_post_with_trace_context(client, url, body, timeout, None, None).await
 }
 
 /// Issue a `POST` with optional W3C Trace Context propagation headers.
@@ -76,6 +76,7 @@ pub(super) async fn rest_post_with_trace_context(
     url: &str,
     body: Value,
     timeout: Duration,
+    request_id: Option<&str>,
     trace_context: Option<&TraceContext>,
 ) -> Result<Value, String> {
     let mut request = client
@@ -84,8 +85,12 @@ pub(super) async fn rest_post_with_trace_context(
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
         .body(body.to_string());
+    let expected_request_id =
+        request_id.or_else(|| trace_context.map(|ctx| ctx.request_id.as_str()));
+    if let Some(request_id) = expected_request_id {
+        request = request.header("x-request-id", request_id);
+    }
     if let Some(ctx) = trace_context {
-        request = request.header("x-request-id", ctx.request_id.as_str());
         if let Some(parent_request_id) = ctx.parent_request_id.as_deref() {
             request = request.header("x-dcc-mcp-parent-request-id", parent_request_id);
         }
@@ -102,15 +107,34 @@ pub(super) async fn rest_post_with_trace_context(
         .await
         .map_err(|e| format!("{url}: transport error: {e}"))?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("{url}: invalid JSON response: {e}"))?;
+    if expected_request_id.is_none() && !status.is_success() {
         return Err(format!("{url}: HTTP {status}: {body}"));
     }
-
-    resp.json::<Value>()
-        .await
-        .map_err(|e| format!("{url}: invalid JSON response: {e}"))
+    let response: Value =
+        serde_json::from_str(&body).map_err(|e| format!("{url}: invalid JSON response: {e}"))?;
+    if let Some(expected) = expected_request_id {
+        let actual = response.get("request_id").and_then(Value::as_str);
+        if actual != Some(expected) {
+            return Err(format!(
+                "{url}: transport desync: expected response request_id {expected:?}, got {}",
+                actual.map_or_else(
+                    || response
+                        .get("request_id")
+                        .map_or_else(|| "<missing>".to_string(), Value::to_string),
+                    |value| format!("{value:?}"),
+                ),
+            ));
+        }
+    }
+    if !status.is_success() {
+        return Err(format!("{url}: HTTP {status}: {body}"));
+    }
+    Ok(response)
 }
 
 pub(super) async fn post_jsonrpc(
@@ -137,6 +161,7 @@ pub(super) async fn post_jsonrpc_with_trace_context(
     trace_context: Option<&TraceContext>,
 ) -> Result<Value, BackendCallError> {
     let circuit_key = rest_base_from_mcp_url(mcp_url);
+    let expected_id = req_body.get("id").cloned().unwrap_or(Value::Null);
     if let Err(reason) = resilience.circuits().check_open(&circuit_key) {
         let err = BackendCallError::Transport {
             mcp_url: mcp_url.to_string(),
@@ -155,8 +180,10 @@ pub(super) async fn post_jsonrpc_with_trace_context(
     if let Some(session_id) = session_id {
         request = request.header("Mcp-Session-Id", session_id);
     }
+    if let Some(request_id) = expected_id.as_str() {
+        request = request.header("x-request-id", request_id);
+    }
     if let Some(ctx) = trace_context {
-        request = request.header("x-request-id", ctx.request_id.as_str());
         if let Some(parent_request_id) = ctx.parent_request_id.as_deref() {
             request = request.header("x-dcc-mcp-parent-request-id", parent_request_id);
         }
@@ -211,7 +238,7 @@ pub(super) async fn post_jsonrpc_with_trace_context(
         }
     };
 
-    let out = parse_jsonrpc_result(mcp_url, &text);
+    let out = parse_jsonrpc_result(mcp_url, &text, &expected_id);
     match &out {
         Ok(_) => resilience.circuits().on_success(&circuit_key),
         Err(e) => {
@@ -226,11 +253,25 @@ pub(super) async fn post_jsonrpc_with_trace_context(
     out
 }
 
-pub(super) fn parse_jsonrpc_result(mcp_url: &str, text: &str) -> Result<Value, BackendCallError> {
+pub(super) fn parse_jsonrpc_result(
+    mcp_url: &str,
+    text: &str,
+    expected_id: &Value,
+) -> Result<Value, BackendCallError> {
     let parsed: Value = serde_json::from_str(text).map_err(|e| BackendCallError::InvalidJson {
         mcp_url: mcp_url.to_string(),
         reason: e.to_string(),
     })?;
+
+    if parsed.get("id") != Some(expected_id) {
+        return Err(BackendCallError::ResponseIdMismatch {
+            mcp_url: mcp_url.to_string(),
+            expected: expected_id.to_string(),
+            actual: parsed
+                .get("id")
+                .map_or_else(|| "<missing>".to_string(), Value::to_string),
+        });
+    }
 
     if let Some(err) = parsed.get("error") {
         let code = err.get("code").and_then(Value::as_i64).unwrap_or(-1);

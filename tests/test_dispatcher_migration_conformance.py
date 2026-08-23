@@ -214,6 +214,7 @@ def test_3dsmax_like_sidecar_uses_core_script_runner_envelope(tmp_path: Path) ->
     assert result == {
         "success": True,
         "message": "Sidecar action dispatched",
+        "request_id": "req-max",
         "context": {
             "dcc_name": "3dsmax",
             "action": "max__create_box",

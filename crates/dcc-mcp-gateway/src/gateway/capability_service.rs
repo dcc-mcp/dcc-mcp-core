@@ -711,6 +711,9 @@ pub async fn call_service(
         entry_mcp_url(entry)
     };
     let entry = entry.clone();
+    let request_id = trace_context
+        .map(|context| context.request_id.clone())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     let call_result = if is_backend_job_tool(&record.backend_tool)
         || (entry_uses_sidecar_dispatch(&entry) && !use_discovery_dispatch)
@@ -730,7 +733,7 @@ pub async fn call_service(
             BackendJsonRpcCallRequest {
                 method: "tools/call",
                 params: Some(params),
-                request_id: None,
+                request_id: Some(request_id.clone()),
                 require_ready: !is_backend_job_tool(&record.backend_tool),
                 trace_context,
                 traffic_capture: Some(&gs.traffic_capture),
@@ -747,7 +750,7 @@ pub async fn call_service(
                 tool_name: &record.callable_id,
                 arguments: Some(arguments),
                 meta: meta_with_agent_context(meta, agent_context),
-                request_id: None,
+                request_id: Some(request_id),
                 trace_context,
                 traffic_capture: Some(&gs.traffic_capture),
                 timeout: gs.backend_timeout,

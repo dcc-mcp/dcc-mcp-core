@@ -8,9 +8,15 @@ async fn seed_call_backend(
 ) -> (String, tokio::sync::oneshot::Sender<()>) {
     let app = axum::Router::new().route(
         "/v1/call",
-        axum::routing::post(move || {
-            let payload = payload.clone();
-            async move { Json(payload) }
+        axum::routing::post(move |headers: axum::http::HeaderMap| {
+            let mut payload = payload.clone();
+            async move {
+                payload["request_id"] = headers
+                    .get("x-request-id")
+                    .and_then(|value| value.to_str().ok())
+                    .map_or(Value::Null, |value| json!(value));
+                Json(payload)
+            }
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
