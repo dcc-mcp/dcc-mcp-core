@@ -83,6 +83,11 @@ Do not invent a profile ID. Runtime-advertised capabilities are authoritative.
 8. Stop the session on success, failure, interruption, or abandonment.
 
 An `input sent` acknowledgement is not completion evidence.
+For native application menu bars, prefer the negotiated `native_menu_path`
+route through `ui_control__act(action="invoke_menu", menu_path=[...])` when a
+semantic menu click or Alt mnemonic cannot prove that a popup opened. A menu
+invocation invalidates the current observation; honor `verification_required`
+and verify the popup or resulting application state with a fresh snapshot.
 
 ## DCC-host route
 
@@ -93,6 +98,7 @@ projection:
 dcc-mcp-cli load-skill ui-control --instance-id <instance-id> --output toon
 dcc-mcp-cli ui-control snapshot --instance-id <instance-id> --json '{"session_id":"ui","process_id":1234,"window_handle":5678}'
 dcc-mcp-cli ui-control act --instance-id <instance-id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot-id>"}'
+dcc-mcp-cli ui-control act --instance-id <instance-id> --json '{"session_id":"ui","action":"invoke_menu","menu_path":["Window","Arrange","Left"]}'
 dcc-mcp-cli ui-control stop --instance-id <instance-id> --json '{"session_id":"ui"}'
 ```
 

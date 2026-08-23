@@ -129,6 +129,7 @@ def test_ui_action_request_serializes_computer_use_inputs() -> None:
         scroll_y=-500,
         path=[UiPoint(x=10, y=20), UiPoint(x=80, y=90)],
         keys=["CTRL", "A"],
+        menu_path=["Window", "Arrange", "Left"],
         snapshot_id="observation-1",
     )
 
@@ -139,6 +140,7 @@ def test_ui_action_request_serializes_computer_use_inputs() -> None:
     assert payload["scroll_x"] == 0
     assert payload["scroll_y"] == -500
     assert payload["keys"] == ["CTRL", "A"]
+    assert payload["menu_path"] == ["Window", "Arrange", "Left"]
     assert payload["snapshot_id"] == "observation-1"
 
 
@@ -152,6 +154,7 @@ def test_ui_control_policy_blocks_high_risk_actions_by_default() -> None:
     assert policy.allows_action(UiActionKind.GAME_NAVIGATION) is False
     assert policy.allows_action(UiActionKind.GET_WINDOW_STATE) is True
     assert policy.allows_action(UiActionKind.RESTORE_WINDOW) is True
+    assert policy.allows_action(UiActionKind.INVOKE_MENU) is True
     assert policy.require_scoped_window is True
     assert policy.to_dict()["allow_raw_coordinates"] is False
     assert policy.to_dict()["require_scoped_window"] is True

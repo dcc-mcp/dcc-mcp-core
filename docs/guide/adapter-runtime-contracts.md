@@ -96,6 +96,13 @@ Preferred agent loop:
    or returns `timeout` with structured details.
 5. `ui_control__snapshot` verifies the final state.
 
+Native application menu bars may use
+`ui_control__act(action="invoke_menu", menu_path=[...])` without a prior
+snapshot when the Host advertises `native_menu_path`. The path is resolved
+inside the exact bound window and fails closed on missing or ambiguous levels.
+The operation invalidates current observations; honor `verification_required`
+and verify the popup or resulting application state with a fresh snapshot.
+
 Use native DCC skills or APIs first. Use `ui_control__*` only when the behavior is
 visible in the application UI but not exposed through a reliable host API.
 Workflow examples and recovery patterns live in

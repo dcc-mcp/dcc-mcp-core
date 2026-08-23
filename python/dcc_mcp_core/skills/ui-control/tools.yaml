@@ -253,6 +253,10 @@ tools:
       path: it accepts up to four simultaneous supported canvas keys or `+`
       chords and an optional 0..500 ms hold, while preserving the existing
       raw-text denial.
+      For application menu bars, invoke_menu resolves an explicit native
+      menu_path inside the exact bound window. Prefer it when semantic menu
+      clicks or Alt mnemonics cannot prove that a Qt popup opened; it never
+      guesses pixels and always requires a fresh snapshot for verification.
       For a custom-drawn DCC canvas or face control that has no semantic node,
       use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in
       keys are held as pointer modifiers. Snapshot again immediately afterward.
@@ -304,6 +308,7 @@ tools:
             - select_option
             - focus
             - keyboard_shortcut
+            - invoke_menu
             - get_window_state
             - restore_window
             - show_window
@@ -314,7 +319,8 @@ tools:
             an exact control_id for non-sensitive Windows text entry. Windows
             keypress cannot synthesize ordinary printable text. game_navigation
             accepts up to four simultaneous supported keys for a non-editable
-            DCC or game canvas; it is not a text-entry action.
+            DCC or game canvas; it is not a text-entry action. invoke_menu uses
+            menu_path and does not require a prior snapshot.
         intent:
           type: string
           enum:
@@ -396,6 +402,18 @@ tools:
           items:
             type: string
             maxLength: 32
+        menu_path:
+          type: array
+          minItems: 1
+          maxItems: 16
+          description: >-
+            Exact top-to-leaf native application menu labels for invoke_menu.
+            Missing or ambiguous levels fail closed. Take a fresh snapshot and
+            verify the popup or resulting application state after invocation.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
         duration_ms:
           type: integer
           minimum: 0

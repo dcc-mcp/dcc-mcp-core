@@ -210,6 +210,7 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
         "window_handle": window_handle,
         "window_title": window_title,
         "allow_raw_input": allow_raw_input,
+        "allow_menu_invoke": policy.allow_mutating_actions,
         "scope": scope,
     }
 
@@ -217,7 +218,15 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
 def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy) -> Tuple[Any, Dict[str, Any]]:
     spec = _client_spec(session_id, params, policy)
     identity = tuple(
-        spec[key] for key in ("dcc_type", "process_id", "window_handle", "window_title", "allow_raw_input")
+        spec[key]
+        for key in (
+            "dcc_type",
+            "process_id",
+            "window_handle",
+            "window_title",
+            "allow_raw_input",
+            "allow_menu_invoke",
+        )
     )
     with _CLIENTS_LOCK:
         entry = _CLIENTS.get(session_id)
@@ -235,6 +244,7 @@ def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy
                 window_handle=spec["window_handle"],
                 window_title=spec["window_title"],
                 allow_raw_input=spec["allow_raw_input"],
+                allow_menu_invoke=spec["allow_menu_invoke"],
             )
             entry = {
                 "client": client,
@@ -664,6 +674,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         action=action,
         x=params.get("x"),
         y=params.get("y"),
+        menu_path=list(params.get("menu_path") or []),
     )
     if not policy.allows_request(request):
         return skill_error(f"ui_control action {action!r} disabled by policy", UiErrorCode.POLICY_DISABLED)
@@ -700,6 +711,47 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             prompt="Take a fresh ui_control__snapshot before any content interaction.",
             session_id=session_id,
             window_state=raw.get("state") or {},
+            audit=_audit_record(action, True, None, session_id, policy, None, message),
+        )
+    if action == UiActionKind.INVOKE_MENU:
+        menu_path = list(params.get("menu_path") or [])
+        try:
+            raw = client.invoke_menu(menu_path)
+        except (UiControlHostError, OSError, ValueError) as exc:
+            entry["snapshot_id"] = None
+            return _host_error(exc)
+        entry["snapshot_id"] = None
+        effect = str(raw.get("effect") or "unverifiable")
+        verification_required = bool(raw.get("verification_required", effect != "confirmed"))
+        observation_required = bool(raw.get("observation_required", True))
+        success = bool(raw.get("success"))
+        if not success:
+            return skill_error(
+                "dcc-cua did not invoke the exact native menu path.",
+                UiErrorCode.INPUT_FAILED,
+                session_id=session_id,
+                menu_path=menu_path,
+                effect=effect,
+                verification_required=True,
+                observation_required=observation_required,
+            )
+        message = (
+            "Invoked and confirmed the exact native menu path."
+            if not verification_required
+            else "Invoked the exact native menu path; delivery requires verification."
+        )
+        return skill_success(
+            message,
+            prompt=(
+                "Take a fresh ui_control__snapshot and verify the requested menu, popup, or application "
+                "state before the next mutation. Native delivery alone is not completion evidence."
+            ),
+            session_id=session_id,
+            menu_path=menu_path,
+            effect=effect,
+            verification_required=verification_required,
+            observation_required=observation_required,
+            target=raw.get("target") or client.target,
             audit=_audit_record(action, True, None, session_id, policy, None, message),
         )
     requested_snapshot_id = str(params.get("snapshot_id") or "")

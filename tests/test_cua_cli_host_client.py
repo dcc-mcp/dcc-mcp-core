@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from conftest import REPO_ROOT
@@ -20,9 +21,10 @@ def _load(path: Path, name: str) -> Any:
 
 
 class FakeBridge:
-    def __init__(self) -> None:
+    def __init__(self, capabilities: tuple[str, ...] = ("native_menu_path",)) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.closed = False
+        self.contract = SimpleNamespace(capabilities=capabilities)
 
     def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.calls.append((method, params))
@@ -80,6 +82,17 @@ class FakeBridge:
                 "type": "window_state_changed",
                 "state": {"minimized": False, "foreground": True},
             }
+        if method == "invoke_menu":
+            return {
+                "type": "menu_invoked",
+                "result": {
+                    "success": True,
+                    "effect": "unverifiable",
+                    "verification_required": True,
+                    "observation_required": True,
+                    "target": {"process_id": 42, "window_handle": 500},
+                },
+            }
         if method == "recording_start":
             return {
                 "type": "recording_started",
@@ -118,6 +131,7 @@ def test_cua_host_adapter_preserves_exact_grant_snapshot_and_action_fences() -> 
         window_handle=500,
         window_title="Autodesk Maya",
         allow_raw_input=True,
+        allow_menu_invoke=True,
         bridge=bridge,
     )
 
@@ -131,6 +145,7 @@ def test_cua_host_adapter_preserves_exact_grant_snapshot_and_action_fences() -> 
         "window_title": "Autodesk Maya",
         "allow_raw_input": True,
         "allow_recording": True,
+        "allow_menu_invoke": True,
     }
     snapshot = client.snapshot(max_depth=5, max_nodes=250)
     button = snapshot["root"]["children"][0]
@@ -174,6 +189,7 @@ def test_restore_window_uses_cua_restore_activate_contract() -> None:
         process_id=42,
         window_handle=500,
         allow_raw_input=False,
+        allow_menu_invoke=True,
         bridge=bridge,
     )
 
@@ -189,6 +205,65 @@ def test_restore_window_uses_cua_restore_activate_contract() -> None:
             "operation": "restore_activate",
         },
     )
+
+
+def test_native_menu_path_uses_explicit_grant_and_invalidates_observation() -> None:
+    client_module = _load(_CLIENT_PATH, "_test_cua_native_menu_path")
+    bridge = FakeBridge()
+    client = client_module.UiControlHostClient(
+        session_id="maya",
+        task_grant_id="grant-1",
+        dcc_type="maya",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        allow_menu_invoke=True,
+        bridge=bridge,
+    )
+    client.snapshot(max_depth=5, max_nodes=250)
+
+    result = client.invoke_menu(["Window", "Arrange", "Left"])
+
+    assert result["verification_required"] is True
+    assert result["observation_required"] is True
+    assert bridge.calls[-1] == (
+        "invoke_menu",
+        {
+            "session_id": "maya",
+            "task_grant_id": "grant-1",
+            "window_capability": "cua-window-1",
+            "request": {"path": ["Window", "Arrange", "Left"]},
+        },
+    )
+    try:
+        client.execute({"action": "click"})
+    except client_module.UiControlHostError as exc:
+        assert exc.code == "stale_observation"
+    else:
+        raise AssertionError("native menu invocation must invalidate the observation")
+
+
+def test_legacy_host_omits_menu_grant_and_fails_capability_check() -> None:
+    client_module = _load(_CLIENT_PATH, "_test_cua_legacy_menu_capability")
+    bridge = FakeBridge(capabilities=())
+    client = client_module.UiControlHostClient(
+        session_id="maya",
+        task_grant_id="grant-1",
+        dcc_type="maya",
+        process_id=42,
+        window_handle=500,
+        allow_raw_input=False,
+        allow_menu_invoke=True,
+        bridge=bridge,
+    )
+
+    assert "allow_menu_invoke" not in bridge.calls[0][1]["grant"]
+    try:
+        client.invoke_menu(["File"])
+    except client_module.UiControlHostError as exc:
+        assert exc.code == "unsupported_action"
+    else:
+        raise AssertionError("native menu invocation must require the negotiated capability")
 
 
 def test_cua_backend_passes_cua_element_token_not_legacy_control_id() -> None:
