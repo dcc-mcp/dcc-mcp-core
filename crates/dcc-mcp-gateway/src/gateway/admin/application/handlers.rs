@@ -964,7 +964,7 @@ pub async fn handle_admin_workflows(
 ) -> impl IntoResponse {
     let limit = params.limit(100, 500);
     let links = AdminLinkBuilder::from_request(&headers, &uri);
-    Json(crate::gateway::admin::workflows::build_workflows_payload(&s, limit, links).await)
+    Json(super::workflows::build_workflows_payload(&s, limit, links).await)
 }
 
 /// `GET /admin/api/debug-bundle/{request_id}` — correlated material for one request.
@@ -1170,7 +1170,7 @@ pub async fn handle_admin_search_telemetry(
 /// Returns the live registry view plus process/system performance, current
 /// scene/documents, and loaded-skill context.
 pub async fn handle_admin_workers(State(s): State<AdminState>) -> impl IntoResponse {
-    let payload = crate::gateway::admin::workers::build_workers_payload(&s.gateway).await;
+    let payload = super::workers::build_workers_payload(&s.gateway).await;
     Json(payload)
 }
 

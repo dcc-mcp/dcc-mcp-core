@@ -14,8 +14,8 @@ use dcc_mcp_gateway_admin::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::super::state::AdminState;
 use super::recordings::caller_session;
-use super::state::AdminState;
 
 const MAX_EVENTS: usize = 1_000;
 

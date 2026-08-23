@@ -74,17 +74,11 @@ pub mod activity;
 #[cfg(feature = "admin")]
 // ── Remaining top-level modules ───────────────────────────────────────────
 #[cfg(feature = "admin")]
-pub(crate) mod experiments;
-#[cfg(feature = "admin")]
 #[cfg(feature = "admin")]
 mod issue_report;
 #[cfg(feature = "admin")]
 #[cfg(all(test, feature = "admin"))]
 mod logs_tests;
-#[cfg(feature = "admin")]
-pub mod marketplace;
-#[cfg(feature = "admin")]
-mod recordings;
 pub mod sqlite_lane;
 pub mod state;
 pub mod trace;
@@ -93,10 +87,6 @@ pub mod trace;
 mod wecom_response;
 #[cfg(feature = "admin")]
 mod wecom_url;
-#[cfg(feature = "admin")]
-pub mod workers;
-#[cfg(feature = "admin")]
-pub mod workflows;
 
 #[cfg(all(test, feature = "admin"))]
 mod analytics_tests;
@@ -126,7 +116,11 @@ mod workflows_tests;
 
 // DB helpers.
 #[cfg(feature = "admin")]
-pub use application::{analytics, artifacts, governance, sessions, skill_reload};
+pub(crate) use application::experiments;
+#[cfg(feature = "admin")]
+pub use application::{
+    analytics, artifacts, governance, marketplace, sessions, skill_reload, workers, workflows,
+};
 pub use dcc_mcp_db::{
     default_gateway_admin_sqlite_path as default_admin_db_path,
     resolve_gateway_admin_sqlite_path as resolve_admin_db_path,
@@ -141,9 +135,9 @@ pub use state::{AdminAuditRecord, AdminState, AuditLog, DurableAuditStore};
 pub use trace::{DispatchTrace, TraceContext, TraceLog, TracePayload, TraceSpan};
 
 #[cfg(feature = "admin")]
-pub use workers::build_workers_payload;
+pub use application::workers::build_workers_payload;
 #[cfg(feature = "admin")]
-pub use workflows::{WorkflowDiscoverySummary, WorkflowStep, WorkflowView};
+pub use application::workflows::{WorkflowDiscoverySummary, WorkflowStep, WorkflowView};
 
 #[cfg(feature = "admin")]
 pub use router::{build_admin_router, build_v1_debug_router};
