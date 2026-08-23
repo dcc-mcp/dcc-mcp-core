@@ -142,9 +142,14 @@ Vercel's `agent-browser` CLI, which exposes its DevTools URL through
 `agent-browser install`.
 
 The default `DCC_MCP_UI_CONTROL_BACKEND=cua` uses the standalone `dcc-cua`
-CLI/Host for native applications on Windows, Linux, and macOS. Install version 0.4.0 or newer on
-`PATH` or set `DCC_MCP_CUA_BINARY` to an absolute executable path. Bind the
-exact application with `DCC_MCP_UI_CONTROL_PROCESS_ID` and
-`DCC_MCP_UI_CONTROL_WINDOW_HANDLE`; request arguments may narrow this scope but
-cannot widen it. The Host owns platform accessibility, capture, visible control
-markers, input serialization, and Escape interruption.
+CLI/Host for native applications on Windows, Linux, and macOS. Core probes the
+official dcc-mcp install directory, versioned standalone installs, and `PATH`;
+`DCC_MCP_CUA_BINARY` remains the explicit custom-layout override.
+`DccServerBase` injects the resolved adapter PID/HWND/title from
+`DccServerOptions` after public argument validation. Dedicated servers may use
+`DCC_MCP_UI_CONTROL_PROCESS_ID` and `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`
+overrides. Request arguments may narrow this scope but cannot widen it, and a
+title constraint is forwarded to the Host to resolve one window inside a
+multi-window process before an exact capability is minted. The Host owns
+platform accessibility, capture, visible control markers, input serialization,
+and Escape interruption.

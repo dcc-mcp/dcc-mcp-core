@@ -18,15 +18,26 @@ chrome, native dialogs, canvas-only content, and non-browser applications.
 The official `dcc-mcp-cli` installer also reconciles the independently released
 `dcc-cua` companion. Inspect or repair it explicitly with
 `dcc-mcp-cli components status dcc-cua` and
-`dcc-mcp-cli components ensure dcc-cua --yes`. For custom layouts, expose
-`dcc-cua` 0.4.0 or newer on `PATH`, or set
-`DCC_MCP_CUA_BINARY` to an absolute executable path. Then configure:
+`dcc-mcp-cli components ensure dcc-cua --yes`. Core probes
+`DCC_MCP_INSTALL_DIR`, the standard dcc-mcp bin directory, versioned standalone
+installs, and `PATH`. Set `DCC_MCP_CUA_BINARY` to an absolute executable path
+only for a custom layout.
+
+`DccServerBase` automatically carries its resolved `DccServerOptions` PID,
+window handle, title, and DCC type into `ui-control` calls. A dedicated or
+custom server can provide explicit operator overrides instead:
 
 ```text
 DCC_MCP_UI_CONTROL_BACKEND=cua
 DCC_MCP_UI_CONTROL_PROCESS_ID=<pid>
 DCC_MCP_UI_CONTROL_WINDOW_HANDLE=<native-handle>
 ```
+
+Request arguments can only narrow the trusted binding. A `window_title`
+constraint is sent to the CUA Host together with the trusted PID, so a
+multi-window Qt process can resolve one current window without pre-binding a
+startup-dialog handle. The Host then mints an exact window capability; if the
+title is still ambiguous, bind an exact handle.
 
 Raw mouse and keyboard input are enabled by default inside that exact bound
 scope. Operators can disable them with:
@@ -48,6 +59,11 @@ Escape broadcast.
 3. `ui_control__act` once with the latest `snapshot_id`
 4. `ui_control__wait_for` or another snapshot
 5. `ui_control__stop_computer_use`
+
+After `dcc-mcp-cli load-skill ui-control`, local
+`dcc-mcp-cli search --query "ui control snapshot"` includes loaded
+`ui_control__*` tool slugs; the load response remains an immediate compact
+schema shortcut.
 
 Each action is fenced by CUA observation and accessibility-state IDs. Take a
 new snapshot after every mutation. Prefer semantic element tokens; coordinate

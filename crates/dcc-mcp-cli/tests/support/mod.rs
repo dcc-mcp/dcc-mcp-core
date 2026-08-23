@@ -601,13 +601,15 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
 pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
     let tools_list_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let activate_group_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ui_control_loaded = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let app = Router::new()
         .route(
             "/mcp",
             post(
-                |State((tools_list_calls, activate_group_calls)): State<(
+                |State((tools_list_calls, activate_group_calls, ui_control_loaded)): State<(
                     std::sync::Arc<std::sync::atomic::AtomicUsize>,
                     std::sync::Arc<std::sync::atomic::AtomicUsize>,
+                    std::sync::Arc<std::sync::atomic::AtomicBool>,
                 )>,
                  headers: HeaderMap,
                  Json(body): Json<Value>| async move {
@@ -701,7 +703,32 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         })),
                                     );
                                 }
-                                if query == "skill-only" {
+                                if query == "ui control snapshot"
+                                    && ui_control_loaded.load(std::sync::atomic::Ordering::SeqCst)
+                                {
+                                    json!({
+                                        "total": 1,
+                                        "query": query,
+                                        "tools": [{
+                                            "kind": "tool",
+                                            "name": "ui_control__snapshot",
+                                            "description": "Capture a bounded UI Control snapshot",
+                                            "category": "ui_control",
+                                            "group": "",
+                                            "enabled": true,
+                                            "has_schema": true,
+                                            "dcc": "maya",
+                                            "skill_name": "ui-control",
+                                            "annotations": {
+                                                "read_only_hint": false,
+                                                "destructive_hint": false,
+                                                "idempotent_hint": false,
+                                                "open_world_hint": false
+                                            }
+                                        }],
+                                        "skill_candidates": []
+                                    })
+                                } else if query == "skill-only" {
                                     json!({
                                         "total": 1,
                                         "query": query,
@@ -852,6 +879,19 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         "loaded": false,
                                         "message": "skill not loaded"
                                     }),
+                                    Some("ui-control") => {
+                                        ui_control_loaded.store(true, std::sync::atomic::Ordering::SeqCst);
+                                        json!({
+                                            "loaded": true,
+                                            "skill_name": "ui-control",
+                                            "registered_tools": ["ui_control__snapshot"],
+                                            "tool_count": 1,
+                                            "tools": [{
+                                                "name": "ui_control__snapshot",
+                                                "inputSchema": {"type": "object", "properties": {}}
+                                            }]
+                                        })
+                                    }
                                     _ => json!({
                                         "loaded": true,
                                         "skill_name": arguments.get("skill_name").cloned().unwrap_or(Value::Null),
@@ -989,7 +1029,11 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                 }))
             }),
         )
-        .with_state((tools_list_calls.clone(), activate_group_calls.clone()));
+        .with_state((
+            tools_list_calls.clone(),
+            activate_group_calls.clone(),
+            ui_control_loaded,
+        ));
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();

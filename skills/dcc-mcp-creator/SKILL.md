@@ -143,12 +143,15 @@ the server from its exact target environment. Gateway Admin is check-only.
    - Raw pointer and keyboard input are enabled by default only inside the
      adapter/operator-bound DCC scope. Operators may set
      `DCC_MCP_CUA_ALLOW_RAW_INPUT=false` to disable that runtime ceiling; the
-     adapter must not override this choice. Before raw input can start, the
-     adapter/operator must set `DCC_MCP_UI_CONTROL_PROCESS_ID` or
-     `DCC_MCP_UI_CONTROL_WINDOW_HANDLE` to
-      the adapter's own DCC target; request scope may only narrow that trusted
-      PID/HWND. Require a visible unlocked desktop and matching Windows
-      integrity level, preserve the click-through border/banner/pointer feedback, and preserve
+     adapter must not override this choice. Populate `DccServerOptions` with
+     the adapter's DCC PID and, when available, its current window title or
+     handle; Core injects that trusted scope into in-process `ui-control` calls.
+     Dedicated servers may instead use `DCC_MCP_UI_CONTROL_PROCESS_ID` or
+     `DCC_MCP_UI_CONTROL_WINDOW_HANDLE` operator overrides. Request scope may
+     only narrow that trusted PID/HWND, including a title constraint for one
+     window inside a multi-window process. Require a visible unlocked desktop
+     and matching Windows integrity level, preserve the click-through
+     border/banner/pointer feedback, and preserve
       `user_interrupted` without automatic retry, `session_id` changes, or fallback. Once Esc stops an
       session, only `ui_control__snapshot(resume_computer_use=true)` may request a
       resume, and the isolated host must still obtain trusted user confirmation

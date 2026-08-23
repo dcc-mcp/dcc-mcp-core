@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from typing import Callable
+from typing import Mapping
 
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
@@ -44,6 +46,29 @@ class ExecutionBridgeBinder:
 
     def __init__(self, owner: Any) -> None:
         self._owner = owner
+
+    def _with_adapter_context(self, executor: Callable[..., Any]) -> Callable[..., Any]:
+        """Inject server-owned UI scope after public argument validation."""
+        owner = self._owner
+        trusted_adapter_scope = {
+            "dcc_type": owner._dcc_name,
+            "process_id": owner._dcc_pid,
+            "window_handle": owner._dcc_window_handle,
+            "window_title": owner._dcc_window_title,
+        }
+
+        def _executor(
+            script_path: str,
+            params: Mapping[str, Any],
+            **metadata: Any,
+        ) -> Any:
+            action_name = str(metadata.get("action_name") or "")
+            skill_name = str(metadata.get("skill_name") or "")
+            if skill_name == "ui-control" or action_name.startswith("ui_control__"):
+                metadata["trusted_adapter_scope"] = dict(trusted_adapter_scope)
+            return executor(script_path, params, **metadata)
+
+        return _executor
 
     # -- sandbox ---------------------------------------------------------------
 
@@ -178,7 +203,7 @@ class ExecutionBridgeBinder:
         owner._dcc_dispatcher = bridge.dispatcher
         host_dispatcher = bridge.resolve_host_dispatcher()
         try:
-            owner._server.set_in_process_executor(bridge.as_inprocess_executor())
+            owner._server.set_in_process_executor(self._with_adapter_context(bridge.as_inprocess_executor()))
             owner._inprocess_executor_registered = True
             self._bind_package_lifecycle(bridge)
             host_dispatcher_attached = self._attach_host_dispatcher_to_http(host_dispatcher)
@@ -219,7 +244,7 @@ class ExecutionBridgeBinder:
         owner._dcc_dispatcher = dispatcher
         self._attach_sandbox_to_bridge(bridge)
         owner._execution_bridge = bridge
-        executor = bridge.as_inprocess_executor()
+        executor = self._with_adapter_context(bridge.as_inprocess_executor())
         host_dispatcher = bridge.resolve_host_dispatcher()
         try:
             owner._server.set_in_process_executor(executor)

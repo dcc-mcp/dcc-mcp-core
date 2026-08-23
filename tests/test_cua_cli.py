@@ -161,6 +161,48 @@ def test_cli_sibling_precedes_an_unrelated_path_cua(tmp_path: Path, monkeypatch:
     assert resolve_cua_command() == [str(sibling.resolve())]
 
 
+def test_official_install_dir_is_probed_without_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    binary = tmp_path / ("dcc-cua.exe" if os.name == "nt" else "dcc-cua")
+    binary.write_bytes(b"test")
+    monkeypatch.delenv("DCC_MCP_CUA_BINARY", raising=False)
+    monkeypatch.setenv("DCC_MCP_INSTALL_DIR", str(tmp_path))
+    monkeypatch.setattr("dcc_mcp_core.cua_cli.shutil.which", lambda _name: None)
+
+    assert resolve_cua_command() == [str(binary.resolve())]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows installer default")
+def test_windows_default_dcc_mcp_bin_is_probed_without_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binary = tmp_path / "dcc-mcp" / "bin" / "dcc-cua.exe"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"test")
+    monkeypatch.delenv("DCC_MCP_CUA_BINARY", raising=False)
+    monkeypatch.delenv("DCC_MCP_INSTALL_DIR", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr("dcc_mcp_core.cua_cli.shutil.which", lambda _name: None)
+
+    assert resolve_cua_command() == [str(binary.resolve())]
+
+
+def test_latest_stable_versioned_install_is_probed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    executable_name = "dcc-cua.exe" if os.name == "nt" else "dcc-cua"
+    versions = tmp_path / "versions"
+    for version in ("1.0.2", "1.1.0", "1.2.0-beta.1", "not-a-version"):
+        path = versions / version / executable_name
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"test")
+    monkeypatch.delenv("DCC_MCP_CUA_BINARY", raising=False)
+    monkeypatch.delenv("DCC_MCP_INSTALL_DIR", raising=False)
+    monkeypatch.setattr("dcc_mcp_core.cua_cli._standard_cua_candidates", lambda: ())
+    monkeypatch.setattr("dcc_mcp_core.cua_cli._standalone_cua_versions_dir", lambda: versions)
+    monkeypatch.setattr("dcc_mcp_core.cua_cli.shutil.which", lambda _name: None)
+
+    assert resolve_cua_command() == [str((versions / "1.1.0" / executable_name).resolve())]
+
+
 def test_binary_frame_fallback_reads_and_removes_cli_output(tmp_path: Path) -> None:
     bridge = CuaCliBridge(_fake_command(tmp_path), snapshot_transport="binary_frame")
     try:

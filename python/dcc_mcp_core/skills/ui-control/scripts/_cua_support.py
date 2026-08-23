@@ -148,7 +148,11 @@ def _process_name_key(value: str) -> str:
 
 def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[str, Any]:
     invalid_reason = None
-    trusted_title = str(os.environ.get("DCC_MCP_UI_CONTROL_WINDOW_TITLE") or "").strip()
+    raw_adapter_scope = params.get("trusted_adapter_scope")
+    adapter_scope = raw_adapter_scope if isinstance(raw_adapter_scope, dict) else {}
+    trusted_title = str(
+        os.environ.get("DCC_MCP_UI_CONTROL_WINDOW_TITLE") or adapter_scope.get("window_title") or ""
+    ).strip()
     requested_title = str(params.get("window_title") or "").strip()
     effective_title = _intersect_title_constraints(trusted_title, requested_title)
     if trusted_title and requested_title and effective_title is None:
@@ -169,7 +173,7 @@ def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[
     titles = [effective_title] if effective_title else allowed_titles
 
     allowed_process_ids = {int(item) for item in policy.allowed_process_ids if int(item) > 0}
-    raw_trusted_pid = os.environ.get("DCC_MCP_UI_CONTROL_PROCESS_ID")
+    raw_trusted_pid = os.environ.get("DCC_MCP_UI_CONTROL_PROCESS_ID") or adapter_scope.get("process_id")
     trusted_process_id = _positive_int(raw_trusted_pid)
     if raw_trusted_pid and trusted_process_id is None:
         invalid_reason = invalid_reason or "the runtime DCC process id scope is invalid"
@@ -199,7 +203,7 @@ def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[
         )
     process_names = [effective_process_name] if effective_process_name else []
 
-    raw_trusted_handle = os.environ.get("DCC_MCP_UI_CONTROL_WINDOW_HANDLE")
+    raw_trusted_handle = os.environ.get("DCC_MCP_UI_CONTROL_WINDOW_HANDLE") or adapter_scope.get("window_handle")
     trusted_window_handle = _positive_int(raw_trusted_handle)
     if raw_trusted_handle and trusted_window_handle is None:
         invalid_reason = invalid_reason or "the runtime DCC window handle scope is invalid"
@@ -221,6 +225,7 @@ def _scope_from_params(params: Dict[str, Any], policy: UiControlPolicy) -> Dict[
         "excluded_process_ids": [] if explicit_scope else [os.getpid()],
         "require_process_match": bool(process_ids or process_names),
         "native_scope_trusted": bool(trusted_process_id or trusted_window_handle),
+        "dcc_type": str(adapter_scope.get("dcc_type") or "").strip(),
         "invalid_reason": invalid_reason,
     }
 

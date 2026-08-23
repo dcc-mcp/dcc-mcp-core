@@ -116,6 +116,7 @@ def test_cua_host_adapter_preserves_exact_grant_snapshot_and_action_fences() -> 
         dcc_type="maya",
         process_id=42,
         window_handle=500,
+        window_title="Autodesk Maya",
         allow_raw_input=True,
         bridge=bridge,
     )
@@ -127,6 +128,7 @@ def test_cua_host_adapter_preserves_exact_grant_snapshot_and_action_fences() -> 
         "application_label": "maya",
         "process_id": 42,
         "window_handle": 500,
+        "window_title": "Autodesk Maya",
         "allow_raw_input": True,
         "allow_recording": True,
     }

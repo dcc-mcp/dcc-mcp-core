@@ -811,6 +811,63 @@ fn local_search_without_query_lists_tools_for_dcc_filter() {
 }
 
 #[test]
+fn local_search_surfaces_ui_control_tools_after_load() {
+    let fixture = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let file_registry = FileRegistry::new(registry.path()).unwrap();
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    let instance_short = entry.instance_id.to_string()[..8].to_string();
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), fixture.mcp_url());
+    file_registry.register(entry).unwrap();
+
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles_s = registry
+        .path()
+        .join("gateway-profiles.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
+    ];
+
+    let loaded = run_json_with_env(
+        &[
+            "load-skill",
+            "ui-control",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
+        ],
+        &envs,
+    );
+    assert_eq!(loaded["registered_tools"][0], "ui_control__snapshot");
+
+    let search = run_json_with_env(
+        &[
+            "search",
+            "--query",
+            "ui control snapshot",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
+        ],
+        &envs,
+    );
+    assert_eq!(search["source"], "local_mcp");
+    assert_eq!(search["total"], 1);
+    assert_eq!(search["hits"][0]["backend_tool"], "ui_control__snapshot");
+    assert_eq!(search["hits"][0]["kind"], "tool");
+}
+
+#[test]
 fn local_search_and_describe_use_sidecar_discovery_mcp_url() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();
