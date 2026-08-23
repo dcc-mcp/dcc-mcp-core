@@ -115,6 +115,7 @@ pub enum MarketplaceActivation {
 // ── installed state ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "InstalledMarketplacePackageWire")]
 pub struct InstalledMarketplacePackage {
     pub name: String,
     pub dcc: String,
@@ -136,6 +137,65 @@ pub struct InstalledMarketplacePackage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_commit: Option<String>,
     pub installed_at_ms: u128,
+}
+
+/// Persistence DTO that keeps DCC-only ledgers written before `target` compatible.
+#[derive(Debug, Clone, Deserialize)]
+struct InstalledMarketplacePackageWire {
+    name: String,
+    dcc: String,
+    #[serde(default)]
+    target: Option<CatalogTarget>,
+    #[serde(default)]
+    components: Vec<CatalogComponent>,
+    #[serde(default)]
+    package_format: Option<CatalogPackageFormat>,
+    version: Option<String>,
+    path: String,
+    source_name: String,
+    source_url: String,
+    install_type: String,
+    install_url: Option<String>,
+    install_ref: Option<String>,
+    #[serde(default)]
+    resolved_commit: Option<String>,
+    installed_at_ms: u128,
+}
+
+impl TryFrom<InstalledMarketplacePackageWire> for InstalledMarketplacePackage {
+    type Error = String;
+
+    fn try_from(value: InstalledMarketplacePackageWire) -> Result<Self, Self::Error> {
+        let target = match value.target {
+            Some(target) => target,
+            None => {
+                let legacy_dcc = value.dcc.trim();
+                if legacy_dcc.is_empty() {
+                    return Err("missing field `target` and legacy `dcc` is empty".into());
+                }
+                CatalogTarget {
+                    kind: CatalogTargetKind::Dcc,
+                    id: legacy_dcc.to_ascii_lowercase(),
+                }
+            }
+        };
+        Ok(Self {
+            name: value.name,
+            dcc: value.dcc,
+            target,
+            components: value.components,
+            package_format: value.package_format,
+            version: value.version,
+            path: value.path,
+            source_name: value.source_name,
+            source_url: value.source_url,
+            install_type: value.install_type,
+            install_url: value.install_url,
+            install_ref: value.install_ref,
+            resolved_commit: value.resolved_commit,
+            installed_at_ms: value.installed_at_ms,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
