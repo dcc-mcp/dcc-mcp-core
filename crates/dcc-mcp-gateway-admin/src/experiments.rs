@@ -1,8 +1,121 @@
-//! Pure experiment projections for the admin API.
+//! Pure experiment contracts and projections for the admin API.
 
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
+
+const MAX_METADATA_BYTES: usize = 16 * 1024;
+
+/// Validate a persisted experiment identifier.
+#[must_use]
+pub fn valid_experiment_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+}
+
+/// Validate the bounded fields accepted when an experiment is created.
+pub fn validate_experiment_definition(
+    name: &str,
+    scenario_id: &str,
+    description: &str,
+    workflow_id: Option<&str>,
+    recording_id: Option<&str>,
+    tags: &[String],
+    metadata: &Value,
+) -> Result<(), &'static str> {
+    if name.trim().is_empty()
+        || name.len() > 256
+        || !valid_experiment_id(scenario_id)
+        || description.len() > 2_048
+        || workflow_id.is_some_and(|value| !valid_experiment_id(value))
+        || recording_id.is_some_and(|value| !valid_experiment_id(value))
+        || tags.len() > 32
+        || tags
+            .iter()
+            .any(|value| value.is_empty() || value.len() > 64)
+        || !bounded_json(metadata)
+    {
+        return Err("invalid or oversized experiment definition");
+    }
+    Ok(())
+}
+
+/// Validate the bounded fields accepted for an experiment run event.
+pub fn validate_experiment_run(
+    run_id: &str,
+    status: &str,
+    parent_run_id: Option<&str>,
+    parent_session_id: Option<&str>,
+    parameters: &Value,
+    metrics: &Value,
+    evidence: &[String],
+) -> Result<(), &'static str> {
+    if !valid_experiment_id(run_id)
+        || !matches!(
+            status,
+            "pending" | "running" | "passed" | "failed" | "error" | "cancelled"
+        )
+        || parent_run_id.is_some_and(|value| !valid_experiment_id(value))
+        || parent_session_id.is_some_and(|value| !valid_experiment_id(value))
+        || !bounded_json(parameters)
+        || !bounded_json(metrics)
+        || !valid_evidence(evidence)
+    {
+        return Err("invalid or oversized experiment run payload");
+    }
+    Ok(())
+}
+
+/// Fields required to validate one judge-result event.
+#[derive(Debug, Clone, Copy)]
+pub struct ExperimentJudgeValidation<'a> {
+    pub run_id: &'a str,
+    pub evaluator_id: &'a str,
+    pub evaluator_version: &'a str,
+    pub rubric_hash: &'a str,
+    pub status: &'a str,
+    pub scores: &'a Value,
+    pub summary: &'a str,
+    pub cost: Option<f64>,
+    pub evidence: &'a [String],
+}
+
+/// Validate the bounded fields accepted for an experiment judge result.
+pub fn validate_experiment_judge(input: ExperimentJudgeValidation<'_>) -> Result<(), &'static str> {
+    if !valid_experiment_id(input.run_id)
+        || !valid_experiment_id(input.evaluator_id)
+        || input.evaluator_version.is_empty()
+        || input.evaluator_version.len() > 64
+        || input.rubric_hash.is_empty()
+        || input.rubric_hash.len() > 256
+        || !matches!(input.status, "passed" | "failed" | "error")
+        || input.summary.len() > 2_048
+        || !bounded_json(input.scores)
+        || !valid_evidence(input.evidence)
+        || input
+            .cost
+            .is_some_and(|value| !value.is_finite() || value < 0.0)
+    {
+        return Err("invalid or oversized judge result payload");
+    }
+    Ok(())
+}
+
+fn bounded_json(value: &Value) -> bool {
+    serde_json::to_vec(value)
+        .map(|bytes| bytes.len() <= MAX_METADATA_BYTES)
+        .unwrap_or(false)
+}
+
+fn valid_evidence(values: &[String]) -> bool {
+    values.len() <= 32
+        && values
+            .iter()
+            .all(|value| !value.is_empty() && value.len() <= 2_048)
+}
 
 /// Project persisted experiment summaries into the list response.
 #[must_use]
@@ -150,6 +263,65 @@ mod tests {
                 "run_id": "run-1"
             })])
             .is_none()
+        );
+    }
+
+    #[test]
+    fn validation_accepts_backend_neutral_experiment_contracts() {
+        assert!(
+            validate_experiment_definition(
+                "Cross-DCC validation",
+                "scene-v1",
+                "",
+                Some("workflow-1"),
+                None,
+                &["maya".to_string(), "photoshop".to_string()],
+                &json!({"seed": 7}),
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_experiment_run(
+                "run-1",
+                "passed",
+                None,
+                Some("session-1"),
+                &json!({"dcc": "custom"}),
+                &json!({"score": 0.9}),
+                &["artefact://sha256/example".to_string()],
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn validation_rejects_unsafe_or_oversized_values() {
+        assert!(!valid_experiment_id("bad/id"));
+        assert!(
+            validate_experiment_run(
+                "run-1",
+                "unknown",
+                None,
+                None,
+                &Value::Null,
+                &Value::Null,
+                &[],
+            )
+            .is_err()
+        );
+        assert!(
+            validate_experiment_judge(ExperimentJudgeValidation {
+                run_id: "run-1",
+                evaluator_id: "quality",
+                evaluator_version: "1",
+                rubric_hash: "sha256:abc",
+                status: "passed",
+                scores: &json!({}),
+                summary: "ok",
+                cost: Some(f64::NAN),
+                evidence: &[],
+            })
+            .is_err()
         );
     }
 }
