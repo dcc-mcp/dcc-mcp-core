@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, oneshot, watch};
 use tower::ServiceExt;
 
+use crate::gateway::admin::application::router::{build_admin_router, build_v1_debug_router};
 use crate::gateway::admin::infra::integrations::INTEGRATIONS_TEST_ENV_LOCK;
-use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
 use crate::gateway::admin::state::AdminState;
 use crate::gateway::state::GatewayState;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;

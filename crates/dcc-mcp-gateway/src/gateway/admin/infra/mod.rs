@@ -9,6 +9,12 @@ pub mod stats;
 #[cfg(feature = "admin")]
 pub(crate) mod integrations;
 
+#[cfg(feature = "admin")]
+pub(crate) mod wecom_response;
+
+#[cfg(feature = "admin")]
+pub(crate) mod wecom_url;
+
 pub use activity::*;
 pub use audit_sink::AdminAuditSink;
 pub use stats::{

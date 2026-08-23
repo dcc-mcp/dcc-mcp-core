@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 use tower::ServiceExt;
 
-use crate::gateway::admin::router::{build_admin_router, build_v1_debug_router};
+use crate::gateway::admin::application::router::{build_admin_router, build_v1_debug_router};
 use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
 use crate::gateway::admin::trace::TokenTelemetry;
 use crate::gateway::state::GatewayState;
@@ -632,7 +632,7 @@ async fn test_admin_tasks_and_debug_bundle_from_trace() {
             .is_some_and(|url| url.ends_with("/v1/openapi.json"))
     );
 
-    let v1_router = crate::gateway::admin::router::build_v1_debug_router(state);
+    let v1_router = crate::gateway::admin::application::router::build_v1_debug_router(state);
     let (instances_status, instances_body) =
         body_json(v1_router.clone(), "/v1/debug/instances").await;
     assert_eq!(instances_status, StatusCode::OK);

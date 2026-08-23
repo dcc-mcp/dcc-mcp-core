@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use crate::gateway::admin::router::build_v1_debug_router;
+use crate::gateway::admin::application::router::build_v1_debug_router;
 use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
 use crate::gateway::admin::tests::admin_tests::{make_admin_state, post_json_as_session};
 use crate::gateway::traffic::{TrafficFrame, basic_gateway_source, correlation, mcp_message};

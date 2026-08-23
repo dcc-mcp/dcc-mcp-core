@@ -10,7 +10,7 @@ use serde_json::Value;
 use tokio::sync::{RwLock, broadcast, watch};
 use tower::ServiceExt;
 
-use crate::gateway::admin::router::build_admin_router;
+use crate::gateway::admin::application::router::build_admin_router;
 use crate::gateway::admin::state::AdminState;
 use crate::gateway::state::GatewayState;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;

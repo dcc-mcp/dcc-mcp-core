@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::sync::{RwLock, broadcast, watch};
 use tower::ServiceExt;
 
-use crate::gateway::admin::router::build_admin_router;
+use crate::gateway::admin::application::router::build_admin_router;
 use crate::gateway::admin::state::{AdminAuditRecord, AdminState, AuditLog};
 use crate::gateway::admin::trace::TokenTelemetry;
 use crate::gateway::state::GatewayState;
