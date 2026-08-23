@@ -3,7 +3,7 @@
 //! This crate owns admin-facing audit, trace, caller-context, compact projection,
 //! link, issue-report, statistics, analytics, governance, artifact, activity, task-outcome,
 //! durable audit, debug-bundle, postmortem, agent-trace packet, memory-summary, experiment,
-//! skill-path, traffic, and WeCom webhook policy
+//! skill-path, skill-health, traffic, and WeCom webhook policy
 //! independently of gateway routing state.
 //! It also owns the Vite/npm build script and generated dashboard payload; the Node.js
 //! toolchain only runs when `embed` is enabled.
@@ -26,6 +26,7 @@ mod links;
 mod memory;
 mod projection;
 mod recordings;
+mod skill_health;
 mod skill_paths;
 mod sqlite_lane;
 mod stats;
@@ -76,6 +77,10 @@ pub use projection::{
 };
 pub use recordings::{
     recording_default_postcondition, recording_semantic_query, recording_ui_session,
+};
+pub use skill_health::{
+    SkillCapabilityInput, SkillSearchFollowupInput, SkillSearchHitInput, SkillSearchInput,
+    skill_inventory_payload,
 };
 pub use skill_paths::{skill_path_hash, skill_path_row};
 pub use sqlite_lane::{AdminSqliteLane, AdminSqliteReader, read_custom_skill_paths_for_startup};
