@@ -23,6 +23,73 @@ fn installed_package(name: &str, dcc: &str) -> InstalledMarketplacePackage {
 }
 
 #[test]
+fn legacy_installed_state_without_target_infers_dcc_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = MarketplaceService::new(temp.path().to_path_buf());
+    let state_path = temp.path().join("installed.json");
+    std::fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&serde_json::json!({
+            "packages": [{
+                "name": "legacy-tools",
+                "dcc": "Maya",
+                "version": "0.20.4",
+                "path": temp.path().join("maya").join("legacy-tools"),
+                "source_name": "official",
+                "source_url": "https://example.invalid/marketplace.json",
+                "install_type": "git",
+                "install_url": null,
+                "install_ref": null,
+                "installed_at_ms": 1
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let installed = service.list_installed(None).unwrap();
+    assert_eq!(installed.count, 1);
+    assert_eq!(
+        installed.packages[0].target,
+        CatalogTarget {
+            kind: CatalogTargetKind::Dcc,
+            id: "maya".into(),
+        }
+    );
+
+    service
+        .upsert_installed(installed_package("blender-tools", "blender"))
+        .unwrap();
+    let persisted: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(state_path).unwrap()).unwrap();
+    assert!(
+        persisted["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|package| package.get("target").is_some())
+    );
+}
+
+#[test]
+fn installed_package_without_target_or_legacy_dcc_is_rejected() {
+    let mut package = serde_json::to_value(installed_package("broken-tools", "maya")).unwrap();
+    let package = package.as_object_mut().unwrap();
+    package.remove("target");
+    package.insert("dcc".into(), serde_json::Value::String("  ".into()));
+
+    let error = serde_json::from_value::<InstalledMarketplacePackage>(serde_json::Value::Object(
+        package.clone(),
+    ))
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("missing field `target` and legacy `dcc` is empty")
+    );
+}
+
+#[test]
 fn resolve_installed_dcc_infers_the_only_matching_host() {
     let temp = tempfile::tempdir().unwrap();
     let service = MarketplaceService::new(temp.path().to_path_buf());
