@@ -75,7 +75,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # `dcc-mcp-telemetry`; opt-in gating of the OTel stack is a separate follow-up.
 default = []
 admin = ["dcc-mcp-gateway-admin/embed"]
-admin-persist-sqlite = ["admin", "dcc-mcp-db/gateway-admin-sqlite"]
+admin-persist-sqlite = ["admin", "dcc-mcp-gateway-admin/persist-sqlite"]
 telemetry = ["dep:dcc-mcp-telemetry", "dep:opentelemetry"]
 prometheus = ["telemetry", "dcc-mcp-telemetry/prometheus", "dep:prometheus"]
 mdns = ["dcc-mcp-transport/mdns"]

@@ -27,6 +27,7 @@ mod memory;
 mod projection;
 mod recordings;
 mod skill_paths;
+mod sqlite_lane;
 mod stats;
 mod tasks;
 mod trace_log;
@@ -76,6 +77,7 @@ pub use recordings::{
     recording_default_postcondition, recording_semantic_query, recording_ui_session,
 };
 pub use skill_paths::{skill_path_hash, skill_path_row};
+pub use sqlite_lane::{AdminSqliteLane, AdminSqliteReader, read_custom_skill_paths_for_startup};
 pub use stats::{
     AttributionFacet, GatewayStats, LatencyStats, PayloadTokenUsageStats, StatsFilter, StatsRange,
     StatsStatus, TokenBreakdownEntry, TokenUsageStats, TopEntry, TraceStatsAggregator,
