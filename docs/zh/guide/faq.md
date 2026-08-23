@@ -387,7 +387,8 @@ Agent 应先完成自查，再创建 issue：
 1. 保留失败调用的 `request_id`；启动/readiness 问题运行
    `dcc-mcp-cli doctor`，任务范围证据运行
    `dcc-mcp-cli stats --status failure --session-id <id>`。
-2. 发现并调用 `dcc_feedback__report`，把结构化反馈记录到 runtime。
+2. 运行 `dcc-mcp-cli feedback`，把结构化反馈记录到 Gateway；崩溃类故障附带
+   最后已知的 instance/request/job id。DCC 退出后该路径仍可用。
 3. gateway 路径失败时获取 public-safe
    `/v1/debug/issue-reports/<request_id>`；它包含建议 title/body，未经人工审查
    禁止上传 `?mode=raw`。

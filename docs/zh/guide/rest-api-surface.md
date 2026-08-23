@@ -28,6 +28,7 @@ OpenAPI 契约。
 | `GET` | `/v1/instances` | elected gateway 当前知道的在线 DCC instance rows。 |
 | `GET` | `/v1/healthz` | Gateway 存活探针。HTTP handler 在线时返回 `200 {"ok": true}`。 |
 | `GET` | `/v1/readyz` | Gateway readiness 汇总，包含每个 instance 的 readiness bits；即使没有 ready instance，该路由仍返回 `200`。 |
+| `POST` | `/v1/feedback` | 在 Gateway 记录有界 Agent 反馈，可关联已退出的 instance/request/job；没有在线 DCC 时仍可用。 |
 | `GET` | `/v1/update/check` | Gateway update manifest 检查，用于 `dcc-mcp-cli`、`dcc-mcp-server` 或其它配置过的 binary。Query: `binary`, `current_version`。 |
 | `GET` | `/v1/update/download/{binary_name}` | 解析某个 binary 的最新 manifest download URL；当未配置 URL 时返回结构化 update error。 |
 | `GET` | `/v1/skills` | 把已加载 gateway capability records 投影成 skill entries。 |

@@ -229,11 +229,12 @@ live sessions.
 
 On failure, keep the CLI-returned `request_id` and run `doctor` for startup or
 readiness faults, then `stats --status failure --session-id task-42` for the
-bounded task slice. Discover and call `dcc_feedback__report` through
-`search -> describe -> call` to record structured runtime feedback. For a
-gateway-routed failure, `/v1/debug/issue-reports/<request_id>` returns a
-public-safe summary and suggested GitHub issue body; never publish `?mode=raw`
-without human review, and create an external issue only with user authorization.
+bounded task slice. Use gateway-owned `dcc-mcp-cli feedback` to record
+structured runtime feedback even after the target instance exits; never include
+credentials or unsanitized payloads. For a gateway-routed failure,
+`/v1/debug/issue-reports/<request_id>` returns a public-safe summary and
+suggested GitHub issue body; never publish `?mode=raw` without human review, and
+create an external issue only with user authorization.
 
 After the task passes its acceptance checks, query bounded evidence with
 `dcc-mcp-cli stats --range 24h --session-id task-42`, then use the
@@ -370,7 +371,7 @@ to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
 and never echoes raw source. Gateway traces and admin audit rows redact
 script-source input fields by default and keep the descriptor metadata instead.
 
-Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, targeted `POST /v1/load_skill` or `POST /v1/describe` only when requested, `POST /v1/call`, and gateway `POST /v1/call_batch`. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
+Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, targeted `POST /v1/load_skill` or `POST /v1/describe` only when requested, `POST /v1/call`, and gateway `POST /v1/call_batch`. File failure feedback through gateway `POST /v1/feedback`; it remains available with zero live DCC instances and accepts last-known instance/request/job ids. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
 ### Gateway workflow guide (`gateway://docs/agent-workflows`)
 

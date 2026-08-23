@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use dcc_mcp_models::FeedbackReport;
 use dcc_mcp_models::{LinkedAdapterJob, linked_adapter_job_from_result};
 
 use crate::application::client::{ClientError, DccMcpClient};
@@ -89,6 +90,14 @@ impl DccControlPlane {
             .await
             .map_err(anyhow::Error::from)?;
         Ok(attach_stats_coverage(value, self.uses_direct_local()))
+    }
+
+    /// File feedback through the gateway even when the instance inventory is empty.
+    pub async fn feedback(&self, report: FeedbackReport) -> anyhow::Result<Value> {
+        self.gateway_client()
+            .feedback(report)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn search(&self, request: SearchRequest) -> anyhow::Result<Value> {

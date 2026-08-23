@@ -4,6 +4,7 @@
 mod action_result;
 mod dcc_name;
 mod error;
+pub mod feedback;
 mod instance_status;
 pub mod registry;
 pub mod session;
@@ -22,6 +23,7 @@ pub use action_result::{
 };
 pub use dcc_name::DccName;
 pub use error::DccMcpError;
+pub use feedback::{FeedbackReport, FeedbackSeverity, FeedbackValidationError};
 pub use instance_status::{DispatchStatus, InstanceStatus, ServiceStatus};
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};
 pub use session::{Session, SessionEndReason, SessionStatus};

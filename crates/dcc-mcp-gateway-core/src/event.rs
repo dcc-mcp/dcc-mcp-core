@@ -1,4 +1,4 @@
-//! Gateway contention event value types (issue #845).
+//! Gateway operational event value types (issues #845, #2208).
 //!
 //! These are the wire-level records exposed through
 //! `resources://gateway/events` and mirrored into metrics labels by the gateway
@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// All contention-relevant event kinds the gateway can emit.
+/// Operational event kinds the gateway can emit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
@@ -25,6 +25,10 @@ pub enum EventKind {
     AutoDeregister,
     /// A backend DCC host died while a gateway-routed call was in flight.
     HostDied,
+    /// A previously-live instance left the gateway inventory.
+    InstanceExited,
+    /// An agent filed gateway-level feedback.
+    FeedbackReported,
     /// Operator-facing admin action (skill paths, etc.) — no Prometheus counter.
     OperatorNote,
 }
@@ -41,12 +45,14 @@ impl EventKind {
             EventKind::ProbeUnreachable => "unreachable",
             EventKind::AutoDeregister => "probe_fail",
             EventKind::HostDied => "host_died",
+            EventKind::InstanceExited => "instance_exited",
+            EventKind::FeedbackReported => "feedback_reported",
             EventKind::OperatorNote => "operator",
         }
     }
 }
 
-/// A single contention event stored in the gateway ring buffer.
+/// A single operational event stored in the gateway ring buffer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContendEvent {
     /// ISO-8601 UTC timestamp (millisecond precision).
@@ -55,7 +61,8 @@ pub struct ContendEvent {
     pub event: EventKind,
     /// DCC type involved (`"maya"`, `"blender"`, `"__gateway__"`, …).
     pub dcc_type: String,
-    /// Short, human-readable instance identifier (first 8 hex chars of the UUID).
+    /// Instance identifier; lifecycle events preserve the exact UUID while
+    /// legacy contention events may use a short human-readable id.
     pub instance_id: String,
     /// Optional human-readable context (e.g. challenger version, failure count).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,6 +103,8 @@ mod tests {
         assert_eq!(EventKind::ProbeUnreachable.as_label(), "unreachable");
         assert_eq!(EventKind::AutoDeregister.as_label(), "probe_fail");
         assert_eq!(EventKind::HostDied.as_label(), "host_died");
+        assert_eq!(EventKind::InstanceExited.as_label(), "instance_exited");
+        assert_eq!(EventKind::FeedbackReported.as_label(), "feedback_reported");
         assert_eq!(EventKind::OperatorNote.as_label(), "operator");
     }
 

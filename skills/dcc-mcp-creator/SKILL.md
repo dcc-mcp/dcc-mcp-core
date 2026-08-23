@@ -315,8 +315,11 @@ Report adapter-owned dispatch, host-thread, readiness, packaging, or install
 bugs in the adapter repository. Escalate shared CLI, gateway, protocol, or core
 contract failures to `dcc-mcp-core`. Tool schema/script/workflow defects belong
 to the owning Skill and `dcc-mcp-skills-creator`. Record runtime feedback with
-the CLI-discovered `dcc_feedback__report` tool; open an external issue only
-with user authorization.
+the gateway-owned `dcc-mcp-cli feedback` command so the report remains possible
+after an adapter or DCC process exits; include the last known instance,
+request, and job ids. Treat instance-level `dcc_feedback__report` as a
+live-adapter compatibility path. Open an external issue only with user
+authorization.
 
 ## Example: New Nuke Adapter
 

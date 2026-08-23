@@ -368,8 +368,9 @@ Agents should self-check before opening an issue:
 1. Keep the failed call's `request_id`; run `dcc-mcp-cli doctor` for startup or
    readiness faults and `dcc-mcp-cli stats --status failure --session-id <id>`
    for the bounded task slice.
-2. Discover and call `dcc_feedback__report` to record structured feedback in
-   the runtime.
+2. Run `dcc-mcp-cli feedback` to record structured feedback at the gateway;
+   include the last known instance/request/job ids for crash-class failures.
+   This remains available after the DCC exits.
 3. For a gateway-routed failure, retrieve public-safe
    `/v1/debug/issue-reports/<request_id>`. It includes a suggested title/body;
    never upload `?mode=raw` without human review.

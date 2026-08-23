@@ -2,7 +2,7 @@
 
 > **[English](../../api/feedback.md)**
 
-代理反馈与决策理由机制。注册 `dcc_feedback__report` MCP 工具供代理提交反馈，提取和构建 `tools/call` 请求中的 `_meta.dcc.rationale` 决策理由。
+代理反馈与决策理由机制。Gateway 提供 `POST /v1/feedback` 与 `dcc-mcp-cli feedback`，即使没有在线 DCC 也可提交；`dcc_feedback__report` 继续作为在线实例兼容工具。另可提取和构建 `tools/call` 请求中的 `_meta.dcc.rationale` 决策理由。
 
 **导出符号：** `register_feedback_tool`, `extract_rationale`, `make_rationale_meta`, `get_feedback_entries`, `clear_feedback`
 
@@ -21,13 +21,20 @@
 ```bash
 dcc-mcp-cli doctor
 dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>
-dcc-mcp-cli search --query "report feedback" --dcc-type <dcc>
-dcc-mcp-cli describe <returned-feedback-tool-slug>
-dcc-mcp-cli call <returned-feedback-tool-slug> --json \
-  '{"tool_name":"tool_that_failed","intent":"goal","attempt":"sanitized attempt","blocker":"observed failure","severity":"blocked"}'
+dcc-mcp-cli feedback \
+  --tool-name tool_that_failed \
+  --intent "goal" \
+  --attempt "sanitized attempt" \
+  --blocker "observed failure" \
+  --severity blocked \
+  --dcc-type <dcc> \
+  --instance-id <live-or-dead-instance-id> \
+  --request-id <request-id> \
+  --job-id <job-id>
 ```
 
-feedback 调用只记录结构化 runtime 信号，不会创建外部 issue。gateway 路径失败时，
+Gateway 会把有界的 `feedback_reported` 记录写入
+`resources://gateway/events` 并返回 `feedback_id`；它不依赖在线 DCC，也不会创建外部 issue。只提交经过脱敏的值，绝不能包含凭据、可复用令牌或原始敏感载荷。实例退出后不要再依赖实例级 `dcc_feedback__report`。gateway 路径失败时，
 保留 CLI 返回的 `request_id`，获取 public-safe
 `/v1/debug/issue-reports/<request_id>`；`?mode=raw` 必须本地人工审查，禁止自动上传。
 Skill 缺陷归属对应 Skill，adapter/host runtime 缺陷归属 adapter 仓库，

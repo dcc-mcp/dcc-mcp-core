@@ -213,6 +213,7 @@ their worker-owned status tool.
 | `dcc-types [--catalog <path>]` | bundled or supplied adapter catalog | List canonical adapter-backed DCC identifiers without starting a gateway. Each row includes matching adapters, version/source metadata when present, and whether the catalog can produce an install plan. |
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted gateway tool-call counts and return `stats_coverage`, including direct routes excluded from the aggregate. JSON is the default output for agent use. |
+| `feedback --tool-name <name> --intent <text> --blocker <text> [--attempt <text>] [--severity <level>] [--dcc-type <dcc>] [--instance-id <id>] [--request-id <id>] [--job-id <id>]` | `POST /v1/feedback` | File bounded gateway-level feedback even after the referenced DCC exits. The receipt points to `resources://gateway/events`. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, and server binary diagnostics without auto-starting services. |
 | `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
 | `search [-q\|--query <q>] [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities with the release-compatible query flag; current builds also accept positional natural-language words as an alternative. Optionally scope to a full UUID or unique prefix. |
@@ -281,10 +282,10 @@ Use the existing surfaces instead of copying unbounded logs:
 2. Run `dcc-mcp-cli doctor` for profile, registry, daemon, binary, or readiness
    failures. For task-level evidence, run
    `dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>`.
-3. Discover `dcc_feedback__report` with `search --query "report feedback"`,
-   follow `describe`, and call the returned slug with `tool_name`, `intent`,
-   `attempt`, `blocker`, and `severity`. This records runtime feedback; it does
-   not open a GitHub issue.
+3. Run `dcc-mcp-cli feedback` with `tool_name`, `intent`, `attempt`, `blocker`,
+   and `severity`; include the DCC/instance/request/job ids when known. This
+   gateway-owned route works after an instance exits, records a bounded event,
+   and does not open a GitHub issue.
 4. For a gateway-routed failure, read the public-safe
    `/v1/debug/issue-reports/<request_id>` payload. It contains a bounded summary
    and suggested GitHub title/body. Review `?mode=raw` locally and never attach

@@ -51,7 +51,7 @@ Resources 在 `initialize` 中通告为：
 | `gateway://instances?include_stale=false` | `application/json` | 隐藏 stale 但可解析行的同一注册表视图。 |
 | `gateway://instances?include_dead=true` | `application/json` | 更接近原始注册表的视图，包含拥有进程已退出的行。 |
 | `gateway://instances/{instance_id}` | `application/json` | 通过完整 UUID、`instance_short` 或唯一的 4 字符以上 UUID 前缀选择的单个实例。 |
-| `resources://gateway/events` | `application/jsonl` | Gateway 竞争和选举事件 ring buffer。 |
+| `resources://gateway/events` | `application/jsonl` | Gateway 运维事件 ring buffer，包括实例退出、宿主失败、反馈和选举事件。 |
 
 `resources/list` 只通告 `gateway://instances` 根指针；不会枚举每个
 `gateway://instances/{id}` URI。当已知实例 id 时，直接读取单实例 URI。

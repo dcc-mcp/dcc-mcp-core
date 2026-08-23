@@ -257,7 +257,7 @@ fn call_batch_contract_parses_steps_and_timeout() {
     assert!(tool_slug.is_none());
     assert!(batch);
     assert_eq!(parsed_steps.as_deref(), Some(steps));
-    assert_eq!(timeout_secs, 45);
+    assert_eq!(timeout_secs, Some(45));
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn ui_control_contract_parses_a_stable_snapshot_command() {
     };
     assert_eq!(snapshot.dcc_type.as_deref(), Some("unreal"));
     assert_eq!(snapshot.instance_id.as_deref(), Some("abc12345"));
-    assert_eq!(snapshot.timeout_secs, 12);
+    assert_eq!(snapshot.timeout_secs, Some(12));
     assert!(!snapshot.full_output);
     assert_eq!(
         read_call_arguments(&snapshot.arguments_json, snapshot.json_file.as_deref()).unwrap(),
@@ -330,7 +330,7 @@ fn ui_control_contract_parses_an_exact_window_recording_command() {
     };
     assert_eq!(recording.dcc_type.as_deref(), Some("unity"));
     assert_eq!(recording.instance_id.as_deref(), Some("abc12345"));
-    assert_eq!(recording.timeout_secs, 12);
+    assert_eq!(recording.timeout_secs, Some(12));
     assert_eq!(
         read_call_arguments(&recording.arguments_json, recording.json_file.as_deref()).unwrap(),
         serde_json::json!({
@@ -349,7 +349,7 @@ fn ui_control_operations_map_to_canonical_ui_control_tools() {
         arguments_json: "{}".to_string(),
         json_file: None,
         meta_json: None,
-        timeout_secs: 30,
+        timeout_secs: Some(30),
         full_output: false,
     };
     for (action, expected) in [
@@ -732,7 +732,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 url: None,
                 query: "sphere".to_string(),
                 limit: 5,
-                timeout_secs: 5,
+                timeout_secs: Some(5),
             },
             &local,
         )
@@ -745,7 +745,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 url: Some("http://127.0.0.1:8765/mcp".to_string()),
                 query: "sphere".to_string(),
                 limit: 5,
-                timeout_secs: 5,
+                timeout_secs: Some(5),
             },
             &local,
         )
@@ -807,7 +807,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 meta_json: None,
                 wait: false,
                 wait_timeout_secs: 600,
-                timeout_secs: 30,
+                timeout_secs: Some(30),
             },
             &local,
         )
@@ -820,7 +820,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 dcc_type: Some("maya".to_string()),
                 instance_id: Some("abc12345".to_string()),
                 require: vec!["process".to_string(), "dispatcher".to_string()],
-                timeout_secs: 30,
+                timeout_secs: Some(30),
                 interval_secs: 1,
             },
             &local,
@@ -985,7 +985,59 @@ fn call_parses_configurable_request_timeout() {
     let Command::Call { timeout_secs, .. } = args.command else {
         panic!("expected call command");
     };
-    assert_eq!(timeout_secs, 120);
+    assert_eq!(timeout_secs, Some(120));
+}
+
+#[test]
+fn call_default_timeout_is_not_treated_as_explicit() {
+    let args = Args::parse_from(["dcc-mcp-cli", "call", "blender.abc12345.render"]);
+
+    let Command::Call { timeout_secs, .. } = &args.command else {
+        panic!("expected call command");
+    };
+    assert_eq!(*timeout_secs, None);
+    assert!(!command_has_distinct_per_timeout(&args.command, Some(30)));
+}
+
+#[test]
+fn feedback_parses_dead_instance_correlation() {
+    let args = Args::parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "--tool-name",
+        "houdini.ui_control__act",
+        "--intent",
+        "Open the render menu",
+        "--blocker",
+        "The owner exited",
+        "--severity",
+        "suggestion",
+        "--dcc-type",
+        "houdini",
+        "--instance-id",
+        "abc12345",
+        "--request-id",
+        "request-42",
+        "--job-id",
+        "job-42",
+    ]);
+
+    let Command::Feedback {
+        severity,
+        dcc_type,
+        instance_id,
+        request_id,
+        job_id,
+        ..
+    } = args.command
+    else {
+        panic!("expected feedback command");
+    };
+    assert_eq!(severity, FeedbackSeverity::Suggestion);
+    assert_eq!(dcc_type.as_deref(), Some("houdini"));
+    assert_eq!(instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(request_id.as_deref(), Some("request-42"));
+    assert_eq!(job_id.as_deref(), Some("job-42"));
 }
 
 #[test]

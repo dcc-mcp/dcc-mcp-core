@@ -24,6 +24,7 @@ pub(crate) use dcc_mcp_transport::discovery::types::ServiceStatus;
 
 #[cfg(feature = "admin")]
 mod debug_openapi;
+mod feedback;
 mod lifecycle_impl;
 #[cfg(feature = "admin")]
 mod marketplace_ws;
@@ -39,6 +40,7 @@ mod rest_trace;
 mod sse_impl;
 mod update_impl;
 
+pub use feedback::handle_v1_feedback;
 pub use lifecycle_impl::handle_v1_dcc_instance_stop;
 #[cfg(feature = "admin")]
 pub use marketplace_ws::{MarketplaceWsState, handle_marketplace_ws};

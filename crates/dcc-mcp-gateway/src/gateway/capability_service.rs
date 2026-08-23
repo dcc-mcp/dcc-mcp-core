@@ -1365,15 +1365,7 @@ fn record_host_died(
         Some(reason),
     );
 
-    if gs.events_tx.receiver_count() > 0 {
-        let notif = serde_json::to_string(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/resources/updated",
-            "params": {"uri": crate::gateway::handlers::resources::GATEWAY_EVENTS_URI}
-        }))
-        .unwrap_or_default();
-        let _ = gs.events_tx.send(notif);
-    }
+    crate::gateway::event_log::notify_updated(&gs.events_tx);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

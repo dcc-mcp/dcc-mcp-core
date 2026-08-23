@@ -1,4 +1,4 @@
-//! Gateway contention event log (issue #766).
+//! Gateway operational event log (issues #766, #2208).
 //!
 //! Two complementary observability surfaces:
 //!
@@ -17,6 +17,8 @@
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
+
+use tokio::sync::broadcast;
 
 // `EventKind` and `ContendEvent` live in `dcc-mcp-gateway-core` (issue #845)
 // so admin clients can parse `resources://gateway/events` without depending on
@@ -181,7 +183,7 @@ impl Default for GatewayMetrics {
 
 // ── Convenience: record an event into both surfaces ─────────────────────────
 
-/// Record a contention event into the `EventLog` and (if compiled with the
+/// Record an operational event into the `EventLog` and (if compiled with the
 /// `prometheus` feature) increment the corresponding counter.
 ///
 /// # Arguments
@@ -189,7 +191,7 @@ impl Default for GatewayMetrics {
 /// * `metrics` — optional Prometheus counter facade (None when feature is off)
 /// * `event`   — what happened
 /// * `dcc_type`  — DCC type string for the affected instance
-/// * `instance_id` — short (8-char) id of the affected instance
+/// * `instance_id` — exact or legacy short id of the affected instance
 /// * `reason`  — optional free-form context string (not used as a label)
 pub fn record_event(
     log: &EventLog,
@@ -221,11 +223,29 @@ pub fn record_event(
             EventKind::HostDied => {
                 metrics.inc_eviction(event.as_label());
             }
-            EventKind::OperatorNote => {}
+            EventKind::InstanceExited => {
+                metrics.inc_eviction(event.as_label());
+            }
+            EventKind::FeedbackReported | EventKind::OperatorNote => {}
         }
     }
 
     log.push(ContendEvent::new(event, dcc_type, instance_id, reason));
+}
+
+/// Notify subscribed MCP clients that the gateway event resource changed.
+pub fn notify_updated(events_tx: &broadcast::Sender<String>) {
+    if events_tx.receiver_count() == 0 {
+        return;
+    }
+    let notification = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/resources/updated",
+        "params": {"uri": crate::gateway::handlers::resources::GATEWAY_EVENTS_URI}
+    });
+    if let Ok(notification) = serde_json::to_string(&notification) {
+        let _ = events_tx.send(notification);
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -284,6 +304,19 @@ mod tests {
         let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(second["event"], "probe_booting");
         assert_eq!(second["reason"], "backend still initialising");
+    }
+
+    #[test]
+    fn notify_updated_targets_gateway_event_resource() {
+        let (sender, mut receiver) = tokio::sync::broadcast::channel(1);
+        notify_updated(&sender);
+        let payload = receiver.try_recv().expect("resource update notification");
+        let value: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(value["method"], "notifications/resources/updated");
+        assert_eq!(
+            value["params"]["uri"],
+            crate::gateway::handlers::resources::GATEWAY_EVENTS_URI
+        );
     }
 
     #[test]
