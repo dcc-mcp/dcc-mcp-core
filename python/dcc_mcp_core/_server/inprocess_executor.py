@@ -363,8 +363,13 @@ class HostExecutionBridge:
         job_strategy: str = "monolithic",
         job_id: str | None = None,
         cancel_token: Any | None = None,
+        trusted_adapter_scope: Mapping[str, Any] | None = None,
     ) -> Any:
         """Execute a skill script using the same bridge as direct callables."""
+        effective_params = dict(params)
+        effective_params.pop("trusted_adapter_scope", None)
+        if trusted_adapter_scope is not None:
+            effective_params["trusted_adapter_scope"] = dict(trusted_adapter_scope)
         generation = self._current_generation()
         if generation is None:
             return self._shutdown_error()
@@ -374,7 +379,7 @@ class HostExecutionBridge:
         if self.sandbox_context is not None:
             return self._execute_script_sandboxed(
                 script_path,
-                params,
+                effective_params,
                 action_name=resolved_action,
                 skill_name=skill_name,
                 thread_affinity=thread_affinity,
@@ -389,7 +394,7 @@ class HostExecutionBridge:
         return self.dispatch_callable(
             self._script_runner(generation, script_admission),
             script_path,
-            params,
+            effective_params,
             action_name=action_name,
             skill_name=skill_name,
             thread_affinity=thread_affinity,
@@ -583,6 +588,7 @@ class HostExecutionBridge:
             job_strategy: str = "monolithic",
             job_id: str | None = None,
             cancel_token: Any | None = None,
+            trusted_adapter_scope: Mapping[str, Any] | None = None,
         ) -> Any:
             return self.execute_script(
                 script_path,
@@ -595,6 +601,7 @@ class HostExecutionBridge:
                 job_strategy=job_strategy,
                 job_id=job_id,
                 cancel_token=cancel_token,
+                trusted_adapter_scope=trusted_adapter_scope,
             )
 
         return _executor

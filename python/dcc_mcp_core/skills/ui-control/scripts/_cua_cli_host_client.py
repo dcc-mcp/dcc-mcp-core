@@ -24,6 +24,7 @@ class UiControlHostClient:
         process_id: Optional[int],
         window_handle: Optional[int],
         allow_raw_input: bool,
+        window_title: Optional[str] = None,
         bridge: Optional[CuaCliBridge] = None,
     ) -> None:
         self.session_id = session_id
@@ -43,6 +44,7 @@ class UiControlHostClient:
                         "application_label": dcc_type,
                         "process_id": process_id,
                         "window_handle": window_handle,
+                        "window_title": window_title,
                         "allow_raw_input": allow_raw_input,
                         "allow_recording": True,
                     },

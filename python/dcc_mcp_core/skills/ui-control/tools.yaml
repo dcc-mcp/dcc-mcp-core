@@ -3,11 +3,11 @@ tools:
     description: >-
       Capture a bounded ui_control snapshot from the scoped application window.
       Start here before UI actions; use the returned snapshot_id when acting so
-      stale controls can be detected. On Windows, an adapter/operator-bound
-      PID/HWND starts the visible DCC UI Control session and captures a bounded
-      target-window image even when raw input is disabled. Bind the
-      DCC through DCC_MCP_UI_CONTROL_PROCESS_ID or
-      DCC_MCP_UI_CONTROL_WINDOW_HANDLE; request scope can only narrow it. A
+      stale controls can be detected. On Windows, DccServerBase automatically
+      supplies its trusted adapter PID/HWND/title context. Dedicated servers
+      can bind the DCC through DCC_MCP_UI_CONTROL_PROCESS_ID or
+      DCC_MCP_UI_CONTROL_WINDOW_HANDLE. A request title can narrow a trusted PID
+      to one window, and all request scope can only narrow the binding. A
       locked, disconnected, or secure Windows desktop returns
       desktop_unavailable without ending the logical session. After unlock,
       discard old ids and take a fresh snapshot to restore the capsule.

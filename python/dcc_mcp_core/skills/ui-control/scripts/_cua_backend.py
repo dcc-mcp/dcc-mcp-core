@@ -190,10 +190,17 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
         raise UiControlHostError(str(failure.get("error") or "invalid_target"), str(failure.get("message") or ""))
     process_ids = scope.get("process_ids") or []
     window_handles = scope.get("window_handles") or []
+    window_titles = scope.get("window_titles") or []
     process_id = int(process_ids[0]) if len(process_ids) == 1 else None
     window_handle = int(window_handles[0]) if len(window_handles) == 1 else None
+    window_title = str(window_titles[0]) if len(window_titles) == 1 else None
     allow_raw_input = _raw_input_enabled()
-    dcc_type = str(os.environ.get("DCC_MCP_UI_CONTROL_DCC_TYPE") or os.environ.get("DCC_MCP_DCC_TYPE") or "custom")
+    dcc_type = str(
+        os.environ.get("DCC_MCP_UI_CONTROL_DCC_TYPE")
+        or scope.get("dcc_type")
+        or os.environ.get("DCC_MCP_DCC_TYPE")
+        or "custom"
+    )
     task_grant_id = f"adapter:{dcc_type}:{session_id}:{process_id or 0}:{window_handle or 0}"
     return {
         "session_id": session_id,
@@ -201,6 +208,7 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
         "dcc_type": dcc_type,
         "process_id": process_id,
         "window_handle": window_handle,
+        "window_title": window_title,
         "allow_raw_input": allow_raw_input,
         "scope": scope,
     }
@@ -208,7 +216,9 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
 
 def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy) -> Tuple[Any, Dict[str, Any]]:
     spec = _client_spec(session_id, params, policy)
-    identity = tuple(spec[key] for key in ("dcc_type", "process_id", "window_handle", "allow_raw_input"))
+    identity = tuple(
+        spec[key] for key in ("dcc_type", "process_id", "window_handle", "window_title", "allow_raw_input")
+    )
     with _CLIENTS_LOCK:
         entry = _CLIENTS.get(session_id)
         if entry is not None and entry["identity"] != identity:
@@ -223,6 +233,7 @@ def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy
                 dcc_type=spec["dcc_type"],
                 process_id=spec["process_id"],
                 window_handle=spec["window_handle"],
+                window_title=spec["window_title"],
                 allow_raw_input=spec["allow_raw_input"],
             )
             entry = {

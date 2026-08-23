@@ -38,9 +38,11 @@ Core does not package an automation Host in its own release assets. The official
 CLI installer reconciles the independently released `dcc-cua` companion; verify
 it with `dcc-mcp-cli components status dcc-cua` or repair it with
 `dcc-mcp-cli components ensure dcc-cua --yes`. For custom layouts, install
-`dcc-cua` 0.4.0 or newer separately so
-it is on `PATH`, or set `DCC_MCP_CUA_BINARY` to an absolute executable path.
-Core validates `dcc-cua manifest`, ensures the shared Host, and keeps one
+`dcc-cua` 0.4.0 or newer separately. Core probes the configured
+`DCC_MCP_INSTALL_DIR`, the platform's standard dcc-mcp bin directory,
+versioned standalone installs, and then `PATH`; set `DCC_MCP_CUA_BINARY` to an
+absolute executable path only for a custom location. Core validates
+`dcc-cua manifest`, ensures the shared Host, and keeps one
 persistent JSONL bridge per active UI session. It prefers shared-memory image
 transport when the native Core extension is present and otherwise uses bounded
 binary attachments.
@@ -52,7 +54,9 @@ artifact publication.
 
 ## Exact application scope
 
-The dedicated UI Control server binds one application window at startup:
+`DccServerBase` injects its trusted `DccServerOptions` process/window context
+into every in-process `ui-control` call. Dedicated or custom servers may
+override that automatic binding with:
 
 - `DCC_MCP_UI_CONTROL_PROCESS_ID`
 - `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`
@@ -62,7 +66,10 @@ The dedicated UI Control server binds one application window at startup:
 Request arguments may narrow that scope but cannot widen it. Native mouse and
 keyboard input are enabled inside that exact scope by default; operators can
 disable them with `DCC_MCP_CUA_ALLOW_RAW_INPUT=false`. Semantic accessibility
-actions remain preferred.
+actions remain preferred. For a multi-window process, pass a `window_title`
+that narrows the trusted PID to one window. The Host resolves that title once,
+then returns and enforces an exact window capability; use an explicit handle if
+the title still matches more than one window.
 
 Multiple agents may control different applications concurrently. Each logical
 session has its own grant, window capability, observation fences, and bridge.

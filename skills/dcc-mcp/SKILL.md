@@ -199,7 +199,7 @@ when structured DCC capabilities cannot reach the required semantic UI:
 2. `ui_control__find` and one semantic `ui_control__act` when possible.
 3. `ui_control__snapshot` after every action before choosing the next action.
 4. `ui_control__stop_computer_use` when the fallback completes, fails, or is abandoned.
-The runtime defaults to `dcc-cua` 0.4.0+; `mock` is test-only, never a production fallback.
+The runtime defaults to `dcc-cua` 0.4.0+; `mock` is test-only, never a production fallback. After loading, local `search --query "ui control snapshot"` returns the loaded `ui_control__*` slugs as callable tool hits.
 
 The runtime consumes standalone `dcc-cua`; inspect `dcc-cua profiles` and
 `dcc-cua profile --id <id>` before binding the exact PID/window. Keep

@@ -527,6 +527,24 @@ def test_executor_uses_custom_runner() -> None:
     assert out == "/tmp/skill.py|{'k': 'v'}"
 
 
+def test_executor_accepts_trusted_adapter_scope_only_from_private_metadata() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def _fake_runner(_script_path: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        seen.append(dict(params))
+        return {"ok": True}
+
+    executor = build_inprocess_executor(None, runner=_fake_runner)
+    executor("/tmp/public.py", {"trusted_adapter_scope": {"process_id": 9}})
+    executor(
+        "/tmp/trusted.py",
+        {"trusted_adapter_scope": {"process_id": 9}},
+        trusted_adapter_scope={"process_id": 4242},
+    )
+
+    assert seen == [{}, {"trusted_adapter_scope": {"process_id": 4242}}]
+
+
 def test_executor_passes_execution_context_to_dispatcher() -> None:
     seen: list[tuple[str, Mapping[str, Any]]] = []
 
@@ -1071,6 +1089,41 @@ def test_deferred_tool_result_non_serialisable_result_is_error() -> None:
 
 
 # ── DccServerBase.register_inprocess_executor integration ───────────────────
+
+
+def test_execution_binder_injects_trusted_adapter_scope_only_for_ui_control() -> None:
+    from dcc_mcp_core._server.execution_bridge import ExecutionBridgeBinder
+
+    owner = SimpleNamespace(
+        _dcc_name="houdini",
+        _dcc_pid=4242,
+        _dcc_window_handle=700,
+        _dcc_window_title="Houdini FX",
+    )
+    seen: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+
+    def executor(script_path: str, params: Mapping[str, Any], **metadata: Any) -> dict[str, Any]:
+        seen.append((script_path, dict(params), metadata))
+        return {"success": True}
+
+    wrapped = ExecutionBridgeBinder(owner)._with_adapter_context(executor)
+    wrapped(
+        "snapshot.py",
+        {"trusted_adapter_scope": {"process_id": 9}},
+        action_name="ui_control__snapshot",
+        skill_name="ui-control",
+    )
+    wrapped("create.py", {"radius": 2}, action_name="modeling__create", skill_name="modeling")
+
+    assert seen[0][1] == {"trusted_adapter_scope": {"process_id": 9}}
+    assert seen[0][2]["trusted_adapter_scope"] == {
+        "dcc_type": "houdini",
+        "process_id": 4242,
+        "window_handle": 700,
+        "window_title": "Houdini FX",
+    }
+    assert seen[1][1] == {"radius": 2}
+    assert "trusted_adapter_scope" not in seen[1][2]
 
 
 def _patch_set_in_process_executor(server_base: Any, sink: list[Callable[..., Any]]) -> None:

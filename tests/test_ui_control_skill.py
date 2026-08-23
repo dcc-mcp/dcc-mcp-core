@@ -1004,6 +1004,35 @@ def test_ui_control_cua_host_maps_snapshot_and_shared_image(monkeypatch: Any) ->
     assert _FakeHostClient.instances[0].kwargs["allow_raw_input"] is True
 
 
+def test_ui_control_cua_host_uses_adapter_scope_and_title_to_select_one_window(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
+    _FakeHostClient.instances.clear()
+    monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_DCC_TYPE", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_ID", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_TITLE", raising=False)
+
+    result = backend.snapshot_tool(
+        {
+            "session_id": "designer",
+            "window_title": "Substance Designer - Graph",
+            "trusted_adapter_scope": {
+                "dcc_type": "substance-designer",
+                "process_id": 4321,
+                "window_handle": None,
+                "window_title": "Substance Designer",
+            },
+        }
+    )
+
+    assert result["success"] is True
+    assert _FakeHostClient.instances[0].kwargs["dcc_type"] == "substance-designer"
+    assert _FakeHostClient.instances[0].kwargs["process_id"] == 4321
+    assert _FakeHostClient.instances[0].kwargs["window_handle"] is None
+    assert _FakeHostClient.instances[0].kwargs["window_title"] == "Substance Designer - Graph"
+
+
 def test_ui_control_cua_host_controls_trajectory_recording(tmp_path: Path, monkeypatch: Any) -> None:
     backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)
