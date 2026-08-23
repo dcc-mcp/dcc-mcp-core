@@ -23,8 +23,8 @@
 //!
 //! # Architecture
 //!
-//! The runtime UI is a single inline HTML string (`admin/html.rs`). The
-//! `dcc-mcp-gateway-admin` crate owns the trace domain, compact, link,
+//! The runtime UI asset is exported by `dcc-mcp-gateway-admin`. That crate owns
+//! the trace domain, compact, link,
 //! issue-report, statistics, analytics, governance, artifact, activity, task-outcome,
 //! debug-bundle, postmortem, agent-trace packet, memory-summary, experiment, skill-path, and traffic projections,
 //! Vite/npm build boundary, and embedded asset; this module owns the
@@ -37,7 +37,6 @@
 //! ├── domain/       # pure types, no I/O (trace types)
 //! ├── application/  # orchestration/handler routing
 //! ├── infra/        # SQLite reads, log reads, projection adapters, integration config
-//! ├── html.rs       # standalone asset module (feature-gated)
 //! └── mod.rs        # re-exports only
 //! ```
 //!
@@ -68,15 +67,12 @@ pub mod application;
 /// Infrastructure layer: SQLite, logs, projection adapters, integration config.
 pub mod infra;
 
-// ── Backward-compat shim modules (content moved to domain/application/infra) ──
+// ── Gateway adapters retained at the admin boundary ───────────────────────
 
 #[cfg(feature = "admin")]
 pub mod activity;
 #[cfg(feature = "admin")]
-pub(crate) mod integrations;
-
 // ── Remaining top-level modules ───────────────────────────────────────────
-
 #[cfg(feature = "admin")]
 mod agent_trace;
 #[cfg(feature = "admin")]
@@ -84,7 +80,6 @@ pub mod analytics;
 #[cfg(feature = "admin")]
 pub mod artifacts;
 #[cfg(feature = "admin")]
-mod compact;
 #[cfg(feature = "admin")]
 mod debug_response;
 #[cfg(feature = "admin")]
@@ -96,11 +91,9 @@ mod general;
 #[cfg(feature = "admin")]
 pub mod governance;
 #[cfg(feature = "admin")]
-mod html;
 #[cfg(feature = "admin")]
 mod issue_report;
 #[cfg(feature = "admin")]
-mod links;
 #[cfg(all(test, feature = "admin"))]
 mod logs_tests;
 #[cfg(feature = "admin")]
@@ -140,7 +133,6 @@ mod basic_endpoint_tests;
 #[cfg(all(test, feature = "admin-persist-sqlite"))]
 mod experiments_tests;
 #[cfg(feature = "admin")]
-mod handlers;
 #[cfg(all(test, feature = "admin"))]
 mod instance_update_tests;
 #[cfg(all(test, feature = "admin"))]

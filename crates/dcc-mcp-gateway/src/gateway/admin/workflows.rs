@@ -13,12 +13,12 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::activity::{collect_audits, collect_traces};
-use super::links::AdminLinkBuilder;
 use super::state::{AdminAuditRecord, AdminState};
 use super::trace::{AgentContext, DispatchTrace};
 use crate::gateway::search_telemetry::{
     SearchFollowupTelemetry, SearchTelemetryHit, SearchTelemetryRecord,
 };
+use dcc_mcp_gateway_admin::AdminLinkBuilder;
 
 const MAX_WORKFLOW_STEPS: usize = 64;
 const MAX_WORKFLOW_IDS: usize = 32;

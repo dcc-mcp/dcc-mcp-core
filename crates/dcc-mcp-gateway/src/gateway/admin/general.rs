@@ -5,9 +5,8 @@ use axum::response::IntoResponse;
 use serde_json::json;
 
 use super::debug_response::DebugListQuery;
-use super::html::ADMIN_HTML;
-use super::links::AdminLinkBuilder;
 use super::state::AdminState;
+use dcc_mcp_gateway_admin::{ADMIN_HTML, AdminLinkBuilder};
 
 fn traffic_export_filename() -> &'static str {
     "dcc-mcp-traffic-capture.jsonl"

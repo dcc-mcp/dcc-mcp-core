@@ -17,7 +17,6 @@ use crate::gateway::admin::events::contend_event_to_admin_row;
 use crate::gateway::admin::issue_report::{
     IssueReportMode, issue_report_filename, issue_report_json,
 };
-use crate::gateway::admin::links::AdminLinkBuilder;
 use crate::gateway::admin::skill_reload::reload_skill_paths_and_refresh_backends;
 use crate::gateway::admin::state::{AdminAuditRecord, AdminState};
 use crate::gateway::admin::trace::{AgentContext, DispatchTrace};
@@ -26,6 +25,7 @@ use crate::gateway::capability_service::refresh_all_live_backends;
 use crate::gateway::response_codec::TOKEN_ESTIMATOR;
 use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
 use dcc_mcp_db::read_gateway_log_dir_rows_recent;
+use dcc_mcp_gateway_admin::AdminLinkBuilder;
 use dcc_mcp_gateway_admin::{AdminInstanceUpdateVersion, admin_instance_update_version};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -907,7 +907,7 @@ pub async fn handle_admin_traces(
             "stats_url": links.panel_url("stats"),
         }
     });
-    let compact = crate::gateway::admin::compact::compact_trace_list_payload(&payload);
+    let compact = dcc_mcp_gateway_admin::compact_trace_list_payload(&payload);
     debug_response(&headers, &params, StatusCode::OK, payload, Some(compact))
 }
 
@@ -924,14 +924,14 @@ pub async fn handle_admin_trace_detail(
     let links = AdminLinkBuilder::from_request(&headers, &uri);
     if let Some(trace) = s.trace_log.as_ref().and_then(|log| log.get(&request_id)) {
         let payload = trace_detail_json(&trace, Some(links.request_links(&request_id)));
-        let compact = crate::gateway::admin::compact::compact_trace_detail_payload(&payload);
+        let compact = dcc_mcp_gateway_admin::compact_trace_detail_payload(&payload);
         return debug_response(&headers, &params, StatusCode::OK, payload, Some(compact));
     }
     if let Some(ref lane) = s.admin_sqlite_lane {
         let r = lane.reader();
         if let Some(trace) = r.get_trace(&request_id) {
             let payload = trace_detail_json(&trace, Some(links.request_links(&request_id)));
-            let compact = crate::gateway::admin::compact::compact_trace_detail_payload(&payload);
+            let compact = dcc_mcp_gateway_admin::compact_trace_detail_payload(&payload);
             return debug_response(&headers, &params, StatusCode::OK, payload, Some(compact));
         }
     }
@@ -984,7 +984,7 @@ pub async fn handle_admin_debug_bundle(
                 .unwrap_or(&request_id)
                 .to_string();
             bundle["links"] = links.request_links(&resolved_request_id);
-            let compact = crate::gateway::admin::compact::compact_debug_bundle_payload(&bundle);
+            let compact = dcc_mcp_gateway_admin::compact_debug_bundle_payload(&bundle);
             debug_response(&headers, &params, StatusCode::OK, bundle, Some(compact))
         }
         None => (
@@ -1019,7 +1019,7 @@ pub async fn handle_v1_debug_trace_lookup(
                 "traces": bundle.get("traces").cloned().unwrap_or_else(|| json!([])),
                 "links": links.request_links(request_id),
             });
-            let compact = crate::gateway::admin::compact::compact_trace_context_payload(&payload);
+            let compact = dcc_mcp_gateway_admin::compact_trace_context_payload(&payload);
             debug_response(&headers, &params, StatusCode::OK, payload, Some(compact))
         }
         None => (
