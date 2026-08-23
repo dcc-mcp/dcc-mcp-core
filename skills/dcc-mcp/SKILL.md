@@ -196,7 +196,7 @@ Load the **DCC UI Control** runtime with `dcc-mcp-cli load-skill ui-control` onl
 when structured DCC capabilities cannot reach the required semantic UI:
 
 1. `ui_control__snapshot` with an exact `process_id`, `window_handle`, or `window_title`.
-2. `ui_control__find` and one semantic `ui_control__act` when possible.
+2. `ui_control__find` and one semantic `ui_control__act` when possible. For native menus, use `invoke_menu` with an explicit `menu_path` when semantic delivery cannot prove a Qt popup opened; require `native_menu_path`, honor `verification_required`, and re-observe.
 3. `ui_control__snapshot` after every action before choosing the next action.
 4. `ui_control__stop_computer_use` when the fallback completes, fails, or is abandoned.
 The runtime defaults to `dcc-cua` 0.4.0+; `mock` is test-only, never a production fallback. After loading, local `search --query "ui control snapshot"` returns the loaded `ui_control__*` slugs as callable tool hits.

@@ -69,6 +69,14 @@ Each action is fenced by CUA observation and accessibility-state IDs. Take a
 new snapshot after every mutation. Prefer semantic element tokens; coordinate
 input is a gated fallback for custom-drawn interfaces.
 
+For a native application menu bar, use
+`ui_control__act(action="invoke_menu", menu_path=[...])` when a semantic menu
+click or Alt mnemonic cannot prove that a Qt popup opened. The negotiated
+`native_menu_path` route resolves only the exact bound window and fails closed
+on missing or ambiguous levels. It does not need a prior snapshot, but it
+invalidates any current observation: check `verification_required`, then take
+a fresh snapshot and verify the popup or resulting application state.
+
 Multiple agents can hold independent sessions for different applications.
 Session grants, window capabilities, observations, recording state, and cleanup
 remain isolated. Native input is serialized by the shared Host, while Escape

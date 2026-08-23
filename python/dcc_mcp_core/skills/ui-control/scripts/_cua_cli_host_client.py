@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 from typing import Dict
+from typing import List
 from typing import Optional
 
 from dcc_mcp_core.cua_cli import CuaCliBridge
@@ -24,30 +25,36 @@ class UiControlHostClient:
         process_id: Optional[int],
         window_handle: Optional[int],
         allow_raw_input: bool,
+        allow_menu_invoke: bool,
         window_title: Optional[str] = None,
         bridge: Optional[CuaCliBridge] = None,
     ) -> None:
         self.session_id = session_id
         self.task_grant_id = task_grant_id
         self._bridge = bridge or CuaCliBridge()
+        capabilities = getattr(getattr(self._bridge, "contract", None), "capabilities", ())
+        self._supports_native_menu_path = "native_menu_path" in capabilities
         self._window_capability: Optional[str] = None
         self._target: Dict[str, Any] = {}
         self._latest_observation_id: Optional[str] = None
         self._latest_accessibility_state_id: Optional[str] = None
         try:
+            grant = {
+                "task_grant_id": task_grant_id,
+                "application_label": dcc_type,
+                "process_id": process_id,
+                "window_handle": window_handle,
+                "window_title": window_title,
+                "allow_raw_input": allow_raw_input,
+                "allow_recording": True,
+            }
+            if self._supports_native_menu_path:
+                grant["allow_menu_invoke"] = allow_menu_invoke
             opened = self._call(
                 "open_session",
                 {
                     "session_id": session_id,
-                    "grant": {
-                        "task_grant_id": task_grant_id,
-                        "application_label": dcc_type,
-                        "process_id": process_id,
-                        "window_handle": window_handle,
-                        "window_title": window_title,
-                        "allow_raw_input": allow_raw_input,
-                        "allow_recording": True,
-                    },
+                    "grant": grant,
                 },
                 "session_opened",
             )
@@ -101,6 +108,26 @@ class UiControlHostClient:
                 {**self._authority(), "operation": host_operation},
                 "window_state_changed",
             )
+        finally:
+            self._invalidate_observation()
+
+    def invoke_menu(self, menu_path: List[str]) -> Dict[str, Any]:
+        """Invoke one exact native menu path without pixel or mnemonic fallback."""
+        if not self._supports_native_menu_path:
+            raise UiControlHostError(
+                "unsupported_action",
+                "The installed dcc-cua does not advertise the native_menu_path capability.",
+            )
+        try:
+            response = self._call(
+                "invoke_menu",
+                {**self._authority(), "request": {"path": menu_path}},
+                "menu_invoked",
+            )
+            result = response.get("result")
+            if not isinstance(result, dict):
+                raise UiControlHostError("protocol_mismatch", "dcc-cua returned no native menu result.")
+            return result
         finally:
             self._invalidate_observation()
 

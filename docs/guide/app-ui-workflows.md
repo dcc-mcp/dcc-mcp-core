@@ -77,6 +77,12 @@ The canonical workflow follows this loop:
 Always treat step 6 like a `finally` block — call it on success, failure,
 cancellation, or abandonment.
 
+For native application menu bars, `ui_control__act` also supports
+`action="invoke_menu"` with an explicit top-to-leaf `menu_path` when a
+semantic click or Alt mnemonic cannot prove that a Qt popup opened. This
+negotiated exact-window route invalidates current observations; honor
+`verification_required` and verify with a fresh snapshot.
+
 See [ui-control-workflows.md](ui-control-workflows.md) for the full reference:
 decision rules, evidence attribution, system configuration operations, recovery
 patterns, and verification requirements.

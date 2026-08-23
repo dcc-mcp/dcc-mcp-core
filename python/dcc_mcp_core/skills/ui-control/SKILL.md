@@ -91,6 +91,14 @@ Never reuse an observation after an action, target change, display change, or
 resume. CUA actions are fenced by both `observation_id` and
 `accessibility_state_id`; stale actions fail closed.
 
+For a native application menu bar, use
+`ui_control__act(action="invoke_menu", menu_path=[...])` when a semantic menu
+click or Alt mnemonic cannot prove that a Qt popup opened. This exact-window
+native path does not require a prior snapshot, fails closed on missing or
+ambiguous levels, and invalidates any current observation. Check
+`verification_required`, then take a fresh snapshot and verify the popup or
+resulting application state before another mutation.
+
 Prefer semantic `control_id` actions. Coordinate clicks, drag paths, raw typing,
 shortcuts, and game navigation are native input and require the raw-input gate.
 Do not use UI Control to enter credentials, solve authentication challenges, or

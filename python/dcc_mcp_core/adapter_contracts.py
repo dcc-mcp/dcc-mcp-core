@@ -228,6 +228,7 @@ class UiActionKind:
     SELECT_OPTION = "select_option"
     FOCUS = "focus"
     KEYBOARD_SHORTCUT = "keyboard_shortcut"
+    INVOKE_MENU = "invoke_menu"
     GET_WINDOW_STATE = "get_window_state"
     RESTORE_WINDOW = "restore_window"
     SHOW_WINDOW = "show_window"
@@ -332,6 +333,7 @@ class UiControlPolicy:
             UiActionKind.SELECT_OPTION,
             UiActionKind.FOCUS,
             UiActionKind.KEYBOARD_SHORTCUT,
+            UiActionKind.INVOKE_MENU,
             UiActionKind.RESTORE_WINDOW,
             UiActionKind.SHOW_WINDOW,
             UiActionKind.ACTIVATE_WINDOW,
@@ -368,6 +370,7 @@ class UiActionRequest:
     scroll_y: Optional[int] = None
     path: List[UiPoint] = field(default_factory=list)
     keys: List[str] = field(default_factory=list)
+    menu_path: List[str] = field(default_factory=list)
     snapshot_id: Optional[str] = None
     duration_ms: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)

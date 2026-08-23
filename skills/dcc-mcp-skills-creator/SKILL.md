@@ -259,6 +259,11 @@ only with the matching chunked runner or isolated status/cancel implementation.
   serialization; skill scripts must not instantiate another automation stack.
 - Prefer a `control_id` and semantic UI Automation action. Use raw coordinates
   only when the UI does not expose a stable semantic control.
+- For native application menu bars, use the negotiated `invoke_menu` action
+  with an explicit `menu_path` when a semantic menu click or Alt mnemonic
+  cannot prove that a popup opened. Never guess pixels or report native
+  delivery as completion; take a fresh snapshot and honor
+  `verification_required` before another mutation.
 - For custom-drawn canvases, viewport manipulators, or face controls, use one
   `drag` path from the latest snapshot. `keys` may hold Ctrl, Shift, or Alt for
   pointer-modified drags; snapshot again immediately before deriving another

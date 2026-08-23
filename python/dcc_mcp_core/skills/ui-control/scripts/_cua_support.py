@@ -34,6 +34,8 @@ _SESSION_LOCKS: Dict[str, threading.RLock] = {}
 _SESSION_LOCKS_GUARD = threading.Lock()
 _MAX_DRAG_POINTS = 256
 _MAX_KEY_TOKENS = 16
+_MAX_MENU_PATH_SEGMENTS = 16
+_MAX_MENU_PATH_SEGMENT_CHARS = 200
 _MAX_GAME_NAVIGATION_KEYS = 4
 _MAX_TEXT_UTF16_UNITS = 4096
 _GAME_NAVIGATION_NAMED_KEYS = _key_set(
@@ -390,6 +392,7 @@ def _is_native_action(action: str, params: Dict[str, Any]) -> bool:
         UiActionKind.KEYPRESS,
         UiActionKind.GAME_NAVIGATION,
         UiActionKind.KEYBOARD_SHORTCUT,
+        UiActionKind.INVOKE_MENU,
     }
 
 
@@ -454,6 +457,21 @@ def _validate_action_limits(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             f"keypress exceeds the {_MAX_KEY_TOKENS}-key safety limit",
             UiErrorCode.INVALID_ACTION,
         )
+
+    if params.get("action") == UiActionKind.INVOKE_MENU:
+        menu_path = params.get("menu_path")
+        if (
+            not isinstance(menu_path, list)
+            or not 1 <= len(menu_path) <= _MAX_MENU_PATH_SEGMENTS
+            or any(
+                not isinstance(segment, str) or not segment.strip() or len(segment) > _MAX_MENU_PATH_SEGMENT_CHARS
+                for segment in menu_path
+            )
+        ):
+            return skill_error(
+                "invoke_menu requires 1..16 non-empty menu_path segments of at most 200 characters",
+                UiErrorCode.INVALID_ACTION,
+            )
 
     text = params.get("text")
     if text is not None:

@@ -140,6 +140,11 @@ the server from its exact target environment. Gateway Admin is check-only.
      `snapshot` → one `act` → `snapshot` loop only when an operation is
      unsupported, no suitable tool exists, or semantic UI Automation cannot
      reach the required control. Re-observe after every action.
+   - For native application menu bars, route an explicit `menu_path` through
+     `ui_control__act(action="invoke_menu")` when semantic click or Alt-mnemonic
+     delivery cannot prove that a Qt popup opened. Require the negotiated
+     `native_menu_path` Host capability, honor `verification_required`, and
+     re-observe the exact window before another mutation.
    - Raw pointer and keyboard input are enabled by default only inside the
      adapter/operator-bound DCC scope. Operators may set
      `DCC_MCP_CUA_ALLOW_RAW_INPUT=false` to disable that runtime ceiling; the
