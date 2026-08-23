@@ -41,6 +41,23 @@ fn temp_registry_file_names(dir: &std::path::Path) -> Vec<String> {
 }
 
 #[test]
+fn test_membership_delta_ignores_metadata_only_changes() {
+    let original = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let mut refreshed = original.clone();
+    refreshed.port = 18813;
+    refreshed.touch();
+
+    let current = entries_to_map([original]);
+    let refreshed = entries_to_map([refreshed]);
+    assert_eq!(membership_delta(&current, &refreshed), (0, 0));
+
+    let added = ServiceEntry::new("blender", "127.0.0.1", 9090);
+    let expanded = entries_to_map(refreshed.into_values().chain([added]));
+    assert_eq!(membership_delta(&current, &expanded), (1, 0));
+    assert_eq!(membership_delta(&expanded, &current), (0, 1));
+}
+
+#[test]
 fn test_file_registry_register_and_list() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();

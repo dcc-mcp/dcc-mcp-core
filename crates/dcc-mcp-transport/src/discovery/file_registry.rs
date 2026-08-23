@@ -21,6 +21,9 @@ use super::types::{
 };
 use crate::error::{TransportError, TransportResult};
 
+mod membership;
+use membership::membership_delta;
+
 /// File name for the registry JSON.
 const REGISTRY_FILE: &str = "services.json";
 const REGISTRY_LOCK_FILE: &str = "services.lock";
@@ -1348,6 +1351,9 @@ impl FileRegistry {
     /// concurrent `rename` returns `PermissionDenied` to the reader.
     fn load_from_file(&self) -> TransportResult<()> {
         let entries = self.read_entries_from_file()?;
+        let current = entries_to_map(self.list_all_in_memory());
+        let loaded = entries_to_map(entries.iter().cloned());
+        let (added, removed) = membership_delta(&current, &loaded);
         if entries.is_empty() && !self.services.is_empty() {
             tracing::warn!(
                 path = %self.registry_file_path().display(),
@@ -1355,8 +1361,14 @@ impl FileRegistry {
             );
         }
         self.replace_services(&entries);
-
-        tracing::debug!(count = self.services.len(), "loaded services from file");
+        if added > 0 || removed > 0 {
+            tracing::debug!(
+                count = loaded.len(),
+                added,
+                removed,
+                "registry membership changed"
+            );
+        }
         Ok(())
     }
 
@@ -1483,3 +1495,6 @@ impl FileRegistry {
 #[cfg(test)]
 #[path = "file_registry_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod logging_tests;
