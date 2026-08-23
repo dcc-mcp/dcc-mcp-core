@@ -1337,6 +1337,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "tempfile",
  "uuid",
  "workspace-hack",
 ]
