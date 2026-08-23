@@ -21,6 +21,7 @@ pub mod domain;
 mod durable_store;
 mod experiments;
 mod governance;
+mod health;
 mod issue_report;
 mod links;
 mod memory;
@@ -69,6 +70,7 @@ pub use experiments::{
 pub use governance::{
     GovernanceCaptureDecision, GovernanceMiddlewareState, governance_payload, governance_stats,
 };
+pub use health::gateway_health_payload;
 pub use issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
 pub use links::AdminLinkBuilder;
 pub use memory::memory_summary;

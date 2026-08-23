@@ -6,6 +6,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use dcc_mcp_gateway_admin::gateway_health_payload;
 use serde_json::{Value, json};
 
 use crate::gateway::admin::state::AdminState;
@@ -68,37 +69,7 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
 }
 
 pub(crate) fn gateway_health_snapshot(sentinels: &[ServiceEntry]) -> Value {
-    let mut rows: Vec<Value> = sentinels.iter().map(gateway_sentinel_json).collect();
-    rows.sort_by(|a, b| {
-        let role_a = a.get("role").and_then(Value::as_str).unwrap_or("");
-        let role_b = b.get("role").and_then(Value::as_str).unwrap_or("");
-        let rank_a = if role_a == "active" { 0 } else { 1 };
-        let rank_b = if role_b == "active" { 0 } else { 1 };
-        rank_a.cmp(&rank_b).then_with(|| {
-            let ta = a
-                .get("last_heartbeat_unix")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            let tb = b
-                .get("last_heartbeat_unix")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            tb.cmp(&ta)
-        })
-    });
-    let current = rows
-        .iter()
-        .find(|row| row.get("role").and_then(Value::as_str) == Some("active"))
-        .cloned()
-        .or_else(|| rows.first().cloned());
-    let candidates: Vec<Value> = rows
-        .into_iter()
-        .filter(|row| row.get("role").and_then(Value::as_str) != Some("active"))
-        .collect();
-    json!({
-        "current": current,
-        "candidates": candidates,
-    })
+    gateway_health_payload(sentinels.iter().map(gateway_sentinel_json).collect())
 }
 
 fn gateway_sentinel_json(entry: &ServiceEntry) -> Value {
