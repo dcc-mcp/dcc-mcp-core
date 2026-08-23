@@ -1,4 +1,6 @@
 use super::*;
+use http::{Request, Response, StatusCode};
+use tower_http::classify::{ClassifiedResponse, ClassifyResponse, MakeClassifier};
 
 #[cfg(feature = "auto-gateway")]
 fn unused_local_port() -> u16 {
@@ -78,4 +80,35 @@ async fn instance_id_matches_the_registered_service_key() {
     assert_eq!(instance_id, entries[0].instance_id);
 
     handle.shutdown().await;
+}
+
+fn classify_http_response(path: &str, status: StatusCode) -> bool {
+    let request = Request::builder().uri(path).body(()).unwrap();
+    let response = Response::builder().status(status).body(()).unwrap();
+    let classifier = HttpTraceClassifier.make_classifier(&request);
+
+    matches!(
+        classifier.classify_response(&response),
+        ClassifiedResponse::Ready(Ok(()))
+    )
+}
+
+#[test]
+fn readyz_not_ready_response_is_a_routine_probe_result() {
+    assert!(classify_http_response(
+        "/v1/readyz",
+        StatusCode::SERVICE_UNAVAILABLE
+    ));
+}
+
+#[test]
+fn non_probe_server_errors_remain_trace_failures() {
+    assert!(!classify_http_response(
+        "/v1/call",
+        StatusCode::SERVICE_UNAVAILABLE
+    ));
+    assert!(!classify_http_response(
+        "/v1/readyz",
+        StatusCode::INTERNAL_SERVER_ERROR
+    ));
 }
