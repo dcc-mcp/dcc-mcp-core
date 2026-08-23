@@ -10,6 +10,16 @@ use tower::ServiceExt;
 use tower_http::classify::{ClassifiedResponse, ClassifyResponse, MakeClassifier};
 use tracing_subscriber::fmt::MakeWriter;
 
+#[test]
+fn health_payload_surfaces_job_persistence_state() {
+    let payload = health_payload(&crate::job::JobManager::new());
+
+    assert_eq!(payload["ok"], true);
+    assert_eq!(payload["job_persistence"]["state"], "not_configured");
+    assert_eq!(payload["job_persistence"]["consecutive_failures"], 0);
+    assert!(payload["job_persistence"]["last_error_kind"].is_null());
+}
+
 #[cfg(feature = "auto-gateway")]
 fn unused_local_port() -> u16 {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();

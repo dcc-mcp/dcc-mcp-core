@@ -59,6 +59,35 @@ If `job_storage_path` is set but the wheel was built **without**
 `job-persist-sqlite`, `server.start()` fails fast with a descriptive error
 rather than silently falling back to the in-memory store.
 
+## Runtime write failures
+
+Persistence is fail-soft after startup: jobs continue to run from the
+in-process map if the configured backend becomes unwritable. A manager records
+consecutive write failures and disables further persistence attempts after
+three identical errors. Transient failures below that threshold are logged at
+`DEBUG`; crossing the threshold emits one `WARN`, so a broken SQLite file does
+not produce a warning for every later job transition.
+
+`GET /health` exposes a payload-safe snapshot without filesystem paths or raw
+backend messages:
+
+```json
+{
+  "ok": true,
+  "service": "dcc-mcp-http",
+  "job_persistence": {
+    "state": "disabled",
+    "consecutive_failures": 3,
+    "last_error_kind": "backend"
+  }
+}
+```
+
+`state` is one of `not_configured`, `healthy`, `degraded`, or `disabled`.
+Installing a storage backend on a new manager resets the circuit. A disabled
+manager does not probe or automatically repair the database; replace or
+restart it after correcting the backend fault.
+
 ## Startup recovery
 
 When `JobManager` boots with a storage backend, it scans for rows whose status
@@ -168,3 +197,4 @@ JSON-serialized — the schema stays stable even if internal `Job` fields evolve
 - #371 — `jobs_get_status` tool
 - **#328** — this document
 - **#567** — `job_recovery` policy contract (`drop` / `requeue`)
+- **#2277** — bounded write-failure latching and health visibility

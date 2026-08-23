@@ -106,6 +106,14 @@ impl ClassifyResponse for HttpResponseClassifier {
     }
 }
 
+fn health_payload(jobs: &crate::job::JobManager) -> serde_json::Value {
+    json!({
+        "ok": true,
+        "service": "dcc-mcp-http",
+        "job_persistence": jobs.persistence_status(),
+    })
+}
+
 /// Live DCC instance metadata that is propagated to `FileRegistry` on every
 /// heartbeat tick so that `list_dcc_instances` always shows current state.
 ///
@@ -646,7 +654,7 @@ impl McpHttpServer {
                 )
                 .with_cancelled_requests(cancelled_requests)
                 .with_declared_capabilities(self.config.instance.declared_capabilities.clone())
-                .with_jobs(jobs)
+                .with_jobs(jobs.clone())
                 .with_job_notifier(job_notifier)
                 .with_tool_cache_enabled(self.config.session.enable_tool_cache);
         #[cfg(feature = "prometheus")]
@@ -665,7 +673,10 @@ impl McpHttpServer {
         let mut router = Router::new()
             .route(
                 "/health",
-                routing::get(|| async { Json(json!({"ok": true, "service": "dcc-mcp-http"})) }),
+                routing::get(move || {
+                    let jobs = jobs.clone();
+                    async move { Json(health_payload(&jobs)) }
+                }),
             )
             .with_state(state)
             .merge(rest_router)
