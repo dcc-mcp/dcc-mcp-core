@@ -1359,13 +1359,19 @@ async fn load_skill_preserves_existing_index_when_v1_search_fails() {
         )
         .route(
             "/v1/call",
-            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
-                axum::Json(json!({
-                    "success": true,
-                    "called": body.get("tool_slug").cloned().unwrap_or(Value::Null),
-                    "arguments": body.get("arguments").cloned().unwrap_or_else(|| json!({})),
-                }))
-            }),
+            axum::routing::post(
+                |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| async move {
+                    let request_id = headers
+                        .get("x-request-id")
+                        .and_then(|value| value.to_str().ok());
+                    axum::Json(json!({
+                        "success": true,
+                        "request_id": request_id,
+                        "called": body.get("tool_slug").cloned().unwrap_or(Value::Null),
+                        "arguments": body.get("arguments").cloned().unwrap_or_else(|| json!({})),
+                    }))
+                },
+            ),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

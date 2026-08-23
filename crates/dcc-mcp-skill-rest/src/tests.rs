@@ -415,8 +415,32 @@ async fn bearer_auth_gate_accepts_valid_token_and_echoes_request_id() {
         .add_header("x-request-id", "req-42")
         .await;
     resp.assert_status_ok();
+    assert_eq!(
+        resp.header("x-request-id").to_str().unwrap_or_default(),
+        "req-42"
+    );
     let body: Value = resp.json();
     assert_eq!(body["request_id"], "req-42");
+}
+
+#[tokio::test]
+async fn request_id_is_generated_once_and_echoed_in_error_header_and_body() {
+    let (svc, _, _) = fixture_loaded_spheres();
+    let gate = Arc::new(BearerTokenGate::new(vec!["s3cret".into()]).unwrap());
+    let cfg = SkillRestConfig::new(svc).with_auth(gate);
+    let server = TestServer::new(build_skill_rest_router(cfg));
+
+    let resp = server.get("/v1/skills").await;
+
+    assert_eq!(resp.status_code().as_u16(), 401);
+    let echoed = resp
+        .header("x-request-id")
+        .to_str()
+        .expect("generated request id must be a response header")
+        .to_owned();
+    assert!(!echoed.is_empty());
+    let body: Value = resp.json();
+    assert_eq!(body["request_id"], echoed);
 }
 
 /// OpenAPI document lists every documented route and parses as JSON.

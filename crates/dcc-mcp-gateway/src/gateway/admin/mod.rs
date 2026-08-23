@@ -138,3 +138,5 @@ mod marketplace_tests;
 mod raw_proxy_lease_tests;
 #[cfg(all(test, feature = "admin"))]
 mod tests;
+#[cfg(all(test, feature = "admin"))]
+mod ui_control_dispatch_tests;

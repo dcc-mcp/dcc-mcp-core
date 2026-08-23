@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
-use axum::extract::{Json, Path, Query, State};
+use axum::extract::{Json, Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
@@ -87,6 +88,15 @@ pub(crate) fn json_or_compact_fixture_response(
         )
             .into_response()
     }
+}
+
+async fn echo_request_id(request: Request, next: Next) -> Response {
+    let request_id = request.headers().get("x-request-id").cloned();
+    let mut response = next.run(request).await;
+    if let Some(request_id) = request_id {
+        response.headers_mut().insert("x-request-id", request_id);
+    }
+    response
 }
 
 pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
@@ -587,7 +597,8 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                     })),
                 )
             }),
-        );
+        )
+        .layer(middleware::from_fn(echo_request_id));
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();

@@ -49,16 +49,23 @@ async fn spawn_echo_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
         )
         .route(
             "/v1/call",
-            axum::routing::post(move |axum::Json(body): axum::Json<Value>| async move {
-                let slug = body.get("tool_slug").and_then(Value::as_str).unwrap_or("");
-                axum::Json(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": format!("called {slug} successfully")
-                    }],
-                    "isError": false
-                }))
-            }),
+            axum::routing::post(
+                move |headers: axum::http::HeaderMap,
+                      axum::Json(body): axum::Json<Value>| async move {
+                    let slug = body.get("tool_slug").and_then(Value::as_str).unwrap_or("");
+                    let request_id = headers
+                        .get("x-request-id")
+                        .and_then(|value| value.to_str().ok());
+                    axum::Json(json!({
+                        "content": [{
+                            "type": "text",
+                            "text": format!("called {slug} successfully")
+                        }],
+                        "isError": false,
+                        "request_id": request_id
+                    }))
+                },
+            ),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

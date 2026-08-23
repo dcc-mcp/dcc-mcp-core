@@ -234,6 +234,10 @@ For one indivisible DCC-native call, keep `job_strategy: monolithic`. Prefer
 `execution: async` so the initial transport returns a core job id, then poll
 the instance-routable `jobs_get_status`. A transport timeout is not completion
 or cancellation: rediscover the instance and query the job before retrying.
+Do not publish a potentially long tool as `execution: sync` with no timeout
+metadata. A positive `timeout_hint_secs` also makes Core return a job envelope;
+use it when duration is known but the tool otherwise retains synchronous
+semantics inside the worker.
 The creator scaffold deliberately emits `monolithic` for async tools; change it
 only with the matching chunked runner or isolated status/cancel implementation.
 

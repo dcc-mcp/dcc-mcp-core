@@ -485,6 +485,7 @@ fn job_poll_error_is_retryable(error: &anyhow::Error) -> bool {
                 | reqwest::StatusCode::SERVICE_UNAVAILABLE
                 | reqwest::StatusCode::GATEWAY_TIMEOUT
         ),
+        Some(HttpError::MissingRequestId { .. } | HttpError::RequestIdMismatch { .. }) => false,
         None => false,
     }
 }
@@ -767,14 +768,26 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use axum::extract::{Query, State};
-    use axum::http::StatusCode;
+    use axum::extract::{Query, Request, State};
+    use axum::http::{HeaderValue, StatusCode};
+    use axum::middleware::{self, Next};
     use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use tempfile::tempdir;
 
     use super::*;
+
+    async fn echo_request_id(request: Request, next: Next) -> Response {
+        let request_id = request.headers().get("x-request-id").cloned();
+        let mut response = next.run(request).await;
+        if let Some(request_id) = request_id {
+            response
+                .headers_mut()
+                .insert("x-request-id", HeaderValue::from(request_id));
+        }
+        response
+    }
 
     #[tokio::test]
     async fn local_load_skill_routes_through_gateway_to_keep_index_coherent() {
@@ -828,7 +841,8 @@ mod tests {
 
         let app = Router::new()
             .route("/v1/call", post(call))
-            .route("/v1/debug/stats", get(stats));
+            .route("/v1/debug/stats", get(stats))
+            .layer(middleware::from_fn(echo_request_id));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -926,7 +940,8 @@ mod tests {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let app = Router::new()
             .route("/v1/call", post(call))
-            .with_state(requests.clone());
+            .with_state(requests.clone())
+            .layer(middleware::from_fn(echo_request_id));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1032,7 +1047,8 @@ mod tests {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let app = Router::new()
             .route("/v1/call", post(call))
-            .with_state(requests.clone());
+            .with_state(requests.clone())
+            .layer(middleware::from_fn(echo_request_id));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1117,7 +1133,8 @@ mod tests {
         let polls = Arc::new(Mutex::new(0));
         let app = Router::new()
             .route("/v1/call", post(call))
-            .with_state(polls.clone());
+            .with_state(polls.clone())
+            .layer(middleware::from_fn(echo_request_id));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1186,7 +1203,9 @@ mod tests {
             .into_response()
         }
 
-        let app = Router::new().route("/v1/call", post(call));
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .layer(middleware::from_fn(echo_request_id));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

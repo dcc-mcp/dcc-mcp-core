@@ -121,6 +121,7 @@ impl DccMcpClient {
     }
 
     pub async fn call(&self, request: CallRequest) -> Result<Value, ClientError> {
+        let request_id = next_request_id();
         let body = json!({
             "tool_slug": &request.tool_slug,
             "arguments": &request.arguments,
@@ -128,16 +129,22 @@ impl DccMcpClient {
         });
         match self
             .gateway
-            .post_json(&self.endpoint.path("/v1/call"), &body)
+            .post_json_correlated(&self.endpoint.path("/v1/call"), &body, &request_id)
             .await
         {
             Ok(value) => Ok(value),
-            Err(error) if is_unknown_rest_tool(&error) => self.call_mcp_tool(request).await,
+            Err(error) if is_unknown_rest_tool(&error) => {
+                self.call_mcp_tool(request, &request_id).await
+            }
             Err(error) => Err(error.into()),
         }
     }
 
-    async fn call_mcp_tool(&self, request: CallRequest) -> Result<Value, ClientError> {
+    async fn call_mcp_tool(
+        &self,
+        request: CallRequest,
+        request_id: &str,
+    ) -> Result<Value, ClientError> {
         let tool_slug = request.tool_slug;
         let mut params = json!({
             "name": &tool_slug,
@@ -152,16 +159,18 @@ impl DccMcpClient {
                 &self.endpoint.mcp_url(),
                 &json!({
                     "jsonrpc": "2.0",
-                    "id": "dcc-mcp-cli-call",
+                    "id": request_id,
                     "method": "tools/call",
                     "params": params,
                 }),
                 &[
                     ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
                     ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                    ("X-Request-ID", request_id),
                 ],
             )
             .await?;
+        validate_jsonrpc_response_id(&response, request_id)?;
         if let Some(error) = response.get("error") {
             return Err(ClientError::Protocol(error.to_string()));
         }
@@ -181,13 +190,15 @@ impl DccMcpClient {
     }
 
     pub async fn call_batch(&self, body: Value) -> Result<Value, ClientError> {
+        let request_id = next_request_id();
         self.gateway
-            .post_json(&self.endpoint.path("/v1/call_batch"), &body)
+            .post_json_correlated(&self.endpoint.path("/v1/call_batch"), &body, &request_id)
             .await
             .map_err(Into::into)
     }
 
     pub async fn direct_call(&self, request: DirectCallRequest) -> Result<Value, ClientError> {
+        let request_id = next_request_id();
         let body = json!({
             "backend_tool": request.backend_tool,
             "arguments": request.arguments,
@@ -198,7 +209,7 @@ impl DccMcpClient {
             request.dcc_type, request.instance_id
         );
         self.gateway
-            .post_json(&self.endpoint.path(&path), &body)
+            .post_json_correlated(&self.endpoint.path(&path), &body, &request_id)
             .await
             .map_err(Into::into)
     }
@@ -450,6 +461,30 @@ fn is_unknown_rest_tool(error: &HttpError) -> bool {
         .is_some_and(|message| message.starts_with("invalid tool slug "))
 }
 
+fn next_request_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("dcc-mcp-cli-{}-{counter}", std::process::id())
+}
+
+fn validate_jsonrpc_response_id(
+    response: &Value,
+    expected_request_id: &str,
+) -> Result<(), ClientError> {
+    let expected = Value::String(expected_request_id.to_string());
+    if response.get("id") == Some(&expected) {
+        return Ok(());
+    }
+    Err(ClientError::Protocol(format!(
+        "transport desync: expected JSON-RPC response id {expected_request_id:?}, got {}",
+        response
+            .get("id")
+            .map_or_else(|| "<missing>".to_string(), Value::to_string),
+    )))
+}
+
 const READINESS_FIELDS: &[&str] = &[
     "process",
     "dcc",
@@ -622,5 +657,17 @@ mod tests {
         assert_eq!(response["query"]["instance_id"], "instance-a");
         assert_eq!(response["query"]["session_id"], "solar-session");
         server.abort();
+    }
+
+    #[test]
+    fn jsonrpc_response_id_must_match_exactly() {
+        validate_jsonrpc_response_id(&json!({"id": "current-call"}), "current-call").unwrap();
+
+        let stale = validate_jsonrpc_response_id(&json!({"id": "previous-call"}), "current-call")
+            .unwrap_err();
+        assert!(stale.to_string().contains("transport desync"));
+
+        let missing = validate_jsonrpc_response_id(&json!({}), "current-call").unwrap_err();
+        assert!(missing.to_string().contains("<missing>"));
     }
 }

@@ -169,9 +169,13 @@ async fn rich_image_gateway_state() -> (
         )
         .route(
             "/v1/call",
-            axum::routing::post(|| async {
+            axum::routing::post(|headers: axum::http::HeaderMap| async move {
+                let request_id = headers
+                    .get("x-request-id")
+                    .and_then(|value| value.to_str().ok());
                 axum::Json(json!({
                     "success": true,
+                    "request_id": request_id,
                     "output": {
                         "success": true,
                         "context": {

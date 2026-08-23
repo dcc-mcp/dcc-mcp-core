@@ -25,6 +25,11 @@ pub(crate) enum BackendCallError {
         mcp_url: String,
         reason: String,
     },
+    ResponseIdMismatch {
+        mcp_url: String,
+        expected: String,
+        actual: String,
+    },
     Backend {
         mcp_url: String,
         code: i64,
@@ -58,6 +63,15 @@ impl fmt::Display for BackendCallError {
             Self::InvalidJson { mcp_url, reason } => {
                 write!(f, "{mcp_url}: invalid JSON-RPC response: {reason}")
             }
+            Self::ResponseIdMismatch {
+                mcp_url,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "{mcp_url}: transport desync: expected response id {expected}, got {}",
+                actual,
+            ),
             Self::Backend {
                 mcp_url,
                 code,
@@ -98,6 +112,7 @@ impl BackendCallError {
             Self::Http { status, .. } => http_status_prometheus_kind(status),
             Self::ReadBody { .. } => "read_body",
             Self::InvalidJson { .. } => "invalid_json",
+            Self::ResponseIdMismatch { .. } => "response_id_mismatch",
             Self::Backend { .. } => "jsonrpc_backend",
             Self::EmptyResult { .. } => "empty_result",
         }
@@ -112,6 +127,9 @@ pub(crate) fn rest_error_prometheus_kind(err: &str) -> &'static str {
     }
     if err.contains("transport error") {
         return "transport";
+    }
+    if err.contains("transport desync") {
+        return "response_id_mismatch";
     }
     if let Some(idx) = err.find(": HTTP ") {
         let tail = &err[idx + 7..];

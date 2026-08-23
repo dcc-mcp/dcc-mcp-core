@@ -728,8 +728,8 @@ pub struct ForwardToolsCallRequest<'a> {
     pub tool_name: &'a str,
     pub arguments: Option<Value>,
     pub meta: Option<Value>,
-    /// Accepted for API compatibility but not forwarded; the REST surface does
-    /// not use JSON-RPC request ids.
+    /// Correlation id forwarded as `X-Request-ID` and required in the backend
+    /// response body as `request_id`.
     pub request_id: Option<String>,
     pub trace_context: Option<&'a TraceContext>,
     pub traffic_capture: Option<&'a crate::gateway::traffic::TrafficCapture>,
@@ -747,7 +747,7 @@ pub async fn forward_tools_call(
         tool_name,
         arguments,
         meta,
-        request_id: _request_id,
+        request_id,
         trace_context,
         traffic_capture,
         timeout,
@@ -789,7 +789,19 @@ pub async fn forward_tools_call(
         }
         return Err(msg);
     }
-    match rest_post_with_trace_context(client, &url, body, timeout, trace_context).await {
+    let expected_request_id = request_id
+        .as_deref()
+        .or_else(|| trace_context.map(|ctx| ctx.request_id.as_str()));
+    match rest_post_with_trace_context(
+        client,
+        &url,
+        body,
+        timeout,
+        expected_request_id,
+        trace_context,
+    )
+    .await
+    {
         Ok(v) => {
             resilience.circuits().on_success(key);
             if let Some(capture) = traffic_capture {

@@ -10,8 +10,9 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Path, Query, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::{
         Html, IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
@@ -100,9 +101,30 @@ pub fn build_skill_rest_router(config: SkillRestConfig) -> Router {
         .route("/v1/jobs/{id}/events", get(handle_job_events))
         .route("/v1/jobs/{id}", delete(handle_job_cancel))
         .with_state(config)
+        .layer(middleware::from_fn(correlate_response))
 }
 
 // ── Auth wrapper ─────────────────────────────────────────────────────
+
+async fn correlate_response(mut request: Request, next: Next) -> Response {
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let header_value: HeaderValue = request_id
+        .parse()
+        .expect("request ids must be valid HTTP header values");
+    request
+        .headers_mut()
+        .insert("x-request-id", header_value.clone());
+
+    let mut response = next.run(request).await;
+    response.headers_mut().insert("x-request-id", header_value);
+    response
+}
 
 fn principal_or_error(
     cfg: &SkillRestConfig,

@@ -115,17 +115,22 @@ class SidecarActionDispatcher:
 
     def dispatch_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Validate and execute a sidecar dispatch payload."""
+        incoming_request_id = (
+            payload.get("request_id")
+            if isinstance(payload, Mapping) and isinstance(payload.get("request_id"), str)
+            else None
+        )
         validated = self._validate_payload(payload)
         if _is_error_envelope(validated):
-            return validated
+            return self._with_request_id(validated, incoming_request_id)
 
         server = self._get_server(validated)
         if _is_error_envelope(server):
-            return server
+            return self._with_request_id(server, validated.request_id)
 
         resolved = self._resolve_source(validated, server)
         if _is_error_envelope(resolved):
-            return resolved
+            return self._with_request_id(resolved, validated.request_id)
 
         request = SidecarDispatchRequest(
             dcc_name=self.dcc_name,
@@ -377,8 +382,8 @@ class SidecarActionDispatcher:
     def _normalize_result(self, result: Any, request: SidecarDispatchRequest) -> dict[str, Any]:
         safe_result = _json_safe(result)
         if isinstance(safe_result, dict) and isinstance(safe_result.get("success"), bool):
-            return safe_result
-        return {
+            return self._with_request_id(safe_result, request.request_id)
+        response = {
             "success": True,
             "message": "Sidecar action dispatched",
             "context": {
@@ -389,6 +394,16 @@ class SidecarActionDispatcher:
                 "result": safe_result,
             },
         }
+        if request.request_id is not None:
+            response["request_id"] = request.request_id
+        return response
+
+    @staticmethod
+    def _with_request_id(result: Mapping[str, Any], request_id: str | None) -> dict[str, Any]:
+        response = dict(result)
+        if request_id is not None and "request_id" not in response:
+            response["request_id"] = request_id
+        return response
 
     def _error(self, code: str, message: str, **context: Any) -> dict[str, Any]:
         clean_context = {
@@ -404,6 +419,9 @@ class SidecarActionDispatcher:
             "message": message,
             "error": code,
         }
+        request_id = context.get("request_id")
+        if isinstance(request_id, str) and request_id:
+            result["request_id"] = request_id
         if clean_context:
             result["context"] = _json_safe(clean_context)
         return result
