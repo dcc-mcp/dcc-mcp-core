@@ -1007,7 +1007,7 @@ pub(crate) async fn start_gateway_tasks(
             }
 
             // 3. Build the sink that feeds the audit ring buffer and the trace log.
-            let mut admin_sink = crate::gateway::admin::state::AdminAuditSink::new(
+            let mut admin_sink = crate::gateway::admin::AdminAuditSink::new(
                 audit_log.clone(),
                 ADMIN_AUDIT_RING_CAPACITY,
             )

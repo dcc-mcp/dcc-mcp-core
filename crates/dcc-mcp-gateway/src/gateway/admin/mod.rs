@@ -157,8 +157,9 @@ pub use dcc_mcp_db::{
     default_gateway_admin_sqlite_path as default_admin_db_path,
     resolve_gateway_admin_sqlite_path as resolve_admin_db_path,
 };
+pub use infra::audit_sink::AdminAuditSink;
 pub use sqlite_lane::{AdminSqliteLane, AdminSqliteReader, read_custom_skill_paths_for_startup};
-pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore};
+pub use state::{AdminAuditRecord, AdminState, AuditLog, DurableAuditStore};
 pub use stats::{
     GatewayStats, LatencyStats, StatsAggregator, StatsFilter, StatsRange, StatsStatus, TopEntry,
 };
