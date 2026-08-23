@@ -8,7 +8,7 @@ use dcc_mcp_gateway_admin::memory_summary;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::state::AdminState;
+use super::super::state::AdminState;
 
 #[derive(Debug, Deserialize)]
 pub struct MemoryListQuery {

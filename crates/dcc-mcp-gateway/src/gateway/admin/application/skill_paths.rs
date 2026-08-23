@@ -7,8 +7,8 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
 
+use super::super::state::AdminState;
 use super::skill_reload::reload_skill_paths_and_refresh_backends;
-use super::state::AdminState;
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::event_log::{ContendEvent, EventKind};
 

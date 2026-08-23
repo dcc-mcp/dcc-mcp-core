@@ -15,7 +15,7 @@ use dcc_mcp_gateway_admin::{session_detail_payload, sessions_payload};
 use serde::Deserialize;
 use serde_json::json;
 
-use super::state::AdminState;
+use super::super::state::AdminState;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct SessionsQuery {

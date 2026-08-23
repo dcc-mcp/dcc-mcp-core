@@ -74,18 +74,7 @@ pub mod activity;
 #[cfg(feature = "admin")]
 // ── Remaining top-level modules ───────────────────────────────────────────
 #[cfg(feature = "admin")]
-mod agent_trace;
-#[cfg(feature = "admin")]
-pub mod artifacts;
-#[cfg(feature = "admin")]
-#[cfg(feature = "admin")]
-mod debug_response;
-#[cfg(feature = "admin")]
-mod events;
-#[cfg(feature = "admin")]
 pub(crate) mod experiments;
-#[cfg(feature = "admin")]
-mod general;
 #[cfg(feature = "admin")]
 #[cfg(feature = "admin")]
 mod issue_report;
@@ -95,15 +84,7 @@ mod logs_tests;
 #[cfg(feature = "admin")]
 pub mod marketplace;
 #[cfg(feature = "admin")]
-mod memory;
-#[cfg(feature = "admin")]
 mod recordings;
-#[cfg(feature = "admin")]
-pub mod sessions;
-#[cfg(feature = "admin")]
-mod skill_paths;
-#[cfg(feature = "admin")]
-pub mod skill_reload;
 pub mod sqlite_lane;
 pub mod state;
 pub mod trace;
@@ -145,7 +126,7 @@ mod workflows_tests;
 
 // DB helpers.
 #[cfg(feature = "admin")]
-pub use application::{analytics, governance};
+pub use application::{analytics, artifacts, governance, sessions, skill_reload};
 pub use dcc_mcp_db::{
     default_gateway_admin_sqlite_path as default_admin_db_path,
     resolve_gateway_admin_sqlite_path as resolve_admin_db_path,

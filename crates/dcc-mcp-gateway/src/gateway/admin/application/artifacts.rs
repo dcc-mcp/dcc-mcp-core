@@ -13,7 +13,7 @@ use serde_json::Value;
 use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
 use dcc_mcp_db::read_gateway_log_dir_rows_recent;
 
-use super::state::AdminState;
+use super::super::state::AdminState;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct ArtifactsQuery {
