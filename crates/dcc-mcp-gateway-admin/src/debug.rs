@@ -4,15 +4,84 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::time::UNIX_EPOCH;
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    AdminAuditRecord, DispatchTrace, GatewayActivityInput, audit_activity_event,
-    gateway_activity_event_json, trace_activity_event,
+    AdminAuditRecord, DispatchTrace, GatewayActivityInput, StatsFilter, StatsStatus,
+    audit_activity_event, gateway_activity_event_json, trace_activity_event,
 };
 
 const POSTMORTEM_PREVIOUS_CALL_LIMIT: usize = 5;
 const POSTMORTEM_EVENT_LIMIT: usize = 10;
+
+/// Shared query contract for stable admin/debug list endpoints.
+#[derive(Debug, Default, Deserialize)]
+pub struct DebugListQuery {
+    limit: Option<String>,
+    range: Option<String>,
+    dcc_type: Option<String>,
+    skill: Option<String>,
+    tool: Option<String>,
+    status: Option<String>,
+    instance_id: Option<String>,
+    session_id: Option<String>,
+    response_format: Option<String>,
+    compact: Option<bool>,
+}
+
+impl DebugListQuery {
+    /// Return a bounded list limit, using `default` for missing or invalid input.
+    #[must_use]
+    pub fn limit(&self, default: usize, max: usize) -> usize {
+        self.limit
+            .as_deref()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(default)
+            .clamp(1, max)
+    }
+
+    /// Return the requested time range or the stable `all` default.
+    #[must_use]
+    pub fn range(&self) -> &str {
+        self.range.as_deref().unwrap_or("all")
+    }
+
+    /// Parse optional statistics filters, rejecting unknown status values.
+    pub fn stats_filter(&self) -> Result<StatsFilter, String> {
+        Ok(StatsFilter {
+            dcc_type: non_empty(self.dcc_type.as_deref()),
+            skill: non_empty(self.skill.as_deref()),
+            tool: non_empty(self.tool.as_deref()),
+            status: non_empty(self.status.as_deref())
+                .as_deref()
+                .map(StatsStatus::from_query)
+                .transpose()?,
+            instance_id: non_empty(self.instance_id.as_deref()),
+            session_id: non_empty(self.session_id.as_deref()),
+        })
+    }
+
+    /// Build the request body consumed by backend-neutral response negotiation.
+    #[must_use]
+    pub fn response_format_body(&self) -> Value {
+        let mut body = serde_json::Map::new();
+        if let Some(format) = self.response_format.as_deref() {
+            body.insert("response_format".to_string(), json!(format));
+        }
+        if let Some(compact) = self.compact {
+            body.insert("compact".to_string(), json!(compact));
+        }
+        Value::Object(body)
+    }
+}
+
+fn non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
 
 /// Build one correlated debug bundle from already-collected admin records.
 ///
@@ -308,6 +377,37 @@ fn rfc3339(timestamp: std::time::SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_list_query_normalizes_bounds_filters_and_format() {
+        let query: DebugListQuery = serde_json::from_value(json!({
+            "limit": "999",
+            "range": "24h",
+            "dcc_type": "  maya  ",
+            "skill": " ",
+            "status": "failure",
+            "response_format": "toon",
+            "compact": true
+        }))
+        .unwrap();
+
+        assert_eq!(query.limit(50, 100), 100);
+        assert_eq!(query.range(), "24h");
+        let filter = query.stats_filter().unwrap();
+        assert_eq!(filter.dcc_type.as_deref(), Some("maya"));
+        assert_eq!(filter.skill, None);
+        assert_eq!(filter.status, Some(StatsStatus::Failure));
+        assert_eq!(
+            query.response_format_body(),
+            json!({"response_format": "toon", "compact": true})
+        );
+    }
+
+    #[test]
+    fn debug_list_query_rejects_unknown_status() {
+        let query: DebugListQuery = serde_json::from_value(json!({"status": "maybe"})).unwrap();
+        assert!(query.stats_filter().is_err());
+    }
 
     fn trace(request_id: &str, trace_id: &str, started_secs: u64) -> DispatchTrace {
         serde_json::from_value(json!({

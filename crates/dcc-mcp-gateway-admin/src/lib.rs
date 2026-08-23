@@ -47,7 +47,7 @@ pub use analytics::{
 };
 pub use artifacts::{ArtifactFilter, artifact_payload, artifact_refs};
 pub use audit::{AdminAuditRecord, AuditLog};
-pub use debug::debug_bundle_payload;
+pub use debug::{DebugListQuery, debug_bundle_payload};
 pub use domain::agent_context::{
     AgentContext, AgentContextTrust, INTERNAL_AUTH_SUBJECT_HEADER, INTERNAL_FORWARDED_FOR_HEADER,
     INTERNAL_SOURCE_IP_HEADER, TRUST_AUTH, TRUST_HEADER, TRUST_SELF_REPORTED, TRUST_SERVER_DERIVED,
