@@ -313,7 +313,7 @@ wrong instead of seeing `Unexpected token '<'`.
 | `GET /admin/api/analytics/export?range=...` | `text/csv` or `application/x-ndjson` | Download analytics data for local review |
 | `GET /admin/api/governance?limit=300` | `application/json` | Effective gateway policy, traffic capture, redaction, middleware controls, and recent allow/deny/throttle decisions |
 | `GET /admin/api/workers` | `application/json` | Per-instance cards from the live registry; response field names remain `workers` for compatibility |
-| `GET /admin/api/logs` | `application/json` | Merged gateway contention events, on-disk `*.log` rows, and audited call summaries |
+| `GET /admin/api/logs` | `application/json` | Merged gateway operational events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary, including active response-format defaults and token estimator metadata |
 | `GET /admin/api/skills` | `application/json` | Live skill inventory grouped by DCC type, skill name, load state, tools, backend instance, and skill health/adoption metrics from search telemetry plus audited calls |
 | `GET /admin/api/skill-detail?name=...` | `application/json` | One skill's backend detail payload, including rendered-review `SKILL.md` markdown when available |

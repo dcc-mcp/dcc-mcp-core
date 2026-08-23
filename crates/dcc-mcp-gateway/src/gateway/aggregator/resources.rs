@@ -117,11 +117,11 @@ pub async fn aggregate_resources_list(gs: &GatewayState) -> Value {
     };
 
     // Tier 0: gateway-internal event log (issue #766).
-    // Always visible so operators and agents can request the contention log.
+    // Always visible so operators and agents can request the operational log.
     let events_pointer = json!({
         "uri":         GATEWAY_EVENTS_URI,
-        "name":        "Gateway contention events",
-        "description": "Append-only JSONL stream of gateway election, eviction, and probe events (ring buffer, last 1000 entries).",
+        "name":        "Gateway operational events",
+        "description": "Append-only JSONL stream of gateway election, lifecycle, health, and feedback events (ring buffer, last 1000 entries).",
         "mimeType":    "application/x-ndjson"
     });
 

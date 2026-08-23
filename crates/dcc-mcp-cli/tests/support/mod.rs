@@ -310,6 +310,22 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
             }),
         )
         .route(
+            "/v1/feedback",
+            post(|Json(body): Json<Value>| async move {
+                (
+                    StatusCode::CREATED,
+                    Json(json!({
+                        "ok": true,
+                        "success": true,
+                        "feedback_id": "11111111-1111-4111-8111-111111111111",
+                        "recorded_at": "2026-08-24T00:00:00.000Z",
+                        "event_resource_uri": "resources://gateway/events",
+                        "report": body
+                    })),
+                )
+            }),
+        )
+        .route(
             "/v1/search",
             post(|headers: HeaderMap, Json(body): Json<Value>| async move {
                 json_or_compact_fixture_response(

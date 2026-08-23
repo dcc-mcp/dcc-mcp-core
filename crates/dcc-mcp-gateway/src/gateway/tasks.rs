@@ -8,6 +8,45 @@ mod probe;
 use probe::probe_and_mark_unreachable_instances;
 pub(crate) use probe::self_probe_listener;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InstanceMembership {
+    dcc_type: String,
+    instance_id: String,
+}
+
+fn instance_membership(entries: Vec<ServiceEntry>) -> HashMap<String, InstanceMembership> {
+    entries
+        .into_iter()
+        .map(|entry| {
+            let membership = InstanceMembership {
+                dcc_type: entry.dcc_type,
+                instance_id: entry.instance_id.to_string(),
+            };
+            (
+                format!("{}:{}", membership.dcc_type, membership.instance_id),
+                membership,
+            )
+        })
+        .collect()
+}
+
+fn removed_instances(
+    previous: &HashMap<String, InstanceMembership>,
+    current: &HashMap<String, InstanceMembership>,
+) -> Vec<InstanceMembership> {
+    let mut removed: Vec<_> = previous
+        .iter()
+        .filter(|(key, _)| !current.contains_key(*key))
+        .map(|(_, value)| value.clone())
+        .collect();
+    removed.sort_by(|left, right| {
+        left.dcc_type
+            .cmp(&right.dcc_type)
+            .then(left.instance_id.cmp(&right.instance_id))
+    });
+    removed
+}
+
 /// Outcome of [`start_gateway_tasks`] for the ambient (shared-runtime) path.
 pub(crate) struct GatewayTasks {
     /// AbortHandle for the combined supervisor task (cleanup + watchers + serve).
@@ -561,17 +600,22 @@ pub(crate) async fn start_gateway_tasks(
     let mdns_watch = mdns_instance_registry.clone();
     let relay_watch = relay_instance_registry.clone();
     let events_tx_watch = events_tx.clone();
+    let instance_event_log = contention_log.clone();
+    #[cfg(feature = "prometheus")]
+    let instance_event_metrics = gateway_metrics.clone();
     let watch_own_host = own_host.clone();
     let watch_own_port = own_port;
     let watcher_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         // Fingerprint = sorted "dcc_type:instance_id" strings of live instances.
         let mut last_fingerprint = String::new();
+        let mut last_instances = HashMap::new();
+        let mut initialized = false;
 
         loop {
             interval.tick().await;
 
-            let fingerprint = {
+            let current_instances = {
                 let entries: Vec<_> = reg_watch
                     .list_all_async()
                     .await
@@ -593,13 +637,31 @@ pub(crate) async fn start_gateway_tasks(
                     relay_entries,
                     http_entries,
                 );
-                let mut keys: Vec<String> = entries
-                    .into_iter()
-                    .map(|e| format!("{}:{}", e.dcc_type, e.instance_id))
-                    .collect();
-                keys.sort_unstable();
-                keys.join("|")
+                instance_membership(entries)
             };
+            let mut keys: Vec<_> = current_instances.keys().cloned().collect();
+            keys.sort_unstable();
+            let fingerprint = keys.join("|");
+
+            let removed = if initialized {
+                removed_instances(&last_instances, &current_instances)
+            } else {
+                Vec::new()
+            };
+            for instance in &removed {
+                crate::gateway::event_log::record_event(
+                    &instance_event_log,
+                    #[cfg(feature = "prometheus")]
+                    &instance_event_metrics,
+                    crate::gateway::event_log::EventKind::InstanceExited,
+                    &instance.dcc_type,
+                    instance.instance_id.clone(),
+                    Some("instance left the live gateway inventory".to_string()),
+                );
+            }
+            if !removed.is_empty() {
+                crate::gateway::event_log::notify_updated(&events_tx_watch);
+            }
 
             if fingerprint != last_fingerprint {
                 tracing::debug!(
@@ -617,6 +679,8 @@ pub(crate) async fn start_gateway_tasks(
                 }
                 last_fingerprint = fingerprint;
             }
+            last_instances = current_instances;
+            initialized = true;
         }
     });
 
@@ -1235,4 +1299,48 @@ pub(crate) async fn start_gateway_tasks(
         supervisor: combined,
         yield_tx,
     })
+}
+
+#[cfg(test)]
+mod instance_membership_tests {
+    use super::*;
+
+    fn membership(dcc_type: &str, instance_id: &str) -> (String, InstanceMembership) {
+        (
+            format!("{dcc_type}:{instance_id}"),
+            InstanceMembership {
+                dcc_type: dcc_type.to_string(),
+                instance_id: instance_id.to_string(),
+            },
+        )
+    }
+
+    #[test]
+    fn removed_instances_preserve_dcc_and_instance_identity() {
+        let previous = HashMap::from([
+            membership("houdini", "aaaaaaaa-0000-0000-0000-000000000000"),
+            membership("photoshop", "bbbbbbbb-0000-0000-0000-000000000000"),
+        ]);
+        let current = HashMap::from([membership(
+            "photoshop",
+            "bbbbbbbb-0000-0000-0000-000000000000",
+        )]);
+
+        assert_eq!(
+            removed_instances(&previous, &current),
+            vec![InstanceMembership {
+                dcc_type: "houdini".to_string(),
+                instance_id: "aaaaaaaa-0000-0000-0000-000000000000".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn removed_instances_does_not_report_unchanged_inventory() {
+        let inventory = HashMap::from([membership(
+            "custom_host",
+            "cccccccc-0000-0000-0000-000000000000",
+        )]);
+        assert!(removed_instances(&inventory, &inventory).is_empty());
+    }
 }

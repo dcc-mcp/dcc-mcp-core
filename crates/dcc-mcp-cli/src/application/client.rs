@@ -1,4 +1,5 @@
 use dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION;
+use dcc_mcp_models::FeedbackReport;
 use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::time::{Instant, sleep};
@@ -50,6 +51,15 @@ impl DccMcpClient {
         url.query_pairs_mut().extend_pairs(request.query_pairs());
         self.gateway
             .get_json(url.as_str())
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn feedback(&self, report: FeedbackReport) -> Result<Value, ClientError> {
+        let body = serde_json::to_value(report)
+            .map_err(|error| ClientError::Protocol(format!("invalid feedback report: {error}")))?;
+        self.gateway
+            .post_json(&self.endpoint.path("/v1/feedback"), &body)
             .await
             .map_err(Into::into)
     }

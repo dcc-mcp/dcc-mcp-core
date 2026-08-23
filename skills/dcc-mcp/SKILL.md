@@ -439,13 +439,18 @@ Do not guess a root cause or blindly replay a mutation. Preserve `request_id`, `
 ```bash
 dcc-mcp-cli doctor
 dcc-mcp-cli stats --range 24h --status failure --session-id task-42
-dcc-mcp-cli search --query "report feedback" --dcc-type maya
-dcc-mcp-cli describe <returned-feedback-tool-slug>
-dcc-mcp-cli call <returned-feedback-tool-slug> --json \
-  '{"tool_name":"maya_geometry__create_sphere","intent":"Create a sphere","attempt":"radius=2.0","blocker":"Radius was ignored","severity":"blocked"}'
+dcc-mcp-cli feedback \
+  --tool-name maya_geometry__create_sphere \
+  --intent "Create a sphere" \
+  --attempt "radius=2.0" \
+  --blocker "Radius was ignored" \
+  --severity blocked \
+  --dcc-type maya \
+  --instance-id <live-or-dead-instance-id> \
+  --request-id <request-id>
 ```
 
-Use `doctor` for profile, registry, daemon, binary, and readiness failures. For a tool failure, refresh `describe`, compare the schema/annotations with the attempt, inspect failure-only stats, and call `dcc_feedback__report`. Its severity is `blocked`, `workaround_found`, or `suggestion`; it records feedback but does not create an external issue.
+Use `doctor` for profile, registry, daemon, binary, and readiness failures. For a tool failure, refresh `describe`, compare the schema/annotations with the attempt, inspect failure-only stats, and call the gateway-owned `feedback` command. Its severity is `blocked`, `workaround_found`, or `suggestion`; it remains available after the target instance exits, records a bounded entry in `resources://gateway/events`, and does not create an external issue. Use instance-level `dcc_feedback__report` only as a live-adapter compatibility path.
 
 For a gateway-routed failure, use the CLI-returned `request_id` to read `/v1/debug/agent-traces/<request_id>` and public-safe `/v1/debug/issue-reports/<request_id>`. The latter supplies a bounded summary and suggested GitHub title/body. Never publish `?mode=raw` without human review; create an external issue only with user authorization.
 

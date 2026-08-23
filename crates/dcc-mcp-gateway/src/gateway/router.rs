@@ -13,10 +13,11 @@ use super::handlers::{
     handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
     handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
     handle_v1_dcc_instance_stop, handle_v1_describe, handle_v1_describe_path, handle_v1_docs,
-    handle_v1_healthz, handle_v1_instance_context, handle_v1_instances_deregister,
-    handle_v1_instances_heartbeat, handle_v1_instances_register, handle_v1_list_skills,
-    handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz, handle_v1_search, handle_v1_skills,
-    handle_v1_unload_skill, handle_v1_update_check, handle_v1_update_download,
+    handle_v1_feedback, handle_v1_healthz, handle_v1_instance_context,
+    handle_v1_instances_deregister, handle_v1_instances_heartbeat, handle_v1_instances_register,
+    handle_v1_list_skills, handle_v1_load_skill, handle_v1_openapi, handle_v1_readyz,
+    handle_v1_search, handle_v1_skills, handle_v1_unload_skill, handle_v1_update_check,
+    handle_v1_update_download,
 };
 use super::http_limits::rate_limit_middleware;
 use super::state::GatewayState;
@@ -167,6 +168,7 @@ fn build_base_router(state: GatewayState) -> Router {
         )
         .route("/v1/healthz", routing::get(handle_v1_healthz))
         .route("/v1/readyz", routing::get(handle_v1_readyz))
+        .route("/v1/feedback", routing::post(handle_v1_feedback))
         .route("/v1/openapi.json", routing::get(handle_v1_openapi))
         .route("/docs", routing::get(handle_v1_docs))
         .route("/v1/skills", routing::get(handle_v1_skills))

@@ -11,6 +11,104 @@ use tempfile::{NamedTempFile, TempDir};
 use support::*;
 
 #[test]
+fn gateway_feedback_cli_works_without_discovering_a_live_instance() {
+    let fixture = spawn_gateway_fixture();
+    let output = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "--output",
+            "json",
+            "feedback",
+            "--tool-name",
+            "houdini.ui_control__act",
+            "--intent",
+            "Open the render menu",
+            "--attempt",
+            "Invoked the semantic action",
+            "--blocker",
+            "The instance exited",
+            "--severity",
+            "blocked",
+            "--dcc-type",
+            "houdini",
+            "--instance-id",
+            "deadbeef",
+            "--request-id",
+            "request-42",
+        ])
+        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(body["feedback_id"], "11111111-1111-4111-8111-111111111111");
+    assert_eq!(body["report"]["instance_id"], "deadbeef");
+    assert_eq!(body["report"]["request_id"], "request-42");
+}
+
+#[test]
+fn global_timeout_does_not_warn_for_an_implicit_command_default() {
+    let fixture = spawn_gateway_fixture();
+    let output = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "--output",
+            "json",
+            "call",
+            "maya.abc12345.create_sphere",
+            "--json",
+            "{}",
+        ])
+        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+        .env("DCC_MCP_TIMEOUT_SECS", "2")
+        .env_remove("DCC_MCP_CLI_CALL_TIMEOUT_SECS")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("per-command timeout flags are ignored")
+    );
+}
+
+#[test]
+fn global_timeout_warns_when_a_command_timeout_is_explicitly_configured() {
+    let fixture = spawn_gateway_fixture();
+    let output = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "--output",
+            "json",
+            "call",
+            "maya.abc12345.create_sphere",
+            "--json",
+            "{}",
+        ])
+        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+        .env("DCC_MCP_TIMEOUT_SECS", "2")
+        .env("DCC_MCP_CLI_CALL_TIMEOUT_SECS", "3")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("per-command timeout flags are ignored")
+    );
+}
+
+#[test]
 fn two_same_type_default_port_instances_are_discoverable() {
     use dcc_mcp_actions::ToolRegistry;
     use dcc_mcp_http::{McpHttpConfig, McpHttpServer};

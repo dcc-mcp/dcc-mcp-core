@@ -54,7 +54,7 @@ modeled as an MCP resource instead of a tool:
 | `gateway://diagnostics/metrics` | `application/json` | Local gateway tool count, live backend count, timeout settings, and `publishes_backend_tools=false`. |
 | `gateway://catalog` | `application/json` | Public adapter/skill/plugin package index; optional `?query=<keyword>` filter. |
 | `gateway://catalog/{name}` | `application/json` | One public catalog entry selected by exact name. |
-| `resources://gateway/events` | `application/jsonl` | Gateway contention and election event ring buffer. |
+| `resources://gateway/events` | `application/jsonl` | Gateway operational event ring buffer, including instance exits, host failures, feedback, and election events. |
 
 `resources/list` advertises only root pointers for gateway-native families:
 `gateway://instances`, `gateway://diagnostics/process`,

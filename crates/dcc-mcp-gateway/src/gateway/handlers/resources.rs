@@ -3,7 +3,7 @@ use dcc_mcp_gateway_core::resource_uri::decode_resource_uri;
 use super::*;
 use crate::gateway::http_registration::entry_discovery_mcp_url;
 
-/// URI for the gateway's own contention event log (issue #766).
+/// URI for the gateway's own operational event log (issues #766, #2208).
 pub(crate) const GATEWAY_EVENTS_URI: &str = "resources://gateway/events";
 
 pub(super) async fn handle_resources_list(gs: &GatewayState, id: Value) -> Value {
@@ -340,7 +340,7 @@ mod tests {
         }
     }
 
-    /// Issue #766: `resources://gateway/events` must return JSONL text content
+    /// `resources://gateway/events` must return JSONL text content
     /// containing every event pushed to the ring buffer.
     #[tokio::test]
     async fn gateway_events_resource_returns_jsonl() {

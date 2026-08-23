@@ -6,6 +6,7 @@ use anyhow::{Context, anyhow};
 #[cfg(test)]
 use base64::Engine;
 use clap::{Parser, Subcommand};
+use dcc_mcp_models::{FeedbackReport, FeedbackSeverity};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -50,6 +51,9 @@ use super::marketplace_cmd::{self, MarketplaceAction};
 use super::update_cmd::UpdateAction;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
+const DEFAULT_SMOKE_TIMEOUT_SECS: u64 = 5;
+const DEFAULT_CALL_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_WAIT_READY_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-cli", about, version)]
@@ -121,8 +125,8 @@ enum Command {
         #[arg(long, default_value = "5")]
         limit: usize,
         /// Per-request timeout for smoke checks.
-        #[arg(long, default_value = "5")]
-        timeout_secs: u64,
+        #[arg(long)]
+        timeout_secs: Option<u64>,
     },
     /// Check the configured gateway or per-DCC REST endpoint.
     Health,
@@ -143,6 +147,36 @@ enum Command {
         instance_id: Option<String>,
         #[arg(long)]
         session_id: Option<String>,
+    },
+    /// File structured feedback at the gateway, including after a DCC instance exits.
+    Feedback {
+        /// Tool or operation that failed or blocked the workflow.
+        #[arg(long)]
+        tool_name: String,
+        /// Goal the agent was trying to accomplish.
+        #[arg(long)]
+        intent: String,
+        /// Parameters or approach already attempted.
+        #[arg(long)]
+        attempt: Option<String>,
+        /// Failure or limitation that prevented completion.
+        #[arg(long)]
+        blocker: String,
+        /// Feedback severity.
+        #[arg(long, default_value = "blocked")]
+        severity: FeedbackSeverity,
+        /// DCC type involved, if known.
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Live or dead instance id involved, if known.
+        #[arg(long)]
+        instance_id: Option<String>,
+        /// Last known gateway request id, if available.
+        #[arg(long)]
+        request_id: Option<String>,
+        /// Last known job id, if available.
+        #[arg(long)]
+        job_id: Option<String>,
     },
     /// Report local defaults and startup diagnostics without launching services.
     Doctor {
@@ -235,8 +269,8 @@ enum Command {
         )]
         wait_timeout_secs: u64,
         /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
-        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
-        timeout_secs: u64,
+        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS")]
+        timeout_secs: Option<u64>,
     },
     /// Compatibility alias for `call --batch`.
     #[command(hide = true)]
@@ -247,8 +281,8 @@ enum Command {
         /// Read the batch request from a UTF-8 JSON file, or '-' for stdin.
         #[arg(long, value_name = "PATH", conflicts_with = "request_json")]
         json_file: Option<PathBuf>,
-        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
-        timeout_secs: u64,
+        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS")]
+        timeout_secs: Option<u64>,
     },
     /// Run the scoped DCC UI Control fallback through stable ui-control tools.
     UiControl {
@@ -268,8 +302,8 @@ enum Command {
         instance_id: Option<String>,
         #[arg(long, value_delimiter = ',')]
         require: Vec<String>,
-        #[arg(long, default_value = "30")]
-        timeout_secs: u64,
+        #[arg(long)]
+        timeout_secs: Option<u64>,
         #[arg(long, default_value = "1")]
         interval_secs: u64,
     },
@@ -357,6 +391,19 @@ enum UiControlAction {
 }
 
 impl UiControlAction {
+    fn timeout_secs(&self) -> Option<u64> {
+        match self {
+            Self::Snapshot(args)
+            | Self::Find(args)
+            | Self::Act(args)
+            | Self::RecordingStart(args)
+            | Self::RecordingState(args)
+            | Self::RecordingStop(args)
+            | Self::Wait(args)
+            | Self::Stop(args) => args.timeout_secs,
+        }
+    }
+
     fn into_call(self) -> (&'static str, UiControlArgs) {
         match self {
             Self::Snapshot(args) => ("ui_control__snapshot", args),
@@ -389,8 +436,8 @@ struct UiControlArgs {
     #[arg(long)]
     meta_json: Option<String>,
     /// Per-request timeout for the UI operation.
-    #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
-    timeout_secs: u64,
+    #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS")]
+    timeout_secs: Option<u64>,
     /// Print the complete underlying MCP response, including the bounded UI tree.
     #[arg(long, default_value_t = false)]
     full_output: bool,
@@ -559,7 +606,10 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let marketplace_update_check = tokio::spawn(check_marketplace_updates());
 
     // Deprecation warning for per-command timeout when global timeout is set.
-    if global_timeout_secs.is_some() && command_has_per_timeout(&command) {
+    if global_timeout_secs.is_some()
+        && (command_has_distinct_per_timeout(&command, global_timeout_secs)
+            || command_has_configured_timeout_env(&command))
+    {
         let _ = writer.diagnostic(
             "warning: --timeout-secs is set globally; per-command timeout flags are ignored",
         );
@@ -597,7 +647,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             limit,
             timeout_secs,
         } => {
-            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
+            let effective_timeout = global_timeout_secs
+                .or(timeout_secs)
+                .unwrap_or(DEFAULT_SMOKE_TIMEOUT_SECS);
             let endpoint = url
                 .as_deref()
                 .map(Endpoint::from_mcp_url)
@@ -636,6 +688,31 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     status,
                     instance_id,
                     session_id,
+                })
+                .await?
+        }
+        Command::Feedback {
+            tool_name,
+            intent,
+            attempt,
+            blocker,
+            severity,
+            dcc_type,
+            instance_id,
+            request_id,
+            job_id,
+        } => {
+            control
+                .feedback(FeedbackReport {
+                    tool_name,
+                    intent,
+                    attempt,
+                    blocker,
+                    severity,
+                    dcc_type,
+                    instance_id,
+                    request_id,
+                    job_id,
                 })
                 .await?
         }
@@ -709,7 +786,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             wait_timeout_secs,
             timeout_secs,
         } => {
-            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
+            let effective_timeout = global_timeout_secs
+                .or(timeout_secs)
+                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
             let mut result = if batch {
                 let mut request =
                     read_batch_request(&arguments_json, steps.as_deref(), json_file.as_deref())?;
@@ -771,7 +850,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             json_file,
             timeout_secs,
         } => {
-            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
+            let effective_timeout = global_timeout_secs
+                .or(timeout_secs)
+                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
             let mut request = read_call_arguments(&request_json, json_file.as_deref())?;
             attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
             let mut result = control
@@ -787,7 +868,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         Command::UiControl { action } => {
             let (tool_name, args) = action.into_call();
             let full_output = args.full_output;
-            let effective_timeout = global_timeout_secs.unwrap_or(args.timeout_secs);
+            let effective_timeout = global_timeout_secs
+                .or(args.timeout_secs)
+                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
             let arguments = read_call_arguments(&args.arguments_json, args.json_file.as_deref())?;
             let meta = args
                 .meta_json
@@ -832,7 +915,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             timeout_secs,
             interval_secs,
         } => {
-            let effective_timeout = global_timeout_secs.unwrap_or(timeout_secs);
+            let effective_timeout = global_timeout_secs
+                .or(timeout_secs)
+                .unwrap_or(DEFAULT_WAIT_READY_TIMEOUT_SECS);
             let request = WaitReadyRequest {
                 dcc_type,
                 instance_id,
@@ -1167,9 +1252,10 @@ fn gateway_endpoint_for_command(
     match command {
         Command::Smoke { url: None, .. } => Some(Endpoint::new(base_url)),
         Command::Smoke { url: Some(_), .. } => None,
-        Command::Health | Command::Stats { .. } | Command::Update { .. } => {
-            Some(Endpoint::new(base_url))
-        }
+        Command::Health
+        | Command::Stats { .. }
+        | Command::Feedback { .. }
+        | Command::Update { .. } => Some(Endpoint::new(base_url)),
         Command::Doctor { .. } | Command::DccTypes { .. } => None,
         Command::List
         | Command::Search { .. }
@@ -1425,16 +1511,28 @@ fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
     serde_json::to_value(value).context("failed to serialize command output")
 }
 
-/// Check whether a command has a per-command timeout flag.
-fn command_has_per_timeout(command: &Command) -> bool {
+/// Check whether a command timeout would be ignored in favor of a distinct global timeout.
+fn command_has_distinct_per_timeout(command: &Command, global_timeout_secs: Option<u64>) -> bool {
+    let per_command_timeout = match command {
+        Command::Smoke { timeout_secs, .. }
+        | Command::Call { timeout_secs, .. }
+        | Command::CallBatch { timeout_secs, .. }
+        | Command::WaitReady { timeout_secs, .. } => *timeout_secs,
+        Command::UiControl { action } => action.timeout_secs(),
+        _ => None,
+    };
+
+    matches!(
+        (global_timeout_secs, per_command_timeout),
+        (Some(global), Some(per_command)) if global != per_command
+    )
+}
+
+fn command_has_configured_timeout_env(command: &Command) -> bool {
     matches!(
         command,
-        Command::Smoke { .. }
-            | Command::Call { .. }
-            | Command::CallBatch { .. }
-            | Command::UiControl { .. }
-            | Command::WaitReady { .. }
-    )
+        Command::Call { .. } | Command::CallBatch { .. } | Command::UiControl { .. }
+    ) && std::env::var_os("DCC_MCP_CLI_CALL_TIMEOUT_SECS").is_some()
 }
 
 fn exit_code_to_error_code(exit_code: ExitCode) -> &'static str {

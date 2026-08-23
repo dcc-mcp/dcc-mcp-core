@@ -242,7 +242,7 @@ pub(crate) fn add_gateway_debug_openapi_paths(doc: &mut Value) {
         (
             "/v1/debug/logs",
             "List merged debug logs",
-            "Merged gateway contention events, file logs, and audited call summaries.",
+            "Merged gateway operational events, file logs, and audited call summaries.",
             list_params.clone(),
             false,
         ),

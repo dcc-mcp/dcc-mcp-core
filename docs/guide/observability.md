@@ -222,7 +222,7 @@ Gateway election, eviction, and probe events are available as a bounded MCP reso
 ### MCP Resource
 
 ```python
-# Read the last N contention events
+# Read the last N gateway operational events
 result = resources.read("resources://gateway/events")
 ```
 

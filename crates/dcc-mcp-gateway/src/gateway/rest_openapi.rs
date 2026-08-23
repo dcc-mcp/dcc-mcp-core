@@ -24,6 +24,7 @@ pub(crate) const GATEWAY_OPENAPI_ROUTES: &[GatewayOpenApiRoute] = &[
     post("/v1/instances/deregister"),
     get("/v1/healthz"),
     get("/v1/readyz"),
+    post("/v1/feedback"),
     get("/v1/update/check"),
     get("/v1/update/download/{binary_name}"),
     get("/v1/openapi.json"),
@@ -70,6 +71,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
         },
         "tags": [
             {"name": "health", "description": "Gateway liveness and readiness probes."},
+            {"name": "feedback", "description": "Gateway-owned agent feedback that does not require a live DCC."},
             {"name": "instances", "description": "Live DCC instance inventory."},
             {"name": "skills", "description": "Gateway skill discovery and lifecycle operations."},
             {"name": "tools", "description": "Gateway capability describe and invocation operations."},
@@ -156,6 +158,16 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
             "Summarize gateway readiness",
             "Aggregates live instance readiness bits; the gateway itself remains reachable even when no DCC instance is ready.",
             json_response_ref("GatewayReadyz"),
+        ),
+    );
+    paths.insert(
+        "/v1/feedback".to_string(),
+        post_created_operation(
+            &["feedback"],
+            "File gateway-level agent feedback",
+            "Records structured feedback even when the referenced DCC instance has already exited. The receipt points to the gateway event resource containing the bounded in-band record.",
+            request_body_ref("GatewayFeedbackReport"),
+            json_response_ref("GatewayFeedbackReceipt"),
         ),
     );
     paths.insert(
@@ -503,6 +515,40 @@ fn annotate_response_format_controls(schemas: &mut Map<String, Value>) {
 
 fn gateway_schemas() -> Vec<(&'static str, Value)> {
     vec![
+        (
+            "GatewayFeedbackReport",
+            json!({
+                "type": "object",
+                "required": ["tool_name", "intent", "blocker", "severity"],
+                "properties": {
+                    "tool_name": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "intent": {"type": "string", "minLength": 1, "maxLength": 4096},
+                    "attempt": {"type": "string", "maxLength": 4096},
+                    "blocker": {"type": "string", "minLength": 1, "maxLength": 4096},
+                    "severity": {"type": "string", "enum": ["blocked", "workaround_found", "suggestion"]},
+                    "dcc_type": {"type": "string", "maxLength": 256},
+                    "instance_id": {"type": "string", "maxLength": 256, "description": "May reference an instance that is no longer live."},
+                    "request_id": {"type": "string", "maxLength": 256},
+                    "job_id": {"type": "string", "maxLength": 256}
+                },
+                "additionalProperties": false,
+            }),
+        ),
+        (
+            "GatewayFeedbackReceipt",
+            json!({
+                "type": "object",
+                "required": ["ok", "success", "feedback_id", "recorded_at", "event_resource_uri"],
+                "properties": {
+                    "ok": {"type": "boolean", "const": true},
+                    "success": {"type": "boolean", "const": true},
+                    "feedback_id": {"type": "string", "format": "uuid"},
+                    "recorded_at": {"type": "string", "format": "date-time"},
+                    "event_resource_uri": {"type": "string", "const": "resources://gateway/events"}
+                },
+                "additionalProperties": false,
+            }),
+        ),
         (
             "LoadSkillRequest",
             json!({
@@ -1058,6 +1104,24 @@ fn post_operation(
     )
 }
 
+fn post_created_operation(
+    tags: &[&str],
+    summary: &str,
+    description: &str,
+    request_body: Value,
+    response: Value,
+) -> Value {
+    let mut operation = post_operation(tags, summary, description, request_body, response);
+    let responses = operation["post"]["responses"]
+        .as_object_mut()
+        .expect("POST operation responses must be an object");
+    let response = responses
+        .remove("200")
+        .expect("POST operation must define a success response");
+    responses.insert("201".to_string(), response);
+    operation
+}
+
 fn post_operation_with_params(
     tags: &[&str],
     summary: &str,
@@ -1311,6 +1375,8 @@ mod tests {
             .expect("schemas object");
         for schema in [
             "ServiceError",
+            "GatewayFeedbackReport",
+            "GatewayFeedbackReceipt",
             "SearchRequest",
             "SearchResponse",
             "LoadSkillRequest",
@@ -1333,6 +1399,26 @@ mod tests {
                 "gateway OpenAPI schema set missing {schema}"
             );
         }
+    }
+
+    #[test]
+    fn gateway_openapi_documents_feedback_without_live_instance_dependency() {
+        let doc = build_gateway_openapi_document("1.2.3");
+        let operation = &doc["paths"]["/v1/feedback"]["post"];
+        assert_eq!(operation["tags"][0], "feedback");
+        assert!(operation["responses"].get("200").is_none());
+        assert_eq!(
+            operation["responses"]["201"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/GatewayFeedbackReceipt"
+        );
+        assert_eq!(
+            operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/GatewayFeedbackReport"
+        );
+        let report = &doc["components"]["schemas"]["GatewayFeedbackReport"];
+        assert!(report["properties"].get("instance_id").is_some());
+        assert!(report["properties"].get("request_id").is_some());
+        assert!(report["properties"].get("job_id").is_some());
     }
 
     #[test]

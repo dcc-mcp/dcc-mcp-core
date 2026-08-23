@@ -26,7 +26,7 @@
 //! | crate root       | [`PendingCall`] (routing primitive)                 |
 //! | [`naming`]       | Pure UUID / alphabet helpers used by slug encoding  |
 //! | [`resource_uri`] | Gateway resource URI prefix encode/decode helpers   |
-//! | [`event`]        | Gateway contention event wire records               |
+//! | [`event`]        | Gateway operational event wire records              |
 //! | [`openapi`]      | OpenAPI mount credential value types                |
 //! | [`capability`]   | [`CapabilityRecord`] + slug encoding (REST wire)    |
 //!
