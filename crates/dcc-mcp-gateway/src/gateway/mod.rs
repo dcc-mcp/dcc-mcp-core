@@ -58,6 +58,7 @@ pub(crate) mod request_meta;
 pub mod resilience;
 pub(crate) mod response_codec;
 pub(crate) mod rest_openapi;
+mod rest_openapi_feedback;
 pub mod router;
 pub mod search_telemetry;
 pub mod security;

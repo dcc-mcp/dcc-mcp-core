@@ -162,13 +162,7 @@ pub(crate) fn build_gateway_openapi_document(server_version: &str) -> Value {
     );
     paths.insert(
         "/v1/feedback".to_string(),
-        post_created_operation(
-            &["feedback"],
-            "File gateway-level agent feedback",
-            "Records structured feedback even when the referenced DCC instance has already exited. The receipt points to the gateway event resource containing the bounded in-band record.",
-            request_body_ref("GatewayFeedbackReport"),
-            json_response_ref("GatewayFeedbackReceipt"),
-        ),
+        super::rest_openapi_feedback::path_operation(),
     );
     paths.insert(
         "/v1/update/check".to_string(),
@@ -514,41 +508,8 @@ fn annotate_response_format_controls(schemas: &mut Map<String, Value>) {
 }
 
 fn gateway_schemas() -> Vec<(&'static str, Value)> {
-    vec![
-        (
-            "GatewayFeedbackReport",
-            json!({
-                "type": "object",
-                "required": ["tool_name", "intent", "blocker", "severity"],
-                "properties": {
-                    "tool_name": {"type": "string", "minLength": 1, "maxLength": 256},
-                    "intent": {"type": "string", "minLength": 1, "maxLength": 4096},
-                    "attempt": {"type": "string", "maxLength": 4096},
-                    "blocker": {"type": "string", "minLength": 1, "maxLength": 4096},
-                    "severity": {"type": "string", "enum": ["blocked", "workaround_found", "suggestion"]},
-                    "dcc_type": {"type": "string", "maxLength": 256},
-                    "instance_id": {"type": "string", "maxLength": 256, "description": "May reference an instance that is no longer live."},
-                    "request_id": {"type": "string", "maxLength": 256},
-                    "job_id": {"type": "string", "maxLength": 256}
-                },
-                "additionalProperties": false,
-            }),
-        ),
-        (
-            "GatewayFeedbackReceipt",
-            json!({
-                "type": "object",
-                "required": ["ok", "success", "feedback_id", "recorded_at", "event_resource_uri"],
-                "properties": {
-                    "ok": {"type": "boolean", "const": true},
-                    "success": {"type": "boolean", "const": true},
-                    "feedback_id": {"type": "string", "format": "uuid"},
-                    "recorded_at": {"type": "string", "format": "date-time"},
-                    "event_resource_uri": {"type": "string", "const": "resources://gateway/events"}
-                },
-                "additionalProperties": false,
-            }),
-        ),
+    let mut schemas = super::rest_openapi_feedback::schemas();
+    schemas.extend([
         (
             "LoadSkillRequest",
             json!({
@@ -1062,7 +1023,8 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                 "additionalProperties": true,
             }),
         ),
-    ]
+    ]);
+    schemas
 }
 
 fn get_operation(tags: &[&str], summary: &str, description: &str, response: Value) -> Value {
@@ -1087,7 +1049,7 @@ fn get_operation_with_params(
     )
 }
 
-fn post_operation(
+pub(super) fn post_operation(
     tags: &[&str],
     summary: &str,
     description: &str,
@@ -1102,24 +1064,6 @@ fn post_operation(
         request_body,
         response,
     )
-}
-
-fn post_created_operation(
-    tags: &[&str],
-    summary: &str,
-    description: &str,
-    request_body: Value,
-    response: Value,
-) -> Value {
-    let mut operation = post_operation(tags, summary, description, request_body, response);
-    let responses = operation["post"]["responses"]
-        .as_object_mut()
-        .expect("POST operation responses must be an object");
-    let response = responses
-        .remove("200")
-        .expect("POST operation must define a success response");
-    responses.insert("201".to_string(), response);
-    operation
 }
 
 fn post_operation_with_params(
@@ -1173,7 +1117,7 @@ fn operation(
     json!({method: op})
 }
 
-fn request_body_ref(schema: &str) -> Value {
+pub(super) fn request_body_ref(schema: &str) -> Value {
     json!({
         "required": true,
         "content": {
@@ -1184,7 +1128,7 @@ fn request_body_ref(schema: &str) -> Value {
     })
 }
 
-fn json_response_ref(schema: &str) -> Value {
+pub(super) fn json_response_ref(schema: &str) -> Value {
     json!({
         "description": "JSON response",
         "content": {
@@ -1365,60 +1309,6 @@ mod tests {
                 "gateway OpenAPI must not advertise per-DCC-only path {forbidden}"
             );
         }
-    }
-
-    #[test]
-    fn gateway_openapi_keeps_shared_envelope_schemas() {
-        let doc = build_gateway_openapi_document("1.2.3");
-        let schemas = doc["components"]["schemas"]
-            .as_object()
-            .expect("schemas object");
-        for schema in [
-            "ServiceError",
-            "GatewayFeedbackReport",
-            "GatewayFeedbackReceipt",
-            "SearchRequest",
-            "SearchResponse",
-            "LoadSkillRequest",
-            "GatewayLoadSkillResponse",
-            "GatewaySkillLoadResponse",
-            "GatewayGroupActionResponse",
-            "UnloadSkillRequest",
-            "SkillLifecycleResponse",
-            "DescribeRequest",
-            "DescribeResponse",
-            "CallRequest",
-            "CallOutcome",
-            "GatewayDirectCallRequest",
-            "GatewayPolicyDenial",
-            "GatewayBatchCallItem",
-            "GatewayCallBatchRequest",
-        ] {
-            assert!(
-                schemas.contains_key(schema),
-                "gateway OpenAPI schema set missing {schema}"
-            );
-        }
-    }
-
-    #[test]
-    fn gateway_openapi_documents_feedback_without_live_instance_dependency() {
-        let doc = build_gateway_openapi_document("1.2.3");
-        let operation = &doc["paths"]["/v1/feedback"]["post"];
-        assert_eq!(operation["tags"][0], "feedback");
-        assert!(operation["responses"].get("200").is_none());
-        assert_eq!(
-            operation["responses"]["201"]["content"]["application/json"]["schema"]["$ref"],
-            "#/components/schemas/GatewayFeedbackReceipt"
-        );
-        assert_eq!(
-            operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
-            "#/components/schemas/GatewayFeedbackReport"
-        );
-        let report = &doc["components"]["schemas"]["GatewayFeedbackReport"];
-        assert!(report["properties"].get("instance_id").is_some());
-        assert!(report["properties"].get("request_id").is_some());
-        assert!(report["properties"].get("job_id").is_some());
     }
 
     #[test]
