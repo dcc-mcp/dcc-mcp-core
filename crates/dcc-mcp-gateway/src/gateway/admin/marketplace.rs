@@ -20,180 +20,19 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use dcc_mcp_gateway_admin::{
+    AddSourceRequest, InstallMetadataResponse, InstallRequestBody, InstallResultResponse,
+    InstalledPackageResponse, MarketplaceEntryResponse, MarketplaceSourceResponse,
+    OutdatedPackageResponse, OutdatedQueryParams, UninstallRequestBody, UninstallResultResponse,
+    UpdateRequest, UpdateResultItem, resolve_marketplace_icon_url,
+};
 use dcc_mcp_marketplace::MarketplaceService;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 
 use super::skill_reload::reload_skill_paths_and_refresh_backends;
 use super::state::AdminState;
 use crate::gateway::capability::RefreshReason;
-
-// ── Response types (HTTP contract with admin-ui frontend) ────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarketplaceEntryResponse {
-    pub name: String,
-    pub description: String,
-    pub dcc: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    pub tags: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub min_core_version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub maintainer: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires: Option<dcc_mcp_catalog::CatalogRequirements>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub showcase: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub install: Option<InstallMetadataResponse>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstallMetadataResponse {
-    #[serde(rename = "type")]
-    pub install_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "ref")]
-    pub ref_: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstalledPackageResponse {
-    pub name: String,
-    pub dcc: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    pub path: String,
-    pub source_name: String,
-    pub source_url: String,
-    pub install_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub install_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub install_ref: Option<String>,
-    pub installed_at_ms: u128,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstallResultResponse {
-    pub installed: bool,
-    pub name: String,
-    pub dcc: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    pub path: String,
-    pub skill_search_path: String,
-    pub install_type: String,
-    pub reload_required: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UninstallResultResponse {
-    pub uninstalled: bool,
-    pub name: String,
-    pub dcc: String,
-    pub path: String,
-    pub removed_state: bool,
-    pub removed_files: bool,
-    pub reload_required: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct InstallRequestBody {
-    pub name: String,
-    pub dcc: String,
-    #[serde(default)]
-    pub source: Option<String>,
-    /// Force re-install even if the package already exists at the destination.
-    #[serde(default)]
-    pub force: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UninstallRequestBody {
-    pub name: String,
-    pub dcc: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SourcesResponse {
-    pub sources: Vec<MarketplaceSourceResponse>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct MarketplaceSourceResponse {
-    pub name: String,
-    pub url: String,
-    pub origin: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AddSourceRequest {
-    pub source: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct OutdatedResponse {
-    pub dcc: Option<String>,
-    pub count: usize,
-    pub packages: Vec<OutdatedPackageResponse>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct OutdatedPackageResponse {
-    pub name: String,
-    pub dcc: String,
-    pub installed_version: Option<String>,
-    pub latest_version: Option<String>,
-    pub source_name: String,
-    pub source_url: String,
-    pub install_type: String,
-    pub install_url: Option<String>,
-    pub install_ref: Option<String>,
-    pub path: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateRequest {
-    /// Optional package name for single-package update.
-    pub name: Option<String>,
-    /// Required when updating a single package by name.
-    pub dcc: Option<String>,
-    /// Update all outdated packages.
-    #[serde(default)]
-    pub all: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UpdateResponse {
-    pub updated: usize,
-    pub results: Vec<UpdateResultItem>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UpdateResultItem {
-    pub updated: bool,
-    pub name: String,
-    pub dcc: String,
-    pub previous_version: Option<String>,
-    pub new_version: Option<String>,
-    pub path: String,
-    pub install_type: String,
-    pub source_name: String,
-    pub source_url: String,
-    pub reload_required: bool,
-}
 
 // ── Error envelope ────────────────────────────────────────────────────────────
 
@@ -266,7 +105,7 @@ pub async fn handle_marketplace_catalog(State(_s): State<AdminState>) -> impl In
                     min_core_version: hit.entry.min_core_version,
                     maintainer: hit.entry.maintainer,
                     requires: hit.entry.requires,
-                    icon: resolve_icon_url(
+                    icon: resolve_marketplace_icon_url(
                         hit.entry.icon.as_deref(),
                         Some(hit.source.url.as_str()),
                     ),
@@ -456,14 +295,6 @@ pub async fn handle_marketplace_outdated(
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct OutdatedQueryParams {
-    #[serde(default)]
-    pub(crate) name: Option<String>,
-    #[serde(default)]
-    pub(crate) dcc: Option<String>,
-}
-
 /// `POST /admin/api/marketplace/update`
 pub async fn handle_marketplace_update(
     State(s): State<AdminState>,
@@ -498,31 +329,11 @@ pub async fn handle_marketplace_update(
     }
 }
 
-/// Resolve an icon path to a full URL.
-///
-/// Absolute URLs are passed through unchanged. Relative paths are resolved
-/// against raw.githubusercontent.com source URLs.
-pub(crate) fn resolve_icon_url(icon: Option<&str>, source_url: Option<&str>) -> Option<String> {
-    let icon = icon?;
-    if icon.starts_with("http://") || icon.starts_with("https://") {
-        return Some(icon.to_string());
-    }
-    let source_url = source_url?;
-    if source_url.contains("raw.githubusercontent.com")
-        && let Some(base) = source_url.rsplit_once('/')
-    {
-        return Some(format!("{}/{}", base.0, icon.trim_start_matches('/')));
-    }
-    Some(icon.to_string())
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use dcc_mcp_catalog::CatalogEntry;
-
-    use super::*;
 
     #[test]
     fn entry_targets_dcc_matches_case_insensitive() {
@@ -547,36 +358,5 @@ mod tests {
         assert!(dcc_mcp_marketplace::entry_targets_dcc(&entry, "Maya"));
         assert!(dcc_mcp_marketplace::entry_targets_dcc(&entry, "BLENDER"));
         assert!(!dcc_mcp_marketplace::entry_targets_dcc(&entry, "houdini"));
-    }
-
-    #[test]
-    fn resolve_icon_url_none_when_icon_is_none() {
-        assert_eq!(resolve_icon_url(None, None), None);
-    }
-
-    #[test]
-    fn resolve_icon_url_passes_through_absolute_url() {
-        let icon = "https://cdn.example.com/icons/my-icon.png";
-        assert_eq!(resolve_icon_url(Some(icon), None), Some(icon.to_string()));
-    }
-
-    #[test]
-    fn resolve_icon_url_resolves_relative_against_raw_github() {
-        let source_url =
-            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/marketplace.json";
-        assert_eq!(
-            resolve_icon_url(Some("icon.png"), Some(source_url)),
-            Some(
-                "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya-mgear/main/icon.png".into()
-            )
-        );
-    }
-
-    #[test]
-    fn resolve_icon_url_passes_through_relative_without_raw_github_source() {
-        assert_eq!(
-            resolve_icon_url(Some("icon.png"), Some("https://example.com/catalog.json")),
-            Some("icon.png".into())
-        );
     }
 }

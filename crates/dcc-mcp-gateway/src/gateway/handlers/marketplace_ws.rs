@@ -43,11 +43,11 @@ use uuid::Uuid;
 
 use dcc_mcp_marketplace::MarketplaceService;
 
-use super::super::admin::marketplace::resolve_icon_url;
 use super::super::admin::skill_reload::reload_skill_paths_and_refresh_backends;
 use super::super::admin::state::AdminState;
 use super::super::capability::RefreshReason;
 use super::marketplace_ws_protocol::*;
+use dcc_mcp_gateway_admin::resolve_marketplace_icon_url;
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -387,8 +387,10 @@ async fn handle_catalog_list(state: &MarketplaceWsState, id: Option<Value>) -> S
             let entries: Vec<Value> = hits
                 .into_iter()
                 .map(|hit| {
-                    let icon =
-                        resolve_icon_url(hit.entry.icon.as_deref(), Some(hit.source.url.as_str()));
+                    let icon = resolve_marketplace_icon_url(
+                        hit.entry.icon.as_deref(),
+                        Some(hit.source.url.as_str()),
+                    );
                     let showcase = dcc_mcp_marketplace::resolve_catalog_asset_url(
                         hit.entry.showcase.as_deref(),
                         hit.entry.install.as_ref(),

@@ -24,6 +24,7 @@ mod governance;
 mod health;
 mod issue_report;
 mod links;
+mod marketplace;
 mod memory;
 mod projection;
 mod recordings;
@@ -74,6 +75,12 @@ pub use governance::{
 pub use health::gateway_health_payload;
 pub use issue_report::{IssueReportMode, issue_report_filename, issue_report_json};
 pub use links::AdminLinkBuilder;
+pub use marketplace::{
+    AddSourceRequest, InstallMetadataResponse, InstallRequestBody, InstallResultResponse,
+    InstalledPackageResponse, MarketplaceEntryResponse, MarketplaceSourceResponse,
+    OutdatedPackageResponse, OutdatedQueryParams, UninstallRequestBody, UninstallResultResponse,
+    UpdateRequest, UpdateResultItem, resolve_marketplace_icon_url,
+};
 pub use memory::memory_summary;
 pub use projection::{
     compact_debug_bundle_payload, compact_trace_context_payload, compact_trace_detail_payload,
