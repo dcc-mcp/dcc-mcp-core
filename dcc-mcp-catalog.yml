@@ -468,20 +468,20 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-touchdesigner/main/install.md"
 
   - name: "dcc-mcp-shogun"
-    description: "Vicon Shogun Post adapter with 66 typed Scene, channel, camera, file, Timeline, editing, production-context, and capability-gated Offline processing tools"
+    description: "Vicon Shogun Post adapter with 67 typed Scene, channel, camera, file, Timeline, editing, production-context, pipeline-context, and capability-gated Offline processing tools"
     dcc: ["shogun"]
     url: "https://github.com/dcc-mcp/dcc-mcp-shogun"
     tags: ["adapter", "shogun", "vicon", "official", "pip", "motion-capture", "timeline", "processing"]
-    version: "0.8.1"
+    version: "0.10.0"
     min_core_version: "0.19.86"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-shogun"
-      url: "https://files.pythonhosted.org/packages/41/ca/3eba76e8696d3f478f1b2f776abd52640403ea20ac4057b689e57fdde82d/dcc_mcp_shogun-0.8.1-py3-none-any.whl"
-      sha256: "975a2d967a5c9b09cc285b7dd5bd1b8db16cdf3043d75cbae3b7d30d90529b5d"
+      url: "https://files.pythonhosted.org/packages/14/1f/c609d3cab3862722206153b17c9ce2ab27d8ce40a2e41a8c503477c02402/dcc_mcp_shogun-0.10.0-py3-none-any.whl"
+      sha256: "c6c223d86d25902a32fd4cf057feb78de7670c6bacc5c848aeb7a8e82e14392b"
       entry_point: "dcc_mcp_shogun:ShogunMcpServer"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-shogun/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-shogun/main/install.md"
 
   - name: "dcc-mcp-tiled"
     # Automatic install is omitted until a wheel is published.
