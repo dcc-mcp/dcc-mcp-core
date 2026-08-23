@@ -23,6 +23,7 @@ mod issue_report;
 mod links;
 mod memory;
 mod projection;
+mod recordings;
 mod skill_paths;
 mod stats;
 mod tasks;
@@ -67,6 +68,9 @@ pub use memory::memory_summary;
 pub use projection::{
     compact_debug_bundle_payload, compact_trace_context_payload, compact_trace_detail_payload,
     compact_trace_list_payload,
+};
+pub use recordings::{
+    recording_default_postcondition, recording_semantic_query, recording_ui_session,
 };
 pub use skill_paths::{skill_path_hash, skill_path_row};
 pub use stats::{
