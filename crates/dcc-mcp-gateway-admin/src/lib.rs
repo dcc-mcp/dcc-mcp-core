@@ -36,6 +36,7 @@ mod stats;
 mod tasks;
 mod trace_log;
 mod traffic;
+mod update;
 mod wecom;
 mod workers;
 
@@ -104,6 +105,9 @@ pub use stats::{
 pub use tasks::{TaskArtifact, TaskRelated, TaskSnapshot, TaskValidation, task_payload};
 pub use trace_log::TraceLog;
 pub use traffic::{TrafficProjectionSnapshot, traffic_jsonl_export, traffic_payload};
+pub use update::{
+    AdminInstanceUpdateVersion, admin_instance_update_version, instance_server_binary_version,
+};
 pub use wecom::{
     WECOM_WEBHOOK_URL_HINT, strict_wecom_webhook_url_looks_valid, summarize_wecom_response,
 };

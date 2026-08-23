@@ -21,12 +21,12 @@ use crate::gateway::admin::links::AdminLinkBuilder;
 use crate::gateway::admin::skill_reload::reload_skill_paths_and_refresh_backends;
 use crate::gateway::admin::state::{AdminAuditRecord, AdminState};
 use crate::gateway::admin::trace::{AgentContext, DispatchTrace};
-use crate::gateway::admin::update::{AdminInstanceUpdateVersion, admin_instance_update_version};
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
 use crate::gateway::response_codec::TOKEN_ESTIMATOR;
 use dcc_mcp_db::env::ENV_DCC_MCP_LOG_DIR;
 use dcc_mcp_db::read_gateway_log_dir_rows_recent;
+use dcc_mcp_gateway_admin::{AdminInstanceUpdateVersion, admin_instance_update_version};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 const ADMIN_FILE_LOG_READ_TIMEOUT: Duration = Duration::from_millis(750);
