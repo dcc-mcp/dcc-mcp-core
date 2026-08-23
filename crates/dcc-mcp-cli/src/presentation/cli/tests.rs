@@ -1,4 +1,6 @@
 use super::*;
+use base64::Engine;
+use dcc_mcp_models::FeedbackSeverity;
 
 #[test]
 fn require_gateway_is_a_global_fail_closed_control_flag() {
@@ -1022,22 +1024,14 @@ fn feedback_parses_dead_instance_correlation() {
         "job-42",
     ]);
 
-    let Command::Feedback {
-        severity,
-        dcc_type,
-        instance_id,
-        request_id,
-        job_id,
-        ..
-    } = args.command
-    else {
+    let Command::Feedback(feedback) = args.command else {
         panic!("expected feedback command");
     };
-    assert_eq!(severity, FeedbackSeverity::Suggestion);
-    assert_eq!(dcc_type.as_deref(), Some("houdini"));
-    assert_eq!(instance_id.as_deref(), Some("abc12345"));
-    assert_eq!(request_id.as_deref(), Some("request-42"));
-    assert_eq!(job_id.as_deref(), Some("job-42"));
+    assert_eq!(feedback.severity, FeedbackSeverity::Suggestion);
+    assert_eq!(feedback.dcc_type.as_deref(), Some("houdini"));
+    assert_eq!(feedback.instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(feedback.request_id.as_deref(), Some("request-42"));
+    assert_eq!(feedback.job_id.as_deref(), Some("job-42"));
 }
 
 #[test]

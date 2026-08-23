@@ -37,7 +37,7 @@ impl crate::gateway::middleware::BeforeCallMiddleware for ReplaceArgs {
     }
 }
 
-pub(super) fn test_gateway_state(server_version: &str) -> GatewayState {
+pub(crate) fn test_gateway_state(server_version: &str) -> GatewayState {
     test_gateway_state_with_debug_routes(server_version, false)
 }
 
@@ -120,7 +120,7 @@ fn test_gateway_state_with_lifecycle(
     state
 }
 
-pub(super) async fn response_json(resp: Response) -> (StatusCode, Value) {
+pub(crate) async fn response_json(resp: Response) -> (StatusCode, Value) {
     let status = resp.status();
     let headers = resp.headers().clone();
     let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
@@ -134,85 +134,6 @@ async fn response_json_with_headers(resp: Response) -> (StatusCode, HeaderMap, V
     let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
     let body = response_value(&headers, &bytes);
     (status, headers, body)
-}
-
-#[tokio::test]
-async fn gateway_feedback_records_with_zero_live_dcc_instances() {
-    let gateway = test_gateway_state("1.2.3");
-    assert!(gateway.live_instances_async().await.is_empty());
-    let mut updates = gateway.events_tx.subscribe();
-    let app = crate::gateway::router::build_gateway_router(gateway.clone());
-    let request_body = json!({
-        "tool_name": "houdini.ui_control__act",
-        "intent": "Open the render menu",
-        "attempt": "Invoked the semantic menu action",
-        "blocker": "The owning DCC process exited",
-        "severity": "blocked",
-        "dcc_type": "houdini",
-        "instance_id": "aaaaaaaa-0000-0000-0000-000000000000",
-        "request_id": "request-42",
-        "job_id": "job-42"
-    });
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/feedback")
-                .header(axum::http::header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_vec(&request_body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (status, body) = response_json(response).await;
-
-    assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["ok"], true);
-    assert_eq!(body["event_resource_uri"], "resources://gateway/events");
-    assert!(uuid::Uuid::parse_str(body["feedback_id"].as_str().unwrap()).is_ok());
-
-    let events = gateway.event_log.recent_events(1);
-    assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0].event,
-        crate::gateway::event_log::EventKind::FeedbackReported
-    );
-    assert_eq!(events[0].dcc_type, "houdini");
-    assert_eq!(
-        events[0].instance_id,
-        "aaaaaaaa-0000-0000-0000-000000000000"
-    );
-    assert!(
-        events[0]
-            .reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("request-42"))
-    );
-    let notification = updates
-        .try_recv()
-        .expect("event resource update notification");
-    assert!(notification.contains("resources://gateway/events"));
-}
-
-#[tokio::test]
-async fn gateway_feedback_rejects_empty_required_text() {
-    let gateway = test_gateway_state("1.2.3");
-    let (status, body) = response_json(
-        crate::gateway::handlers::handle_v1_feedback(
-            State(gateway),
-            Json(json!({
-                "tool_name": "maya_scene__save",
-                "intent": "Save the scene",
-                "blocker": " ",
-                "severity": "suggestion"
-            })),
-        )
-        .await,
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["error"]["kind"], "invalid-feedback");
 }
 
 fn response_value(headers: &HeaderMap, bytes: &[u8]) -> Value {

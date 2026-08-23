@@ -3,10 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
-#[cfg(test)]
-use base64::Engine;
 use clap::{Parser, Subcommand};
-use dcc_mcp_models::{FeedbackReport, FeedbackSeverity};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -46,6 +43,7 @@ use marketplace_output::reload_marketplace_value;
 use record_replay::{RecordReplayAction, run_record_replay};
 use ui_control_output::compact_ui_control_result;
 
+use super::feedback_cmd::FeedbackArgs;
 use super::marketplace_cmd::{self, MarketplaceAction};
 #[cfg(test)]
 use super::update_cmd::UpdateAction;
@@ -149,35 +147,7 @@ enum Command {
         session_id: Option<String>,
     },
     /// File structured feedback at the gateway, including after a DCC instance exits.
-    Feedback {
-        /// Tool or operation that failed or blocked the workflow.
-        #[arg(long)]
-        tool_name: String,
-        /// Goal the agent was trying to accomplish.
-        #[arg(long)]
-        intent: String,
-        /// Parameters or approach already attempted.
-        #[arg(long)]
-        attempt: Option<String>,
-        /// Failure or limitation that prevented completion.
-        #[arg(long)]
-        blocker: String,
-        /// Feedback severity.
-        #[arg(long, default_value = "blocked")]
-        severity: FeedbackSeverity,
-        /// DCC type involved, if known.
-        #[arg(long)]
-        dcc_type: Option<String>,
-        /// Live or dead instance id involved, if known.
-        #[arg(long)]
-        instance_id: Option<String>,
-        /// Last known gateway request id, if available.
-        #[arg(long)]
-        request_id: Option<String>,
-        /// Last known job id, if available.
-        #[arg(long)]
-        job_id: Option<String>,
-    },
+    Feedback(FeedbackArgs),
     /// Report local defaults and startup diagnostics without launching services.
     Doctor {
         /// FileRegistry directory to inspect. Defaults to core's shared registry path.
@@ -691,31 +661,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 })
                 .await?
         }
-        Command::Feedback {
-            tool_name,
-            intent,
-            attempt,
-            blocker,
-            severity,
-            dcc_type,
-            instance_id,
-            request_id,
-            job_id,
-        } => {
-            control
-                .feedback(FeedbackReport {
-                    tool_name,
-                    intent,
-                    attempt,
-                    blocker,
-                    severity,
-                    dcc_type,
-                    instance_id,
-                    request_id,
-                    job_id,
-                })
-                .await?
-        }
+        Command::Feedback(args) => control.feedback(args.into()).await?,
         Command::Doctor {
             registry_dir,
             gateway_host,
@@ -1254,7 +1200,7 @@ fn gateway_endpoint_for_command(
         Command::Smoke { url: Some(_), .. } => None,
         Command::Health
         | Command::Stats { .. }
-        | Command::Feedback { .. }
+        | Command::Feedback(..)
         | Command::Update { .. } => Some(Endpoint::new(base_url)),
         Command::Doctor { .. } | Command::DccTypes { .. } => None,
         Command::List
