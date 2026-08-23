@@ -83,3 +83,26 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         "overwrite_files": False,
         "fail_on_unmatched_files": True,
     }
+
+
+def test_python37_runtime_smokes_provision_workflow_owned_typing_extensions() -> None:
+    smoke_steps = {
+        "py37-lite": "Test py37-lite wheel",
+        "linux-py37": "Test native Python 3.7 wheel with workflow smoke",
+        "windows-py37": "Test native Python 3.7 wheel with workflow smoke",
+    }
+
+    for job_id, smoke_step_name in smoke_steps.items():
+        steps = _jobs()[job_id]["steps"]
+        provision_index, provision = next(
+            (index, step)
+            for index, step in enumerate(steps)
+            if step.get("name") == "Provision Python 3.7 smoke dependencies"
+        )
+        smoke_index = next(index for index, step in enumerate(steps) if step.get("name") == smoke_step_name)
+
+        assert provision_index < smoke_index
+        command = provision["run"]
+        assert ".workflow-tools/compatibility/python.json" in command
+        assert '["test_toolchain"]["typing_extensions"]' in command
+        assert '"typing-extensions==${TYPING_EXTENSIONS_VERSION}"' in command
