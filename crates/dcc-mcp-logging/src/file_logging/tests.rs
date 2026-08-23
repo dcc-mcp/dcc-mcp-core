@@ -107,6 +107,46 @@ fn retention_caps_rolled_files() {
 }
 
 #[test]
+fn retention_spans_dead_pid_prefixes_and_preserves_live_pid_logs() {
+    let dir = tmp_dir("cross-pid-retention");
+    let live_pid = std::process::id();
+    let live = [
+        dir.join(format!("dcc-mcp-maya.{live_pid}.20200101.log")),
+        dir.join(format!("dcc-mcp-maya.{live_pid}.20200101T010101.log")),
+    ];
+    let dead = [
+        dir.join("dcc-mcp-maya.4294967295.20200101.log"),
+        dir.join("dcc-mcp-maya.4294967294.20200101T010101.log"),
+    ];
+    let unrelated = dir.join("dcc-mcp-blender.4294967295.20200101.log");
+    let database = dir.join("dcc-mcp-maya-jobs.db");
+    for path in live.iter().chain(&dead) {
+        std::fs::write(path, vec![b'x'; 700 * 1024]).unwrap();
+    }
+    std::fs::write(&unrelated, vec![b'x'; 2 * 1024 * 1024]).unwrap();
+    std::fs::write(&database, b"not a log").unwrap();
+
+    prune_old_logs(&dir, &format!("dcc-mcp-maya.{live_pid}"), 0, 1);
+
+    assert!(live.iter().all(|path| path.exists()));
+    assert_eq!(dead.iter().filter(|path| path.exists()).count(), 1);
+    assert!(unrelated.exists());
+    assert!(database.exists());
+}
+
+#[test]
+fn retention_never_deletes_today_rolled_logs() {
+    let dir = tmp_dir("today-retention");
+    let today = CalendarDate::today_local().as_basename();
+    let rolled = dir.join(format!("dcc-mcp-maya.4294967295.{today}T010101.log"));
+    std::fs::write(&rolled, vec![b'x'; 2 * 1024 * 1024]).unwrap();
+
+    prune_old_logs(&dir, "dcc-mcp-maya.4294967295", 0, 1);
+
+    assert!(rolled.exists());
+}
+
+#[test]
 fn init_and_shutdown_are_idempotent() {
     let dir = tmp_dir("install");
     let cfg = FileLoggingConfig {
