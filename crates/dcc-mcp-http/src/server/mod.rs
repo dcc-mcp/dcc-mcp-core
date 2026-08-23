@@ -1,11 +1,17 @@
 //! The main `McpHttpServer` type.
 
 use axum::{Json, Router, routing};
+use http::{Request, Response, StatusCode};
 use parking_lot::RwLock;
 use serde_json::json;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
+use tower_http::classify::{
+    ClassifiedResponse, ClassifyResponse, MakeClassifier, NeverClassifyEos, ServerErrorsAsFailures,
+    ServerErrorsFailureClass,
+};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
@@ -26,6 +32,55 @@ mod background_impl;
 #[cfg(feature = "auto-gateway")]
 mod gateway_impl;
 mod spawn_impl;
+
+/// Request-aware HTTP failure classification for the server trace layer.
+///
+/// A `503 Service Unavailable` is the documented, structured response while
+/// `/v1/readyz` is red. It is a routine probe result, not a transport or
+/// handler failure. Every other server error keeps tower-http's default
+/// failure classification.
+#[derive(Clone, Copy, Debug, Default)]
+struct HttpTraceClassifier;
+
+#[derive(Clone, Copy, Debug)]
+struct HttpResponseClassifier {
+    readyz: bool,
+}
+
+impl MakeClassifier for HttpTraceClassifier {
+    type Classifier = HttpResponseClassifier;
+    type FailureClass = ServerErrorsFailureClass;
+    type ClassifyEos = NeverClassifyEos<ServerErrorsFailureClass>;
+
+    fn make_classifier<B>(&self, request: &Request<B>) -> Self::Classifier {
+        HttpResponseClassifier {
+            readyz: request.uri().path() == "/v1/readyz",
+        }
+    }
+}
+
+impl ClassifyResponse for HttpResponseClassifier {
+    type FailureClass = ServerErrorsFailureClass;
+    type ClassifyEos = NeverClassifyEos<ServerErrorsFailureClass>;
+
+    fn classify_response<B>(
+        self,
+        response: &Response<B>,
+    ) -> ClassifiedResponse<Self::FailureClass, Self::ClassifyEos> {
+        if self.readyz && response.status() == StatusCode::SERVICE_UNAVAILABLE {
+            ClassifiedResponse::Ready(Ok(()))
+        } else {
+            ServerErrorsAsFailures::new().classify_response(response)
+        }
+    }
+
+    fn classify_error<E>(self, error: &E) -> Self::FailureClass
+    where
+        E: fmt::Display + 'static,
+    {
+        ServerErrorsAsFailures::new().classify_error(error)
+    }
+}
 
 /// Live DCC instance metadata that is propagated to `FileRegistry` on every
 /// heartbeat tick so that `list_dcc_instances` always shows current state.
@@ -593,7 +648,7 @@ impl McpHttpServer {
             .layer(RequestBodyLimitLayer::new(
                 self.config.queue.max_request_body_bytes,
             ))
-            .layer(TraceLayer::new_for_http());
+            .layer(TraceLayer::new(HttpTraceClassifier));
 
         // Prometheus `/metrics` endpoint (issue #331). Mounted on the
         // same router so scrapers share the MCP server's listening

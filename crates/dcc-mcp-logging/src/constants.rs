@@ -2,6 +2,12 @@
 
 /// Default log level when [`ENV_LOG_LEVEL`] is not set.
 pub const DEFAULT_LOG_LEVEL: &str = "DEBUG";
+/// Default tracing filter when neither supported log-level environment variable is set.
+///
+/// Keep DCC-MCP targets at debug while dependency request/payload chatter stays
+/// quiet during routine idle operation. Operators can still opt into those
+/// targets explicitly through [`ENV_LOG_LEVEL`].
+pub const DEFAULT_LOG_FILTER: &str = "debug,tower_http=info,hyper_util=info,rmcp=warn";
 /// Environment variable name for overriding the log level.
 pub const ENV_LOG_LEVEL: &str = "DCC_MCP_LOG_LEVEL";
 /// Deprecated environment variable accepted for backward compatibility.
@@ -50,5 +56,10 @@ mod tests {
         assert_eq!(ENV_LOG_FILE, "DCC_MCP_LOG_FILE");
         assert_eq!(ENV_LOG_DIR, "DCC_MCP_LOG_DIR");
         assert_eq!(ENV_LOG_FILE_PREFIX, "DCC_MCP_LOG_FILE_PREFIX");
+    }
+
+    #[test]
+    fn default_level_remains_a_backward_compatible_public_value() {
+        assert_eq!(DEFAULT_LOG_LEVEL, "DEBUG");
     }
 }
