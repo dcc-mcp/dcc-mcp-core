@@ -439,14 +439,9 @@ Do not guess a root cause or blindly replay a mutation. Preserve `request_id`, `
 ```bash
 dcc-mcp-cli doctor
 dcc-mcp-cli stats --range 24h --status failure --session-id task-42
-dcc-mcp-cli feedback \
-  --tool-name maya_geometry__create_sphere \
-  --intent "Create a sphere" \
-  --attempt "radius=2.0" \
-  --blocker "Radius was ignored" \
-  --severity blocked \
-  --dcc-type maya \
-  --instance-id <live-or-dead-instance-id> \
+dcc-mcp-cli feedback --tool-name maya_geometry__create_sphere --intent "Create a sphere" \
+  --blocker "Radius was ignored" --severity blocked \
+  --dcc-type maya --instance-id <live-or-dead-instance-id> \
   --request-id <request-id>
 ```
 
