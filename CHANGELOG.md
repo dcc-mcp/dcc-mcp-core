@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.10](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.9...v0.20.10) (2026-08-23)
+
+
+### Bug Fixes
+
+* add exact native menu invocation ([ed4861e](https://github.com/dcc-mcp/dcc-mcp-core/commit/ed4861ef42b24ce1ac1413262353cba698c62d3f))
+* forward adapter feedback through gateway ([e5c97e0](https://github.com/dcc-mcp/dcc-mcp-core/commit/e5c97e00af36b4eab0980556ed32e0e5baed6b7f))
+* preserve legacy marketplace ledgers ([3b7c761](https://github.com/dcc-mcp/dcc-mcp-core/commit/3b7c7618795bd39d517263d808d7e43899c2fe40))
+* reject desynchronized tool responses ([be78562](https://github.com/dcc-mcp/dcc-mcp-core/commit/be7856247d209e26557505d96613f89e162b4695))
+* remove UI control setup workarounds ([bd5c6eb](https://github.com/dcc-mcp/dcc-mcp-core/commit/bd5c6eb5ad53000613d4067e02b952e42dd0a5f8))
+* surface gateway feedback and instance exits ([51e74bd](https://github.com/dcc-mcp/dcc-mcp-core/commit/51e74bd49c4fdb6bc8be6e518269614967df4581))
+* validate skill execution contracts ([151d58a](https://github.com/dcc-mcp/dcc-mcp-core/commit/151d58a65ec33dd6b9383f579014876a0576036c))
+
+
+### Code Refactoring
+
+* split gateway feedback surfaces ([94612fc](https://github.com/dcc-mcp/dcc-mcp-core/commit/94612fc919f6f9c9ac62e67fad0aff4c9767690e))
+
+
+### Documentation
+
+* keep dcc control skill concise ([fe5de71](https://github.com/dcc-mcp/dcc-mcp-core/commit/fe5de71c2a1a791f33e9caf9b9c0efc12aea03c1))
+
 ## [0.20.9](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.8...v0.20.9) (2026-08-23)
 
 
