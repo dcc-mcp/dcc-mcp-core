@@ -445,7 +445,7 @@ dcc-mcp-cli feedback --tool-name maya_geometry__create_sphere --intent "Create a
   --request-id <request-id>
 ```
 
-Use `doctor` for profile, registry, daemon, binary, and readiness failures. For a tool failure, refresh `describe`, compare the schema/annotations with the attempt, inspect failure-only stats, and call the gateway-owned `feedback` command. Its severity is `blocked`, `workaround_found`, or `suggestion`; it remains available after the target instance exits, records a bounded entry in `resources://gateway/events`, and does not create an external issue. Use instance-level `dcc_feedback__report` only as a live-adapter compatibility path.
+Use `doctor` for profile, registry, daemon, binary, and readiness failures. For a tool failure, refresh `describe`, compare the schema/annotations with the attempt, inspect failure-only stats, and call the gateway-owned `feedback` command. Its severity is `blocked`, `workaround_found`, or `suggestion`; it remains available after the target instance exits, records a bounded entry in `resources://gateway/events`, and does not create an external issue. Instance-level `dcc_feedback__report` is only a live-adapter compatibility entry point and Core forwards it to the same gateway contract; it has no local-success fallback.
 
 For a gateway-routed failure, use the CLI-returned `request_id` to read `/v1/debug/agent-traces/<request_id>` and public-safe `/v1/debug/issue-reports/<request_id>`. The latter supplies a bounded summary and suggested GitHub title/body. Never publish `?mode=raw` without human review; create an external issue only with user authorization.
 

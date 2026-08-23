@@ -6,6 +6,7 @@ use dcc_mcp_jsonrpc::negotiate_protocol_version;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::feedback::FEEDBACK_TOOL_NAME;
 use super::trace::trace_context_from_headers;
 use super::{SIDECAR_SERVER_NAME, SidecarMcpState};
 
@@ -177,6 +178,21 @@ async fn handle_tools_call(
         Value::String(s) => s.clone(),
         other => other.to_string(),
     };
+
+    if params.name == FEEDBACK_TOOL_NAME {
+        let payload = match state.feedback.as_ref() {
+            Some(feedback) => feedback.forward(params.arguments).await,
+            None => json!({
+                "success": false,
+                "message": "Gateway feedback endpoint is unavailable.",
+                "error": "gateway_feedback_unavailable",
+            }),
+        };
+        return json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": payload
+        });
+    }
 
     let result = {
         let guard = state.host_rpc.lock().await;

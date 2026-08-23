@@ -190,21 +190,28 @@ class IntrospectToolsPhase(RegistrationPhase):
 
 
 class FeedbackToolPhase(RegistrationPhase):
-    """Register the ``dcc_feedback__report`` MCP tool."""
+    """Register the shared ``dcc_feedback__report`` gateway forwarder."""
 
     name = "feedback_tool"
 
     def run(self, context: RegistrationContext) -> None:
-        if _run_adapter_extension(context, "_register_feedback_tool"):
-            return
         try:
             from dcc_mcp_core.feedback import register_feedback_tool
         except ImportError:
             return
+        server = context.server
+        config = getattr(server, "_config", None)
+        gateway_port = int(getattr(config, "gateway_port", 0) or 0)
+
+        def instance_id_provider() -> str | None:
+            return server.instance_id
+
         register_feedback_tool(
-            context.server._server,
-            dcc_name=context.server._dcc_name,
-            store=context.server.feedback_store,
+            server._server,
+            dcc_name=server._dcc_name,
+            store=server.feedback_store,
+            gateway_port=gateway_port,
+            instance_id_provider=instance_id_provider,
         )
 
 

@@ -151,6 +151,8 @@ def test_host_hook_override_is_dispatched() -> None:
     phases = get_standard_phases()
 
     for phase in phases:
+        if phase.name == "feedback_tool":
+            continue
         phase.run(context)
 
     assert server.calls == [
@@ -158,13 +160,43 @@ def test_host_hook_override_is_dispatched() -> None:
         "strict",
         "metadata",
         "introspect",
-        "feedback",
         "qt",
         "manifest",
         "project",
         "resources",
         "ready",
     ]
+
+
+def test_feedback_phase_uses_shared_core_forwarder_instead_of_adapter_override(monkeypatch) -> None:
+    """Feedback registration must not dispatch host-specific legacy actions."""
+    from types import SimpleNamespace
+
+    from dcc_mcp_core._registration import FeedbackToolPhase
+    import dcc_mcp_core.feedback as feedback
+
+    calls = []
+
+    class AdapterServer:
+        _config = SimpleNamespace(gateway_port=19765)
+        _dcc_name = "maya"
+        _server = object()
+        feedback_store = object()
+        instance_id = "maya-instance-1"
+
+        def _register_feedback_tool(self, _context):
+            raise AssertionError("adapter-specific feedback registration must be ignored")
+
+    monkeypatch.setattr(feedback, "register_feedback_tool", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    FeedbackToolPhase().run(RegistrationContext(server=AdapterServer()))
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == (AdapterServer._server,)
+    assert kwargs["dcc_name"] == "maya"
+    assert kwargs["gateway_port"] == 19765
+    assert kwargs["instance_id_provider"]() == "maya-instance-1"
 
 
 def test_standard_phases_accept_real_dcc_server_base(monkeypatch: pytest.MonkeyPatch) -> None:

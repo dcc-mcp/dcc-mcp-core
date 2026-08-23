@@ -2,13 +2,13 @@
 
 > **[English](../../api/feedback.md)**
 
-代理反馈与决策理由机制。Gateway 提供 `POST /v1/feedback` 与 `dcc-mcp-cli feedback`，即使没有在线 DCC 也可提交；`dcc_feedback__report` 继续作为在线实例兼容工具。另可提取和构建 `tools/call` 请求中的 `_meta.dcc.rationale` 决策理由。
+代理反馈与决策理由机制。Gateway 提供 `POST /v1/feedback` 与 `dcc-mcp-cli feedback`，即使没有在线 DCC 也可提交；在线实例的 `dcc_feedback__report` 仅作为共享 Core 实现的 gateway 转发入口。另可提取和构建 `tools/call` 请求中的 `_meta.dcc.rationale` 决策理由。
 
 **导出符号：** `register_feedback_tool`, `extract_rationale`, `make_rationale_meta`, `get_feedback_entries`, `clear_feedback`
 
 ## 主要函数
 
-- `register_feedback_tool(server, *, dcc_name="dcc")` — 注册 `dcc_feedback__report` MCP 工具，**在 `server.start()` 之前调用**
+- `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None)` — 注册 `dcc_feedback__report` MCP 工具，**在 `server.start()` 之前调用**；Core 会附加当前 DCC/instance，转发到 gateway，严格校验 `X-Request-ID` 与回执，并在 gateway 不可用或回执失配时 fail-closed，不会本地伪成功
 - `extract_rationale(params) -> str | None` — 从 `tools/call` 参数中提取 `_meta.dcc.rationale`
 - `make_rationale_meta(rationale) -> dict` — 构建包含 rationale 的 `_meta` 片段
 - `get_feedback_entries(*, tool_name=None, severity=None, limit=50) -> list[dict]` — 获取最近的反馈条目（最新在前）
@@ -34,7 +34,7 @@ dcc-mcp-cli feedback \
 ```
 
 Gateway 会把有界的 `feedback_reported` 记录写入
-`resources://gateway/events` 并返回 `feedback_id`；它不依赖在线 DCC，也不会创建外部 issue。只提交经过脱敏的值，绝不能包含凭据、可复用令牌或原始敏感载荷。实例退出后不要再依赖实例级 `dcc_feedback__report`。gateway 路径失败时，
+`resources://gateway/events` 并返回 `feedback_id`；它不依赖在线 DCC，也不会创建外部 issue。只提交经过脱敏的值，绝不能包含凭据、可复用令牌或原始敏感载荷。实例退出后直接使用 gateway CLI/REST，并携带已退出 instance 及最后的 request/job id；不要再依赖已消失的实例工具。gateway 路径失败时，
 保留 CLI 返回的 `request_id`，获取 public-safe
 `/v1/debug/issue-reports/<request_id>`；`?mode=raw` 必须本地人工审查，禁止自动上传。
 Skill 缺陷归属对应 Skill，adapter/host runtime 缺陷归属 adapter 仓库，

@@ -280,8 +280,9 @@ Admin UI at [http://127.0.0.1:9765/admin](http://127.0.0.1:9765/admin) after the
 gateway is available.
 
 When a call fails, preserve its `request_id`, run `doctor` or a failure-filtered
-`stats` query, and discover `dcc_feedback__report` through the normal
-`search -> describe -> call` flow. Gateway-routed failures also expose a
+`stats` query, and use gateway-owned `dcc-mcp-cli feedback`. A live adapter's
+`dcc_feedback__report` is only a thin Core forwarder to the same endpoint.
+Gateway-routed failures also expose a
 public-safe `/v1/debug/issue-reports/<request_id>` payload for a reviewed bug
 report; raw bundles must never be uploaded automatically.
 

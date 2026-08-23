@@ -1,8 +1,15 @@
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
+use axum::extract::State;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::post;
+use axum::{Json, Router};
 use dcc_mcp_host_rpc::{HostRpcClient, StubHostRpcClient, UnavailableHostRpcClient};
 use serde_json::{Value, json};
+use tokio::sync::oneshot;
 
 use super::*;
 
@@ -31,6 +38,116 @@ async fn post_mcp(url: &str, body: Value) -> reqwest::Response {
         .send()
         .await
         .expect("POST /mcp")
+}
+
+#[derive(Clone)]
+enum FeedbackGatewayMode {
+    Echo,
+    Stale,
+    InvalidReceipt,
+    Rejected,
+}
+
+#[derive(Clone)]
+struct FeedbackGatewayState {
+    received: Arc<StdMutex<Vec<Value>>>,
+    mode: FeedbackGatewayMode,
+}
+
+struct FeedbackGatewayFixture {
+    endpoint: String,
+    received: Arc<StdMutex<Vec<Value>>>,
+    shutdown: Option<oneshot::Sender<()>>,
+}
+
+impl Drop for FeedbackGatewayFixture {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+    }
+}
+
+async fn feedback_gateway_handler(
+    State(state): State<FeedbackGatewayState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    state.received.lock().expect("feedback capture").push(body);
+    let request_id = match state.mode {
+        FeedbackGatewayMode::Echo
+        | FeedbackGatewayMode::InvalidReceipt
+        | FeedbackGatewayMode::Rejected => headers
+            .get("x-request-id")
+            .cloned()
+            .expect("forwarder must send X-Request-ID"),
+        FeedbackGatewayMode::Stale => HeaderValue::from_static("previous-request"),
+    };
+    let (status, ok, success, feedback_id, error) = match state.mode {
+        FeedbackGatewayMode::InvalidReceipt => (
+            StatusCode::CREATED,
+            false,
+            true,
+            "not-a-feedback-uuid",
+            Value::Null,
+        ),
+        FeedbackGatewayMode::Rejected => (
+            StatusCode::BAD_REQUEST,
+            false,
+            false,
+            "",
+            json!({"kind": "invalid-feedback", "message": "intent must not be empty"}),
+        ),
+        FeedbackGatewayMode::Echo | FeedbackGatewayMode::Stale => (
+            StatusCode::CREATED,
+            true,
+            true,
+            "11111111-1111-4111-8111-111111111111",
+            Value::Null,
+        ),
+    };
+    let mut response = (
+        status,
+        Json(json!({
+            "ok": ok,
+            "success": success,
+            "feedback_id": feedback_id,
+            "recorded_at": "2026-08-24T00:00:00.000Z",
+            "event_resource_uri": "resources://gateway/events",
+            "error": error,
+        })),
+    )
+        .into_response();
+    response.headers_mut().insert("x-request-id", request_id);
+    response
+}
+
+async fn spawn_feedback_gateway(mode: FeedbackGatewayMode) -> FeedbackGatewayFixture {
+    let received = Arc::new(StdMutex::new(Vec::new()));
+    let app = Router::new()
+        .route("/v1/feedback", post(feedback_gateway_handler))
+        .with_state(FeedbackGatewayState {
+            received: received.clone(),
+            mode,
+        });
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind feedback fixture");
+    let address = listener.local_addr().expect("feedback fixture address");
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .expect("serve feedback fixture");
+    });
+    FeedbackGatewayFixture {
+        endpoint: format!("http://{address}/v1/feedback"),
+        received,
+        shutdown: Some(shutdown_tx),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -235,6 +352,216 @@ async fn tools_call_routes_through_host_rpc_client() {
         "data.message should propagate the transport error: {body}"
     );
 
+    handle.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn feedback_tool_forwards_through_gateway_without_host_rpc() {
+    for (dcc_type, instance_id) in [
+        ("maya", "aaaaaaaa-0000-0000-0000-000000000001"),
+        ("3dsmax", "bbbbbbbb-0000-0000-0000-000000000002"),
+    ] {
+        let gateway = spawn_feedback_gateway(FeedbackGatewayMode::Echo).await;
+        let state = SidecarMcpState::new(Box::new(StubHostRpcClient::new()), "test").with_feedback(
+            SidecarFeedbackForwarder::new(dcc_type, instance_id, Some(gateway.endpoint.clone())),
+        );
+        let handle = spawn_listener(state, "127.0.0.1", 0).await.expect("spawn");
+
+        let body: Value = post_mcp(
+            &handle.mcp_url,
+            json!({
+                "jsonrpc": "2.0", "id": format!("feedback-{dcc_type}"),
+                "method": "tools/call",
+                "params": {
+                    "name": "dcc_feedback__report",
+                    "arguments": {
+                        "tool_name": "scene.save",
+                        "intent": "Save the scene",
+                        "attempt": "Called the advertised tool",
+                        "blocker": "The host dispatcher rejected the action",
+                        "severity": "blocked",
+                        "dcc_type": "caller-must-not-control-this",
+                        "instance_id": "caller-must-not-control-this",
+                        "request_id": "failed-request-42",
+                        "job_id": "failed-job-42"
+                    }
+                }
+            }),
+        )
+        .await
+        .json()
+        .await
+        .expect("parse feedback response");
+
+        assert_eq!(body["result"]["success"], true, "{body}");
+        assert_eq!(
+            body["result"]["context"]["feedback_id"],
+            "11111111-1111-4111-8111-111111111111"
+        );
+        assert_eq!(
+            body["result"]["context"]["event_resource_uri"],
+            "resources://gateway/events"
+        );
+        let reports = gateway.received.lock().expect("feedback capture");
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0]["dcc_type"], dcc_type);
+        assert_eq!(reports[0]["instance_id"], instance_id);
+        assert_eq!(reports[0]["request_id"], "failed-request-42");
+        assert_eq!(reports[0]["job_id"], "failed-job-42");
+        drop(reports);
+        handle.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn feedback_tool_fails_closed_when_gateway_is_not_configured() {
+    let state = SidecarMcpState::new(Box::new(StubHostRpcClient::new()), "test").with_feedback(
+        SidecarFeedbackForwarder::new("maya", "aaaaaaaa-0000-0000-0000-000000000001", None),
+    );
+    let handle = spawn_listener(state, "127.0.0.1", 0).await.expect("spawn");
+
+    let body: Value = post_mcp(
+        &handle.mcp_url,
+        json!({
+            "jsonrpc": "2.0", "id": "feedback-disabled",
+            "method": "tools/call",
+            "params": {
+                "name": "dcc_feedback__report",
+                "arguments": {
+                    "tool_name": "scene.save",
+                    "intent": "Save the scene",
+                    "blocker": "Gateway is disabled",
+                    "severity": "blocked"
+                }
+            }
+        }),
+    )
+    .await
+    .json()
+    .await
+    .expect("parse feedback response");
+
+    assert_eq!(body["result"]["success"], false, "{body}");
+    assert_eq!(
+        body["result"]["error"], "gateway_feedback_unavailable",
+        "the feedback tool must not fall through to the host RPC stub: {body}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn feedback_tool_rejects_a_stale_gateway_response() {
+    let gateway = spawn_feedback_gateway(FeedbackGatewayMode::Stale).await;
+    let state = SidecarMcpState::new(Box::new(StubHostRpcClient::new()), "test").with_feedback(
+        SidecarFeedbackForwarder::new(
+            "3dsmax",
+            "bbbbbbbb-0000-0000-0000-000000000002",
+            Some(gateway.endpoint.clone()),
+        ),
+    );
+    let handle = spawn_listener(state, "127.0.0.1", 0).await.expect("spawn");
+
+    let body: Value = post_mcp(
+        &handle.mcp_url,
+        json!({
+            "jsonrpc": "2.0", "id": "feedback-stale",
+            "method": "tools/call",
+            "params": {
+                "name": "dcc_feedback__report",
+                "arguments": {
+                    "tool_name": "scene.save",
+                    "intent": "Save the scene",
+                    "blocker": "The response belongs to another request",
+                    "severity": "blocked"
+                }
+            }
+        }),
+    )
+    .await
+    .json()
+    .await
+    .expect("parse feedback response");
+
+    assert_eq!(body["result"]["success"], false, "{body}");
+    assert_eq!(body["result"]["error"], "transport_desync");
+    handle.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn feedback_tool_rejects_an_invalid_gateway_receipt() {
+    let gateway = spawn_feedback_gateway(FeedbackGatewayMode::InvalidReceipt).await;
+    let state = SidecarMcpState::new(Box::new(StubHostRpcClient::new()), "test").with_feedback(
+        SidecarFeedbackForwarder::new(
+            "maya",
+            "aaaaaaaa-0000-0000-0000-000000000001",
+            Some(gateway.endpoint.clone()),
+        ),
+    );
+    let handle = spawn_listener(state, "127.0.0.1", 0).await.expect("spawn");
+
+    let body: Value = post_mcp(
+        &handle.mcp_url,
+        json!({
+            "jsonrpc": "2.0", "id": "feedback-invalid-receipt",
+            "method": "tools/call",
+            "params": {
+                "name": "dcc_feedback__report",
+                "arguments": {
+                    "tool_name": "scene.save",
+                    "intent": "Save the scene",
+                    "blocker": "The receipt violated the gateway contract",
+                    "severity": "blocked"
+                }
+            }
+        }),
+    )
+    .await
+    .json()
+    .await
+    .expect("parse feedback response");
+
+    assert_eq!(body["result"]["success"], false, "{body}");
+    assert_eq!(body["result"]["error"], "gateway_feedback_invalid_receipt");
+    handle.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn feedback_tool_surfaces_a_correlated_gateway_rejection() {
+    let gateway = spawn_feedback_gateway(FeedbackGatewayMode::Rejected).await;
+    let state = SidecarMcpState::new(Box::new(StubHostRpcClient::new()), "test").with_feedback(
+        SidecarFeedbackForwarder::new(
+            "maya",
+            "aaaaaaaa-0000-0000-0000-000000000001",
+            Some(gateway.endpoint.clone()),
+        ),
+    );
+    let handle = spawn_listener(state, "127.0.0.1", 0).await.expect("spawn");
+
+    let body: Value = post_mcp(
+        &handle.mcp_url,
+        json!({
+            "jsonrpc": "2.0", "id": "feedback-rejected",
+            "method": "tools/call",
+            "params": {
+                "name": "dcc_feedback__report",
+                "arguments": {
+                    "tool_name": "scene.save",
+                    "intent": "",
+                    "blocker": "The report is invalid",
+                    "severity": "blocked"
+                }
+            }
+        }),
+    )
+    .await
+    .json()
+    .await
+    .expect("parse feedback response");
+
+    assert_eq!(body["result"]["success"], false, "{body}");
+    assert_eq!(body["result"]["error"], "gateway_feedback_rejected");
+    assert_eq!(body["result"]["message"], "intent must not be empty");
+    assert_eq!(body["result"]["context"]["status_code"], 400);
     handle.shutdown().await;
 }
 

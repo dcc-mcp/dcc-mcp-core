@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock
+import urllib.error
 
 import pytest
 
@@ -198,6 +199,20 @@ def test_feedback_invalid_params():
 # ── register_feedback_tool ────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("0.0.0.0", "http://127.0.0.1:19765/v1/feedback"),
+        ("::", "http://[::1]:19765/v1/feedback"),
+        ("::1", "http://[::1]:19765/v1/feedback"),
+    ],
+)
+def test_gateway_feedback_endpoint_uses_a_connectable_loopback(host, expected):
+    from dcc_mcp_core.feedback import _build_gateway_feedback_endpoint
+
+    assert _build_gateway_feedback_endpoint(gateway_host=host, gateway_port=19765) == expected
+
+
 def test_register_feedback_tool_registers_name():
     from dcc_mcp_core.feedback import register_feedback_tool
 
@@ -216,18 +231,111 @@ def test_register_feedback_tool_registers_name():
     assert name_arg == "dcc_feedback__report"
 
 
-def test_registered_feedback_handler_uses_injected_store():
+class _GatewayResponse:
+    def __init__(self, payload, *, request_id):
+        self.status = 201
+        self.headers = {"X-Request-ID": request_id}
+        self._payload = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+@pytest.mark.parametrize("dcc_name", ["maya", "3dsmax", "houdini"])
+def test_registered_feedback_handler_forwards_through_one_gateway_implementation(monkeypatch, dcc_name):
+    import dcc_mcp_core.feedback as feedback_module
     from dcc_mcp_core.feedback import FeedbackStore
     from dcc_mcp_core.feedback import get_feedback_entries
     from dcc_mcp_core.feedback import register_feedback_tool
 
+    requests = []
+
+    def _urlopen(request, *, timeout):
+        requests.append((request, timeout))
+        headers = {name.lower(): value for name, value in request.header_items()}
+        return _GatewayResponse(
+            {
+                "ok": True,
+                "success": True,
+                "feedback_id": "11111111-1111-4111-8111-111111111111",
+                "recorded_at": "2026-08-24T00:00:00.000Z",
+                "event_resource_uri": "resources://gateway/events",
+            },
+            request_id=headers["x-request-id"],
+        )
+
+    monkeypatch.setattr(feedback_module, "urlopen", _urlopen)
     store = FeedbackStore()
     server = MagicMock()
     server.registry = MagicMock()
-    register_feedback_tool(server, dcc_name="photoshop", store=store)
+    register_feedback_tool(
+        server,
+        dcc_name=dcc_name,
+        store=store,
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+        instance_id_provider=lambda: f"{dcc_name}-instance-1",
+    )
     handler = server.register_handler.call_args.args[1]
 
-    handler(
+    result = handler(
+        {
+            "tool_name": f"{dcc_name}_scene__save",
+            "intent": "Save the scene",
+            "blocker": "The save action returned no artifact",
+            "severity": "blocked",
+            "request_id": "failed-request-42",
+            "job_id": "failed-job-42",
+        }
+    )
+
+    assert result["success"] is True
+    assert result["context"]["feedback_id"] == "11111111-1111-4111-8111-111111111111"
+    assert result["context"]["event_resource_uri"] == "resources://gateway/events"
+    assert len(requests) == 1
+    request, timeout = requests[0]
+    assert request.full_url == "http://127.0.0.1:19765/v1/feedback"
+    assert timeout == 5.0
+    body = json.loads(request.data.decode("utf-8"))
+    assert body == {
+        "tool_name": f"{dcc_name}_scene__save",
+        "intent": "Save the scene",
+        "blocker": "The save action returned no artifact",
+        "severity": "blocked",
+        "request_id": "failed-request-42",
+        "job_id": "failed-job-42",
+        "dcc_type": dcc_name,
+        "instance_id": f"{dcc_name}-instance-1",
+    }
+    assert get_feedback_entries(store=store)[0]["id"] == "11111111-1111-4111-8111-111111111111"
+
+
+def test_registered_feedback_handler_fails_closed_when_gateway_is_unavailable(monkeypatch):
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import FeedbackStore
+    from dcc_mcp_core.feedback import get_feedback_entries
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    def _urlopen(*_args, **_kwargs):
+        raise urllib.error.URLError("gateway offline")
+
+    monkeypatch.setattr(feedback_module, "urlopen", _urlopen)
+    store = FeedbackStore()
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="photoshop",
+        store=store,
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+    )
+
+    result = server.register_handler.call_args.args[1](
         {
             "tool_name": "photoshop_layers__merge",
             "intent": "Merge layers",
@@ -236,7 +344,193 @@ def test_registered_feedback_handler_uses_injected_store():
         }
     )
 
-    assert get_feedback_entries(store=store)[0]["tool_name"] == "photoshop_layers__merge"
+    assert result["success"] is False
+    assert result["error"] == "gateway_feedback_unavailable"
+    assert get_feedback_entries(store=store) == []
+
+
+def test_registered_feedback_handler_rejects_desynchronized_gateway_receipt(monkeypatch):
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    monkeypatch.setattr(
+        feedback_module,
+        "urlopen",
+        lambda *_args, **_kwargs: _GatewayResponse(
+            {
+                "ok": True,
+                "success": True,
+                "feedback_id": "11111111-1111-4111-8111-111111111111",
+                "recorded_at": "2026-08-24T00:00:00.000Z",
+                "event_resource_uri": "resources://gateway/events",
+            },
+            request_id="stale-request-id",
+        ),
+    )
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="zbrush",
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+    )
+
+    result = server.register_handler.call_args.args[1](
+        {
+            "tool_name": "zbrush_document__save",
+            "intent": "Save the document",
+            "blocker": "The response belonged to an earlier call",
+            "severity": "blocked",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "transport_desync"
+
+
+def test_registered_feedback_handler_rejects_invalid_gateway_receipt(monkeypatch):
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    def _urlopen(request, **_kwargs):
+        headers = {name.lower(): value for name, value in request.header_items()}
+        return _GatewayResponse(
+            {
+                "ok": False,
+                "success": True,
+                "feedback_id": "not-a-feedback-uuid",
+                "recorded_at": "2026-08-24T00:00:00.000Z",
+                "event_resource_uri": "resources://gateway/events",
+            },
+            request_id=headers["x-request-id"],
+        )
+
+    monkeypatch.setattr(feedback_module, "urlopen", _urlopen)
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="maya",
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+    )
+
+    result = server.register_handler.call_args.args[1](
+        {
+            "tool_name": "maya_scene__save",
+            "intent": "Save the scene",
+            "blocker": "The gateway returned an invalid receipt",
+            "severity": "blocked",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "gateway_feedback_invalid_receipt"
+
+
+def test_registered_feedback_handler_surfaces_correlated_gateway_rejection(monkeypatch):
+    import io
+
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    def _urlopen(request, **_kwargs):
+        headers = {name.lower(): value for name, value in request.header_items()}
+        raise urllib.error.HTTPError(
+            request.full_url,
+            400,
+            "Bad Request",
+            {"X-Request-ID": headers["x-request-id"]},
+            io.BytesIO(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "success": False,
+                        "error": {
+                            "kind": "invalid-feedback",
+                            "message": "intent must not be empty",
+                        },
+                    }
+                ).encode("utf-8")
+            ),
+        )
+
+    monkeypatch.setattr(feedback_module, "urlopen", _urlopen)
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="maya",
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+    )
+
+    result = server.register_handler.call_args.args[1](
+        {
+            "tool_name": "maya_scene__save",
+            "intent": "",
+            "blocker": "The report is invalid",
+            "severity": "blocked",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "gateway_feedback_rejected"
+    assert result["message"] == "intent must not be empty"
+    assert result["context"]["status_code"] == 400
+
+
+def test_registered_feedback_handler_fails_closed_for_malformed_gateway_endpoint():
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="custom-host",
+        gateway_endpoint="not a valid gateway URL",
+    )
+
+    result = server.register_handler.call_args.args[1](
+        {
+            "tool_name": "custom_scene__save",
+            "intent": "Save the scene",
+            "blocker": "No receipt was returned",
+            "severity": "blocked",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "gateway_feedback_unavailable"
+
+
+def test_registered_feedback_handler_requires_bound_instance_when_provider_is_configured(monkeypatch):
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    monkeypatch.setattr(
+        feedback_module,
+        "urlopen",
+        lambda *_args, **_kwargs: pytest.fail("unbound feedback must not reach the gateway"),
+    )
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="maya",
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+        instance_id_provider=lambda: None,
+    )
+
+    result = server.register_handler.call_args.args[1](
+        {
+            "tool_name": "maya_scene__save",
+            "intent": "Save the scene",
+            "blocker": "The adapter instance is not bound",
+            "severity": "blocked",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "feedback_instance_unavailable"
 
 
 def test_register_feedback_tool_no_registry():

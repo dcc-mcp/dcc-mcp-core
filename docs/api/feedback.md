@@ -2,19 +2,27 @@
 
 Agent feedback and rationale utilities for DCC-MCP servers (issues #433, #434).
 
-Three complementary features: **Rationale capture** — agents include `_meta.dcc.rationale` in `tools/call` requests to explain why they are invoking a tool. **Gateway feedback** — `POST /v1/feedback` and `dcc-mcp-cli feedback` remain available with zero live DCC instances. **Compatibility tool** — `dcc_feedback__report` remains available on live adapters.
+Three complementary features: **Rationale capture** — agents include `_meta.dcc.rationale` in `tools/call` requests to explain why they are invoking a tool. **Gateway feedback** — `POST /v1/feedback` and `dcc-mcp-cli feedback` remain available with zero live DCC instances. **Compatibility forwarder** — `dcc_feedback__report` remains available on live adapters and forwards through the same gateway contract.
 
 **Exported symbols:** `clear_feedback`, `extract_rationale`, `get_feedback_entries`, `make_rationale_meta`, `register_feedback_tool`
 
 ## register_feedback_tool
 
 ```python
-register_feedback_tool(server, *, dcc_name="dcc") -> None
+register_feedback_tool(
+    server,
+    *,
+    dcc_name="dcc",
+    gateway_endpoint=None,
+    gateway_host=None,
+    gateway_port=None,
+    instance_id_provider=None,
+) -> None
 ```
 
 Register the `dcc_feedback__report` MCP tool on `server`. Call **before** `server.start()`.
 
-The tool accepts: `tool_name`, `intent`, `blocker`, `severity` (`"blocked"` | `"workaround_found"` | `"suggestion"`), optional `attempt`.
+The tool accepts `tool_name`, `intent`, `blocker`, `severity` (`"blocked"` | `"workaround_found"` | `"suggestion"`), optional `attempt`, and optional failed-call `request_id` / `job_id`. The shared Core handler attaches the adapter `dcc_type` and current `instance_id`, posts to gateway `/v1/feedback`, validates the exact `X-Request-ID` response correlation, and returns the gateway receipt. It fails closed when the gateway is disabled, unavailable, rejects the report, or returns a stale/malformed receipt. There is no instance-local success fallback.
 
 ## Agent failure-reporting workflow
 
@@ -47,9 +55,10 @@ upload it automatically. Route Skill defects to the owning Skill, adapter or
 host-runtime defects to the adapter repository, and shared CLI/gateway/protocol
 defects to `dcc-mcp-core`; create an external issue only with user authorization.
 
-The compatibility `dcc_feedback__report` tool is instance-owned and therefore
-cannot be used after that instance exits. Prefer the gateway CLI/REST path for
-crash-class feedback.
+The compatibility `dcc_feedback__report` entry point disappears with its live
+adapter, but while live it is only a thin forwarder to the gateway authority.
+Prefer the gateway CLI/REST path for crash-class feedback and reference the dead
+instance plus its last request/job ids directly.
 
 ## extract_rationale
 

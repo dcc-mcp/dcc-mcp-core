@@ -322,9 +322,10 @@ contract failures to `dcc-mcp-core`. Tool schema/script/workflow defects belong
 to the owning Skill and `dcc-mcp-skills-creator`. Record runtime feedback with
 the gateway-owned `dcc-mcp-cli feedback` command so the report remains possible
 after an adapter or DCC process exits; include the last known instance,
-request, and job ids. Treat instance-level `dcc_feedback__report` as a
-live-adapter compatibility path. Open an external issue only with user
-authorization.
+request, and job ids. Instance-level `dcc_feedback__report` is a live-adapter
+compatibility entry point, but Core must register it as the shared thin gateway
+forwarder; never add an adapter-specific feedback action or local-success
+fallback. Open an external issue only with user authorization.
 
 ## Example: New Nuke Adapter
 

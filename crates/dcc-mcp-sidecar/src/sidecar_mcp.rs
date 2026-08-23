@@ -14,7 +14,7 @@
 //! | Method            | Behaviour |
 //! |-------------------|-----------|
 //! | `initialize`      | Returns a capability envelope advertising `tools: { listChanged: false }` only. |
-//! | `tools/call`      | Dispatches via the in-process [`HostRpcClient`]; returns the result envelope verbatim. |
+//! | `tools/call`      | Forwards `dcc_feedback__report` to the gateway; dispatches every other tool via the in-process [`HostRpcClient`]. |
 //! | `ping`            | Echo `{}` — needed by some hosts' health probes. |
 //! | `notifications/*` | Accepted and discarded (per JSON-RPC, no response when `id` is absent). |
 //! | everything else   | `-32601` "method not found". |
@@ -42,10 +42,13 @@ pub use dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, watch};
 
+mod feedback;
 mod handlers;
 #[cfg(test)]
 mod tests;
 mod trace;
+
+pub(crate) use feedback::SidecarFeedbackForwarder;
 
 use handlers::{
     handle_health, handle_healthz, handle_mcp_post, handle_v1_healthz, handle_v1_readyz,
@@ -66,6 +69,7 @@ pub const SIDECAR_SERVER_NAME: &str = "dcc-mcp-sidecar";
 pub struct SidecarMcpState {
     pub(crate) host_rpc: Arc<Mutex<Box<dyn HostRpcClient>>>,
     pub(crate) server_version: String,
+    pub(crate) feedback: Option<SidecarFeedbackForwarder>,
 }
 
 impl SidecarMcpState {
@@ -78,7 +82,14 @@ impl SidecarMcpState {
         Self {
             host_rpc: Arc::new(Mutex::new(host_rpc)),
             server_version: server_version.into(),
+            feedback: None,
         }
+    }
+
+    /// Configure the gateway-owned feedback compatibility forwarder.
+    pub(crate) fn with_feedback(mut self, feedback: SidecarFeedbackForwarder) -> Self {
+        self.feedback = Some(feedback);
+        self
     }
 
     /// Tear down the inner client; useful for test fixtures that

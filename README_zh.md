@@ -185,8 +185,9 @@ dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_versi
    `dcc-mcp-server` 更新。`dcc-mcp-cli update apply` 只用于更新 CLI 二进制本身。
 
 调用失败时保留 `request_id`，根据故障类型运行 `doctor` 或带
-`--status failure --session-id <id>` 的 `stats`，再通过正常的
-`search -> describe -> call` 流程调用 `dcc_feedback__report`。gateway 路径还提供
+`--status failure --session-id <id>` 的 `stats`，再使用 gateway 级
+`dcc-mcp-cli feedback`；在线 adapter 的 `dcc_feedback__report` 仅作为转发到
+同一 endpoint 的 Core 薄兼容层。gateway 路径还提供
 public-safe `/v1/debug/issue-reports/<request_id>` 作为经审查的 Bug 报告材料；
 禁止自动上传 raw bundle。
 
