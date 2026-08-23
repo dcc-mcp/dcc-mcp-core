@@ -6,6 +6,9 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
+use dcc_mcp_gateway_admin::{
+    recording_default_postcondition, recording_semantic_query, recording_ui_session,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -225,8 +228,8 @@ pub async fn handle_recording_compile(
             continue;
         }
         if captured_tool == "ui_control__find" {
-            let session = logical_ui_session(&captured.arguments);
-            ui_queries.insert(session, semantic_query(&captured.arguments));
+            let session = recording_ui_session(&captured.arguments);
+            ui_queries.insert(session, recording_semantic_query(&captured.arguments));
             continue;
         }
         if captured_tool == "ui_control__wait_for" {
@@ -250,14 +253,14 @@ pub async fn handle_recording_compile(
             {
                 return compile_error("raw_ui_action_requires_visual_guard", &captured.tool_slug);
             }
-            let session = logical_ui_session(&captured.arguments);
+            let session = recording_ui_session(&captured.arguments);
             let Some(query) = ui_queries.get(&session).cloned() else {
                 return compile_error(
                     "semantic_query_missing",
                     "ui_control__act must follow a successful ui_control__find in the same session",
                 );
             };
-            let postcondition = default_postcondition(&query);
+            let postcondition = recording_default_postcondition(&query);
             events.push(RecordedEvent::UiSemanticAction {
                 sequence: captured.sequence,
                 query,
@@ -392,35 +395,6 @@ pub async fn handle_recording_replay_validate(
         Json(json!({"validated": validated, "replay_authorized": false})),
     )
         .into_response()
-}
-
-fn logical_ui_session(arguments: &Value) -> String {
-    arguments
-        .get("session_id")
-        .and_then(Value::as_str)
-        .unwrap_or("default")
-        .to_owned()
-}
-
-fn semantic_query(arguments: &Value) -> Value {
-    let mut query = serde_json::Map::new();
-    for key in ["query", "role", "label", "object_name"] {
-        if let Some(value) = arguments.get(key) {
-            query.insert(key.to_owned(), value.clone());
-        }
-    }
-    Value::Object(query)
-}
-
-fn default_postcondition(query: &Value) -> Value {
-    let mut condition = serde_json::Map::from_iter([(
-        "kind".to_owned(),
-        Value::String("control_exists".to_owned()),
-    )]);
-    if let Some(fields) = query.as_object() {
-        condition.extend(fields.clone());
-    }
-    Value::Object(condition)
 }
 
 pub(super) fn caller_session(headers: &HeaderMap) -> Option<String> {
