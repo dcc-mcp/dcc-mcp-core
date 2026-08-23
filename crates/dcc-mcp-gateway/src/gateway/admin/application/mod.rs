@@ -29,6 +29,9 @@ pub(super) mod general;
 pub mod governance;
 
 #[cfg(feature = "admin")]
+pub(super) mod issue_report;
+
+#[cfg(feature = "admin")]
 pub(super) mod memory;
 
 #[cfg(feature = "admin")]
@@ -36,6 +39,9 @@ pub mod marketplace;
 
 #[cfg(feature = "admin")]
 pub(super) mod recordings;
+
+#[cfg(feature = "admin")]
+pub(crate) mod router;
 
 #[cfg(feature = "admin")]
 pub mod sessions;

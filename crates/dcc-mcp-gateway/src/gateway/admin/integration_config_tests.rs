@@ -1,5 +1,5 @@
 use super::*;
-use crate::gateway::admin::wecom_url::strict_looks_valid as strict_wecom_webhook_url_looks_valid;
+use crate::gateway::admin::infra::wecom_url::strict_looks_valid as strict_wecom_webhook_url_looks_valid;
 
 struct EnvGuard {
     previous: Vec<(&'static str, Option<String>)>,

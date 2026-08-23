@@ -5,7 +5,7 @@ use std::time::Duration;
 use axum::http::StatusCode;
 use serde_json::json;
 
-use crate::gateway::admin::router::build_v1_debug_router;
+use crate::gateway::admin::application::router::build_v1_debug_router;
 use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
 use crate::gateway::admin::tests::admin_tests::{
     body_json, make_admin_state, post_json_as_session,

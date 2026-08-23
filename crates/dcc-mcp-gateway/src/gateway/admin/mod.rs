@@ -74,19 +74,11 @@ pub mod activity;
 #[cfg(feature = "admin")]
 // ── Remaining top-level modules ───────────────────────────────────────────
 #[cfg(feature = "admin")]
-#[cfg(feature = "admin")]
-mod issue_report;
-#[cfg(feature = "admin")]
 #[cfg(all(test, feature = "admin"))]
 mod logs_tests;
 pub mod sqlite_lane;
 pub mod state;
 pub mod trace;
-#[cfg(feature = "admin")]
-#[cfg(feature = "admin")]
-mod wecom_response;
-#[cfg(feature = "admin")]
-mod wecom_url;
 
 #[cfg(all(test, feature = "admin"))]
 mod analytics_tests;
@@ -101,8 +93,6 @@ mod instance_update_tests;
 mod integration_tests;
 #[cfg(all(test, feature = "admin-persist-sqlite"))]
 mod recordings_tests;
-#[cfg(feature = "admin")]
-mod router;
 #[cfg(all(test, feature = "admin"))]
 mod skill_paths_tests;
 #[cfg(all(test, feature = "admin"))]
@@ -140,7 +130,7 @@ pub use application::workers::build_workers_payload;
 pub use application::workflows::{WorkflowDiscoverySummary, WorkflowStep, WorkflowView};
 
 #[cfg(feature = "admin")]
-pub use router::{build_admin_router, build_v1_debug_router};
+pub use application::router::{build_admin_router, build_v1_debug_router};
 
 #[cfg(all(test, feature = "admin"))]
 mod marketplace_tests;

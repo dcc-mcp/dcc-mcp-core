@@ -2,22 +2,26 @@
 
 use axum::{Router, routing};
 
+use super::super::infra::integrations::{
+    handle_admin_integration_test, handle_admin_integration_update, handle_admin_integrations,
+};
+use super::super::state::AdminState;
+use super::agent_trace::handle_v1_debug_agent_trace_packet;
 use super::analytics::{
     handle_admin_analytics_export, handle_admin_analytics_heatmap, handle_admin_analytics_overview,
     handle_admin_analytics_timeseries,
 };
-use super::application::agent_trace::handle_v1_debug_agent_trace_packet;
-use super::application::artifacts::handle_admin_artifacts;
-use super::application::events::handle_admin_events;
-use super::application::experiments::{
+use super::artifacts::handle_admin_artifacts;
+use super::events::handle_admin_events;
+use super::experiments::{
     handle_experiment_create, handle_experiment_detail, handle_experiment_judge_result,
     handle_experiment_run, handle_experiments_list,
 };
-use super::application::general::{
+use super::general::{
     handle_admin_activity, handle_admin_governance, handle_admin_traffic,
     handle_admin_traffic_export, handle_admin_ui,
 };
-use super::application::handlers::{
+use super::handlers::{
     handle_admin_calls, handle_admin_debug_bundle, handle_admin_deregistered,
     handle_admin_instance_update, handle_admin_instances, handle_admin_issue_report,
     handle_admin_logs, handle_admin_search_telemetry, handle_admin_skill_detail,
@@ -25,25 +29,21 @@ use super::application::handlers::{
     handle_admin_trace_detail, handle_admin_traces, handle_admin_workers, handle_admin_workflows,
     handle_v1_debug_trace_lookup,
 };
-use super::application::health::{handle_admin_health, handle_admin_reliability};
-use super::application::marketplace::{
+use super::health::{handle_admin_health, handle_admin_reliability};
+use super::marketplace::{
     handle_marketplace_add_source, handle_marketplace_catalog, handle_marketplace_install,
     handle_marketplace_installed, handle_marketplace_outdated, handle_marketplace_sources,
     handle_marketplace_uninstall, handle_marketplace_update,
 };
-use super::application::memory::{handle_admin_memory, handle_admin_memory_forget};
-use super::application::recordings::{
+use super::memory::{handle_admin_memory, handle_admin_memory_forget};
+use super::recordings::{
     handle_recording_compile, handle_recording_replay_validate, handle_recording_review,
     handle_recording_review_body, handle_recording_start, handle_recording_stop,
 };
-use super::application::sessions::{handle_admin_session_detail, handle_admin_sessions};
-use super::application::skill_paths::{
+use super::sessions::{handle_admin_session_detail, handle_admin_sessions};
+use super::skill_paths::{
     handle_admin_skill_path_add, handle_admin_skill_path_delete, handle_admin_skill_paths,
 };
-use super::infra::integrations::{
-    handle_admin_integration_test, handle_admin_integration_update, handle_admin_integrations,
-};
-use super::state::AdminState;
 
 /// Build the admin sub-router.
 ///
