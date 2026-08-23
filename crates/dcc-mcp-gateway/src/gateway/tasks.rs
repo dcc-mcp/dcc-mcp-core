@@ -47,6 +47,21 @@ fn removed_instances(
     removed
 }
 
+async fn poll_list_fingerprint<F, Fut>(
+    events_tx: &broadcast::Sender<String>,
+    poll: F,
+) -> Option<String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = String>,
+{
+    // Backend list fan-out has no value when nobody can observe a change.
+    if events_tx.receiver_count() == 0 {
+        return None;
+    }
+    Some(poll().await)
+}
+
 /// Outcome of [`start_gateway_tasks`] for the ambient (shared-runtime) path.
 pub(crate) struct GatewayTasks {
     /// AbortHandle for the combined supervisor task (cleanup + watchers + serve).
@@ -706,21 +721,24 @@ pub(crate) async fn start_gateway_tasks(
 
         loop {
             interval.tick().await;
-            let fingerprint = aggregator::compute_prompts_fingerprint_with_own(
-                &reg_prompts,
-                stale_timeout,
-                &http_client_prompts,
-                &resilience_prompts,
-                backend_timeout,
-                Some(prompts_own_host.as_str()),
-                prompts_own_port,
-            )
-            .await;
+            let Some(fingerprint) = poll_list_fingerprint(&events_tx_prompts, || {
+                aggregator::compute_prompts_fingerprint_with_own(
+                    &reg_prompts,
+                    stale_timeout,
+                    &http_client_prompts,
+                    &resilience_prompts,
+                    backend_timeout,
+                    Some(prompts_own_host.as_str()),
+                    prompts_own_port,
+                )
+            })
+            .await
+            else {
+                continue;
+            };
 
             if fingerprint != last_fingerprint {
-                if (!last_fingerprint.is_empty() || !fingerprint.is_empty())
-                    && events_tx_prompts.receiver_count() > 0
-                {
+                if !last_fingerprint.is_empty() || !fingerprint.is_empty() {
                     tracing::debug!(
                         "Gateway: aggregated prompt set changed — broadcasting prompts/list_changed"
                     );
@@ -764,21 +782,24 @@ pub(crate) async fn start_gateway_tasks(
 
         loop {
             interval.tick().await;
-            let fingerprint = aggregator::compute_resources_fingerprint_with_own(
-                &reg_resources,
-                stale_timeout,
-                &http_client_resources,
-                &resilience_resources,
-                backend_timeout,
-                Some(resources_own_host.as_str()),
-                resources_own_port,
-            )
-            .await;
+            let Some(fingerprint) = poll_list_fingerprint(&events_tx_resources, || {
+                aggregator::compute_resources_fingerprint_with_own(
+                    &reg_resources,
+                    stale_timeout,
+                    &http_client_resources,
+                    &resilience_resources,
+                    backend_timeout,
+                    Some(resources_own_host.as_str()),
+                    resources_own_port,
+                )
+            })
+            .await
+            else {
+                continue;
+            };
 
             if fingerprint != last_fingerprint {
-                if (!last_fingerprint.is_empty() || !fingerprint.is_empty())
-                    && events_tx_resources.receiver_count() > 0
-                {
+                if !last_fingerprint.is_empty() || !fingerprint.is_empty() {
                     tracing::debug!(
                         "Gateway: aggregated resource set changed — broadcasting resources/list_changed"
                     );
@@ -1302,8 +1323,9 @@ pub(crate) async fn start_gateway_tasks(
 }
 
 #[cfg(test)]
-mod instance_membership_tests {
+mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn membership(dcc_type: &str, instance_id: &str) -> (String, InstanceMembership) {
         (
@@ -1342,5 +1364,36 @@ mod instance_membership_tests {
             "cccccccc-0000-0000-0000-000000000000",
         )]);
         assert!(removed_instances(&inventory, &inventory).is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_fingerprint_poll_is_skipped_without_subscribers() {
+        let (events_tx, receiver) = broadcast::channel(1);
+        drop(receiver);
+        let calls = AtomicUsize::new(0);
+
+        let fingerprint = poll_list_fingerprint(&events_tx, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            "unused".to_string()
+        })
+        .await;
+
+        assert_eq!(fingerprint, None);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn list_fingerprint_poll_runs_for_a_subscriber() {
+        let (events_tx, _receiver) = broadcast::channel(1);
+        let calls = AtomicUsize::new(0);
+
+        let fingerprint = poll_list_fingerprint(&events_tx, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            "current".to_string()
+        })
+        .await;
+
+        assert_eq!(fingerprint.as_deref(), Some("current"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }
