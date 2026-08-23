@@ -20,7 +20,7 @@ use dcc_mcp_workflow::{
 use crate::gateway::admin::trace::AgentContext;
 use crate::gateway::record_replay::{RecordingStoreError, StartRecording};
 
-use super::state::AdminState;
+use super::super::state::AdminState;
 
 #[derive(Debug, Deserialize)]
 pub struct StartBody {

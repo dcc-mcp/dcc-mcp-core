@@ -20,6 +20,9 @@ pub(super) mod debug_response;
 pub(super) mod events;
 
 #[cfg(feature = "admin")]
+pub(crate) mod experiments;
+
+#[cfg(feature = "admin")]
 pub(super) mod general;
 
 #[cfg(feature = "admin")]
@@ -27,6 +30,12 @@ pub mod governance;
 
 #[cfg(feature = "admin")]
 pub(super) mod memory;
+
+#[cfg(feature = "admin")]
+pub mod marketplace;
+
+#[cfg(feature = "admin")]
+pub(super) mod recordings;
 
 #[cfg(feature = "admin")]
 pub mod sessions;
@@ -42,6 +51,12 @@ pub mod skill_reload;
 
 #[cfg(feature = "admin")]
 pub(super) mod traffic;
+
+#[cfg(feature = "admin")]
+pub mod workers;
+
+#[cfg(feature = "admin")]
+pub mod workflows;
 
 #[cfg(feature = "admin")]
 pub mod handlers;

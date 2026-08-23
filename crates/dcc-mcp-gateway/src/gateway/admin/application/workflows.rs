@@ -12,9 +12,9 @@ use std::time::{Duration, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::activity::{collect_audits, collect_traces};
-use super::state::{AdminAuditRecord, AdminState};
-use super::trace::{AgentContext, DispatchTrace};
+use super::super::domain::trace::{AgentContext, DispatchTrace};
+use super::super::infra::activity::{collect_audits, collect_traces};
+use super::super::state::{AdminAuditRecord, AdminState};
 use crate::gateway::search_telemetry::{
     SearchFollowupTelemetry, SearchTelemetryHit, SearchTelemetryRecord,
 };

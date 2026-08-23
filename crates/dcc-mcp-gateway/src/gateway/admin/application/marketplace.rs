@@ -30,8 +30,8 @@ use dcc_mcp_marketplace::MarketplaceService;
 use serde::Serialize;
 use serde_json::json;
 
-use super::application::skill_reload::reload_skill_paths_and_refresh_backends;
-use super::state::AdminState;
+use super::super::state::AdminState;
+use super::skill_reload::reload_skill_paths_and_refresh_backends;
 use crate::gateway::capability::RefreshReason;
 
 // ── Error envelope ────────────────────────────────────────────────────────────
