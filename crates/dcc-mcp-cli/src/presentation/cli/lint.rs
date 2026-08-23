@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use dcc_mcp_http_server::{ExecutionContractReport, probe_skill_execution_contracts};
 use dcc_mcp_skills::validator::IssueSeverity;
-use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
+use dcc_mcp_skills::{SkillValidationReport, parse_skill_md, validate_skill_dir};
 use serde_json::Value;
 
 use super::LintArgs;
@@ -67,9 +68,13 @@ fn issue_severity_label(severity: IssueSeverity) -> &'static str {
     }
 }
 
-fn lint_report_to_json(report: &SkillValidationReport) -> Value {
-    let (errors, warnings) = report.counts();
-    let issues: Vec<_> = report
+fn lint_report_to_json(
+    report: &SkillValidationReport,
+    execution_contract: &ExecutionContractReport,
+) -> Value {
+    let (static_errors, warnings) = report.counts();
+    let errors = static_errors + execution_contract.issues.len();
+    let mut issues: Vec<_> = report
         .issues
         .iter()
         .map(|issue| {
@@ -80,32 +85,64 @@ fn lint_report_to_json(report: &SkillValidationReport) -> Value {
             })
         })
         .collect();
+    issues.extend(execution_contract.issues.iter().map(|issue| {
+        serde_json::json!({
+            "severity": "error",
+            "category": "ExecutionContract",
+            "message": issue.message,
+            "tool": issue.tool,
+            "declared": issue.declared,
+            "observed": issue.observed,
+        })
+    }));
     serde_json::json!({
         "skill_dir": report.skill_dir.display().to_string(),
         "errors": errors,
         "warnings": warnings,
         "issues": issues,
+        "execution_contract": execution_contract,
     })
 }
 
-pub(crate) fn run_lint_cmd(args: &LintArgs) -> anyhow::Result<LintCommandResult> {
+pub(crate) async fn run_lint_cmd(args: &LintArgs) -> anyhow::Result<LintCommandResult> {
     let mut skill_dirs = BTreeSet::new();
     for root in &args.paths {
         collect_skill_dirs(root, &mut skill_dirs, args.max_depth)?;
     }
 
-    let reports: Vec<_> = skill_dirs
-        .iter()
-        .map(|skill_dir| validate_skill_dir(skill_dir))
-        .collect();
-    let (errors, warnings) = reports.iter().fold((0, 0), |(e_acc, w_acc), report| {
-        let (errors, warnings) = report.counts();
-        (e_acc + errors, w_acc + warnings)
-    });
+    let mut reports = Vec::with_capacity(skill_dirs.len());
+    let mut execution_reports = Vec::with_capacity(skill_dirs.len());
+    for skill_dir in &skill_dirs {
+        reports.push(validate_skill_dir(skill_dir));
+        let execution_report = match parse_skill_md(skill_dir) {
+            Some(metadata) => probe_skill_execution_contracts(&metadata).await,
+            None => ExecutionContractReport::default(),
+        };
+        execution_reports.push(execution_report);
+    }
+    let (errors, warnings) = reports.iter().zip(&execution_reports).fold(
+        (0, 0),
+        |(e_acc, w_acc), (report, execution_report)| {
+            let (static_errors, warnings) = report.counts();
+            (
+                e_acc + static_errors + execution_report.issues.len(),
+                w_acc + warnings,
+            )
+        },
+    );
     let failed = errors > 0 || (args.warnings_as_errors && warnings > 0);
-    let reports_json: Vec<_> = reports.iter().map(lint_report_to_json).collect();
+    let reports_json: Vec<_> = reports
+        .iter()
+        .zip(&execution_reports)
+        .map(|(report, execution_report)| lint_report_to_json(report, execution_report))
+        .collect();
+    let execution_contracts_checked = execution_reports
+        .iter()
+        .map(|report| report.checked)
+        .sum::<usize>();
     let value = serde_json::json!({
         "checked": reports.len(),
+        "execution_contracts_checked": execution_contracts_checked,
         "errors": errors,
         "warnings": warnings,
         "failed": failed,

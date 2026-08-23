@@ -39,8 +39,9 @@ result = dispatcher.dispatch("name", json_str)   # 返回 dict
 # {job_id, status: "pending"}：
 #   1. 请求携带 _meta.dcc.async = true
 #   2. 请求携带 _meta.progressToken
-#   3. 工具的 ToolMeta 声明 execution: async 或 timeout_hint_secs > 0
+#   3. 工具的 ToolMeta 声明 execution: async
 # 否则分发给同步处理（与 #318 之前的行为字节一致）。
+# timeout_hint_secs 仅用于延迟/超时预算提示，不会改变声明的执行模式。
 body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
     "name": "render_frames",
     "arguments": {"start": 1, "end": 250},

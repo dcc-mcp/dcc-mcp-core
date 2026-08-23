@@ -38,8 +38,10 @@ result = dispatcher.dispatch("name", json_str)   # returns dict
 # with {job_id, core_job_id, job_id_owner: "core", status: "pending"}:
 #   1. Request carries _meta.dcc.async = true
 #   2. Request carries _meta.progressToken
-#   3. Tool's ToolMeta declares execution: async or timeout_hint_secs > 0
+#   3. Tool's ToolMeta declares execution: async
 # Otherwise dispatch is synchronous (byte-identical to pre-#318 behaviour).
+# timeout_hint_secs is only a latency/timeout sizing hint; it never changes
+# the declared execution mode.
 body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
     "name": "render_frames",
     "arguments": {"start": 1, "end": 250},

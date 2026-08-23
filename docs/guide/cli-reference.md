@@ -381,8 +381,12 @@ reconciled through `components ensure`; it is not part of the gateway update
 manifest.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
-runtime loading fail for the same structural problems. CI runs the same command
-with explicit repository skill roots via `just lint-skills`.
+runtime loading fail for the same structural problems. It also loads every
+sibling `tools.yaml` table and calls each declaration through Core's real
+router with deterministic mock handlers. A sync declaration must return a
+result and an async declaration must return a pending job envelope; adapter and
+DCC code is never executed. CI runs the same command with explicit repository
+skill roots via `just lint-skills`.
 
 ### CLI installation assets
 

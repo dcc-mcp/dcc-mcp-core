@@ -279,7 +279,7 @@ def test_nested_adapter_job_identity_is_explicit_across_pending_and_terminal_res
         tags=[],
         dcc="test",
         version="1.0.0",
-        execution="sync",
+        execution="async",
         timeout_hint_secs=30,
     )
     cfg = McpHttpConfig(port=0, server_name="nested-job-identity-test")

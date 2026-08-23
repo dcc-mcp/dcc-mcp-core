@@ -110,6 +110,11 @@ replace a running server binary.
 dcc-mcp-cli lint /path/to/my-skill
 ```
 
+The CLI loads the sibling `tools.yaml` table and invokes every declaration
+through Core's real router with deterministic mock handlers. CI fails if a
+sync declaration produces a job envelope or an async declaration produces a
+direct result. Adapter/DCC code is never imported or executed by this probe.
+
 ### Get a SKILL.md template
 
 ```python
