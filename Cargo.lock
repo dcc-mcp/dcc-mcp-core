@@ -1331,6 +1331,7 @@ version = "0.20.8"
 dependencies = [
  "axum",
  "chrono",
+ "dcc-mcp-catalog",
  "dcc-mcp-db",
  "dcc-mcp-models",
  "dcc-mcp-test-utils",
