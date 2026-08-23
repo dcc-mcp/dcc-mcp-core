@@ -7,7 +7,7 @@ use axum::http::HeaderValue;
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
 
-use super::state::{AdminAuditRecord, AdminState};
+use super::super::state::{AdminAuditRecord, AdminState};
 
 pub use dcc_mcp_gateway_admin::AnalyticsQuery;
 use dcc_mcp_gateway_admin::{

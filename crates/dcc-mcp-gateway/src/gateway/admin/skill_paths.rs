@@ -67,7 +67,7 @@ fn push_admin_operator_note(state: &AdminState, msg: String) {
 
 /// `GET /admin/api/skill-paths` — skill search paths (snapshot + SQLite custom).
 pub async fn handle_admin_skill_paths(State(s): State<AdminState>) -> impl IntoResponse {
-    Json(crate::gateway::admin::skill_health::build_skill_paths_payload(&s))
+    Json(crate::gateway::admin::application::skill_health::build_skill_paths_payload(&s))
 }
 
 /// `POST /admin/api/skill-paths` — enqueue a custom path; embedder hook may reload disk catalog.
