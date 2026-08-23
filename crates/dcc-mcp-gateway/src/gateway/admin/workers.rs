@@ -12,7 +12,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dcc_mcp_gateway_admin::{WorkerHealth, WorkerSnapshot, workers_payload};
+use dcc_mcp_gateway_admin::{
+    WorkerHealth, WorkerSnapshot, instance_server_binary_version, workers_payload,
+};
 use serde_json::Value;
 
 use crate::gateway::http_registration::{MCP_URL_METADATA_KEY, entry_mcp_url};
@@ -61,7 +63,7 @@ fn instance_type(e: &ServiceEntry) -> String {
             || e.adapter_version.is_some()
         {
             "gui".to_string()
-        } else if super::update::instance_server_binary_version(e).is_some() {
+        } else if instance_server_binary_version(e).is_some() {
             "standalone".to_string()
         } else {
             "unknown".to_string()
@@ -131,8 +133,7 @@ fn entry_to_worker(
         gateway_recovery_driver(e, gateway_runtime_mode.as_deref(), gateway_guardian_enabled);
     let registration_refresh_mode = metadata_text(e, REGISTRATION_REFRESH_MODE_METADATA_KEY)
         .unwrap_or_else(|| REGISTRATION_REFRESH_MODE_FILE_REGISTRY_HEARTBEAT.to_string());
-    let server_version =
-        super::update::instance_server_binary_version(e).map(|(version, _)| version);
+    let server_version = instance_server_binary_version(e).map(|(version, _)| version);
 
     WorkerSnapshot {
         instance_id: e.instance_id.to_string(),
