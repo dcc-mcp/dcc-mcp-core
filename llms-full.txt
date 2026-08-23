@@ -25,7 +25,8 @@ the task is embedding core, implementing an adapter, or extending the runtime.
 
 On failure, the `dcc-mcp` workflow preserves `request_id`, uses `doctor` or a
 failure-filtered `stats` query for bounded diagnosis, records structured
-feedback through the CLI-discovered `dcc_feedback__report`, and uses public-safe
+feedback through gateway-owned `dcc-mcp-cli feedback` (with live-adapter
+`dcc_feedback__report` only a thin Core forwarder), and uses public-safe
 `/v1/debug/issue-reports/<request_id>` for reviewed bug reports. Raw evidence
 and external issue creation require human review and user authorization.
 

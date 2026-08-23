@@ -2,7 +2,7 @@
 
 use axum::Json;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use dcc_mcp_models::FeedbackReport;
 use serde_json::{Value, json};
@@ -15,14 +15,15 @@ const GATEWAY_EVENTS_URI: &str = "resources://gateway/events";
 /// `POST /v1/feedback` — record feedback without requiring a live DCC instance.
 pub async fn handle_v1_feedback(
     State(gateway): State<GatewayState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
     let report = match serde_json::from_value::<FeedbackReport>(body) {
         Ok(report) => report,
-        Err(error) => return invalid_feedback(error.to_string()),
+        Err(error) => return correlate_response(invalid_feedback(error.to_string()), &headers),
     };
     if let Err(error) = report.validate() {
-        return invalid_feedback(error.to_string());
+        return correlate_response(invalid_feedback(error.to_string()), &headers);
     }
 
     let feedback_id = uuid::Uuid::new_v4().to_string();
@@ -52,17 +53,29 @@ pub async fn handle_v1_feedback(
         "gateway feedback recorded"
     );
 
-    (
-        StatusCode::CREATED,
-        Json(json!({
-            "ok": true,
-            "success": true,
-            "feedback_id": feedback_id,
-            "recorded_at": recorded_at,
-            "event_resource_uri": GATEWAY_EVENTS_URI,
-        })),
+    correlate_response(
+        (
+            StatusCode::CREATED,
+            Json(json!({
+                "ok": true,
+                "success": true,
+                "feedback_id": feedback_id,
+                "recorded_at": recorded_at,
+                "event_resource_uri": GATEWAY_EVENTS_URI,
+            })),
+        )
+            .into_response(),
+        &headers,
     )
-        .into_response()
+}
+
+fn correlate_response(mut response: Response, request_headers: &HeaderMap) -> Response {
+    if let Some(request_id) = request_headers.get("x-request-id") {
+        response
+            .headers_mut()
+            .insert("x-request-id", request_id.clone());
+    }
+    response
 }
 
 #[cfg(test)]
@@ -97,11 +110,19 @@ mod tests {
                     .method("POST")
                     .uri("/v1/feedback")
                     .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .header("x-request-id", "feedback-request-42")
                     .body(Body::from(serde_json::to_vec(&request_body).unwrap()))
                     .unwrap(),
             )
             .await
             .unwrap();
+        assert_eq!(
+            response
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok()),
+            Some("feedback-request-42")
+        );
         let (status, body) = response_json(response).await;
 
         assert_eq!(status, StatusCode::CREATED);
@@ -132,19 +153,27 @@ mod tests {
     #[tokio::test]
     async fn gateway_feedback_rejects_empty_required_text() {
         let gateway = test_gateway_state("1.2.3");
-        let (status, body) = response_json(
-            handle_v1_feedback(
-                State(gateway),
-                Json(json!({
-                    "tool_name": "maya_scene__save",
-                    "intent": "Save the scene",
-                    "blocker": " ",
-                    "severity": "suggestion"
-                })),
-            )
-            .await,
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-request-id", "invalid-feedback-42".parse().unwrap());
+        let response = handle_v1_feedback(
+            State(gateway),
+            headers,
+            Json(json!({
+                "tool_name": "maya_scene__save",
+                "intent": "Save the scene",
+                "blocker": " ",
+                "severity": "suggestion"
+            })),
         )
         .await;
+        assert_eq!(
+            response
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok()),
+            Some("invalid-feedback-42")
+        );
+        let (status, body) = response_json(response).await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["error"]["kind"], "invalid-feedback");

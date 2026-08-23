@@ -347,9 +347,11 @@ registration helpers so two DCC servers in one process never share recorder,
 capturer, dispatcher, or instance-context caches.
 
 The base server also exposes instance-owned `feedback_store`,
-`script_execution_context`, and `checkpoint_store`. Pass these through the
-corresponding core helper parameters when an adapter registers feedback,
-persistent script execution, or checkpoint tools.
+`script_execution_context`, and `checkpoint_store`. Its shared feedback
+registration forwards `dcc_feedback__report` to gateway `/v1/feedback` and only
+mirrors accepted receipts; adapters must not replace it with host-specific
+handlers. Pass the other components through the corresponding Core helper
+parameters for persistent script execution or checkpoint tools.
 
 ## Development Setup
 

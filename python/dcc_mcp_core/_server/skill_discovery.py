@@ -170,6 +170,7 @@ class SkillDiscoveryController:
         """Register standard built-in skills (diagnostics, introspect, etc)."""
         owner = self._owner
         try:
+            gateway_port = int(getattr(owner._config, "gateway_port", 0) or 0)
             register_all_builtin_skills(
                 owner._server,
                 dcc_name=options.dcc_name,
@@ -180,6 +181,8 @@ class SkillDiscoveryController:
                 reload_skills=owner.reload_skill_paths,
                 diagnostic_state=owner.diagnostic_state,
                 feedback_store=owner.feedback_store,
+                gateway_port=gateway_port,
+                instance_id_provider=lambda: owner.instance_id,
             )
         except Exception as exc:
             logger.warning("[%s] built-in skill registration failed: %s", options.dcc_name, exc)

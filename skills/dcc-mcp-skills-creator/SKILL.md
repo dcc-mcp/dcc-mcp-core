@@ -344,7 +344,9 @@ skill without the task owner's requested scope.
 For a failed task, first use the `dcc-mcp` recovery flow: retain the
 `request_id`, run `doctor` for runtime/readiness faults, query
 `stats --status failure --session-id <session-id>`, and record structured
-feedback through the CLI-discovered `dcc_feedback__report` tool. The public-safe
+feedback through the gateway-owned `dcc-mcp-cli feedback` command. A live
+adapter's `dcc_feedback__report` is only a shared Core forwarder to that same
+gateway contract. The public-safe
 `/v1/debug/issue-reports/<request_id>` payload is suitable for a reviewed issue;
 never publish `?mode=raw` automatically.
 

@@ -59,12 +59,18 @@ def test_register_all_builtin_skills_runs_every_step(monkeypatch):
 
     diagnostic_state = DiagnosticRuntimeState("maya")
     feedback_store = FeedbackStore()
+
+    def instance_id_provider():
+        return "maya-instance-1"
+
     builtin.register_all_builtin_skills(
         _make_server(),
         dcc_name="maya",
         reload_skills=lambda: 0,
         diagnostic_state=diagnostic_state,
         feedback_store=feedback_store,
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+        instance_id_provider=instance_id_provider,
     )
 
     # Every step, including the two that previously got skipped after the
@@ -75,6 +81,8 @@ def test_register_all_builtin_skills_runs_every_step(monkeypatch):
     assert recipes_kwargs["skills"] == []
     assert diagnostics_kwargs["diagnostic_state"] is diagnostic_state
     assert feedback_kwargs["store"] is feedback_store
+    assert feedback_kwargs["gateway_endpoint"] == "http://127.0.0.1:19765/v1/feedback"
+    assert feedback_kwargs["instance_id_provider"] is instance_id_provider
 
 
 def test_register_all_builtin_skills_forwards_skills(monkeypatch):

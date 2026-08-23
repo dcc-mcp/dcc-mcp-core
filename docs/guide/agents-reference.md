@@ -240,11 +240,14 @@ component for adapters that also register IPC diagnostics. The compatibility def
 omit the argument and exposes an explicit test reset seam.
 
 `DccServerBase` also owns `feedback_store`, `script_execution_context`, and
-`checkpoint_store`. Pass those components to `register_feedback_tool(...,
-store=...)`, `execute_with_context(..., context=...)`, and checkpoint helpers'
-existing `store=` parameter. Module-level convenience calls use explicit
-compatibility holders with `reset_default_*_for_tests()` seams; adapters must
-not add their own mutable namespace, feedback, or checkpoint globals.
+`checkpoint_store`. The base registration wires `dcc_feedback__report` to the
+configured gateway `/v1/feedback` endpoint, late-binds the current instance id,
+and mirrors only gateway-accepted receipts into `feedback_store`; adapters must
+not override this shared forwarder or add host-specific feedback actions.
+Pass the other components to `execute_with_context(..., context=...)` and
+checkpoint helpers' existing `store=` parameter. Module-level convenience calls
+use explicit compatibility holders with `reset_default_*_for_tests()` seams;
+adapters must not add their own mutable namespace, feedback, or checkpoint globals.
 
 **Return `ToolResultEnvelope` from Python tool handlers (#2183) — never hand-roll the dict:**
 ```python

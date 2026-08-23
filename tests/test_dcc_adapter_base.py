@@ -565,12 +565,14 @@ class TestDccServerBase:
         monkeypatch.setattr("dcc_mcp_core._server.skill_discovery.register_all_builtin_skills", mock_register)
         monkeypatch.setattr("dcc_mcp_core.server_base.create_adapter_server", MagicMock())
 
-        opts = DccServerOptions.from_env("maya", tmp_path, port=0, gateway_port=0)
+        opts = DccServerOptions.from_env("maya", tmp_path, port=0, gateway_port=19765)
         _ = DccServerBase(opts)
 
         assert len(calls) == 1
         assert "dcc_name" in calls[0][1]
         assert calls[0][1]["dcc_name"] == "maya"
+        assert calls[0][1]["gateway_port"] == 19765
+        assert calls[0][1]["instance_id_provider"]() is None
 
     def test_start_enables_gateway_election_through_runtime_controller(self, tmp_path, monkeypatch):
         server = self._make_server(tmp_path)

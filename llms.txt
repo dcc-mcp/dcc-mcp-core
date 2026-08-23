@@ -131,7 +131,7 @@ legacy unsigned staging, and does not replace a running server.
 | Checkpoint/resume long-running tool executions (issue #436) | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` / `checkpoint_every(n, job_id, state_fn)` — persist progress at intervals so interrupted jobs resume from last checkpoint |
 | Project-level state persistence (#576) | `DccProject.open(scene_path)` creates/loads `.dcc-mcp/project.json`; mutate via `add_asset`, `activate_skill`, `activate_tool_group`, `add_checkpoint_id`, `update_metadata`; call `register_project_tools(server, ...)` to expose `project_save`, `project_load`, `project_resume`, and `project_status`; use `resume_session()` to recover scene/assets/skills/checkpoints across DCC restarts |
 | Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
-| Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
+| Agent feedback / rationale (issues #433, #434, #2257) | `dcc-mcp-cli feedback` / `POST /v1/feedback` remain available without live DCCs; `register_feedback_tool(server)` exposes `dcc_feedback__report` as a shared thin gateway forwarder; `extract_rationale(params)` / `make_rationale_meta(text)` handle `_meta.dcc.rationale` |
 | Runtime DCC namespace introspection (issue #426) | `register_introspect_tools(server)` — `dcc_introspect__list_module`, `dcc_introspect__signature`, `dcc_introspect__search`, `dcc_introspect__eval` |
 | Optional skill metadata extension tools (issue #1229) | `register_metadata_driven_tools(server, skills=..., dcc_name="maya")` — registers optional metadata-driven tools such as recipes and skill reference docs, returning a report with `registered` / `failed` / `skipped` extension outcomes |
 | Skill/domain recipes (issues #428, #616) | `register_recipes_tools(server, skills=...)` — `recipes__list/search/get/validate/apply` tools for Markdown anchors and structured YAML recipe packs |
@@ -652,7 +652,7 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 
 ### Agent Feedback & Rationale (`dcc_mcp_core.feedback`)
 
-- `register_feedback_tool(server, *, dcc_name="dcc")` — register `dcc_feedback__report` MCP tool; call **before** `server.start()`
+- `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None)` — register `dcc_feedback__report` as a fail-closed thin forwarder to gateway `/v1/feedback`; call **before** `server.start()`
 - `extract_rationale(params) -> str | None` — extract `_meta.dcc.rationale` from a `tools/call` params dict
 - `make_rationale_meta(rationale) -> dict` — build the `_meta` fragment for a `tools/call` request with a rationale
 - `get_feedback_entries(*, tool_name=None, severity=None, limit=50) -> list[dict]` — return recent feedback entries (newest first)

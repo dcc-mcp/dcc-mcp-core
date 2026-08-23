@@ -36,6 +36,9 @@ def register_all_builtin_skills(
     skills: list[Any] | None = None,
     diagnostic_state: DiagnosticRuntimeState | None = None,
     feedback_store: FeedbackStore | None = None,
+    gateway_endpoint: str | None = None,
+    gateway_port: int | None = None,
+    instance_id_provider: Callable[[], str | None] | None = None,
 ) -> None:
     """Register all standard built-in tools on *server*.
 
@@ -77,7 +80,14 @@ def register_all_builtin_skills(
     register_introspect_tools(server, dcc_name=dcc_name)
 
     # 3. Agent feedback
-    register_feedback_tool(server, dcc_name=dcc_name, store=feedback_store)
+    register_feedback_tool(
+        server,
+        dcc_name=dcc_name,
+        store=feedback_store,
+        gateway_endpoint=gateway_endpoint,
+        gateway_port=gateway_port,
+        instance_id_provider=instance_id_provider,
+    )
 
     # 4. Recipes (skills default to empty at base init; adapters re-register
     #    with the scanned skill set later — registration is idempotent).

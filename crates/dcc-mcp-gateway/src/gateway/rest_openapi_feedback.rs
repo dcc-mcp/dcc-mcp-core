@@ -13,10 +13,23 @@ pub(super) fn path_operation() -> Value {
     let responses = operation["post"]["responses"]
         .as_object_mut()
         .expect("POST operation responses must be an object");
-    let response = responses
+    let mut response = responses
         .remove("200")
         .expect("POST operation must define a success response");
+    response["headers"] = json!({
+        "X-Request-ID": {
+            "description": "Exact echo of the optional request correlation header.",
+            "schema": {"type": "string"}
+        }
+    });
     responses.insert("201".to_string(), response);
+    operation["post"]["parameters"] = json!([{
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "description": "Optional transport correlation id echoed on success and validation errors.",
+        "schema": {"type": "string"}
+    }]);
     operation
 }
 
@@ -76,6 +89,19 @@ mod tests {
         assert_eq!(
             operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
             "#/components/schemas/GatewayFeedbackReport"
+        );
+        assert!(
+            operation["parameters"]
+                .as_array()
+                .is_some_and(|parameters| {
+                    parameters
+                        .iter()
+                        .any(|parameter| parameter["name"] == "X-Request-ID")
+                })
+        );
+        assert_eq!(
+            operation["responses"]["201"]["headers"]["X-Request-ID"]["schema"]["type"],
+            "string"
         );
         let report = &doc["components"]["schemas"]["GatewayFeedbackReport"];
         assert!(report["properties"].get("instance_id").is_some());

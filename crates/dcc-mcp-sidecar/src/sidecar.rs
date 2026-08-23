@@ -360,8 +360,16 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     let mut gateway_control: Option<crate::sidecar_gateway::SidecarGatewayControl> = None;
 
     let mut host_rpc_reconnect_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let gateway_host = args.gateway_host.as_deref().unwrap_or(&args.host);
+    let feedback = crate::sidecar_mcp::SidecarFeedbackForwarder::for_gateway(
+        key.dcc_type.clone(),
+        key.instance_id.to_string(),
+        gateway_host,
+        args.gateway_port,
+    );
     let state =
-        crate::sidecar_mcp::SidecarMcpState::new(host_rpc_client, env!("CARGO_PKG_VERSION"));
+        crate::sidecar_mcp::SidecarMcpState::new(host_rpc_client, env!("CARGO_PKG_VERSION"))
+            .with_feedback(feedback);
     let reconnect_state = state.clone();
     let mcp_handle = match crate::sidecar_mcp::spawn_listener(state, "127.0.0.1", 0).await {
         Ok(handle) => {
