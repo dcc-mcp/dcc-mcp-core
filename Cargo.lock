@@ -1584,6 +1584,7 @@ dependencies = [
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
+ "sysinfo",
  "time",
  "tracing",
  "tracing-appender",

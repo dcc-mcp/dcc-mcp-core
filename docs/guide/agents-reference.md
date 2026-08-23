@@ -1516,9 +1516,11 @@ gateway from stale or hostile FileRegistry state:
    `default_file_logging_config()` instead of hand-rolling a
    `FileLoggingConfig` — it picks the platform log directory and a
    daily rotation policy. Pair it with `prune_old_logs(retention_days,
-   max_total_size_mb)` (call from a `tokio::spawn` ticker or at
-   process startup) to enforce both age- and size-based retention so
-   long-lived gateways don't fill the disk.
+   max_total_size_mb)` (call from a blocking task or at process startup)
+   to enforce both age- and size-based retention so long-lived gateways
+   don't fill the disk. Numeric `dcc-mcp-*.<pid>` prefixes share a retention
+   scope across process lifetimes; today's logs and logs owned by live
+   processes are never deleted.
 
 Gateway ingress limits and the fixed-minute rate window belong to each
 `GatewayState` through `GatewayIngressState`. Construct explicit limits in

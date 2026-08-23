@@ -23,6 +23,7 @@ tracing-appender = { workspace = true }
 tracing-tracy = { workspace = true, optional = true }
 time = { workspace = true }
 parking_lot = { workspace = true }
+sysinfo = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
