@@ -1,9 +1,58 @@
 //! Unit tests for [`crate::job::JobManager`].
 
 use super::*;
+use crate::job_storage::{JobFilter, JobStorage, JobStorageError};
 use serde_json::json;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
+
+#[derive(Debug, Default)]
+struct FailingStorage {
+    puts: AtomicUsize,
+    alternating: bool,
+}
+
+impl FailingStorage {
+    fn alternating() -> Self {
+        Self {
+            puts: AtomicUsize::new(0),
+            alternating: true,
+        }
+    }
+}
+
+impl JobStorage for FailingStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        let attempt = self.puts.fetch_add(1, Ordering::SeqCst);
+        let suffix = if self.alternating { attempt % 2 } else { 0 };
+        Err(JobStorageError::Backend(format!("readonly-{suffix}")))
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        Ok(0)
+    }
+}
 
 #[test]
 fn full_lifecycle_create_start_progress_complete_get() {
@@ -347,4 +396,54 @@ fn serde_status_lowercase() {
     );
     let s: JobStatus = serde_json::from_str("\"completed\"").unwrap();
     assert_eq!(s, JobStatus::Completed);
+}
+
+#[test]
+fn persistence_status_is_not_configured_without_storage() {
+    assert_eq!(
+        JobManager::new().persistence_status(),
+        JobPersistenceStatus {
+            state: JobPersistenceState::NotConfigured,
+            consecutive_failures: 0,
+            last_error_kind: None,
+        }
+    );
+}
+
+#[test]
+fn repeated_identical_put_failures_latch_persistence() {
+    let storage = Arc::new(FailingStorage::default());
+    let jobs = JobManager::with_storage(storage.clone());
+
+    for _ in 0..5 {
+        jobs.create("scene.inspect");
+    }
+
+    assert_eq!(storage.puts.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        jobs.persistence_status(),
+        JobPersistenceStatus {
+            state: JobPersistenceState::Disabled,
+            consecutive_failures: 3,
+            last_error_kind: Some("backend".to_string()),
+        }
+    );
+    assert_eq!(jobs.list().len(), 5, "in-memory jobs must keep working");
+}
+
+#[test]
+fn different_put_failures_do_not_trip_identical_error_latch() {
+    let storage = Arc::new(FailingStorage::alternating());
+    let jobs = JobManager::with_storage(storage.clone());
+
+    for _ in 0..6 {
+        jobs.create("scene.inspect");
+    }
+
+    assert_eq!(storage.puts.load(Ordering::SeqCst), 6);
+    assert_eq!(
+        jobs.persistence_status().state,
+        JobPersistenceState::Degraded
+    );
+    assert_eq!(jobs.persistence_status().consecutive_failures, 1);
 }

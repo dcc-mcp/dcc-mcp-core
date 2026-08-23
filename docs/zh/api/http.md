@@ -140,7 +140,7 @@ server = McpHttpServer(
 | `/mcp` | POST | MCP 请求（JSON-RPC 2.0） |
 | `/mcp` | GET | SSE 兼容的事件流 |
 | `/mcp` | DELETE | 终止 MCP 会话 |
-| `/health` | GET | 健康检查 |
+| `/health` | GET | 健康检查，并包含 `job_persistence` 状态 |
 
 ### 请求/响应格式
 
@@ -234,7 +234,7 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 |------|------|------|
 | `/instances` | GET | 所有活跃实例的 JSON 列表 |
 | `/v1/instances` | GET | 实例发现的 REST 别名 |
-| `/health` | GET | `{"ok": true}` 健康检查 |
+| `/health` | GET | 健康检查，并包含安全的 `job_persistence` 状态快照 |
 | `/mcp` | POST | 有界 MCP 端点，只暴露网关发现原语（`search`、`describe`） |
 | `/mcp` | GET | SSE 事件流 — 进度、作业/工作流、资源、prompt 通知 |
 | `/v1/search` | POST | 搜索紧凑后端能力记录 |

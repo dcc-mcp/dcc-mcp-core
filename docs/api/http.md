@@ -153,7 +153,7 @@ The server implements the MCP 2025-03-26 spec:
 | `/mcp` | POST | MCP request (JSON-RPC 2.0) |
 | `/mcp` | GET | SSE-compatible event stream |
 | `/mcp` | DELETE | Terminate MCP session |
-| `/health` | GET | Health check |
+| `/health` | GET | Health check with `job_persistence` state |
 
 ### Request/Response Format
 
@@ -293,7 +293,7 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 |----------|--------|-------------|
 | `/instances` | GET | JSON list of all live instances |
 | `/v1/instances` | GET | REST alias for instance discovery |
-| `/health` | GET | `{"ok": true}` health check |
+| `/health` | GET | Health check with a payload-safe `job_persistence` state snapshot |
 | `/mcp` | POST | Bounded MCP endpoint with gateway workflow primitives (`search`, `describe`, `load_skill`, `call`) |
 | `/mcp` | GET | SSE stream for progress, job/workflow, resource, and prompt notifications |
 | `/v1/search` | POST | Search compact backend capability records |

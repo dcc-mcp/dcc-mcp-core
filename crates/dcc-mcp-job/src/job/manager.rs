@@ -11,9 +11,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use super::types::{Job, JobEvent, JobProgress, JobStatus, JobSubscriber};
+use super::{JobPersistenceStatus, persistence::PersistenceCircuit};
 
 /// Thread-safe registry of [`Job`]s.
-#[derive(Default)]
 pub struct JobManager {
     jobs: DashMap<String, Arc<RwLock<Job>>>,
     /// Subscribers invoked on every status transition. See [`Self::subscribe`].
@@ -22,6 +22,13 @@ pub struct JobManager {
     /// mutation is written through to storage so the next process
     /// incarnation can see and mark-interrupted any in-flight jobs.
     storage: Option<Arc<dyn crate::job_storage::JobStorage>>,
+    persistence: parking_lot::Mutex<PersistenceCircuit>,
+}
+
+impl Default for JobManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl std::fmt::Debug for JobManager {
@@ -30,6 +37,7 @@ impl std::fmt::Debug for JobManager {
             .field("jobs", &self.jobs.len())
             .field("subscribers", &self.subscribers.read().len())
             .field("has_storage", &self.storage.is_some())
+            .field("persistence", &self.persistence_status())
             .finish()
     }
 }
@@ -41,6 +49,7 @@ impl JobManager {
             jobs: DashMap::new(),
             subscribers: RwLock::new(Vec::new()),
             storage: None,
+            persistence: parking_lot::Mutex::new(PersistenceCircuit::default()),
         }
     }
 
@@ -55,6 +64,7 @@ impl JobManager {
             jobs: DashMap::new(),
             subscribers: RwLock::new(Vec::new()),
             storage: Some(storage),
+            persistence: parking_lot::Mutex::new(PersistenceCircuit::configured()),
         }
     }
 
@@ -63,11 +73,17 @@ impl JobManager {
     /// [`Self::with_storage`].
     pub fn set_storage(&mut self, storage: Arc<dyn crate::job_storage::JobStorage>) {
         self.storage = Some(storage);
+        self.persistence = parking_lot::Mutex::new(PersistenceCircuit::configured());
     }
 
     /// Borrow the underlying storage, if any.
     pub fn storage(&self) -> Option<Arc<dyn crate::job_storage::JobStorage>> {
         self.storage.clone()
+    }
+
+    /// Return a payload-safe snapshot of persistence health.
+    pub fn persistence_status(&self) -> JobPersistenceStatus {
+        self.persistence.lock().status()
     }
 
     /// Recover any in-flight rows left over by a previous process
@@ -114,10 +130,39 @@ impl JobManager {
     }
 
     fn persist_put(&self, job: &Job) {
-        if let Some(storage) = &self.storage
-            && let Err(e) = storage.put(job)
-        {
-            tracing::warn!(job_id = %job.id, error = %e, "JobStorage.put failed");
+        let Some(storage) = &self.storage else {
+            return;
+        };
+        let mut persistence = self.persistence.lock();
+        if !persistence.can_write() {
+            return;
+        }
+        match storage.put(job) {
+            Ok(()) => {
+                if persistence.record_success() {
+                    tracing::info!("job persistence recovered after a transient write failure");
+                }
+            }
+            Err(error) => {
+                let disabled = persistence.record_failure(&error);
+                let status = persistence.status();
+                drop(persistence);
+                if disabled {
+                    tracing::warn!(
+                        error = %error,
+                        error_kind = status.last_error_kind.as_deref().unwrap_or("unknown"),
+                        consecutive_failures = status.consecutive_failures,
+                        "job persistence disabled after repeated identical write failures"
+                    );
+                } else {
+                    tracing::debug!(
+                        job_id = %job.id,
+                        error = %error,
+                        consecutive_failures = status.consecutive_failures,
+                        "JobStorage.put failed"
+                    );
+                }
+            }
         }
     }
 

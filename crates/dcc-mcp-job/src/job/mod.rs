@@ -46,6 +46,7 @@
 
 mod chunked;
 mod manager;
+mod persistence;
 mod types;
 
 #[cfg(test)]
@@ -53,4 +54,5 @@ mod tests;
 
 pub use chunked::{ChunkedJobRunner, ChunkedStep, ChunkedStepOutput};
 pub use manager::JobManager;
+pub use persistence::{JobPersistenceState, JobPersistenceStatus};
 pub use types::{Job, JobEvent, JobProgress, JobStatus, JobSubscriber};

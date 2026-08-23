@@ -59,6 +59,31 @@ handle = server.start()
 `job-persist-sqlite` 的情况下构建的，`server.start()` 会快速失败并返回
 描述性错误，而不是静默回退到内存存储。
 
+## 运行时写入失败
+
+启动后的持久化采用 fail-soft 语义：如果已配置的后端变为不可写，作业仍会
+依靠进程内映射继续运行。管理器会记录连续写入失败；同一错误连续出现三次后，
+停止后续持久化尝试。未达到阈值的瞬时失败记录为 `DEBUG`；达到阈值时只发出
+一次 `WARN`，因此损坏的 SQLite 文件不会在每次后续作业转换时持续刷警告。
+
+`GET /health` 会公开不含文件系统路径和原始后端消息的安全状态快照：
+
+```json
+{
+  "ok": true,
+  "service": "dcc-mcp-http",
+  "job_persistence": {
+    "state": "disabled",
+    "consecutive_failures": 3,
+    "last_error_kind": "backend"
+  }
+}
+```
+
+`state` 取值为 `not_configured`、`healthy`、`degraded` 或 `disabled`。
+在新管理器中安装存储后端会重置熔断状态。已禁用的管理器不会探测或自动修复
+数据库；修复后端故障后，需要替换或重启管理器。
+
 ## 启动恢复
 
 当 `JobManager` 以存储后端启动时，它会扫描状态为 `Pending` 或
@@ -133,3 +158,4 @@ CREATE INDEX IF NOT EXISTS jobs_updated_idx ON jobs(updated_at);
 - #326 — `$/dcc.jobUpdated` 通知
 - #371 — `jobs_get_status` 工具
 - **#328** — 本文档
+- **#2277** — 有界写入失败熔断与健康状态可见性
