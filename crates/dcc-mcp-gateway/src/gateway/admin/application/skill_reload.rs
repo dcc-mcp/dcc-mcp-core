@@ -1,6 +1,6 @@
 //! Shared skill-catalog reload hook used by admin handlers that mutate skill paths.
 
-use super::state::AdminState;
+use super::super::state::AdminState;
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::refresh_all_live_backends;
 

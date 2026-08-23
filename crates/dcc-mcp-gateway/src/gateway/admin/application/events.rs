@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-use super::state::AdminState;
+use super::super::state::AdminState;
 use crate::gateway::event_log::{ContendEvent, EventKind};
 
 pub(crate) fn contend_event_to_admin_row(e: ContendEvent) -> Value {
