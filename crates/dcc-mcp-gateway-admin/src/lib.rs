@@ -26,6 +26,7 @@ mod links;
 mod memory;
 mod projection;
 mod recordings;
+mod sessions;
 mod skill_health;
 mod skill_paths;
 mod sqlite_lane;
@@ -78,6 +79,7 @@ pub use projection::{
 pub use recordings::{
     recording_default_postcondition, recording_semantic_query, recording_ui_session,
 };
+pub use sessions::{session_detail_payload, sessions_payload};
 pub use skill_health::{
     SkillCapabilityInput, SkillSearchFollowupInput, SkillSearchHitInput, SkillSearchInput,
     skill_inventory_payload,
