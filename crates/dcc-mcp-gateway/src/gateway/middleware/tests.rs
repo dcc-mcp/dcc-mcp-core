@@ -148,6 +148,43 @@ async fn test_audit_middleware_records_call() {
     assert!(e.result_preview.contains("all good"));
 }
 
+#[tokio::test]
+async fn test_audit_middleware_records_script_identity_without_source() {
+    let spy = Arc::new(SpySink::default());
+    let entries = spy.0.clone();
+    let middleware = AuditMiddleware::new(spy);
+    let ctx = CallContext::new(
+        "tools/call",
+        "req-script",
+        json!({"code": "print('private source')"}),
+    )
+    .with_tool_slug("execute_python");
+    let response = json!({
+        "context": {
+            "materialized_script": {
+                "sha256": "e".repeat(64),
+                "reused": false,
+                "reuse_key": "layout-export",
+                "source": "print('private source')"
+            }
+        }
+    });
+    let mut result = CallResult::from_tuple(response.to_string(), false);
+
+    middleware.after_call(&ctx, &mut result).await.unwrap();
+
+    let entries = entries.lock().unwrap();
+    let script = entries[0].script_execution.as_ref().unwrap();
+    assert_eq!(script.sha256, "e".repeat(64));
+    assert_eq!(script.reused, Some(false));
+    assert_eq!(script.reuse_key.as_deref(), Some("layout-export"));
+    assert!(
+        !serde_json::to_string(script)
+            .unwrap()
+            .contains("private source")
+    );
+}
+
 // ── QuotaMiddleware ───────────────────────────────────────────────────────────
 
 #[tokio::test]

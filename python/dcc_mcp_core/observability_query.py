@@ -9,6 +9,7 @@ changes without breaking.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -270,6 +271,118 @@ class ObservabilityQuery:
         return build_query_response(
             "tool_call_stats",
             {"stats": stats, "events": events},
+            query_params=params,
+        )
+
+    def get_repeated_scripts(
+        self,
+        *,
+        min_repeats: int = 3,
+        since_ms: int | None = None,
+        until_ms: int | None = None,
+        dcc_type: str | None = None,
+        tool_name: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Return repeated materialized scripts and review-only promotion candidates.
+
+        Script source is never selected. Evidence comes from the redaction-safe
+        ``script_execution`` identity stored in durable audit JSON rows.
+        """
+        if isinstance(min_repeats, bool) or min_repeats < 2:
+            raise ValueError("min_repeats must be an integer greater than or equal to 2")
+        if isinstance(limit, bool) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+
+        params: dict[str, Any] = {
+            "min_repeats": int(min_repeats),
+            "limit": min(int(limit), 1000),
+        }
+        conditions = [
+            "json_valid(audit_json)",
+            "json_extract(audit_json, '$.script_execution.sha256') IS NOT NULL",
+        ]
+        if since_ms is not None:
+            conditions.append("ts_ms >= :since_ms")
+            params["since_ms"] = int(since_ms)
+        if until_ms is not None:
+            conditions.append("ts_ms <= :until_ms")
+            params["until_ms"] = int(until_ms)
+        if dcc_type:
+            conditions.append("json_extract(audit_json, '$.dcc_type') = :dcc_type")
+            params["dcc_type"] = dcc_type
+        if tool_name:
+            conditions.append("json_extract(audit_json, '$.action') = :tool_name")
+            params["tool_name"] = tool_name
+
+        where = " AND ".join(conditions)
+        sql = f"""
+            SELECT
+                json_extract(audit_json, '$.script_execution.sha256') AS sha256,
+                json_extract(audit_json, '$.script_execution.reuse_key') AS reuse_key,
+                json_extract(audit_json, '$.dcc_type') AS dcc_type,
+                json_extract(audit_json, '$.action') AS tool_name,
+                COUNT(*) AS execution_count,
+                COUNT(DISTINCT json_extract(audit_json, '$.session_id')) AS session_count,
+                SUM(CASE
+                    WHEN json_extract(audit_json, '$.script_execution.reused') = 1 THEN 1
+                    ELSE 0 END) AS reused_count,
+                SUM(CASE
+                    WHEN COALESCE(json_extract(audit_json, '$.script_execution.reused'), 0) = 0
+                    THEN 1 ELSE 0 END) AS rematerialized_count,
+                MIN(ts_ms) AS first_seen_ms,
+                MAX(ts_ms) AS last_seen_ms
+            FROM audits
+            WHERE {where}
+            GROUP BY sha256, reuse_key, dcc_type, tool_name
+            HAVING COUNT(*) >= :min_repeats
+            ORDER BY execution_count DESC, last_seen_ms DESC
+            LIMIT :limit
+            """
+        if self._read_fn is None:
+            rows = []
+        else:
+            try:
+                rows = self._read_fn(sql, params)
+            except Exception as exc:
+                if "no such function: json" in str(exc).lower():
+                    logger.warning("SQLite JSON1 unavailable; using portable audit aggregation")
+                    try:
+                        rows = _repeated_script_rows_without_json1(
+                            self._read_fn,
+                            min_repeats=int(min_repeats),
+                            limit=params["limit"],
+                            since_ms=since_ms,
+                            until_ms=until_ms,
+                            dcc_type=dcc_type,
+                            tool_name=tool_name,
+                        )
+                    except Exception as fallback_exc:
+                        logger.warning(
+                            "ObservabilityQuery portable audit aggregation failed: %s",
+                            fallback_exc,
+                        )
+                        rows = []
+                else:
+                    logger.warning(
+                        "ObservabilityQuery repeated-script query failed: %s",
+                        exc,
+                    )
+                    rows = []
+
+        scripts = [_repeated_script_evidence(row) for row in rows]
+        candidates = [
+            {
+                "candidate_id": f"script:{row['sha256']}",
+                "decision": "manual_review",
+                "recommended_action": "review_skill_improvement",
+                "evidence": row,
+            }
+            for row in scripts
+        ]
+        return build_query_response(
+            "repeated_scripts",
+            {"scripts": scripts, "promotion_candidates": candidates},
             query_params=params,
         )
 
@@ -537,3 +650,119 @@ def _build_session_tree(
             roots.append(node)
 
     return roots
+
+
+def _repeated_script_evidence(row: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the allowlisted, source-free promotion evidence shape."""
+    return {
+        "sha256": str(row.get("sha256", "")),
+        "reuse_key": row.get("reuse_key"),
+        "dcc_type": row.get("dcc_type"),
+        "tool_name": row.get("tool_name"),
+        "execution_count": int(row.get("execution_count", 0)),
+        "session_count": int(row.get("session_count", 0)),
+        "reused_count": int(row.get("reused_count", 0)),
+        "rematerialized_count": int(row.get("rematerialized_count", 0)),
+        "first_seen_ms": int(row.get("first_seen_ms", 0)),
+        "last_seen_ms": int(row.get("last_seen_ms", 0)),
+    }
+
+
+def _repeated_script_rows_without_json1(
+    read_fn: Callable[[str, dict[str, Any]], list[dict[str, Any]]],
+    *,
+    min_repeats: int,
+    limit: int,
+    since_ms: int | None,
+    until_ms: int | None,
+    dcc_type: str | None,
+    tool_name: str | None,
+) -> list[dict[str, Any]]:
+    """Aggregate source-free script identities on SQLite builds without JSON1."""
+    conditions = []
+    params: dict[str, Any] = {}
+    if since_ms is not None:
+        conditions.append("ts_ms >= :since_ms")
+        params["since_ms"] = int(since_ms)
+    if until_ms is not None:
+        conditions.append("ts_ms <= :until_ms")
+        params["until_ms"] = int(until_ms)
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+    audit_rows = read_fn(
+        f"SELECT ts_ms, audit_json FROM audits{where} ORDER BY ts_ms ASC",
+        params,
+    )
+
+    grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in audit_rows:
+        raw_json = row.get("audit_json")
+        if not isinstance(raw_json, (str, bytes, bytearray)):
+            continue
+        try:
+            audit = json.loads(raw_json)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(audit, dict):
+            continue
+        script = audit.get("script_execution")
+        if not isinstance(script, dict):
+            continue
+        sha256 = script.get("sha256")
+        if not isinstance(sha256, str) or not sha256:
+            continue
+        audit_dcc = audit.get("dcc_type")
+        audit_tool = audit.get("action")
+        if dcc_type and audit_dcc != dcc_type:
+            continue
+        if tool_name and audit_tool != tool_name:
+            continue
+        reuse_key = script.get("reuse_key")
+        if not isinstance(reuse_key, str):
+            reuse_key = None
+        if not isinstance(audit_dcc, str):
+            audit_dcc = None
+        if not isinstance(audit_tool, str):
+            audit_tool = None
+        try:
+            timestamp_ms = int(row.get("ts_ms", 0))
+        except (TypeError, ValueError):
+            continue
+
+        key = (sha256, reuse_key, audit_dcc, audit_tool)
+        evidence = grouped.setdefault(
+            key,
+            {
+                "sha256": sha256,
+                "reuse_key": reuse_key,
+                "dcc_type": audit_dcc,
+                "tool_name": audit_tool,
+                "execution_count": 0,
+                "_sessions": set(),
+                "reused_count": 0,
+                "rematerialized_count": 0,
+                "first_seen_ms": timestamp_ms,
+                "last_seen_ms": timestamp_ms,
+            },
+        )
+        evidence["execution_count"] += 1
+        session_id = audit.get("session_id")
+        if isinstance(session_id, str):
+            evidence["_sessions"].add(session_id)
+        if script.get("reused") is True:
+            evidence["reused_count"] += 1
+        else:
+            evidence["rematerialized_count"] += 1
+        evidence["first_seen_ms"] = min(evidence["first_seen_ms"], timestamp_ms)
+        evidence["last_seen_ms"] = max(evidence["last_seen_ms"], timestamp_ms)
+
+    rows = []
+    for evidence in grouped.values():
+        if evidence["execution_count"] < min_repeats:
+            continue
+        evidence["session_count"] = len(evidence.pop("_sessions"))
+        rows.append(evidence)
+    rows.sort(
+        key=lambda item: (item["execution_count"], item["last_seen_ms"]),
+        reverse=True,
+    )
+    return rows[:limit]

@@ -11,6 +11,7 @@ These tests verify:
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from typing import Any
 
@@ -436,6 +437,110 @@ class TestObservabilityQuery:
 
         assert len(captured_params) == 1
         assert captured_params[0] == {}
+
+    def test_repeated_scripts_emit_review_only_promotion_candidates(self) -> None:
+        captured: list[tuple[str, dict[str, Any]]] = []
+
+        def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+            captured.append((sql, dict(params)))
+            return [
+                {
+                    "sha256": "c" * 64,
+                    "reuse_key": "asset-builder",
+                    "dcc_type": "maya",
+                    "tool_name": "execute_python",
+                    "execution_count": 4,
+                    "session_count": 3,
+                    "reused_count": 1,
+                    "rematerialized_count": 3,
+                    "first_seen_ms": 1000,
+                    "last_seen_ms": 4000,
+                }
+            ]
+
+        response = ObservabilityQuery(read_json_fn=mock_read).get_repeated_scripts(
+            min_repeats=3,
+            since_ms=500,
+            dcc_type="maya",
+        )
+
+        assert response["query_type"] == "repeated_scripts"
+        candidate = response["data"]["promotion_candidates"][0]
+        assert candidate["decision"] == "manual_review"
+        assert candidate["recommended_action"] == "review_skill_improvement"
+        assert candidate["evidence"]["execution_count"] == 4
+        assert "source" not in repr(response).lower()
+        assert captured[0][1]["min_repeats"] == 3
+        assert captured[0][1]["since_ms"] == 500
+
+    def test_repeated_scripts_query_runs_against_audits_json(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.execute(
+            "CREATE TABLE audits (request_id TEXT PRIMARY KEY, ts_ms INTEGER, audit_json TEXT)",
+        )
+        for index, reused in enumerate((False, False, True), start=1):
+            audit = {
+                "session_id": f"session-{index}",
+                "action": "execute_python",
+                "dcc_type": "maya",
+                "script_execution": {
+                    "sha256": "d" * 64,
+                    "reused": reused,
+                    "reuse_key": "layout-export",
+                },
+            }
+            connection.execute(
+                "INSERT INTO audits VALUES (?, ?, ?)",
+                (f"request-{index}", index * 1000, json.dumps(audit)),
+            )
+
+        def read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+            return [dict(row) for row in connection.execute(sql, params).fetchall()]
+
+        response = ObservabilityQuery(read_json_fn=read).get_repeated_scripts(min_repeats=3)
+
+        evidence = response["data"]["scripts"][0]
+        assert evidence["session_count"] == 3
+        assert evidence["reused_count"] == 1
+        assert evidence["rematerialized_count"] == 2
+
+    def test_repeated_scripts_falls_back_when_sqlite_json1_is_unavailable(self) -> None:
+        audits = []
+        for index, reused in enumerate((False, True, False), start=1):
+            audits.append(
+                {
+                    "ts_ms": index * 1000,
+                    "audit_json": json.dumps(
+                        {
+                            "session_id": f"session-{index}",
+                            "action": "execute_python",
+                            "dcc_type": "maya",
+                            "script_execution": {
+                                "sha256": "e" * 64,
+                                "reused": reused,
+                                "reuse_key": "legacy-sqlite",
+                            },
+                        }
+                    ),
+                }
+            )
+
+        def read(sql: str, _params: dict[str, Any]) -> list[dict[str, Any]]:
+            if "json_extract" in sql:
+                raise sqlite3.OperationalError("no such function: json_extract")
+            assert "SELECT ts_ms, audit_json" in sql
+            return audits
+
+        response = ObservabilityQuery(read_json_fn=read).get_repeated_scripts(
+            min_repeats=3,
+            dcc_type="maya",
+        )
+
+        evidence = response["data"]["scripts"][0]
+        assert evidence["session_count"] == 3
+        assert evidence["reused_count"] == 1
+        assert evidence["rematerialized_count"] == 2
 
 
 class TestCoverageStats:

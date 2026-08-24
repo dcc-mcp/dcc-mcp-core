@@ -648,6 +648,7 @@ fn admin_audit_row_json(r: &AdminAuditRecord, links: Option<AdminLinkBuilder>) -
         "success": r.success,
         "error": r.error,
         "duration_ms": r.duration_ms,
+        "script_execution": r.script_execution,
     });
     apply_token_fields(&mut row, r.token_accounting.as_ref());
     if let Some(llm) = r.llm_usage.as_ref() {

@@ -144,6 +144,7 @@ mod endpoint_contracts {
             spans: vec![],
             input: None,
             output: None,
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         });
@@ -168,6 +169,7 @@ mod endpoint_contracts {
             spans: vec![],
             input: None,
             output: None,
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         });
@@ -251,6 +253,7 @@ mod endpoint_contracts {
                 spans: vec![],
                 input: None,
                 output: None,
+                script_execution: None,
                 token_accounting: None,
                 llm_usage: None,
             });
@@ -329,6 +332,7 @@ mod endpoint_contracts {
                 1024,
             )),
             output: None,
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         };
@@ -372,6 +376,7 @@ mod endpoint_contracts {
             spans: vec![],
             input: None,
             output: Some(TracePayload::from_value(&json!({"result": "ok"}), 1024)),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         };
@@ -442,6 +447,7 @@ mod endpoint_contracts {
             spans: vec![],
             input: Some(TracePayload::from_str("response body", 1024)),
             output: Some(TracePayload::from_value(&json!({"ok": true}), 1024)),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         };

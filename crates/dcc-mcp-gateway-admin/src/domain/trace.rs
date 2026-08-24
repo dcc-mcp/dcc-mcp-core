@@ -218,6 +218,81 @@ pub const MAX_AGENT_CONTEXT_STRING_BYTES: usize = 2 * 1024; // 2 KB per field
 pub const MAX_AGENT_CONTEXT_METADATA_BYTES: usize = 8 * 1024; // 8 KB JSON preview
 pub const MAX_AGENT_CONTEXT_LIST_ITEMS: usize = 16;
 
+/// Redaction-safe identity for one materialized script execution.
+///
+/// The source body and materialized path are intentionally absent. This
+/// projection is safe to attach to audit and trace rows used for aggregation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptExecutionTelemetry {
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reused: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse_key: Option<String>,
+}
+
+impl ScriptExecutionTelemetry {
+    /// Extract an allowlisted script identity from a call result, then input.
+    /// Invalid hashes and source-only payloads are ignored.
+    #[must_use]
+    pub fn from_call(arguments: &Value, response_text: &str) -> Option<Self> {
+        serde_json::from_str::<Value>(response_text)
+            .ok()
+            .and_then(|value| Self::from_value(&value))
+            .or_else(|| Self::from_value(arguments))
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Object(object) => {
+                if let Some(materialized) = object.get("materialized_script")
+                    && let Some(telemetry) = Self::from_descriptor(materialized)
+                {
+                    return Some(telemetry);
+                }
+                if let Some(telemetry) = Self::from_descriptor(value) {
+                    return Some(telemetry);
+                }
+                object.values().find_map(Self::from_value)
+            }
+            Value::Array(values) => values.iter().find_map(Self::from_value),
+            Value::String(text) if text.len() <= MAX_OUTPUT_BYTES => {
+                serde_json::from_str::<Value>(text)
+                    .ok()
+                    .and_then(|nested| Self::from_value(&nested))
+            }
+            _ => None,
+        }
+    }
+
+    fn from_descriptor(value: &Value) -> Option<Self> {
+        let object = value.as_object()?;
+        let sha256 = object.get("sha256")?.as_str()?.trim().to_ascii_lowercase();
+        if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        let looks_materialized = object.contains_key("reused")
+            || object.contains_key("reuse_key")
+            || object.contains_key("file_ref")
+            || object.contains_key("file_path")
+            || object.contains_key("script_id");
+        if !looks_materialized {
+            return None;
+        }
+        let reuse_key = object
+            .get("reuse_key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.chars().take(128).collect());
+        Some(Self {
+            sha256,
+            reused: object.get("reused").and_then(Value::as_bool),
+            reuse_key,
+        })
+    }
+}
+
 /// Captured payload (input arguments or output content), optionally truncated.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TracePayload {
@@ -572,6 +647,9 @@ pub struct DispatchTrace {
     /// Captured response content (bounded to [`MAX_OUTPUT_BYTES`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TracePayload>,
+    /// Redaction-safe materialized script identity, when this call executed one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_execution: Option<ScriptExecutionTelemetry>,
     /// Token accounting for the client-visible response, if available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_accounting: Option<TokenTelemetry>,

@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use parking_lot::Mutex;
 
-use crate::{AgentContextTrust, LlmUsage, TokenTelemetry};
+use crate::{AgentContextTrust, LlmUsage, ScriptExecutionTelemetry, TokenTelemetry};
 
 /// Minimal audit record consumed by admin projections and persistence adapters.
 #[derive(Debug, Clone)]
@@ -63,6 +63,8 @@ pub struct AdminAuditRecord {
     pub error: Option<String>,
     /// Wall-clock call duration in milliseconds.
     pub duration_ms: Option<u64>,
+    /// Redaction-safe materialized script identity, never source or path.
+    pub script_execution: Option<ScriptExecutionTelemetry>,
     /// Token accounting for the client-visible response, if available.
     pub token_accounting: Option<TokenTelemetry>,
     /// Optional upstream LLM billing token counts, when supplied.
