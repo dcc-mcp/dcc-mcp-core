@@ -195,7 +195,13 @@ dcc-mcp-cli gateway daemon status
 dcc-mcp-cli lint path/to/skills
 ```
 
-`call --wait` polls the routed `jobs_get_status` tool to terminal state. When
+`call --wait` polls the routed `jobs_get_status` tool to terminal state. If a
+direct call or terminal Core result exposes an adapter-owned job with a safe
+`adapter_job.poll` contract, the CLI continues on that typed status tool on
+the same instance route and within the same total wait timeout. Safe adapter
+pollers are synchronous, read-only, idempotent tools whose only required input
+is a string `job_id`; every other input must be optional and safe when omitted.
+Async, mutating, or multi-required-input follow-ups are never called automatically. When
 the job reports `progress.current` and `progress.total`, the CLI writes a
 20-cell progress bar to stderr at 5% steps, polls at most once per second, and
 emits a 30-second heartbeat when progress stalls. The final response remains
@@ -204,7 +210,10 @@ Transient gateway loss keeps the same `job_id` and emits
 `control_plane_reconnecting`; recovery adds `wait_recovery` to the terminal
 payload without resubmitting work. If the owning DCC/sidecar has exited, the
 CLI returns `tracking_status=owner_exited` and points isolated operations to
-their worker-owned status tool.
+their worker-owned status tool. A missing/unsafe poll contract, a changed job
+ID, or a non-canonical status response fails closed: `wait.terminal=false` (or
+the corresponding tracking error), a non-zero CLI result, and no replay of the
+launching operation.
 
 ### Commands
 

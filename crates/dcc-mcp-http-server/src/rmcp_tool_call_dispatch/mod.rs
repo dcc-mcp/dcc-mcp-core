@@ -1,5 +1,6 @@
 //! `tools/call` routing for rmcp handlers.
 
+mod adapter_jobs;
 mod handlers;
 mod helpers;
 mod thread_route;
@@ -19,6 +20,7 @@ use crate::rmcp_registry_context::RegistryContext;
 use crate::rmcp_tool_call_async::{async_dispatch_config, dispatch_async_registry_tool};
 use crate::server_state::ServerState;
 
+use adapter_jobs::attach_direct_adapter_job_contract;
 use handlers::{
     handle_activate_tool_group, handle_deactivate_tool_group, handle_deregister_tool_dynamic,
     handle_describe_action, handle_get_skill_info, handle_jobs_cleanup, handle_jobs_get_status,
@@ -242,7 +244,10 @@ async fn dispatch_registry_tool(
     .await;
 
     let mut result = match dispatch_out {
-        Ok(output) => dispatch_json_result(output),
+        Ok(mut output) => {
+            attach_direct_adapter_job_contract(state, &action_meta, &mut output);
+            dispatch_json_result(output)
+        }
         Err(e) => dispatch_err_result(&resolved_name, e),
     };
 
@@ -262,8 +267,8 @@ mod tests {
     use dcc_mcp_job::job::JobStatus;
     use dcc_mcp_jsonrpc::ToolContent;
     use dcc_mcp_models::{
-        ExecutionMode, SkillGroup, SkillMetadata, SkillScope, SkillToolAnnotations, ThreadAffinity,
-        ToolDeclaration,
+        ExecutionMode, NextTools, SkillGroup, SkillMetadata, SkillScope, SkillToolAnnotations,
+        ThreadAffinity, ToolDeclaration,
     };
     use dcc_mcp_skill_rest::StaticReadiness;
     use dcc_mcp_skills::SkillCatalog;
@@ -1085,6 +1090,92 @@ mod tests {
             result.structured_content,
             Some(json!({"skill": "modeling"}))
         );
+    }
+
+    #[tokio::test]
+    async fn sync_adapter_job_result_registers_safe_poll_contract() {
+        let registry = ToolRegistry::new();
+        let dispatcher = Arc::new(ToolDispatcher::new(registry.clone()));
+        registry.register_action(ToolMeta {
+            name: "blender_render__start_render_job".to_string(),
+            next_tools: NextTools {
+                on_success: vec!["blender_render__get_render_job".to_string()],
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        registry.register_action(ToolMeta {
+            name: "blender_render__get_render_job".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {"job_id": {"type": "string"}},
+                "required": ["job_id"],
+            }),
+            annotations: SkillToolAnnotations {
+                read_only_hint: Some(true),
+                idempotent_hint: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        dispatcher.register_handler("blender_render__start_render_job", |_| {
+            Ok(json!({
+                "success": true,
+                "message": "Background render job submitted",
+                "context": {
+                    "job_id": "render-adapter-42",
+                    "status": "running",
+                    "progress": {"current": 1, "total": 3},
+                },
+                "adapter_job": {
+                    "job_id": "render-adapter-42",
+                    "status": "running",
+                    "receipt": "preserved",
+                    "poll": {"owner": "adapter", "tool": "unregistered_status"},
+                    "cancellation": {"tool": "blender_render__cancel_render_job"},
+                },
+            }))
+        });
+
+        let registry = Arc::new(registry);
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        let result = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "blender_render__start_render_job",
+            Some(json!({})),
+            None,
+        )
+        .await
+        .expect("adapter launch should dispatch");
+        let output = result
+            .structured_content
+            .as_ref()
+            .expect("structured adapter result");
+
+        assert_eq!(output["adapter_job_id"], "render-adapter-42");
+        assert_eq!(output["adapter_job"]["owner"], "adapter");
+        assert_eq!(output["adapter_job"]["status"], "running");
+        assert_eq!(output["adapter_job"]["receipt"], "preserved");
+        assert_eq!(
+            output["adapter_job"]["cancellation"]["tool"],
+            "blender_render__cancel_render_job"
+        );
+        assert_eq!(
+            output["adapter_job"]["poll"],
+            json!({
+                "owner": "adapter",
+                "tool": "blender_render__get_render_job",
+                "arguments": {"job_id": "render-adapter-42"},
+            })
+        );
+        assert_eq!(&result_text_json(&result), output);
     }
 
     #[tokio::test]

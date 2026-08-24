@@ -216,6 +216,14 @@ service-owned operation and returns a durable job id immediately. Declare the
 poll and cancel tools in `next-tools` and in the result recovery context.
 Status must remain readable after a transport disconnect or adapter restart;
 state cancellation ownership honestly when it cannot be reconstructed.
+The launch result must include the same durable `job_id` plus one canonical
+status. To make CLI `--wait` follow the adapter operation, declare the status
+tool in `next-tools.on-success` with `execution: sync`, a string `job_id` as its
+only required input, and both `read_only_hint: true` and `idempotent_hint: true`.
+Every other input must be optional and safe when omitted. Core rejects async,
+mutating, optional-id, multi-required-input, and untyped pollers. The status tool must
+return the queried ID or an explicit unknown-ID error; it must never create a
+new operation while polling.
 
 Render and cook status tools should reuse the Core progress vocabulary:
 `status`, `progress.current`, `progress.total`, and `progress.message`.

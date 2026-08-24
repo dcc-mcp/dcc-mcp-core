@@ -130,9 +130,13 @@ When ``_meta.dcc.async=true`` or a ``progressToken`` is present:
 ``job_id`` remains a backward-compatible alias for ``core_job_id``. Poll that
 ID via the ``jobs_get_status`` built-in tool. If the terminal tool result starts
 a second adapter-owned operation, the status response also exposes
-``adapter_job_id`` and ``adapter_job``. Use ``adapter_job.poll`` when present;
-never pass an adapter ID back to ``jobs_get_status``. Core ``parent_job_id``
-and cancellation apply only to Core-owned jobs.
+``adapter_job_id`` and ``adapter_job``. CLI ``call --wait`` follows
+``adapter_job.poll`` on the same instance only when Core registered a
+synchronous, read-only, idempotent poller whose only required input is a string
+``job_id``; every other input must be optional and safe when omitted.
+Missing/unsafe poll metadata or a mismatched returned ID fails closed without
+replaying the launch. Never pass an adapter ID back to ``jobs_get_status``.
+Core ``parent_job_id`` and cancellation apply only to Core-owned jobs.
 
 ## _meta.dcc.raw_trace (when enable_error_raw_trace=True)
 

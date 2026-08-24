@@ -119,11 +119,15 @@ path resubmits work. A 410 lifecycle response becomes
 `recommended_next_action` instead of treating every missing route as 503.
 
 Async responses identify the wrapper as `core_job_id` with
-`job_id_owner=core`; legacy `job_id` is the same Core ID. A terminal Core call
-may expose a second `adapter_job_id`. `call --wait` resolves the Core wrapper
-and surfaces the adapter identity; if `adapter_job.poll` is present, call that
-typed read-only tool with the adapter ID. Never pass an adapter ID to
-`jobs_get_status`, and do not assume Core parent cancellation propagates to it.
+`job_id_owner=core`; legacy `job_id` is the same Core ID. A direct or terminal
+Core call may expose a second `adapter_job_id`. `call --wait` resolves the Core
+wrapper and automatically follows `adapter_job.poll` on the same instance when
+the declared status tool is synchronous, read-only, idempotent, and declares a
+string `job_id` as its only required input. Every other input must be optional
+and safe when omitted. Never pass an adapter ID to `jobs_get_status`, and do not assume
+Core parent cancellation propagates to it. Missing/unsafe poll metadata,
+non-canonical status, or a different returned ID fails closed without replay;
+inspect `wait` and `tracking_status` instead of treating the launch as terminal.
 
 If owner death or remote TTL expiry removes the row, wait for an explicitly
 authorized DCC restart, then use the replacement instance and fresh

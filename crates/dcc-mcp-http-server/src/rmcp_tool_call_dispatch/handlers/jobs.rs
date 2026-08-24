@@ -3,11 +3,11 @@
 use chrono;
 use serde_json::{Value, json};
 
-use dcc_mcp_actions::registry::ToolMeta;
 use dcc_mcp_job::job::Job;
 use dcc_mcp_jsonrpc::{CallToolResult, ToolContent};
 use dcc_mcp_models::linked_adapter_job_from_result;
 
+use crate::rmcp_tool_call_dispatch::adapter_jobs::adapter_poll_tool;
 use crate::server_state::ServerState;
 
 pub(in crate::rmcp_tool_call_dispatch) fn compute_job_timestamps(
@@ -120,7 +120,11 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
             .as_ref()
             .and_then(|result| linked_adapter_job_from_result(result, &job.id))
     {
-        let poll_tool = adapter_poll_tool(state, &job);
+        let poll_tool = state
+            .registry
+            .get_action(&job.tool_name, None)
+            .and_then(|action| adapter_poll_tool(state, &action));
+        let poll_registered = poll_tool.is_some();
         let hint = match poll_tool.as_deref() {
             Some(tool) => format!(
                 "Call adapter-owned status tool {tool} with adapter_job_id; do not pass this id to jobs_get_status."
@@ -136,6 +140,10 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
             "cancellation": {
                 "owner": "adapter",
                 "inherits_core_cancellation": false,
+            },
+            "poll_contract": {
+                "registered": poll_registered,
+                "reason": (!poll_registered).then_some("safe_poll_tool_not_declared"),
             },
             "hint": hint,
         });
@@ -159,47 +167,6 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
         is_error: false,
         meta: None,
     }
-}
-
-fn adapter_poll_tool(state: &ServerState, job: &Job) -> Option<String> {
-    let action = state.registry.get_action(&job.tool_name, None)?;
-    action
-        .next_tools
-        .on_success
-        .iter()
-        .filter_map(|declared| resolve_follow_up(state, &action, declared))
-        .find(|(_, meta)| accepts_adapter_job_id(meta))
-        .map(|(name, _)| name)
-}
-
-fn resolve_follow_up(
-    state: &ServerState,
-    action: &ToolMeta,
-    declared: &str,
-) -> Option<(String, ToolMeta)> {
-    if let Some(meta) = state.registry.get_action(declared, None) {
-        return Some((declared.to_string(), meta));
-    }
-    let (prefix, _) = action.name.rsplit_once("__")?;
-    let qualified = format!("{prefix}__{declared}");
-    state
-        .registry
-        .get_action(&qualified, None)
-        .map(|meta| (qualified, meta))
-}
-
-fn accepts_adapter_job_id(meta: &ToolMeta) -> bool {
-    meta.annotations.read_only_hint == Some(true)
-        && meta
-            .input_schema
-            .get("properties")
-            .and_then(Value::as_object)
-            .is_some_and(|properties| properties.contains_key("job_id"))
-        && meta
-            .input_schema
-            .get("required")
-            .and_then(Value::as_array)
-            .is_some_and(|required| required.iter().any(|name| name.as_str() == Some("job_id")))
 }
 
 pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_cleanup(
@@ -229,7 +196,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
+    use dcc_mcp_actions::{ToolDispatcher, ToolRegistry, registry::ToolMeta};
     use dcc_mcp_job::job::{JobManager, JobProgress};
     use dcc_mcp_models::{NextTools, SkillToolAnnotations};
     use dcc_mcp_skills::SkillCatalog;
@@ -278,6 +245,7 @@ mod tests {
             }),
             annotations: SkillToolAnnotations {
                 read_only_hint: Some(true),
+                idempotent_hint: Some(true),
                 ..Default::default()
             },
             ..Default::default()
@@ -313,6 +281,10 @@ mod tests {
         assert_eq!(payload["core_job_id"], core_job_id);
         assert_eq!(payload["adapter_job_id"], "flipbook-f0631aa83e07");
         assert_eq!(payload["adapter_job"]["owner"], "adapter");
+        assert_eq!(
+            payload["adapter_job"]["poll_contract"],
+            json!({"registered": true, "reason": null})
+        );
         assert_eq!(
             payload["adapter_job"]["poll"],
             json!({
