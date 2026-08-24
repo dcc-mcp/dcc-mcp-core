@@ -354,7 +354,7 @@ batch = call(
 
 Use `search(kind="skill", ...)` to find unloaded skills, then pass the search hit's `next_step.arguments` unchanged when activation is requested. This preserves target instance, tool group, and correlation metadata. Gateway `tools/list` advertises exactly `search`, `describe`, `load_skill`, and `call`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should use the four canonical tools.
 
-Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()`.
+Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.wire.normalize_tool_arguments()` / `normalize_tool_meta()`.
 
 For ad-hoc script execution, prefer typed tools first, then materialize source
 on the DCC host and execute by path. Use
@@ -375,11 +375,36 @@ Execution results should return `context.materialized_script` with `path`,
 context keys are migration aliases, not the preferred contract.
 
 Agents can also call the `materialize_script` MCP/REST tool exposed by
-`DccServerBase` adapters. Discover it with `search_tools("materialize script")`,
+`DccServerBase` adapters. Discover it with
+`search(kind="tool", query="materialize script")`,
 call it with `content` (or legacy `code`), then pass the returned `file_path`
 to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
 and never echoes raw source. Gateway traces and admin audit rows redact
 script-source input fields by default and keep the descriptor metadata instead.
+
+### Iterating on generated logic
+
+Materialize source once. Put every value that may change in a typed `main`
+parameter, then execute the same reviewed path on iteration two:
+
+```python
+script = materialize_script(
+    "def main(radius: float):\n    return {'radius': radius}\n",
+    dcc_type="maya",
+    instance_id="maya-live",
+    session_id="task-42",
+    reuse=True,
+    reuse_key="create-sphere",
+)
+execute_python(file_path=script.file_path, sha256=script.sha256, params={"radius": 2.0})
+execute_python(file_path=script.file_path, sha256=script.sha256, params={"radius": 4.0})
+```
+
+Do not regenerate or resend the source for the second call. Inspect
+`parameters_schema` before the first execution and require
+`context.materialized_script.reused=true` when the materializer resolves an
+existing file. When the same multi-step procedure succeeds twice, graduate to
+`workflows_run`; retain its id and use `workflows_resume` after interruption.
 
 Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, targeted `POST /v1/load_skill` or `POST /v1/describe` only when requested, `POST /v1/call`, and gateway `POST /v1/call_batch`. File failure feedback through gateway `POST /v1/feedback`; it remains available with zero live DCC instances and accepts last-known instance/request/job ids. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
@@ -626,18 +651,20 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 5. **Handle errors gracefully** — check `error_result` and follow `prompt` suggestions
 6. **Use progressive loading** — don't load all skills at once, activate groups as needed
 7. **Prefer structured skill tools over raw scripting** — they provide validation, safety, and traceability
-8. **Check cancellations** — in long-running tools, periodically call `check_cancelled()`
-9. **Choose by `jobStrategy`** — `chunked` means bounded host ticks,
+8. **Reuse generated logic** — materialize one typed `main(**params)`, then keep the same `file_path`/`sha256` and change only `params`; never regenerate unchanged source
+9. **Use recipes and `call_examples` first** — copy a validated argument shape before inventing a script or probing by trial and error
+10. **Check cancellations** — in long-running tools, periodically call `check_cancelled()`
+11. **Choose by `jobStrategy`** — `chunked` means bounded host ticks,
    `isolated` means a durable external job, and absent/`monolithic` means an
    indivisible call. Never infer that arbitrary script code is splittable.
-10. **Recover before retrying** — retain async `job_id`; after transport loss,
+12. **Recover before retrying** — retain async `job_id`; after transport loss,
     rediscover the instance and call its `jobs_get_status`. If the DCC crashed,
     wait for a replacement instance, then query persisted status and treat
     `interrupted` as terminal unless the tool exposes an explicit resume path.
-11. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
-12. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
-13. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
-14. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
+13. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
+14. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
+15. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
+16. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
 
 ---
 

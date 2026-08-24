@@ -74,3 +74,21 @@ Use `{key}` placeholders in `params` to inject values from the running context:
 
 The context starts from the `context` input, then accumulates each step's
 `context` output.
+
+## When to Graduate to a Persisted Workflow
+
+`workflow__run_chain` is a lightweight, non-durable chain for one bounded
+attempt. After the same multi-step sequence succeeds twice, store a reviewed
+WorkflowSpec and use the Core workflow tools instead:
+
+1. Start with `workflows_run` and retain the returned workflow id.
+2. Read progress with `workflows_get_status` rather than replaying the chain.
+3. Recover an interrupted persisted run with `workflows_resume`; completed
+   steps remain skipped.
+4. Use automatic successful-result reuse for unchanged calls. Add explicit
+   per-step `idempotency_key` values when a stable named scope is required, and
+   opt out only for an operation that must execute on every run.
+
+After three or more successful task-level repetitions, compile reviewed
+record/session history or submit bounded evidence to
+`review_skill_improvement` so the owning domain Skill can absorb the workflow.

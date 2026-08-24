@@ -30,8 +30,11 @@ tools:
           type: object
           description: "Initial context values available to all steps via '{key}' interpolation."
           default: {}
-    read_only: false
-    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
     execution: sync
     affinity: any
     source_file: scripts/run_chain.py

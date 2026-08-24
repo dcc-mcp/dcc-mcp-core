@@ -1127,7 +1127,6 @@ redistributed its contents by ownership.
 | Skill paths (`get_skill_paths_from_env`, `get_user_skills_dir`, `get_team_skills_dir`, `copy_skill_to_user_dir`) | `dcc-mcp-skills::paths` | Owned by the only consumer |
 | Skill versioning (`archive_skill_version`, `update_version_manifest`) | `dcc-mcp-skills::versioning` | Domain logic |
 | Skill feedback (`record_skill_feedback`, `FeedbackEntry`) | `dcc-mcp-skills::feedback` | Domain logic |
-| Skill evolution (`archive_evolved_skill`, `save_evolved_skill_version`) | `dcc-mcp-skills::evolution` | Domain logic |
 | `SKILL_*` / `ENV_*_SKILL_*` constants, `SUPPORTED_SCRIPT_EXTENSIONS`, `is_supported_extension`, `MTIME_EPSILON_SECS` | `dcc-mcp-skills::constants` | Co-located with consumer |
 | `DEFAULT_DCC`, `DEFAULT_VERSION` | `dcc-mcp-naming` | Co-located with consumer |
 | `DEFAULT_MIME_TYPE` | `dcc-mcp-protocols` | Co-located with consumer |

@@ -84,6 +84,32 @@ vx python scripts/dcc_gateway.py --ensure-cli list
 | `dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{"radius":2}' --meta-json '{"lease_owner":"workflow-42"}'` | Invoke a measured tool call on an instance leased by this workflow |
 | `dcc-mcp-cli call <slug> --require-gateway --wait --wait-timeout-secs 600 --json '{}'` | Wait inside the CLI for an asynchronous job instead of spending agent calls on status polling |
 
+### Reuse and iteration
+
+Discover the current materialize and execution slugs once. Send source only on
+the first materialization, with a stable reuse key:
+
+```bash
+dcc-mcp-cli search --query "materialize script" --dcc-type maya --limit 5
+dcc-mcp-cli call <materialize-slug> --require-gateway --agent-session-id task-42 \
+  --json '{"content":"def main(radius: float):\n    return {\"radius\": radius}\n","reuse":true,"reuse_key":"create-sphere"}'
+
+# Iteration 1: use file_path, sha256, and parameters_schema from materialize.
+dcc-mcp-cli call <execute-slug> --require-gateway --agent-session-id task-42 \
+  --json '{"file_path":"<returned-file-path>","sha256":"<returned-sha256>","params":{"radius":2.0}}'
+
+# Iteration 2: same reviewed file and hash; only params change.
+dcc-mcp-cli call <execute-slug> --require-gateway --agent-session-id task-42 \
+  --json '{"file_path":"<returned-file-path>","sha256":"<returned-sha256>","params":{"radius":4.0}}'
+```
+
+Never resend unchanged code on iteration two. If the materialize request is
+repeated, verify `reused=true`; successful execution should preserve
+`context.materialized_script` metadata. After the same multi-step sequence
+succeeds twice, discover and call `workflows_run`; retain its workflow id, use
+`workflows_get_status` for progress, and call `workflows_resume` after an
+interruption rather than replaying completed steps.
+
 `dcc-types` reports the release catalog, not running instances. Entries include
 their canonical `dcc_type`, adapters, version/source data when available, and
 `catalog_install_available`. Unknown/custom DCC identifiers remain valid at the

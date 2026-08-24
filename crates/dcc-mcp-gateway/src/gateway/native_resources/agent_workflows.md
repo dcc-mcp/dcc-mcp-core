@@ -325,11 +325,23 @@ When a gateway accepts a cooperative `/gateway/yield`, connected SSE clients rec
 ### Long `execute_python` / MEL without giant JSON strings
 
 - **Long `execute_python` payloads** — Prefer a typed skill first. If no typed tool fits, materialize the script on the **DCC host filesystem** and call the backend tool with `file_path`. Core exposes `dcc_mcp_core.materialize_script(...)` / `dcc_mcp_core.script_materialization.materialize_script(...)`, returning `{file_ref, file_path, sha256, bytes, ttl, dcc_type, instance_id, session_id, tool_call_id, correlation_id}`. The default root is `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...` and can be overridden with `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`.
-- **Agent API** — Most `DccServerBase` adapters expose a `materialize_script` tool. Discover it with `search_tools(query="materialize script")`, call it with `content`/`code`, then call the execution tool with the returned `file_path`. The response is descriptor metadata only; raw source is not echoed, and gateway trace input capture redacts script-source fields by default.
+- **Agent API** — Most `DccServerBase` adapters expose a `materialize_script` tool. Discover it with `search(kind="tool", query="materialize script")`, call it with `content`/`code`, `reuse=true`, and a stable `reuse_key`, then call the execution tool with the returned `file_path`. Record `sha256` and `parameters_schema`; later iterations reuse that path and change only `params`. The response is descriptor metadata only; raw source is not echoed, and gateway trace input capture redacts script-source fields by default.
 - **Policy boundary** — Core helpers use `script_materialization_policy = off | auto | require`. `auto` materializes inline `code` before execution, `require` rejects raw inline code unless a trusted `file_path` / `script_path` is supplied, and `off` is a compatibility escape hatch. Successful script execution should return `context.materialized_script` with path, FileRef, hash, byte length, and reuse metadata.
 - **Compatibility wrapper** — `write_temp_file` (skill) and `write_temp_script(...)` still work, but they are compatibility helpers over the materialization store. Prefer the structured descriptor when you need audit, reuse, TTL cleanup, or FileRef metadata.
 - **Remote agents** — A path written only on the agent laptop is not executable by a remote studio Maya/Photoshop/Blender process. Use an in-host writer/API or a synced workspace before passing `file_path`.
 - **Maya adapter auto-spill** — Some adapter versions may copy very long **inline** `code` strings to a host-local temp file before `exec`, and return a legacy context key such as `host_spilled_inline_script_path`. Treat that as a migration alias; explicit materialize -> execute by path is the auditable contract.
+
+### Repeatable multi-step procedures
+
+After the same sequence succeeds twice, store it as a reviewed WorkflowSpec
+instead of rebuilding calls in the agent loop. Start it with `workflows_run`,
+retain the returned workflow id, read progress with `workflows_get_status`, and
+recover an interrupted persisted run with `workflows_resume`. Unannotated tool
+steps reuse successful results by content; add a stable per-step
+`idempotency_key` when the workflow needs an explicit cache identity, and opt
+out only for a call that must execute every time. After three or more successful
+repetitions, compile reviewed record/session history or submit bounded evidence
+to `review_skill_improvement` so the owning Skill can absorb the procedure.
 
 ### After a DCC crash or reconnect
 

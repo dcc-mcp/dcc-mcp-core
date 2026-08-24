@@ -40,6 +40,13 @@ prompts:
           Aggregate stats are supporting evidence, not proof of root cause. If
           total_calls is zero or validation is missing, return no_change.
 
+          Check bounded script-execution evidence for the same sha256 or
+          near-identical scripts repeated with only literal/value changes.
+          Never request or reproduce raw source. When that pattern is present,
+          prefer updating the owning tool to accept a reviewed materialized
+          file_path/script_path plus a typed params object; changing params must
+          not regenerate source. A one-off script is not promotion evidence.
+
           For render, cook, bake, simulation, export, or other long-running work,
           verify that the proposal starts one typed job, declares an honest
           monolithic, chunked, or isolated strategy, and reports monotonic

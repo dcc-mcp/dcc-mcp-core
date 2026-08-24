@@ -311,6 +311,7 @@ Then follow the CLI/MCP preflight above.
 | User has not agreed to setup | Do not install packages, edit env files, launch GUI apps, or write configs |
 | User approved setup | Follow [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md) |
 | Timeout, temporary `unreachable`, or DCC restart | Preserve operation IDs and follow the recovery contract in [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md); never blindly replay a mutation or reuse stale slugs |
+| **Second or later run of generated logic** | Reuse the reviewed materialized `file_path` and change only `params`; promote repeated multi-step work to `workflows_run` / `workflows_resume` instead of resending unchanged source |
 
 ## Step 0 — Local Inventory First
 
@@ -418,19 +419,18 @@ The owner is a visible coordination label, not an authentication secret. Lease
 enforcement coordinates gateway and local CLI workflows; it does not protect a
 DCC adapter endpoint that an untrusted client can reach directly.
 
-For generated scripts, binary descriptors, or other payloads that may exceed a
-shell's command-line limit, pass the JSON object through a UTF-8 file or stdin:
+For a first materialization or another one-time payload that may exceed the shell limit, pass JSON by file or stdin:
 
 ```bash
-dcc-mcp-cli call godot_project__write_script --json-file payload.json
-generate_payload | dcc-mcp-cli call godot_project__write_script --json-file -
+dcc-mcp-cli call <materialize-script-slug> --json-file payload.json
+generate_payload | dcc-mcp-cli call <materialize-script-slug> --json-file -
 ```
 
-Use `--json` or `--json-file`, never both. `--json-file -` keeps large payloads
-off the process command line, which is especially important on Windows.
-
-See [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md) for command
-patterns and common errors.
+Use `--json` or `--json-file`, never both; later reuse the reviewed `file_path` with new `params`.
+Promote repeated sequences to workflows and repeated procedures to their owning Skill.
+For restart-safe reuse and promotion thresholds, follow
+[`references/ITERATION_PLAYBOOK.md`](references/ITERATION_PLAYBOOK.md) and CLI
+patterns in [`references/CLI_CHEATSHEET.md`](references/CLI_CHEATSHEET.md).
 
 ## Step 5 — Analyze Failures and Report Bugs
 

@@ -219,6 +219,7 @@ class TestDccMcpSkill:
     def test_reference_docs_present(self) -> None:
         root = Path(DCC_MCP_SKILL_DIR)
         assert (root / "references" / "CLI_CHEATSHEET.md").is_file()
+        assert (root / "references" / "ITERATION_PLAYBOOK.md").is_file()
         assert (root / "references" / "ZERO_INSTANCES_CLI.md").is_file()
         assert len((root / "SKILL.md").read_text(encoding="utf-8").splitlines()) <= 500
 

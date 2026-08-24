@@ -174,6 +174,11 @@ Generated `tools.yaml` entries follow the modern contract:
   `target_tool_slug` activates only that tool's group; do not rely on a sibling
   default-active group being activated with it.
 - `call_examples`: optional list of ready-to-copy argument payloads. Each entry has `arguments` (JSON object matching `input_schema.properties`) and an optional `note`. Surfaced in describe responses at `metadata.dcc.call_examples` so agents can construct correct arguments on the first attempt.
+- Script-execution tools accept trusted `file_path` / `script_path` inputs and
+  a structured `params` object. Generate one typed `def main(**params)` and
+  keep every changing value out of source so later calls reuse the same
+  materialized file. Inline `code` is a first-materialization compatibility
+  path, not the iteration contract.
 
 ### Long-Running Main-Affinity Tools
 
@@ -317,7 +322,7 @@ only with the matching chunked runner or isolated status/cancel implementation.
 
    That mutates process-global import state and leaks across skills. Script-directory lifetime is runtime ownership; use a direct sibling import and let the executor scope resolution to the current call.
 5. Import dependency-light runtime helpers from `dcc_mcp_core.skills_helper` first: JSON/YAML codecs, bounded HTTP helpers, safe file/path helpers, validation, cancellation checks, and result helpers.
-6. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. Do not rely on runtime Python introspection for missing schemas. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error.
+6. Declare `metadata.dcc-mcp.depends` for prerequisite skills, then declare `execution`, `affinity`, `timeout_hint_secs`, schemas, annotations, and failure recovery chains in `tools.yaml`. Do not rely on runtime Python introspection for missing schemas. For high-frequency tools, add `call_examples` so agents can copy argument payloads without trial-and-error. For script execution, require trusted `file_path` / `script_path` plus typed `params` on repeated calls; never bake changing literals into regenerated source.
 7. Put long examples, recipes, and host-specific notes under `references/`.
 8. Validate with `validate_skill_dir` or `dcc_mcp_core.validate_skill()` before
    loading it in an adapter. For discovery/load performance regressions, assert
@@ -339,6 +344,11 @@ Get the `review_skill_improvement` prompt from this skill and supply the stats
 JSON plus bounded task and validation summaries. Treat `total_calls == 0` as
 missing evidence, not success. Never include hidden reasoning, raw prompts,
 credentials, or unredacted payloads.
+
+Include only bounded script-repetition facts such as repeated sha256 counts and
+whether argument shapes differed. Repeated identical or near-identical source
+with value-only changes is evidence to parameterize the owning script and
+reuse `file_path`; it is not permission to copy source into the review.
 
 Prefer `no_change`, then improving an existing skill, and create a new skill
 only for a repeated, reusable workflow that no current skill owns. Validate any
