@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.13](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.12...v0.20.13) (2026-08-24)
+
+
+### Features
+
+* add machine-readable feedback routing ([7d6fcb1](https://github.com/dcc-mcp/dcc-mcp-core/commit/7d6fcb167910301984b109eadb3b088f17323093))
+* add public-safe feedback bundles ([9639ae0](https://github.com/dcc-mcp/dcc-mcp-core/commit/9639ae03ca0e7811f29b57cb9be4c6f33a1d6f8a))
+
+
+### Bug Fixes
+
+* redact public doctor endpoints ([c30d7bd](https://github.com/dcc-mcp/dcc-mcp-core/commit/c30d7bd3474b35583a402e851c7db0483725d644))
+
 ## [0.20.12](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.11...v0.20.12) (2026-08-24)
 
 
