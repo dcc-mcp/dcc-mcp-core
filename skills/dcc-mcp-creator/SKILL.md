@@ -332,6 +332,13 @@ compatibility entry point, but Core must register it as the shared thin gateway
 forwarder; never add an adapter-specific feedback action or local-success
 fallback. Open an external issue only with user authorization.
 
+Core persists accepted adapter reports under the shared registry and exposes
+them through `dcc-mcp-cli feedback list|export` / `GET /admin/api/feedback`.
+Adapters must use `DccServerBase`'s instance-owned `FeedbackStore`; do not add a
+second adapter-local log, aggregation endpoint, or delete-then-copy rotation.
+The gateway query is bounded, deduplicates by feedback id, and fails explicitly
+when filesystem reads or scan limits prevent a complete result.
+
 ## Example: New Nuke Adapter
 
 When asked to create a Nuke MCP adapter, start by mapping the host lifecycle:

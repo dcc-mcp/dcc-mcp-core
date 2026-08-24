@@ -55,6 +55,21 @@ upload it automatically. Route Skill defects to the owning Skill, adapter or
 host-runtime defects to the adapter repository, and shared CLI/gateway/protocol
 defects to `dcc-mcp-core`; create an external issue only with user authorization.
 
+Adapters also mirror accepted reports to bounded, rotated JSONL files below the
+shared registry directory. Query those durable records through the gateway:
+
+```bash
+dcc-mcp-cli feedback list --range 7d --dcc maya --severity blocked --json
+dcc-mcp-cli feedback export --range all --dcc maya --json
+```
+
+Both commands call `GET /admin/api/feedback`. `list` defaults to 100 rows and
+`export` to the endpoint maximum of 1,000. The response is newest first,
+deduplicated by feedback id, and reports `skipped_invalid`, `deduplicated`, and
+`files_scanned` counters. Malformed or oversized individual records never enter
+the result; directory/file I/O errors or exceeded scan bounds fail explicitly
+instead of returning a silently incomplete export.
+
 The compatibility `dcc_feedback__report` entry point disappears with its live
 adapter, but while live it is only a thin forwarder to the gateway authority.
 Prefer the gateway CLI/REST path for crash-class feedback and reference the dead

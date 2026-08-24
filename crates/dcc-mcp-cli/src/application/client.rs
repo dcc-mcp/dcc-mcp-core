@@ -6,8 +6,8 @@ use tokio::time::{Instant, sleep};
 
 use crate::application::instance_selection::select_one_instance;
 use crate::domain::rest::{
-    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
-    StatsRequest, StopInstanceRequest, WaitReadyRequest,
+    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, FeedbackQueryRequest,
+    LoadSkillRequest, SearchRequest, StatsRequest, StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::{HttpError, HttpGateway};
 
@@ -60,6 +60,21 @@ impl DccMcpClient {
             .map_err(|error| ClientError::Protocol(format!("invalid feedback report: {error}")))?;
         self.gateway
             .post_json(&self.endpoint.path("/v1/feedback"), &body)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn feedback_entries(
+        &self,
+        request: FeedbackQueryRequest,
+    ) -> Result<Value, ClientError> {
+        let mut url =
+            reqwest::Url::parse(&self.endpoint.path("/admin/api/feedback")).map_err(|error| {
+                ClientError::Protocol(format!("invalid feedback endpoint: {error}"))
+            })?;
+        url.query_pairs_mut().extend_pairs(request.query_pairs());
+        self.gateway
+            .get_json(url.as_str())
             .await
             .map_err(Into::into)
     }

@@ -2,6 +2,8 @@ use super::*;
 use base64::Engine;
 use dcc_mcp_models::FeedbackSeverity;
 
+use crate::presentation::feedback_cmd::FeedbackAction;
+
 #[test]
 fn require_gateway_is_a_global_fail_closed_control_flag() {
     let args = Args::try_parse_from([
@@ -1032,6 +1034,82 @@ fn feedback_parses_dead_instance_correlation() {
     assert_eq!(feedback.instance_id.as_deref(), Some("abc12345"));
     assert_eq!(feedback.request_id.as_deref(), Some("request-42"));
     assert_eq!(feedback.job_id.as_deref(), Some("job-42"));
+}
+
+#[test]
+fn feedback_report_still_requires_legacy_required_fields() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "feedback", "--severity", "blocked"])
+        .expect("parse feedback command before conditional validation");
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert_eq!(
+        feedback.validate(),
+        Err("--tool-name is required when filing feedback".to_string())
+    );
+}
+
+#[test]
+fn feedback_list_parses_bounded_gateway_query() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "list",
+        "--range",
+        "24h",
+        "--dcc",
+        "houdini",
+        "--severity",
+        "workaround_found",
+        "--limit",
+        "25",
+        "--json",
+    ])
+    .expect("parse feedback list");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    let FeedbackAction::List(query) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback list action");
+    };
+    assert_eq!(query.range, "24h");
+    assert_eq!(query.dcc.as_deref(), Some("houdini"));
+    assert_eq!(query.severity.as_deref(), Some("workaround_found"));
+    assert_eq!(query.limit, Some(25));
+    assert!(query.json);
+}
+
+#[test]
+fn feedback_list_accepts_finding_schema_severity_vocabulary() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "feedback", "list", "--severity", "degraded"])
+        .expect("parse finding-schema severity");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    let FeedbackAction::List(query) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback list action");
+    };
+    assert_eq!(query.severity.as_deref(), Some("degraded"));
+}
+
+#[test]
+fn feedback_export_defaults_to_seven_days_and_endpoint_maximum() {
+    let args =
+        Args::try_parse_from(["dcc-mcp-cli", "feedback", "export"]).expect("parse feedback export");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    let FeedbackAction::Export(query) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback export action");
+    };
+    let request = query.into_request(1_000);
+    assert_eq!(request.range, "7d");
+    assert_eq!(request.limit, 1_000);
+    assert_eq!(request.dcc_type, None);
+    assert_eq!(request.severity, None);
 }
 
 #[test]

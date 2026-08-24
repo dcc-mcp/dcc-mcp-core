@@ -31,6 +31,8 @@ dcc-mcp-cli feedback \
   --instance-id <live-or-dead-instance-id> \
   --request-id <request-id> \
   --job-id <job-id>
+dcc-mcp-cli feedback list --range 7d --dcc <dcc> --severity blocked --json
+dcc-mcp-cli feedback export --range all --dcc <dcc> --json
 ```
 
 Gateway 会把有界的 `feedback_reported` 记录写入
@@ -39,5 +41,11 @@ Gateway 会把有界的 `feedback_reported` 记录写入
 `/v1/debug/issue-reports/<request_id>`；`?mode=raw` 必须本地人工审查，禁止自动上传。
 Skill 缺陷归属对应 Skill，adapter/host runtime 缺陷归属 adapter 仓库，
 CLI/gateway/protocol 共性缺陷归属 `dcc-mcp-core`。只有用户授权后才创建外部 issue。
+
+Adapter 会把 Gateway 已接受的反馈同步写入共享 registry 下有界轮转的 JSONL。
+`feedback list` 默认返回 100 条，`feedback export` 默认返回 endpoint 上限 1,000 条；
+两者都调用 `GET /admin/api/feedback`，按时间倒序并按 feedback id 去重。响应中的
+`skipped_invalid`、`deduplicated`、`files_scanned` 用于审计输入集合；目录/文件读取
+失败或超过扫描边界时会显式失败，不会把不完整导出伪装成成功。
 
 详见 [English API 参考](../../api/feedback.md)。

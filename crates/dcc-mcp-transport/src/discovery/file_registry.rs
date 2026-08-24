@@ -213,6 +213,12 @@ impl FileRegistry {
         )
     }
 
+    /// Return the directory shared by registry-adjacent durable state.
+    #[must_use]
+    pub fn registry_dir(&self) -> &Path {
+        &self.registry_dir
+    }
+
     fn new_with_lock_policy(
         registry_dir: impl Into<PathBuf>,
         write_lock_timeout: Duration,

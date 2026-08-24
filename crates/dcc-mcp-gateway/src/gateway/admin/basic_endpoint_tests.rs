@@ -290,6 +290,7 @@ mod endpoint_contracts {
             "/api/skills",
             "/api/calls",
             "/api/logs",
+            "/api/feedback",
             "/api/stats",
             "/api/governance",
             "/api/artifacts",

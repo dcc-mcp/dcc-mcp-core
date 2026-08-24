@@ -32,6 +32,7 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/healthz` | Gateway liveness probe. Returns `200 {"ok": true}` when the HTTP handler is up. |
 | `GET` | `/v1/readyz` | Gateway readiness summary with per-instance readiness bits; the route stays `200` even when no instance is ready. |
 | `POST` | `/v1/feedback` | Record bounded agent feedback at the gateway, including dead-instance/request/job correlation. Works with zero live DCC instances. |
+| `GET` | `/admin/api/feedback` | Aggregate persisted per-instance feedback JSONL. Query: `range=1h\|24h\|7d\|all`, optional `dcc`, optional `severity`, and bounded `limit` (1-1000). Results are newest first and deduplicated by feedback id. |
 | `GET` | `/v1/update/check` | Gateway update-manifest check for `dcc-mcp-cli`, `dcc-mcp-server`, or another configured binary. Query: `binary`, `current_version`. |
 | `GET` | `/v1/update/download/{binary_name}` | Resolve the latest manifest download URL for one binary; returns a structured update error when no URL is configured. |
 | `GET` | `/v1/skills` | Loaded gateway capability records projected as skill entries. |

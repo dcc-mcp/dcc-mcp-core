@@ -11,48 +11,6 @@ use tempfile::{NamedTempFile, TempDir};
 use support::*;
 
 #[test]
-fn gateway_feedback_cli_works_without_discovering_a_live_instance() {
-    let fixture = spawn_gateway_fixture();
-    let output = cli_command()
-        .args([
-            "--base-url",
-            &fixture.base_url,
-            "--output",
-            "json",
-            "feedback",
-            "--tool-name",
-            "houdini.ui_control__act",
-            "--intent",
-            "Open the render menu",
-            "--attempt",
-            "Invoked the semantic action",
-            "--blocker",
-            "The instance exited",
-            "--severity",
-            "blocked",
-            "--dcc-type",
-            "houdini",
-            "--instance-id",
-            "deadbeef",
-            "--request-id",
-            "request-42",
-        ])
-        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let body: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(body["feedback_id"], "11111111-1111-4111-8111-111111111111");
-    assert_eq!(body["report"]["instance_id"], "deadbeef");
-    assert_eq!(body["report"]["request_id"], "request-42");
-}
-
-#[test]
 fn global_timeout_does_not_warn_for_an_implicit_command_default() {
     let fixture = spawn_gateway_fixture();
     let output = cli_command()

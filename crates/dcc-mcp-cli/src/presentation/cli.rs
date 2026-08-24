@@ -570,12 +570,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         command,
     } = args;
 
-    // Resolve output format: explicit flag > env > TTY auto-detect.
-    let output = output.unwrap_or_else(OutputFormat::auto_detect);
-    let writer = OutputWriter::new(output);
+    let output = match &command {
+        Command::Feedback(args) => args.resolve_output(output),
+        _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
+    };
+    let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
     let marketplace_update_check = tokio::spawn(check_marketplace_updates());
 
-    // Deprecation warning for per-command timeout when global timeout is set.
     if global_timeout_secs.is_some()
         && (command_has_distinct_per_timeout(&command, global_timeout_secs)
             || command_has_configured_timeout_env(&command))
@@ -661,7 +662,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 })
                 .await?
         }
-        Command::Feedback(args) => control.feedback(args.into()).await?,
+        Command::Feedback(args) => args.run(&control).await?,
         Command::Doctor {
             registry_dir,
             gateway_host,
