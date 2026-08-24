@@ -9,6 +9,8 @@ fn gateway_openapi_keeps_shared_envelope_schemas() {
     for schema in [
         "ServiceError",
         "GatewayFeedbackReport",
+        "GatewayFeedbackLegacyReport",
+        "FeedbackFindingV1",
         "GatewayFeedbackReceipt",
         "SearchRequest",
         "SearchResponse",

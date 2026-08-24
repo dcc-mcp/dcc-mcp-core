@@ -327,10 +327,12 @@ contract failures to `dcc-mcp-core`. Tool schema/script/workflow defects belong
 to the owning Skill and `dcc-mcp-skills-creator`. Record runtime feedback with
 the gateway-owned `dcc-mcp-cli feedback` command so the report remains possible
 after an adapter or DCC process exits; include the last known instance,
-request, and job ids. Instance-level `dcc_feedback__report` is a live-adapter
-compatibility entry point, but Core must register it as the shared thin gateway
-forwarder; never add an adapter-specific feedback action or local-success
-fallback. Open an external issue only with user authorization.
+request, and job ids. Instance-level `dcc_feedback__report` is the live-adapter
+Finding v1 entry point. Core must register it so runtime DCC/adapter/core/host
+versions, OS, instance id, fingerprint, and conservative redaction status are
+auto-filled; adapters must not accept agent claims for those fields or add an
+adapter-specific action/local-success fallback. Open an external issue only
+with user authorization.
 
 Core persists accepted adapter reports under the shared registry and exposes
 them through `dcc-mcp-cli feedback list|export` / `GET /admin/api/feedback`.

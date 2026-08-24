@@ -4,7 +4,29 @@ Agent feedback and rationale utilities for DCC-MCP servers (issues #433, #434).
 
 Three complementary features: **Rationale capture** — agents include `_meta.dcc.rationale` in `tools/call` requests to explain why they are invoking a tool. **Gateway feedback** — `POST /v1/feedback` and `dcc-mcp-cli feedback` remain available with zero live DCC instances. **Compatibility forwarder** — `dcc_feedback__report` remains available on live adapters and forwards through the same gateway contract.
 
-**Exported symbols:** `clear_feedback`, `extract_rationale`, `get_feedback_entries`, `make_rationale_meta`, `register_feedback_tool`
+**Exported symbols:** `FINDING_V1_SCHEMA_VERSION`, `FindingRuntimeContext`, `FindingValidationError`, `build_finding_v1`, `finding_fingerprint`, `finding_v1_json_schema`, `clear_feedback`, `extract_rationale`, `get_feedback_entries`, `make_rationale_meta`, `register_feedback_tool`
+
+## Finding v1 contract
+
+The canonical machine contract is packaged at
+`dcc_mcp_core/schemas/feedback-finding-v1.schema.json`. Rust users can read the
+same bytes through `dcc_mcp_models::FINDING_V1_JSON_SCHEMA` and use
+`FindingV1`; Python users can import `dcc_mcp_core.schemas.finding` and call
+`finding_v1_json_schema()` and `build_finding_v1(...)`.
+
+A complete finding has runtime-owned `dcc_type`, adapter/core/host versions and
+OS, plus agent-authored `phase`, `severity`, `intent`, `observed`, `expected`,
+one `repro.argv` or `repro.steps` list, and a subject identified by `tool_slug`
+or `evidence.error_kind`. `phase` is `install`, `startup`, `dispatch`, `skill`,
+or `other`; `severity` is `blocker`, `degraded`, `workaround_found`, or
+`suggestion`.
+
+The handler derives `fingerprint` as SHA-256 over the normalized owning
+repository, phase, tool slug or error kind, and host major version. It attaches
+`redaction_status.mode="needs-review"`; this is intentionally not a claim that
+the finding is safe to publish. Reproduction lists are limited to 64 items,
+text fields to 4,096 characters, identifiers to 256 characters, and serialized
+evidence to 32 KiB. Unknown or ambiguous fields fail closed.
 
 ## register_feedback_tool
 
@@ -17,12 +39,22 @@ register_feedback_tool(
     gateway_host=None,
     gateway_port=None,
     instance_id_provider=None,
+    finding_context_provider=None,
 ) -> None
 ```
 
 Register the `dcc_feedback__report` MCP tool on `server`. Call **before** `server.start()`.
 
-The tool accepts `tool_name`, `intent`, `blocker`, `severity` (`"blocked"` | `"workaround_found"` | `"suggestion"`), optional `attempt`, and optional failed-call `request_id` / `job_id`. The shared Core handler attaches the adapter `dcc_type` and current `instance_id`, posts to gateway `/v1/feedback`, validates the exact `X-Request-ID` response correlation, and returns the gateway receipt. It fails closed when the gateway is disabled, unavailable, rejects the report, or returns a stale/malformed receipt. There is no instance-local success fallback.
+The preferred input is the agent-authored subset of Finding v1 described above.
+The original `tool_name`, `intent`, `blocker`, `severity` (`"blocked"` |
+`"workaround_found"` | `"suggestion"`), optional `attempt`, and optional
+`request_id` / `job_id` form remains accepted and is normalized to Finding v1.
+The shared Core handler auto-fills runtime identity and the current
+`instance_id`, posts to gateway `/v1/feedback`, validates exact `X-Request-ID`,
+schema-version, and fingerprint response correlation, and returns the receipt.
+It fails closed when identity is missing or mismatched, the gateway is disabled
+or unavailable, validation is rejected, or the receipt is stale/malformed.
+There is no instance-local success fallback.
 
 ## Agent failure-reporting workflow
 
@@ -106,7 +138,10 @@ Build the `_meta` fragment for a `tools/call` request with a rationale. Returns 
 get_feedback_entries(*, tool_name=None, severity=None, limit=50) -> list[dict]
 ```
 
-Return recent feedback entries, newest first. Each entry has keys: `id`, `timestamp`, `tool_name`, `intent`, `attempt`, `blocker`, `severity`.
+Return recent feedback entries, newest first. Gateway-accepted adapter entries
+have `id`, `timestamp`, and the complete Finding v1 fields. The legacy local
+compatibility handler may still expose the earlier `tool_name` / `blocker`
+shape.
 
 ## clear_feedback
 

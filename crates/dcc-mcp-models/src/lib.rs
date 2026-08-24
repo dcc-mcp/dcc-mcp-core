@@ -23,7 +23,11 @@ pub use action_result::{
 };
 pub use dcc_name::DccName;
 pub use error::DccMcpError;
-pub use feedback::{FeedbackReport, FeedbackSeverity, FeedbackValidationError};
+pub use feedback::{
+    FINDING_V1_JSON_SCHEMA, FINDING_V1_SCHEMA_VERSION, FeedbackReport, FeedbackSeverity,
+    FeedbackValidationError, FindingEvidenceV1, FindingPhase, FindingRedactionMode,
+    FindingRedactionStatusV1, FindingReproV1, FindingSeverity, FindingV1, finding_fingerprint,
+};
 pub use instance_status::{DispatchStatus, InstanceStatus, ServiceStatus};
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};
 pub use session::{Session, SessionEndReason, SessionStatus};

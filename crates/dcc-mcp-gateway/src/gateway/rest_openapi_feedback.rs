@@ -2,6 +2,8 @@
 
 use serde_json::{Value, json};
 
+use dcc_mcp_models::FINDING_V1_JSON_SCHEMA;
+
 pub(super) fn path_operation() -> Value {
     let mut operation = super::rest_openapi::post_operation(
         &["feedback"],
@@ -34,9 +36,21 @@ pub(super) fn path_operation() -> Value {
 }
 
 pub(super) fn schemas() -> Vec<(&'static str, Value)> {
+    let finding_schema = serde_json::from_str(FINDING_V1_JSON_SCHEMA)
+        .expect("embedded Finding v1 JSON Schema must stay valid");
     vec![
         (
             "GatewayFeedbackReport",
+            json!({
+                "oneOf": [
+                    {"$ref": "#/components/schemas/FeedbackFindingV1"},
+                    {"$ref": "#/components/schemas/GatewayFeedbackLegacyReport"}
+                ]
+            }),
+        ),
+        ("FeedbackFindingV1", finding_schema),
+        (
+            "GatewayFeedbackLegacyReport",
             json!({
                 "type": "object",
                 "required": ["tool_name", "intent", "blocker", "severity"],
@@ -64,7 +78,9 @@ pub(super) fn schemas() -> Vec<(&'static str, Value)> {
                     "success": {"type": "boolean", "const": true},
                     "feedback_id": {"type": "string", "format": "uuid"},
                     "recorded_at": {"type": "string", "format": "date-time"},
-                    "event_resource_uri": {"type": "string", "const": "resources://gateway/events"}
+                    "event_resource_uri": {"type": "string", "const": "resources://gateway/events"},
+                    "schema_version": {"type": "integer", "const": 1},
+                    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
                 },
                 "additionalProperties": false,
             }),
@@ -104,8 +120,19 @@ mod tests {
             "string"
         );
         let report = &doc["components"]["schemas"]["GatewayFeedbackReport"];
-        assert!(report["properties"].get("instance_id").is_some());
-        assert!(report["properties"].get("request_id").is_some());
-        assert!(report["properties"].get("job_id").is_some());
+        assert_eq!(
+            report["oneOf"][0]["$ref"],
+            "#/components/schemas/FeedbackFindingV1"
+        );
+        let legacy = &doc["components"]["schemas"]["GatewayFeedbackLegacyReport"];
+        assert!(legacy["properties"].get("instance_id").is_some());
+        assert!(legacy["properties"].get("request_id").is_some());
+        assert!(legacy["properties"].get("job_id").is_some());
+        let finding = &doc["components"]["schemas"]["FeedbackFindingV1"];
+        assert_eq!(finding["properties"]["schema_version"]["const"], 1);
+        assert_eq!(
+            doc["components"]["schemas"]["GatewayFeedbackReceipt"]["properties"]["fingerprint"]["pattern"],
+            "^sha256:[0-9a-f]{64}$"
+        );
     }
 }
