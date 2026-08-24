@@ -23,6 +23,8 @@ Usage::
 
 from __future__ import annotations
 
+import ast
+import builtins
 import contextlib
 import importlib
 import inspect
@@ -44,6 +46,285 @@ _MAX_NAMES = 200  # max entries from list_module
 _MAX_HITS = 50  # max hits from search
 _DOC_MAX_CHARS = 800  # max chars for docstring truncation
 _REPR_MAX_CHARS = 500  # max chars for eval repr
+_EVAL_MAX_CHARS = 2_000
+_EVAL_MAX_AST_NODES = 256
+_EVAL_MAX_CONTAINER_ITEMS = 10_000
+_EVAL_MAX_INT_BITS = 4_096
+
+_SAFE_EVAL_BUILTINS: dict[str, Any] = {
+    name: getattr(builtins, name)
+    for name in (
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "dict",
+        "float",
+        "int",
+        "len",
+        "list",
+        "max",
+        "min",
+        "range",
+        "repr",
+        "round",
+        "set",
+        "sorted",
+        "str",
+        "sum",
+        "tuple",
+        "type",
+    )
+}
+
+
+class _UnsafeExpression(ValueError):
+    """Raised when a purported read-only expression leaves the safe subset."""
+
+
+def _constant_value(node: ast.AST) -> tuple[bool, Any]:
+    if isinstance(node, ast.Constant):
+        return True, node.value
+    legacy_attribute = {
+        "Num": "n",
+        "Str": "s",
+        "Bytes": "s",
+        "NameConstant": "value",
+    }.get(type(node).__name__)
+    if legacy_attribute is not None:
+        return True, getattr(node, legacy_attribute)
+    return False, None
+
+
+def _literal_int(node: ast.AST) -> int | None:
+    is_constant, value = _constant_value(node)
+    if is_constant and isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        operand = _literal_int(node.operand)
+        if operand is not None:
+            return operand if isinstance(node.op, ast.UAdd) else -operand
+    return None
+
+
+def _is_numeric_expression(node: ast.AST) -> bool:
+    is_constant, value = _constant_value(node)
+    if is_constant:
+        return isinstance(value, (int, float, complex)) and not isinstance(value, bool)
+    if isinstance(node, ast.UnaryOp):
+        return isinstance(node.op, (ast.UAdd, ast.USub, ast.Invert)) and _is_numeric_expression(node.operand)
+    if isinstance(node, ast.BinOp):
+        return _is_numeric_expression(node.left) and _is_numeric_expression(node.right)
+    return False
+
+
+def _integer_bit_bound(node: ast.AST) -> int | None:
+    value = _literal_int(node)
+    if value is not None:
+        return max(1, abs(value).bit_length())
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub, ast.Invert)):
+        return _integer_bit_bound(node.operand)
+    if not isinstance(node, ast.BinOp):
+        return None
+    left = _integer_bit_bound(node.left)
+    right = _integer_bit_bound(node.right)
+    if left is None or right is None:
+        return None
+    if isinstance(node.op, (ast.Add, ast.Sub)):
+        return max(left, right) + 1
+    if isinstance(node.op, ast.Mult):
+        return left + right
+    if isinstance(node.op, ast.Pow):
+        exponent = _literal_int(node.right)
+        if exponent is not None and exponent >= 0:
+            return left * exponent
+        return None
+    if isinstance(node.op, ast.LShift):
+        shift = _literal_int(node.right)
+        return left + shift if shift is not None and shift >= 0 else None
+    if isinstance(node.op, ast.RShift):
+        shift = _literal_int(node.right)
+        return max(1, left - shift) if shift is not None and shift >= 0 else None
+    if isinstance(node.op, (ast.FloorDiv, ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor)):
+        return max(left, right)
+    return None
+
+
+class _ReadOnlyExpressionValidator(ast.NodeVisitor):
+    """Validate the literal-only expression subset accepted by introspect_eval."""
+
+    def __init__(self) -> None:
+        self._materialized_items = 0
+
+    def reject(self, node: ast.AST, reason: str) -> None:
+        raise _UnsafeExpression(f"{reason} ({type(node).__name__})")
+
+    def generic_visit(self, node: ast.AST) -> None:
+        self.reject(node, "construct is not allowed")
+
+    def visit_Expression(self, node: ast.Expression) -> None:
+        self.visit(node.body)
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        self._validate_constant(node, node.value)
+
+    def visit_Num(self, node: ast.AST) -> None:
+        self._validate_constant(node, _constant_value(node)[1])
+
+    def visit_Str(self, node: ast.AST) -> None:
+        self._validate_constant(node, _constant_value(node)[1])
+
+    def visit_Bytes(self, node: ast.AST) -> None:
+        self._validate_constant(node, _constant_value(node)[1])
+
+    def visit_NameConstant(self, node: ast.AST) -> None:
+        self._validate_constant(node, _constant_value(node)[1])
+
+    def _validate_constant(self, node: ast.AST, value: Any) -> None:
+        if value is None or isinstance(value, (bool, float, complex)):
+            return
+        if isinstance(value, int):
+            if abs(value).bit_length() > _EVAL_MAX_INT_BITS:
+                self.reject(node, "integer literal exceeds the size limit")
+            return
+        if isinstance(value, (str, bytes)) and len(value) <= _EVAL_MAX_CHARS:
+            return
+        self.reject(node, "constant type or size is not allowed")
+
+    def visit_List(self, node: ast.List) -> None:
+        self._visit_values(node, node.elts)
+
+    def visit_Tuple(self, node: ast.Tuple) -> None:
+        self._visit_values(node, node.elts)
+
+    def visit_Set(self, node: ast.Set) -> None:
+        self._visit_values(node, node.elts)
+
+    def _visit_values(self, node: ast.AST, values: list[ast.expr]) -> None:
+        self._reserve_items(node, len(values))
+        for value in values:
+            self.visit(value)
+
+    def _reserve_items(self, node: ast.AST, count: int) -> None:
+        self._materialized_items += count
+        if self._materialized_items > _EVAL_MAX_CONTAINER_ITEMS:
+            self.reject(node, "expression exceeds the materialized-item limit")
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        self._reserve_items(node, len(node.keys))
+        for key, value in zip(node.keys, node.values):
+            if key is None:
+                self.reject(node, "dictionary unpacking is not allowed")
+            self.visit(key)
+            self.visit(value)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id not in _SAFE_EVAL_BUILTINS:
+            self.reject(node, f"name {node.id!r} is not available")
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if not isinstance(node.func, ast.Name) or node.func.id not in _SAFE_EVAL_BUILTINS:
+            self.reject(node, "only direct calls to safe builtins are allowed")
+        if len(node.args) + len(node.keywords) > _EVAL_MAX_CONTAINER_ITEMS:
+            self.reject(node, "call exceeds the argument limit")
+        allowed_keywords = {"reverse"} if node.func.id == "sorted" else set()
+        for keyword in node.keywords:
+            if keyword.arg is None or keyword.arg not in allowed_keywords:
+                self.reject(keyword, f"keyword argument is not allowed for {node.func.id}")
+            self.visit(keyword.value)
+        for argument in node.args:
+            self.visit(argument)
+        if node.func.id == "range":
+            self._validate_range(node)
+
+    def _validate_range(self, node: ast.Call) -> None:
+        values = [_literal_int(argument) for argument in node.args]
+        if not 1 <= len(values) <= 3 or any(value is None for value in values):
+            self.reject(node, "range arguments must be one to three integer literals")
+        try:
+            item_count = len(range(*values))  # type: ignore[arg-type]
+        except (OverflowError, ValueError) as exc:
+            raise _UnsafeExpression(f"invalid range: {exc}") from exc
+        if item_count > _EVAL_MAX_CONTAINER_ITEMS:
+            self.reject(node, "range exceeds the item limit")
+        self._reserve_items(node, item_count)
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
+        if not isinstance(node.op, (ast.UAdd, ast.USub, ast.Not, ast.Invert)):
+            self.reject(node, "unary operator is not allowed")
+        self.visit(node.operand)
+
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        if not isinstance(
+            node.op,
+            (
+                ast.Add,
+                ast.Sub,
+                ast.Mult,
+                ast.Div,
+                ast.FloorDiv,
+                ast.Mod,
+                ast.Pow,
+                ast.BitAnd,
+                ast.BitOr,
+                ast.BitXor,
+                ast.LShift,
+                ast.RShift,
+            ),
+        ):
+            self.reject(node, "binary operator is not allowed")
+        self.visit(node.left)
+        self.visit(node.right)
+        if isinstance(node.op, (ast.Mult, ast.Pow, ast.LShift, ast.RShift)):
+            self._validate_expanding_operation(node)
+        bit_bound = _integer_bit_bound(node)
+        if bit_bound is not None and bit_bound > _EVAL_MAX_INT_BITS:
+            self.reject(node, "integer result exceeds the size limit")
+
+    def _validate_expanding_operation(self, node: ast.BinOp) -> None:
+        if not _is_numeric_expression(node.left) or not _is_numeric_expression(node.right):
+            self.reject(node, "sequence expansion is not allowed")
+        if isinstance(node.op, ast.Pow):
+            exponent = _literal_int(node.right)
+            base_bits = _integer_bit_bound(node.left)
+            if exponent is None or not -1_000 <= exponent <= 1_000:
+                self.reject(node, "power exponent must be a bounded integer literal")
+            if exponent > 0 and base_bits is not None and base_bits * exponent > _EVAL_MAX_INT_BITS:
+                self.reject(node, "power result exceeds the size limit")
+        if isinstance(node.op, (ast.LShift, ast.RShift)):
+            shift = _literal_int(node.right)
+            if shift is None or not 0 <= shift <= _EVAL_MAX_INT_BITS:
+                self.reject(node, "shift count must be a bounded integer literal")
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:
+        if not isinstance(node.op, (ast.And, ast.Or)):
+            self.reject(node, "boolean operator is not allowed")
+        self._visit_values(node, node.values)
+
+    def visit_Compare(self, node: ast.Compare) -> None:
+        allowed = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.Is, ast.IsNot, ast.In, ast.NotIn)
+        if not all(isinstance(operator, allowed) for operator in node.ops):
+            self.reject(node, "comparison operator is not allowed")
+        self.visit(node.left)
+        for comparator in node.comparators:
+            self.visit(comparator)
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:
+        self.visit(node.test)
+        self.visit(node.body)
+        self.visit(node.orelse)
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        self.visit(node.value)
+        self.visit(node.slice)
+
+    def visit_Index(self, node: ast.AST) -> None:
+        self.visit(node.value)  # type: ignore[attr-defined]
+
+    def visit_Slice(self, node: ast.Slice) -> None:
+        for value in (node.lower, node.upper, node.step):
+            if value is not None:
+                self.visit(value)
 
 
 # ── Core introspection helpers ────────────────────────────────────────────
@@ -208,17 +489,17 @@ def introspect_search(
 
 
 def introspect_eval(expression: str) -> dict[str, Any]:
-    """Evaluate a read-only Python expression and return its repr.
+    """Evaluate a bounded literal expression and return its repr.
 
-    Only bare expressions are allowed — no assignments, import statements,
-    or multi-statement code. The expression is evaluated with a restricted
-    namespace (builtins only).
+    The accepted subset contains literals, bounded operators, indexing, and a
+    small allowlist of pure builtins. Attribute access, comprehensions,
+    imports, assignments, lambdas, and dynamic builtin lookup are unavailable.
 
     Parameters
     ----------
     expression:
-        A short Python expression string (e.g. ``"type(maya.cmds.ls(sl=True))"``,
-        ``"dir(bpy.context)"``).
+        A short expression string (for example ``"type([1, 2, 3])"`` or
+        ``"sorted([3, 1, 2], reverse=True)"``).
 
     Returns
     -------
@@ -227,21 +508,30 @@ def introspect_eval(expression: str) -> dict[str, Any]:
         on any error.
 
     """
-    # Lightweight guard: reject obvious statement patterns
     stripped = expression.strip()
-    _BANNED = ("import ", "=", "def ", "class ", "for ", "while ", "exec(", "eval(", "__import__")
-    for banned in _BANNED:
-        if banned in stripped:
-            return ToolResultEnvelope(
-                success=False,
-                message=f"Expression contains disallowed construct: '{banned}'",
-            ).to_dict()
+    if not stripped:
+        return ToolResultEnvelope(success=False, message="Expression must not be empty.").to_dict()
+    if len(stripped) > _EVAL_MAX_CHARS:
+        return ToolResultEnvelope(
+            success=False,
+            message=f"Expression exceeds the {_EVAL_MAX_CHARS}-character limit.",
+        ).to_dict()
 
     try:
-        result = eval(stripped, {"__builtins__": __builtins__})  # intentional: sandboxed read-only eval
+        tree = ast.parse(stripped, mode="eval")
+        if sum(1 for _ in ast.walk(tree)) > _EVAL_MAX_AST_NODES:
+            raise _UnsafeExpression(f"expression exceeds the {_EVAL_MAX_AST_NODES}-node limit")
+        _ReadOnlyExpressionValidator().visit(tree)
+        compiled = compile(tree, "<dcc-introspect>", "eval")
+        result = eval(compiled, {"__builtins__": {}}, _SAFE_EVAL_BUILTINS)
         repr_str = repr(result)
         if len(repr_str) > _REPR_MAX_CHARS:
             repr_str = repr_str[:_REPR_MAX_CHARS] + "...(truncated)"
+    except _UnsafeExpression as exc:
+        return ToolResultEnvelope(
+            success=False,
+            message=f"Expression is outside the read-only subset: {exc}",
+        ).to_dict()
     except Exception:
         tb = traceback.format_exc()
         return ToolResultEnvelope(
@@ -338,9 +628,10 @@ _SEARCH_DESCRIPTION = (
 )
 
 _EVAL_DESCRIPTION = (
-    "Evaluate a short read-only Python expression in the DCC interpreter and return its repr. "
-    "When to use: to inspect a live object or type — e.g. 'type(maya.cmds.ls(sl=True))'. "
-    "How to use: pass a pure expression; no assignments or import statements allowed."
+    "Evaluate a bounded expression built from literals and allowlisted pure builtins, then return its repr. "
+    "When to use: for small type, shape, ordering, or arithmetic checks. "
+    "Use list_module, search, and signature for DCC APIs; attributes, imports, comprehensions, and dynamic builtins "
+    "are unavailable."
 )
 
 

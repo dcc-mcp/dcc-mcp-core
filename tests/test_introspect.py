@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import logging
 from unittest.mock import MagicMock
@@ -171,6 +172,41 @@ class TestIntrospectEval:
 
     def test_exec_call_is_rejected(self) -> None:
         result = introspect_eval("exec('pass')")
+        assert result["success"] is False
+
+    def test_split_exec_lookup_cannot_escape_through_builtins(self, tmp_path) -> None:
+        marker = "_dcc_mcp_introspect_eval_probe"
+        payload = tmp_path / "payload.py"
+        payload.write_text(f"__builtins__[{marker!r}] = True", encoding="utf-8")
+        expression = f"__builtins__['ex'+'ec'](open({str(payload)!r}).read())"
+
+        try:
+            result = introspect_eval(expression)
+            assert result["success"] is False
+            assert not hasattr(builtins, marker)
+        finally:
+            if hasattr(builtins, marker):
+                delattr(builtins, marker)
+
+    def test_safe_builtin_keyword_arguments_are_allowed(self) -> None:
+        result = introspect_eval("sorted([3, 1, 2], reverse=True)")
+        assert result["success"] is True
+        assert result["context"]["repr"] == "[3, 2, 1]"
+
+    def test_attribute_access_is_rejected(self) -> None:
+        result = introspect_eval("(1).__class__")
+        assert result["success"] is False
+
+    def test_unbounded_range_materialization_is_rejected(self) -> None:
+        result = introspect_eval("list(range(100_001))")
+        assert result["success"] is False
+
+    def test_total_materialization_budget_is_bounded(self) -> None:
+        result = introspect_eval("len(list(range(6_000))) + len(list(range(6_000)))")
+        assert result["success"] is False
+
+    def test_nested_power_expansion_is_rejected(self) -> None:
+        result = introspect_eval("(2 ** 1000) ** 1000")
         assert result["success"] is False
 
     def test_syntax_error_returns_failure(self) -> None:

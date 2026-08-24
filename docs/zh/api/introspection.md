@@ -12,6 +12,6 @@
 - `introspect_list_module(module_name, *, limit=200) -> dict` — 列出模块中的导出名称
 - `introspect_signature(qualname) -> dict` — 获取可调用对象的签名和文档字符串（如 `"maya.cmds.polyCube"`）
 - `introspect_search(pattern, module_name, *, limit=50) -> dict` — 在模块中正则搜索名称
-- `introspect_eval(expression) -> dict` — 求值短小的只读表达式并返回 repr
+- `introspect_eval(expression) -> dict` — 求值由字面量、有界运算和安全纯内建函数组成的表达式并返回 repr；属性访问、推导式、导入、赋值、lambda、动态内建查找和无界容器扩张会在求值前被拒绝。DCC API 发现应使用 `introspect_list_module`、`introspect_search` 和 `introspect_signature`
 
 详见 [English API 参考](../api/introspection.md)。

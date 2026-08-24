@@ -1549,7 +1549,7 @@ server.start()
 | Family | Prefix | Tools | Description |
 |--------|--------|-------|-------------|
 | Diagnostics | `dcc_diagnostics__*` | `screenshot`, `audit_log`, `tool_metrics`, `process_status`, `gateway_failover` | Host-local diagnostics and observability |
-| Introspection | `dcc_introspect__*` | `list_module`, `signature`, `search`, `eval` | Runtime DCC namespace introspection |
+| Introspection | `dcc_introspect__*` | `list_module`, `signature`, `search`, `eval` | DCC API discovery plus bounded literal evaluation |
 | Feedback | `dcc_feedback__*` | `report` | Agent feedback / rationale capture |
 | Recipes | `dcc_recipes__*` | `list`, `search`, `get`, `validate`, `apply` | Skill/domain recipe operations |
 | Qt Inspector | `qt_ui_inspector__*` | `list_windows`, `find_widgets`, `describe_widget`, `snapshot_tree`, `wait_for_widget` | DCC-agnostic Qt widget introspection |
