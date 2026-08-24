@@ -58,6 +58,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
+from typing import Callable
 import uuid
 
 from dcc_mcp_core import json_dumps
@@ -357,6 +358,71 @@ class EvalContext:
                 },
             }
 
+    def run_callable(self, callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run a trusted callable on the current thread under this deadline.
+
+        Safe signal preemption is used only when the runtime supports it. On
+        runtimes such as Windows, the callable remains synchronous so a timed
+        out DCC action can never continue mutating host state in a background
+        worker; an overrun is reported after the callable returns.
+        """
+        if self._timeout_secs is None:
+            return callback(*args, **kwargs)
+
+        import threading
+        import time
+
+        timeout_secs = self._timeout_secs
+        signal_module: Any | None = None
+        old_handler: Any | None = None
+        timer_installed = False
+        if threading.current_thread() is threading.main_thread():
+            try:
+                import signal
+
+                if hasattr(signal, "SIGALRM"):
+                    signal_module = signal
+
+                    def _timeout_handler(signum: int, frame: Any) -> None:
+                        raise TimeoutError(f"EvalContext call exceeded {timeout_secs}s timeout")
+
+                    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+                    if hasattr(signal, "setitimer") and hasattr(signal, "ITIMER_REAL"):
+                        signal.setitimer(signal.ITIMER_REAL, timeout_secs)
+                    else:
+                        signal.alarm(timeout_secs)
+                    timer_installed = True
+            except (AttributeError, OSError, ValueError):
+                signal_module = None
+                old_handler = None
+                timer_installed = False
+
+        started = time.monotonic()
+        try:
+            try:
+                result = callback(*args, **kwargs)
+            except BaseException as exc:
+                if not timer_installed and time.monotonic() - started > timeout_secs:
+                    raise TimeoutError(
+                        f"EvalContext call completed after the {timeout_secs}s timeout; "
+                        "safe preemption is unavailable on this runtime"
+                    ) from exc
+                raise
+            if not timer_installed and time.monotonic() - started > timeout_secs:
+                raise TimeoutError(
+                    f"EvalContext call completed after the {timeout_secs}s timeout; "
+                    "safe preemption is unavailable on this runtime"
+                )
+            return result
+        finally:
+            if timer_installed and signal_module is not None:
+                if hasattr(signal_module, "setitimer") and hasattr(signal_module, "ITIMER_REAL"):
+                    signal_module.setitimer(signal_module.ITIMER_REAL, 0)
+                else:
+                    signal_module.alarm(0)
+                if old_handler is not None:
+                    signal_module.signal(signal_module.SIGALRM, old_handler)
+
     def run(self, script: str) -> Any:
         """Execute a Python script string and return its result.
 
@@ -389,35 +455,16 @@ class EvalContext:
         indented = "\n".join("    " + line for line in script.splitlines())
         wrapped = f"def __dcc_eval_fn__():\n{indented}\n"
 
-        try:
-            if self._timeout_secs is not None:
-                import signal as _signal
-
-                def _timeout_handler(signum: int, frame: Any) -> None:
-                    raise TimeoutError(f"EvalContext script exceeded {self._timeout_secs}s timeout")
-
-                old_handler = None
-                try:
-                    old_handler = _signal.signal(_signal.SIGALRM, _timeout_handler)  # type: ignore[attr-defined]
-                    _signal.alarm(self._timeout_secs)  # type: ignore[attr-defined]
-                except AttributeError:
-                    pass  # SIGALRM not available on Windows; skip
-
+        def _execute() -> Any:
             try:
                 exec(wrapped, ns)
-                result = ns["__dcc_eval_fn__"]()
-                return result
-            finally:
-                if self._timeout_secs is not None:
-                    try:
-                        import signal as _signal2
+                return ns["__dcc_eval_fn__"]()
+            except TimeoutError:
+                raise
+            except Exception as exc:
+                raise RuntimeError(f"EvalContext script failed: {exc}") from exc
 
-                        _signal2.alarm(0)  # type: ignore[attr-defined]
-                        if old_handler is not None:
-                            _signal2.signal(_signal2.SIGALRM, old_handler)  # type: ignore[attr-defined]
-                    except AttributeError:
-                        pass
+        try:
+            return self.run_callable(_execute)
         except TimeoutError:
             raise
-        except Exception as exc:
-            raise RuntimeError(f"EvalContext script failed: {exc}") from exc

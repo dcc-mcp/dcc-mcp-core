@@ -361,6 +361,19 @@ def main(radius: float, segments: int = 16, label: Optional[str] = None):
     assert not marker.exists()
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def main(value: int):\n    return value\ndef main(name: str):\n    return name\n",
+        "def main(value: int):\n    return value\nmain = lambda name: name\n",
+        "from package import helper as main\ndef main(value: int):\n    return value\n",
+        "if True:\n    def main(value: int):\n        return value\n",
+    ],
+)
+def test_derive_script_parameters_schema_rejects_ambiguous_main_bindings(source: str) -> None:
+    assert derive_script_parameters_schema(source) is None
+
+
 class TestDeriveParametersSchema:
     def test_single_typed_param(self) -> None:
         def fn(name: str) -> None: ...
