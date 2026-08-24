@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.14](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.13...v0.20.14) (2026-08-24)
+
+
+### Features
+
+* define adapter install SOP foundation ([#2320](https://github.com/dcc-mcp/dcc-mcp-core/issues/2320)) ([e43f907](https://github.com/dcc-mcp/dcc-mcp-core/commit/e43f9073abcb808444da5185574bf0bdc0dd52c6))
+
+
+### Bug Fixes
+
+* accept trusted scope for UI recording ([#2353](https://github.com/dcc-mcp/dcc-mcp-core/issues/2353)) ([dae7fcd](https://github.com/dcc-mcp/dcc-mcp-core/commit/dae7fcd82773e302348f6594655558e5b99b556c))
+* preserve UI recording session scope ([#2356](https://github.com/dcc-mcp/dcc-mcp-core/issues/2356)) ([cff0695](https://github.com/dcc-mcp/dcc-mcp-core/commit/cff0695228c9510bc5d3a4c018db4741a15a5d19))
+
 ## [0.20.13](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.12...v0.20.13) (2026-08-24)
 
 
