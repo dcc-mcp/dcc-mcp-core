@@ -316,3 +316,30 @@ fn feedback_file_rejects_write_authorization_without_a_decision_before_io() {
     );
     assert!(!stderr.contains("could not read finding"));
 }
+
+#[test]
+fn feedback_file_rejects_write_authorization_without_a_plan_binding_before_io() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-finding.json");
+    let output = cli_command()
+        .args([
+            "feedback",
+            "file",
+            &missing.to_string_lossy(),
+            "--create",
+            "--yes",
+            "--json",
+        ])
+        .current_dir(temp.path())
+        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr
+            .contains("--yes requires the complete authorization binding emitted by a prior plan")
+    );
+    assert!(!stderr.contains("could not read finding"));
+}

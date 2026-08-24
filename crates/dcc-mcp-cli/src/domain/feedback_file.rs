@@ -6,6 +6,7 @@ use crate::domain::feedback::FeedbackRoute;
 use crate::domain::feedback_bundle::{FeedbackBundleError, validate_public_finding};
 
 pub const FEEDBACK_FILE_SCHEMA_VERSION: &str = "dcc-mcp.feedback-file.v1";
+const MAX_GITHUB_BODY_CHARS: usize = 65_536;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeedbackIssueDocument {
@@ -38,6 +39,12 @@ pub enum FeedbackFileError {
     FindingNeedsReview,
     #[error("finding fingerprint does not match the routed repository")]
     FingerprintRouteMismatch,
+    #[error("{kind} exceeds GitHub's {max_chars}-character body limit ({actual_chars})")]
+    BodyTooLarge {
+        kind: &'static str,
+        actual_chars: usize,
+        max_chars: usize,
+    },
 }
 
 pub fn build_issue_document(
@@ -114,6 +121,16 @@ pub fn build_issue_document(
         html_escape(&repro),
     );
     let comment_body = format!("## Agent re-observation\n\n{body}");
+    for (kind, value) in [("issue body", &body), ("comment body", &comment_body)] {
+        let actual_chars = value.chars().count();
+        if actual_chars > MAX_GITHUB_BODY_CHARS {
+            return Err(FeedbackFileError::BodyTooLarge {
+                kind,
+                actual_chars,
+                max_chars: MAX_GITHUB_BODY_CHARS,
+            });
+        }
+    }
     let search_terms = vec![
         search_term(&finding.dcc_type),
         finding.phase.to_string(),

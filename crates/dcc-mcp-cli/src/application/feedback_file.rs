@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::domain::feedback_file::{
@@ -9,7 +11,7 @@ use crate::domain::feedback_file::{
     FeedbackIssueCandidate, build_issue_document, recommend_filing,
 };
 
-use super::feedback::{FeedbackRouteService, read_finding};
+use super::feedback::{FeedbackRouteService, FeedbackRouteSnapshot};
 
 const DEFAULT_CATALOG_PATH: &str = "dcc-mcp-catalog.yml";
 const MAX_EXACT_RESULTS: usize = 20;
@@ -27,6 +29,16 @@ pub struct FeedbackFileRequest {
     pub catalog_path: Option<PathBuf>,
     pub decision: Option<FeedbackFileDecision>,
     pub authorized: bool,
+    pub authorization: Option<FeedbackFileAuthorization>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeedbackFileAuthorization {
+    pub canonical_finding_path: PathBuf,
+    pub finding_sha256: String,
+    pub fingerprint: String,
+    pub repo: String,
+    pub catalog_sha256: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +137,10 @@ pub struct FeedbackFileResult {
 pub enum FeedbackFileServiceError {
     #[error("--yes requires exactly one filing decision: --existing <number> or --create")]
     AuthorizationDecisionRequired,
+    #[error("--yes requires the complete authorization binding emitted by a prior plan")]
+    AuthorizationBindingRequired,
+    #[error("authorization no longer matches the reviewed feedback plan")]
+    AuthorizationMismatch,
     #[error(transparent)]
     Finding(#[from] crate::application::feedback::FeedbackRouteServiceError),
     #[error(transparent)]
@@ -157,15 +173,18 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
         if request.authorized && request.decision.is_none() {
             return Err(FeedbackFileServiceError::AuthorizationDecisionRequired);
         }
+        if request.authorized && request.authorization.is_none() {
+            return Err(FeedbackFileServiceError::AuthorizationBindingRequired);
+        }
 
-        let finding = read_finding(&request.finding_path)?;
-        let route = FeedbackRouteService::new(PathBuf::from(DEFAULT_CATALOG_PATH))
-            .route(&request.finding_path, request.catalog_path.as_deref())?;
-        let document = build_issue_document(&finding, &route)?;
-        let exact_records = self.search_exact(&route.repo, &finding.fingerprint)?;
+        let inputs = FeedbackFileInputs::capture(&request)?;
+        if let Some(authorization) = request.authorization.as_ref() {
+            inputs.verify_authorization(authorization)?;
+        }
+        let exact_records = self.search_exact(&inputs.route.repo, &inputs.finding.fingerprint)?;
         let exact = candidates(&exact_records);
         let (keyword, keyword_truncated) = if exact.is_empty() {
-            self.search_keywords(&route.repo, &document.search_terms)?
+            self.search_keywords(&inputs.route.repo, &inputs.document.search_terms)?
         } else {
             (Vec::new(), false)
         };
@@ -177,14 +196,19 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
         };
 
         if !request.authorized {
-            let (next_step, review_options) =
-                plan_next_steps(&request, recommendation.clone(), &dedup)?;
+            let (next_step, review_options) = plan_next_steps(
+                &inputs.authorization,
+                inputs.canonical_catalog_path.as_deref(),
+                request.decision,
+                recommendation.clone(),
+                &dedup,
+            )?;
             return Ok(FeedbackFileResult {
                 schema_version: FEEDBACK_FILE_SCHEMA_VERSION,
                 authorized: false,
                 status: FeedbackFileStatus::Planned,
-                repo: route.repo,
-                fingerprint: finding.fingerprint,
+                repo: inputs.route.repo,
+                fingerprint: inputs.finding.fingerprint,
                 recommendation,
                 dedup,
                 next_step,
@@ -198,24 +222,48 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
             .expect("authorized requests require a filing decision")
         {
             FeedbackFileDecision::Create => {
-                let raced = candidates(&self.search_exact(&route.repo, &finding.fingerprint)?);
+                let raced = candidates(
+                    &self.search_exact(&inputs.route.repo, &inputs.finding.fingerprint)?,
+                );
                 if !raced.is_empty() {
                     return Err(exact_conflict(&raced));
                 }
-                self.tracker
-                    .create_issue(&route.repo, &document.title, &document.body)?
+                let final_inputs = FeedbackFileInputs::capture(&request)?;
+                final_inputs.verify_authorization(
+                    request
+                        .authorization
+                        .as_ref()
+                        .expect("authorized requests require an authorization binding"),
+                )?;
+                self.tracker.create_issue(
+                    &final_inputs.route.repo,
+                    &final_inputs.document.title,
+                    &final_inputs.document.body,
+                )?
             }
             FeedbackFileDecision::Existing(number) => {
-                let raced = candidates(&self.search_exact(&route.repo, &finding.fingerprint)?);
+                let raced = candidates(
+                    &self.search_exact(&inputs.route.repo, &inputs.finding.fingerprint)?,
+                );
                 if !raced.is_empty() && !raced.iter().any(|issue| issue.number == number) {
                     return Err(exact_conflict(&raced));
                 }
-                let issue = self.tracker.view_issue(&route.repo, number)?;
+                let issue = self.tracker.view_issue(&inputs.route.repo, number)?;
                 if issue.state != FeedbackIssueState::Open {
                     return Err(FeedbackFileServiceError::IssueNotOpen { number });
                 }
-                self.tracker
-                    .comment_issue(&route.repo, number, &document.comment_body)?;
+                let final_inputs = FeedbackFileInputs::capture(&request)?;
+                final_inputs.verify_authorization(
+                    request
+                        .authorization
+                        .as_ref()
+                        .expect("authorized requests require an authorization binding"),
+                )?;
+                self.tracker.comment_issue(
+                    &final_inputs.route.repo,
+                    number,
+                    &final_inputs.document.comment_body,
+                )?;
                 issue.candidate
             }
         };
@@ -228,8 +276,8 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
             schema_version: FEEDBACK_FILE_SCHEMA_VERSION,
             authorized: true,
             status,
-            repo: route.repo,
-            fingerprint: finding.fingerprint,
+            repo: inputs.route.repo,
+            fingerprint: inputs.finding.fingerprint,
             recommendation,
             dedup,
             next_step: None,
@@ -298,6 +346,59 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
     }
 }
 
+struct FeedbackFileInputs {
+    canonical_catalog_path: Option<PathBuf>,
+    finding: dcc_mcp_models::FindingV1,
+    route: crate::domain::feedback::FeedbackRoute,
+    document: crate::domain::feedback_file::FeedbackIssueDocument,
+    authorization: FeedbackFileAuthorization,
+}
+
+impl FeedbackFileInputs {
+    fn capture(request: &FeedbackFileRequest) -> Result<Self, FeedbackFileServiceError> {
+        let snapshot = FeedbackRouteService::new(PathBuf::from(DEFAULT_CATALOG_PATH))
+            .snapshot(&request.finding_path, request.catalog_path.as_deref())?;
+        Self::from_snapshot(snapshot)
+    }
+
+    fn from_snapshot(snapshot: FeedbackRouteSnapshot) -> Result<Self, FeedbackFileServiceError> {
+        let document = build_issue_document(&snapshot.finding, &snapshot.route)?;
+        let authorization = FeedbackFileAuthorization {
+            canonical_finding_path: snapshot.canonical_finding_path,
+            finding_sha256: sha256_identity(&snapshot.finding_bytes),
+            fingerprint: snapshot.finding.fingerprint.clone(),
+            repo: snapshot.route.repo.clone(),
+            catalog_sha256: sha256_identity(&snapshot.catalog_bytes),
+        };
+        Ok(Self {
+            canonical_catalog_path: snapshot.canonical_catalog_path,
+            finding: snapshot.finding,
+            route: snapshot.route,
+            document,
+            authorization,
+        })
+    }
+
+    fn verify_authorization(
+        &self,
+        expected: &FeedbackFileAuthorization,
+    ) -> Result<(), FeedbackFileServiceError> {
+        if &self.authorization == expected {
+            Ok(())
+        } else {
+            Err(FeedbackFileServiceError::AuthorizationMismatch)
+        }
+    }
+}
+
+fn sha256_identity(bytes: &[u8]) -> String {
+    let mut identity = "sha256:".to_string();
+    for byte in Sha256::digest(bytes) {
+        write!(identity, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+    identity
+}
+
 fn candidates(records: &[FeedbackIssueRecord]) -> Vec<FeedbackIssueCandidate> {
     records
         .iter()
@@ -321,23 +422,33 @@ fn exact_conflict(candidates: &[FeedbackIssueCandidate]) -> FeedbackFileServiceE
 }
 
 fn plan_next_steps(
-    request: &FeedbackFileRequest,
+    authorization: &FeedbackFileAuthorization,
+    catalog_path: Option<&Path>,
+    decision: Option<FeedbackFileDecision>,
     recommendation: FeedbackFilingRecommendation,
     dedup: &FeedbackFileDedup,
 ) -> Result<(Option<FeedbackFileNextStep>, Vec<FeedbackFileNextStep>), FeedbackFileServiceError> {
-    if let Some(decision) = request.decision {
-        return Ok((Some(next_step(request, decision)?), Vec::new()));
+    if let Some(decision) = decision {
+        return Ok((
+            Some(next_step(authorization, catalog_path, decision)?),
+            Vec::new(),
+        ));
     }
     match recommendation {
         FeedbackFilingRecommendation::CommentExisting { issue_number } => Ok((
             Some(next_step(
-                request,
+                authorization,
+                catalog_path,
                 FeedbackFileDecision::Existing(issue_number),
             )?),
             Vec::new(),
         )),
         FeedbackFilingRecommendation::Create => Ok((
-            Some(next_step(request, FeedbackFileDecision::Create)?),
+            Some(next_step(
+                authorization,
+                catalog_path,
+                FeedbackFileDecision::Create,
+            )?),
             Vec::new(),
         )),
         FeedbackFilingRecommendation::ReviewRequired => {
@@ -348,10 +459,20 @@ fn plan_next_steps(
             };
             let mut options = source
                 .iter()
-                .map(|issue| next_step(request, FeedbackFileDecision::Existing(issue.number)))
+                .map(|issue| {
+                    next_step(
+                        authorization,
+                        catalog_path,
+                        FeedbackFileDecision::Existing(issue.number),
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             if dedup.exact.is_empty() {
-                options.push(next_step(request, FeedbackFileDecision::Create)?);
+                options.push(next_step(
+                    authorization,
+                    catalog_path,
+                    FeedbackFileDecision::Create,
+                )?);
             }
             Ok((None, options))
         }
@@ -359,11 +480,12 @@ fn plan_next_steps(
 }
 
 fn next_step(
-    request: &FeedbackFileRequest,
+    authorization: &FeedbackFileAuthorization,
+    catalog_path: Option<&Path>,
     decision: FeedbackFileDecision,
 ) -> Result<FeedbackFileNextStep, FeedbackFileServiceError> {
-    let finding_path = request
-        .finding_path
+    let finding_path = authorization
+        .canonical_finding_path
         .to_str()
         .ok_or(FeedbackFileServiceError::NonUnicodePath)?;
     let mut argv = vec![
@@ -372,7 +494,7 @@ fn next_step(
         "file".to_string(),
         finding_path.to_string(),
     ];
-    if let Some(path) = request.catalog_path.as_deref() {
+    if let Some(path) = catalog_path {
         argv.push("--catalog".to_string());
         argv.push(
             path.to_str()
@@ -387,6 +509,18 @@ fn next_step(
         }
         FeedbackFileDecision::Create => argv.push("--create".to_string()),
     }
+    argv.extend([
+        "--expected-finding-path".to_string(),
+        finding_path.to_string(),
+        "--expected-finding-sha256".to_string(),
+        authorization.finding_sha256.clone(),
+        "--expected-fingerprint".to_string(),
+        authorization.fingerprint.clone(),
+        "--expected-repo".to_string(),
+        authorization.repo.clone(),
+        "--expected-catalog-sha256".to_string(),
+        authorization.catalog_sha256.clone(),
+    ]);
     argv.extend(["--yes".to_string(), "--json".to_string()]);
     Ok(FeedbackFileNextStep { argv })
 }
@@ -570,8 +704,47 @@ mod tests {
                 catalog_path: None,
                 decision: None,
                 authorized: false,
+                authorization: None,
             },
         )
+    }
+
+    fn authorize(request: &mut FeedbackFileRequest, decision: FeedbackFileDecision) {
+        request.authorization = Some(FeedbackFileInputs::capture(request).unwrap().authorization);
+        request.decision = Some(decision);
+        request.authorized = true;
+    }
+
+    fn argv_value<'a>(argv: &'a [String], flag: &str) -> &'a str {
+        let index = argv.iter().position(|arg| arg == flag).unwrap();
+        argv.get(index + 1).map(String::as_str).unwrap()
+    }
+
+    fn replay_request(step: &FeedbackFileNextStep) -> FeedbackFileRequest {
+        let argv = &step.argv;
+        let decision = if let Some(index) = argv.iter().position(|arg| arg == "--existing") {
+            FeedbackFileDecision::Existing(argv[index + 1].parse().unwrap())
+        } else {
+            assert!(argv.iter().any(|arg| arg == "--create"));
+            FeedbackFileDecision::Create
+        };
+        let catalog_path = argv
+            .iter()
+            .position(|arg| arg == "--catalog")
+            .map(|index| PathBuf::from(&argv[index + 1]));
+        FeedbackFileRequest {
+            finding_path: PathBuf::from(&argv[3]),
+            catalog_path,
+            decision: Some(decision),
+            authorized: true,
+            authorization: Some(FeedbackFileAuthorization {
+                canonical_finding_path: PathBuf::from(argv_value(argv, "--expected-finding-path")),
+                finding_sha256: argv_value(argv, "--expected-finding-sha256").to_string(),
+                fingerprint: argv_value(argv, "--expected-fingerprint").to_string(),
+                repo: argv_value(argv, "--expected-repo").to_string(),
+                catalog_sha256: argv_value(argv, "--expected-catalog-sha256").to_string(),
+            }),
+        }
     }
 
     #[test]
@@ -593,6 +766,7 @@ mod tests {
         let existing = record("dcc-mcp/dcc-mcp-godot", 42, &finding.fingerprint);
         let tracker = FakeTracker::with_searches(vec![vec![existing]]);
         let (_temp, request) = request(&finding);
+        let canonical_finding = std::fs::canonicalize(&request.finding_path).unwrap();
 
         let result = FeedbackFileService::new(&tracker).file(request).unwrap();
 
@@ -603,6 +777,16 @@ mod tests {
             FeedbackFilingRecommendation::CommentExisting { issue_number: 42 }
         );
         let argv = &result.next_step.unwrap().argv;
+        assert_eq!(PathBuf::from(&argv[3]), canonical_finding);
+        for expected in [
+            "--expected-finding-path",
+            "--expected-finding-sha256",
+            "--expected-fingerprint",
+            "--expected-repo",
+            "--expected-catalog-sha256",
+        ] {
+            assert!(argv.iter().any(|arg| arg == expected), "missing {expected}");
+        }
         assert!(argv.windows(2).any(|pair| pair == ["--existing", "42"]));
         assert!(argv.iter().any(|arg| arg == "--yes"));
         let state = tracker.state.lock().unwrap();
@@ -653,8 +837,7 @@ mod tests {
         let raced = record("dcc-mcp/dcc-mcp-godot", 42, &finding.fingerprint);
         let tracker = FakeTracker::with_searches(vec![vec![], vec![], vec![raced]]);
         let (_temp, mut request) = request(&finding);
-        request.authorized = true;
-        request.decision = Some(FeedbackFileDecision::Create);
+        authorize(&mut request, FeedbackFileDecision::Create);
 
         let error = FeedbackFileService::new(&tracker)
             .file(request)
@@ -672,8 +855,7 @@ mod tests {
         let finding = finding(FindingRedactionMode::PublicSafe);
         let tracker = FakeTracker::with_searches(vec![vec![], vec![], vec![]]);
         let (_temp, mut request) = request(&finding);
-        request.authorized = true;
-        request.decision = Some(FeedbackFileDecision::Create);
+        authorize(&mut request, FeedbackFileDecision::Create);
 
         let result = FeedbackFileService::new(&tracker).file(request).unwrap();
 
@@ -690,8 +872,7 @@ mod tests {
             FakeTracker::with_searches(vec![vec![existing.clone()], vec![existing.clone()]]);
         tracker.add_view(existing);
         let (_temp, mut request) = request(&finding);
-        request.authorized = true;
-        request.decision = Some(FeedbackFileDecision::Existing(42));
+        authorize(&mut request, FeedbackFileDecision::Existing(42));
 
         let result = FeedbackFileService::new(&tracker).file(request).unwrap();
 
@@ -721,8 +902,7 @@ mod tests {
         ]);
         tracker.add_view(selected);
         let (_temp, mut request) = request(&finding);
-        request.authorized = true;
-        request.decision = Some(FeedbackFileDecision::Existing(43));
+        authorize(&mut request, FeedbackFileDecision::Existing(43));
 
         let result = FeedbackFileService::new(&tracker).file(request).unwrap();
 
@@ -740,8 +920,7 @@ mod tests {
         let tracker = FakeTracker::with_searches(vec![vec![open.clone()], vec![open]]);
         tracker.add_view(closed);
         let (_temp, mut request) = request(&finding);
-        request.authorized = true;
-        request.decision = Some(FeedbackFileDecision::Existing(42));
+        authorize(&mut request, FeedbackFileDecision::Existing(42));
 
         let error = FeedbackFileService::new(&tracker)
             .file(request)
@@ -769,6 +948,96 @@ mod tests {
             error,
             FeedbackFileServiceError::AuthorizationDecisionRequired
         ));
+        assert!(tracker.state.lock().unwrap().calls.is_empty());
+    }
+
+    #[test]
+    fn maximum_valid_finding_body_is_rejected_before_tracker_io() {
+        let mut finding = finding(FindingRedactionMode::PublicSafe);
+        finding.repro.argv.clear();
+        finding.repro.steps = vec!["x".repeat(4_096); 64];
+        assert!(finding.validate().is_ok());
+        let tracker = FakeTracker::default();
+        let (_temp, request) = request(&finding);
+
+        let error = FeedbackFileService::new(&tracker)
+            .file(request)
+            .unwrap_err();
+
+        assert!(matches!(error, FeedbackFileServiceError::Document(_)));
+        assert!(tracker.state.lock().unwrap().calls.is_empty());
+    }
+
+    #[test]
+    fn authorized_replay_rejects_finding_content_drift_before_tracker_io() {
+        let original = finding(FindingRedactionMode::PublicSafe);
+        let plan_tracker = FakeTracker::with_searches(vec![vec![], vec![]]);
+        let (_temp, request) = request(&original);
+        let finding_path = request.finding_path.clone();
+        let plan = FeedbackFileService::new(&plan_tracker)
+            .file(request)
+            .unwrap();
+        let replay = replay_request(plan.next_step.as_ref().unwrap());
+
+        let mut changed = original;
+        changed.observed = "A different reviewed observation".to_string();
+        std::fs::write(&finding_path, serde_json::to_vec_pretty(&changed).unwrap()).unwrap();
+        let tracker = FakeTracker::default();
+
+        let error = FeedbackFileService::new(&tracker).file(replay).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("authorization no longer matches")
+        );
+        assert!(tracker.state.lock().unwrap().calls.is_empty());
+    }
+
+    #[test]
+    fn authorized_replay_from_plan_writes_unchanged_inputs() {
+        let finding = finding(FindingRedactionMode::PublicSafe);
+        let plan_tracker = FakeTracker::with_searches(vec![vec![], vec![]]);
+        let (_temp, request) = request(&finding);
+        let plan = FeedbackFileService::new(&plan_tracker)
+            .file(request)
+            .unwrap();
+        let replay = replay_request(plan.next_step.as_ref().unwrap());
+        let tracker = FakeTracker::with_searches(vec![vec![], vec![], vec![]]);
+
+        let result = FeedbackFileService::new(&tracker).file(replay).unwrap();
+
+        assert_eq!(result.status, FeedbackFileStatus::Created);
+        assert_eq!(tracker.state.lock().unwrap().creates, 1);
+    }
+
+    #[test]
+    fn authorized_replay_rejects_catalog_drift_before_tracker_io() {
+        let finding = finding(FindingRedactionMode::PublicSafe);
+        let plan_tracker = FakeTracker::with_searches(vec![vec![], vec![]]);
+        let (temp, mut request) = request(&finding);
+        let source_catalog =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dcc-mcp-catalog.yml");
+        let catalog_path = temp.path().join("catalog.yml");
+        std::fs::copy(source_catalog, &catalog_path).unwrap();
+        request.catalog_path = Some(catalog_path.clone());
+        let plan = FeedbackFileService::new(&plan_tracker)
+            .file(request)
+            .unwrap();
+        let replay = replay_request(plan.next_step.as_ref().unwrap());
+
+        let mut catalog = std::fs::read_to_string(&catalog_path).unwrap();
+        catalog.push_str("\n# authorization drift\n");
+        std::fs::write(&catalog_path, catalog).unwrap();
+        let tracker = FakeTracker::default();
+
+        let error = FeedbackFileService::new(&tracker).file(replay).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("authorization no longer matches")
+        );
         assert!(tracker.state.lock().unwrap().calls.is_empty());
     }
 }

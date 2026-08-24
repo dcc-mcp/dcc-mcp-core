@@ -84,9 +84,7 @@ raw bundle 模式；raw issue report 和 host log 只能留在本地人工审查
 
 ```bash
 dcc-mcp-cli feedback file finding.json --json
-# 审查 next_step 并获得用户授权后：
-dcc-mcp-cli feedback file finding.json --existing 42 --yes --json
-dcc-mcp-cli feedback file finding.json --create --yes --json
+# 审查 next_step 并获得用户授权后，原样执行 next_step.argv；禁止手工删减或重建。
 ```
 
 第一条命令只读。它先解析责任仓库并校验 fingerprint 与仓库绑定，再通过 `gh`
@@ -95,12 +93,15 @@ dcc-mcp-cli feedback file finding.json --create --yes --json
 命中建议评论，完全无候选建议新建；只有关键词命中、多个命中或结果截断时必须
 人工选择，CLI 不会自动决定。
 
-任何写入都必须同时提供 `--yes` 和唯一决策（`--existing <number>` 或 `--create`）。
-CLI 会在写入前立即再次查询精确 fingerprint；出现新的或冲突的精确命中、目标
-Issue 已关闭、tracker 数据无效、GitHub 未认证或查询失败时都会 fail-closed。
-Issue 正文只投影经过审查的 Finding v1 字段，排除 request、job、instance、原始
-证据及 extra 字段，并通过 stdin 传给 `gh`，不会出现在命令行参数中。当前命令尚不
-负责多 Finding 分组，也不应用组织级 Issue form 与 labels。
+任何写入都必须同时提供 `--yes`、唯一决策，以及只读计划生成的完整授权绑定。
+返回 argv 绑定规范 Finding/catalog 路径、Finding 内容 SHA-256、fingerprint、责任
+仓库和 catalog SHA-256；CLI 在 tracker I/O 前及实际写入前立即重新捕获并校验，
+因此路径、内容、工作目录、仓库或 catalog 漂移都会 fail-closed。CLI 还会在写入前
+再次查询精确 fingerprint。所有 `gh` 操作固定到 `github.com`，最长运行 30 秒，超时
+后会 kill 并 wait。超过 GitHub 65,536 字符上限的 Issue/comment 正文会在 tracker I/O
+前拒绝。通过校验的正文只投影经过审查的 Finding v1 字段，排除 request、job、
+instance、原始证据及 extra 字段，并通过 stdin 传给 `gh`。当前命令尚不负责多
+Finding 分组，也不应用组织级 Issue form 与 labels。
 
 ## 主要函数
 

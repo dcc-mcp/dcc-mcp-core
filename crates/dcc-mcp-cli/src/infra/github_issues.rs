@@ -1,6 +1,8 @@
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
@@ -13,6 +15,8 @@ use crate::domain::feedback_file::FeedbackIssueCandidate;
 pub struct GhFeedbackIssueTracker {
     program: OsString,
 }
+
+const GH_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl Default for GhFeedbackIssueTracker {
     fn default() -> Self {
@@ -35,36 +39,8 @@ impl GhFeedbackIssueTracker {
         args: &[String],
         stdin_body: Option<&str>,
     ) -> Result<Output, FeedbackIssueTrackerError> {
-        let mut command = Command::new(&self.program);
-        command
-            .args(args)
-            .env("GH_PROMPT_DISABLED", "1")
-            .env("NO_COLOR", "1")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(if stdin_body.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            });
-        let mut child = command.spawn().map_err(|_| tracker_error(
-            "GitHub CLI could not be started; install gh and authenticate before filing feedback",
-        ))?;
-        if let Some(body) = stdin_body {
-            let write_result = child
-                .stdin
-                .take()
-                .ok_or_else(|| tracker_error("GitHub CLI stdin was unavailable"))?
-                .write_all(body.as_bytes());
-            if write_result.is_err() {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(tracker_error("GitHub CLI could not receive the issue body"));
-            }
-        }
-        let output = child
-            .wait_with_output()
-            .map_err(|_| tracker_error("GitHub CLI did not complete"))?;
+        let command = self.command(args, stdin_body.is_some());
+        let output = run_child_bounded(command, stdin_body, GH_OPERATION_TIMEOUT)?;
         if !output.status.success() {
             let code = output
                 .status
@@ -76,6 +52,145 @@ impl GhFeedbackIssueTracker {
         }
         Ok(output)
     }
+
+    fn command(&self, args: &[String], piped_stdin: bool) -> Command {
+        let mut command = Command::new(&self.program);
+        command
+            .args(args)
+            .env("GH_HOST", "github.com")
+            .env("GH_PROMPT_DISABLED", "1")
+            .env("NO_COLOR", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(if piped_stdin {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            });
+        command
+    }
+}
+
+fn run_child_bounded(
+    mut command: Command,
+    stdin_body: Option<&str>,
+    timeout: Duration,
+) -> Result<Output, FeedbackIssueTrackerError> {
+    let mut child = command.spawn().map_err(|_| {
+        tracker_error(
+            "GitHub CLI could not be started; install gh and authenticate before filing feedback",
+        )
+    })?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            terminate_and_wait(&mut child);
+            return Err(tracker_error("GitHub CLI stdout was unavailable"));
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            terminate_and_wait(&mut child);
+            return Err(tracker_error("GitHub CLI stderr was unavailable"));
+        }
+    };
+    let stdin = match stdin_body {
+        Some(_) => match child.stdin.take() {
+            Some(stdin) => Some(stdin),
+            None => {
+                terminate_and_wait(&mut child);
+                return Err(tracker_error("GitHub CLI stdin was unavailable"));
+            }
+        },
+        None => None,
+    };
+    let stdout_reader = thread::spawn(move || {
+        let mut stdout = stdout;
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut stderr = stderr;
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stdin_writer = stdin.map(|mut stdin| {
+        let bytes = stdin_body
+            .expect("stdin exists only for a body")
+            .as_bytes()
+            .to_vec();
+        thread::spawn(move || stdin.write_all(&bytes))
+    });
+
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < timeout => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => {
+                let reaped = terminate_and_wait(&mut child);
+                join_after_termination(stdin_writer, stdout_reader, stderr_reader);
+                return Err(tracker_error(if reaped {
+                    "GitHub CLI timed out and was terminated"
+                } else {
+                    "GitHub CLI timed out and child cleanup could not be confirmed"
+                }));
+            }
+            Err(_) => {
+                let reaped = terminate_and_wait(&mut child);
+                join_after_termination(stdin_writer, stdout_reader, stderr_reader);
+                return Err(tracker_error(if reaped {
+                    "GitHub CLI did not complete"
+                } else {
+                    "GitHub CLI failed and child cleanup could not be confirmed"
+                }));
+            }
+        }
+    };
+
+    if let Some(writer) = stdin_writer {
+        match writer.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) | Err(_) => {
+                return Err(tracker_error("GitHub CLI could not receive the issue body"));
+            }
+        }
+    }
+    let stdout = stdout_reader
+        .join()
+        .ok()
+        .and_then(Result::ok)
+        .ok_or_else(|| tracker_error("GitHub CLI stdout was unavailable"))?;
+    let stderr = stderr_reader
+        .join()
+        .ok()
+        .and_then(Result::ok)
+        .ok_or_else(|| tracker_error("GitHub CLI stderr was unavailable"))?;
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn terminate_and_wait(child: &mut std::process::Child) -> bool {
+    let _ = child.kill();
+    child.wait().is_ok()
+}
+
+fn join_after_termination(
+    stdin_writer: Option<thread::JoinHandle<std::io::Result<()>>>,
+    stdout_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    stderr_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) {
+    if let Some(writer) = stdin_writer {
+        let _ = writer.join();
+    }
+    let _ = stdout_reader.join();
+    let _ = stderr_reader.join();
 }
 
 impl FeedbackIssueTracker for GhFeedbackIssueTracker {
@@ -174,7 +289,7 @@ fn view_args(repo: &str, number: u64) -> Vec<String> {
         "view".to_string(),
         number.to_string(),
         "--repo".to_string(),
-        repo.to_string(),
+        github_repo(repo),
         "--json".to_string(),
         "number,title,url,body,state".to_string(),
     ]
@@ -186,7 +301,7 @@ fn comment_args(repo: &str, number: u64) -> Vec<String> {
         "comment".to_string(),
         number.to_string(),
         "--repo".to_string(),
-        repo.to_string(),
+        github_repo(repo),
         "--body-file".to_string(),
         "-".to_string(),
     ]
@@ -197,12 +312,16 @@ fn create_args(repo: &str, title: &str) -> Vec<String> {
         "issue".to_string(),
         "create".to_string(),
         "--repo".to_string(),
-        repo.to_string(),
+        github_repo(repo),
         "--title".to_string(),
         title.to_string(),
         "--body-file".to_string(),
         "-".to_string(),
     ]
+}
+
+fn github_repo(repo: &str) -> String {
+    format!("github.com/{repo}")
 }
 
 fn parse_issue_records(
@@ -277,6 +396,8 @@ fn tracker_error(message: impl Into<String>) -> FeedbackIssueTrackerError {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
 
     #[test]
@@ -340,7 +461,7 @@ mod tests {
                 "comment",
                 "42",
                 "--repo",
-                "dcc-mcp/dcc-mcp-godot",
+                "github.com/dcc-mcp/dcc-mcp-godot",
                 "--body-file",
                 "-"
             ]
@@ -352,12 +473,62 @@ mod tests {
                 "issue",
                 "create",
                 "--repo",
-                "dcc-mcp/dcc-mcp-godot",
+                "github.com/dcc-mcp/dcc-mcp-godot",
                 "--title",
                 "agent report: startup failed",
                 "--body-file",
                 "-"
             ]
         );
+    }
+
+    #[test]
+    fn every_operation_pins_github_dot_com_before_io() {
+        let repo = "dcc-mcp/dcc-mcp-godot";
+        let expected = "github.com/dcc-mcp/dcc-mcp-godot";
+        let operations = [
+            view_args(repo, 42),
+            comment_args(repo, 42),
+            create_args(repo, "agent report: startup failed"),
+        ];
+
+        for args in operations {
+            let repo_index = args.iter().position(|arg| arg == "--repo").unwrap();
+            assert_eq!(args.get(repo_index + 1).map(String::as_str), Some(expected));
+        }
+
+        let search = search_args(repo, "startup", &[FeedbackIssueSearchField::Title], 1);
+        let repo_index = search.iter().position(|arg| arg == "--repo").unwrap();
+        assert_eq!(search[repo_index + 1], repo);
+
+        let command = GhFeedbackIssueTracker::new("gh").command(&[], false);
+        let host = command
+            .get_envs()
+            .find(|(name, _)| *name == "GH_HOST")
+            .and_then(|(_, value)| value);
+        assert_eq!(host, Some(std::ffi::OsStr::new("github.com")));
+    }
+
+    #[test]
+    fn bounded_child_timeout_kills_waits_and_returns_a_stable_error() {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("ping");
+            command.args(["-n", "6", "127.0.0.1"]);
+            command
+        } else {
+            let mut command = Command::new("sleep");
+            command.arg("5");
+            command
+        };
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let started = Instant::now();
+
+        let error = run_child_bounded(command, None, Duration::from_millis(50)).unwrap_err();
+
+        assert_eq!(error.message, "GitHub CLI timed out and was terminated");
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }

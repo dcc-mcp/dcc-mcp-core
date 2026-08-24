@@ -8,7 +8,7 @@ use crate::application::doctor::DoctorContext;
 use crate::application::feedback::FeedbackRouteService;
 use crate::application::feedback_bundle::{FeedbackBundleRequest, FeedbackBundleService};
 use crate::application::feedback_file::{
-    FeedbackFileDecision, FeedbackFileRequest, FeedbackFileService,
+    FeedbackFileAuthorization, FeedbackFileDecision, FeedbackFileRequest, FeedbackFileService,
 };
 use crate::domain::feedback_bundle::{DEFAULT_HOST_ERROR_LINES, MAX_HOST_ERROR_LINES};
 use crate::domain::rest::FeedbackQueryRequest;
@@ -122,6 +122,21 @@ pub(crate) struct FeedbackFileArgs {
     /// Authorize the selected GitHub write; omitted means plan only.
     #[arg(long)]
     pub(super) yes: bool,
+    /// Canonical Finding path bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_finding_path: Option<PathBuf>,
+    /// Finding file content digest bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_finding_sha256: Option<String>,
+    /// Finding fingerprint bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_fingerprint: Option<String>,
+    /// Routed GitHub repository bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_repo: Option<String>,
+    /// Catalog content digest bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_catalog_sha256: Option<String>,
     /// Emit JSON (shortcut for the global `--output json`).
     #[arg(long)]
     pub(super) json: bool,
@@ -144,16 +159,48 @@ impl FeedbackFileArgs {
                     .to_string(),
             );
         }
+        let bindings = [
+            self.expected_finding_path.is_some(),
+            self.expected_finding_sha256.is_some(),
+            self.expected_fingerprint.is_some(),
+            self.expected_repo.is_some(),
+            self.expected_catalog_sha256.is_some(),
+        ];
+        if self.yes && !bindings.iter().all(|present| *present) {
+            return Err(
+                "--yes requires the complete authorization binding emitted by a prior plan"
+                    .to_string(),
+            );
+        }
+        if !self.yes && bindings.iter().any(|present| *present) {
+            return Err("authorization binding arguments require --yes".to_string());
+        }
         Ok(())
     }
 
     fn into_request(self) -> FeedbackFileRequest {
         let decision = self.decision();
+        let authorization =
+            self.expected_finding_path
+                .map(|canonical_finding_path| FeedbackFileAuthorization {
+                    canonical_finding_path,
+                    finding_sha256: self
+                        .expected_finding_sha256
+                        .expect("validated authorization binding"),
+                    fingerprint: self
+                        .expected_fingerprint
+                        .expect("validated authorization binding"),
+                    repo: self.expected_repo.expect("validated authorization binding"),
+                    catalog_sha256: self
+                        .expected_catalog_sha256
+                        .expect("validated authorization binding"),
+                });
         FeedbackFileRequest {
             finding_path: self.finding,
             catalog_path: self.catalog,
             decision,
             authorized: self.yes,
+            authorization,
         }
     }
 }
@@ -329,6 +376,11 @@ mod tests {
             existing,
             create,
             yes,
+            expected_finding_path: yes.then(|| PathBuf::from("finding.json")),
+            expected_finding_sha256: yes.then(|| format!("sha256:{}", "a".repeat(64))),
+            expected_fingerprint: yes.then(|| format!("sha256:{}", "b".repeat(64))),
+            expected_repo: yes.then(|| "dcc-mcp/dcc-mcp-godot".to_string()),
+            expected_catalog_sha256: yes.then(|| format!("sha256:{}", "c".repeat(64))),
             json: true,
         }
     }
@@ -355,5 +407,19 @@ mod tests {
         let request = args(Some(42), false, false).into_request();
         assert!(!request.authorized);
         assert_eq!(request.decision, Some(FeedbackFileDecision::Existing(42)));
+    }
+
+    #[test]
+    fn write_authorization_requires_a_complete_prior_plan_binding() {
+        let mut value = args(None, true, true);
+        value.expected_catalog_sha256 = None;
+
+        assert_eq!(
+            value.validate(),
+            Err(
+                "--yes requires the complete authorization binding emitted by a prior plan"
+                    .to_string()
+            )
+        );
     }
 }

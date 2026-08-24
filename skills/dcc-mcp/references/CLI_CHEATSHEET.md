@@ -159,9 +159,8 @@ dcc-mcp-cli feedback bundle reviewed-finding.json --json
 dcc-mcp-cli feedback bundle reviewed-finding.json \
   --dcc-pid 4321 --log-dir /safe/log/root --host-error-lines 50 --json
 dcc-mcp-cli feedback file reviewed-finding.json --json
-# Only after reviewing the plan and receiving explicit user authorization:
-dcc-mcp-cli feedback file reviewed-finding.json --existing 42 --yes --json
-dcc-mcp-cli feedback file reviewed-finding.json --create --yes --json
+# Only after reviewing the plan and receiving explicit user authorization,
+# execute the returned next_step.argv exactly.
 ```
 
 `route` resolves exact ownership without a Gateway. `bundle` also avoids
@@ -173,12 +172,16 @@ KiB and at most 200 requested records; raw messages, tracebacks, metadata,
 paths, tokens, and PID are excluded. Treat `unavailable` components and
 `complete=false` as incomplete evidence. Keep raw issue reports and host logs
 local, and never infer permission to create or attach to an external issue.
-`file` is read-only unless `--yes` is paired with exactly one explicit
-`--existing` or `--create` decision. It searches the routed repository by
-fingerprint before title keywords and repeats the fingerprint search before a
-write. Exact conflicts, closed issues, tracker errors, and ambiguous candidates
-stop the command. Never auto-select keyword-only results or add `--yes` without
-user authorization.
+`file` is read-only unless `--yes` is paired with exactly one explicit decision
+and the complete authorization binding from the plan. It searches the routed
+repository by fingerprint before title keywords. The replay binds canonical
+paths, Finding content SHA-256, fingerprint, repository, and catalog SHA-256,
+then rechecks that binding and the exact match immediately before a write.
+Every `gh` call is pinned to `github.com`, limited to 30 seconds, and reaped on
+timeout; issue/comment bodies above 65,536 characters are rejected before
+tracker I/O. Exact conflicts, drift, closed issues, tracker errors, and
+ambiguous candidates stop the command. Never auto-select keyword-only results,
+reconstruct the replay argv, or add `--yes` without user authorization.
 
 ## Install and marketplace
 
