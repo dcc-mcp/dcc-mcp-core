@@ -214,6 +214,8 @@ their worker-owned status tool.
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted gateway tool-call counts and return `stats_coverage`, including direct routes excluded from the aggregate. JSON is the default output for agent use. |
 | `feedback --tool-name <name> --intent <text> --blocker <text> [--attempt <text>] [--severity <level>] [--dcc-type <dcc>] [--instance-id <id>] [--request-id <id>] [--job-id <id>]` | `POST /v1/feedback` | File bounded gateway-level feedback even after the referenced DCC exits. The receipt points to `resources://gateway/events`. |
+| `feedback list [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | List persisted per-instance feedback newest first. The gateway deduplicates by feedback id, skips malformed/oversized lines with explicit counters, and rejects scans that exceed its safety bounds. |
+| `feedback export [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | Export the same structured contract with a bounded default of 1,000 records; `--json` is a shortcut for `--output json`. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, and server binary diagnostics without auto-starting services. |
 | `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
 | `search [-q\|--query <q>] [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities with the release-compatible query flag; current builds also accept positional natural-language words as an alternative. Optionally scope to a full UUID or unique prefix. |
@@ -286,11 +288,14 @@ Use the existing surfaces instead of copying unbounded logs:
    and `severity`; include the DCC/instance/request/job ids when known. This
    gateway-owned route works after an instance exits, records a bounded event,
    and does not open a GitHub issue.
-4. For a gateway-routed failure, read the public-safe
+4. Review persisted reports with
+   `dcc-mcp-cli feedback list --range 7d --dcc <dcc> --json`; use
+   `feedback export` for the largest bounded machine-readable window.
+5. For a gateway-routed failure, read the public-safe
    `/v1/debug/issue-reports/<request_id>` payload. It contains a bounded summary
    and suggested GitHub title/body. Review `?mode=raw` locally and never attach
    it automatically.
-5. Route schema/script/workflow bugs to the owning Skill, host dispatch or
+6. Route schema/script/workflow bugs to the owning Skill, host dispatch or
    readiness bugs to the adapter, and shared CLI/gateway/protocol bugs to
    `dcc-mcp-core`. Create the external issue only with user authorization.
 

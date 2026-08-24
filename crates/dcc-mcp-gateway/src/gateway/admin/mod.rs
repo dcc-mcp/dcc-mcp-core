@@ -53,6 +53,7 @@
 //! | `GET /admin/api/stats`             | [`StatsAggregator`] | Phase 3 |
 //! | `GET /admin/api/workers`           | `GatewayState` registry | Phase 4 |
 //! | `GET /admin/api/logs`              | [`GatewayState::event_log`] | base |
+//! | `GET /admin/api/feedback`          | registry-adjacent JSONL files | base |
 //!
 //! See `docs/guide/gateway-admin.md` for screenshots and configuration knobs.
 
@@ -86,6 +87,8 @@ mod analytics_tests;
 mod basic_endpoint_tests;
 #[cfg(all(test, feature = "admin-persist-sqlite"))]
 mod experiments_tests;
+#[cfg(all(test, feature = "admin"))]
+mod feedback_tests;
 #[cfg(feature = "admin")]
 #[cfg(all(test, feature = "admin"))]
 mod instance_update_tests;

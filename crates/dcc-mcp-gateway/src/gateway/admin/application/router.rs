@@ -17,6 +17,7 @@ use super::experiments::{
     handle_experiment_create, handle_experiment_detail, handle_experiment_judge_result,
     handle_experiment_run, handle_experiments_list,
 };
+use super::feedback::handle_admin_feedback;
 use super::general::{
     handle_admin_activity, handle_admin_governance, handle_admin_traffic,
     handle_admin_traffic_export, handle_admin_ui,
@@ -70,6 +71,7 @@ use super::skill_paths::{
 /// - `GET  /api/sessions`           → DCC/agent session inventory + KPI summary
 /// - `GET  /api/logs`               → JSON event log
 /// - `GET  /api/health`             → JSON health summary
+/// - `GET  /api/feedback`           → persisted per-instance feedback aggregation
 pub fn build_admin_router(state: AdminState) -> Router {
     Router::new()
         .route("/", routing::get(handle_admin_ui))
@@ -113,6 +115,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
             routing::delete(handle_admin_skill_path_delete),
         )
         .route("/api/logs", routing::get(handle_admin_logs))
+        .route("/api/feedback", routing::get(handle_admin_feedback))
         .route("/api/memory", routing::get(handle_admin_memory))
         .route(
             "/api/memory/forget",

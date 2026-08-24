@@ -20,6 +20,9 @@ pub(super) mod debug_response;
 pub(super) mod events;
 
 #[cfg(feature = "admin")]
+pub(super) mod feedback;
+
+#[cfg(feature = "admin")]
 pub(crate) mod experiments;
 
 #[cfg(feature = "admin")]

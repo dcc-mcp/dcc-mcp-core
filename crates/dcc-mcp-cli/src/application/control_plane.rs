@@ -19,8 +19,9 @@ use crate::application::instance_selection::{
 };
 use crate::application::{local_control, local_registry};
 use crate::domain::rest::{
-    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest,
-    ReloadSkillsRequest, SearchRequest, StatsRequest, StopInstanceRequest, WaitReadyRequest,
+    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, FeedbackQueryRequest,
+    LoadSkillRequest, ReloadSkillsRequest, SearchRequest, StatsRequest, StopInstanceRequest,
+    WaitReadyRequest,
 };
 use crate::infra::http::{HttpError, HttpGateway};
 
@@ -96,6 +97,14 @@ impl DccControlPlane {
     pub async fn feedback(&self, report: FeedbackReport) -> anyhow::Result<Value> {
         self.gateway_client()
             .feedback(report)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Query persisted feedback through the gateway-owned admin API.
+    pub async fn feedback_entries(&self, request: FeedbackQueryRequest) -> anyhow::Result<Value> {
+        self.gateway_client()
+            .feedback_entries(request)
             .await
             .map_err(Into::into)
     }

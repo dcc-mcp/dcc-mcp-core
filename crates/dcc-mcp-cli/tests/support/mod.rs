@@ -286,6 +286,31 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
             }),
         )
         .route(
+            "/admin/api/feedback",
+            get(|Query(query): Query<std::collections::HashMap<String, String>>| async move {
+                Json(json!({
+                    "success": true,
+                    "source": "registry-jsonl",
+                    "total": 1,
+                    "count": 1,
+                    "truncated": false,
+                    "skipped_invalid": 0,
+                    "deduplicated": 0,
+                    "files_scanned": 1,
+                    "filters": query,
+                    "entries": [{
+                        "id": "feedback-42",
+                        "timestamp": 1787536800.0,
+                        "tool_name": "houdini.ui_control__act",
+                        "intent": "Open the render menu",
+                        "blocker": "The owner exited",
+                        "severity": "blocked",
+                        "dcc_type": "houdini"
+                    }]
+                }))
+            }),
+        )
+        .route(
             "/v1/instances",
             get(|| async {
                 Json(json!({
