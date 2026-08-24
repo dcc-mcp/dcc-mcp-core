@@ -4,13 +4,14 @@
 //! instance. The built-in `local` profile uses the shared FileRegistry and the
 //! instance's advertised MCP endpoint; remote profiles use gateway REST.
 
+mod job_wait;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use dcc_mcp_models::FeedbackReport;
-use dcc_mcp_models::{LinkedAdapterJob, linked_adapter_job_from_result};
 
 use crate::application::client::{ClientError, DccMcpClient};
 use crate::application::gateway_profile::GatewayTarget;
@@ -25,18 +26,10 @@ use crate::domain::rest::{
 };
 use crate::infra::http::{HttpError, HttpGateway};
 
-const RELOAD_SKILLS_TOOL: &str = "dcc_admin__reload_skills";
-const JOB_POLL_INTERVAL: Duration = Duration::from_secs(1);
-const TERMINAL_JOB_STATUSES: &[&str] = &["completed", "failed", "cancelled", "interrupted"];
+pub(crate) use job_wait::JobWaitProgress;
+use job_wait::*;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct JobWaitProgress {
-    pub(crate) job_id: String,
-    pub(crate) status: String,
-    pub(crate) current: Option<u64>,
-    pub(crate) total: Option<u64>,
-    pub(crate) message: Option<String>,
-}
+const RELOAD_SKILLS_TOOL: &str = "dcc_admin__reload_skills";
 
 #[derive(Debug, Clone)]
 pub struct DccControlPlane {
@@ -243,12 +236,10 @@ impl DccControlPlane {
     where
         F: FnMut(&JobWaitProgress),
     {
-        let mut status_tool =
-            job_status_tool(&tool_slug, dcc_type.as_deref(), instance_id.as_deref())?;
         let poll_meta = job_poll_meta(meta.clone());
         let mut result = self
             .call(
-                tool_slug,
+                tool_slug.clone(),
                 dcc_type.clone(),
                 instance_id.clone(),
                 arguments,
@@ -256,124 +247,250 @@ impl DccControlPlane {
                 request_timeout,
             )
             .await?;
-        let Some(initial) = job_wait_progress(&result, 0) else {
-            return Ok(result);
-        };
-        on_progress(&initial);
-        let job_id = initial.job_id.clone();
-        let mut status = initial.status.clone();
-        let mut last_progress = initial;
+        let started = tokio::time::Instant::now();
         let mut control_plane_disruptions = 0_u64;
         let mut last_poll_error: Option<String> = None;
-        if is_terminal_job_status(&status) {
+
+        if adapter_wait_target(&result, 0).is_none() {
+            let Some(initial) = job_wait_progress(&result, 0) else {
+                return Ok(result);
+            };
+            on_progress(&initial);
+            let job_id = initial.job_id.clone();
+            let mut status = initial.status.clone();
+            let mut last_progress = initial;
+            let mut status_tool =
+                job_status_tool(&tool_slug, dcc_type.as_deref(), instance_id.as_deref())?;
+
+            while !is_terminal_job_status(&status) {
+                if started.elapsed() >= wait_timeout {
+                    return Ok(job_wait_timeout_result(
+                        "core",
+                        &job_id,
+                        &status,
+                        wait_timeout,
+                        last_poll_error.as_deref(),
+                        control_plane_disruptions,
+                        result,
+                    ));
+                }
+                tokio::time::sleep(JOB_POLL_INTERVAL).await;
+                let poll_result = self
+                    .call(
+                        status_tool.clone(),
+                        dcc_type.clone(),
+                        instance_id.clone(),
+                        json!({"job_id": job_id, "include_result": true}),
+                        poll_meta.clone(),
+                        request_timeout,
+                    )
+                    .await;
+                let poll_result = match poll_result {
+                    Err(error)
+                        if status_tool != "jobs_get_status"
+                            && job_status_tool_is_unknown(&error) =>
+                    {
+                        match self
+                            .call(
+                                "jobs_get_status".to_string(),
+                                None,
+                                None,
+                                json!({"job_id": job_id, "include_result": true}),
+                                poll_meta.clone(),
+                                request_timeout,
+                            )
+                            .await
+                        {
+                            Ok(value) => {
+                                status_tool = "jobs_get_status".to_string();
+                                Ok(value)
+                            }
+                            Err(fallback_error) => Err(fallback_error),
+                        }
+                    }
+                    other => other,
+                };
+                match poll_result {
+                    Ok(value) => {
+                        result = value;
+                        last_poll_error = None;
+                    }
+                    Err(error)
+                        if !self.uses_direct_local() && job_poll_error_is_retryable(&error) =>
+                    {
+                        control_plane_disruptions = control_plane_disruptions.saturating_add(1);
+                        let outage_started = last_poll_error.is_none();
+                        last_poll_error = Some(error.to_string());
+                        if outage_started {
+                            emit_reconnecting_progress(&mut on_progress, &last_progress, &status);
+                        }
+                        continue;
+                    }
+                    Err(error) if job_poll_owner_exited(&error) => {
+                        return Ok(job_owner_exited_result(
+                            "core", &job_id, &status, &error, result,
+                        ));
+                    }
+                    Err(error) => return Err(error),
+                }
+                let Some(update) = job_wait_progress(&result, 0) else {
+                    anyhow::bail!("jobs_get_status returned no job envelope for {job_id}");
+                };
+                if update.job_id != job_id {
+                    return Ok(job_id_mismatch_result(
+                        "core",
+                        &job_id,
+                        &update.job_id,
+                        result,
+                    ));
+                }
+                status = update.status.clone();
+                on_progress(&update);
+                last_progress = update;
+            }
             annotate_wait_result_job_identity(&mut result, &job_id, &status_tool);
-            return Ok(result);
+            if adapter_wait_target(&result, 0).is_none() {
+                attach_wait_summary(&mut result, "core", &job_id, &status, true, None);
+                attach_wait_recovery(&mut result, &job_id, control_plane_disruptions);
+                return Ok(result);
+            }
         }
 
-        let started = tokio::time::Instant::now();
-        loop {
+        let mut adapter = adapter_wait_target(&result, 0)
+            .expect("adapter target was checked before entering adapter wait");
+        if is_terminal_job_status(&adapter.status) {
+            on_progress(&adapter.progress());
+            attach_adapter_terminal_result(&mut result, &adapter, None, 0);
+            attach_wait_summary(
+                &mut result,
+                "adapter",
+                &adapter.job_id,
+                &adapter.status,
+                true,
+                None,
+            );
+            attach_wait_recovery(&mut result, &adapter.job_id, control_plane_disruptions);
+            return Ok(result);
+        }
+        let Some(poll_tool) = adapter.poll_tool.clone() else {
+            attach_wait_summary(
+                &mut result,
+                "adapter",
+                &adapter.job_id,
+                &adapter.status,
+                false,
+                Some(
+                    adapter
+                        .poll_contract_error
+                        .as_deref()
+                        .unwrap_or("poll_contract_missing"),
+                ),
+            );
+            return Ok(result);
+        };
+        on_progress(&adapter.progress());
+        let poll_arguments = adapter
+            .poll_arguments
+            .clone()
+            .expect("validated adapter poll tool has arguments");
+        let routed_poll_tool = adapter_job_status_tool(
+            &tool_slug,
+            dcc_type.as_deref(),
+            instance_id.as_deref(),
+            &poll_tool,
+        )?;
+        let mut last_progress = adapter.progress();
+        let mut terminal_poll_result = None;
+
+        while !is_terminal_job_status(&adapter.status) {
             if started.elapsed() >= wait_timeout {
-                return Ok(json!({
-                    "success": false,
-                    "error": format!("timed out waiting for job {job_id} after {}s", wait_timeout.as_secs()),
-                    "job_id": job_id,
-                    "status": status,
-                    "wait_timed_out": true,
-                    "tracking_status": last_poll_error.as_ref().map(|_| "control_plane_unavailable"),
-                    "control_plane_disruptions": control_plane_disruptions,
-                    "last_poll_error": last_poll_error,
-                    "job_not_resubmitted": true,
-                    "recommended_next_action": "Continue querying the same job ID later; restore the gateway first only if it is unavailable. Do not submit the operation again.",
-                    "last_result": result,
-                }));
+                return Ok(job_wait_timeout_result(
+                    "adapter",
+                    &adapter.job_id,
+                    &adapter.status,
+                    wait_timeout,
+                    last_poll_error.as_deref(),
+                    control_plane_disruptions,
+                    result,
+                ));
             }
             tokio::time::sleep(JOB_POLL_INTERVAL).await;
             let poll_result = self
                 .call(
-                    status_tool.clone(),
+                    routed_poll_tool.clone(),
                     dcc_type.clone(),
                     instance_id.clone(),
-                    json!({"job_id": job_id, "include_result": true}),
+                    poll_arguments.clone(),
                     poll_meta.clone(),
                     request_timeout,
                 )
                 .await;
             let poll_result = match poll_result {
-                Err(error)
-                    if status_tool != "jobs_get_status" && job_status_tool_is_unknown(&error) =>
-                {
-                    match self
-                        .call(
-                            "jobs_get_status".to_string(),
-                            None,
-                            None,
-                            json!({"job_id": job_id, "include_result": true}),
-                            poll_meta.clone(),
-                            request_timeout,
-                        )
-                        .await
-                    {
-                        Ok(value) => {
-                            status_tool = "jobs_get_status".to_string();
-                            Ok(value)
-                        }
-                        Err(fallback_error) => Err(fallback_error),
-                    }
-                }
-                other => other,
-            };
-            match poll_result {
                 Ok(value) => {
-                    result = value;
                     last_poll_error = None;
+                    value
                 }
                 Err(error) if !self.uses_direct_local() && job_poll_error_is_retryable(&error) => {
                     control_plane_disruptions = control_plane_disruptions.saturating_add(1);
                     let outage_started = last_poll_error.is_none();
                     last_poll_error = Some(error.to_string());
                     if outage_started {
-                        let mut reconnecting = last_progress.clone();
-                        reconnecting.status = "control_plane_reconnecting".to_string();
-                        reconnecting.message = Some(format!(
-                            "last_job_status={status}; gateway unavailable, retrying the same job"
-                        ));
-                        on_progress(&reconnecting);
+                        emit_reconnecting_progress(
+                            &mut on_progress,
+                            &last_progress,
+                            &adapter.status,
+                        );
                     }
                     continue;
                 }
                 Err(error) if job_poll_owner_exited(&error) => {
-                    return Ok(json!({
-                        "success": false,
-                        "error": "job tracking owner exited; the job was not resubmitted",
-                        "job_id": job_id,
-                        "status": status,
-                        "tracking_status": "owner_exited",
-                        "control_plane_error": job_poll_error_value(&error),
-                        "job_not_resubmitted": true,
-                        "recommended_next_action": "Use the isolated worker's typed status tool if one was returned; otherwise restore the owning adapter before querying this job again.",
-                        "last_result": result,
-                    }));
+                    return Ok(job_owner_exited_result(
+                        "adapter",
+                        &adapter.job_id,
+                        &adapter.status,
+                        &error,
+                        result,
+                    ));
                 }
                 Err(error) => return Err(error),
-            }
-            let Some(update) = job_wait_progress(&result, 0) else {
-                anyhow::bail!("jobs_get_status returned no job envelope for {job_id}");
             };
-            if update.job_id != job_id {
-                anyhow::bail!(
-                    "jobs_get_status returned job {} while waiting for {job_id}",
-                    update.job_id
-                );
+            let Some(update) = adapter_job_progress(&poll_result, 0) else {
+                return Ok(invalid_job_poll_result(
+                    "adapter",
+                    &adapter.job_id,
+                    "adapter status tool returned no canonical job envelope",
+                    poll_result,
+                    result,
+                ));
+            };
+            if update.job_id != adapter.job_id {
+                return Ok(job_id_mismatch_result(
+                    "adapter",
+                    &adapter.job_id,
+                    &update.job_id,
+                    poll_result,
+                ));
             }
-            status = update.status.clone();
+            adapter.status = update.status.clone();
+            adapter.current = update.current;
+            adapter.total = update.total;
+            adapter.message.clone_from(&update.message);
             on_progress(&update);
             last_progress = update;
-            if is_terminal_job_status(&status) {
-                annotate_wait_result_job_identity(&mut result, &job_id, &status_tool);
-                attach_wait_recovery(&mut result, &job_id, control_plane_disruptions);
-                return Ok(result);
-            }
+            terminal_poll_result = Some(poll_result);
         }
+
+        attach_adapter_terminal_result(&mut result, &adapter, terminal_poll_result.as_ref(), 0);
+        attach_wait_summary(
+            &mut result,
+            "adapter",
+            &adapter.job_id,
+            &adapter.status,
+            true,
+            None,
+        );
+        attach_wait_recovery(&mut result, &adapter.job_id, control_plane_disruptions);
+        Ok(result)
     }
 
     pub async fn call_batch(&self, body: Value, timeout: Duration) -> anyhow::Result<Value> {
@@ -470,175 +587,6 @@ impl DccControlPlane {
     }
 }
 
-fn job_poll_http_error(error: &anyhow::Error) -> Option<&HttpError> {
-    match error.downcast_ref::<ClientError>()? {
-        ClientError::Http(error) => Some(error),
-        ClientError::Protocol(_) => None,
-    }
-}
-
-fn job_poll_error_is_retryable(error: &anyhow::Error) -> bool {
-    match job_poll_http_error(error) {
-        Some(HttpError::Request(error)) => {
-            error.is_connect()
-                || error.is_timeout()
-                || error.is_request()
-                || error.is_body()
-                || error.is_decode()
-        }
-        Some(HttpError::Status { status, .. }) => matches!(
-            *status,
-            reqwest::StatusCode::NOT_FOUND
-                | reqwest::StatusCode::TOO_MANY_REQUESTS
-                | reqwest::StatusCode::BAD_GATEWAY
-                | reqwest::StatusCode::SERVICE_UNAVAILABLE
-                | reqwest::StatusCode::GATEWAY_TIMEOUT
-        ),
-        Some(HttpError::MissingRequestId { .. } | HttpError::RequestIdMismatch { .. }) => false,
-        None => false,
-    }
-}
-
-fn job_status_tool_is_unknown(error: &anyhow::Error) -> bool {
-    matches!(
-        job_poll_http_error(error),
-        Some(HttpError::Status { status, body })
-            if *status == reqwest::StatusCode::NOT_FOUND
-                && body.contains("unknown-slug")
-                && body.contains("jobs_get_status")
-    )
-}
-
-fn job_poll_owner_exited(error: &anyhow::Error) -> bool {
-    matches!(
-        job_poll_http_error(error),
-        Some(HttpError::Status { status, .. }) if *status == reqwest::StatusCode::GONE
-    )
-}
-
-fn job_poll_error_value(error: &anyhow::Error) -> Value {
-    match job_poll_http_error(error) {
-        Some(HttpError::Status { status, body }) => json!({
-            "http_status": status.as_u16(),
-            "body": serde_json::from_str::<Value>(body).unwrap_or_else(|_| json!(body)),
-        }),
-        _ => json!({"message": error.to_string()}),
-    }
-}
-
-fn attach_wait_recovery(result: &mut Value, job_id: &str, disruptions: u64) {
-    if disruptions == 0 {
-        return;
-    }
-    if let Some(object) = result.as_object_mut() {
-        object.insert(
-            "wait_recovery".to_string(),
-            json!({
-                "job_id": job_id,
-                "control_plane_disruptions": disruptions,
-                "resumed": true,
-                "job_resubmitted": false,
-            }),
-        );
-    }
-}
-
-fn annotate_wait_result_job_identity(result: &mut Value, core_job_id: &str, status_tool: &str) {
-    let adapter_job = find_terminal_adapter_job(result, core_job_id, 0);
-    annotate_core_job_envelope(result, core_job_id, status_tool, adapter_job.as_ref(), 0);
-}
-
-fn find_terminal_adapter_job(
-    value: &Value,
-    core_job_id: &str,
-    depth: u8,
-) -> Option<LinkedAdapterJob> {
-    if depth > 4 {
-        return None;
-    }
-    if value.get("job_id").and_then(Value::as_str) == Some(core_job_id)
-        && value
-            .get("status")
-            .and_then(Value::as_str)
-            .is_some_and(is_terminal_job_status)
-        && let Some(result) = value.get("result")
-    {
-        return linked_adapter_job_from_result(result, core_job_id);
-    }
-    [
-        "output",
-        "result",
-        "structuredContent",
-        "structured_content",
-    ]
-    .iter()
-    .filter_map(|key| value.get(*key))
-    .find_map(|nested| find_terminal_adapter_job(nested, core_job_id, depth + 1))
-}
-
-fn annotate_core_job_envelope(
-    value: &mut Value,
-    core_job_id: &str,
-    status_tool: &str,
-    adapter_job: Option<&LinkedAdapterJob>,
-    depth: u8,
-) -> bool {
-    if depth > 4 {
-        return false;
-    }
-    if value.get("job_id").and_then(Value::as_str) == Some(core_job_id)
-        && value.get("status").and_then(Value::as_str).is_some()
-    {
-        let Some(object) = value.as_object_mut() else {
-            return false;
-        };
-        object
-            .entry("core_job_id")
-            .or_insert_with(|| Value::String(core_job_id.to_string()));
-        object
-            .entry("job_id_owner")
-            .or_insert_with(|| Value::String("core".to_string()));
-        object.entry("core_poll").or_insert_with(|| {
-            json!({
-                "owner": "core",
-                "tool": status_tool,
-                "arguments": {"job_id": core_job_id, "include_result": true},
-            })
-        });
-        if let Some(adapter_job) = adapter_job {
-            object
-                .entry("adapter_job_id")
-                .or_insert_with(|| Value::String(adapter_job.job_id.clone()));
-            object.entry("adapter_job").or_insert_with(|| {
-                json!({
-                    "job_id": adapter_job.job_id,
-                    "owner": "adapter",
-                    "identity_source": adapter_job.source,
-                    "core_job_id": core_job_id,
-                    "cancellation": {
-                        "owner": "adapter",
-                        "inherits_core_cancellation": false,
-                    },
-                    "hint": "Discover the adapter's typed status tool and pass adapter_job_id; do not pass this id to jobs_get_status.",
-                })
-            });
-        }
-        return true;
-    }
-    [
-        "output",
-        "result",
-        "structuredContent",
-        "structured_content",
-    ]
-    .iter()
-    .any(|key| {
-        value.get_mut(*key).is_some_and(|nested| {
-            annotate_core_job_envelope(nested, core_job_id, status_tool, adapter_job, depth + 1)
-        })
-    })
-}
-
 fn attach_call_route(mut value: Value, direct_local: bool) -> Value {
     if let Some(object) = value.as_object_mut() {
         object.insert(
@@ -660,77 +608,6 @@ fn attach_call_route(mut value: Value, direct_local: bool) -> Value {
         }
     }
     value
-}
-
-fn job_status_tool(
-    tool_slug: &str,
-    dcc_type: Option<&str>,
-    instance_id: Option<&str>,
-) -> anyhow::Result<String> {
-    if dcc_type.is_some() && instance_id.is_some() {
-        return Ok("jobs_get_status".to_string());
-    }
-    let mut parts = tool_slug.splitn(3, '.');
-    let dcc = parts.next().unwrap_or_default();
-    let instance = parts.next().unwrap_or_default();
-    if dcc.is_empty() || instance.is_empty() || parts.next().is_none() {
-        anyhow::bail!("--wait requires a canonical DCC tool slug or direct instance selection");
-    }
-    Ok(format!("{dcc}.{instance}.jobs_get_status"))
-}
-
-fn job_wait_progress(value: &Value, depth: u8) -> Option<JobWaitProgress> {
-    if depth > 4 {
-        return None;
-    }
-    if let (Some(job_id), Some(status)) = (
-        value.get("job_id").and_then(Value::as_str),
-        value.get("status").and_then(Value::as_str),
-    ) {
-        let progress = value.get("progress");
-        return Some(JobWaitProgress {
-            job_id: job_id.to_string(),
-            status: status.to_string(),
-            current: progress
-                .and_then(|progress| progress.get("current"))
-                .and_then(Value::as_u64),
-            total: progress
-                .and_then(|progress| progress.get("total"))
-                .and_then(Value::as_u64),
-            message: progress
-                .and_then(|progress| progress.get("message"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
-        });
-    }
-    [
-        "output",
-        "result",
-        "structuredContent",
-        "structured_content",
-    ]
-    .iter()
-    .filter_map(|key| value.get(*key))
-    .find_map(|nested| job_wait_progress(nested, depth + 1))
-}
-
-fn is_terminal_job_status(status: &str) -> bool {
-    TERMINAL_JOB_STATUSES.contains(&status)
-}
-
-fn job_poll_meta(mut meta: Option<Value>) -> Option<Value> {
-    let Some(Value::Object(root)) = meta.as_mut() else {
-        return meta;
-    };
-    root.remove("progressToken");
-    if let Some(Value::Object(dcc)) = root.get_mut("dcc") {
-        dcc.remove("async");
-        dcc.remove("wait_for_terminal");
-        if dcc.is_empty() {
-            root.remove("dcc");
-        }
-    }
-    meta.filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
 }
 
 fn attach_stats_coverage(mut value: Value, direct_local: bool) -> Value {
@@ -778,7 +655,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use axum::extract::{Query, Request, State};
-    use axum::http::{HeaderValue, StatusCode};
+    use axum::http::StatusCode;
     use axum::middleware::{self, Next};
     use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
@@ -791,9 +668,7 @@ mod tests {
         let request_id = request.headers().get("x-request-id").cloned();
         let mut response = next.run(request).await;
         if let Some(request_id) = request_id {
-            response
-                .headers_mut()
-                .insert("x-request-id", HeaderValue::from(request_id));
+            response.headers_mut().insert("x-request-id", request_id);
         }
         response
     }
@@ -1005,6 +880,9 @@ mod tests {
             result["structuredContent"]["adapter_job"]["owner"],
             "adapter"
         );
+        assert_eq!(result["wait"]["terminal"], false);
+        assert_eq!(result["wait"]["tracking_status"], "poll_contract_missing");
+        assert_eq!(result["success"], false);
         assert_eq!(
             progress
                 .iter()
@@ -1016,6 +894,210 @@ mod tests {
                 ("completed", Some(90), Some(90)),
             ]
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_for_direct_adapter_job_polls_declared_tool_to_terminal() {
+        async fn call(
+            State(requests): State<Arc<Mutex<Vec<Value>>>>,
+            Json(body): Json<Value>,
+        ) -> Json<Value> {
+            let slug = body["tool_slug"].as_str().unwrap_or_default().to_string();
+            let poll_count = {
+                let mut requests = requests.lock().unwrap();
+                let poll_count = requests
+                    .iter()
+                    .filter(|request| {
+                        request["tool_slug"]
+                            .as_str()
+                            .is_some_and(|tool| tool.ends_with(".blender_render__get_render_job"))
+                    })
+                    .count();
+                requests.push(body);
+                poll_count
+            };
+            if slug.ends_with(".blender_render__get_render_job") {
+                let status = if poll_count == 0 {
+                    "running"
+                } else {
+                    "completed"
+                };
+                let current = if poll_count == 0 { 2 } else { 3 };
+                return Json(json!({
+                    "structuredContent": {
+                        "success": true,
+                        "message": "Render job status",
+                        "context": {
+                            "job_id": "render-adapter-42",
+                            "status": status,
+                            "progress": {"current": current, "total": 3},
+                        }
+                    }
+                }));
+            }
+            Json(json!({
+                "structuredContent": {
+                    "success": true,
+                    "message": "Background render job submitted",
+                    "context": {
+                        "job_id": "render-adapter-42",
+                        "status": "running",
+                        "progress": {"current": 1, "total": 3},
+                    },
+                    "adapter_job_id": "render-adapter-42",
+                    "adapter_job": {
+                        "job_id": "render-adapter-42",
+                        "owner": "adapter",
+                        "status": "running",
+                        "poll_contract": {"registered": true, "reason": null},
+                        "poll": {
+                            "owner": "adapter",
+                            "tool": "blender_render__get_render_job",
+                            "arguments": {"job_id": "render-adapter-42"},
+                        }
+                    }
+                }
+            }))
+        }
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .with_state(requests.clone())
+            .layer(middleware::from_fn(echo_request_id));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            true,
+        );
+
+        let mut progress = Vec::new();
+        let result = control
+            .call_and_wait_with_progress(
+                "blender.abc12345.blender_render__start_render_job".to_string(),
+                None,
+                None,
+                json!({}),
+                None,
+                Duration::from_secs(2),
+                Duration::from_secs(5),
+                |update| progress.push(update.clone()),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result["wait"]["terminal"], true);
+        assert_eq!(result["wait"]["owner"], "adapter");
+        assert_eq!(result["wait"]["job_id"], "render-adapter-42");
+        assert_eq!(result["wait"]["status"], "completed");
+        assert_eq!(
+            result["structuredContent"]["adapter_job"]["terminal_result"]["structuredContent"]["context"]
+                ["status"],
+            "completed"
+        );
+        assert_eq!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|request| request["tool_slug"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>(),
+            vec![
+                "blender.abc12345.blender_render__start_render_job",
+                "blender.abc12345.blender_render__get_render_job",
+                "blender.abc12345.blender_render__get_render_job",
+            ]
+        );
+        assert_eq!(
+            progress
+                .iter()
+                .map(|update| (update.job_id.as_str(), update.status.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("render-adapter-42", "running"),
+                ("render-adapter-42", "running"),
+                ("render-adapter-42", "completed"),
+            ]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_rejects_adapter_poll_that_returns_a_different_job() {
+        async fn call(
+            State(requests): State<Arc<Mutex<Vec<String>>>>,
+            Json(body): Json<Value>,
+        ) -> Json<Value> {
+            let slug = body["tool_slug"].as_str().unwrap_or_default().to_string();
+            requests.lock().unwrap().push(slug.clone());
+            if slug.ends_with(".houdini_render__get_render_job") {
+                return Json(json!({
+                    "structuredContent": {
+                        "success": true,
+                        "context": {"job_id": "fresh-job", "status": "pending"}
+                    }
+                }));
+            }
+            Json(json!({
+                "structuredContent": {
+                    "success": true,
+                    "context": {"job_id": "render-job-42", "status": "running"},
+                    "adapter_job": {
+                        "job_id": "render-job-42",
+                        "owner": "adapter",
+                        "status": "running",
+                        "poll_contract": {"registered": true, "reason": null},
+                        "poll": {
+                            "owner": "adapter",
+                            "tool": "houdini_render__get_render_job",
+                            "arguments": {"job_id": "render-job-42"}
+                        }
+                    }
+                }
+            }))
+        }
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .with_state(requests.clone())
+            .layer(middleware::from_fn(echo_request_id));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            true,
+        );
+
+        let result = control
+            .call_and_wait(
+                "houdini.abc12345.houdini_render__render_rop".to_string(),
+                None,
+                None,
+                json!({}),
+                None,
+                Duration::from_secs(2),
+                Duration::from_secs(3),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result["success"], false);
+        assert_eq!(result["tracking_status"], "job_id_mismatch");
+        assert_eq!(result["job_id"], "render-job-42");
+        assert_eq!(result["returned_job_id"], "fresh-job");
+        assert_eq!(result["job_not_resubmitted"], true);
+        assert_eq!(requests.lock().unwrap().len(), 2);
         server.abort();
     }
 

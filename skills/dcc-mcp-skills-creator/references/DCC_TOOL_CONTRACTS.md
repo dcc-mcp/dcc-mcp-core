@@ -148,7 +148,12 @@ renderer/cook counters; if verified output files are the only available source,
 derive the count inside the typed status tool and report missing/failed units.
 The agent must not reconstruct progress with repeated shell directory scans.
 
-Declare read-only status and mutating cancel tools in `next-tools`. An agent may
+Declare status and mutating cancel tools in `next-tools`. A status tool that
+Core may register as `adapter_job.poll` must be synchronous, read-only,
+idempotent, and declare a string `job_id` as its only required input. Every
+other input must be optional and safe when omitted. Its result returns that same ID and
+one canonical status. Unknown IDs are explicit errors and must never allocate a
+replacement job. An agent may
 create a one-shot cross-session status check only after explicit user consent;
 the check keeps the existing job/operation id, never launches work, and removes
 itself at terminal state. Core `schedules.yaml` is for predefined cron/webhook

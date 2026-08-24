@@ -181,6 +181,10 @@ class TestDccMcpSkill:
         assert "control_plane_reconnecting" in body
         assert "wait_recovery" in body
         assert "tracking_status=owner_exited" in body
+        assert "same instance route" in body
+        assert "synchronous, read-only, idempotent status tools" in body
+        assert "only required input is a string `job_id`" in body
+        assert "mismatched returned ID makes `--wait` fail closed" in body
 
         prompt = dcc_mcp_core.yaml_loads(
             (Path(DCC_MCP_SKILL_DIR) / "agents" / "openai.yaml").read_text(encoding="utf-8")

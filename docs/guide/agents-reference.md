@@ -58,12 +58,16 @@ body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
 #
 # A terminal Core result may launch a second, adapter-owned operation. In that
 # case jobs_get_status adds `adapter_job_id` and an `adapter_job` descriptor.
-# When the launching tool declares a read-only job_id follow-up in next-tools,
-# `adapter_job.poll` is machine-callable. Example: a completed Core flipbook
+# When the launching tool declares a synchronous, read-only, idempotent status
+# follow-up whose only required input is a string job_id, `adapter_job.poll` is
+# machine-callable and CLI `call --wait` follows it on the same instance route.
+# Other inputs must be optional and safe when omitted. Async, mutating,
+# optional-id, multi-required-input, or untyped follow-ups are rejected. Example: a completed Core flipbook
 # wrapper can expose `adapter_job_id: "flipbook-f0631aa83e07"` for the adapter
 # status tool, which then reports 96/96. Never pass an adapter job ID to
 # jobs_get_status. Core parent cancellation does not cancel adapter-owned work;
-# use the adapter's typed status/cancellation contract.
+# use the adapter's typed status/cancellation contract. Missing poll metadata or
+# a status response for another job makes `--wait` fail closed without replay.
 ```
 
 **Execution response correlation:** Every tool call carries a unique request

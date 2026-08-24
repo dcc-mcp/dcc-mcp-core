@@ -311,6 +311,14 @@ would be unsafe.
   DCC/sidecar process, that status tool must be owned by the worker/service or
   another independently live control process; gateway restart alone cannot
   recreate an API whose owner exited.
+- Make every adapter-owned launch return its durable `job_id` and one canonical
+  status (`pending`, `running`, `completed`, `failed`, `cancelled`, or
+  `interrupted`). Declare its status tool in `next-tools.on-success`. Automatic
+  CLI waiting is allowed only when that poller is `execution: sync`, marks both
+  `read_only_hint` and `idempotent_hint` true, and declares a string `job_id` as
+  its only required input. Every other input must be optional and safe when
+  omitted. The poller must query exactly that ID and return authoritative progress; an
+  unknown ID is an explicit error, never permission to mint a replacement job.
 
 ## Failure Analysis and Bug Routing
 
