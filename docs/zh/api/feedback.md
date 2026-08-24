@@ -78,6 +78,30 @@ traceback、metadata、路径、token 与 DCC PID。PID 来自 `--dcc-pid` 或
 执行报告契约可用前，会把该组件标为 unavailable，因此 `complete=false`。命令不提供
 raw bundle 模式；raw issue report 和 host log 只能留在本地人工审查，禁止自动附加。
 
+## 授权与去重后的 Issue 提交
+
+使用已审查且 public-safe 的 Finding 生成只读提交计划，无需启动 Gateway：
+
+```bash
+dcc-mcp-cli feedback file finding.json --json
+# 审查 next_step 并获得用户授权后：
+dcc-mcp-cli feedback file finding.json --existing 42 --yes --json
+dcc-mcp-cli feedback file finding.json --create --yes --json
+```
+
+第一条命令只读。它先解析责任仓库并校验 fingerprint 与仓库绑定，再通过 `gh`
+查询 open issue：先查 fingerprint digest，完全没有精确命中时才执行有界标题关键词
+查询；完整 `sha256:` fingerprint 会在本地对返回的标题和正文严格匹配。唯一精确
+命中建议评论，完全无候选建议新建；只有关键词命中、多个命中或结果截断时必须
+人工选择，CLI 不会自动决定。
+
+任何写入都必须同时提供 `--yes` 和唯一决策（`--existing <number>` 或 `--create`）。
+CLI 会在写入前立即再次查询精确 fingerprint；出现新的或冲突的精确命中、目标
+Issue 已关闭、tracker 数据无效、GitHub 未认证或查询失败时都会 fail-closed。
+Issue 正文只投影经过审查的 Finding v1 字段，排除 request、job、instance、原始
+证据及 extra 字段，并通过 stdin 传给 `gh`，不会出现在命令行参数中。当前命令尚不
+负责多 Finding 分组，也不应用组织级 Issue form 与 labels。
+
 ## 主要函数
 
 - `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None, finding_context_provider=None)` — 注册 `dcc_feedback__report` MCP 工具，**在 `server.start()` 之前调用**；优先接收 Finding v1 的 Agent 字段，兼容旧 `tool_name`/`blocker` 形式并规范化为 v1。Core 自动附加运行时身份，转发到 gateway，严格校验 `X-Request-ID`、schema version 与 fingerprint，并在身份缺失、gateway 不可用或回执失配时 fail-closed，不会本地伪成功
@@ -107,6 +131,7 @@ dcc-mcp-cli feedback list --range 7d --dcc <dcc> --severity blocked --json
 dcc-mcp-cli feedback export --range all --dcc <dcc> --json
 dcc-mcp-cli feedback route finding.json --json
 dcc-mcp-cli feedback bundle reviewed-finding.json --json
+dcc-mcp-cli feedback file reviewed-finding.json --json
 ```
 
 Gateway 会把有界的 `feedback_reported` 记录写入

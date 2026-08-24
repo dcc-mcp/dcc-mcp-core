@@ -7,8 +7,12 @@ use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::DoctorContext;
 use crate::application::feedback::FeedbackRouteService;
 use crate::application::feedback_bundle::{FeedbackBundleRequest, FeedbackBundleService};
+use crate::application::feedback_file::{
+    FeedbackFileDecision, FeedbackFileRequest, FeedbackFileService,
+};
 use crate::domain::feedback_bundle::{DEFAULT_HOST_ERROR_LINES, MAX_HOST_ERROR_LINES};
 use crate::domain::rest::FeedbackQueryRequest;
+use crate::infra::github_issues::GhFeedbackIssueTracker;
 
 use super::output::OutputFormat;
 
@@ -57,6 +61,8 @@ pub(super) enum FeedbackAction {
     Route(FeedbackRouteArgs),
     /// Assemble a bounded public-safe diagnostic bundle from a Finding v1 file.
     Bundle(FeedbackBundleArgs),
+    /// Deduplicate and explicitly file a public-safe Finding v1 report on GitHub.
+    File(FeedbackFileArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -93,6 +99,63 @@ pub(crate) struct FeedbackBundleArgs {
     /// Emit JSON (shortcut for the global `--output json`).
     #[arg(long)]
     pub(super) json: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct FeedbackFileArgs {
+    /// Public-safe Finding v1 JSON file to deduplicate and file.
+    #[arg(value_name = "FINDING_JSON")]
+    pub(super) finding: PathBuf,
+    /// Optional catalog YAML/JSON file; defaults to the bundled public catalog.
+    #[arg(long)]
+    pub(super) catalog: Option<PathBuf>,
+    /// Comment on this existing issue after deduplication.
+    #[arg(
+        long,
+        conflicts_with = "create",
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub(super) existing: Option<u64>,
+    /// Create a new issue after deduplication.
+    #[arg(long, conflicts_with = "existing")]
+    pub(super) create: bool,
+    /// Authorize the selected GitHub write; omitted means plan only.
+    #[arg(long)]
+    pub(super) yes: bool,
+    /// Emit JSON (shortcut for the global `--output json`).
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+impl FeedbackFileArgs {
+    fn decision(&self) -> Option<FeedbackFileDecision> {
+        self.existing
+            .map(FeedbackFileDecision::Existing)
+            .or(self.create.then_some(FeedbackFileDecision::Create))
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.existing.is_some() && self.create {
+            return Err("--existing and --create are mutually exclusive".to_string());
+        }
+        if self.yes && self.decision().is_none() {
+            return Err(
+                "--yes requires exactly one filing decision: --existing <number> or --create"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    fn into_request(self) -> FeedbackFileRequest {
+        let decision = self.decision();
+        FeedbackFileRequest {
+            finding_path: self.finding,
+            catalog_path: self.catalog,
+            decision,
+            authorized: self.yes,
+        }
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -135,6 +198,7 @@ pub(crate) enum FeedbackCommand {
     Export(FeedbackQueryRequest),
     Route(FeedbackRouteArgs),
     Bundle(FeedbackBundleArgs),
+    File(FeedbackFileRequest),
 }
 
 impl FeedbackArgs {
@@ -143,6 +207,7 @@ impl FeedbackArgs {
             Some(FeedbackAction::List(query) | FeedbackAction::Export(query)) => query.json,
             Some(FeedbackAction::Route(route)) => route.json,
             Some(FeedbackAction::Bundle(bundle)) => bundle.json,
+            Some(FeedbackAction::File(file)) => file.json,
             None => false,
         }
     }
@@ -150,12 +215,15 @@ impl FeedbackArgs {
     pub(crate) fn requires_gateway(&self) -> bool {
         !matches!(
             self.action,
-            Some(FeedbackAction::Route(_) | FeedbackAction::Bundle(_))
+            Some(FeedbackAction::Route(_) | FeedbackAction::Bundle(_) | FeedbackAction::File(_))
         )
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.action.is_some() {
+            if let Some(FeedbackAction::File(file)) = self.action.as_ref() {
+                return file.validate();
+            }
             return Ok(());
         }
         for (name, value) in [
@@ -177,6 +245,10 @@ impl FeedbackArgs {
                 FeedbackAction::Export(query) => FeedbackCommand::Export(query.into_request(1_000)),
                 FeedbackAction::Route(route) => FeedbackCommand::Route(route),
                 FeedbackAction::Bundle(bundle) => FeedbackCommand::Bundle(bundle),
+                FeedbackAction::File(file) => {
+                    file.validate()?;
+                    FeedbackCommand::File(file.into_request())
+                }
             });
         }
         let required = |name: &str, value: Option<String>| {
@@ -237,6 +309,51 @@ impl FeedbackArgs {
                     .await?;
                 serde_json::to_value(result).map_err(Into::into)
             }
+            FeedbackCommand::File(request) => {
+                let tracker = GhFeedbackIssueTracker::default();
+                let result = FeedbackFileService::new(&tracker).file(request)?;
+                serde_json::to_value(result).map_err(Into::into)
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(existing: Option<u64>, create: bool, yes: bool) -> FeedbackFileArgs {
+        FeedbackFileArgs {
+            finding: PathBuf::from("finding.json"),
+            catalog: None,
+            existing,
+            create,
+            yes,
+            json: true,
+        }
+    }
+
+    #[test]
+    fn write_authorization_requires_one_explicit_decision() {
+        assert_eq!(
+            args(None, false, true).validate(),
+            Err(
+                "--yes requires exactly one filing decision: --existing <number> or --create"
+                    .to_string()
+            )
+        );
+        assert!(args(Some(42), false, true).validate().is_ok());
+        assert!(args(None, true, true).validate().is_ok());
+    }
+
+    #[test]
+    fn omitted_authorization_remains_a_read_only_plan() {
+        let request = args(None, false, false).into_request();
+        assert!(!request.authorized);
+        assert_eq!(request.decision, None);
+
+        let request = args(Some(42), false, false).into_request();
+        assert!(!request.authorized);
+        assert_eq!(request.decision, Some(FeedbackFileDecision::Existing(42)));
     }
 }

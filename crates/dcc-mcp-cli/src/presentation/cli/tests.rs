@@ -1178,6 +1178,46 @@ fn feedback_bundle_is_no_auto_gateway_and_enforces_tail_bounds() {
 }
 
 #[test]
+fn feedback_file_is_offline_by_default_and_requires_exclusive_decisions() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "file",
+        "finding.json",
+        "--existing",
+        "42",
+        "--json",
+    ])
+    .expect("parse feedback file");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert!(!feedback.requires_gateway());
+    let FeedbackAction::File(file) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback file action");
+    };
+    assert_eq!(file.finding, PathBuf::from("finding.json"));
+    assert_eq!(file.existing, Some(42));
+    assert!(!file.create);
+    assert!(!file.yes);
+    assert!(file.json);
+
+    assert!(
+        Args::try_parse_from([
+            "dcc-mcp-cli",
+            "feedback",
+            "file",
+            "finding.json",
+            "--existing",
+            "42",
+            "--create",
+        ])
+        .is_err()
+    );
+}
+
+#[test]
 fn call_contract_parses_wait_for_async_job() {
     let args = Args::parse_from([
         "dcc-mcp-cli",

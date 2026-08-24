@@ -289,3 +289,30 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
         assert!(!encoded.contains(private), "bundle leaked {private}");
     }
 }
+
+#[test]
+fn feedback_file_rejects_write_authorization_without_a_decision_before_io() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-finding.json");
+    let output = cli_command()
+        .args([
+            "feedback",
+            "file",
+            &missing.to_string_lossy(),
+            "--yes",
+            "--json",
+        ])
+        .current_dir(temp.path())
+        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "--yes requires exactly one filing decision: --existing <number> or --create"
+        )
+    );
+    assert!(!stderr.contains("could not read finding"));
+}
