@@ -174,11 +174,13 @@ paths, tokens, and PID are excluded. Treat `unavailable` components and
 local, and never infer permission to create or attach to an external issue.
 `file` is read-only unless `--yes` is paired with exactly one explicit decision
 and the complete authorization binding from the plan. It searches the routed
-repository by fingerprint before title keywords. The replay binds canonical
-paths, Finding content SHA-256, fingerprint, repository, and catalog SHA-256,
-then rechecks that binding and the exact match immediately before a write.
-Every `gh` call is pinned to `github.com`, limited to 30 seconds, and reaped on
-timeout; issue/comment bodies above 65,536 characters are rejected before
+repository by fingerprint before title keywords. The replay binds the canonical
+Finding path, canonical catalog path or exact bundled-catalog sentinel, Finding
+content SHA-256, fingerprint, repository, and catalog SHA-256, then rechecks
+that binding and the exact match immediately before a write. Every `gh` call is
+pinned to `github.com`, limited to 30 seconds, and started in an owned process
+tree; a timeout terminates and reaps the full tree under bounded pipe cleanup.
+Issue/comment bodies above 65,536 Unicode scalar values are rejected before
 tracker I/O. Exact conflicts, drift, closed issues, tracker errors, and
 ambiguous candidates stop the command. Never auto-select keyword-only results,
 reconstruct the replay argv, or add `--yes` without user authorization.

@@ -8,7 +8,8 @@ use crate::application::doctor::DoctorContext;
 use crate::application::feedback::FeedbackRouteService;
 use crate::application::feedback_bundle::{FeedbackBundleRequest, FeedbackBundleService};
 use crate::application::feedback_file::{
-    FeedbackFileAuthorization, FeedbackFileDecision, FeedbackFileRequest, FeedbackFileService,
+    FeedbackCatalogIdentity, FeedbackFileAuthorization, FeedbackFileDecision, FeedbackFileRequest,
+    FeedbackFileService,
 };
 use crate::domain::feedback_bundle::{DEFAULT_HOST_ERROR_LINES, MAX_HOST_ERROR_LINES};
 use crate::domain::rest::FeedbackQueryRequest;
@@ -137,6 +138,9 @@ pub(crate) struct FeedbackFileArgs {
     /// Catalog content digest bound by the reviewed plan.
     #[arg(long)]
     pub(super) expected_catalog_sha256: Option<String>,
+    /// Canonical catalog path or the bounded bundled-catalog sentinel from the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_catalog_path: Option<String>,
     /// Emit JSON (shortcut for the global `--output json`).
     #[arg(long)]
     pub(super) json: bool,
@@ -164,6 +168,7 @@ impl FeedbackFileArgs {
             self.expected_finding_sha256.is_some(),
             self.expected_fingerprint.is_some(),
             self.expected_repo.is_some(),
+            self.expected_catalog_path.is_some(),
             self.expected_catalog_sha256.is_some(),
         ];
         if self.yes && !bindings.iter().all(|present| *present) {
@@ -191,6 +196,10 @@ impl FeedbackFileArgs {
                         .expected_fingerprint
                         .expect("validated authorization binding"),
                     repo: self.expected_repo.expect("validated authorization binding"),
+                    catalog_identity: FeedbackCatalogIdentity::from_plan_value(
+                        self.expected_catalog_path
+                            .expect("validated authorization binding"),
+                    ),
                     catalog_sha256: self
                         .expected_catalog_sha256
                         .expect("validated authorization binding"),
@@ -380,6 +389,7 @@ mod tests {
             expected_finding_sha256: yes.then(|| format!("sha256:{}", "a".repeat(64))),
             expected_fingerprint: yes.then(|| format!("sha256:{}", "b".repeat(64))),
             expected_repo: yes.then(|| "dcc-mcp/dcc-mcp-godot".to_string()),
+            expected_catalog_path: yes.then(|| "@bundled:dcc-mcp-catalog:v1".to_string()),
             expected_catalog_sha256: yes.then(|| format!("sha256:{}", "c".repeat(64))),
             json: true,
         }

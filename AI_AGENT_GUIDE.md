@@ -242,7 +242,7 @@ After public-safe review, run `dcc-mcp-cli feedback file finding.json --json`
 for a read-only dedup plan. An external write requires user authorization and
 exact execution of the returned `next_step.argv`; never reconstruct it from the
 decision flags because the argv binds the reviewed file, content, route, and
-catalog identities.
+catalog source (a canonical path or the bundled-catalog sentinel).
 
 After the task passes its acceptance checks, query bounded evidence with
 `dcc-mcp-cli stats --range 24h --session-id task-42`, then use the

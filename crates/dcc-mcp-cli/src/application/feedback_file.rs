@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -14,6 +14,7 @@ use crate::domain::feedback_file::{
 use super::feedback::{FeedbackRouteService, FeedbackRouteSnapshot};
 
 const DEFAULT_CATALOG_PATH: &str = "dcc-mcp-catalog.yml";
+pub(crate) const BUNDLED_CATALOG_SENTINEL: &str = "@bundled:dcc-mcp-catalog:v1";
 const MAX_EXACT_RESULTS: usize = 20;
 const MAX_KEYWORD_RESULTS: usize = 10;
 
@@ -38,7 +39,35 @@ pub struct FeedbackFileAuthorization {
     pub finding_sha256: String,
     pub fingerprint: String,
     pub repo: String,
+    pub catalog_identity: FeedbackCatalogIdentity,
     pub catalog_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeedbackCatalogIdentity {
+    Bundled,
+    CanonicalPath(PathBuf),
+}
+
+impl FeedbackCatalogIdentity {
+    pub(crate) fn from_plan_value(value: impl Into<String>) -> Self {
+        let value = value.into();
+        if value == BUNDLED_CATALOG_SENTINEL {
+            Self::Bundled
+        } else {
+            Self::CanonicalPath(PathBuf::from(value))
+        }
+    }
+
+    fn plan_value(&self) -> Result<String, FeedbackFileServiceError> {
+        match self {
+            Self::Bundled => Ok(BUNDLED_CATALOG_SENTINEL.to_string()),
+            Self::CanonicalPath(path) => path
+                .to_str()
+                .map(str::to_string)
+                .ok_or(FeedbackFileServiceError::NonUnicodePath),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +227,6 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
         if !request.authorized {
             let (next_step, review_options) = plan_next_steps(
                 &inputs.authorization,
-                inputs.canonical_catalog_path.as_deref(),
                 request.decision,
                 recommendation.clone(),
                 &dedup,
@@ -347,7 +375,6 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
 }
 
 struct FeedbackFileInputs {
-    canonical_catalog_path: Option<PathBuf>,
     finding: dcc_mcp_models::FindingV1,
     route: crate::domain::feedback::FeedbackRoute,
     document: crate::domain::feedback_file::FeedbackIssueDocument,
@@ -363,15 +390,19 @@ impl FeedbackFileInputs {
 
     fn from_snapshot(snapshot: FeedbackRouteSnapshot) -> Result<Self, FeedbackFileServiceError> {
         let document = build_issue_document(&snapshot.finding, &snapshot.route)?;
+        let catalog_identity = snapshot.canonical_catalog_path.map_or(
+            FeedbackCatalogIdentity::Bundled,
+            FeedbackCatalogIdentity::CanonicalPath,
+        );
         let authorization = FeedbackFileAuthorization {
             canonical_finding_path: snapshot.canonical_finding_path,
             finding_sha256: sha256_identity(&snapshot.finding_bytes),
             fingerprint: snapshot.finding.fingerprint.clone(),
             repo: snapshot.route.repo.clone(),
+            catalog_identity,
             catalog_sha256: sha256_identity(&snapshot.catalog_bytes),
         };
         Ok(Self {
-            canonical_catalog_path: snapshot.canonical_catalog_path,
             finding: snapshot.finding,
             route: snapshot.route,
             document,
@@ -423,32 +454,23 @@ fn exact_conflict(candidates: &[FeedbackIssueCandidate]) -> FeedbackFileServiceE
 
 fn plan_next_steps(
     authorization: &FeedbackFileAuthorization,
-    catalog_path: Option<&Path>,
     decision: Option<FeedbackFileDecision>,
     recommendation: FeedbackFilingRecommendation,
     dedup: &FeedbackFileDedup,
 ) -> Result<(Option<FeedbackFileNextStep>, Vec<FeedbackFileNextStep>), FeedbackFileServiceError> {
     if let Some(decision) = decision {
-        return Ok((
-            Some(next_step(authorization, catalog_path, decision)?),
-            Vec::new(),
-        ));
+        return Ok((Some(next_step(authorization, decision)?), Vec::new()));
     }
     match recommendation {
         FeedbackFilingRecommendation::CommentExisting { issue_number } => Ok((
             Some(next_step(
                 authorization,
-                catalog_path,
                 FeedbackFileDecision::Existing(issue_number),
             )?),
             Vec::new(),
         )),
         FeedbackFilingRecommendation::Create => Ok((
-            Some(next_step(
-                authorization,
-                catalog_path,
-                FeedbackFileDecision::Create,
-            )?),
+            Some(next_step(authorization, FeedbackFileDecision::Create)?),
             Vec::new(),
         )),
         FeedbackFilingRecommendation::ReviewRequired => {
@@ -459,20 +481,10 @@ fn plan_next_steps(
             };
             let mut options = source
                 .iter()
-                .map(|issue| {
-                    next_step(
-                        authorization,
-                        catalog_path,
-                        FeedbackFileDecision::Existing(issue.number),
-                    )
-                })
+                .map(|issue| next_step(authorization, FeedbackFileDecision::Existing(issue.number)))
                 .collect::<Result<Vec<_>, _>>()?;
             if dedup.exact.is_empty() {
-                options.push(next_step(
-                    authorization,
-                    catalog_path,
-                    FeedbackFileDecision::Create,
-                )?);
+                options.push(next_step(authorization, FeedbackFileDecision::Create)?);
             }
             Ok((None, options))
         }
@@ -481,7 +493,6 @@ fn plan_next_steps(
 
 fn next_step(
     authorization: &FeedbackFileAuthorization,
-    catalog_path: Option<&Path>,
     decision: FeedbackFileDecision,
 ) -> Result<FeedbackFileNextStep, FeedbackFileServiceError> {
     let finding_path = authorization
@@ -494,7 +505,8 @@ fn next_step(
         "file".to_string(),
         finding_path.to_string(),
     ];
-    if let Some(path) = catalog_path {
+    let catalog_identity = authorization.catalog_identity.plan_value()?;
+    if let FeedbackCatalogIdentity::CanonicalPath(path) = &authorization.catalog_identity {
         argv.push("--catalog".to_string());
         argv.push(
             path.to_str()
@@ -518,6 +530,8 @@ fn next_step(
         authorization.fingerprint.clone(),
         "--expected-repo".to_string(),
         authorization.repo.clone(),
+        "--expected-catalog-path".to_string(),
+        catalog_identity,
         "--expected-catalog-sha256".to_string(),
         authorization.catalog_sha256.clone(),
     ]);
@@ -528,6 +542,7 @@ fn next_step(
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, HashMap, VecDeque};
+    use std::process::Command;
     use std::sync::Mutex;
 
     use dcc_mcp_models::{
@@ -742,9 +757,38 @@ mod tests {
                 finding_sha256: argv_value(argv, "--expected-finding-sha256").to_string(),
                 fingerprint: argv_value(argv, "--expected-fingerprint").to_string(),
                 repo: argv_value(argv, "--expected-repo").to_string(),
+                catalog_identity: FeedbackCatalogIdentity::from_plan_value(argv_value(
+                    argv,
+                    "--expected-catalog-path",
+                )),
                 catalog_sha256: argv_value(argv, "--expected-catalog-sha256").to_string(),
             }),
         }
+    }
+
+    fn finding_with_exact_comment_body_chars(target_chars: usize) -> FindingV1 {
+        let route = crate::domain::feedback::FeedbackRoute {
+            repo: "dcc-mcp/dcc-mcp-godot".to_string(),
+            issues_url: "https://github.com/dcc-mcp/dcc-mcp-godot/issues".to_string(),
+            rationale: crate::domain::feedback::FeedbackRouteRationale::AdapterPhase,
+        };
+        let mut value = finding(FindingRedactionMode::PublicSafe);
+        value.repro.argv.clear();
+        value.repro.steps = vec!["界".to_string(); 16];
+        let baseline = build_issue_document(&value, &route)
+            .unwrap()
+            .comment_body
+            .chars()
+            .count();
+        let mut remaining = target_chars.checked_sub(baseline).unwrap();
+        for step in &mut value.repro.steps {
+            let added = remaining.min(4_095);
+            step.push_str(&"界".repeat(added));
+            remaining -= added;
+        }
+        assert_eq!(remaining, 0, "target must fit the Finding v1 bounds");
+        assert!(value.validate().is_ok());
+        value
     }
 
     #[test]
@@ -952,6 +996,46 @@ mod tests {
     }
 
     #[test]
+    fn multibyte_unicode_body_boundary_accepts_65536_and_rejects_65537_before_tracker_io() {
+        let route = crate::domain::feedback::FeedbackRoute {
+            repo: "dcc-mcp/dcc-mcp-godot".to_string(),
+            issues_url: "https://github.com/dcc-mcp/dcc-mcp-godot/issues".to_string(),
+            rationale: crate::domain::feedback::FeedbackRouteRationale::AdapterPhase,
+        };
+        let accepted = finding_with_exact_comment_body_chars(65_536);
+        let document = build_issue_document(&accepted, &route).unwrap();
+        assert_eq!(document.comment_body.chars().count(), 65_536);
+        assert!(document.comment_body.contains('界'));
+        let accepted_tracker = FakeTracker::default();
+        let (_temp, accepted_request) = request(&accepted);
+        assert!(
+            FeedbackFileService::new(&accepted_tracker)
+                .file(accepted_request)
+                .is_ok()
+        );
+
+        let mut rejected = accepted;
+        rejected.repro.steps.last_mut().unwrap().push('界');
+        assert!(rejected.validate().is_ok());
+        let rejected_tracker = FakeTracker::default();
+        let (_temp, rejected_request) = request(&rejected);
+
+        let error = FeedbackFileService::new(&rejected_tracker)
+            .file(rejected_request)
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            FeedbackFileServiceError::Document(FeedbackFileError::BodyTooLarge {
+                kind: "comment body",
+                actual_chars: 65_537,
+                max_chars: 65_536,
+            })
+        ));
+        assert!(rejected_tracker.state.lock().unwrap().calls.is_empty());
+    }
+
+    #[test]
     fn maximum_valid_finding_body_is_rejected_before_tracker_io() {
         let mut finding = finding(FindingRedactionMode::PublicSafe);
         finding.repro.argv.clear();
@@ -1038,6 +1122,113 @@ mod tests {
                 .to_string()
                 .contains("authorization no longer matches")
         );
+        assert!(tracker.state.lock().unwrap().calls.is_empty());
+    }
+
+    #[test]
+    fn authorized_replay_rejects_same_bytes_at_a_different_catalog_path_before_tracker_io() {
+        let finding = finding(FindingRedactionMode::PublicSafe);
+        let plan_tracker = FakeTracker::with_searches(vec![vec![], vec![]]);
+        let (temp, mut request) = request(&finding);
+        let source_catalog =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dcc-mcp-catalog.yml");
+        let catalog_a = temp.path().join("catalog-a.yml");
+        let catalog_b = temp.path().join("catalog-b.yml");
+        std::fs::copy(&source_catalog, &catalog_a).unwrap();
+        std::fs::copy(&source_catalog, &catalog_b).unwrap();
+        request.catalog_path = Some(catalog_a.clone());
+        let plan = FeedbackFileService::new(&plan_tracker)
+            .file(request)
+            .unwrap();
+        assert_eq!(
+            argv_value(
+                &plan.next_step.as_ref().unwrap().argv,
+                "--expected-catalog-path"
+            ),
+            std::fs::canonicalize(&catalog_a).unwrap().to_str().unwrap()
+        );
+        let mut replay = replay_request(plan.next_step.as_ref().unwrap());
+        replay.catalog_path = Some(catalog_b);
+        let tracker = FakeTracker::default();
+
+        let error = FeedbackFileService::new(&tracker).file(replay).unwrap_err();
+
+        assert!(matches!(
+            error,
+            FeedbackFileServiceError::AuthorizationMismatch
+        ));
+        assert!(tracker.state.lock().unwrap().calls.is_empty());
+    }
+
+    #[test]
+    fn authorized_replay_rejects_cwd_default_catalog_swap_before_tracker_io() {
+        let temp = tempfile::tempdir().unwrap();
+        let plan_dir = temp.path().join("plan");
+        let replay_dir = temp.path().join("replay");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        std::fs::create_dir_all(&replay_dir).unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "application::feedback_file::tests::cwd_default_catalog_swap_helper",
+            ])
+            .env("DCC_MCP_FEEDBACK_CWD_SWAP_ROOT", temp.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "helper failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn cwd_default_catalog_swap_helper() {
+        let Some(root) = std::env::var_os("DCC_MCP_FEEDBACK_CWD_SWAP_ROOT").map(PathBuf::from)
+        else {
+            return;
+        };
+        let plan_dir = root.join("plan");
+        let replay_dir = root.join("replay");
+        let source_catalog =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dcc-mcp-catalog.yml");
+        std::fs::copy(source_catalog, replay_dir.join(DEFAULT_CATALOG_PATH)).unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&plan_dir).unwrap();
+
+        let finding = finding(FindingRedactionMode::PublicSafe);
+        let plan_tracker = FakeTracker::with_searches(vec![vec![], vec![]]);
+        let (_temp, request) = request(&finding);
+        let plan = FeedbackFileService::new(&plan_tracker)
+            .file(request)
+            .unwrap();
+        assert!(
+            !plan
+                .next_step
+                .as_ref()
+                .unwrap()
+                .argv
+                .contains(&"--catalog".to_string())
+        );
+        assert_eq!(
+            argv_value(
+                &plan.next_step.as_ref().unwrap().argv,
+                "--expected-catalog-path"
+            ),
+            BUNDLED_CATALOG_SENTINEL
+        );
+        let replay = replay_request(plan.next_step.as_ref().unwrap());
+        std::env::set_current_dir(&replay_dir).unwrap();
+        let tracker = FakeTracker::default();
+
+        let result = FeedbackFileService::new(&tracker).file(replay);
+
+        std::env::set_current_dir(original_dir).unwrap();
+        assert!(matches!(
+            result,
+            Err(FeedbackFileServiceError::AuthorizationMismatch)
+        ));
         assert!(tracker.state.lock().unwrap().calls.is_empty());
     }
 }
