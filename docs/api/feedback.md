@@ -96,6 +96,45 @@ unavailable until the validated install-report contract is present, therefore
 `complete` remains false. There is no raw bundle mode; inspect raw issue-report
 exports and host logs locally instead of attaching them automatically.
 
+## Authorized, deduplicated issue filing
+
+Plan an issue operation from a reviewed public-safe Finding without starting a
+Gateway:
+
+```bash
+dcc-mcp-cli feedback file finding.json --json
+# After reviewing the returned next_step and obtaining user authorization,
+# execute next_step.argv exactly. Do not reconstruct or shorten it.
+```
+
+The first command is read-only. It routes the Finding, verifies that its
+fingerprint belongs to the routed repository, and searches open issues through
+`gh`: first by the fingerprint digest, then by bounded title keywords when no
+exact match exists. Full fingerprint matching happens locally against returned
+titles and bodies. One exact match recommends a comment; zero candidates
+recommend creation. Keyword-only, multiple, or truncated candidates require
+review and are never selected automatically.
+
+Writing requires `--yes`, exactly one decision (`--existing <number>` or
+`--create`), and the complete authorization binding emitted by the plan. The
+returned argv uses the canonical Finding path and binds the catalog source as
+either its canonical path or the exact bundled-catalog sentinel. It also binds
+the Finding content SHA-256, fingerprint, routed repository, and catalog
+SHA-256. The CLI verifies the binding before tracker I/O and captures it again
+immediately before the write, so path, content, working-directory, repository,
+or catalog drift fails closed. It also repeats exact-fingerprint search before
+the write. A new or conflicting exact match, a closed selected issue, invalid
+tracker data, missing GitHub authentication, or any search failure stops the
+operation. Every `gh` operation is pinned to `github.com`, bounded to 30
+seconds, and placed in an owned process tree. A timeout terminates and reaps the
+entire tree while all pipe workers have a hard cleanup deadline. Issue and
+comment bodies above 65,536 Unicode scalar values are rejected before tracker
+I/O. Accepted
+bodies contain only the reviewed Finding v1 projection; request, job, instance,
+raw evidence, and extra fields are excluded and passed to `gh` through stdin.
+This command does not yet group multiple findings or apply the organization
+issue form and labels.
+
 ## register_feedback_tool
 
 ```python
@@ -163,6 +202,7 @@ dcc-mcp-cli feedback list --range 7d --dcc maya --severity blocked --json
 dcc-mcp-cli feedback export --range all --dcc maya --json
 dcc-mcp-cli feedback route finding.json --json
 dcc-mcp-cli feedback bundle reviewed-finding.json --json
+dcc-mcp-cli feedback file reviewed-finding.json --json
 ```
 
 Both commands call `GET /admin/api/feedback`. `list` defaults to 100 rows and

@@ -1208,6 +1208,7 @@ dependencies = [
  "dirs",
  "flate2",
  "hex",
+ "libc",
  "reqwest 0.13.4",
  "semver",
  "serde",
@@ -1218,6 +1219,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toon-format",
+ "windows-sys 0.61.2",
  "workspace-hack",
  "zip",
 ]

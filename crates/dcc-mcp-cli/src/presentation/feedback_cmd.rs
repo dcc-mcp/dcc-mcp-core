@@ -7,8 +7,13 @@ use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::DoctorContext;
 use crate::application::feedback::FeedbackRouteService;
 use crate::application::feedback_bundle::{FeedbackBundleRequest, FeedbackBundleService};
+use crate::application::feedback_file::{
+    FeedbackCatalogIdentity, FeedbackFileAuthorization, FeedbackFileDecision, FeedbackFileRequest,
+    FeedbackFileService,
+};
 use crate::domain::feedback_bundle::{DEFAULT_HOST_ERROR_LINES, MAX_HOST_ERROR_LINES};
 use crate::domain::rest::FeedbackQueryRequest;
+use crate::infra::github_issues::GhFeedbackIssueTracker;
 
 use super::output::OutputFormat;
 
@@ -57,6 +62,8 @@ pub(super) enum FeedbackAction {
     Route(FeedbackRouteArgs),
     /// Assemble a bounded public-safe diagnostic bundle from a Finding v1 file.
     Bundle(FeedbackBundleArgs),
+    /// Deduplicate and explicitly file a public-safe Finding v1 report on GitHub.
+    File(FeedbackFileArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -93,6 +100,118 @@ pub(crate) struct FeedbackBundleArgs {
     /// Emit JSON (shortcut for the global `--output json`).
     #[arg(long)]
     pub(super) json: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct FeedbackFileArgs {
+    /// Public-safe Finding v1 JSON file to deduplicate and file.
+    #[arg(value_name = "FINDING_JSON")]
+    pub(super) finding: PathBuf,
+    /// Optional catalog YAML/JSON file; defaults to the bundled public catalog.
+    #[arg(long)]
+    pub(super) catalog: Option<PathBuf>,
+    /// Comment on this existing issue after deduplication.
+    #[arg(
+        long,
+        conflicts_with = "create",
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub(super) existing: Option<u64>,
+    /// Create a new issue after deduplication.
+    #[arg(long, conflicts_with = "existing")]
+    pub(super) create: bool,
+    /// Authorize the selected GitHub write; omitted means plan only.
+    #[arg(long)]
+    pub(super) yes: bool,
+    /// Canonical Finding path bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_finding_path: Option<PathBuf>,
+    /// Finding file content digest bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_finding_sha256: Option<String>,
+    /// Finding fingerprint bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_fingerprint: Option<String>,
+    /// Routed GitHub repository bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_repo: Option<String>,
+    /// Catalog content digest bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_catalog_sha256: Option<String>,
+    /// Canonical catalog path or the bounded bundled-catalog sentinel from the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_catalog_path: Option<String>,
+    /// Emit JSON (shortcut for the global `--output json`).
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+impl FeedbackFileArgs {
+    fn decision(&self) -> Option<FeedbackFileDecision> {
+        self.existing
+            .map(FeedbackFileDecision::Existing)
+            .or(self.create.then_some(FeedbackFileDecision::Create))
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.existing.is_some() && self.create {
+            return Err("--existing and --create are mutually exclusive".to_string());
+        }
+        if self.yes && self.decision().is_none() {
+            return Err(
+                "--yes requires exactly one filing decision: --existing <number> or --create"
+                    .to_string(),
+            );
+        }
+        let bindings = [
+            self.expected_finding_path.is_some(),
+            self.expected_finding_sha256.is_some(),
+            self.expected_fingerprint.is_some(),
+            self.expected_repo.is_some(),
+            self.expected_catalog_path.is_some(),
+            self.expected_catalog_sha256.is_some(),
+        ];
+        if self.yes && !bindings.iter().all(|present| *present) {
+            return Err(
+                "--yes requires the complete authorization binding emitted by a prior plan"
+                    .to_string(),
+            );
+        }
+        if !self.yes && bindings.iter().any(|present| *present) {
+            return Err("authorization binding arguments require --yes".to_string());
+        }
+        Ok(())
+    }
+
+    fn into_request(self) -> FeedbackFileRequest {
+        let decision = self.decision();
+        let authorization =
+            self.expected_finding_path
+                .map(|canonical_finding_path| FeedbackFileAuthorization {
+                    canonical_finding_path,
+                    finding_sha256: self
+                        .expected_finding_sha256
+                        .expect("validated authorization binding"),
+                    fingerprint: self
+                        .expected_fingerprint
+                        .expect("validated authorization binding"),
+                    repo: self.expected_repo.expect("validated authorization binding"),
+                    catalog_identity: FeedbackCatalogIdentity::from_plan_value(
+                        self.expected_catalog_path
+                            .expect("validated authorization binding"),
+                    ),
+                    catalog_sha256: self
+                        .expected_catalog_sha256
+                        .expect("validated authorization binding"),
+                });
+        FeedbackFileRequest {
+            finding_path: self.finding,
+            catalog_path: self.catalog,
+            decision,
+            authorized: self.yes,
+            authorization,
+        }
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -135,6 +254,7 @@ pub(crate) enum FeedbackCommand {
     Export(FeedbackQueryRequest),
     Route(FeedbackRouteArgs),
     Bundle(FeedbackBundleArgs),
+    File(FeedbackFileRequest),
 }
 
 impl FeedbackArgs {
@@ -143,6 +263,7 @@ impl FeedbackArgs {
             Some(FeedbackAction::List(query) | FeedbackAction::Export(query)) => query.json,
             Some(FeedbackAction::Route(route)) => route.json,
             Some(FeedbackAction::Bundle(bundle)) => bundle.json,
+            Some(FeedbackAction::File(file)) => file.json,
             None => false,
         }
     }
@@ -150,12 +271,15 @@ impl FeedbackArgs {
     pub(crate) fn requires_gateway(&self) -> bool {
         !matches!(
             self.action,
-            Some(FeedbackAction::Route(_) | FeedbackAction::Bundle(_))
+            Some(FeedbackAction::Route(_) | FeedbackAction::Bundle(_) | FeedbackAction::File(_))
         )
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.action.is_some() {
+            if let Some(FeedbackAction::File(file)) = self.action.as_ref() {
+                return file.validate();
+            }
             return Ok(());
         }
         for (name, value) in [
@@ -177,6 +301,10 @@ impl FeedbackArgs {
                 FeedbackAction::Export(query) => FeedbackCommand::Export(query.into_request(1_000)),
                 FeedbackAction::Route(route) => FeedbackCommand::Route(route),
                 FeedbackAction::Bundle(bundle) => FeedbackCommand::Bundle(bundle),
+                FeedbackAction::File(file) => {
+                    file.validate()?;
+                    FeedbackCommand::File(file.into_request())
+                }
             });
         }
         let required = |name: &str, value: Option<String>| {
@@ -237,6 +365,71 @@ impl FeedbackArgs {
                     .await?;
                 serde_json::to_value(result).map_err(Into::into)
             }
+            FeedbackCommand::File(request) => {
+                let tracker = GhFeedbackIssueTracker::default();
+                let result = FeedbackFileService::new(&tracker).file(request)?;
+                serde_json::to_value(result).map_err(Into::into)
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(existing: Option<u64>, create: bool, yes: bool) -> FeedbackFileArgs {
+        FeedbackFileArgs {
+            finding: PathBuf::from("finding.json"),
+            catalog: None,
+            existing,
+            create,
+            yes,
+            expected_finding_path: yes.then(|| PathBuf::from("finding.json")),
+            expected_finding_sha256: yes.then(|| format!("sha256:{}", "a".repeat(64))),
+            expected_fingerprint: yes.then(|| format!("sha256:{}", "b".repeat(64))),
+            expected_repo: yes.then(|| "dcc-mcp/dcc-mcp-godot".to_string()),
+            expected_catalog_path: yes.then(|| "@bundled:dcc-mcp-catalog:v1".to_string()),
+            expected_catalog_sha256: yes.then(|| format!("sha256:{}", "c".repeat(64))),
+            json: true,
+        }
+    }
+
+    #[test]
+    fn write_authorization_requires_one_explicit_decision() {
+        assert_eq!(
+            args(None, false, true).validate(),
+            Err(
+                "--yes requires exactly one filing decision: --existing <number> or --create"
+                    .to_string()
+            )
+        );
+        assert!(args(Some(42), false, true).validate().is_ok());
+        assert!(args(None, true, true).validate().is_ok());
+    }
+
+    #[test]
+    fn omitted_authorization_remains_a_read_only_plan() {
+        let request = args(None, false, false).into_request();
+        assert!(!request.authorized);
+        assert_eq!(request.decision, None);
+
+        let request = args(Some(42), false, false).into_request();
+        assert!(!request.authorized);
+        assert_eq!(request.decision, Some(FeedbackFileDecision::Existing(42)));
+    }
+
+    #[test]
+    fn write_authorization_requires_a_complete_prior_plan_binding() {
+        let mut value = args(None, true, true);
+        value.expected_catalog_sha256 = None;
+
+        assert_eq!(
+            value.validate(),
+            Err(
+                "--yes requires the complete authorization binding emitted by a prior plan"
+                    .to_string()
+            )
+        );
     }
 }

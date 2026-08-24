@@ -47,3 +47,9 @@ axum = { workspace = true, features = ["http1", "tokio"] }
 dcc-mcp-actions.workspace = true
 dcc-mcp-http.workspace = true
 hex = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
