@@ -485,6 +485,40 @@ _SCRIPT_ANNOTATION_ATOMS: dict[str, Any] = {
 _SCRIPT_ANNOTATION_MODULES = {"datetime", "pathlib", "typing", "uuid"}
 
 
+class _ScriptModuleBindingVisitor(ast.NodeVisitor):
+    """Collect names bound while executing a module without entering scopes."""
+
+    def __init__(self) -> None:
+        self.bindings: list[tuple[str, ast.AST]] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.bindings.append((node.name, node))
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.bindings.append((node.name, node))
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.bindings.append((node.name, node))
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self.bindings.append((alias.asname or alias.name.split(".", 1)[0], node))
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name != "*":
+                self.bindings.append((alias.asname or alias.name, node))
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if isinstance(node.name, str):
+            self.bindings.append((node.name, node))
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Store):
+            self.bindings.append((node.id, node))
+
+
 def _script_annotation_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Name):
         return node.id
@@ -578,11 +612,13 @@ def derive_script_parameters_schema(
         module = ast.parse(source)
     except SyntaxError:
         return None
-    function = next(
-        (node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == function_name),
-        None,
-    )
-    if function is None:
+    binding_visitor = _ScriptModuleBindingVisitor()
+    binding_visitor.visit(module)
+    matching_bindings = [node for name, node in binding_visitor.bindings if name == function_name]
+    if len(matching_bindings) != 1:
+        return None
+    function = matching_bindings[0]
+    if not isinstance(function, ast.FunctionDef) or function not in module.body:
         return None
     if getattr(function.args, "posonlyargs", ()):
         return None

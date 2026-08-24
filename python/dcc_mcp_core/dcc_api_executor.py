@@ -309,15 +309,15 @@ class DccApiExecutor:
                 }
 
         try:
+            ctx = EvalContext(
+                self._dispatcher,
+                sandbox=True,
+                timeout_secs=script.timeout_secs,
+            )
             if script.params_provided:
                 assert script.file_path is not None
-                result = run_skill_script(script.file_path, script.params)
+                result = ctx.run_callable(run_skill_script, script.file_path, script.params)
             else:
-                ctx = EvalContext(
-                    self._dispatcher,
-                    sandbox=True,
-                    timeout_secs=script.timeout_secs,
-                )
                 result = ctx.run(script.code)
             materialized_context = script.materialized_context()
             context = {"materialized_script": materialized_context} if materialized_context is not None else {}
@@ -384,8 +384,9 @@ def register_dcc_api_executor(
         f"How to use: pass file_path when possible; inline code is materialized "
         f"before execution unless script_materialization_policy=off. Pass params "
         f"to call a typed file-backed main(**params) entry point. "
-        f"Legacy inline scripts are sandboxed and time-limited; typed entry points "
-        f"use the established skill-script runtime."
+        f"Legacy inline scripts are sandboxed; typed entry points use the established "
+        f"skill-script runtime. Both paths stay on the owner thread and report timeout "
+        f"overruns without leaving background DCC mutations."
     )
 
     search_schema = json_dumps(

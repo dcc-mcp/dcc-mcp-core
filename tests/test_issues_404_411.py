@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import time
 
 import pytest
 
@@ -108,6 +109,33 @@ class TestEvalContext:
         ctx = EvalContext(FakeDispatcher())
         with pytest.raises(RuntimeError):
             ctx.run("raise ValueError('deliberate')")
+
+    def test_callable_timeout_fallback_never_leaves_background_execution(self):
+        import threading
+
+        EvalContext = _batch.EvalContext
+        ctx = EvalContext(FakeDispatcher(), timeout_secs=1)
+        events = []
+        observed = {}
+
+        def slow_call():
+            time.sleep(1.1)
+            events.append("completed")
+
+        def invoke():
+            try:
+                ctx.run_callable(slow_call)
+            except BaseException as exc:
+                observed["error"] = exc
+
+        worker = threading.Thread(target=invoke)
+        worker.start()
+        worker.join(timeout=2)
+
+        assert not worker.is_alive()
+        assert events == ["completed"]
+        assert isinstance(observed.get("error"), TimeoutError)
+        assert "safe preemption is unavailable" in str(observed["error"])
 
 
 # ── issue #407: elicitation ──────────────────────────────────────────────────
@@ -481,6 +509,32 @@ class TestDccApiExecutor:
         assert result["success"] is False
         assert "params" in result["error"]
         assert not marker.exists()
+
+    def test_execute_structured_params_honors_timeout(self, tmp_path):
+        DccApiExecutor = _dcc_api_executor.DccApiExecutor
+        descriptor = materialize_script(
+            "import time\ndef main(delay: float) -> str:\n    time.sleep(delay)\n    return 'late'\n",
+            dcc_type="maya",
+            instance_id="maya-1",
+            session_id="session-1",
+            root=tmp_path,
+            reuse=True,
+        )
+        ex = DccApiExecutor("maya", script_materialization_root=tmp_path)
+
+        started = time.monotonic()
+        result = ex.execute_params(
+            {
+                "file_path": descriptor.file_path,
+                "params": {"delay": 2.0},
+                "timeout_secs": 1,
+            }
+        )
+        elapsed = time.monotonic() - started
+
+        assert result["success"] is False
+        assert "timed out" in result["message"].lower()
+        assert 0.8 <= elapsed < 2.75
 
     def test_execute_require_policy_rejects_inline_code(self, tmp_path):
         DccApiExecutor = _dcc_api_executor.DccApiExecutor
