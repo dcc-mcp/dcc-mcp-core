@@ -106,6 +106,61 @@ def test_feedback_stores_are_isolated() -> None:
     assert get_feedback_entries(store=blender) == []
 
 
+def test_feedback_store_flushes_each_append_to_bounded_jsonl(tmp_path) -> None:
+    from dcc_mcp_core.feedback import FeedbackStore
+
+    path = tmp_path / "feedback" / "maya-4242.jsonl"
+    store = FeedbackStore(path=path, max_bytes=4096, backup_count=2)
+    entry = {
+        "id": "feedback-1",
+        "timestamp": 1.0,
+        "tool_name": "maya_scene__save",
+        "severity": "blocked",
+    }
+
+    store.append(entry)
+
+    assert store.path == path
+    assert [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] == [entry]
+
+
+def test_feedback_store_rotates_and_prunes_jsonl_backups(tmp_path) -> None:
+    from dcc_mcp_core.feedback import FeedbackStore
+
+    path = tmp_path / "feedback" / "houdini-5252.jsonl"
+    store = FeedbackStore(path=path, max_bytes=220, backup_count=2)
+    for index in range(8):
+        store.append(
+            {
+                "id": f"feedback-{index}",
+                "tool_name": "houdini_scene__save",
+                "blocker": "x" * 72,
+                "severity": "blocked",
+            }
+        )
+
+    files = sorted(path.parent.glob(f"{path.name}*"))
+    assert files == [path, path.with_name(f"{path.name}.1"), path.with_name(f"{path.name}.2")]
+    persisted = [json.loads(line) for file in files for line in file.read_text(encoding="utf-8").splitlines()]
+    assert all(isinstance(entry, dict) for entry in persisted)
+    assert {entry["id"] for entry in persisted} < {f"feedback-{index}" for index in range(8)}
+    assert json.loads(path.read_text(encoding="utf-8"))["id"] == "feedback-7"
+
+
+def test_feedback_store_fails_closed_when_one_entry_exceeds_bound(tmp_path) -> None:
+    from dcc_mcp_core.feedback import FeedbackPersistenceError
+    from dcc_mcp_core.feedback import FeedbackStore
+
+    path = tmp_path / "feedback" / "blender-6262.jsonl"
+    store = FeedbackStore(path=path, max_bytes=64, backup_count=2)
+
+    with pytest.raises(FeedbackPersistenceError, match="exceeds max_bytes"):
+        store.append({"id": "feedback-large", "blocker": "x" * 128})
+
+    assert store.recent() == []
+    assert not path.exists()
+
+
 def test_feedback_report_and_retrieve():
     from dcc_mcp_core.feedback import _handle_feedback_report
     from dcc_mcp_core.feedback import get_feedback_entries
@@ -347,6 +402,54 @@ def test_registered_feedback_handler_fails_closed_when_gateway_is_unavailable(mo
     assert result["success"] is False
     assert result["error"] == "gateway_feedback_unavailable"
     assert get_feedback_entries(store=store) == []
+
+
+def test_registered_feedback_handler_surfaces_local_persistence_failure(monkeypatch, tmp_path):
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import FeedbackStore
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    def _urlopen(request, *, timeout):
+        headers = {name.lower(): value for name, value in request.header_items()}
+        return _GatewayResponse(
+            {
+                "ok": True,
+                "success": True,
+                "feedback_id": "11111111-1111-4111-8111-111111111111",
+                "recorded_at": "2026-08-24T00:00:00.000Z",
+                "event_resource_uri": "resources://gateway/events",
+            },
+            request_id=headers["x-request-id"],
+        )
+
+    monkeypatch.setattr(feedback_module, "urlopen", _urlopen)
+    store = FeedbackStore(
+        path=tmp_path / "feedback" / "photoshop-7272.jsonl",
+        max_bytes=64,
+        backup_count=2,
+    )
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="photoshop",
+        store=store,
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+    )
+
+    result = server.register_handler.call_args.args[1](
+        {
+            "tool_name": "photoshop_layers__merge",
+            "intent": "Merge layers for a very long compositing operation",
+            "blocker": "The document remained locked after the merge request",
+            "severity": "blocked",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "feedback_persistence_failed"
+    assert result["context"]["feedback_id"] == "11111111-1111-4111-8111-111111111111"
+    assert store.recent() == []
 
 
 def test_registered_feedback_handler_rejects_desynchronized_gateway_receipt(monkeypatch):

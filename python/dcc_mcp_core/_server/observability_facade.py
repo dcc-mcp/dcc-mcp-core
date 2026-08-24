@@ -260,6 +260,10 @@ class ObservabilityFacade:
         session_id: str,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        try:
+            self._owner.feedback_store.flush()
+        except Exception as exc:
+            logger.warning("[%s] Could not flush feedback on session end: %s", self._owner._dcc_name, exc)
         return self.dispatch_lifecycle_event("on_session_end", payload, session_id=session_id)
 
     def dispatch_before_tool_call(

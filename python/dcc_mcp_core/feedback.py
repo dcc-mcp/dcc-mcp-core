@@ -54,6 +54,8 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
+import re
 import threading
 import time
 from typing import Any
@@ -76,26 +78,115 @@ from dcc_mcp_core.result_envelope import ToolResultEnvelope
 logger = logging.getLogger(__name__)
 
 _MAX_FEEDBACK_ENTRIES = 500
+_DEFAULT_FEEDBACK_MAX_BYTES = 5 * 1024 * 1024
+_DEFAULT_FEEDBACK_BACKUP_COUNT = 4
 _DEFAULT_GATEWAY_HOST = "127.0.0.1"
 _DEFAULT_GATEWAY_PORT = 9765
 _GATEWAY_FEEDBACK_TIMEOUT_SECS = 5.0
 _GATEWAY_EVENTS_URI = "resources://gateway/events"
+_SAFE_FEEDBACK_PATH_SEGMENT = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+class FeedbackPersistenceError(RuntimeError):
+    """Raised when an enabled feedback store cannot durably append a record."""
+
+
+def feedback_store_path(
+    registry_dir: str | os.PathLike[str],
+    dcc_name: str,
+    pid: int,
+) -> Path:
+    """Return the per-process JSONL path for one DCC feedback store."""
+    raw_name = str(dcc_name).strip().replace("\\", "_").replace("/", "_").replace(":", "_")
+    safe_name = _SAFE_FEEDBACK_PATH_SEGMENT.sub("_", raw_name).strip("._-") or "dcc"
+    return Path(registry_dir).expanduser() / "feedback" / f"{safe_name[:96]}-{int(pid)}.jsonl"
 
 
 class FeedbackStore:
-    """Thread-safe bounded feedback state for one server instance."""
+    """Thread-safe bounded feedback state for one server instance.
 
-    def __init__(self, max_entries: int = _MAX_FEEDBACK_ENTRIES) -> None:
+    ``path`` enables a write-through JSONL mirror. Each append is flushed and
+    synced before the in-memory entry becomes visible. The active file and its
+    numbered backups remain bounded by ``max_bytes`` and ``backup_count``.
+    """
+
+    def __init__(
+        self,
+        max_entries: int = _MAX_FEEDBACK_ENTRIES,
+        *,
+        path: str | os.PathLike[str] | None = None,
+        max_bytes: int = _DEFAULT_FEEDBACK_MAX_BYTES,
+        backup_count: int = _DEFAULT_FEEDBACK_BACKUP_COUNT,
+    ) -> None:
         self._lock = threading.Lock()
         self._entries: list[dict[str, Any]] = []
         self._max_entries = max(1, int(max_entries))
+        self._path = Path(path).expanduser() if path is not None else None
+        self._max_bytes = int(max_bytes)
+        self._backup_count = int(backup_count)
+        if self._max_bytes <= 0:
+            raise ValueError("max_bytes must be greater than zero")
+        if self._backup_count <= 0:
+            raise ValueError("backup_count must be greater than zero")
+
+    @property
+    def path(self) -> Path | None:
+        """Return the configured JSONL path, if persistence is enabled."""
+        return self._path
+
+    def _backup_path(self, index: int) -> Path:
+        assert self._path is not None
+        return self._path.with_name(f"{self._path.name}.{index}")
+
+    def _rotate_unlocked(self) -> None:
+        assert self._path is not None
+        for index in range(self._backup_count - 1, 0, -1):
+            source = self._backup_path(index)
+            if source.exists():
+                source.replace(self._backup_path(index + 1))
+        if self._path.exists():
+            self._path.replace(self._backup_path(1))
+
+    def _persist_unlocked(self, entry: dict[str, Any]) -> None:
+        if self._path is None:
+            return
+        try:
+            record = (json_dumps(entry) + "\n").encode("utf-8")
+            if len(record) > self._max_bytes:
+                raise FeedbackPersistenceError(f"feedback entry size {len(record)} exceeds max_bytes={self._max_bytes}")
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            current_size = self._path.stat().st_size if self._path.exists() else 0
+            if current_size and current_size + len(record) > self._max_bytes:
+                self._rotate_unlocked()
+            with self._path.open("ab") as stream:
+                stream.write(record)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FeedbackPersistenceError:
+            raise
+        except (OSError, TypeError, ValueError) as exc:
+            raise FeedbackPersistenceError(f"could not persist feedback to {self._path}: {exc}") from exc
 
     def append(self, entry: dict[str, Any]) -> None:
-        """Append one entry and evict the oldest overflow."""
+        """Durably append one entry and evict the oldest memory overflow."""
         with self._lock:
-            self._entries.append(dict(entry))
+            stored_entry = dict(entry)
+            self._persist_unlocked(stored_entry)
+            self._entries.append(stored_entry)
             if len(self._entries) > self._max_entries:
                 del self._entries[: len(self._entries) - self._max_entries]
+
+    def flush(self) -> None:
+        """Sync the active JSONL file, if one exists."""
+        with self._lock:
+            if self._path is None or not self._path.exists():
+                return
+            try:
+                with self._path.open("ab") as stream:
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except OSError as exc:
+                raise FeedbackPersistenceError(f"could not flush feedback at {self._path}: {exc}") from exc
 
     def recent(
         self,
@@ -478,14 +569,24 @@ def _handle_gateway_feedback_report(
             "gateway_feedback_invalid_receipt",
         )
 
-    _store_feedback(
-        {
-            "id": feedback_id,
-            "timestamp": time.time(),
-            **report,
-        },
-        store=store,
-    )
+    try:
+        _store_feedback(
+            {
+                "id": feedback_id,
+                "timestamp": time.time(),
+                **report,
+            },
+            store=store,
+        )
+    except FeedbackPersistenceError as exc:
+        logger.error("Gateway accepted feedback but the local JSONL mirror failed: %s", exc)
+        return _feedback_error(
+            "Feedback was accepted at the gateway, but local persistence failed.",
+            "feedback_persistence_failed",
+            feedback_id=feedback_id,
+            recorded_at=recorded_at,
+            event_resource_uri=event_resource_uri,
+        )
     logger.info(
         "dcc_feedback__report forwarded: id=%s tool=%s severity=%s",
         feedback_id,
@@ -516,7 +617,14 @@ def _handle_feedback_report(params: str, *, store: FeedbackStore | None = None) 
         "blocker": args.get("blocker", ""),
         "severity": args.get("severity", "blocked"),
     }
-    _store_feedback(entry, store=store)
+    try:
+        _store_feedback(entry, store=store)
+    except FeedbackPersistenceError as exc:
+        logger.error("Could not persist feedback: %s", exc)
+        return _feedback_error(
+            "Feedback could not be persisted.",
+            "feedback_persistence_failed",
+        )
     logger.info(
         "dcc_feedback__report: id=%s tool=%s severity=%s",
         entry["id"],
@@ -618,9 +726,11 @@ def register_feedback_tool(
 # ── Public API ─────────────────────────────────────────────────────────────
 
 __all__ = [
+    "FeedbackPersistenceError",
     "FeedbackStore",
     "clear_feedback",
     "extract_rationale",
+    "feedback_store_path",
     "get_default_feedback_store",
     "get_feedback_entries",
     "make_rationale_meta",

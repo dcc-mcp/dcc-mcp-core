@@ -244,8 +244,13 @@ omit the argument and exposes an explicit test reset seam.
 `DccServerBase` also owns `feedback_store`, `script_execution_context`, and
 `checkpoint_store`. The base registration wires `dcc_feedback__report` to the
 configured gateway `/v1/feedback` endpoint, late-binds the current instance id,
-and mirrors only gateway-accepted receipts into `feedback_store`; adapters must
-not override this shared forwarder or add host-specific feedback actions.
+and mirrors only gateway-accepted receipts into a bounded, write-through JSONL
+store at `<registry_dir>/feedback/<dcc>-<pid>.jsonl`. Each append is synced
+before it becomes visible in memory, files rotate with bounded backups, and
+`SESSION_END` syncs the active file again. A local persistence failure is an
+explicit `feedback_persistence_failed` result even when the gateway accepted
+the report; adapters must not override this shared forwarder or add
+host-specific feedback actions.
 Pass the other components to `execute_with_context(..., context=...)` and
 checkpoint helpers' existing `store=` parameter. Module-level convenience calls
 use explicit compatibility holders with `reset_default_*_for_tests()` seams;
