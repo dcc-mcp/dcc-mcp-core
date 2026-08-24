@@ -41,6 +41,23 @@ dependencies work in every adapter. A concrete-host tool with the same loaded
 tool name overrides the `any` entry for that host. This target is independent
 of `tools.yaml` `affinity: any`, which only controls execution thread affinity.
 
+Declare the canonical public owner for machine-readable feedback routing:
+
+```yaml
+metadata:
+  dcc-mcp:
+    links:
+      repo: https://github.com/dcc-mcp/dcc-mcp-godot
+      issues: https://github.com/dcc-mcp/dcc-mcp-godot/issues
+```
+
+Use a canonical public HTTPS GitHub repository URL and its matching issues URL.
+Marketplace publication carries `links.issues` into the catalog.
+When a runtime captures a Skill-phase Finding, copy the Skill name and both
+link values into bounded `evidence.routing` with `source: skill_metadata`.
+Never invent a fallback owner: missing or conflicting values must fail closed.
+Routing remains read-only and does not authorize external issue creation.
+
 ### Dependency-Aware Skills
 
 Use machine-readable dependencies whenever one skill must run after another.

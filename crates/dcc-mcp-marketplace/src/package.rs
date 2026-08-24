@@ -164,6 +164,7 @@ pub fn publish_marketplace_package(
                 .as_ref()
                 .and_then(|plugin| plugin.manifest.homepage.clone())
         }),
+        issues_url: string_at(&skill_meta, &["metadata", "dcc-mcp", "links", "issues"]),
         tags,
         version: options
             .version
@@ -783,7 +784,7 @@ mod tests {
         fs::create_dir_all(&src).unwrap();
         fs::write(
             src.join("SKILL.md"),
-            "---\nname: my-skill\ndescription: Test skill\nmetadata:\n  dcc-mcp:\n    dcc: maya, blender\n    version: 0.1.0\n    tags: modeling, test\n    showcase: docs/images/showcase.webp\n---\n",
+            "---\nname: my-skill\ndescription: Test skill\nmetadata:\n  dcc-mcp:\n    dcc: maya, blender\n    version: 0.1.0\n    tags: modeling, test\n    showcase: docs/images/showcase.webp\n    links:\n      repo: https://github.com/dcc-mcp/my-skill\n      issues: https://github.com/dcc-mcp/my-skill/issues\n---\n",
         )
         .unwrap();
         let catalog_path = tmp.path().join("marketplace.json");
@@ -820,6 +821,10 @@ mod tests {
         assert_eq!(result.entry.name, "my-skill");
         assert_eq!(result.entry.dcc, vec!["maya", "blender"]);
         assert_eq!(result.entry.version.as_deref(), Some("0.1.0"));
+        assert_eq!(
+            result.entry.issues_url.as_deref(),
+            Some("https://github.com/dcc-mcp/my-skill/issues")
+        );
         assert_eq!(
             result.entry.showcase.as_deref(),
             Some("docs/images/showcase.webp")

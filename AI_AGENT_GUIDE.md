@@ -235,6 +235,9 @@ credentials or unsanitized payloads. For a gateway-routed failure,
 `/v1/debug/issue-reports/<request_id>` returns a public-safe summary and
 suggested GitHub issue body; never publish `?mode=raw` without human review, and
 create an external issue only with user authorization.
+When a Finding v1 file exists, run `dcc-mcp-cli feedback route finding.json
+--json` to resolve its owner offline. The route is read-only and fails closed
+when catalog or Skill ownership metadata is missing or conflicting.
 
 After the task passes its acceptance checks, query bounded evidence with
 `dcc-mcp-cli stats --range 24h --session-id task-42`, then use the

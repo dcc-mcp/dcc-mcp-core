@@ -46,6 +46,9 @@ pub struct CatalogEntry {
     /// Canonical URL (GitHub repo, docs site, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Canonical public GitHub issues URL for machine-readable feedback routing.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "issuesUrl")]
+    pub issues_url: Option<String>,
     /// Searchable tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
@@ -603,6 +606,7 @@ entries:
             dcc: vec!["maya".into()],
             targets: vec![],
             url: None,
+            issues_url: None,
             tags: vec!["maya".into(), "official".into()],
             version: None,
             min_core_version: None,
@@ -798,6 +802,7 @@ entries:
             dcc: vec![],
             targets: vec![],
             url: None,
+            issues_url: None,
             tags: vec![],
             version: None,
             min_core_version: None,
@@ -857,6 +862,7 @@ entries:
             dcc: vec!["maya".into()],
             targets: vec![],
             url: Some("https://example.com/skill".into()),
+            issues_url: None,
             tags: vec!["test".into()],
             version: Some("0.1.0".into()),
             min_core_version: Some("0.17.0".into()),
@@ -935,6 +941,7 @@ entries:
             dcc: vec!["maya".into()],
             targets: vec![],
             url: Some("https://pypi.org/project/dcc-mcp-maya".into()),
+            issues_url: None,
             tags: vec!["pip".into(), "maya".into()],
             version: Some("0.3.0".into()),
             min_core_version: Some("0.18.0".into()),
@@ -1017,6 +1024,7 @@ entries:
             dcc: vec![],
             targets: vec![],
             url: None,
+            issues_url: None,
             tags: vec![],
             version: None,
             min_core_version: None,
@@ -1064,6 +1072,7 @@ entries:
             dcc: vec![],
             targets: vec![],
             url: None,
+            issues_url: None,
             tags: vec![],
             version: None,
             min_core_version: None,
@@ -1149,6 +1158,14 @@ entries:
     }
 
     #[test]
+    fn test_validate_entry_rejects_non_github_issue_tracker() {
+        let mut entry = make_entry("skill-a", "First skill");
+        entry.issues_url = Some("https://example.com/issues".to_string());
+
+        assert!(validate_entry(&entry).is_err());
+    }
+
+    #[test]
     fn bundled_adapter_catalog_matches_compatibility_matrix() {
         let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
         let matrix = include_str!("../../../docs/guide/adapter-compatibility-matrix.md");
@@ -1173,6 +1190,16 @@ entries:
                 .url
                 .as_deref()
                 .unwrap_or_else(|| panic!("adapter {} is missing url", entry.name));
+            let issues_url = entry
+                .issues_url
+                .as_deref()
+                .unwrap_or_else(|| panic!("adapter {} is missing issues_url", entry.name));
+            assert_eq!(
+                issues_url,
+                format!("{url}/issues"),
+                "adapter {} has a mismatched issues_url",
+                entry.name
+            );
             let version = entry
                 .version
                 .as_deref()

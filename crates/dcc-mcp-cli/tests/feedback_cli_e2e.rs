@@ -1,6 +1,6 @@
 mod support;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use support::*;
 
@@ -105,4 +105,57 @@ fn gateway_feedback_export_uses_bounded_export_default() {
     let body: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(body["filters"]["range"], "7d");
     assert_eq!(body["filters"]["limit"], "1000");
+}
+
+#[test]
+fn feedback_route_resolves_adapter_issue_tracker_without_a_gateway() {
+    let temp = tempfile::tempdir().unwrap();
+    let finding_path = temp.path().join("finding.json");
+    std::fs::write(
+        &finding_path,
+        serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "fingerprint": format!("sha256:{}", "a".repeat(64)),
+            "dcc_type": "godot",
+            "adapter": "dcc-mcp-godot",
+            "adapter_version": "0.1.9",
+            "core_version": "0.20.11",
+            "host_version": "4.4.1",
+            "os": "windows",
+            "phase": "install",
+            "severity": "blocker",
+            "intent": "Install the Godot adapter",
+            "observed": "The add-on was not enabled",
+            "expected": "The adapter starts with the project",
+            "repro": {"argv": ["dcc-mcp-cli", "install", "godot"]},
+            "evidence": {"error_kind": "install_failed"},
+            "redaction_status": {
+                "mode": "needs-review",
+                "redaction_markers_detected": false
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let finding_arg = finding_path.to_string_lossy().into_owned();
+
+    let output = cli_command()
+        .args(["--output", "json", "feedback", "route", &finding_arg])
+        .current_dir(temp.path())
+        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(body["repo"], "dcc-mcp/dcc-mcp-godot");
+    assert_eq!(
+        body["issues_url"],
+        "https://github.com/dcc-mcp/dcc-mcp-godot/issues"
+    );
+    assert_eq!(body["rationale"], "adapter_phase");
 }

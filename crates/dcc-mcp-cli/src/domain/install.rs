@@ -687,6 +687,7 @@ mod tests {
             dcc: dcc.iter().map(|value| value.to_string()).collect(),
             targets: vec![],
             url: Some("https://example.invalid/adapter".into()),
+            issues_url: None,
             tags: vec!["official".into()],
             version: Some("0.3.0".into()),
             min_core_version: None,

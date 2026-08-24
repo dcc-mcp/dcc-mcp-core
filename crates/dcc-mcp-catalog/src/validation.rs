@@ -46,6 +46,7 @@ const MARKETPLACE_V2_SCHEMA_JSON: &str = r##"{
           "uniqueItems": true
         },
         "url":         { "type": "string" },
+        "issues_url":  { "type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/?$" },
         "tags":        { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "version":          { "type": "string" },
         "min_core_version": { "type": "string" },

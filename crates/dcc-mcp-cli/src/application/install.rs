@@ -1182,6 +1182,7 @@ mod tests {
                 dcc: vec!["maya".into()],
                 targets: vec![],
                 url: None,
+                issues_url: None,
                 tags: vec![],
                 version: None,
                 min_core_version: None,

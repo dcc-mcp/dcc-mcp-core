@@ -28,6 +28,46 @@ the finding is safe to publish. Reproduction lists are limited to 64 items,
 text fields to 4,096 characters, identifiers to 256 characters, and serialized
 evidence to 32 KiB. Unknown or ambiguous fields fail closed.
 
+## Offline issue routing
+
+Resolve a validated Finding v1 file to its owning public issue tracker without
+starting or contacting a gateway:
+
+```bash
+dcc-mcp-cli feedback route finding.json --json
+# Use a reviewed catalog instead of the bundled public catalog:
+dcc-mcp-cli feedback route finding.json --catalog catalog.yml --json
+```
+
+The command is read-only: it returns `repo`, `issues_url`, and a stable
+`rationale`, but never creates an issue. `install`, `startup`, and `dispatch`
+findings route by exact adapter package name in the catalog. Gateway, CLI, and
+protocol `evidence.error_kind` namespaces route to `dcc-mcp-core` before that
+phase fallback. `other` findings fail closed unless they have one of those
+shared error kinds.
+
+Skill findings do not inherit the adapter repository. They require bounded
+routing evidence copied from the owning Skill's
+`metadata.dcc-mcp.links.repo` and `metadata.dcc-mcp.links.issues` fields:
+
+```json
+{
+  "evidence": {
+    "error_kind": "skill_contract_violation",
+    "routing": {
+      "source": "skill_metadata",
+      "skill_name": "godot-export",
+      "repo": "https://github.com/dcc-mcp/dcc-mcp-godot",
+      "issues_url": "https://github.com/dcc-mcp/dcc-mcp-godot/issues"
+    }
+  }
+}
+```
+
+Missing, duplicate, non-canonical, or conflicting ownership data is an error;
+the CLI never guesses another repository. The Finding remains
+`redaction_status.mode="needs-review"`, so routing is not publication approval.
+
 ## register_feedback_tool
 
 ```python
@@ -93,6 +133,7 @@ shared registry directory. Query those durable records through the gateway:
 ```bash
 dcc-mcp-cli feedback list --range 7d --dcc maya --severity blocked --json
 dcc-mcp-cli feedback export --range all --dcc maya --json
+dcc-mcp-cli feedback route finding.json --json
 ```
 
 Both commands call `GET /admin/api/feedback`. `list` defaults to 100 rows and

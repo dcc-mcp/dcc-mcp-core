@@ -20,6 +20,41 @@ Core 自动填充 DCC、adapter/core/host 版本、OS、instance、稳定 finger
 重现列表最多 64 项、文本最多 4096 字符、标识符最多 256 字符、序列化 evidence
 最多 32 KiB；未知字段或歧义结构会 fail-closed。
 
+## 离线 Issue 路由
+
+无需启动或连接 Gateway，即可把已校验的 Finding v1 文件解析到责任仓库：
+
+```bash
+dcc-mcp-cli feedback route finding.json --json
+# 使用经过审查的自定义 catalog：
+dcc-mcp-cli feedback route finding.json --catalog catalog.yml --json
+```
+
+该命令只读，只返回 `repo`、`issues_url` 和稳定的 `rationale`，不会创建
+GitHub Issue。`install`、`startup`、`dispatch` 按 catalog 中精确的 adapter
+包名路由；`evidence.error_kind` 属于 gateway、CLI 或 protocol 命名空间时，
+优先路由到 `dcc-mcp-core`。没有这些共性错误类型的 `other` 会 fail-closed。
+
+Skill Finding 不会默认继承 adapter 仓库，必须携带从 Skill
+`metadata.dcc-mcp.links.repo` 和 `metadata.dcc-mcp.links.issues` 复制的有界证据：
+
+```json
+{
+  "evidence": {
+    "error_kind": "skill_contract_violation",
+    "routing": {
+      "source": "skill_metadata",
+      "skill_name": "godot-export",
+      "repo": "https://github.com/dcc-mcp/dcc-mcp-godot",
+      "issues_url": "https://github.com/dcc-mcp/dcc-mcp-godot/issues"
+    }
+  }
+}
+```
+
+归属信息缺失、重复、不规范或互相冲突时会显式失败，不会猜测其他仓库。
+Finding 仍保持 `redaction_status.mode="needs-review"`；解析出路由不代表获准发布。
+
 ## 主要函数
 
 - `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None, finding_context_provider=None)` — 注册 `dcc_feedback__report` MCP 工具，**在 `server.start()` 之前调用**；优先接收 Finding v1 的 Agent 字段，兼容旧 `tool_name`/`blocker` 形式并规范化为 v1。Core 自动附加运行时身份，转发到 gateway，严格校验 `X-Request-ID`、schema version 与 fingerprint，并在身份缺失、gateway 不可用或回执失配时 fail-closed，不会本地伪成功
@@ -47,6 +82,7 @@ dcc-mcp-cli feedback \
   --job-id <job-id>
 dcc-mcp-cli feedback list --range 7d --dcc <dcc> --severity blocked --json
 dcc-mcp-cli feedback export --range all --dcc <dcc> --json
+dcc-mcp-cli feedback route finding.json --json
 ```
 
 Gateway 会把有界的 `feedback_reported` 记录写入
