@@ -69,11 +69,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release-tag-name }}
+          CHECKOUT_REF: ${{ inputs.checkout-ref }}
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "$RELEASE_TAG" ]; then
             echo "::error::release-tag-name is required when reuse-release-assets is true"
+            exit 1
+          fi
+          if [ "$CHECKOUT_REF" != "$RELEASE_TAG" ]; then
+            echo "::error::checkout-ref must exactly match release-tag-name for an immutable backfill"
             exit 1
           fi
           gh release view "$RELEASE_TAG" \
