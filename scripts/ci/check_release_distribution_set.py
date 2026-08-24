@@ -156,6 +156,25 @@ def _release_assets(payload: dict, version: str) -> dict[str, dict]:
     return assets
 
 
+def classify_distribution_assets(payload: dict, version: str) -> str:
+    """Choose whether an immutable Core backfill can reuse or must rebuild."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
+        raise DistributionSetError(f"invalid release version {version!r}")
+    assets = _release_assets(payload, version)
+    if not assets:
+        return "rebuild"
+
+    sdist_name = f"dcc_mcp_core-{version}.tar.gz"
+    wheel_names = {name for name in assets if name.endswith(".whl")}
+    observed_contracts = {_classify_wheel(name, version) for name in wheel_names}
+    expected_contracts = {tuple(contract.split("/", 1)) for contract in _EXPECTED_WHEEL_CONTRACTS}
+    if set(assets) != {*wheel_names, sdist_name} or observed_contracts != expected_contracts:
+        raise DistributionSetError(
+            "GitHub Release has a partial Core distribution set; refuse to mix archived and rebuilt bytes"
+        )
+    return "reuse"
+
+
 def verify_distribution_set(payload: dict, dist_dir: Path, version: str) -> dict[str, int]:
     """Verify the exact seven-file Core distribution set and return evidence."""
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
@@ -199,13 +218,24 @@ def main(argv: list[str] | None = None) -> int:
     """Validate Release asset metadata and downloaded distributions."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--assets-json", type=Path, required=True)
-    parser.add_argument("--dist-dir", type=Path, required=True)
+    parser.add_argument("--dist-dir", type=Path)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--classify-assets", action="store_true")
+    parser.add_argument("--github-output", type=Path)
     args = parser.parse_args(argv)
     try:
         payload = json.loads(args.assets_json.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise DistributionSetError(f"cannot read GitHub Release asset JSON: {exc}") from exc
+    if args.classify_assets:
+        mode = classify_distribution_assets(payload, args.version)
+        if args.github_output is not None:
+            with args.github_output.open("a", encoding="utf-8", newline="\n") as stream:
+                stream.write(f"mode={mode}\n")
+        print(f"Core release asset backfill mode: {mode}")
+        return 0
+    if args.dist_dir is None:
+        raise DistributionSetError("--dist-dir is required unless --classify-assets is set")
     evidence = verify_distribution_set(payload, args.dist_dir, args.version)
     print(f"Verified {evidence['asset_count']} immutable Core distribution(s), {evidence['total_bytes']} byte(s)")
     return 0

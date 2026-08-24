@@ -14,6 +14,7 @@ import zipfile
 import pytest
 from scripts.ci import check_release_distribution_set
 from scripts.ci.check_release_distribution_set import DistributionSetError
+from scripts.ci.check_release_distribution_set import classify_distribution_assets
 from scripts.ci.check_release_distribution_set import verify_distribution_set
 
 VERSION = "0.20.8"
@@ -26,6 +27,25 @@ WHEEL_NAMES = [
     f"dcc_mcp_core-{VERSION}-py3-none-any.whl",
 ]
 SDIST_NAME = f"dcc_mcp_core-{VERSION}.tar.gz"
+
+
+def test_classify_distribution_assets_rebuilds_when_release_has_no_core_assets() -> None:
+    payload = {"assets": [{"name": "dcc_mcp_server-0.20.8-py3-none-any.whl"}]}
+
+    assert classify_distribution_assets(payload, VERSION) == "rebuild"
+
+
+def test_classify_distribution_assets_rejects_partial_core_asset_sets() -> None:
+    payload = {"assets": [{"name": WHEEL_NAMES[0]}]}
+
+    with pytest.raises(DistributionSetError, match="partial Core distribution set"):
+        classify_distribution_assets(payload, VERSION)
+
+
+def test_classify_distribution_assets_reuses_complete_core_asset_sets() -> None:
+    payload = {"assets": [{"name": name} for name in [*WHEEL_NAMES, SDIST_NAME]]}
+
+    assert classify_distribution_assets(payload, VERSION) == "reuse"
 
 
 def _metadata_bytes(name: str, version: str) -> bytes:
@@ -133,3 +153,25 @@ def test_cli_reads_release_asset_json(monkeypatch: pytest.MonkeyPatch, tmp_path:
         )
         == 0
     )
+
+
+def test_cli_classifies_missing_assets_for_github_actions(tmp_path: Path) -> None:
+    assets_json = tmp_path / "assets.json"
+    assets_json.write_text(json.dumps({"assets": []}), encoding="utf-8")
+    github_output = tmp_path / "github-output.txt"
+
+    assert (
+        check_release_distribution_set.main(
+            [
+                "--assets-json",
+                str(assets_json),
+                "--version",
+                VERSION,
+                "--classify-assets",
+                "--github-output",
+                str(github_output),
+            ]
+        )
+        == 0
+    )
+    assert github_output.read_text(encoding="utf-8") == "mode=rebuild\n"
