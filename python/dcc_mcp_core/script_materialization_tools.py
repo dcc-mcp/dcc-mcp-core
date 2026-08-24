@@ -91,6 +91,7 @@ _MATERIALIZE_OUTPUT_SCHEMA: dict[str, Any] = {
         "tool_call_id": {"type": ["string", "null"]},
         "correlation_id": {"type": ["string", "null"]},
         "reused": {"type": "boolean"},
+        "parameters_schema": {"type": ["object", "null"]},
     },
     "required": ["file_ref", "file_path", "sha256", "bytes", "dcc_type", "instance_id", "session_id", "reused"],
 }
@@ -140,6 +141,7 @@ def register_script_materialization_tools(
                 name="materialize_script",
                 description=(
                     "Write script source to the DCC host and return FileRef/path/hash metadata. "
+                    "Typed Python main parameters are derived without importing the script. "
                     "Use before execute-python tools that accept file_path; raw source is never echoed."
                 ),
                 input_schema=_MATERIALIZE_INPUT_SCHEMA,

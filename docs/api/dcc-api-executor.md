@@ -99,6 +99,31 @@ Returns one of:
 `output` is the value returned by the script via a top-level `return`
 statement (the last expression is not implicitly returned).
 
+### `.execute_params({file_path, params, ...}) -> dict`
+
+For iterative work, materialize a typed script once and call its entry point
+with structured parameters:
+
+```python
+script = materialize_script(
+    "def main(scale: float, copies: int = 1):\n"
+    "    return {'value': scale * copies}\n",
+    dcc_type="maya",
+    instance_id="maya-local",
+    session_id="task-42",
+    reuse=True,
+    reuse_key="scale-assets",
+)
+executor.execute_params({"file_path": script.file_path, "params": {"scale": 2.5, "copies": 4}})
+```
+
+The materialize result exposes a statically derived `parameters_schema`.
+`execute_params` validates `params` against it before importing the script and
+then invokes `main(**params)`. Reusing the same file with different parameters
+does not rewrite it and returns `context.materialized_script.reused=true`.
+Optional `sha256` verifies content integrity. Calls without `params` keep the
+legacy sandboxed inline/top-level-`return` behavior.
+
 ## `register_dcc_api_executor(server, executor, *, search_tool_name="dcc_search", execute_tool_name="dcc_execute") -> None`
 
 Register both tools on a `McpHttpServer` *before* `server.start()`. Tool

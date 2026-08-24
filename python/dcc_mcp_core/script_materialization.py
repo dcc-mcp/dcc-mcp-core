@@ -53,6 +53,7 @@ class MaterializedScript:
     tool_call_id: str | None = None
     correlation_id: str | None = None
     reused: bool = False
+    parameters_schema: dict[str, Any] | None = None
 
     @property
     def file_ref_uri(self) -> str:
@@ -80,6 +81,7 @@ class MaterializedScript:
             "tool_call_id": self.tool_call_id,
             "correlation_id": self.correlation_id,
             "reused": self.reused,
+            "parameters_schema": self.parameters_schema,
         }
         return {key: value for key, value in data.items() if value is not None}
 
@@ -228,9 +230,27 @@ def _file_ref_from_descriptor(descriptor: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _descriptor_from_dict(data: Mapping[str, Any], *, reused: bool) -> MaterializedScript:
+    required = {
+        "bytes",
+        "created_at",
+        "dcc_type",
+        "file_path",
+        "instance_id",
+        "language",
+        "script_id",
+        "session_id",
+        "sha256",
+        "suffix",
+    }
+    missing = sorted(required - set(data))
+    if missing:
+        raise ValueError(f"materialized script metadata is missing: {', '.join(missing)}")
     file_ref = data.get("file_ref")
     if not isinstance(file_ref, dict):
         file_ref = _file_ref_from_descriptor(data)
+    parameters_schema = data.get("parameters_schema")
+    if parameters_schema is not None and not isinstance(parameters_schema, dict):
+        raise ValueError("materialized script parameters_schema must be an object")
     return MaterializedScript(
         file_ref=dict(file_ref),
         file_path=str(data["file_path"]),
@@ -249,7 +269,59 @@ def _descriptor_from_dict(data: Mapping[str, Any], *, reused: bool) -> Materiali
         tool_call_id=data.get("tool_call_id"),
         correlation_id=data.get("correlation_id"),
         reused=reused,
+        parameters_schema=dict(parameters_schema) if parameters_schema is not None else None,
     )
+
+
+def resolve_materialized_script(
+    file_path: str | os.PathLike[str],
+    *,
+    root: str | os.PathLike[str] | None = None,
+) -> MaterializedScript | None:
+    """Resolve and verify a materialized file descriptor from its sidecar.
+
+    ``None`` means the trusted file is not owned by the materialization store.
+    Present-but-invalid sidecars fail closed so provenance cannot silently be
+    downgraded to a generic trusted file.
+    """
+    store_root = default_script_materialization_root(root)
+    path = _ensure_within_root(Path(file_path).expanduser(), store_root)
+    if not path.is_file():
+        raise FileNotFoundError(f"Materialized script not found: {file_path}")
+    metadata_path = _metadata_path(path)
+    if not metadata_path.is_file():
+        return None
+    try:
+        data = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid materialized script metadata: {metadata_path}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid materialized script metadata: {metadata_path}")
+
+    recorded_path = _ensure_within_root(Path(str(data.get("file_path", ""))).expanduser(), store_root)
+    if recorded_path != path:
+        raise ValueError("Materialized script metadata path does not match file_path")
+    body = path.read_bytes()
+    digest = hashlib.sha256(body).hexdigest()
+    if data.get("sha256") != digest or data.get("bytes") != len(body):
+        raise ValueError("Materialized script content does not match its metadata")
+    expires_at = _parse_utc(data.get("expires_at"))
+    if data.get("expires_at") and expires_at is None:
+        raise ValueError("Materialized script expires_at is invalid")
+    if expires_at is not None and expires_at <= _utc_now():
+        raise ValueError("Materialized script has expired")
+
+    verified = dict(data)
+    verified.update(
+        {
+            "file_path": str(path),
+            "path": str(path),
+            "sha256": digest,
+            "bytes": len(body),
+        }
+    )
+    verified["file_ref"] = _file_ref_from_descriptor(verified)
+    return _descriptor_from_dict(verified, reused=True)
 
 
 def _script_id_for(
@@ -295,6 +367,11 @@ def materialize_script(
     sha256 = hashlib.sha256(body).hexdigest()
     suffix = _normalize_suffix(suffix)
     language = sanitize_materialization_segment(language, default="text").lower()
+    parameters_schema = None
+    if language in {"python", "py"} and suffix == ".py":
+        from dcc_mcp_core.schema import derive_script_parameters_schema
+
+        parameters_schema = derive_script_parameters_schema(content)
     safe_dcc = sanitize_materialization_segment(dcc_type)
     safe_instance = sanitize_materialization_segment(instance_id)
     safe_session = sanitize_materialization_segment(session_id)
@@ -314,13 +391,18 @@ def materialize_script(
 
     if reuse and resolved_target.is_file() and metadata_path.is_file():
         try:
-            existing = json.loads(metadata_path.read_text(encoding="utf-8"))
+            existing_descriptor = resolve_materialized_script(resolved_target, root=store_root)
         except (OSError, ValueError, TypeError):
-            existing = None
-        if isinstance(existing, dict) and existing.get("sha256") == sha256:
-            expires_at = _parse_utc(existing.get("expires_at"))
-            if expires_at is None or expires_at > _utc_now():
-                return _descriptor_from_dict(existing, reused=True)
+            existing_descriptor = None
+        if existing_descriptor is not None and existing_descriptor.sha256 == sha256:
+            existing = existing_descriptor.to_dict()
+            if parameters_schema is not None and existing.get("parameters_schema") != parameters_schema:
+                existing["parameters_schema"] = parameters_schema
+                _atomic_write(
+                    metadata_path,
+                    json.dumps(existing, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+                )
+            return _descriptor_from_dict(existing, reused=True)
 
     now = _utc_now()
     expires_at = _format_utc(now + timedelta(seconds=ttl_secs)) if ttl_secs else None
@@ -341,6 +423,7 @@ def materialize_script(
         "tool_call_id": tool_call_id,
         "correlation_id": correlation_id,
         "reused": False,
+        "parameters_schema": parameters_schema,
     }
     descriptor["file_ref"] = _file_ref_from_descriptor(descriptor)
 
@@ -398,5 +481,6 @@ __all__ = [
     "cleanup_materialized_scripts",
     "default_script_materialization_root",
     "materialize_script",
+    "resolve_materialized_script",
     "sanitize_materialization_segment",
 ]

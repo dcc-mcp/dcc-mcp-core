@@ -18,6 +18,7 @@ from collections.abc import Mapping
 import contextlib
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from dataclasses import field
 import hashlib
 import io
 import json
@@ -31,10 +32,12 @@ from typing import TextIO
 
 from dcc_mcp_core.errors import DccMcpError
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
+from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
 from dcc_mcp_core.script_materialization import default_script_materialization_root
 from dcc_mcp_core.script_materialization import materialize_script
+from dcc_mcp_core.script_materialization import resolve_materialized_script
 
 ScriptMaterializationPolicy = str
 _SCRIPT_MATERIALIZATION_POLICIES = {"off", "auto", "require"}
@@ -52,6 +55,8 @@ class ScriptExecutionParams:
 
     code: str
     timeout_secs: int | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+    params_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,9 @@ class FileBackedScriptExecutionParams:
     source: str = "inline"
     sha256: str | None = None
     bytes: int | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+    params_provided: bool = False
+    parameters_schema: dict[str, Any] | None = None
 
     @property
     def is_file_backed(self) -> bool:
@@ -86,6 +94,7 @@ class FileBackedScriptExecutionParams:
             "bytes": self.bytes,
             "reused": False,
             "source": self.source,
+            "parameters_schema": self.parameters_schema,
         }
 
 
@@ -120,7 +129,13 @@ def normalize_script_execution_params(
             raise ValueError("timeout_secs must be greater than zero")
         timeout_secs = timeout_value
 
-    return ScriptExecutionParams(code=code, timeout_secs=timeout_secs)
+    structured_params, params_provided = _normalize_structured_params(params)
+    return ScriptExecutionParams(
+        code=code,
+        timeout_secs=timeout_secs,
+        params=structured_params,
+        params_provided=params_provided,
+    )
 
 
 def normalize_file_backed_script_execution_params(
@@ -149,6 +164,8 @@ def normalize_file_backed_script_execution_params(
     """
     policy = _normalize_materialization_policy(policy)
     timeout_secs = _normalize_timeout(params, default_timeout_secs=default_timeout_secs)
+    structured_params, params_provided = _normalize_structured_params(params)
+    expected_sha256 = _normalize_expected_sha256(params)
     file_path = _first_string(params, "file_path", "script_path")
 
     if file_path is not None:
@@ -158,13 +175,31 @@ def normalize_file_backed_script_execution_params(
             materialization_root=materialization_root,
         )
         code = trusted_path.read_text(encoding="utf-8")
+        descriptor = None
+        store_root = default_script_materialization_root(materialization_root).resolve()
+        try:
+            trusted_path.relative_to(store_root)
+        except ValueError:
+            pass
+        else:
+            descriptor = resolve_materialized_script(trusted_path, root=store_root)
+        parameters_schema = (
+            descriptor.parameters_schema if descriptor is not None else derive_script_parameters_schema(code)
+        )
+        actual_sha256 = descriptor.sha256 if descriptor is not None else _hash_text(code)
+        if expected_sha256 is not None and expected_sha256 != actual_sha256:
+            raise ValueError("sha256 does not match the script file")
         return FileBackedScriptExecutionParams(
             code=code,
             file_path=str(trusted_path),
             timeout_secs=timeout_secs,
-            source="file_path",
-            sha256=_hash_text(code),
-            bytes=len(code.encode("utf-8")),
+            materialized_script=descriptor,
+            source="materialized_file" if descriptor is not None else "file_path",
+            sha256=actual_sha256,
+            bytes=descriptor.bytes if descriptor is not None else len(code.encode("utf-8")),
+            params=structured_params,
+            params_provided=params_provided,
+            parameters_schema=parameters_schema,
         )
 
     code = _required_code(params)
@@ -174,13 +209,20 @@ def normalize_file_backed_script_execution_params(
             "materialize the script first and pass file_path",
         )
     if policy == "off":
+        if params_provided:
+            raise ValueError("params require a file-backed script; use policy=auto or pass file_path")
+        actual_sha256 = _hash_text(code)
+        if expected_sha256 is not None and expected_sha256 != actual_sha256:
+            raise ValueError("sha256 does not match inline code")
         return FileBackedScriptExecutionParams(
             code=code,
             file_path=None,
             timeout_secs=timeout_secs,
             source="inline",
-            sha256=_hash_text(code),
+            sha256=actual_sha256,
             bytes=len(code.encode("utf-8")),
+            params=structured_params,
+            params_provided=params_provided,
         )
 
     descriptor = materialize_script(
@@ -197,6 +239,8 @@ def normalize_file_backed_script_execution_params(
         reuse=reuse,
         reuse_key=reuse_key,
     )
+    if expected_sha256 is not None and expected_sha256 != descriptor.sha256:
+        raise ValueError("sha256 does not match materialized code")
     path = Path(descriptor.file_path)
     return FileBackedScriptExecutionParams(
         code=path.read_text(encoding="utf-8"),
@@ -206,6 +250,9 @@ def normalize_file_backed_script_execution_params(
         source="materialized",
         sha256=descriptor.sha256,
         bytes=descriptor.bytes,
+        params=structured_params,
+        params_provided=params_provided,
+        parameters_schema=descriptor.parameters_schema,
     )
 
 
@@ -283,6 +330,27 @@ def _normalize_timeout(
     return timeout_secs
 
 
+def _normalize_structured_params(params: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    if "params" not in params:
+        return {}, False
+    value = params["params"]
+    if not isinstance(value, Mapping):
+        raise TypeError("params must be an object")
+    return dict(value), True
+
+
+def _normalize_expected_sha256(params: Mapping[str, Any]) -> str | None:
+    value = params.get("sha256")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("sha256 must be a string")
+    normalized = (value[7:] if value.startswith("sha256:") else value).lower()
+    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        raise ValueError("sha256 must contain 64 hexadecimal characters")
+    return normalized
+
+
 def _required_code(params: Mapping[str, Any]) -> str:
     if params.get("code") is None:
         raise ValueError("Missing required 'code' string")
@@ -327,6 +395,7 @@ def _materialized_script_context(
             "session_id": materialized_script.session_id,
             "tool_call_id": materialized_script.tool_call_id,
             "correlation_id": materialized_script.correlation_id,
+            "parameters_schema": materialized_script.parameters_schema,
         }
     return dict(materialized_script)
 

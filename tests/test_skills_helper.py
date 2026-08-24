@@ -73,6 +73,37 @@ def test_skills_helper_reexports_validation_and_normalization() -> None:
     assert normalize_tool_arguments('{"name":"maya"}') == {"name": "maya"}
 
 
+def test_tool_validator_enforces_closed_objects_and_any_of() -> None:
+    validator = ToolValidator.from_schema_json(
+        skills_helper.json_dumps(
+            {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "null"},
+                        ]
+                    }
+                },
+                "additionalProperties": False,
+            }
+        )
+    )
+
+    assert validator.validate(skills_helper.json_dumps({"label": None})) == (True, [])
+    ok, errors = validator.validate(skills_helper.json_dumps({"label": 42, "typo": True}))
+
+    assert ok is False
+    assert any("anyOf" in error for error in errors)
+    assert any("additional property" in error for error in errors)
+
+    empty_closed = ToolValidator.from_schema_json(
+        skills_helper.json_dumps({"type": "object", "additionalProperties": False})
+    )
+    assert empty_closed.validate(skills_helper.json_dumps({"typo": True}))[0] is False
+
+
 def test_skills_helper_reexports_skill_result_helpers() -> None:
     result = skill_success("Created cube", object_name="cube1")
 

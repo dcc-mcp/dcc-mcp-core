@@ -15,12 +15,14 @@ from dcc_mcp_core.script_execution import write_temp_script
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
 from dcc_mcp_core.script_materialization import materialize_script
+from dcc_mcp_core.script_materialization import resolve_materialized_script
 from dcc_mcp_core.script_materialization import sanitize_materialization_segment
 
 
 def test_materialization_helpers_are_exported() -> None:
     assert dcc_mcp_core.MaterializedScript is MaterializedScript
     assert dcc_mcp_core.materialize_script is materialize_script
+    assert dcc_mcp_core.resolve_materialized_script is resolve_materialized_script
     assert "MaterializedScript" in dcc_mcp_core.__all__
     assert "materialize_script" in dcc_mcp_core.__all__
 
@@ -78,6 +80,49 @@ def test_materialize_script_reuses_identical_content_when_requested(tmp_path: Pa
     assert first.file_path == second.file_path
     assert first.reused is False
     assert second.reused is True
+
+
+def test_materialize_script_surfaces_typed_main_parameters_without_execution(tmp_path: Path) -> None:
+    marker = tmp_path / "must-not-run"
+    content = f"""\
+from pathlib import Path
+
+Path({str(marker)!r}).write_text("ran")
+
+def main(scale: float, copies: int = 1) -> dict:
+    return {{"scale": scale, "copies": copies}}
+"""
+
+    descriptor = materialize_script(
+        content,
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path / "store",
+        reuse=True,
+        reuse_key="asset-builder",
+    )
+
+    assert descriptor.parameters_schema is not None
+    assert descriptor.parameters_schema["required"] == ["scale"]
+    assert descriptor.parameters_schema["properties"]["copies"]["type"] == "integer"
+    assert descriptor.to_dict()["parameters_schema"] == descriptor.parameters_schema
+    assert not marker.exists()
+
+
+def test_resolve_materialized_script_rejects_tampered_content(tmp_path: Path) -> None:
+    descriptor = materialize_script(
+        "def main(scale: float) -> float:\n    return scale * 2\n",
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+        reuse=True,
+    )
+    Path(descriptor.file_path).write_text("def main():\n    return 'tampered'\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not match its metadata"):
+        resolve_materialized_script(descriptor.file_path, root=tmp_path)
 
 
 def test_cleanup_materialized_scripts_removes_expired_only(tmp_path: Path) -> None:
