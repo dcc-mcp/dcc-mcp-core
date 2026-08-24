@@ -14,7 +14,7 @@ use crate::application::call_attribution::{
 };
 use crate::application::client::DccMcpClient;
 use crate::application::control_plane::DccControlPlane;
-use crate::application::doctor::{DoctorRequest, run_doctor};
+use crate::application::doctor::{DoctorContext, run_doctor};
 use crate::application::gateway_ctrl;
 use crate::application::gateway_ensure;
 use crate::application::gateway_profile::{self, GatewayTarget};
@@ -598,6 +598,15 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         require_gateway,
     )
     .with_auto_gateway_enabled(!no_auto_gateway);
+    let doctor = DoctorContext::new(
+        profile_path.clone(),
+        profile_store,
+        gateway_target.clone(),
+        auto_gateway_bin.clone(),
+        !no_auto_gateway,
+        require_gateway,
+        &endpoint,
+    )?;
     if !no_auto_gateway {
         ensure_gateway_for_command(
             &base_url,
@@ -662,24 +671,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 })
                 .await?
         }
-        Command::Feedback(args) => args.run(&control).await?,
+        Command::Feedback(args) => args.run(&control, &doctor).await?,
         Command::Doctor {
             registry_dir,
             gateway_host,
             gateway_port,
         } => {
-            run_doctor(DoctorRequest {
-                profile_path: profile_path.clone(),
-                profile_store: profile_store.clone(),
-                gateway_target: gateway_target.clone(),
-                registry_dir,
-                server_bin: auto_gateway_bin.clone(),
-                auto_gateway_enabled: !no_auto_gateway,
-                require_gateway,
-                gateway_host,
-                gateway_port,
-            })
-            .await?
+            run_doctor(doctor.request(registry_dir, Some(gateway_host), Some(gateway_port))).await?
         }
         Command::List => control.list_instances().await?,
         Command::DccTypes { catalog } => {

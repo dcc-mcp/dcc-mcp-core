@@ -102,6 +102,14 @@ impl DccControlPlane {
             .map_err(Into::into)
     }
 
+    /// Fetch the stable public-safe issue report for one correlated request.
+    pub async fn issue_report(&self, request_id: &str) -> anyhow::Result<Value> {
+        self.gateway_client()
+            .issue_report(request_id)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn search(&self, request: SearchRequest) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
             local_control::search_local(self.registry_dir.clone(), request).await

@@ -79,6 +79,14 @@ impl DccMcpClient {
             .map_err(Into::into)
     }
 
+    pub async fn issue_report(&self, request_id: &str) -> Result<Value, ClientError> {
+        let url = issue_report_url(&self.endpoint, request_id)?;
+        self.gateway
+            .get_json(url.as_str())
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn list_instances(&self) -> Result<Value, ClientError> {
         let mut payload = self
             .gateway
@@ -476,6 +484,17 @@ fn is_unknown_rest_tool(error: &HttpError) -> bool {
         .is_some_and(|message| message.starts_with("invalid tool slug "))
 }
 
+fn issue_report_url(endpoint: &Endpoint, request_id: &str) -> Result<reqwest::Url, ClientError> {
+    let mut url = reqwest::Url::parse(&endpoint.base_url).map_err(|error| {
+        ClientError::Protocol(format!("invalid issue-report endpoint: {error}"))
+    })?;
+    url.path_segments_mut()
+        .map_err(|_| ClientError::Protocol("issue-report endpoint cannot be a base URL".into()))?
+        .pop_if_empty()
+        .extend(["v1", "debug", "issue-reports", request_id]);
+    Ok(url)
+}
+
 fn next_request_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -672,6 +691,16 @@ mod tests {
         assert_eq!(response["query"]["instance_id"], "instance-a");
         assert_eq!(response["query"]["session_id"], "solar-session");
         server.abort();
+    }
+
+    #[test]
+    fn issue_report_request_id_is_one_encoded_path_segment() {
+        let url = issue_report_url(&Endpoint::new("http://127.0.0.1:9765"), "request/42").unwrap();
+
+        assert_eq!(
+            url.as_str(),
+            "http://127.0.0.1:9765/v1/debug/issue-reports/request%2F42"
+        );
     }
 
     #[test]

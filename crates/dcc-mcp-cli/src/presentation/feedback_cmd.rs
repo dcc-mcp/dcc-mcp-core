@@ -4,7 +4,10 @@ use dcc_mcp_models::{FeedbackReport, FeedbackSeverity};
 use serde_json::Value;
 
 use crate::application::control_plane::DccControlPlane;
+use crate::application::doctor::DoctorContext;
 use crate::application::feedback::FeedbackRouteService;
+use crate::application::feedback_bundle::{FeedbackBundleRequest, FeedbackBundleService};
+use crate::domain::feedback_bundle::{DEFAULT_HOST_ERROR_LINES, MAX_HOST_ERROR_LINES};
 use crate::domain::rest::FeedbackQueryRequest;
 
 use super::output::OutputFormat;
@@ -52,6 +55,8 @@ pub(super) enum FeedbackAction {
     Export(FeedbackQueryArgs),
     /// Resolve a Finding v1 JSON file to its owning issue tracker without a gateway.
     Route(FeedbackRouteArgs),
+    /// Assemble a bounded public-safe diagnostic bundle from a Finding v1 file.
+    Bundle(FeedbackBundleArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -62,6 +67,29 @@ pub(crate) struct FeedbackRouteArgs {
     /// Optional catalog YAML/JSON file; defaults to the bundled public catalog.
     #[arg(long)]
     pub(super) catalog: Option<PathBuf>,
+    /// Emit JSON (shortcut for the global `--output json`).
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct FeedbackBundleArgs {
+    /// Public-safe Finding v1 JSON file to bundle.
+    #[arg(value_name = "FINDING_JSON")]
+    pub(super) finding: PathBuf,
+    /// Host-error log directory; defaults to DCC_MCP_LOG_DIR or the platform log directory.
+    #[arg(long)]
+    pub(super) log_dir: Option<PathBuf>,
+    /// DCC process id; defaults to evidence.dcc_pid in the finding.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub(super) dcc_pid: Option<u32>,
+    /// Maximum host-error records to include.
+    #[arg(
+        long,
+        default_value_t = DEFAULT_HOST_ERROR_LINES as u16,
+        value_parser = clap::value_parser!(u16).range(1..=MAX_HOST_ERROR_LINES as i64)
+    )]
+    pub(super) host_error_lines: u16,
     /// Emit JSON (shortcut for the global `--output json`).
     #[arg(long)]
     pub(super) json: bool,
@@ -106,6 +134,7 @@ pub(crate) enum FeedbackCommand {
     List(FeedbackQueryRequest),
     Export(FeedbackQueryRequest),
     Route(FeedbackRouteArgs),
+    Bundle(FeedbackBundleArgs),
 }
 
 impl FeedbackArgs {
@@ -113,12 +142,16 @@ impl FeedbackArgs {
         match self.action.as_ref() {
             Some(FeedbackAction::List(query) | FeedbackAction::Export(query)) => query.json,
             Some(FeedbackAction::Route(route)) => route.json,
+            Some(FeedbackAction::Bundle(bundle)) => bundle.json,
             None => false,
         }
     }
 
     pub(crate) fn requires_gateway(&self) -> bool {
-        !matches!(self.action, Some(FeedbackAction::Route(_)))
+        !matches!(
+            self.action,
+            Some(FeedbackAction::Route(_) | FeedbackAction::Bundle(_))
+        )
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -143,6 +176,7 @@ impl FeedbackArgs {
                 FeedbackAction::List(query) => FeedbackCommand::List(query.into_request(100)),
                 FeedbackAction::Export(query) => FeedbackCommand::Export(query.into_request(1_000)),
                 FeedbackAction::Route(route) => FeedbackCommand::Route(route),
+                FeedbackAction::Bundle(bundle) => FeedbackCommand::Bundle(bundle),
             });
         }
         let required = |name: &str, value: Option<String>| {
@@ -173,7 +207,11 @@ impl FeedbackArgs {
         })
     }
 
-    pub(crate) async fn run(self, control: &DccControlPlane) -> anyhow::Result<Value> {
+    pub(crate) async fn run(
+        self,
+        control: &DccControlPlane,
+        doctor: &DoctorContext,
+    ) -> anyhow::Result<Value> {
         match self.into_command().map_err(anyhow::Error::msg)? {
             FeedbackCommand::Report(report) => control.feedback(report).await,
             FeedbackCommand::List(request) | FeedbackCommand::Export(request) => {
@@ -182,6 +220,21 @@ impl FeedbackArgs {
             FeedbackCommand::Route(route) => {
                 let service = FeedbackRouteService::new(PathBuf::from("dcc-mcp-catalog.yml"));
                 let result = service.route(&route.finding, route.catalog.as_deref())?;
+                serde_json::to_value(result).map_err(Into::into)
+            }
+            FeedbackCommand::Bundle(bundle) => {
+                let result = FeedbackBundleService
+                    .bundle(
+                        FeedbackBundleRequest {
+                            finding_path: bundle.finding,
+                            doctor_request: doctor.request(None, None, None),
+                            log_dir: bundle.log_dir,
+                            dcc_pid: bundle.dcc_pid,
+                            host_error_lines: usize::from(bundle.host_error_lines),
+                        },
+                        control,
+                    )
+                    .await?;
                 serde_json::to_value(result).map_err(Into::into)
             }
         }

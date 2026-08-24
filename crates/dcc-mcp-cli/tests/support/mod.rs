@@ -361,6 +361,25 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
             }),
         )
         .route(
+            "/v1/debug/issue-reports/request-42",
+            get(|| async {
+                Json(json!({
+                    "schema_version": "dcc-mcp.admin.issue-report.v1",
+                    "report_type": "github_issue_public_safe",
+                    "privacy_mode": "public-safe",
+                    "request_id": "request-42",
+                    "summary": {
+                        "status": "failed",
+                        "dcc_type": "godot",
+                        "redaction_status": {
+                            "mode": "public-safe",
+                            "raw_payloads_excluded": true
+                        }
+                    }
+                }))
+            }),
+        )
+        .route(
             "/v1/search",
             post(|headers: HeaderMap, Json(body): Json<Value>| async move {
                 json_or_compact_fixture_response(
