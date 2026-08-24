@@ -14,9 +14,12 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 const OFFICIAL_RELEASES: &str = "https://github.com/dcc-mcp/dcc-cua/releases";
+const OFFICIAL_RELEASE_INDEX: &str =
+    "https://api.github.com/repos/dcc-mcp/dcc-cua/releases?per_page=100";
 const COMPONENT_NAME: &str = "dcc-cua";
 const MANIFEST_SCHEMA_VERSION: u64 = 1;
 const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+const MAX_RELEASE_INDEX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 4096;
 
@@ -38,6 +41,19 @@ pub struct InstallAsset {
     pub sha256: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct GithubReleaseAsset {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    draft: bool,
+    prerelease: bool,
+    assets: Vec<GithubReleaseAsset>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ComponentService {
     client: reqwest::Client,
@@ -56,6 +72,7 @@ impl ComponentService {
     pub fn new(current_exe: PathBuf, target: &'static str) -> anyhow::Result<Self> {
         Ok(Self {
             client: reqwest::Client::builder()
+                .user_agent(concat!("dcc-mcp-cli/", env!("CARGO_PKG_VERSION")))
                 .timeout(std::time::Duration::from_secs(60))
                 .build()?,
             current_exe,
@@ -95,7 +112,21 @@ impl ComponentService {
     }
 
     pub async fn ensure(&self, requested_version: Option<&str>) -> anyhow::Result<Value> {
-        let manifest_url = manifest_url(self.target, requested_version)?;
+        let manifest_url = match requested_version {
+            Some(version) => manifest_url(self.target, Some(version))?,
+            None => {
+                let release_bytes = download_bounded(
+                    &self.client,
+                    OFFICIAL_RELEASE_INDEX,
+                    MAX_RELEASE_INDEX_BYTES,
+                )
+                .await
+                .context("cannot discover stable dcc-cua native releases")?;
+                let releases: Vec<GithubRelease> = serde_json::from_slice(&release_bytes)
+                    .context("official dcc-cua release index is invalid JSON")?;
+                select_latest_native_manifest_url(self.target, releases)?
+            }
+        };
         let manifest_bytes =
             download_bounded(&self.client, &manifest_url, MAX_MANIFEST_BYTES).await?;
         let manifest: InstallManifest = serde_json::from_slice(&manifest_bytes)
@@ -175,8 +206,30 @@ pub fn manifest_url(target: &str, requested_version: Option<&str>) -> anyhow::Re
                 "{OFFICIAL_RELEASES}/download/v{version}/{file_name}"
             ))
         }
-        None => Ok(format!("{OFFICIAL_RELEASES}/latest/download/{file_name}")),
+        None => bail!("versionless dcc-cua resolution requires the verified release index"),
     }
+}
+
+fn select_latest_native_manifest_url(
+    target: &str,
+    releases: Vec<GithubRelease>,
+) -> anyhow::Result<String> {
+    validate_target(target)?;
+    let file_name = format!("dcc-cua-install-manifest-{target}.json");
+    let (_, tag) = releases
+        .into_iter()
+        .filter(|release| !release.draft && !release.prerelease)
+        .filter(|release| release.assets.iter().any(|asset| asset.name == file_name))
+        .filter_map(|release| {
+            let raw_version = release.tag_name.strip_prefix('v')?;
+            let version = parse_stable_version(raw_version).ok()?;
+            (release.tag_name == format!("v{version}")).then_some((version, release.tag_name))
+        })
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .with_context(|| {
+            format!("no stable dcc-cua release provides the required {file_name} asset")
+        })?;
+    Ok(format!("{OFFICIAL_RELEASES}/download/{tag}/{file_name}"))
 }
 
 pub fn validate_install_manifest(
@@ -505,13 +558,64 @@ mod tests {
     #[test]
     fn versionless_and_pinned_manifest_urls_are_exact() {
         let target = "x86_64-pc-windows-msvc";
-        assert_eq!(
-            manifest_url(target, None).unwrap(),
-            format!("{OFFICIAL_RELEASES}/latest/download/dcc-cua-install-manifest-{target}.json")
-        );
+        assert!(manifest_url(target, None).is_err());
         assert_eq!(
             manifest_url(target, Some("0.6.0")).unwrap(),
             format!("{OFFICIAL_RELEASES}/download/v0.6.0/dcc-cua-install-manifest-{target}.json")
+        );
+    }
+
+    #[test]
+    fn native_release_resolution_fails_closed_without_the_target_manifest() {
+        let releases = serde_json::from_value(json!([{
+            "tag_name": "v9.0.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+                {"name": "dcc-cua-install-manifest-x86_64-pc-windows-msvc.json"}
+            ]
+        }]))
+        .unwrap();
+
+        let error =
+            select_latest_native_manifest_url("x86_64-unknown-linux-gnu", releases).unwrap_err();
+        assert!(error.to_string().contains("no stable dcc-cua release"));
+    }
+
+    #[test]
+    fn versionless_manifest_resolution_skips_newer_extension_only_release() {
+        let target = "x86_64-unknown-linux-gnu";
+        let releases = serde_json::from_value(json!([
+            {
+                "tag_name": "dcc-cua-browser-extension-v0.2.0",
+                "draft": false,
+                "prerelease": false,
+                "assets": [
+                    {"name": "dcc-cua-browser-extension-0.2.0-chrome.zip"}
+                ]
+            },
+            {
+                "tag_name": "v1.5.0",
+                "draft": false,
+                "prerelease": false,
+                "assets": [
+                    {"name": "dcc-cua-install-manifest-x86_64-unknown-linux-gnu.json"}
+                ]
+            },
+            {
+                "tag_name": "v1.6.0-rc.1",
+                "draft": false,
+                "prerelease": true,
+                "assets": [
+                    {"name": "dcc-cua-install-manifest-x86_64-unknown-linux-gnu.json"}
+                ]
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            select_latest_native_manifest_url(target, releases).unwrap(),
+            format!("{OFFICIAL_RELEASES}/download/v1.5.0/dcc-cua-install-manifest-{target}.json")
         );
     }
 

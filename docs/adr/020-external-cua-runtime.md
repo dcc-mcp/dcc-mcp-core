@@ -36,11 +36,13 @@ The standalone CUA project owns:
 Core neither embeds nor releases the CUA executable in Core release assets.
 The official CLI installer reconciles the independently released executable,
 and operators can run `dcc-mcp-cli components status dcc-cua` or
-`dcc-mcp-cli components ensure dcc-cua --yes`. Component installation consumes
-only the versionless per-target manifest from `dcc-mcp/dcc-cua`, requires a
-SHA-256, strictly binds the version, target, asset name, and official asset URL,
-extracts into a bounded transaction directory, validates the candidate runtime
-manifest, and installs it beside `dcc-mcp-cli`. The Python bridge prefers this
+`dcc-mcp-cli components ensure dcc-cua --yes`. Versionless component
+installation discovers the highest stable native `v<semver>` release that
+actually carries the exact per-target manifest, ignoring drafts, prereleases,
+and extension-only releases. It requires a SHA-256, strictly binds the version,
+target, asset name, and official asset URL, extracts into a bounded transaction
+directory, validates the candidate runtime manifest, and installs it beside
+`dcc-mcp-cli`. The Python bridge prefers this
 CLI sibling before falling back to `dcc-cua` on `PATH`; an explicit
 `DCC_MCP_CUA_BINARY` remains authoritative. Core validates `manifest`, prefers
 shared memory when available, and falls back to bounded binary attachments.

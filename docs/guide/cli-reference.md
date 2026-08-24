@@ -242,7 +242,7 @@ their worker-owned status tool.
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
 | `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
 | `components status dcc-cua` | CLI sibling + `dcc-cua manifest` | Read-only check of the independently released CUA runtime installed beside this CLI. |
-| `components ensure dcc-cua [--version <version>] --yes` | official per-target install manifest + archive | Download only from `dcc-mcp/dcc-cua`, require the manifest SHA-256, safely extract and validate the candidate runtime contract, then install it beside this CLI. Explicit `--yes` is mandatory. |
+| `components ensure dcc-cua [--version <version>] --yes` | official per-target install manifest + archive | Select the highest stable native `v<semver>` release that carries the exact target manifest (or the explicitly requested version), download only from `dcc-mcp/dcc-cua`, require the manifest SHA-256, safely extract and validate the candidate runtime contract, then install it beside this CLI. Explicit `--yes` is mandatory. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
 | `gateway list` | local profile config | Show configured remote profiles and the active local/remote selection. |
 | `gateway set <profile\|local>` | local profile config | Select the active gateway profile. |
