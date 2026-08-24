@@ -83,9 +83,18 @@ impl GhFeedbackIssueTracker {
 }
 
 fn run_child_bounded(
+    command: Command,
+    stdin_body: Option<&str>,
+    timeout: Duration,
+) -> Result<Output, FeedbackIssueTrackerError> {
+    run_child_bounded_after_ready(command, stdin_body, timeout, || Ok(()))
+}
+
+fn run_child_bounded_after_ready(
     mut command: Command,
     stdin_body: Option<&str>,
     timeout: Duration,
+    wait_until_ready: impl FnOnce() -> Result<(), FeedbackIssueTrackerError>,
 ) -> Result<Output, FeedbackIssueTrackerError> {
     let mut tree = OwnedChildTree::spawn(&mut command)?;
     let stdout = match tree.child.stdout.take() {
@@ -114,6 +123,16 @@ fn run_child_bounded(
     };
     let workers = IoWorkers::spawn(stdout, stderr, stdin, stdin_body);
 
+    if let Err(error) = wait_until_ready() {
+        let cleanup_deadline = Instant::now() + GH_CLEANUP_TIMEOUT;
+        let reaped = tree.terminate_and_reap(cleanup_deadline);
+        let drained = workers.collect_until(cleanup_deadline).is_ok();
+        return Err(if reaped && drained {
+            error
+        } else {
+            tracker_error("GitHub CLI startup failed and child cleanup could not be confirmed")
+        });
+    }
     let operation_deadline = Instant::now() + timeout;
     let status = loop {
         match tree.child.try_wait() {
@@ -807,17 +826,22 @@ mod tests {
     fn bounded_child_timeout_terminates_descendants_that_inherit_pipes() {
         let temp = tempfile::tempdir().unwrap();
         let pid_path = temp.path().join("descendant.pid");
-        let mut command = descendant_pipe_holder_command(&pid_path);
+        let ready_path = temp.path().join("descendant.ready");
+        let mut command = descendant_pipe_holder_command(&pid_path, &ready_path);
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let started = Instant::now();
 
-        let error = run_child_bounded(command, None, Duration::from_secs(1)).unwrap_err();
+        let error =
+            run_child_bounded_after_ready(command, None, Duration::from_millis(100), || {
+                wait_for_descendant_ready(&ready_path, Duration::from_secs(3))
+            })
+            .unwrap_err();
 
         assert_eq!(error.message, "GitHub CLI timed out and was terminated");
-        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(started.elapsed() < Duration::from_secs(6));
         let pid = std::fs::read_to_string(&pid_path)
             .unwrap()
             .trim()
@@ -826,25 +850,86 @@ mod tests {
         assert_process_stops(pid);
     }
 
-    #[cfg(windows)]
-    fn descendant_pipe_holder_command(pid_path: &Path) -> Command {
-        let path = pid_path.to_string_lossy().replace('\'', "''");
-        let script = format!(
-            "$p = Start-Process ping.exe -ArgumentList '-n','6','127.0.0.1' -NoNewWindow -PassThru; [IO.File]::WriteAllText('{path}', [string]$p.Id); Start-Sleep -Seconds 30"
-        );
-        let mut command = Command::new("powershell");
-        command.args(["-NoProfile", "-Command", &script]);
+    const DESCENDANT_PID_PATH_ENV: &str = "DCC_MCP_TEST_DESCENDANT_PID_PATH";
+    const DESCENDANT_READY_PATH_ENV: &str = "DCC_MCP_TEST_DESCENDANT_READY_PATH";
+
+    fn wait_for_descendant_ready(
+        ready_path: &Path,
+        timeout: Duration,
+    ) -> Result<(), FeedbackIssueTrackerError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            match std::fs::read(ready_path) {
+                Ok(marker) if marker == b"ready" => return Ok(()),
+                Ok(_) => {
+                    return Err(tracker_error(
+                        "GitHub CLI descendant readiness marker was invalid",
+                    ));
+                }
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound
+                        && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => {
+                    return Err(tracker_error(
+                        "GitHub CLI descendant readiness was not confirmed",
+                    ));
+                }
+            }
+        }
+    }
+
+    fn descendant_pipe_holder_command(pid_path: &Path, ready_path: &Path) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "infra::github_issues::tests::descendant_pipe_parent_helper",
+                "--nocapture",
+            ])
+            .env(DESCENDANT_PID_PATH_ENV, pid_path)
+            .env(DESCENDANT_READY_PATH_ENV, ready_path);
         command
     }
 
-    #[cfg(unix)]
-    fn descendant_pipe_holder_command(pid_path: &Path) -> Command {
-        let path = pid_path.to_string_lossy().replace('\'', "'\\''");
-        let script =
-            format!("sleep 5 & child=$!; printf '%s' \"$child\" > '{path}'; wait \"$child\"");
-        let mut command = Command::new("sh");
-        command.args(["-c", &script]);
-        command
+    #[test]
+    fn descendant_pipe_parent_helper() {
+        let Some(pid_path) = std::env::var_os(DESCENDANT_PID_PATH_ENV) else {
+            return;
+        };
+        let ready_path = std::env::var_os(DESCENDANT_READY_PATH_ENV).unwrap();
+        let mut descendant = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "infra::github_issues::tests::descendant_pipe_inheritor_helper",
+                "--nocapture",
+            ])
+            .env(DESCENDANT_PID_PATH_ENV, pid_path)
+            .env(DESCENDANT_READY_PATH_ENV, ready_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        descendant.wait().unwrap();
+    }
+
+    #[test]
+    fn descendant_pipe_inheritor_helper() {
+        let Some(pid_path) = std::env::var_os(DESCENDANT_PID_PATH_ENV) else {
+            return;
+        };
+        let ready_path = std::env::var_os(DESCENDANT_READY_PATH_ENV).unwrap();
+        thread::sleep(Duration::from_millis(300));
+        std::fs::write(pid_path, std::process::id().to_string()).unwrap();
+        println!("descendant stdout inherited");
+        eprintln!("descendant stderr inherited");
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        std::fs::write(ready_path, b"ready").unwrap();
+        thread::sleep(Duration::from_secs(30));
     }
 
     fn assert_process_stops(pid: u32) {

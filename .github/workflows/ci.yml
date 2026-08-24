@@ -246,6 +246,9 @@ jobs:
       - name: Rust compile smoke
         if: matrix.rust-validation == 'smoke'
         run: vx cargo check --workspace --all-targets
+      - name: Windows process-tree runtime regression
+        if: matrix.os == 'windows-latest'
+        run: vx cargo test -p dcc-mcp-cli --lib infra::github_issues::tests::bounded_child_timeout_terminates_descendants_that_inherit_pipes -- --exact
       - name: Tracy feature compile smoke
         run: vx cargo check -p dcc-mcp-server --no-default-features --features gateway-daemon,tracy
       # Verify the composition binary still builds in its slim variants
