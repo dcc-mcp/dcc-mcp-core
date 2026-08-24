@@ -80,7 +80,7 @@ pub enum FeedbackRouteServiceError {
     Route(#[from] FeedbackRouteError),
 }
 
-fn read_finding(path: &Path) -> Result<FindingV1, FeedbackRouteServiceError> {
+pub(crate) fn read_finding(path: &Path) -> Result<FindingV1, FeedbackRouteServiceError> {
     let metadata = fs::metadata(path).map_err(|source| FeedbackRouteServiceError::ReadFinding {
         path: path.display().to_string(),
         source,

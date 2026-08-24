@@ -1138,6 +1138,46 @@ fn feedback_route_parses_as_an_offline_json_command() {
 }
 
 #[test]
+fn feedback_bundle_is_no_auto_gateway_and_enforces_tail_bounds() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "bundle",
+        "finding.json",
+        "--dcc-pid",
+        "4321",
+        "--host-error-lines",
+        "200",
+        "--json",
+    ])
+    .expect("parse feedback bundle");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert!(!feedback.requires_gateway());
+    let FeedbackAction::Bundle(bundle) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback bundle action");
+    };
+    assert_eq!(bundle.finding, PathBuf::from("finding.json"));
+    assert_eq!(bundle.dcc_pid, Some(4321));
+    assert_eq!(bundle.host_error_lines, 200);
+    assert!(bundle.json);
+
+    assert!(
+        Args::try_parse_from([
+            "dcc-mcp-cli",
+            "feedback",
+            "bundle",
+            "finding.json",
+            "--host-error-lines",
+            "201",
+        ])
+        .is_err()
+    );
+}
+
+#[test]
 fn call_contract_parses_wait_for_async_job() {
     let args = Args::parse_from([
         "dcc-mcp-cli",

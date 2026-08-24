@@ -226,6 +226,7 @@ launching operation.
 | `feedback list [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | List persisted per-instance feedback newest first. The gateway deduplicates by feedback id, skips malformed/oversized lines with explicit counters, and rejects scans that exceed its safety bounds. |
 | `feedback export [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | Export the same structured contract with a bounded default of 1,000 records; `--json` is a shortcut for `--output json`. |
 | `feedback route <finding.json> [--catalog <path>] [--json]` | local Finding v1 + public catalog | Resolve a validated finding to `repo`, `issues_url`, and a stable rationale without starting a gateway or creating an issue. Missing or conflicting ownership metadata fails closed. |
+| `feedback bundle <finding.json> [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | local Finding/doctor/host errors + optional `GET /v1/debug/issue-reports/{request_id}` | Assemble `dcc-mcp.feedback-bundle.v1` without auto-starting a Gateway. The Finding must already be marked public-safe. Host-error input is capped at 256 KiB and projected without raw messages, tracebacks, metadata, paths, tokens, or PID. Every missing component is explicit and `complete=false` while the install-report contract is unavailable. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, and server binary diagnostics without auto-starting services. |
 | `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
 | `search [-q\|--query <q>] [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities with the release-compatible query flag; current builds also accept positional natural-language words as an alternative. Optionally scope to a full UUID or unique prefix. |
@@ -305,11 +306,16 @@ Use the existing surfaces instead of copying unbounded logs:
    `dcc-mcp-cli feedback route finding.json --json`. The offline command uses
    exact catalog or Skill-metadata ownership and never creates the external
    issue; a routing error must be resolved instead of guessed.
-6. For a gateway-routed failure, read the public-safe
+6. After reviewing the Finding and setting all public-safe exclusion flags,
+   run `dcc-mcp-cli feedback bundle finding.json --json`. It adds the safe
+   issue report when a request id exists, a redacted doctor snapshot, version
+   matrix, and an exact-file bounded host-error tail. Treat any `unavailable`
+   component or `complete=false` as incomplete evidence.
+7. For a gateway-routed failure, read the public-safe
    `/v1/debug/issue-reports/<request_id>` payload. It contains a bounded summary
    and suggested GitHub title/body. Review `?mode=raw` locally and never attach
    it automatically.
-7. Route schema/script/workflow bugs to the owning Skill, host dispatch or
+8. Route schema/script/workflow bugs to the owning Skill, host dispatch or
    readiness bugs to the adapter, and shared CLI/gateway/protocol bugs to
    `dcc-mcp-core`. Create the external issue only with user authorization.
 

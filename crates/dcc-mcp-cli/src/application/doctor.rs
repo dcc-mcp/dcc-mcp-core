@@ -10,6 +10,70 @@ use serde_json::{Map, Value, json};
 
 use crate::application::gateway_profile::{GatewayProfileStore, GatewayTarget};
 use crate::application::{gateway_ctrl, gateway_discovery, gateway_ensure, local_registry};
+use crate::domain::rest::Endpoint;
+
+#[derive(Debug, Clone)]
+pub struct DoctorContext {
+    profile_path: PathBuf,
+    profile_store: GatewayProfileStore,
+    gateway_target: GatewayTarget,
+    server_bin: Option<PathBuf>,
+    auto_gateway_enabled: bool,
+    require_gateway: bool,
+    default_gateway_host: String,
+    default_gateway_port: u16,
+}
+
+impl DoctorContext {
+    pub fn new(
+        profile_path: PathBuf,
+        profile_store: GatewayProfileStore,
+        gateway_target: GatewayTarget,
+        server_bin: Option<PathBuf>,
+        auto_gateway_enabled: bool,
+        require_gateway: bool,
+        endpoint: &Endpoint,
+    ) -> anyhow::Result<Self> {
+        let url = reqwest::Url::parse(&endpoint.base_url)?;
+        let default_gateway_host = url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("gateway endpoint has no host"))?
+            .to_string();
+        let default_gateway_port = url
+            .port_or_known_default()
+            .ok_or_else(|| anyhow::anyhow!("gateway endpoint has no port"))?;
+        Ok(Self {
+            profile_path,
+            profile_store,
+            gateway_target,
+            server_bin,
+            auto_gateway_enabled,
+            require_gateway,
+            default_gateway_host,
+            default_gateway_port,
+        })
+    }
+
+    #[must_use]
+    pub fn request(
+        &self,
+        registry_dir: Option<PathBuf>,
+        gateway_host: Option<String>,
+        gateway_port: Option<u16>,
+    ) -> DoctorRequest {
+        DoctorRequest {
+            profile_path: self.profile_path.clone(),
+            profile_store: self.profile_store.clone(),
+            gateway_target: self.gateway_target.clone(),
+            registry_dir,
+            server_bin: self.server_bin.clone(),
+            auto_gateway_enabled: self.auto_gateway_enabled,
+            require_gateway: self.require_gateway,
+            gateway_host: gateway_host.unwrap_or_else(|| self.default_gateway_host.clone()),
+            gateway_port: gateway_port.unwrap_or(self.default_gateway_port),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DoctorRequest {

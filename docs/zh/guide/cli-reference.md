@@ -184,6 +184,7 @@ dcc-mcp-cli lint path/to/skills
 | `feedback list [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | 按时间倒序列出实例持久化反馈；Gateway 按 feedback id 去重，显式报告损坏/超长行计数，并在扫描超出安全边界时失败。 |
 | `feedback export [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | 导出同一结构化契约，默认上限 1,000 条；`--json` 等价于 `--output json`。 |
 | `feedback route <finding.json> [--catalog <path>] [--json]` | 本地 Finding v1 + 公开 catalog | 不启动 Gateway，把已校验 Finding 解析为 `repo`、`issues_url` 和稳定理由；不会创建 Issue，归属缺失或冲突时 fail-closed。 |
+| `feedback bundle <finding.json> [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | 本地 Finding/doctor/host error + 可选 `GET /v1/debug/issue-reports/{request_id}` | 不自动启动 Gateway，组装 `dcc-mcp.feedback-bundle.v1`。Finding 必须已标记 public-safe；host-error 输入最多 256 KiB，输出不包含原始 message、traceback、metadata、路径、token 或 PID。缺失组件显式标记，安装报告契约不可用时 `complete=false`。 |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | 不启动或下载服务，输出 profile、有效 control route、该路径是否进入 Gateway stats、本地 readiness、daemon 状态和 server binary 诊断。 |
 | `list [--gateway <profile>]` | local FileRegistry 或 `GET /v1/instances` | 列出在线 DCC 实例。默认先确保 loopback gateway，再读取本机 FileRegistry；远程 profile 走选中的 gateway。 |
 | `search [--instance-id <id>]` | 本地 MCP `search_tools` 或远程 `POST /v1/search` | 搜索可调用能力，可限定完整 UUID 或唯一前缀。 |
@@ -227,10 +228,14 @@ dcc-mcp-cli lint path/to/skills
 5. 已有 Finding v1 JSON 时运行
    `dcc-mcp-cli feedback route finding.json --json`。该离线命令只使用精确的
    catalog 或 Skill 元数据归属，不会创建外部 Issue；路由失败时不得猜测仓库。
-6. gateway 路径失败时，读取 public-safe
+6. 人工审查 Finding 并设置所有 public-safe 排除标志后，运行
+   `dcc-mcp-cli feedback bundle finding.json --json`。命令会组合 safe issue
+   report、脱敏 doctor、版本矩阵和准确文件的有界 host-error tail；任何
+   `unavailable` 组件或 `complete=false` 都表示证据不完整。
+7. gateway 路径失败时，读取 public-safe
    `/v1/debug/issue-reports/<request_id>`；其中已有摘要和建议的 GitHub
    title/body。`?mode=raw` 只能本地人工审查，禁止自动上传。
-7. schema/script/workflow 问题归属对应 Skill；host dispatch/readiness 问题归属
+8. schema/script/workflow 问题归属对应 Skill；host dispatch/readiness 问题归属
    adapter；CLI/gateway/protocol 共性问题归属 `dcc-mcp-core`。只有得到用户授权后
    才创建外部 issue。
 

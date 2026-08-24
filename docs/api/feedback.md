@@ -68,6 +68,34 @@ Missing, duplicate, non-canonical, or conflicting ownership data is an error;
 the CLI never guesses another repository. The Finding remains
 `redaction_status.mode="needs-review"`, so routing is not publication approval.
 
+## Public-safe feedback bundles
+
+After reviewing a Finding and setting `redaction_status.mode="public-safe"`
+with every exclusion flag true, assemble its bounded diagnostic evidence:
+
+```bash
+dcc-mcp-cli feedback bundle finding.json --json
+# Override discovery when the PID or log root is not in the finding:
+dcc-mcp-cli feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root --json
+```
+
+`feedback bundle` is read-only and does not auto-start a Gateway. It combines
+the reviewed Finding, a redacted `doctor` snapshot, a version matrix, the
+stable public-safe issue report when `evidence.request_id` exists, and the
+tail of the exact `dcc-mcp-<dcc>.<pid>.host-errors.log` regular file. Host-error
+input is capped at 256 KiB and 50 records by default (`--host-error-lines`,
+maximum 200); raw messages, tracebacks, metadata, paths, tokens, and the DCC
+PID are excluded from output. The PID is resolved from `--dcc-pid` or
+`evidence.dcc_pid`; the log root is resolved from `--log-dir`,
+`DCC_MCP_LOG_DIR`, or the platform log directory.
+
+The result uses `dcc-mcp.feedback-bundle.v1`. Each component reports
+`included`, `not_applicable`, or `unavailable`, so missing evidence is never
+silently treated as complete. Current builds mark the install execution report
+unavailable until the validated install-report contract is present, therefore
+`complete` remains false. There is no raw bundle mode; inspect raw issue-report
+exports and host logs locally instead of attaching them automatically.
+
 ## register_feedback_tool
 
 ```python
@@ -134,6 +162,7 @@ shared registry directory. Query those durable records through the gateway:
 dcc-mcp-cli feedback list --range 7d --dcc maya --severity blocked --json
 dcc-mcp-cli feedback export --range all --dcc maya --json
 dcc-mcp-cli feedback route finding.json --json
+dcc-mcp-cli feedback bundle reviewed-finding.json --json
 ```
 
 Both commands call `GET /admin/api/feedback`. `list` defaults to 100 rows and

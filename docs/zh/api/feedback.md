@@ -55,6 +55,29 @@ Skill Finding 不会默认继承 adapter 仓库，必须携带从 Skill
 归属信息缺失、重复、不规范或互相冲突时会显式失败，不会猜测其他仓库。
 Finding 仍保持 `redaction_status.mode="needs-review"`；解析出路由不代表获准发布。
 
+## Public-safe 反馈包
+
+人工审查 Finding，并把 `redaction_status.mode` 设为 `public-safe`、所有排除标志
+设为 true 后，可以组装有界诊断证据：
+
+```bash
+dcc-mcp-cli feedback bundle finding.json --json
+# Finding 中没有 PID 或需要指定日志根目录时：
+dcc-mcp-cli feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root --json
+```
+
+`feedback bundle` 只读且不会自动启动 Gateway。它组合已审查 Finding、脱敏后的
+`doctor` 快照、版本矩阵、`evidence.request_id` 对应的 public-safe issue report，
+以及准确 `dcc-mcp-<dcc>.<pid>.host-errors.log` 常规文件的尾部。Host-error 输入最多
+256 KiB，默认 50 条（`--host-error-lines` 最大 200）；输出会排除原始 message、
+traceback、metadata、路径、token 与 DCC PID。PID 来自 `--dcc-pid` 或
+`evidence.dcc_pid`；日志根目录按 `--log-dir`、`DCC_MCP_LOG_DIR`、平台默认目录解析。
+
+结果契约为 `dcc-mcp.feedback-bundle.v1`。每个组件显式返回 `included`、
+`not_applicable` 或 `unavailable`，缺失证据不会伪装为完成。当前版本在验证过的安装
+执行报告契约可用前，会把该组件标为 unavailable，因此 `complete=false`。命令不提供
+raw bundle 模式；raw issue report 和 host log 只能留在本地人工审查，禁止自动附加。
+
 ## 主要函数
 
 - `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None, finding_context_provider=None)` — 注册 `dcc_feedback__report` MCP 工具，**在 `server.start()` 之前调用**；优先接收 Finding v1 的 Agent 字段，兼容旧 `tool_name`/`blocker` 形式并规范化为 v1。Core 自动附加运行时身份，转发到 gateway，严格校验 `X-Request-ID`、schema version 与 fingerprint，并在身份缺失、gateway 不可用或回执失配时 fail-closed，不会本地伪成功
@@ -83,6 +106,7 @@ dcc-mcp-cli feedback \
 dcc-mcp-cli feedback list --range 7d --dcc <dcc> --severity blocked --json
 dcc-mcp-cli feedback export --range all --dcc <dcc> --json
 dcc-mcp-cli feedback route finding.json --json
+dcc-mcp-cli feedback bundle reviewed-finding.json --json
 ```
 
 Gateway 会把有界的 `feedback_reported` 记录写入

@@ -151,6 +151,25 @@ plus bounded task and validation summaries to the `review_skill_improvement`
 prompt in `dcc-mcp-skills-creator`; do not include raw prompts, secrets, private
 paths, or full tool payloads.
 
+## Failure findings and public-safe bundles
+
+```bash
+dcc-mcp-cli feedback route finding.json --json
+dcc-mcp-cli feedback bundle reviewed-finding.json --json
+dcc-mcp-cli feedback bundle reviewed-finding.json \
+  --dcc-pid 4321 --log-dir /safe/log/root --host-error-lines 50 --json
+```
+
+`route` resolves exact ownership without a Gateway. `bundle` also avoids
+Gateway auto-start, but uses an already reachable endpoint for the stable
+public-safe issue report when the Finding has a request id. Run it only after
+human review has set `redaction_status.mode=public-safe` and every exclusion
+flag to true. The host-error source is one exact regular file, capped at 256
+KiB and at most 200 requested records; raw messages, tracebacks, metadata,
+paths, tokens, and PID are excluded. Treat `unavailable` components and
+`complete=false` as incomplete evidence. Keep raw issue reports and host logs
+local, and never infer permission to create or attach to an external issue.
+
 ## Install and marketplace
 
 | Command | Purpose |

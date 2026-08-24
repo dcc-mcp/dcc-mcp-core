@@ -4,6 +4,7 @@ pub mod components;
 pub mod control_plane;
 pub mod doctor;
 pub mod feedback;
+pub mod feedback_bundle;
 pub mod gateway_ctrl;
 pub mod gateway_discovery;
 pub mod gateway_ensure;
