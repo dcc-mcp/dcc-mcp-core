@@ -18,20 +18,25 @@ where
     };
 
     // Idempotency — render the key against the context too.
-    let idem_key = match &step.policy.idempotency_key {
-        Some(tpl) => match state.context.render(&Value::String(tpl.clone())) {
-            Ok(Value::String(s)) => Some(s),
-            Ok(other) => Some(other.to_string()),
-            Err(e) => return StepOutcome::Failed(format!("idempotency key template: {e}")),
-        },
-        None => None,
+    let (idem_key, idem_scope) = match &step.policy.idempotency_key {
+        Some(tpl) => {
+            let rendered = match state.context.render(&Value::String(tpl.clone())) {
+                Ok(Value::String(s)) => s,
+                Ok(other) => other.to_string(),
+                Err(e) => return StepOutcome::Failed(format!("idempotency key template: {e}")),
+            };
+            (Some(rendered), step.policy.idempotency_scope)
+        }
+        None if step.policy.reuse_result => (
+            crate::idempotency::automatic_result_key(step, &rendered_args),
+            IdempotencyScope::Global,
+        ),
+        None => (None, step.policy.idempotency_scope),
     };
     if let Some(ref rendered_key) = idem_key
-        && let Some(cached) = state.idempotency.get(
-            step.policy.idempotency_scope,
-            state.workflow_id,
-            rendered_key,
-        )
+        && let Some(cached) = state
+            .idempotency
+            .get(idem_scope, state.workflow_id, rendered_key)
     {
         debug!(step_id = %step.id, key = %rendered_key, "idempotency cache hit");
         let step_out = ingest_output(state, &step.id, cached);
@@ -92,7 +97,7 @@ where
                 state.record_output_snapshot(step.id.as_str(), &step_out.output);
                 if let Some(ref rendered_key) = idem_key {
                     state.idempotency.put(
-                        step.policy.idempotency_scope,
+                        idem_scope,
                         state.workflow_id,
                         rendered_key,
                         step.id.as_str(),

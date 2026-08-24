@@ -40,6 +40,7 @@ automation.
 | Troubleshooting DCC connectivity | **CLI+REST** | `dcc-mcp-cli health/list/smoke` |
 | A human IDE user reading this guide | **IDE MCP** | Configure `mcp_servers.json` → gateway MCP tools |
 | A GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin |
+| Re-running a reviewed WorkflowSpec on a recurring schedule | **Scheduler** | Store inputs in `*.schedules.yaml`, enable the `scheduler` feature, and follow [`docs/guide/scheduler.md`](docs/guide/scheduler.md) |
 
 ### Core Principle
 
@@ -181,6 +182,15 @@ dcc-mcp-cli --agent-session-id task-42 record-replay start --dcc-type maya
 dcc-mcp-cli --agent-session-id task-42 record-replay stop <recording-id>
 dcc-mcp-cli --agent-session-id task-42 record-replay review <recording-id>
 dcc-mcp-cli --agent-session-id task-42 record-replay compile <recording-id> \
+  --name reviewed-scene-build --reviewed
+```
+
+If the work already completed without an explicit recording start, compile the
+retained redacted history from that same caller session. This keeps the review
+gate and never grants replay or publish authority:
+
+```bash
+dcc-mcp-cli --agent-session-id task-42 record-replay compile-session \
   --name reviewed-scene-build --reviewed
 ```
 

@@ -40,6 +40,20 @@ pub(super) enum RecordReplayAction {
         #[arg(long)]
         reviewed: bool,
     },
+    /// Compile retained calls from --agent-session-id without a prior start.
+    CompileSession {
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value = "")]
+        description: String,
+        #[arg(long, default_value = "{}")]
+        inputs_json: String,
+        #[arg(long, default_value = "generated-skills")]
+        output_dir: PathBuf,
+        /// Confirm that the completed session timeline was reviewed.
+        #[arg(long)]
+        reviewed: bool,
+    },
     /// Execute a generated WorkflowSpec through an explicitly selected current tool.
     Replay {
         #[arg(long)]
@@ -125,6 +139,33 @@ pub(super) async fn run_record_replay(
                     &endpoint.path("/v1/recordings/compile"),
                     &json!({
                         "recording_id": recording_id,
+                        "name": name,
+                        "description": description,
+                        "inputs": inputs,
+                        "reviewed": true,
+                    }),
+                    &headers,
+                )
+                .await?;
+            write_compiled_skill(&output_dir, &name, &response)?;
+            response
+        }
+        RecordReplayAction::CompileSession {
+            name,
+            description,
+            inputs_json,
+            output_dir,
+            reviewed,
+        } => {
+            if !reviewed {
+                anyhow::bail!("record-replay compile-session requires --reviewed");
+            }
+            let inputs = super::parse_json_object(&inputs_json, "--inputs-json")?;
+            let response = gateway
+                .post_json_with_headers(
+                    &endpoint.path("/v1/recordings/compile-session"),
+                    &json!({
+                        "session_id": session_id,
                         "name": name,
                         "description": description,
                         "inputs": inputs,

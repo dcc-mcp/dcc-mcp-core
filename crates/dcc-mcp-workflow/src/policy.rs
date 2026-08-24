@@ -156,7 +156,7 @@ impl RetryPolicy {
 ///
 /// Attached to a [`crate::Step`] via [`crate::Step::policy`]; defaults to
 /// [`StepPolicy::default`] when the YAML omits every knob.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StepPolicy {
     /// Absolute wall-clock timeout for **one** attempt. `None` = no
     /// timeout.
@@ -173,11 +173,31 @@ pub struct StepPolicy {
     /// purged. Persistent backends honour this via `expires_at`; the
     /// in-memory cache treats it as an `Instant + Duration` deadline.
     pub idempotency_ttl_secs: Option<u64>,
+    /// Reuse successful tool results. When no explicit
+    /// [`Self::idempotency_key`] is supplied, the executor derives a
+    /// content-addressed key from the tool identity and rendered arguments.
+    /// Set to `false` for intentionally repeatable or stateful calls.
+    pub reuse_result: bool,
+}
+
+impl Default for StepPolicy {
+    fn default() -> Self {
+        Self {
+            timeout: None,
+            retry: None,
+            idempotency_key: None,
+            idempotency_scope: IdempotencyScope::Workflow,
+            idempotency_ttl_secs: None,
+            reuse_result: true,
+        }
+    }
 }
 
 impl StepPolicy {
-    /// Whether every knob is at its default (no timeout, no retry, no
-    /// key). Cheap way for the executor to skip the policy path.
+    /// Whether every explicit knob is at its default.
+    ///
+    /// Automatic result reuse remains active when this returns `true`, so
+    /// callers must not use it to bypass the policy wrapper.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.timeout.is_none()
@@ -185,6 +205,7 @@ impl StepPolicy {
             && self.idempotency_key.is_none()
             && matches!(self.idempotency_scope, IdempotencyScope::Workflow)
             && self.idempotency_ttl_secs.is_none()
+            && self.reuse_result
     }
 }
 
@@ -232,6 +253,9 @@ pub struct RawStepPolicy {
     /// See [`StepPolicy::idempotency_ttl_secs`]. Seconds.
     #[serde(default)]
     pub idempotency_ttl_secs: Option<u64>,
+    /// Opt out of automatic successful-result reuse for this step.
+    #[serde(default)]
+    pub reuse_result: Option<bool>,
 }
 
 impl RawStepPolicy {
@@ -280,6 +304,7 @@ impl RawStepPolicy {
             idempotency_key: self.idempotency_key,
             idempotency_scope: self.idempotency_scope.unwrap_or_default(),
             idempotency_ttl_secs: self.idempotency_ttl_secs.filter(|n| *n > 0),
+            reuse_result: self.reuse_result.unwrap_or(true),
         })
     }
 }
@@ -591,6 +616,7 @@ mod tests {
             idempotency_key: Some("export_{{scene_id}}_{{frame_range}}".into()),
             idempotency_scope: Some(IdempotencyScope::Global),
             idempotency_ttl_secs: Some(86_400),
+            reuse_result: None,
         };
         let p = raw
             .into_policy("export_fbx", &known(&["scene_id", "frame_range"]))
@@ -654,7 +680,9 @@ mod tests {
 
     #[test]
     fn step_policy_default_is_empty() {
-        assert!(StepPolicy::default().is_empty());
+        let policy = StepPolicy::default();
+        assert!(policy.is_empty());
+        assert!(policy.reuse_result);
     }
 
     #[test]

@@ -83,6 +83,86 @@ class TestBatchDispatch:
         assert result["total"] == 2
         assert len(result["errors"]) >= 1
 
+    def test_failed_batch_reinvocation_resumes_at_first_incomplete_call(self):
+        batch_dispatch = _batch.batch_dispatch
+
+        class Store:
+            def __init__(self):
+                self.values: dict[str, dict] = {}
+
+            def get(self, key: str) -> dict | None:
+                return self.values.get(key)
+
+            def put(self, key: str, value: dict) -> None:
+                self.values[key] = value
+
+        class FlakyDispatcher(FakeDispatcher):
+            def __init__(self):
+                self.calls: list[str] = []
+                self.fail_once = True
+
+            def dispatch(self, name: str, json_str: str) -> dict:
+                self.calls.append(name)
+                if name == "tool_b" and self.fail_once:
+                    self.fail_once = False
+                    return {"action": name, "output": {"success": False, "message": "retry"}}
+                return super().dispatch(name, json_str)
+
+        store = Store()
+        dispatcher = FlakyDispatcher()
+        calls = [("tool_a", {"x": 1}), ("tool_b", {"x": 2}), ("tool_c", {"x": 3})]
+
+        first = batch_dispatch(
+            dispatcher,
+            calls,
+            stop_on_error=True,
+            idempotency_store=store,
+        )
+        assert [row["tool"] for row in first["errors"]] == ["tool_b"]
+
+        second = batch_dispatch(
+            dispatcher,
+            calls,
+            stop_on_error=True,
+            idempotency_store=store,
+        )
+        assert dispatcher.calls == ["tool_a", "tool_b", "tool_b", "tool_c"]
+        assert second["results"][0]["_batch"]["reused"] is True
+        assert second["succeeded"] == 3
+
+    def test_idempotency_keeps_duplicate_batch_positions_distinct(self):
+        batch_dispatch = _batch.batch_dispatch
+
+        class Store:
+            def __init__(self):
+                self.values: dict[str, dict] = {}
+
+            def get(self, key: str) -> dict | None:
+                return self.values.get(key)
+
+            def put(self, key: str, value: dict) -> None:
+                self.values[key] = value
+
+        class CountingDispatcher(FakeDispatcher):
+            def __init__(self):
+                self.calls = 0
+
+            def dispatch(self, name: str, json_str: str) -> dict:
+                self.calls += 1
+                return super().dispatch(name, json_str)
+
+        store = Store()
+        dispatcher = CountingDispatcher()
+        calls = [("tool_a", {"x": 1}), ("tool_a", {"x": 1})]
+
+        first = batch_dispatch(dispatcher, calls, idempotency_store=store)
+        second = batch_dispatch(dispatcher, calls, idempotency_store=store)
+
+        assert dispatcher.calls == 2
+        assert len(store.values) == 2
+        assert all(result["_batch"]["reused"] for result in second["results"])
+        assert all("reused" not in result["_batch"] for result in first["results"])
+
 
 class TestEvalContext:
     def test_simple_return(self):

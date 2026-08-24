@@ -51,6 +51,30 @@ fn record_replay_compile_requires_explicit_review_flag_in_contract() {
 }
 
 #[test]
+fn record_replay_compile_session_exposes_retroactive_history_path() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "--agent-session-id",
+        "task-42",
+        "record-replay",
+        "compile-session",
+        "--name",
+        "scene-build",
+        "--reviewed",
+    ])
+    .expect("parse retroactive session compile command");
+
+    let Command::RecordReplay {
+        action: RecordReplayAction::CompileSession { name, reviewed, .. },
+    } = args.command
+    else {
+        panic!("expected record-replay compile-session command");
+    };
+    assert_eq!(name, "scene-build");
+    assert!(reviewed);
+}
+
+#[test]
 fn record_replay_replay_keeps_current_approval_separate() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",

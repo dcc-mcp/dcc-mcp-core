@@ -55,6 +55,8 @@ return result
 
 from __future__ import annotations
 
+from copy import deepcopy
+import hashlib
 import json
 import logging
 from typing import Any
@@ -90,6 +92,8 @@ def batch_dispatch(
     stop_on_error: bool = False,
     parent_request_id: str | None = None,
     batch_id: str | None = None,
+    idempotency_store: Any | None = None,
+    idempotency_namespace: str = "batch",
 ) -> dict[str, Any]:
     """Execute a sequence of tool calls against a local ToolDispatcher.
 
@@ -124,6 +128,11 @@ def batch_dispatch(
             Each sub-call's result will include this in its metadata.
         batch_id: A unique identifier for this batch group. Auto-generated
             if not provided.
+        idempotency_store: Optional durable store exposing
+            ``get(key) -> result | None`` and ``put(key, result)``. Successful
+            calls are reused on later invocations, so a failed batch resumes
+            at its first incomplete call.
+        idempotency_namespace: Stable caller-owned namespace for cache keys.
 
     Returns:
         A dict with keys:
@@ -162,6 +171,32 @@ def batch_dispatch(
 
     for idx, (tool_name, arguments) in enumerate(calls):
         sub_request_id = f"{_batch_id}-{idx}"
+        cache_key = _batch_idempotency_key(idempotency_namespace, idx, tool_name, arguments)
+        cached = idempotency_store.get(cache_key) if idempotency_store is not None else None
+        if isinstance(cached, dict) and _batch_result_succeeded(cached):
+            result = deepcopy(cached)
+            result["_batch"] = {
+                "parent_request_id": parent_request_id,
+                "batch_id": _batch_id,
+                "sub_request_id": sub_request_id,
+                "tool_name": tool_name,
+                "index": idx,
+                "reused": True,
+            }
+            results.append(result)
+            succeeded += 1
+            sub_results.append(
+                {
+                    "request_id": sub_request_id,
+                    "parent_request_id": parent_request_id,
+                    "batch_id": _batch_id,
+                    "tool_name": tool_name,
+                    "index": idx,
+                    "success": True,
+                    "reused": True,
+                }
+            )
+            continue
         try:
             result = dispatcher.dispatch(tool_name, json_dumps(arguments))
             # Attach batch attribution metadata
@@ -193,6 +228,10 @@ def batch_dispatch(
                     break
             else:
                 succeeded += 1
+                if idempotency_store is not None:
+                    stored = deepcopy(result)
+                    stored.pop("_batch", None)
+                    idempotency_store.put(cache_key, stored)
         except Exception as exc:
             err_info = {"index": idx, "tool": tool_name, "error": str(exc)}
             errors.append(err_info)
@@ -238,6 +277,33 @@ def batch_dispatch(
         summary["results"] = results
 
     return summary
+
+
+def _batch_result_succeeded(result: dict[str, Any]) -> bool:
+    """Return whether a dispatcher result is safe to reuse."""
+    output = result.get("output", result)
+    return not (isinstance(output, dict) and output.get("success") is False)
+
+
+def _batch_idempotency_key(
+    namespace: str,
+    index: int,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> str:
+    """Return a canonical content key without retaining raw arguments."""
+    canonical = json.dumps(
+        {
+            "namespace": namespace,
+            "index": index,
+            "tool": tool_name,
+            "arguments": arguments,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return f"batch:v1:{hashlib.sha256(canonical).hexdigest()}"
 
 
 class EvalContext:

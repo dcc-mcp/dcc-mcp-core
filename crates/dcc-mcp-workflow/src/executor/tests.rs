@@ -238,6 +238,74 @@ async fn idempotency_key_short_circuits_second_call() {
 }
 
 #[tokio::test]
+async fn unannotated_steps_reuse_only_unchanged_rendered_calls() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let stable_calls = Arc::new(AtomicU32::new(0));
+    let affected_calls = Arc::new(AtomicU32::new(0));
+    let mock = Arc::new(MockToolCaller::new());
+    let stable_counter = stable_calls.clone();
+    mock.add("stable", move |args| {
+        stable_counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"seen": args}))
+    });
+    let affected_counter = affected_calls.clone();
+    mock.add("affected", move |args| {
+        affected_counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"seen": args}))
+    });
+    let exe = WorkflowExecutor::builder().tool_caller(mock).build();
+
+    let first = spec_with_steps(vec![
+        tool_step("stable", "stable", json!({"quality": "final"})),
+        tool_step("affected", "affected", json!({"frame": 1})),
+    ]);
+    assert_eq!(
+        exe.run(first, Value::Null, None).unwrap().wait().await,
+        WorkflowStatus::Completed
+    );
+
+    let changed = spec_with_steps(vec![
+        tool_step("stable", "stable", json!({"quality": "final"})),
+        tool_step("affected", "affected", json!({"frame": 2})),
+    ]);
+    assert_eq!(
+        exe.run(changed, Value::Null, None).unwrap().wait().await,
+        WorkflowStatus::Completed
+    );
+
+    assert_eq!(stable_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(affected_calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn automatic_result_reuse_can_be_disabled_per_step() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = calls.clone();
+    let mock = Arc::new(MockToolCaller::new());
+    mock.add("mutate", move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"ok": true}))
+    });
+    let exe = WorkflowExecutor::builder().tool_caller(mock).build();
+    let mut step = tool_step("mutate", "mutate", json!({"value": 1}));
+    step.policy.reuse_result = false;
+
+    for _ in 0..2 {
+        assert_eq!(
+            exe.run(spec_with_steps(vec![step.clone()]), Value::Null, None)
+                .unwrap()
+                .wait()
+                .await,
+            WorkflowStatus::Completed
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
 async fn cancellation_aborts_workflow() {
     struct BlockingCaller;
     impl ToolCaller for BlockingCaller {
@@ -575,6 +643,41 @@ async fn idempotency_persists_across_executor_rebuild_via_sqlite() {
         "post-restart run must hit the persisted idempotency cache and \
          skip the underlying tool call"
     );
+}
+
+#[cfg(feature = "job-persist-sqlite")]
+#[tokio::test]
+async fn automatic_result_key_persists_across_executor_rebuild() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use crate::sqlite::{SqliteIdempotencyStore, WorkflowStorage};
+
+    let db = tempfile::NamedTempFile::new().unwrap();
+    let calls = Arc::new(AtomicU32::new(0));
+    for _ in 0..2 {
+        let storage = Arc::new(WorkflowStorage::open(db.path()).unwrap());
+        let counter = calls.clone();
+        let caller = Arc::new(MockToolCaller::new());
+        caller.add("render", move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"artifact": "preview.png"}))
+        });
+        let executor = WorkflowExecutor::builder()
+            .tool_caller(caller)
+            .idempotency_store(SqliteIdempotencyStore::new(Arc::clone(&storage)))
+            .storage(storage)
+            .build();
+        let spec = spec_with_steps(vec![tool_step(
+            "render",
+            "render",
+            json!({"scene": "shot-010", "frame": 1}),
+        )]);
+        assert_eq!(
+            executor.run(spec, Value::Null, None).unwrap().wait().await,
+            WorkflowStatus::Completed
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 #[cfg(feature = "job-persist-sqlite")]

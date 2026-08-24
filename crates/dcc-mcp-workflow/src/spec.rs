@@ -253,6 +253,7 @@ const STEP_POLICY_FIELDS: &[&str] = &[
     "idempotency_key",
     "idempotency_scope",
     "idempotency_ttl_secs",
+    "reuse_result",
 ];
 
 impl Serialize for Step {
@@ -297,6 +298,9 @@ impl Serialize for Step {
         }
         if let Some(ttl) = self.policy.idempotency_ttl_secs {
             map.serialize_entry("idempotency_ttl_secs", &ttl)?;
+        }
+        if !self.policy.reuse_result {
+            map.serialize_entry("reuse_result", &false)?;
         }
         map.end()
     }

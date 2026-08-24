@@ -182,6 +182,12 @@ impl PyStepPolicy {
         self.inner.idempotency_ttl_secs
     }
 
+    /// Whether successful results are reused. Defaults to ``True``.
+    #[getter]
+    fn reuse_result(&self) -> bool {
+        self.inner.reuse_result
+    }
+
     /// Whether every knob is at its default.
     #[getter]
     fn is_empty(&self) -> bool {

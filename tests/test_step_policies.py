@@ -40,6 +40,7 @@ def test_step_policy_parses_full_block() -> None:
     assert policy.timeout_secs == 300
     assert policy.idempotency_key == "export_{{scene_id}}_{{frame_range}}"
     assert policy.idempotency_scope == "global"
+    assert policy.reuse_result is True
 
 
 def test_step_policy_retry_fields() -> None:
@@ -78,6 +79,7 @@ def test_step_without_policy_block_defaults_to_empty() -> None:
     assert policy.retry is None
     assert policy.idempotency_key is None
     assert policy.idempotency_scope == "workflow"
+    assert policy.reuse_result is True
 
 
 def test_backoff_kind_string_constants() -> None:

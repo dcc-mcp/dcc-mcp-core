@@ -38,7 +38,7 @@ steps:
 
 每一步都可声明一个可选的 **policy** 块来控制执行器如何运行它。
 所有字段都是可选的；省略该块则使用默认的 `StepPolicy`
-（无超时、无重试、无幂等键）。
+（无超时、无重试，并默认复用成功结果）。
 
 ::: v-pre
 ```yaml
@@ -56,6 +56,8 @@ steps:
       retry_on: ["transient", "timeout"]
     idempotency_key: "export_{{scene_id}}_{{frame_range}}"
     idempotency_scope: workflow     # 或 "global"（默认值: "workflow"）
+    idempotency_ttl_secs: 86400     # 可选；None / 0 表示在作用域内不过期
+    reuse_result: true              # 默认值；false 表示该步骤不复用结果
 ```
 :::
 
@@ -95,7 +97,13 @@ steps:
 调用活得更久。每次尝试都被记录为工作流根作业下的一个独立子作业
 （parent-job id 来自 issue #318）。
 
-### `idempotency_key`
+### 自动结果复用与 `idempotency_key`
+
+工具步骤默认复用成功结果。省略 `idempotency_key` 时，执行器会对规范化
+工具标识和完整渲染后的参数计算哈希。因此再次运行时，不变的调用会被
+跳过，渲染输入发生变化的调用会重新执行。自动键使用跨运行的 global
+命名空间；显式键仍遵循下述既有 `idempotency_scope` 语义。对于每次都
+必须执行的有状态调用，请设置 `reuse_result: false`。
 
 Mustache 风格的模板，在步骤执行前针对步骤上下文渲染。
 执行器会在 `JobManager` 中查找是否存在已完成的作业，其
