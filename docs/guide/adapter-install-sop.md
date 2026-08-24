@@ -143,9 +143,11 @@ the step.
 Each `next_steps[]` entry MUST contain `id`, `description`, and `why`, plus
 exactly one executable form:
 
-- `command`: an argv array, never a shell-joined string; or
+- `command`: an argv array of non-empty, non-whitespace arguments, never a
+  shell-joined string; or
 - `file_edit`: `{path, action, content?}` with `action` equal to `create`,
-  `update`, or `remove`.
+  `update`, or `remove`. `content` is required for `create` and `update`, and
+  MUST be omitted for `remove`.
 
 Prose-only next steps are non-conforming. Paths, arguments, and edits MUST be
 specific enough for an agent to execute after applying its normal policy and

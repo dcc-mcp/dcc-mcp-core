@@ -153,7 +153,7 @@ def validate_contract(contract: dict[str, Any]) -> None:
     if "dcc_mcp_core._core" in smoke["lite_py37"]:
         raise ContractError("lite_py37 smoke must not require dcc_mcp_core._core")
 
-    for name in ("pytest", "pytest_xdist", "typing_extensions"):
+    for name in ("jsonschema_py37", "pytest", "pytest_xdist", "typing_extensions"):
         if not toolchain.get(name):
             raise ContractError(f"test_toolchain.{name} is required")
 
@@ -323,6 +323,7 @@ def python37_test_requirements(contract: dict[str, Any]) -> list[str]:
     """Return the pinned test tools used by every Python 3.7 CI profile."""
     toolchain = contract["test_toolchain"]
     return [
+        f"jsonschema=={toolchain['jsonschema_py37']}",
         f"pytest=={toolchain['pytest']}",
         f"pytest-xdist=={toolchain['pytest_xdist']}",
         f"typing-extensions=={toolchain['typing_extensions']}",

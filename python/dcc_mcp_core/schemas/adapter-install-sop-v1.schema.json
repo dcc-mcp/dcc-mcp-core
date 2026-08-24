@@ -3,6 +3,47 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
     "file_edit": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "create",
+                  "update"
+                ]
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "content"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "remove"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "content"
+              ]
+            }
+          }
+        }
+      ],
       "properties": {
         "action": {
           "enum": [
@@ -17,6 +58,7 @@
         },
         "path": {
           "minLength": 1,
+          "pattern": "\\S",
           "type": "string"
         }
       },
@@ -42,6 +84,7 @@
       "properties": {
         "command": {
           "items": {
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,

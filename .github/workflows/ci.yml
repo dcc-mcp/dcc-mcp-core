@@ -477,9 +477,9 @@ jobs:
         run: |
           pip install dist/*.whl
           if [[ "${{ matrix.os }}" == "ubuntu-latest" && "${{ matrix.python-version }}" == "3.14" ]]; then
-            pip install pytest pytest-cov
+            pip install pytest pytest-cov jsonschema
           else
-            pip install pytest pytest-xdist
+            pip install pytest pytest-xdist jsonschema
           fi
         shell: bash
       - name: Test with coverage

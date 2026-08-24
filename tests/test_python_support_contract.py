@@ -76,6 +76,7 @@ def test_native_matrix_and_test_toolchain_are_generated_from_contract() -> None:
     ]
     assert [row["platform"] for row in matrix["include"] if row["full_suite"]] == ["linux-x86_64"]
     assert python37_test_requirements(contract) == [
+        "jsonschema==4.17.3",
         "pytest==7.4.4",
         "pytest-xdist==3.5.0",
         "typing-extensions==4.7.1",

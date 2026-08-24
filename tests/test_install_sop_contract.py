@@ -2,9 +2,51 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _install_result_with_next_step(next_step: dict) -> dict:
+    return {
+        "schema_version": 1,
+        "status": "planned",
+        "dcc_type": "example",
+        "adapter_version": "1.2.3",
+        "core_version": "0.20.12",
+        "steps": [{"id": "preflight", "status": "ok"}],
+        "next_steps": [next_step],
+        "receipt_path": None,
+        "verify": {
+            "directly_usable": False,
+            "failure_stage": None,
+            "failure_reason": None,
+        },
+    }
+
+
+def _command_next_step() -> dict:
+    return {
+        "id": "execute",
+        "description": "Execute the validated install plan.",
+        "why": "Planning does not mutate the host.",
+        "command": ["dcc-mcp-example", "install", "--json", "--yes"],
+    }
+
+
+def _file_edit_next_step(action: str, *, include_content: bool) -> dict:
+    file_edit = {"path": "install.md", "action": action}
+    if include_content:
+        file_edit["content"] = "# Install\n"
+    return {
+        "id": f"{action}-install-guide",
+        "description": "Update the adapter install guide.",
+        "why": "The repository must publish its adapter-specific instructions.",
+        "file_edit": file_edit,
+    }
 
 
 def test_install_sop_schema_is_public_and_versioned() -> None:
@@ -19,6 +61,7 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
 
     schema = deployment.load_install_sop_schema()
 
+    Draft202012Validator.check_schema(schema)
     assert schema["$id"] == "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
     assert schema["properties"]["schema_version"] == {"const": 1, "type": "integer"}
 
@@ -45,6 +88,89 @@ def test_install_sop_schema_requires_agent_executable_results() -> None:
         {"required": ["command"]},
         {"required": ["file_edit"]},
     ]
+
+
+def test_install_sop_schema_requires_nonblank_command_arguments() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    validator = Draft202012Validator(load_install_sop_schema())
+    valid = _install_result_with_next_step(_command_next_step())
+
+    assert validator.is_valid(valid)
+
+    for bad_argument in ("", "   ", "\t\r\n"):
+        invalid = deepcopy(valid)
+        invalid["next_steps"][0]["command"][1] = bad_argument
+        assert not validator.is_valid(invalid)
+
+
+def test_install_sop_schema_requires_content_for_create_and_update_edits() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    validator = Draft202012Validator(load_install_sop_schema())
+
+    for action in ("create", "update"):
+        valid = _install_result_with_next_step(_file_edit_next_step(action, include_content=True))
+        valid_empty_content = deepcopy(valid)
+        valid_empty_content["next_steps"][0]["file_edit"]["content"] = ""
+        missing_content = _install_result_with_next_step(_file_edit_next_step(action, include_content=False))
+
+        assert validator.is_valid(valid)
+        assert validator.is_valid(valid_empty_content)
+        assert not validator.is_valid(missing_content)
+
+
+def test_install_sop_schema_requires_nonblank_file_edit_paths() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    validator = Draft202012Validator(load_install_sop_schema())
+    valid = _install_result_with_next_step(_file_edit_next_step("update", include_content=True))
+
+    assert validator.is_valid(valid)
+
+    for bad_path in ("", "   ", "\t\r\n"):
+        invalid = deepcopy(valid)
+        invalid["next_steps"][0]["file_edit"]["path"] = bad_path
+        assert not validator.is_valid(invalid)
+
+
+def test_install_sop_schema_forbids_content_for_remove_edits() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    validator = Draft202012Validator(load_install_sop_schema())
+    valid = _install_result_with_next_step(_file_edit_next_step("remove", include_content=False))
+    unexpected_content = _install_result_with_next_step(_file_edit_next_step("remove", include_content=True))
+
+    assert validator.is_valid(valid)
+    assert not validator.is_valid(unexpected_content)
+
+
+def test_install_sop_schema_requires_exactly_one_executable_form() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    validator = Draft202012Validator(load_install_sop_schema())
+    valid = _install_result_with_next_step(_command_next_step())
+
+    dual_form = deepcopy(valid)
+    dual_form["next_steps"][0]["file_edit"] = {"path": "install.md", "action": "remove"}
+    missing_form = deepcopy(valid)
+    del missing_form["next_steps"][0]["command"]
+
+    assert not validator.is_valid(dual_form)
+    assert not validator.is_valid(missing_form)
+
+
+def test_install_sop_schema_allows_additive_adapter_fields() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    validator = Draft202012Validator(load_install_sop_schema())
+    result = _install_result_with_next_step(_file_edit_next_step("update", include_content=True))
+    result["adapter_diagnostic"] = {"code": "profile_selected"}
+    result["steps"][0]["duration_ms"] = 12
+    result["next_steps"][0]["confirmation"] = "operator"
+    result["next_steps"][0]["file_edit"]["encoding"] = "utf-8"
+
+    assert validator.is_valid(result)
 
 
 def test_install_sop_exit_codes_are_stable_public_exports() -> None:
