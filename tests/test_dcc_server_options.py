@@ -576,6 +576,33 @@ class TestDccServerBaseOptionsPath:
         assert first.script_execution_context is not second.script_execution_context
         assert first.checkpoint_store is not second.checkpoint_store
 
+    def test_feedback_store_uses_instance_registry_path_and_flushes_on_session_end(self, tmp_path):
+        from unittest.mock import patch
+
+        from dcc_mcp_core.server_base import DccServerBase
+
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        opts = DccServerOptions.from_env(
+            "Studio Host/Custom",
+            skills_dir,
+            registry_dir=str(registry_dir),
+            dcc_pid=4242,
+        )
+        with patch(
+            "dcc_mcp_core.server_base.create_adapter_server",
+            return_value=_FakeDccServer(),
+        ):
+            server = DccServerBase(opts)
+
+        assert server.feedback_store.path == registry_dir / "feedback" / "Studio_Host_Custom-4242.jsonl"
+        server.feedback_store.flush = MagicMock()
+
+        server.dispatch_session_end(session_id="session-1")
+
+        server.feedback_store.flush.assert_called_once_with()
+
 
 def test_dcc_server_base_requires_options_argument() -> None:
     from dcc_mcp_core.server_base import DccServerBase

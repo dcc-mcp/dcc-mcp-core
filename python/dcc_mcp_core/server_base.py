@@ -21,6 +21,7 @@ import sys
 from typing import Any
 from typing import Callable
 
+from dcc_mcp_core._install_lifecycle_runtime import default_registry_dir
 from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.server_factory import create_adapter_server
@@ -44,6 +45,7 @@ from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
 from dcc_mcp_core._version_util import package_version
 from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.feedback import FeedbackStore
+from dcc_mcp_core.feedback import feedback_store_path
 from dcc_mcp_core.script_execution import ScriptExecutionContext
 
 try:
@@ -128,7 +130,10 @@ class DccServerBase:
         self._dcc_window_title: str | None = diag.window_title
         self._dcc_window_handle: int | None = diag.window_handle
         self._diagnostic_state = DiagnosticRuntimeState(options.dcc_name)
-        self._feedback_store = FeedbackStore()
+        feedback_registry_dir = options.gateway.registry_dir or default_registry_dir()
+        self._feedback_store = FeedbackStore(
+            path=feedback_store_path(feedback_registry_dir, options.dcc_name, self._dcc_pid)
+        )
         self._script_execution_context = ScriptExecutionContext()
         self._checkpoint_store = CheckpointStore()
 
