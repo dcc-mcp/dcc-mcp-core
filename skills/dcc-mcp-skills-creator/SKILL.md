@@ -363,6 +363,12 @@ gateway contract. The public-safe
 `/v1/debug/issue-reports/<request_id>` payload is suitable for a reviewed issue;
 never publish `?mode=raw` automatically.
 
+Published Skills should declare `metadata.dcc-mcp.links.repo` and
+`metadata.dcc-mcp.links.issues`. Copy those exact values into Finding v1
+`evidence.routing` before using `dcc-mcp-cli feedback route`; never infer a
+tracker from a package name. Missing, non-canonical, or conflicting ownership
+must fail closed, and resolving a route never authorizes issue creation.
+
 Fix this Skill only when the evidence identifies its schema, script,
 description, next-tool, or workflow contract. Route adapter/runtime failures to
 `dcc-mcp-creator` and shared CLI/gateway/core failures to `dcc-mcp-core`. A

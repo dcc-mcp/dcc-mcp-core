@@ -13,18 +13,21 @@ entries:
     description: "Official Maya skill pack for DCC-MCP"
     dcc: [maya]
     url: "https://github.com/example/dcc-mcp-maya-skills"
+    issues_url: "https://github.com/example/dcc-mcp-maya-skills/issues"
     tags: [skills, maya, official]
 
   - name: dcc-mcp-blender-skills
     description: "Community Blender skill pack"
     dcc: [blender]
     url: "https://github.com/example/dcc-mcp-blender-skills"
+    issues_url: "https://github.com/example/dcc-mcp-blender-skills/issues"
     tags: [skills, blender, community]
 
   - name: dcc-mcp-houdini-adapter
     description: "Houdini DCC adapter for DCC-MCP"
     dcc: [houdini]
     url: "https://github.com/example/dcc-mcp-houdini"
+    issues_url: "https://github.com/example/dcc-mcp-houdini/issues"
     tags: [adapter, houdini, official]
 ```
 
@@ -36,6 +39,7 @@ entries:
 | `description` | ✅ | string | One-sentence human-readable description |
 | `dcc` | ✅ | list[string] | Supported DCC types (e.g. `[maya, blender]`) |
 | `url` | ✅ | string | Repository or documentation URL |
+| `issues_url` | ❌ | string | Canonical public GitHub issues URL; required for automatic Finding v1 routing |
 | `tags` | ❌ | list[string] | Searchable tags (e.g. `skills`, `adapter`, `official`, `community`) |
 
 ## CLI Usage

@@ -1,7 +1,10 @@
+use std::path::PathBuf;
+
 use dcc_mcp_models::{FeedbackReport, FeedbackSeverity};
 use serde_json::Value;
 
 use crate::application::control_plane::DccControlPlane;
+use crate::application::feedback::FeedbackRouteService;
 use crate::domain::rest::FeedbackQueryRequest;
 
 use super::output::OutputFormat;
@@ -47,6 +50,21 @@ pub(super) enum FeedbackAction {
     List(FeedbackQueryArgs),
     /// Export the largest bounded persisted-feedback window as structured output.
     Export(FeedbackQueryArgs),
+    /// Resolve a Finding v1 JSON file to its owning issue tracker without a gateway.
+    Route(FeedbackRouteArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct FeedbackRouteArgs {
+    /// Finding v1 JSON file to route.
+    #[arg(value_name = "FINDING_JSON")]
+    pub(super) finding: PathBuf,
+    /// Optional catalog YAML/JSON file; defaults to the bundled public catalog.
+    #[arg(long)]
+    pub(super) catalog: Option<PathBuf>,
+    /// Emit JSON (shortcut for the global `--output json`).
+    #[arg(long)]
+    pub(super) json: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -87,14 +105,20 @@ pub(crate) enum FeedbackCommand {
     Report(FeedbackReport),
     List(FeedbackQueryRequest),
     Export(FeedbackQueryRequest),
+    Route(FeedbackRouteArgs),
 }
 
 impl FeedbackArgs {
     pub(crate) fn requests_json(&self) -> bool {
         match self.action.as_ref() {
             Some(FeedbackAction::List(query) | FeedbackAction::Export(query)) => query.json,
+            Some(FeedbackAction::Route(route)) => route.json,
             None => false,
         }
+    }
+
+    pub(crate) fn requires_gateway(&self) -> bool {
+        !matches!(self.action, Some(FeedbackAction::Route(_)))
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -118,6 +142,7 @@ impl FeedbackArgs {
             return Ok(match action {
                 FeedbackAction::List(query) => FeedbackCommand::List(query.into_request(100)),
                 FeedbackAction::Export(query) => FeedbackCommand::Export(query.into_request(1_000)),
+                FeedbackAction::Route(route) => FeedbackCommand::Route(route),
             });
         }
         let required = |name: &str, value: Option<String>| {
@@ -153,6 +178,11 @@ impl FeedbackArgs {
             FeedbackCommand::Report(report) => control.feedback(report).await,
             FeedbackCommand::List(request) | FeedbackCommand::Export(request) => {
                 control.feedback_entries(request).await
+            }
+            FeedbackCommand::Route(route) => {
+                let service = FeedbackRouteService::new(PathBuf::from("dcc-mcp-catalog.yml"));
+                let result = service.route(&route.finding, route.catalog.as_deref())?;
+                serde_json::to_value(result).map_err(Into::into)
             }
         }
     }

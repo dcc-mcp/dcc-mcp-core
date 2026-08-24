@@ -1307,6 +1307,7 @@ mod tests {
             dcc: vec!["any".into()],
             targets: vec![],
             url: None,
+            issues_url: None,
             tags: vec![],
             version: None,
             min_core_version: None,

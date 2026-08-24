@@ -1199,10 +1199,10 @@ fn gateway_endpoint_for_command(
     match command {
         Command::Smoke { url: None, .. } => Some(Endpoint::new(base_url)),
         Command::Smoke { url: Some(_), .. } => None,
-        Command::Health
-        | Command::Stats { .. }
-        | Command::Feedback(..)
-        | Command::Update { .. } => Some(Endpoint::new(base_url)),
+        Command::Health | Command::Stats { .. } | Command::Update { .. } => {
+            Some(Endpoint::new(base_url))
+        }
+        Command::Feedback(args) => args.requires_gateway().then_some(Endpoint::new(base_url)),
         Command::Doctor { .. } | Command::DccTypes { .. } => None,
         Command::List
         | Command::Search { .. }

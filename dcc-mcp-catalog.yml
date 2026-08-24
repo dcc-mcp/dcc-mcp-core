@@ -11,6 +11,7 @@
 #   description - Human-readable description (required)
 #   dcc         - DCC target(s): maya, blender, houdini, photoshop, ... (list)
 #   url         - Canonical URL (GitHub repo, docs, PyPI, ...) (optional)
+#   issues_url  - Canonical public GitHub issues URL (optional)
 #   tags        - Searchable tags (list, optional)
 #   install.python_path      - Optional host Python interpreter for package install
 #   install.instructions_url - Raw adapter-maintained install.md for agent setup
@@ -21,18 +22,21 @@ entries:
     description: "Foundational Rust + Python library for the DCC-MCP ecosystem"
     dcc: []
     url: "https://github.com/dcc-mcp/dcc-mcp-core"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-core/issues"
     tags: ["core", "official", "rust", "python", "library"]
 
   - name: "dcc-mcp-office"
     description: "Office shared core for DCC-MCP — office-rpc/1 protocol, C# COM sidecar, Open XML worker, Microsoft Graph connector and Office skill packs"
     dcc: ["office"]
     url: "https://github.com/dcc-mcp/dcc-mcp-office"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-office/issues"
     tags: ["office", "core", "official", "powerpoint", "word", "excel", "outlook"]
 
   - name: "dcc-mcp-PowerPoint"
     description: "PowerPoint adapter for DCC-MCP — deck generation (Deck IR → Open XML compile → COM render), slide composition and review decks"
     dcc: ["powerpoint"]
     url: "https://github.com/dcc-mcp/dcc-mcp-PowerPoint"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-PowerPoint/issues"
     tags: ["adapter", "powerpoint", "office", "official", "deck", "skills"]
     version: "0.1.0"
     min_core_version: "0.18.2"
@@ -42,6 +46,7 @@ entries:
     description: "Core Maya adapter for DCC-MCP — gateway-managed instance, mayapy-based MCP server"
     dcc: ["maya"]
     url: "https://github.com/dcc-mcp/dcc-mcp-maya"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-maya/issues"
     tags: ["adapter", "maya", "official", "pip", "core"]
     version: "0.9.22"
     min_core_version: "0.19.45"
@@ -57,6 +62,7 @@ entries:
     description: "Core Blender adapter for DCC-MCP — Blender add-on with in-process MCP server"
     dcc: ["blender"]
     url: "https://github.com/dcc-mcp/dcc-mcp-blender"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-blender/issues"
     tags: ["adapter", "blender", "official", "pip", "addon", "core"]
     version: "0.1.43"
     min_core_version: "0.19.45"
@@ -72,6 +78,7 @@ entries:
     description: "Core Houdini adapter for DCC-MCP — Houdini tools exposed through MCP"
     dcc: ["houdini"]
     url: "https://github.com/dcc-mcp/dcc-mcp-houdini"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-houdini/issues"
     tags: ["adapter", "houdini", "official", "pip", "core"]
     version: "0.31.5"
     min_core_version: "0.19.45"
@@ -88,6 +95,7 @@ entries:
     description: "Core 3ds Max adapter for DCC-MCP — 3ds Max plugin with host-side bridge and sidecar support"
     dcc: ["3dsmax", "3ds max", "3ds-max", "max"]
     url: "https://github.com/dcc-mcp/dcc-mcp-3dsmax"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-3dsmax/issues"
     tags: ["adapter", "3dsmax", "3ds-max", "official", "pip", "core"]
     version: "0.1.40"
     min_core_version: "0.19.45"
@@ -103,6 +111,7 @@ entries:
     description: "Core Photoshop adapter for DCC-MCP — Python bridge for a Photoshop UXP plugin with one-click installer"
     dcc: ["photoshop"]
     url: "https://github.com/dcc-mcp/dcc-mcp-photoshop"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-photoshop/issues"
     tags: ["adapter", "photoshop", "official", "pip", "uxp", "core", "setup"]
     version: "0.1.37"
     min_core_version: "0.19.45"
@@ -119,6 +128,7 @@ entries:
     description: "Foundry Nuke adapter for DCC-MCP"
     dcc: ["nuke"]
     url: "https://github.com/dcc-mcp/dcc-mcp-nuke"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-nuke/issues"
     tags: ["adapter", "nuke", "official", "pip", "compositing"]
     version: "0.13.1"
     min_core_version: "0.19.45"
@@ -134,6 +144,7 @@ entries:
     description: "Unreal Engine plugin and adapter for DCC-MCP"
     dcc: ["unreal"]
     url: "https://github.com/dcc-mcp/dcc-mcp-unreal"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-unreal/issues"
     tags: ["adapter", "unreal", "official", "pip", "game-engine"]
     version: "0.3.0"
     min_core_version: "0.19.45"
@@ -149,6 +160,7 @@ entries:
     description: "ZBrush adapter for DCC-MCP"
     dcc: ["zbrush"]
     url: "https://github.com/dcc-mcp/dcc-mcp-zbrush"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-zbrush/issues"
     tags: ["adapter", "zbrush", "official", "pip", "sculpting"]
     version: "0.2.18"
     min_core_version: "0.19.45"
@@ -164,6 +176,7 @@ entries:
     description: "Adobe Premiere Pro adapter for DCC-MCP"
     dcc: ["premiere"]
     url: "https://github.com/dcc-mcp/dcc-mcp-premiere"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-premiere/issues"
     tags: ["adapter", "premiere", "official", "pip", "editing"]
     version: "0.5.0"
     min_core_version: "0.19.45"
@@ -179,6 +192,7 @@ entries:
     description: "Adobe After Effects adapter with typed project, layer, render queue, and official DOM workflows"
     dcc: ["aftereffects", "after-effects", "after effects"]
     url: "https://github.com/dcc-mcp/dcc-mcp-aftereffects"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-aftereffects/issues"
     tags: ["adapter", "aftereffects", "after-effects", "official", "pip", "cep", "motion-graphics"]
     version: "0.6.0"
     min_core_version: "0.19.91"
@@ -195,6 +209,7 @@ entries:
     description: "Adobe Illustrator adapter with typed document, artwork, export, and official DOM workflows"
     dcc: ["illustrator"]
     url: "https://github.com/dcc-mcp/dcc-mcp-illustrator"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-illustrator/issues"
     tags: ["adapter", "illustrator", "official", "pip", "cep", "vector-graphics"]
     version: "0.2.0"
     min_core_version: "0.19.91"
@@ -211,6 +226,7 @@ entries:
     description: "GIMP 3 adapter with typed image, layer, save, and production export workflows"
     dcc: ["gimp"]
     url: "https://github.com/dcc-mcp/dcc-mcp-gimp"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-gimp/issues"
     tags: ["adapter", "gimp", "official", "pip", "image-editing", "painting"]
     version: "0.3.0"
     min_core_version: "0.19.38"
@@ -227,6 +243,7 @@ entries:
     description: "Krita adapter with typed document, layer, painting, save, and export workflows"
     dcc: ["krita"]
     url: "https://github.com/dcc-mcp/dcc-mcp-krita"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-krita/issues"
     tags: ["adapter", "krita", "official", "pip", "digital-painting", "image-editing"]
     version: "0.3.0"
     min_core_version: "0.19.38"
@@ -243,6 +260,7 @@ entries:
     description: "Foundry Katana adapter for DCC-MCP"
     dcc: ["katana"]
     url: "https://github.com/dcc-mcp/dcc-mcp-katana"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-katana/issues"
     tags: ["adapter", "katana", "official", "pip", "lookdev"]
     version: "0.4.0"
     min_core_version: "0.19.45"
@@ -258,6 +276,7 @@ entries:
     description: "Autodesk MotionBuilder adapter for DCC-MCP"
     dcc: ["mobu"]
     url: "https://github.com/dcc-mcp/dcc-mcp-mobu"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-mobu/issues"
     tags: ["adapter", "mobu", "motionbuilder", "official", "pip", "animation"]
     version: "0.3.0"
     min_core_version: "0.19.45"
@@ -273,6 +292,7 @@ entries:
     description: "RenderDoc capture and replay automation for DCC-MCP"
     dcc: ["renderdoc"]
     url: "https://github.com/dcc-mcp/dcc-mcp-renderdoc"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-renderdoc/issues"
     tags: ["adapter", "renderdoc", "official", "pip", "graphics-debugging"]
     version: "0.3.0"
     min_core_version: "0.19.45"
@@ -288,6 +308,7 @@ entries:
     description: "Substance 3D Designer adapter for DCC-MCP"
     dcc: ["substance3d_designer"]
     url: "https://github.com/dcc-mcp/dcc-mcp-substance3d-designer"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-substance3d-designer/issues"
     tags: ["adapter", "substance3d_designer", "official", "pip", "materials"]
     version: "0.3.0"
     min_core_version: "0.19.45"
@@ -303,6 +324,7 @@ entries:
     description: "Substance 3D Painter adapter for DCC-MCP"
     dcc: ["substance3d_painter"]
     url: "https://github.com/dcc-mcp/dcc-mcp-substance3d-painter"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-substance3d-painter/issues"
     tags: ["adapter", "substance3d_painter", "official", "pip", "texturing"]
     version: "0.1.3"
     min_core_version: "0.19.3"
@@ -318,6 +340,7 @@ entries:
     description: "Godot Engine adapter and game-authoring skills for DCC-MCP"
     dcc: ["godot"]
     url: "https://github.com/dcc-mcp/dcc-mcp-godot"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-godot/issues"
     tags: ["adapter", "godot", "official", "pip", "game-engine"]
     version: "0.4.0"
     min_core_version: "0.19.45"
@@ -333,6 +356,7 @@ entries:
     description: "Unity Editor adapter and typed game-authoring skills for DCC-MCP"
     dcc: ["unity"]
     url: "https://github.com/dcc-mcp/dcc-mcp-unity"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-unity/issues"
     tags: ["adapter", "unity", "official", "pip", "game-engine", "upm"]
     version: "0.11.2"
     min_core_version: "0.19.45"
@@ -348,6 +372,7 @@ entries:
     description: "Marmoset Toolbag adapter and typed PBR scene/rendering skills for DCC-MCP"
     dcc: ["marmoset"]
     url: "https://github.com/dcc-mcp/dcc-mcp-marmoset"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-marmoset/issues"
     tags: ["adapter", "marmoset", "toolbag", "official", "pip", "pbr", "rendering"]
     version: "0.1.1"
     min_core_version: "0.19.86"
@@ -363,6 +388,7 @@ entries:
     description: "OpenSCAD adapter for deterministic model validation, export, and rendering"
     dcc: ["openscad"]
     url: "https://github.com/dcc-mcp/dcc-mcp-openscad"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-openscad/issues"
     tags: ["adapter", "openscad", "official", "pip", "cad", "modeling"]
     version: "0.1.2"
     min_core_version: "0.19.91"
@@ -378,6 +404,7 @@ entries:
     description: "FreeCAD adapter for typed parametric modeling, document validation, and CAD exchange"
     dcc: ["freecad"]
     url: "https://github.com/dcc-mcp/dcc-mcp-freecad"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-freecad/issues"
     tags: ["adapter", "freecad", "official", "pip", "cad", "parametric-modeling"]
     version: "0.1.2"
     min_core_version: "0.19.91"
@@ -393,6 +420,7 @@ entries:
     description: "Cinema 4D adapter for typed headless modeling, interchange, inspection, and rendering"
     dcc: ["c4d", "cinema4d"]
     url: "https://github.com/dcc-mcp/dcc-mcp-cinema4d"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-cinema4d/issues"
     tags: ["adapter", "cinema4d", "cinema-4d", "official", "pip", "modeling", "rendering"]
     version: "0.1.3"
     min_core_version: "0.19.91"
@@ -408,6 +436,7 @@ entries:
     description: "ComfyUI adapter with 17 typed workflow, catalog, queue, and artifact tools"
     dcc: ["comfyui", "comfy-ui"]
     url: "https://github.com/dcc-mcp/dcc-mcp-comfyui"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-comfyui/issues"
     tags: ["adapter", "comfyui", "official", "pip", "node-graph", "image-generation"]
     version: "0.1.1"
     min_core_version: "0.19.91"
@@ -424,6 +453,7 @@ entries:
     description: "Mari adapter for typed project, geometry, channel, node-graph, layer, shader, image, and export workflows"
     dcc: ["mari"]
     url: "https://github.com/dcc-mcp/dcc-mcp-mari"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-mari/issues"
     tags: ["adapter", "mari", "official", "pip", "texturing", "lookdev"]
     version: "0.2.1"
     min_core_version: "0.19.91"
@@ -439,6 +469,7 @@ entries:
     description: "SketchUp adapter with typed modeling, materials, scenes, validation, and interchange workflows"
     dcc: ["sketchup"]
     url: "https://github.com/dcc-mcp/dcc-mcp-sketchup"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-sketchup/issues"
     tags: ["adapter", "sketchup", "official", "pip", "ruby", "modeling", "interchange"]
     version: "0.1.0"
     min_core_version: "0.19.91"
@@ -455,6 +486,7 @@ entries:
     description: "TouchDesigner adapter with 19 typed operator graph, parameter, DAT, timeline, capture, and project tools dispatched on the main thread"
     dcc: ["touchdesigner"]
     url: "https://github.com/dcc-mcp/dcc-mcp-touchdesigner"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-touchdesigner/issues"
     tags: ["adapter", "touchdesigner", "official", "pip", "node-graph", "real-time", "interactive-media"]
     version: "0.1.1"
     min_core_version: "0.19.91"
@@ -471,6 +503,7 @@ entries:
     description: "Vicon Shogun Post adapter with 67 typed Scene, channel, camera, file, Timeline, editing, production-context, pipeline-context, and capability-gated Offline processing tools"
     dcc: ["shogun"]
     url: "https://github.com/dcc-mcp/dcc-mcp-shogun"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-shogun/issues"
     tags: ["adapter", "shogun", "vicon", "official", "pip", "motion-capture", "timeline", "processing"]
     version: "0.10.0"
     min_core_version: "0.19.86"
@@ -488,6 +521,7 @@ entries:
     description: "Tiled adapter for typed workspace-bounded map authoring, validation, and conversion"
     dcc: ["tiled"]
     url: "https://github.com/dcc-mcp/dcc-mcp-tiled"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-tiled/issues"
     tags: ["adapter", "tiled", "official", "pip", "level-design", "tilemap", "game-engine"]
     version: "0.3.0"
     min_core_version: "0.19.38"
@@ -498,6 +532,7 @@ entries:
     description: "Material Maker adapter for typed bounded .ptex inspection, validation, and native export"
     dcc: ["material-maker"]
     url: "https://github.com/dcc-mcp/dcc-mcp-material-maker"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-material-maker/issues"
     tags: ["adapter", "material-maker", "official", "pip", "procedural-materials", "ptex", "lookdev"]
     version: "0.3.1"
     min_core_version: "0.19.38"
@@ -508,6 +543,7 @@ entries:
     description: "Audiokinetic Wwise Authoring adapter with typed WAAPI project, audio, SoundBank, and profiler workflows"
     dcc: ["wwise"]
     url: "https://github.com/dcc-mcp/dcc-mcp-wwise"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-wwise/issues"
     tags: ["adapter", "wwise", "official", "pip", "waapi", "game-audio", "soundbank"]
     version: "0.1.2"
     min_core_version: "0.19.86"
@@ -517,6 +553,7 @@ entries:
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
     dcc: ["shotgrid"]
     url: "https://github.com/dcc-mcp/dcc-mcp-fpt"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-fpt/issues"
     tags: ["adapter", "shotgrid", "fpt", "official", "pip", "production-tracking"]
     version: "0.1.8"
     min_core_version: "0.19.45"
@@ -532,6 +569,7 @@ entries:
     description: "OpenUSD adapter and skills for DCC-MCP"
     dcc: ["openusd"]
     url: "https://github.com/dcc-mcp/dcc-mcp-openusd"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-openusd/issues"
     tags: ["adapter", "openusd", "usd", "official", "pip", "interchange"]
     version: "0.8.1"
     min_core_version: "0.19.45"

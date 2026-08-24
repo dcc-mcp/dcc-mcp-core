@@ -1113,6 +1113,31 @@ fn feedback_export_defaults_to_seven_days_and_endpoint_maximum() {
 }
 
 #[test]
+fn feedback_route_parses_as_an_offline_json_command() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "route",
+        "finding.json",
+        "--catalog",
+        "catalog.yml",
+        "--json",
+    ])
+    .expect("parse feedback route");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert!(!feedback.requires_gateway());
+    let FeedbackAction::Route(route) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback route action");
+    };
+    assert_eq!(route.finding, PathBuf::from("finding.json"));
+    assert_eq!(route.catalog, Some(PathBuf::from("catalog.yml")));
+    assert!(route.json);
+}
+
+#[test]
 fn call_contract_parses_wait_for_async_job() {
     let args = Args::parse_from([
         "dcc-mcp-cli",
