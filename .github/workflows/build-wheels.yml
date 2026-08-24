@@ -46,10 +46,61 @@ permissions:
   contents: read
 
 jobs:
+  classify-release-assets:
+    if: inputs.reuse-release-assets == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+    steps:
+      - name: Checkout immutable distribution verification tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+
+      - name: Read dcc-mcp-core GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release-tag-name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "::error::release-tag-name is required when reuse-release-assets is true"
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets > release-assets.json
+
+      - name: Classify immutable Core distribution state
+        id: classify
+        env:
+          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${RELEASE_VERSION#v}"
+          python .workflow-tools/scripts/ci/check_release_distribution_set.py \
+            --assets-json release-assets.json \
+            --version "$RELEASE_VERSION" \
+            --classify-assets \
+            --github-output "$GITHUB_OUTPUT"
+
   # ── ABI3 builds (Python 3.8+) — one wheel works for all 3.8+ ──
 
   linux:
-    if: inputs.reuse-release-assets != true
+    needs: [classify-release-assets]
+    if: >-
+      always() && (inputs.reuse-release-assets != true ||
+      needs.classify-release-assets.outputs.mode == 'rebuild')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,7 +130,10 @@ jobs:
           --platform linux-x86_64
           dist/*.whl
   windows:
-    if: inputs.reuse-release-assets != true
+    needs: [classify-release-assets]
+    if: >-
+      always() && (inputs.reuse-release-assets != true ||
+      needs.classify-release-assets.outputs.mode == 'rebuild')
     runs-on: windows-latest
     permissions:
       contents: read
@@ -119,7 +173,10 @@ jobs:
   # from python/dcc_mcp_core without maturin, Rust, or just (just>=1.0 is
   # unavailable on Python 3.7 and previously blocked release PyPI publish).
   py37-lite:
-    if: inputs.reuse-release-assets != true
+    needs: [classify-release-assets]
+    if: >-
+      always() && (inputs.reuse-release-assets != true ||
+      needs.classify-release-assets.outputs.mode == 'rebuild')
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -179,7 +236,10 @@ jobs:
   # Uses WHEEL_FEATURES_PY37 (no abi3-py38) via build-wheel action py37 branch.
 
   linux-py37:
-    if: inputs.reuse-release-assets != true
+    needs: [classify-release-assets]
+    if: >-
+      always() && (inputs.reuse-release-assets != true ||
+      needs.classify-release-assets.outputs.mode == 'rebuild')
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -224,7 +284,10 @@ jobs:
             python -c "import dcc_mcp_core"
           fi
   windows-py37:
-    if: inputs.reuse-release-assets != true
+    needs: [classify-release-assets]
+    if: >-
+      always() && (inputs.reuse-release-assets != true ||
+      needs.classify-release-assets.outputs.mode == 'rebuild')
     runs-on: windows-2022
     permissions:
       contents: read
@@ -269,7 +332,10 @@ jobs:
             python -c "import dcc_mcp_core"
           fi
   macos:
-    if: inputs.reuse-release-assets != true
+    needs: [classify-release-assets]
+    if: >-
+      always() && (inputs.reuse-release-assets != true ||
+      needs.classify-release-assets.outputs.mode == 'rebuild')
     runs-on: macos-latest
     permissions:
       contents: read
@@ -300,11 +366,14 @@ jobs:
           --platform macos-universal2
           dist/*.whl
 
-  # Manual release backfills must publish the immutable bytes already archived
-  # on GitHub. Rebuilding can produce different wheel bytes for the same
-  # filename, while PyPI's skip-existing behavior preserves the first upload.
+  # Manual release backfills reuse the immutable bytes already archived on
+  # GitHub. When the first release attempt failed before uploading any Core
+  # distribution, the classifier instead rebuilds the complete set from the
+  # immutable checkout-ref. Partial archived sets fail closed rather than mix
+  # archived and rebuilt bytes for one version.
   reuse-release-assets:
-    if: inputs.reuse-release-assets == true
+    needs: [classify-release-assets]
+    if: needs.classify-release-assets.outputs.mode == 'reuse'
     runs-on: ubuntu-latest
     permissions:
       contents: read

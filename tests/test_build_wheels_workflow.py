@@ -32,11 +32,8 @@ def test_manual_backfill_reuses_verified_github_release_assets() -> None:
     }
 
     jobs = workflow["jobs"]
-    for job_id in BUILD_JOB_IDS:
-        assert jobs[job_id]["if"] == "inputs.reuse-release-assets != true"
-
     reuse = jobs["reuse-release-assets"]
-    assert reuse["if"] == "inputs.reuse-release-assets == true"
+    assert reuse["if"] == "needs.classify-release-assets.outputs.mode == 'reuse'"
     assert reuse["permissions"] == {"contents": "read"}
     commands = "\n".join(step.get("run", "") for step in reuse["steps"])
     assert "gh release download" in commands
@@ -53,6 +50,30 @@ def test_manual_backfill_reuses_verified_github_release_assets() -> None:
         "path": "dist/",
         "retention-days": 30,
     }
+
+
+def test_manual_backfill_rebuilds_from_tag_when_release_has_no_core_assets() -> None:
+    jobs = _jobs()
+    classifier = jobs["classify-release-assets"]
+    assert classifier["if"] == "inputs.reuse-release-assets == true"
+    assert classifier["permissions"] == {"contents": "read"}
+    assert classifier["outputs"] == {"mode": "${{ steps.classify.outputs.mode }}"}
+    classifier_commands = "\n".join(step.get("run", "") for step in classifier["steps"])
+    assert "gh release view" in classifier_commands
+    assert "--classify-assets" in classifier_commands
+    classifier_checkout = next(step for step in classifier["steps"] if step.get("uses") == "actions/checkout@v6")
+    assert classifier_checkout["with"]["ref"] == "${{ github.workflow_sha }}"
+
+    build_condition = (
+        "always() && (inputs.reuse-release-assets != true || needs.classify-release-assets.outputs.mode == 'rebuild')"
+    )
+    for job_id in BUILD_JOB_IDS:
+        assert jobs[job_id]["needs"] == ["classify-release-assets"]
+        assert jobs[job_id]["if"] == build_condition
+
+    reuse = jobs["reuse-release-assets"]
+    assert reuse["needs"] == ["classify-release-assets"]
+    assert reuse["if"] == "needs.classify-release-assets.outputs.mode == 'reuse'"
 
 
 def test_release_wheels_are_uploaded_once_after_every_build() -> None:
