@@ -329,6 +329,9 @@ fn sanitize_json(value: &Value, key: Option<&str>) -> Value {
         if url_key(key) {
             return Value::String("[url-redacted]".to_string());
         }
+        if endpoint_key(key) {
+            return Value::String("[endpoint-redacted]".to_string());
+        }
         if identifier_key(key) {
             return Value::String("[id-redacted]".to_string());
         }
@@ -371,6 +374,13 @@ fn path_key(key: &str) -> bool {
 
 fn url_key(key: &str) -> bool {
     key.to_ascii_lowercase().contains("url")
+}
+
+fn endpoint_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "host" | "hostname" | "port" | "addr" | "address" | "bind" | "endpoint"
+    )
 }
 
 fn identifier_key(key: &str) -> bool {
@@ -481,7 +491,12 @@ mod tests {
             },
             "gateway": {
                 "default_base_url": "http://127.0.0.1:9765",
-                "status": {"healthy": false, "pid": 1234}
+                "status": {
+                    "healthy": false,
+                    "host": "127.0.0.1",
+                    "port": 43210,
+                    "pid": 1234
+                }
             },
             "server_binary": {
                 "path": "C:\\tools\\dcc-mcp-server.exe",
@@ -494,7 +509,17 @@ mod tests {
         assert_eq!(projected["local"]["registry_dir"], "[path-redacted]");
         assert_eq!(projected["local"]["instance_id"], "[id-redacted]");
         assert_eq!(projected["gateway"]["default_base_url"], "[url-redacted]");
+        assert_eq!(
+            projected["gateway"]["status"]["host"],
+            "[endpoint-redacted]"
+        );
+        assert_eq!(
+            projected["gateway"]["status"]["port"],
+            "[endpoint-redacted]"
+        );
         assert_eq!(projected["gateway"]["status"]["pid"], "[id-redacted]");
+        assert!(!encoded.contains("127.0.0.1"));
+        assert!(!encoded.contains("43210"));
         assert!(!encoded.contains("artist"));
         assert!(!encoded.contains("secret-value"));
     }

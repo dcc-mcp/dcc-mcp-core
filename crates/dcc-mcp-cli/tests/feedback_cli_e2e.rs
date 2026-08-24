@@ -261,6 +261,20 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     assert_eq!(body["components"]["doctor"]["status"], "included");
     assert_eq!(body["components"]["host_errors"]["status"], "included");
     assert_eq!(
+        body["components"]["doctor"]["data"]["gateway"]["status"]["host"],
+        "[endpoint-redacted]"
+    );
+    assert_eq!(
+        body["components"]["doctor"]["data"]["gateway"]["status"]["port"],
+        "[endpoint-redacted]"
+    );
+    assert!(body["finding"]["evidence"].get("dcc_pid").is_none());
+    assert!(
+        body["components"]["host_errors"]["data"]["records"][0]
+            .get("dcc_pid")
+            .is_none()
+    );
+    assert_eq!(
         body["components"]["install_execution_report"]["status"],
         "unavailable"
     );
@@ -268,7 +282,6 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
         "secret.godot",
         "token=private",
         "private traceback",
-        "4321",
         &finding_arg,
         &log_dir_arg,
         &fixture.base_url,
