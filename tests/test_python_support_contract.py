@@ -83,6 +83,14 @@ def test_native_matrix_and_test_toolchain_are_generated_from_contract() -> None:
     ]
 
 
+def test_jsonschema_test_dependency_is_projected_for_all_supported_python_profiles() -> None:
+    contract = load_contract(_REPO_ROOT)
+    fragments = expected_fragments(contract)["pyproject.toml"]
+
+    assert "jsonschema>=4.18; python_version>='3.8'" in fragments
+    assert "jsonschema==4.17.3; python_version<'3.8'" in fragments
+
+
 def test_native_matrix_rejects_runner_and_boolean_drift() -> None:
     contract = load_contract(_REPO_ROOT)
     contract["build"]["native_py37"]["pr_matrix"][0]["runner"] = "windows-2022"

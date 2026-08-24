@@ -123,6 +123,18 @@ A usable result has:
 {
   "schema_version": 1,
   "status": "ok",
+  "dcc_type": "{dcc}",
+  "adapter_version": "{installed-adapter-version}",
+  "core_version": "{installed-core-version}",
+  "steps": [
+    {"id": "receipt", "status": "ok"},
+    {"id": "package", "status": "ok"},
+    {"id": "import", "status": "ok"},
+    {"id": "host-enablement", "status": "ok"},
+    {"id": "readiness", "status": "ok"}
+  ],
+  "next_steps": [],
+  "receipt_path": "{absolute-receipt-path}",
   "verify": {
     "directly_usable": true,
     "failure_stage": null,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -227,6 +228,17 @@ def test_install_sop_guide_ships_a_reusable_install_template() -> None:
         "## Troubleshooting",
     ):
         assert heading in template_text
+
+
+def test_reusable_install_template_usable_result_is_schema_valid() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    template = REPO_ROOT / "docs" / "guide" / "templates" / "adapter-install.md"
+    template_text = template.read_text(encoding="utf-8")
+    marker = "A usable result has:\n\n```json\n"
+    result_text = template_text.split(marker, maxsplit=1)[1].split("\n```", maxsplit=1)[0]
+
+    Draft202012Validator(load_install_sop_schema()).validate(json.loads(result_text))
 
 
 def test_adapter_onboarding_and_release_gate_the_install_sop() -> None:

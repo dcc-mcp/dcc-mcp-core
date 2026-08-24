@@ -99,6 +99,8 @@ def expected_fragments(contract: Mapping[str, Any]) -> dict[str, list[str]]:
         [
             f'python_version = "{support["minimum_python"]}"',
             f'target-version = "py{support["minimum_python"].replace(".", "")}"',
+            "jsonschema>=4.18; python_version>='3.8'",
+            f"jsonschema=={toolchain['jsonschema_py37']}; python_version<'3.8'",
             f"pytest=={toolchain['pytest']},<8.0; python_version<'3.8'",
             f"pytest-xdist=={toolchain['pytest_xdist']}; python_version<'3.8'",
             f"typing-extensions=={toolchain['typing_extensions']}; python_version<'3.8'",
