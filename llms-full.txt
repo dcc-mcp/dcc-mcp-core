@@ -1022,7 +1022,7 @@ All helpers return a plain `dict` compatible with `ToolResult`.
 
 ```python
 # Success
-skill_success(message, *, prompt=None, _meta=None, **context) -> dict
+skill_success(message, *, prompt=None, postcondition=None, verified=None, _meta=None, **context) -> dict
 
 # Failure — explicit error string
 skill_error(message, error, *, prompt=None, possible_solutions=None, _meta=None, **context) -> dict

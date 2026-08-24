@@ -34,7 +34,7 @@ from typing import Any
 from typing import Mapping
 import warnings
 
-_KNOWN_KEYS = frozenset({"success", "message", "error", "prompt", "context", "_meta"})
+_KNOWN_KEYS = frozenset({"success", "message", "error", "prompt", "context", "postcondition", "_meta"})
 
 
 @dataclass
@@ -44,6 +44,10 @@ class ToolResultEnvelope:
     ``error`` is always a string when present. Structured diagnostics belong
     under namespaced ``_meta`` entries such as ``dcc.error`` or
     ``dcc.raw_trace``; they must never replace the string error field.
+
+    ``postcondition`` carries structured readback evidence for a successful
+    mutation. Its optional ``verified`` member is always a boolean when
+    present; absence means that the producer did not report verification.
 
     Empty optional fields are pruned by default. Callers that expose a legacy
     fixed-key mapping may pass ``prune_empty=False`` to :meth:`to_dict` while
@@ -56,6 +60,7 @@ class ToolResultEnvelope:
     prompt: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
     _meta: dict[str, Any] = field(default_factory=dict)
+    postcondition: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         """Enforce the wire schema on every construction path."""
@@ -69,9 +74,17 @@ class ToolResultEnvelope:
             raise TypeError("'prompt' field must be a string or None")
         if not isinstance(self.context, Mapping):
             raise TypeError("'context' field must be a mapping")
+        if self.postcondition is not None and not isinstance(self.postcondition, Mapping):
+            raise TypeError("'postcondition' field must be a mapping or None")
+        if self.postcondition is not None and "verified" in self.postcondition:
+            verified = self.postcondition["verified"]
+            if not isinstance(verified, bool):
+                raise TypeError("'postcondition.verified' field must be a bool")
         if not isinstance(self._meta, Mapping):
             raise TypeError("'_meta' field must be a mapping")
         self.context = dict(self.context)
+        if self.postcondition is not None:
+            self.postcondition = dict(self.postcondition)
         self._meta = dict(self._meta)
 
     def to_dict(self, *, prune_empty: bool = True) -> dict[str, Any]:
@@ -92,6 +105,8 @@ class ToolResultEnvelope:
             out["prompt"] = self.prompt
         if self.context or not prune_empty:
             out["context"] = self.context
+        if self.postcondition is not None:
+            out["postcondition"] = self.postcondition
         if self._meta:
             out["_meta"] = self._meta
         return out
@@ -154,6 +169,14 @@ class ToolResultEnvelope:
         else:
             raise TypeError("'_meta' field must be a mapping or None")
 
+        raw_postcondition = payload.get("postcondition")
+        if raw_postcondition is None:
+            postcondition = None
+        elif isinstance(raw_postcondition, Mapping):
+            postcondition = dict(raw_postcondition)
+        else:
+            raise TypeError("'postcondition' field must be a mapping or None")
+
         extras = {key: value for key, value in payload.items() if key not in _KNOWN_KEYS}
         if extras and strict:
             names = ", ".join(sorted(str(key) for key in extras))
@@ -166,6 +189,7 @@ class ToolResultEnvelope:
             error=error,
             prompt=prompt,
             context=context,
+            postcondition=postcondition,
             _meta=meta,
         )
 
@@ -177,15 +201,34 @@ class ToolResultEnvelope:
         message: str = "",
         *,
         prompt: str | None = None,
+        postcondition: Mapping[str, Any] | None = None,
+        verified: bool | None = None,
         _meta: Mapping[str, Any] | None = None,
         **context: Any,
     ) -> ToolResultEnvelope:
-        """Build a success envelope; keyword arguments become context."""
+        """Build a success envelope with optional post-condition evidence.
+
+        ``verified`` is merged into ``postcondition["verified"]``. Conflicting
+        evidence is rejected instead of silently rewriting the readback claim.
+        Keyword arguments not reserved by this signature become ``context``.
+        """
+        normalized_postcondition = dict(postcondition) if postcondition is not None else None
+        if verified is not None:
+            if normalized_postcondition is None:
+                normalized_postcondition = {}
+            elif "verified" in normalized_postcondition:
+                existing_verified = normalized_postcondition["verified"]
+                if not isinstance(existing_verified, bool):
+                    raise TypeError("'postcondition.verified' field must be a bool")
+                if existing_verified != verified:
+                    raise ValueError("'verified' conflicts with postcondition verification evidence")
+            normalized_postcondition["verified"] = verified
         return cls(
             success=True,
             message=message,
             prompt=prompt,
             context=dict(context),
+            postcondition=normalized_postcondition,
             _meta=dict(_meta or {}),
         )
 

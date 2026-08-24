@@ -264,6 +264,11 @@ from dcc_mcp_core.result_envelope import ToolResultEnvelope
 # Factory methods are `success_` / `error_` (trailing underscore avoids
 # shadowing the dataclass fields), with shorter aliases `ok` / `fail`.
 return ToolResultEnvelope.ok("Loaded skill", name=name).to_dict()
+return ToolResultEnvelope.ok(
+    "Material assignment dispatched",
+    verified=False,
+    postcondition={"method": "material_slot_readback"},
+).to_dict()
 return ToolResultEnvelope.fail("Skill missing", error="not_found",
                                prompt="Try `recipes__list`.").to_dict()
 # `ToolResultEnvelope.not_found("Skill", name)` and
@@ -277,6 +282,10 @@ The dataclass shares the Rust `ToolResult` wire schema but is a distinct,
 dependency-light builder. Empty fields are pruned by `.to_dict()` by default;
 skill helpers intentionally retain their historical fixed-key projection.
 `error` is a string code; structured details belong under `_meta["dcc.error"]`.
+Successful mutations may attach a top-level `postcondition` mapping;
+`skill_success(verified=False)` makes an unconfirmed effect explicit at
+`postcondition.verified` instead of hiding it in `context`. An absent
+`postcondition` is legacy or unreported verification, not a false claim.
 
 > **Trap (#2183):** there is no `ToolResultEnvelope.success(...)` /
 > `ToolResultEnvelope.error(...)`

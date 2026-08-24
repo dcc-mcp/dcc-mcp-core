@@ -30,11 +30,32 @@ or another helper from `dcc_mcp_core.skill`. Lower-level handlers may use
 result mapping.
 
 The canonical fields are `success`, `message`, `error`, `prompt`, `context`,
-and optional `_meta`. A failure's `error` must be a stable string code (for
-example `invalid_input`, `RuntimeError`, or `SandboxDenied`), never an object.
-Put structured exception details under `_meta["dcc.error"]` and raw DCC call
-diagnostics under `_meta["dcc.raw_trace"]`. Keep ordinary tool outputs and
-identifiers in `context`.
+optional `postcondition`, and optional `_meta`. A failure's `error` must be a
+stable string code (for example `invalid_input`, `RuntimeError`, or
+`SandboxDenied`), never an object. Put structured exception details under
+`_meta["dcc.error"]` and raw DCC call diagnostics under
+`_meta["dcc.raw_trace"]`. Keep ordinary tool outputs and identifiers in
+`context`.
+
+Mutating tools should read back the state they claim to change before returning
+success. Pass `verified=True` only after that readback and describe the evidence
+in `postcondition`; pass `verified=False` when dispatch completed but the
+claimed effect could not be confirmed. Omitting `verified` preserves the legacy
+shape and means verification was not reported, which is distinct from an
+explicit negative result.
+
+```python
+return skill_success(
+    "Material assigned",
+    verified=True,
+    postcondition={
+        "method": "material_slot_readback",
+        "expected": material_name,
+        "actual": assigned_material,
+    },
+    object_name=object_name,
+)
+```
 
 The general builder may omit empty optional fields. Skill helpers intentionally
 retain their historical fixed-key shape, so consumers should rely on field

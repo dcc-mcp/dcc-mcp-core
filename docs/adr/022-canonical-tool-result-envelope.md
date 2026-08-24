@@ -21,15 +21,20 @@ source-only Python path preserved it.
   `dcc_mcp_core.result_envelope.ToolResult` import remains as a deprecated,
   behavior-compatible wrapper for one migration window.
 - Every domain tool result uses the same fields: `success`, `message`, `error`,
-  `prompt`, `context`, and optional `_meta`.
+  `prompt`, `context`, optional `postcondition`, and optional `_meta`.
+- `postcondition` is a mapping of mutation readback evidence. Its reserved
+  `verified` member is a boolean when present. `skill_success(verified=...)`
+  writes that marker without placing it in `context`; omitting the argument
+  preserves the released fixed-key projection and does not imply failure.
 - `error` is either a stable string code or `None`. Structured error details
   use the namespaced `_meta["dcc.error"]` object; raw call diagnostics continue
   to use `_meta["dcc.raw_trace"]`.
-- The Rust model preserves `_meta` during validation and JSON/MessagePack
-  serialization without changing the public `ActionResultModelData` struct
-  layout. Skill subprocesses use the dependency-light normalizer and standard
-  library JSON in every installation so native and source-only projections are
-  identical, including tuples and integers outside the serde 64-bit range.
+- The Rust model preserves `postcondition` and `_meta` during validation and
+  JSON/MessagePack serialization without changing the public
+  `ActionResultModelData` struct layout. Skill subprocesses use the
+  dependency-light normalizer and standard library JSON in every installation
+  so native and source-only projections are identical, including tuples and
+  integers outside the serde 64-bit range.
 - Field presence is a projection concern. The general builder omits empty
   fields by default, while released skill helpers retain their historical
   fixed-key projection for compatibility.
@@ -46,6 +51,8 @@ source-only Python path preserved it.
   only when structured diagnostics are needed.
 - Existing skill scripts that index `error`, `prompt`, or `context` directly
   keep working.
+- Consumers can distinguish `postcondition.verified=false` from a legacy or
+  unreported verification state where `postcondition` is absent.
 - Existing Rust callers may continue constructing `ActionResultModelData` with
   exhaustive struct literals; metadata is held privately by `ActionResultModel`.
   Existing JSON and MessagePack payloads remain compatible.
