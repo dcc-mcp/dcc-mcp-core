@@ -27,6 +27,7 @@ See ``docs/guide/skills.md`` for usage examples.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import MISSING
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
@@ -467,6 +468,169 @@ def derive_parameters_schema(fn: Callable[..., Any]) -> dict[str, Any]:
     return schema
 
 
+_SCRIPT_ANNOTATION_ATOMS: dict[str, Any] = {
+    "Any": Any,
+    "None": type(None),
+    "bool": bool,
+    "bytes": bytes,
+    "date": datetime.date,
+    "datetime": datetime.datetime,
+    "float": float,
+    "int": int,
+    "Path": pathlib.Path,
+    "PurePath": pathlib.PurePath,
+    "str": str,
+    "UUID": uuid.UUID,
+}
+_SCRIPT_ANNOTATION_MODULES = {"datetime", "pathlib", "typing", "uuid"}
+
+
+def _script_annotation_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _script_annotation_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _script_subscript_args(node: ast.Subscript) -> list[ast.AST]:
+    slice_node = node.slice
+    index_type = getattr(ast, "Index", None)
+    if index_type is not None and isinstance(slice_node, index_type):
+        slice_node = slice_node.value
+    if isinstance(slice_node, ast.Tuple):
+        return list(slice_node.elts)
+    return [slice_node]
+
+
+def _script_annotation(node: ast.AST | None) -> Any:
+    """Resolve a safe annotation AST without importing or executing source."""
+    if node is None:
+        return inspect.Parameter.empty
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return type(None)
+        if isinstance(node.value, str):
+            return _script_annotation(ast.parse(node.value, mode="eval").body)
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        name = _script_annotation_name(node)
+        short_name = name.rsplit(".", 1)[-1] if name else ""
+        module_name = name.split(".", 1)[0] if name and "." in name else None
+        if short_name in _SCRIPT_ANNOTATION_ATOMS and (
+            module_name is None or module_name in _SCRIPT_ANNOTATION_MODULES
+        ):
+            return _SCRIPT_ANNOTATION_ATOMS[short_name]
+        raise TypeError(f"unsupported script annotation: {name or ast.dump(node)}")
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return typing.Union[(_script_annotation(node.left), _script_annotation(node.right))]
+    if not isinstance(node, ast.Subscript):
+        raise TypeError(f"unsupported script annotation: {ast.dump(node)}")
+
+    name = _script_annotation_name(node.value)
+    short_name = name.rsplit(".", 1)[-1] if name else ""
+    module_name = name.split(".", 1)[0] if name and "." in name else None
+    if module_name is not None and module_name != "typing":
+        raise TypeError(f"unsupported script annotation: {name}")
+    args = _script_subscript_args(node)
+    if short_name in {"List", "list"} and len(args) == 1:
+        return typing.List[_script_annotation(args[0])]
+    if short_name in {"Set", "set"} and len(args) == 1:
+        return typing.Set[_script_annotation(args[0])]
+    if short_name in {"Dict", "dict"} and len(args) == 2:
+        return typing.Dict[_script_annotation(args[0]), _script_annotation(args[1])]
+    if short_name in {"Tuple", "tuple"} and args:
+        resolved = tuple(
+            Ellipsis if isinstance(arg, ast.Constant) and arg.value is Ellipsis else _script_annotation(arg)
+            for arg in args
+        )
+        return typing.Tuple[resolved]
+    if short_name == "Optional" and len(args) == 1:
+        return typing.Optional[_script_annotation(args[0])]
+    if short_name == "Union" and args:
+        return typing.Union[tuple(_script_annotation(arg) for arg in args)]
+    if short_name == "Literal" and args and _LITERAL_TYPE is not None:
+        values: list[Any] = []
+        for arg in args:
+            if not isinstance(arg, ast.Constant):
+                raise TypeError("Literal values must be constants")
+            values.append(arg.value)
+        return _LITERAL_TYPE[tuple(values)]
+    if short_name == "Annotated" and args:
+        return _script_annotation(args[0])
+    raise TypeError(f"unsupported script annotation: {name or ast.dump(node.value)}")
+
+
+def derive_script_parameters_schema(
+    source: str,
+    *,
+    function_name: str = "main",
+) -> dict[str, Any] | None:
+    """Derive ``main(**params)`` input schema without executing the script.
+
+    Only a deliberately small, JSON-compatible annotation subset is accepted.
+    Unsupported or partially untyped signatures return ``None`` so callers can
+    keep legacy script semantics without presenting an unsafe inferred contract.
+    """
+    if not isinstance(source, str):
+        raise TypeError("source must be a string")
+    try:
+        module = ast.parse(source)
+    except SyntaxError:
+        return None
+    function = next(
+        (node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == function_name),
+        None,
+    )
+    if function is None:
+        return None
+    if getattr(function.args, "posonlyargs", ()):
+        return None
+
+    try:
+        positional = [*getattr(function.args, "posonlyargs", ()), *function.args.args]
+        positional_defaults = [inspect.Parameter.empty] * (len(positional) - len(function.args.defaults)) + [
+            object() for _ in function.args.defaults
+        ]
+        parameters: list[inspect.Parameter] = []
+        positional_only = len(getattr(function.args, "posonlyargs", ()))
+        for index, (argument, default) in enumerate(zip(positional, positional_defaults)):
+            kind = (
+                inspect.Parameter.POSITIONAL_ONLY
+                if index < positional_only
+                else inspect.Parameter.POSITIONAL_OR_KEYWORD
+            )
+            parameters.append(
+                inspect.Parameter(
+                    argument.arg,
+                    kind,
+                    default=default,
+                    annotation=_script_annotation(argument.annotation),
+                )
+            )
+        for argument, default_node in zip(function.args.kwonlyargs, function.args.kw_defaults):
+            parameters.append(
+                inspect.Parameter(
+                    argument.arg,
+                    inspect.Parameter.KEYWORD_ONLY,
+                    default=inspect.Parameter.empty if default_node is None else object(),
+                    annotation=_script_annotation(argument.annotation),
+                )
+            )
+
+        def script_main() -> None:
+            return None
+
+        script_main.__name__ = function_name
+        script_main.__qualname__ = function_name
+        script_main.__doc__ = ast.get_docstring(function)
+        script_main.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
+        script_main.__annotations__ = {parameter.name: parameter.annotation for parameter in parameters}
+        return derive_parameters_schema(script_main)
+    except (SyntaxError, TypeError, ValueError):
+        return None
+
+
 def schema_from_doc(fn: Callable[..., Any]) -> dict[str, str]:
     r"""Return a ``{param_name: description}`` map parsed from *fn*'s docstring.
 
@@ -711,6 +875,7 @@ def tool_spec_from_callable(
 __all__ = [
     "derive_parameters_schema",
     "derive_schema",
+    "derive_script_parameters_schema",
     "schema_from_doc",
     "tool_spec_from_callable",
 ]

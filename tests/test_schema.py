@@ -31,6 +31,7 @@ except ImportError:  # pragma: no cover - exercised by the Python 3.7 LTS gate
 
 from dcc_mcp_core.schema import derive_parameters_schema
 from dcc_mcp_core.schema import derive_schema
+from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.schema import schema_from_doc
 from dcc_mcp_core.schema import tool_spec_from_callable
 
@@ -323,6 +324,41 @@ class TestUnsupported:
 
 
 # ── derive_parameters_schema ───────────────────────────────────────────────
+
+
+def test_derive_script_parameters_schema_is_static_and_typed(tmp_path: Path) -> None:
+    marker = tmp_path / "must-not-run"
+    source = f'''\
+from pathlib import Path
+from typing import Optional
+
+Path({str(marker)!r}).write_text("ran")
+
+def main(radius: float, segments: int = 16, label: Optional[str] = None):
+    """Build an asset.
+
+    Args:
+        radius: Asset radius.
+        segments: Segment count.
+        label: Optional label.
+    """
+    return {{"radius": radius, "segments": segments, "label": label}}
+'''
+
+    schema = derive_script_parameters_schema(source)
+
+    assert schema is not None
+    assert schema["required"] == ["radius"]
+    assert schema["properties"]["radius"] == {
+        "type": "number",
+        "description": "Asset radius.",
+    }
+    assert schema["properties"]["segments"]["type"] == "integer"
+    assert schema["properties"]["label"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
+    assert not marker.exists()
 
 
 class TestDeriveParametersSchema:

@@ -151,6 +151,47 @@ def test_file_backed_normalizer_accepts_trusted_file_path(tmp_path: Path) -> Non
     assert execute_with_context(params.code, filename=params.file_path) == "from-file"
 
 
+def test_file_backed_normalizer_preserves_structured_params_and_materialized_provenance(tmp_path: Path) -> None:
+    descriptor = dcc_mcp_core.materialize_script(
+        "def main(scale: float) -> float:\n    return scale * 2\n",
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+        reuse=True,
+        reuse_key="scale-tool",
+    )
+
+    params = normalize_file_backed_script_execution_params(
+        {"file_path": descriptor.file_path, "params": {"scale": 2.5}},
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        materialization_root=tmp_path,
+        policy="require",
+    )
+
+    assert params.params == {"scale": 2.5}
+    assert params.params_provided is True
+    assert params.materialized_script is not None
+    assert params.materialized_context()["reused"] is True
+    assert params.materialized_context()["parameters_schema"]["required"] == ["scale"]
+
+    with pytest.raises(ValueError, match="sha256 does not match"):
+        normalize_file_backed_script_execution_params(
+            {
+                "file_path": descriptor.file_path,
+                "params": {"scale": 2.5},
+                "sha256": "0" * 64,
+            },
+            dcc_type="maya",
+            instance_id="maya-1",
+            session_id="session-1",
+            materialization_root=tmp_path,
+            policy="require",
+        )
+
+
 def test_file_backed_normalizer_rejects_untrusted_file_path(tmp_path: Path) -> None:
     script = tmp_path / "outside.py"
     script.write_text("result = 'nope'", encoding="utf-8")

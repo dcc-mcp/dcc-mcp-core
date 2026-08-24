@@ -26,6 +26,7 @@ import dcc_mcp_core.dcc_api_executor as _dcc_api_executor
 import dcc_mcp_core.elicitation as _elicitation
 import dcc_mcp_core.plugin_manifest as _plugin_manifest
 import dcc_mcp_core.rich_content as _rich_content
+from dcc_mcp_core.script_materialization import materialize_script
 
 # ── issue #406: batch_dispatch + EvalContext ─────────────────────────────────
 
@@ -425,6 +426,61 @@ class TestDccApiExecutor:
         assert result["success"] is True
         assert result["output"] == "from-file"
         assert result["context"]["materialized_script"]["path"] == str(script.resolve())
+
+    def test_execute_materialized_main_with_structured_params(self, tmp_path):
+        DccApiExecutor = _dcc_api_executor.DccApiExecutor
+        descriptor = materialize_script(
+            "def main(scale: float, copies: int = 1) -> dict:\n    return {'value': scale * copies}\n",
+            dcc_type="maya",
+            instance_id="maya-1",
+            session_id="session-1",
+            root=tmp_path,
+            reuse=True,
+            reuse_key="asset-builder",
+        )
+        ex = DccApiExecutor("maya", script_materialization_root=tmp_path)
+
+        first = ex.execute_params({"file_path": descriptor.file_path, "params": {"scale": 2.5}})
+        second = ex.execute_params(
+            {
+                "file_path": descriptor.file_path,
+                "params": {"scale": 2.5, "copies": 4},
+            }
+        )
+
+        assert first["success"] is True
+        assert first["output"] == {"value": 2.5}
+        assert second["output"] == {"value": 10.0}
+        metadata = second["context"]["materialized_script"]
+        assert metadata["reused"] is True
+        assert metadata["parameters_schema"]["required"] == ["scale"]
+
+    def test_execute_rejects_invalid_structured_params_before_import(self, tmp_path):
+        DccApiExecutor = _dcc_api_executor.DccApiExecutor
+        marker = tmp_path / "must-not-run"
+        descriptor = materialize_script(
+            f"from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('ran')\n"
+            "def main(scale: float) -> float:\n"
+            "    return scale * 2\n",
+            dcc_type="maya",
+            instance_id="maya-1",
+            session_id="session-1",
+            root=tmp_path / "store",
+            reuse=True,
+        )
+        ex = DccApiExecutor("maya", script_materialization_root=tmp_path / "store")
+
+        result = ex.execute_params(
+            {
+                "file_path": descriptor.file_path,
+                "params": {"scale": "not-a-number", "typo": 1},
+            }
+        )
+
+        assert result["success"] is False
+        assert "params" in result["error"]
+        assert not marker.exists()
 
     def test_execute_require_policy_rejects_inline_code(self, tmp_path):
         DccApiExecutor = _dcc_api_executor.DccApiExecutor

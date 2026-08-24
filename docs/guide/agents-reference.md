@@ -1388,7 +1388,9 @@ temporary executable script:
 from dcc_mcp_core import materialize_script
 
 script = materialize_script(
-    "print('hello from host')",
+    """def main(radius: float, segments: int = 16) -> dict:
+    return {"radius": radius, "segments": segments}
+""",
     dcc_type="maya",
     instance_id="maya-2026-abcd",
     session_id="mcp-session-1",
@@ -1396,13 +1398,17 @@ script = materialize_script(
     tool_call_id="call-42",
     correlation_id="trace-abc",
     reuse=True,
+    reuse_key="create-sphere",
 )
-execute_python(file_path=script.file_path)
+execute_python(file_path=script.file_path, params={"radius": 2.0})
+execute_python(file_path=script.file_path, params={"radius": 4.0, "segments": 32})
 ```
 
 The descriptor includes `file_ref`, absolute `file_path`, `sha256`, byte
 length, language/suffix, TTL/expiry, DCC type, instance id, session id,
-tool-call id, correlation id, and reuse status. The default root is
+tool-call id, correlation id, reuse status, and (for a typed Python `main`)
+`parameters_schema`. Schema derivation parses the source without importing or
+executing it. The default root is
 `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...`; override it with
 `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT` when a studio needs a shared host-visible
 volume. Rust callers use `dcc_mcp_artefact::ScriptMaterializationStore`.
@@ -1446,6 +1452,15 @@ successful executions; it should contain `path` / `file_path`, `file_ref`,
 `sha256`, `bytes`, `reused`, TTL/session/tool/correlation fields when known.
 Legacy context keys such as adapter-local spilled script paths may remain during
 migration, but new code should treat them as deprecated aliases.
+
+For parameter-only iteration, generate the script once with a typed
+`def main(...)`, materialize it with `reuse=true` and a stable `reuse_key`, then
+send only `params` with the same `file_path`. Parameters are validated against
+the surfaced closed-object schema before the script is imported and are passed
+to `main(**params)`. A supplied `sha256` acts as an integrity assertion. Calls
+that omit `params` retain the legacy inline/top-level-return behavior. Resolving
+an unchanged materialized file reports `context.materialized_script.reused=true`;
+changing `params` never rematerializes the file.
 
 ### MCP HTTP Server Spawn Modes (issue #303)
 
