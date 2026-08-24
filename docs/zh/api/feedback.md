@@ -4,11 +4,25 @@
 
 代理反馈与决策理由机制。Gateway 提供 `POST /v1/feedback` 与 `dcc-mcp-cli feedback`，即使没有在线 DCC 也可提交；在线实例的 `dcc_feedback__report` 仅作为共享 Core 实现的 gateway 转发入口。另可提取和构建 `tools/call` 请求中的 `_meta.dcc.rationale` 决策理由。
 
-**导出符号：** `register_feedback_tool`, `extract_rationale`, `make_rationale_meta`, `get_feedback_entries`, `clear_feedback`
+**导出符号：** `FINDING_V1_SCHEMA_VERSION`, `FindingRuntimeContext`, `FindingValidationError`, `build_finding_v1`, `finding_fingerprint`, `finding_v1_json_schema`, `register_feedback_tool`, `extract_rationale`, `make_rationale_meta`, `get_feedback_entries`, `clear_feedback`
+
+## Finding v1 契约
+
+规范化机器契约随 Python 包安装在
+`dcc_mcp_core/schemas/feedback-finding-v1.schema.json`。Rust 侧通过
+`dcc_mcp_models::FindingV1` 与 `FINDING_V1_JSON_SCHEMA` 使用相同 Schema；
+Python 侧使用 `finding_v1_json_schema()` 与 `build_finding_v1(...)`。
+
+Agent 提供 `phase`、`severity`、`intent`、`observed`、`expected`、唯一一种
+`repro.argv`/`repro.steps`，并用 `tool_slug` 或 `evidence.error_kind` 标识主题。
+Core 自动填充 DCC、adapter/core/host 版本、OS、instance、稳定 fingerprint，
+并把 `redaction_status.mode` 设为 `needs-review`；这不表示内容已经适合公开。
+重现列表最多 64 项、文本最多 4096 字符、标识符最多 256 字符、序列化 evidence
+最多 32 KiB；未知字段或歧义结构会 fail-closed。
 
 ## 主要函数
 
-- `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None)` — 注册 `dcc_feedback__report` MCP 工具，**在 `server.start()` 之前调用**；Core 会附加当前 DCC/instance，转发到 gateway，严格校验 `X-Request-ID` 与回执，并在 gateway 不可用或回执失配时 fail-closed，不会本地伪成功
+- `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None, finding_context_provider=None)` — 注册 `dcc_feedback__report` MCP 工具，**在 `server.start()` 之前调用**；优先接收 Finding v1 的 Agent 字段，兼容旧 `tool_name`/`blocker` 形式并规范化为 v1。Core 自动附加运行时身份，转发到 gateway，严格校验 `X-Request-ID`、schema version 与 fingerprint，并在身份缺失、gateway 不可用或回执失配时 fail-closed，不会本地伪成功
 - `extract_rationale(params) -> str | None` — 从 `tools/call` 参数中提取 `_meta.dcc.rationale`
 - `make_rationale_meta(rationale) -> dict` — 构建包含 rationale 的 `_meta` 片段
 - `get_feedback_entries(*, tool_name=None, severity=None, limit=50) -> list[dict]` — 获取最近的反馈条目（最新在前）

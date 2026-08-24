@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/feedback-finding-v1.schema.json",
+  "title": "DCC-MCP Feedback Finding v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "fingerprint",
+    "dcc_type",
+    "adapter",
+    "adapter_version",
+    "core_version",
+    "host_version",
+    "os",
+    "phase",
+    "severity",
+    "intent",
+    "observed",
+    "expected",
+    "repro",
+    "evidence",
+    "redaction_status"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "dcc_type": {"type": "string", "minLength": 1, "maxLength": 256},
+    "adapter": {"type": "string", "minLength": 1, "maxLength": 256},
+    "adapter_version": {"type": "string", "minLength": 1, "maxLength": 256},
+    "core_version": {"type": "string", "minLength": 1, "maxLength": 256},
+    "host_version": {"type": "string", "minLength": 1, "maxLength": 256},
+    "os": {"type": "string", "minLength": 1, "maxLength": 256},
+    "phase": {
+      "type": "string",
+      "enum": ["install", "startup", "dispatch", "skill", "other"]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["blocker", "degraded", "workaround_found", "suggestion"]
+    },
+    "tool_slug": {"type": "string", "minLength": 1, "maxLength": 256},
+    "intent": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "observed": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "expected": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "repro": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        }
+      },
+      "oneOf": [
+        {"required": ["argv"], "not": {"required": ["steps"]}},
+        {"required": ["steps"], "not": {"required": ["argv"]}}
+      ],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "maxProperties": 64,
+      "properties": {
+        "request_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "job_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "instance_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "error_kind": {"type": "string", "minLength": 1, "maxLength": 256},
+        "run_id": {"type": "string", "minLength": 1, "maxLength": 256}
+      },
+      "additionalProperties": true
+    },
+    "redaction_status": {
+      "type": "object",
+      "required": ["mode", "redaction_markers_detected"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["needs-review", "public-safe", "raw-local-evidence"]},
+        "redaction_markers_detected": {"type": "boolean"},
+        "raw_payloads_excluded": {"type": "boolean"},
+        "prompts_excluded": {"type": "boolean"},
+        "scripts_excluded": {"type": "boolean"},
+        "auth_material_excluded": {"type": "boolean"},
+        "local_urls_excluded": {"type": "boolean"},
+        "absolute_paths_excluded": {"type": "boolean"},
+        "private_identifiers_excluded": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "anyOf": [
+    {"required": ["tool_slug"]},
+    {
+      "required": ["evidence"],
+      "properties": {"evidence": {"required": ["error_kind"]}}
+    }
+  ],
+  "additionalProperties": false
+}

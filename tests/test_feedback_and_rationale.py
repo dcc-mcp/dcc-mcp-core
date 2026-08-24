@@ -286,6 +286,82 @@ def test_register_feedback_tool_registers_name():
     assert name_arg == "dcc_feedback__report"
 
 
+def test_registered_feedback_handler_forwards_a_complete_finding_v1(monkeypatch):
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import FeedbackStore
+    from dcc_mcp_core.feedback import register_feedback_tool
+    from dcc_mcp_core.schemas.finding import FindingRuntimeContext
+
+    requests = []
+
+    def _urlopen(request, *, timeout):
+        requests.append((request, timeout))
+        headers = {name.lower(): value for name, value in request.header_items()}
+        submitted = json.loads(request.data.decode("utf-8"))
+        return _GatewayResponse(
+            {
+                "ok": True,
+                "success": True,
+                "feedback_id": "11111111-1111-4111-8111-111111111111",
+                "recorded_at": "2026-08-24T00:00:00.000Z",
+                "event_resource_uri": "resources://gateway/events",
+                "schema_version": 1,
+                "fingerprint": submitted["fingerprint"],
+            },
+            request_id=headers["x-request-id"],
+        )
+
+    monkeypatch.setattr(feedback_module, "urlopen", _urlopen)
+    store = FeedbackStore()
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="photoshop",
+        store=store,
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+        instance_id_provider=lambda: "photoshop-instance-1",
+        finding_context_provider=lambda: FindingRuntimeContext(
+            dcc_type="photoshop",
+            adapter="dcc-mcp-photoshop",
+            adapter_version="0.9.7",
+            core_version="0.20.11",
+            host_version="26.4.1",
+            os="windows",
+            owning_repo="dcc-mcp/dcc-mcp-photoshop",
+        ),
+    )
+    handler = server.register_handler.call_args.args[1]
+
+    result = handler(
+        {
+            "phase": "skill",
+            "severity": "degraded",
+            "tool_slug": "photoshop_layers__merge",
+            "intent": "Merge the selected layers",
+            "observed": "The document remained locked",
+            "expected": "The selected layers are merged",
+            "repro": {"steps": ["Open a layered document", "Call merge"]},
+            "evidence": {"error_kind": "document_locked", "request_id": "request-42"},
+        }
+    )
+
+    assert result["success"] is True
+    assert result["context"]["schema_version"] == 1
+    assert result["context"]["fingerprint"].startswith("sha256:")
+    body = json.loads(requests[0][0].data.decode("utf-8"))
+    assert body["schema_version"] == 1
+    assert body["dcc_type"] == "photoshop"
+    assert body["adapter_version"] == "0.9.7"
+    assert body["core_version"] == "0.20.11"
+    assert body["host_version"] == "26.4.1"
+    assert body["phase"] == "skill"
+    assert body["severity"] == "degraded"
+    assert body["tool_slug"] == "photoshop_layers__merge"
+    assert body["evidence"]["instance_id"] == "photoshop-instance-1"
+    assert store.recent()[0]["fingerprint"] == body["fingerprint"]
+
+
 class _GatewayResponse:
     def __init__(self, payload, *, request_id):
         self.status = 201
@@ -314,6 +390,7 @@ def test_registered_feedback_handler_forwards_through_one_gateway_implementation
     def _urlopen(request, *, timeout):
         requests.append((request, timeout))
         headers = {name.lower(): value for name, value in request.header_items()}
+        submitted = json.loads(request.data.decode("utf-8"))
         return _GatewayResponse(
             {
                 "ok": True,
@@ -321,6 +398,8 @@ def test_registered_feedback_handler_forwards_through_one_gateway_implementation
                 "feedback_id": "11111111-1111-4111-8111-111111111111",
                 "recorded_at": "2026-08-24T00:00:00.000Z",
                 "event_resource_uri": "resources://gateway/events",
+                "schema_version": submitted["schema_version"],
+                "fingerprint": submitted["fingerprint"],
             },
             request_id=headers["x-request-id"],
         )
@@ -357,14 +436,16 @@ def test_registered_feedback_handler_forwards_through_one_gateway_implementation
     assert request.full_url == "http://127.0.0.1:19765/v1/feedback"
     assert timeout == 5.0
     body = json.loads(request.data.decode("utf-8"))
-    assert body == {
-        "tool_name": f"{dcc_name}_scene__save",
-        "intent": "Save the scene",
-        "blocker": "The save action returned no artifact",
-        "severity": "blocked",
+    assert body["schema_version"] == 1
+    assert body["dcc_type"] == dcc_name
+    assert body["tool_slug"] == f"{dcc_name}_scene__save"
+    assert body["phase"] == "dispatch"
+    assert body["severity"] == "blocker"
+    assert body["observed"] == "The save action returned no artifact"
+    assert body["evidence"] == {
+        "error_kind": "legacy_feedback",
         "request_id": "failed-request-42",
         "job_id": "failed-job-42",
-        "dcc_type": dcc_name,
         "instance_id": f"{dcc_name}-instance-1",
     }
     assert get_feedback_entries(store=store)[0]["id"] == "11111111-1111-4111-8111-111111111111"
@@ -411,6 +492,7 @@ def test_registered_feedback_handler_surfaces_local_persistence_failure(monkeypa
 
     def _urlopen(request, *, timeout):
         headers = {name.lower(): value for name, value in request.header_items()}
+        submitted = json.loads(request.data.decode("utf-8"))
         return _GatewayResponse(
             {
                 "ok": True,
@@ -418,6 +500,8 @@ def test_registered_feedback_handler_surfaces_local_persistence_failure(monkeypa
                 "feedback_id": "11111111-1111-4111-8111-111111111111",
                 "recorded_at": "2026-08-24T00:00:00.000Z",
                 "event_resource_uri": "resources://gateway/events",
+                "schema_version": submitted["schema_version"],
+                "fingerprint": submitted["fingerprint"],
             },
             request_id=headers["x-request-id"],
         )
@@ -530,6 +614,47 @@ def test_registered_feedback_handler_rejects_invalid_gateway_receipt(monkeypatch
     assert result["error"] == "gateway_feedback_invalid_receipt"
 
 
+def test_registered_feedback_handler_rejects_mismatched_finding_fingerprint(monkeypatch):
+    import dcc_mcp_core.feedback as feedback_module
+    from dcc_mcp_core.feedback import register_feedback_tool
+
+    def _urlopen(request, **_kwargs):
+        headers = {name.lower(): value for name, value in request.header_items()}
+        return _GatewayResponse(
+            {
+                "ok": True,
+                "success": True,
+                "feedback_id": "11111111-1111-4111-8111-111111111111",
+                "recorded_at": "2026-08-24T00:00:00.000Z",
+                "event_resource_uri": "resources://gateway/events",
+                "schema_version": 1,
+                "fingerprint": "sha256:" + "0" * 64,
+            },
+            request_id=headers["x-request-id"],
+        )
+
+    monkeypatch.setattr(feedback_module, "urlopen", _urlopen)
+    server = MagicMock()
+    server.registry = MagicMock()
+    register_feedback_tool(
+        server,
+        dcc_name="maya",
+        gateway_endpoint="http://127.0.0.1:19765/v1/feedback",
+    )
+
+    result = server.register_handler.call_args.args[1](
+        {
+            "tool_name": "maya_scene__save",
+            "intent": "Save the scene",
+            "blocker": "The receipt fingerprint was changed",
+            "severity": "blocked",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "gateway_feedback_invalid_receipt"
+
+
 def test_registered_feedback_handler_surfaces_correlated_gateway_rejection(monkeypatch):
     import io
 
@@ -550,7 +675,7 @@ def test_registered_feedback_handler_surfaces_correlated_gateway_rejection(monke
                         "success": False,
                         "error": {
                             "kind": "invalid-feedback",
-                            "message": "intent must not be empty",
+                            "message": "gateway policy rejected this finding",
                         },
                     }
                 ).encode("utf-8")
@@ -569,7 +694,7 @@ def test_registered_feedback_handler_surfaces_correlated_gateway_rejection(monke
     result = server.register_handler.call_args.args[1](
         {
             "tool_name": "maya_scene__save",
-            "intent": "",
+            "intent": "Save the scene",
             "blocker": "The report is invalid",
             "severity": "blocked",
         }
@@ -577,7 +702,7 @@ def test_registered_feedback_handler_surfaces_correlated_gateway_rejection(monke
 
     assert result["success"] is False
     assert result["error"] == "gateway_feedback_rejected"
-    assert result["message"] == "intent must not be empty"
+    assert result["message"] == "gateway policy rejected this finding"
     assert result["context"]["status_code"] == 400
 
 
@@ -664,3 +789,9 @@ def test_importable_from_top_level():
     assert hasattr(dcc_mcp_core, "FeedbackStore")
     assert hasattr(dcc_mcp_core, "get_default_feedback_store")
     assert hasattr(dcc_mcp_core, "reset_default_feedback_store_for_tests")
+    assert dcc_mcp_core.FINDING_V1_SCHEMA_VERSION == 1
+    assert hasattr(dcc_mcp_core, "FindingRuntimeContext")
+    assert hasattr(dcc_mcp_core, "FindingValidationError")
+    assert hasattr(dcc_mcp_core, "build_finding_v1")
+    assert hasattr(dcc_mcp_core, "finding_fingerprint")
+    assert hasattr(dcc_mcp_core, "finding_v1_json_schema")

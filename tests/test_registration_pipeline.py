@@ -181,8 +181,16 @@ def test_feedback_phase_uses_shared_core_forwarder_instead_of_adapter_override(m
         _config = SimpleNamespace(gateway_port=19765)
         _dcc_name = "maya"
         _server = object()
+        _options = SimpleNamespace(
+            server_name="dcc-mcp-maya",
+            sidecar=SimpleNamespace(display_name="Maya MCP", adapter_version="0.12.3"),
+        )
         feedback_store = object()
         instance_id = "maya-instance-1"
+
+        @staticmethod
+        def _version_string():
+            return "2026.2"
 
         def _register_feedback_tool(self, _context):
             raise AssertionError("adapter-specific feedback registration must be ignored")
@@ -197,6 +205,12 @@ def test_feedback_phase_uses_shared_core_forwarder_instead_of_adapter_override(m
     assert kwargs["dcc_name"] == "maya"
     assert kwargs["gateway_port"] == 19765
     assert kwargs["instance_id_provider"]() == "maya-instance-1"
+    finding_context = kwargs["finding_context_provider"]()
+    assert finding_context.dcc_type == "maya"
+    assert finding_context.adapter == "dcc-mcp-maya"
+    assert finding_context.adapter_version == "0.12.3"
+    assert finding_context.host_version == "2026.2"
+    assert finding_context.owning_repo == "dcc-mcp/dcc-mcp-maya"
 
 
 def test_standard_phases_accept_real_dcc_server_base(monkeypatch: pytest.MonkeyPatch) -> None:
