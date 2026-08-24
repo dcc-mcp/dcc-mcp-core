@@ -26,8 +26,15 @@ const CTX_KEY_TRACEBACK: &str = "traceback";
 const CTX_KEY_VALUE: &str = "value";
 const CTX_KEY_POSSIBLE_SOLUTIONS: &str = "possible_solutions";
 const META_KEY_DCC_ERROR: &str = "dcc.error";
-const ACTION_RESULT_KNOWN_KEYS: &[&str] =
-    &["success", "message", "prompt", "error", "context", "_meta"];
+const ACTION_RESULT_KNOWN_KEYS: &[&str] = &[
+    "success",
+    "message",
+    "prompt",
+    "error",
+    "context",
+    "postcondition",
+    "_meta",
+];
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
@@ -44,18 +51,20 @@ impl SerializeFormat {
 #[pymethods]
 impl ActionResultModel {
     #[new]
-    #[pyo3(signature = (success=true, message="".to_string(), prompt=None, error=None, context=None, *, _meta=None))]
+    #[pyo3(signature = (success=true, message="".to_string(), prompt=None, error=None, context=None, *, postcondition=None, _meta=None))]
     fn new(
         success: bool,
         message: String,
         prompt: Option<String>,
         error: Option<String>,
         context: Option<&Bound<'_, PyDict>>,
+        postcondition: Option<&Bound<'_, PyDict>>,
         _meta: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let ctx = extract_context(context)?;
+        let postcondition = postcondition.map(py_dict_to_json_map).transpose()?;
         let meta = extract_context(_meta)?;
-        Ok(Self::from_data_with_meta(
+        Self::from_data_with_envelope(
             ActionResultModelData {
                 success,
                 message,
@@ -63,8 +72,10 @@ impl ActionResultModel {
                 error,
                 context: ctx,
             },
+            postcondition,
             meta,
-        ))
+        )
+        .map_err(pyo3::exceptions::PyTypeError::new_err)
     }
 
     #[getter]
@@ -110,6 +121,19 @@ impl ActionResultModel {
         Ok(dict)
     }
 
+    #[getter]
+    fn get_postcondition<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
+        self.postcondition()
+            .map(|postcondition| {
+                let dict = PyDict::new(py);
+                for (key, value) in postcondition {
+                    dict.set_item(key, json_value_to_bound_py(py, value)?)?;
+                }
+                Ok(dict)
+            })
+            .transpose()
+    }
+
     /// Create a new instance with error information.
     #[allow(clippy::double_must_use)]
     #[must_use]
@@ -117,7 +141,11 @@ impl ActionResultModel {
         let mut data = self.data().clone();
         data.success = false;
         data.error = Some(error);
-        Self::from_data_with_meta(data, self.meta().clone())
+        Self {
+            inner: data,
+            postcondition: self.postcondition().cloned(),
+            meta: self.meta().clone(),
+        }
     }
 
     /// Create a new instance with updated context.
@@ -133,7 +161,8 @@ impl ActionResultModel {
                 data.context.insert(key, val);
             }
         }
-        Ok(Self::from_data_with_meta(data, self.meta().clone()))
+        Self::from_data_with_envelope(data, self.postcondition().cloned(), self.meta().clone())
+            .map_err(pyo3::exceptions::PyTypeError::new_err)
     }
 
     /// Convert to dictionary.
@@ -144,6 +173,9 @@ impl ActionResultModel {
         dict.set_item("prompt", self.data().prompt.as_deref())?;
         dict.set_item("error", self.data().error.as_deref())?;
         dict.set_item("context", self.context(py)?)?;
+        if let Some(postcondition) = self.get_postcondition(py)? {
+            dict.set_item("postcondition", postcondition)?;
+        }
         if !self.meta().is_empty() {
             dict.set_item("_meta", self._meta(py)?)?;
         }
@@ -174,6 +206,9 @@ impl ActionResultModel {
             "error".to_string(),
             "context".to_string(),
         ];
+        if self.postcondition().is_some() {
+            keys.push("postcondition".to_string());
+        }
         if !self.meta().is_empty() {
             keys.push("_meta".to_string());
         }
@@ -366,6 +401,22 @@ fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
     let error = extract_optional_string_field(dict, "error")?;
 
     let mut ctx = extract_dict_field(dict, "context")?;
+    let postcondition = dict
+        .get_item("postcondition")?
+        .map(|value| {
+            if value.is_none() {
+                Ok(None)
+            } else {
+                let value = value.cast::<PyDict>().map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err(
+                        "'postcondition' field must be a dict or None",
+                    )
+                })?;
+                py_dict_to_json_map(value).map(Some)
+            }
+        })
+        .transpose()?
+        .flatten();
     let meta = extract_dict_field(dict, "_meta")?;
     for (k, v) in dict.iter() {
         if let Ok(key) = k.extract::<String>()
@@ -375,7 +426,7 @@ fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
         }
     }
 
-    Ok(ActionResultModel::from_data_with_meta(
+    ActionResultModel::from_data_with_envelope(
         ActionResultModelData {
             success,
             message,
@@ -383,8 +434,10 @@ fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
             error,
             context: ctx,
         },
+        postcondition,
         meta,
-    ))
+    )
+    .map_err(pyo3::exceptions::PyTypeError::new_err)
 }
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
@@ -609,8 +662,15 @@ mod tests {
             let meta = PyDict::new(py);
             meta.set_item("vendor.trace", "trace-42")?;
 
-            let constructed =
-                ActionResultModel::new(true, "Done".to_string(), None, None, None, Some(&meta))?;
+            let constructed = ActionResultModel::new(
+                true,
+                "Done".to_string(),
+                None,
+                None,
+                None,
+                None,
+                Some(&meta),
+            )?;
             assert_eq!(
                 constructed.meta()["vendor.trace"],
                 serde_json::json!("trace-42")

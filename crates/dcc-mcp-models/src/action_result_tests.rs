@@ -198,6 +198,63 @@ fn test_action_result_meta_round_trips_json_and_msgpack() {
 }
 
 #[test]
+fn test_action_result_postcondition_round_trips_json_and_msgpack() {
+    let postcondition = HashMap::from([
+        ("verified".to_string(), serde_json::json!(false)),
+        ("method".to_string(), serde_json::json!("slot_readback")),
+    ]);
+    let model = ActionResultModel::from_data_with_envelope(
+        ActionResultModelData {
+            success: true,
+            message: "Texture assignment dispatched".to_string(),
+            ..Default::default()
+        },
+        Some(postcondition.clone()),
+        HashMap::new(),
+    )
+    .unwrap();
+
+    for format in [SerializeFormat::Json, SerializeFormat::MsgPack] {
+        let encoded = model.to_bytes(format).unwrap();
+        let decoded = ActionResultModel::from_bytes(&encoded, format).unwrap();
+        assert_eq!(decoded, model);
+        assert_eq!(decoded.postcondition(), Some(&postcondition));
+    }
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&model.to_bytes(SerializeFormat::Json).unwrap()).unwrap();
+    assert_eq!(json["postcondition"], serde_json::json!(postcondition));
+    assert!(
+        !ActionResultModel::from_data(ActionResultModelData::default())
+            .to_json_string()
+            .unwrap()
+            .contains("postcondition")
+    );
+}
+
+#[test]
+fn test_action_result_deserialization_rejects_non_boolean_verification() {
+    let payload = serde_json::json!({
+        "success": true,
+        "message": "done",
+        "postcondition": {"verified": "yes"},
+    });
+    let encoded = [
+        (SerializeFormat::Json, serde_json::to_vec(&payload).unwrap()),
+        (
+            SerializeFormat::MsgPack,
+            rmp_serde::to_vec_named(&payload).unwrap(),
+        ),
+    ];
+
+    for (format, bytes) in encoded {
+        let error = ActionResultModel::from_bytes(&bytes, format).unwrap_err();
+        assert!(error.contains("postcondition.verified"));
+        assert!(error.contains("boolean"));
+    }
+}
+
+#[test]
 fn test_action_result_json_string_does_not_compact_meta() {
     let deeply_nested = serde_json::json!({
         "level_1": {"level_2": {"level_3": {"level_4": [1, 2, 3]}}}

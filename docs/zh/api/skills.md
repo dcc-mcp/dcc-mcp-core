@@ -621,6 +621,8 @@ skill_success(
     message: str,
     *,
     prompt: str | None = None,
+    postcondition: Mapping[str, Any] | None = None,
+    verified: bool | None = None,
     _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
@@ -632,6 +634,8 @@ skill_success(
 |------|------|------|
 | `message` | `str` | 人类可读的执行摘要 |
 | `prompt` | `str \| None` | Agent 下一步操作的提示（可选）|
+| `postcondition` | `Mapping[str, Any] \| None` | 可选的结构化变更读回证据 |
+| `verified` | `bool \| None` | 写入 `postcondition.verified`；省略表示未报告验证 |
 | `_meta` | `Mapping[str, Any] \| None` | 可选的命名空间化顶层元数据 |
 | `**context` | `Any` | 附加到 `context` 的任意键值对 |
 
@@ -639,6 +643,8 @@ skill_success(
 return skill_success(
     "时间线已设置为 1–120 帧",
     prompt="查看时间线滑块确认结果。",
+    verified=True,
+    postcondition={"method": "timeline_readback", "actual": [1, 120]},
     start_frame=1,
     end_frame=120,
 )

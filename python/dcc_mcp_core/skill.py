@@ -182,6 +182,8 @@ def skill_success(
     message: str,
     *,
     prompt: str | None = None,
+    postcondition: Mapping[str, Any] | None = None,
+    verified: bool | None = None,
     _meta: Mapping[str, Any] | None = None,
     **context: Any,
 ) -> ResultDict:
@@ -194,6 +196,13 @@ def skill_success(
     prompt:
         Optional hint for the agent's next action (e.g.
         ``"Inspect the viewport to verify the result."``).
+    postcondition:
+        Optional structured readback evidence. Use stable keys such as
+        ``method``, ``expected``, and ``actual``.
+    verified:
+        Whether the claimed effect was confirmed by readback. When supplied,
+        this becomes ``postcondition["verified"]``; omission preserves the
+        released result shape and means that verification was not reported.
     _meta:
         Optional namespaced top-level metadata.
     **context:
@@ -213,12 +222,21 @@ def skill_success(
         return skill_success(
             "Timeline set",
             prompt="Check the timeline slider.",
+            verified=True,
+            postcondition={"method": "timeline_readback"},
             start_frame=1,
             end_frame=120,
         )
 
     """
-    return ToolResultEnvelope.ok(message, prompt=prompt, _meta=_meta, **context).to_dict(prune_empty=False)
+    return ToolResultEnvelope.ok(
+        message,
+        prompt=prompt,
+        postcondition=postcondition,
+        verified=verified,
+        _meta=_meta,
+        **context,
+    ).to_dict(prune_empty=False)
 
 
 def skill_error(

@@ -103,3 +103,30 @@ def test_runtime_model_and_wire_envelope_have_distinct_public_names() -> None:
 def test_tool_result_envelope_rejects_object_error_on_direct_construction() -> None:
     with pytest.raises(TypeError, match=r"error.*string"):
         ToolResultEnvelope.fail("failed", error={"type": "RuntimeError"})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("verified", [1, "yes"])
+def test_tool_result_envelope_rejects_non_boolean_verification(verified: object) -> None:
+    with pytest.raises(TypeError, match=r"verified.*bool"):
+        ToolResultEnvelope.ok("done", verified=verified)  # type: ignore[arg-type]
+
+
+def test_tool_result_envelope_rejects_conflicting_verification_evidence() -> None:
+    with pytest.raises(ValueError, match="conflicts with postcondition"):
+        ToolResultEnvelope.ok("done", postcondition={"verified": True}, verified=False)
+
+
+def test_tool_result_envelope_does_not_mask_invalid_explicit_verification() -> None:
+    with pytest.raises(TypeError, match=r"verified.*bool"):
+        ToolResultEnvelope.ok("done", postcondition={"verified": 1}, verified=True)
+
+
+def test_tool_result_envelope_rejects_explicit_null_verification() -> None:
+    with pytest.raises(TypeError, match=r"verified.*bool"):
+        ToolResultEnvelope.from_dict(
+            {
+                "success": True,
+                "message": "done",
+                "postcondition": {"verified": None},
+            }
+        )

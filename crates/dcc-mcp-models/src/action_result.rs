@@ -107,8 +107,9 @@ pub enum SerializeFormat {
 /// Rust data representation (serde-friendly).
 ///
 /// The public field layout is intentionally stable for downstream struct
-/// literals. Python-only top-level metadata is stored by [`ActionResultModel`]
-/// rather than adding a source-breaking field here.
+/// literals. Additive top-level envelope fields such as post-condition evidence
+/// and Python metadata are stored by [`ActionResultModel`] rather than adding a
+/// source-breaking field here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ActionResultModelData {
@@ -217,6 +218,8 @@ impl ActionResultModelData {
 struct ActionResultWireRef<'a> {
     #[serde(flatten)]
     data: &'a ActionResultModelData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    postcondition: Option<&'a HashMap<String, serde_json::Value>>,
     #[serde(rename = "_meta", skip_serializing_if = "HashMap::is_empty")]
     meta: &'a HashMap<String, serde_json::Value>,
 }
@@ -225,6 +228,8 @@ struct ActionResultWireRef<'a> {
 struct ActionResultWireOwned {
     #[serde(flatten)]
     data: ActionResultModelData,
+    #[serde(default)]
+    postcondition: Option<HashMap<String, serde_json::Value>>,
     #[serde(rename = "_meta", default)]
     meta: HashMap<String, serde_json::Value>,
 }
@@ -238,6 +243,7 @@ struct ActionResultWireOwned {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActionResultModel {
     pub(crate) inner: ActionResultModelData,
+    pub(crate) postcondition: Option<HashMap<String, serde_json::Value>>,
     pub(crate) meta: HashMap<String, serde_json::Value>,
 }
 
@@ -247,6 +253,7 @@ impl ActionResultModel {
     pub fn from_data(data: ActionResultModelData) -> Self {
         Self {
             inner: data,
+            postcondition: None,
             meta: HashMap::new(),
         }
     }
@@ -257,7 +264,37 @@ impl ActionResultModel {
         data: ActionResultModelData,
         meta: HashMap<String, serde_json::Value>,
     ) -> Self {
-        Self { inner: data, meta }
+        Self {
+            inner: data,
+            postcondition: None,
+            meta,
+        }
+    }
+
+    /// Create a `ToolResult` with top-level post-condition evidence and metadata.
+    pub fn from_data_with_envelope(
+        data: ActionResultModelData,
+        postcondition: Option<HashMap<String, serde_json::Value>>,
+        meta: HashMap<String, serde_json::Value>,
+    ) -> Result<Self, String> {
+        Self::validate_postcondition(postcondition.as_ref())?;
+        Ok(Self {
+            inner: data,
+            postcondition,
+            meta,
+        })
+    }
+
+    pub(crate) fn validate_postcondition(
+        postcondition: Option<&HashMap<String, serde_json::Value>>,
+    ) -> Result<(), String> {
+        let Some(verified) = postcondition.and_then(|value| value.get("verified")) else {
+            return Ok(());
+        };
+        if verified.is_boolean() {
+            return Ok(());
+        }
+        Err("'postcondition.verified' field must be a boolean".to_string())
     }
 
     /// Access the underlying data.
@@ -272,10 +309,17 @@ impl ActionResultModel {
         &self.meta
     }
 
+    /// Access top-level post-condition evidence without mixing it into context.
+    #[must_use]
+    pub fn postcondition(&self) -> Option<&HashMap<String, serde_json::Value>> {
+        self.postcondition.as_ref()
+    }
+
     /// Serialize the complete model, including top-level `_meta`.
     pub fn to_bytes(&self, fmt: SerializeFormat) -> Result<Vec<u8>, String> {
         let wire = ActionResultWireRef {
             data: &self.inner,
+            postcondition: self.postcondition.as_ref(),
             meta: &self.meta,
         };
         match fmt {
@@ -290,7 +334,7 @@ impl ActionResultModel {
             SerializeFormat::Json => serde_json::from_slice(data).map_err(|e| e.to_string())?,
             SerializeFormat::MsgPack => rmp_serde::from_slice(data).map_err(|e| e.to_string())?,
         };
-        Ok(Self::from_data_with_meta(wire.data, wire.meta))
+        Self::from_data_with_envelope(wire.data, wire.postcondition, wire.meta)
     }
 
     /// Serialize to compact JSON while applying the historical context limit.

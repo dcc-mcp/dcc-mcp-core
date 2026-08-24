@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from dcc_mcp_core import SerializeFormat
+from dcc_mcp_core import deserialize_result
 from dcc_mcp_core import from_exception
 from dcc_mcp_core import serialize_result
 from dcc_mcp_core import validate_action_result
@@ -23,7 +24,7 @@ from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
 from dcc_mcp_core.skills_helper import skill_error_from_exception
 
-_CANONICAL_KEYS = {"success", "message", "error", "prompt", "context", "_meta"}
+_CANONICAL_KEYS = {"success", "message", "error", "prompt", "context", "postcondition", "_meta"}
 
 
 def _assert_canonical(payload: dict[str, Any]) -> None:
@@ -37,6 +38,8 @@ def _assert_canonical(payload: dict[str, Any]) -> None:
         assert isinstance(payload["prompt"], str)
     if "context" in payload:
         assert isinstance(payload["context"], dict)
+    if "postcondition" in payload:
+        assert isinstance(payload["postcondition"], dict)
     if "_meta" in payload:
         assert isinstance(payload["_meta"], dict)
     normalized = ToolResultEnvelope.from_dict(payload).to_dict(prune_empty=False)
@@ -82,6 +85,58 @@ def test_all_python_result_producers_share_one_envelope_schema() -> None:
 
     for payload in payloads:
         _assert_canonical(payload)
+
+
+def test_unverified_skill_success_survives_canonical_and_native_round_trip() -> None:
+    payload = skill_success("Texture assignment dispatched", verified=False)
+
+    assert payload["postcondition"] == {"verified": False}
+    assert "verified" not in payload["context"]
+    assert ToolResultEnvelope.from_dict(payload).to_dict()["postcondition"] == {"verified": False}
+
+    runtime_result = validate_action_result(payload)
+    assert runtime_result.to_dict()["postcondition"] == {"verified": False}
+    assert json.loads(serialize_result(runtime_result, SerializeFormat.Json))["postcondition"] == {"verified": False}
+
+
+def test_native_result_rejects_non_boolean_verification_evidence() -> None:
+    with pytest.raises(TypeError, match=r"verified.*bool"):
+        validate_action_result(
+            {
+                "success": True,
+                "message": "done",
+                "postcondition": {"verified": "unknown"},
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("payload", "format"),
+    [
+        (
+            json.dumps(
+                {
+                    "success": True,
+                    "message": "done",
+                    "postcondition": {"verified": "yes"},
+                }
+            ),
+            SerializeFormat.Json,
+        ),
+        (
+            bytes.fromhex(
+                "83a773756363657373c3a76d657373616765a4646f6e65ad706f7374636f6e646974696f6e81a87665726966696564a3796573"
+            ),
+            SerializeFormat.MsgPack,
+        ),
+    ],
+)
+def test_native_deserialize_rejects_non_boolean_verification_evidence(
+    payload: str | bytes,
+    format: SerializeFormat,
+) -> None:
+    with pytest.raises(ValueError, match=r"postcondition\.verified.*boolean"):
+        deserialize_result(payload, format)
 
 
 def test_inprocess_exception_uses_string_code_and_structured_meta() -> None:

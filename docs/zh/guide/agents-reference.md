@@ -173,6 +173,11 @@ from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 # ✓ 类型化 envelope；序列化后的 wire shape 与现有客户端契约一致。
 return ToolResultEnvelope.ok("Loaded skill", name=name).to_dict()
+return ToolResultEnvelope.ok(
+    "Material assignment dispatched",
+    verified=False,
+    postcondition={"method": "material_slot_readback"},
+).to_dict()
 return ToolResultEnvelope.fail(
     "Skill missing",
     error="not_found",
@@ -185,6 +190,10 @@ return {"success": True, "message": "...", "context": {"name": name}}
 `ToolResultEnvelope` 与 Rust `ToolResult` 共享 wire schema，但它是独立的轻依赖构建器。
 `.to_dict()` 默认裁剪空字段；skill helpers 为兼容历史调用方保留固定键投影。
 `error` 必须是字符串代码；结构化详情放在 `_meta["dcc.error"]` 下。
+成功的变更可附带顶层 `postcondition` 映射；
+`skill_success(verified=False)` 会在 `postcondition.verified` 明确标记未确认的效果，
+而不是把它隐藏在 `context`。缺少 `postcondition` 表示旧版或未报告验证，
+不等同于验证失败。
 工厂方法使用 `success_` / `error_`（或别名 `ok` / `fail`），因为
 `success` 与 `error` 本身是 dataclass 字段。顶层 `dcc_mcp_core.ToolResult`
 是 Rust 运行时模型，不是这个 wire builder。

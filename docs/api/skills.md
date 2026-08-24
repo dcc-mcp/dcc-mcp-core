@@ -759,6 +759,8 @@ skill_success(
     message: str,
     *,
     prompt: str | None = None,
+    postcondition: Mapping[str, Any] | None = None,
+    verified: bool | None = None,
     _meta: Mapping[str, Any] | None = None,
     **context,
 ) -> dict
@@ -770,6 +772,8 @@ Return a success result dict.
 |-----------|------|-------------|
 | `message` | `str` | Human-readable summary of what was accomplished |
 | `prompt` | `str \| None` | Optional hint for the agent's next action |
+| `postcondition` | `Mapping[str, Any] \| None` | Optional structured mutation readback evidence |
+| `verified` | `bool \| None` | Adds `postcondition.verified`; omission means verification was not reported |
 | `_meta` | `Mapping[str, Any] \| None` | Optional namespaced top-level metadata |
 | `**context` | `Any` | Arbitrary key/value pairs attached to `context` |
 
@@ -777,6 +781,8 @@ Return a success result dict.
 return skill_success(
     "Timeline set to frames 1–120",
     prompt="Check the timeline slider to verify.",
+    verified=True,
+    postcondition={"method": "timeline_readback", "actual": [1, 120]},
     start_frame=1,
     end_frame=120,
 )
