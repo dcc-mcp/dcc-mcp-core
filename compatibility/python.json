@@ -54,7 +54,15 @@
   "distributions": {
     "dcc-mcp-core": {
       "pyproject": "pyproject.toml",
-      "support_profile": "lts"
+      "support_profile": "lts",
+      "wheel_resources": [
+        {
+          "member": "dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json",
+          "source": "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json",
+          "canonical_url": "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json",
+          "sha256": "3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904"
+        }
+      ]
     },
     "dcc-mcp-server": {
       "pyproject": "pkg/dcc-mcp-server-bin/pyproject.toml",

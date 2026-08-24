@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
+import subprocess
 
 from jsonschema import Draft202012Validator
+from scripts.ci.python_support_contract import load_contract
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+INSTALL_SOP_SCHEMA_PATH = Path("python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json")
 
 
 def _install_result_with_next_step(next_step: dict) -> dict:
@@ -65,6 +69,29 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
     Draft202012Validator.check_schema(schema)
     assert schema["$id"] == "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
     assert schema["properties"]["schema_version"] == {"const": 1, "type": "integer"}
+
+
+def test_install_sop_schema_checkout_forces_the_canonical_git_blob_bytes() -> None:
+    contract = load_contract(REPO_ROOT)
+    resource = contract["distributions"]["dcc-mcp-core"]["wheel_resources"][0]
+    git_blob = subprocess.run(
+        ["git", "cat-file", "blob", f"HEAD:{INSTALL_SOP_SCHEMA_PATH.as_posix()}"],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+    ).stdout
+    attributes = subprocess.run(
+        ["git", "check-attr", "eol", "--", INSTALL_SOP_SCHEMA_PATH.as_posix()],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+
+    assert attributes.rstrip().endswith(": eol: lf")
+    assert resource["source"] == INSTALL_SOP_SCHEMA_PATH.as_posix()
+    assert resource["canonical_url"] == "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
+    assert hashlib.sha256(git_blob).hexdigest() == resource["sha256"]
 
 
 def test_install_sop_schema_requires_agent_executable_results() -> None:

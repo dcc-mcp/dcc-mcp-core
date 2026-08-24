@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import zipfile
 
 import pytest
@@ -12,6 +13,14 @@ from scripts.ci.check_python_wheel import validate_wheel
 from scripts.ci.python_support_contract import load_contract
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_INSTALL_SOP_SCHEMA_SOURCE = "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
+_INSTALL_SOP_SCHEMA_MEMBER = "dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
+_INSTALL_SOP_SCHEMA_GIT_BYTES = subprocess.run(
+    ["git", "cat-file", "blob", f"HEAD:{_INSTALL_SOP_SCHEMA_SOURCE}"],
+    cwd=_REPO_ROOT,
+    check=True,
+    stdout=subprocess.PIPE,
+).stdout
 
 
 def _write_wheel(
@@ -25,6 +34,7 @@ def _write_wheel(
     distribution: str = "dcc-mcp-core",
     extension_module: str = "dcc_mcp_core/_core",
     ui_control_contract: str = "canonical",
+    install_sop_schema_bytes: bytes = _INSTALL_SOP_SCHEMA_GIT_BYTES,
 ) -> None:
     root_is_pure = "true" if pure else "false"
     wheel_tags = tags or sorted(_expanded_filename_tags(path))
@@ -43,6 +53,8 @@ def _write_wheel(
         )
         package = extension_module.split("/", 1)[0]
         archive.writestr(f"{package}/__init__.py", "")
+        if distribution == "dcc-mcp-core":
+            archive.writestr(_INSTALL_SOP_SCHEMA_MEMBER, install_sop_schema_bytes)
         if distribution == "dcc-mcp-core" and ui_control_contract == "canonical":
             archive.writestr(
                 "dcc_mcp_core/adapter_contracts.py",
@@ -87,6 +99,21 @@ def test_core_wheel_rejects_legacy_app_ui_skill_with_new_python_contracts(tmp_pa
 
     assert any("missing required UI Control member" in error for error in errors)
     assert any("removed app-ui skill" in error for error in errors)
+
+
+def test_core_wheel_rejects_install_sop_schema_byte_drift(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
+    crlf_schema = _INSTALL_SOP_SCHEMA_GIT_BYTES.replace(b"\n", b"\r\n")
+    _write_wheel(
+        wheel,
+        pure=False,
+        with_core=True,
+        install_sop_schema_bytes=crlf_schema,
+    )
+
+    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
+
+    assert any("adapter-install-sop-v1.schema.json SHA-256" in error for error in errors)
 
 
 def test_lite_py37_wheel_rejects_compiled_core(tmp_path: Path) -> None:
