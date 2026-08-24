@@ -28,6 +28,7 @@ from dcc_mcp_core.constants import ENV_ASSET_TYPE
 from dcc_mcp_core.constants import ENV_CONTEXT_BUNDLE
 from dcc_mcp_core.constants import ENV_CONTEXT_KIND
 from dcc_mcp_core.constants import ENV_DCC_SKILL_PATHS_TEMPLATE
+from dcc_mcp_core.constants import ENV_DISABLE_CHECKPOINT_PERSISTENCE
 from dcc_mcp_core.constants import ENV_DISABLE_FILE_LOGGING
 from dcc_mcp_core.constants import ENV_DISABLE_JOB_PERSISTENCE
 from dcc_mcp_core.constants import ENV_DISABLE_TELEMETRY
@@ -107,6 +108,7 @@ class ObservabilityFlags:
 
     file_logging: bool
     job_persistence: bool
+    checkpoint_persistence: bool
     telemetry: bool
 
 
@@ -153,6 +155,8 @@ def resolve_observability_flags(options: ObservabilityOptions) -> ObservabilityF
     return ObservabilityFlags(
         file_logging=options.enable_file_logging and not env_flag(ENV_DISABLE_FILE_LOGGING, truthy=("1",)),
         job_persistence=options.enable_job_persistence and not env_flag(ENV_DISABLE_JOB_PERSISTENCE, truthy=("1",)),
+        checkpoint_persistence=options.enable_checkpoint_persistence
+        and not env_flag(ENV_DISABLE_CHECKPOINT_PERSISTENCE, truthy=("1",)),
         telemetry=options.enable_telemetry and not env_flag(ENV_DISABLE_TELEMETRY, truthy=("1",)),
     )
 

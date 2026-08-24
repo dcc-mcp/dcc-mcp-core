@@ -39,15 +39,29 @@ Usage in a skill script::
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Any
+import uuid
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
 
 logger = logging.getLogger(__name__)
+
+
+def default_checkpoint_path(dcc_name: str, *, root: str | Path | None = None) -> Path:
+    """Return the stable durable checkpoint path for one DCC type."""
+    from dcc_mcp_core.constants import ENV_CHECKPOINT_ROOT
+
+    normalized = re.sub(r"[^a-z0-9]+", "-", dcc_name.strip().lower()).strip("-") or "dcc"
+    configured_root = root or os.environ.get(ENV_CHECKPOINT_ROOT)
+    state_root = Path(configured_root).expanduser() if configured_root else Path.home() / ".dcc-mcp"
+    return state_root / normalized / "default" / "checkpoints.json"
+
 
 # ── CheckpointStore ────────────────────────────────────────────────────────
 
@@ -73,6 +87,11 @@ class CheckpointStore:
         if self._path and self._path.exists():
             self._load()
 
+    @property
+    def path(self) -> Path | None:
+        """Backing JSON path, or ``None`` for the explicit in-memory mode."""
+        return self._path
+
     # ── Persistence ────────────────────────────────────────────────────────
 
     def _load(self) -> None:
@@ -86,11 +105,21 @@ class CheckpointStore:
     def _flush(self) -> None:
         if self._path is None:
             return
+        temporary: Path | None = None
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json_dumps(self._data, indent=2), encoding="utf-8")
+            temporary = self._path.with_name(f".{self._path.name}.{uuid.uuid4().hex}.tmp")
+            temporary.write_text(json_dumps(self._data, indent=2), encoding="utf-8")
+            temporary.replace(self._path)
         except OSError as exc:
             logger.warning("CheckpointStore: could not flush to %s: %s", self._path, exc)
+        finally:
+            if temporary is not None:
+                try:
+                    if temporary.exists():
+                        temporary.unlink()
+                except OSError:
+                    pass
 
     # ── CRUD ───────────────────────────────────────────────────────────────
 
@@ -484,6 +513,7 @@ __all__ = [
     "checkpoint_every",
     "clear_checkpoint",
     "configure_checkpoint_store",
+    "default_checkpoint_path",
     "get_checkpoint",
     "get_default_checkpoint_store",
     "list_checkpoints",

@@ -69,6 +69,7 @@ from typing import Any
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
+from dcc_mcp_core.script_execution import ScriptExecutionContext
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 from dcc_mcp_core.skills_helper import ToolValidator
 
@@ -199,6 +200,7 @@ class DccApiExecutor:
         trusted_script_roots: tuple[str | Path, ...] = (),
         instance_id: str | None = None,
         session_id: str = "default",
+        script_execution_context: ScriptExecutionContext | None = None,
     ) -> None:
         self._dcc_name = dcc_name
         self._catalog = catalog or DccApiCatalog(dcc_name)
@@ -208,6 +210,12 @@ class DccApiExecutor:
         self._trusted_script_roots = trusted_script_roots
         self._instance_id = instance_id or dcc_name
         self._session_id = session_id
+        self._script_execution_context = script_execution_context or ScriptExecutionContext()
+
+    @property
+    def script_execution_context(self) -> ScriptExecutionContext:
+        """Context whose session namespaces back opt-in persistent execution."""
+        return self._script_execution_context
 
     @property
     def catalog(self) -> DccApiCatalog:
@@ -264,11 +272,13 @@ class DccApiExecutor:
         from dcc_mcp_core.batch import EvalContext
 
         try:
+            session_id = _optional_string(params, "session_id", default=self._session_id) or self._session_id
+            persist_namespace = _optional_bool(params, "persist_namespace", default=False)
             script = normalize_file_backed_script_execution_params(
                 params,
                 dcc_type=self._dcc_name,
                 instance_id=_optional_string(params, "instance_id", default=self._instance_id),
-                session_id=_optional_string(params, "session_id", default=self._session_id),
+                session_id=session_id,
                 policy=_optional_string(
                     params,
                     "script_materialization_policy",
@@ -292,6 +302,8 @@ class DccApiExecutor:
 
         if script.params_provided:
             try:
+                if persist_namespace:
+                    raise ValueError("persist_namespace is only supported for sandboxed script execution")
                 if script.file_path is None:
                     raise ValueError("params require a file-backed script")
                 if script.parameters_schema is None:
@@ -313,12 +325,20 @@ class DccApiExecutor:
                 assert script.file_path is not None
                 result = run_skill_script(script.file_path, script.params)
             else:
-                ctx = EvalContext(
-                    self._dispatcher,
-                    sandbox=True,
-                    timeout_secs=script.timeout_secs,
-                )
-                result = ctx.run(script.code)
+                if persist_namespace:
+                    with self._script_execution_context.eval_namespace(session_id) as namespace:
+                        result = EvalContext(
+                            self._dispatcher,
+                            sandbox=True,
+                            timeout_secs=script.timeout_secs,
+                            namespace=namespace,
+                        ).run(script.code)
+                else:
+                    result = EvalContext(
+                        self._dispatcher,
+                        sandbox=True,
+                        timeout_secs=script.timeout_secs,
+                    ).run(script.code)
             materialized_context = script.materialized_context()
             context = {"materialized_script": materialized_context} if materialized_context is not None else {}
             return {
@@ -385,7 +405,8 @@ def register_dcc_api_executor(
         f"before execution unless script_materialization_policy=off. Pass params "
         f"to call a typed file-backed main(**params) entry point. "
         f"Legacy inline scripts are sandboxed and time-limited; typed entry points "
-        f"use the established skill-script runtime."
+        f"use the established skill-script runtime. Set persist_namespace=true "
+        f"with a session_id only for trusted iterative work; restricted builtins remain enforced."
     )
 
     search_schema = json_dumps(
@@ -444,6 +465,15 @@ def register_dcc_api_executor(
                     "default": 30,
                     "minimum": 1,
                     "maximum": 300,
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Caller-owned session key for optional namespace persistence",
+                },
+                "persist_namespace": {
+                    "type": "boolean",
+                    "description": "Persist sandboxed variables for this session; defaults to false",
+                    "default": False,
                 },
             },
             "anyOf": [

@@ -576,6 +576,32 @@ class TestDccServerBaseOptionsPath:
         assert first.script_execution_context is not second.script_execution_context
         assert first.checkpoint_store is not second.checkpoint_store
 
+    def test_default_checkpoint_store_survives_server_restart(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DCC_MCP_CHECKPOINT_ROOT", str(tmp_path))
+        first, _ = self._make_server_via_options(tmp_path)
+        first.checkpoint_store.save("job-restart", {"frame": 42}, progress_hint="42/100")
+
+        restarted, _ = self._make_server_via_options(tmp_path)
+
+        assert restarted.checkpoint_store.get("job-restart")["context"] == {"frame": 42}
+
+    def test_checkpoint_persistence_can_be_explicitly_disabled(self, tmp_path):
+        from unittest.mock import patch
+
+        from dcc_mcp_core.server_base import DccServerBase
+
+        skills_dir = tmp_path / "skills-memory"
+        skills_dir.mkdir()
+        opts = DccServerOptions.from_env(
+            "houdini",
+            skills_dir,
+            enable_checkpoint_persistence=False,
+        )
+        with patch("dcc_mcp_core.server_base.create_adapter_server", return_value=_FakeDccServer()):
+            server = DccServerBase(opts)
+
+        assert server.checkpoint_store.path is None
+
 
 def test_dcc_server_base_requires_options_argument() -> None:
     from dcc_mcp_core.server_base import DccServerBase

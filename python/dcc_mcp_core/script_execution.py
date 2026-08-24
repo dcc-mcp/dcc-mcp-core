@@ -726,6 +726,7 @@ class ScriptExecutionContext:
         self._lock = threading.RLock()
         self._dcc_namespace: dict[str, Any] = {}
         self._script_namespace: dict[str, Any] = {}
+        self._eval_namespaces: dict[str, dict[str, Any]] = {}
 
     def register_dcc_namespace(self, namespace: dict[str, Any]) -> None:
         """Use *namespace* as the live DCC globals for later executions."""
@@ -741,6 +742,15 @@ class ScriptExecutionContext:
         """Clear variables produced by earlier script executions."""
         with self._lock:
             self._script_namespace.clear()
+            self._eval_namespaces.clear()
+
+    @contextlib.contextmanager
+    def eval_namespace(self, session_id: str):
+        """Yield one locked, persistent namespace for sandboxed ``dcc_execute``."""
+        if not session_id.strip():
+            raise ValueError("session_id must not be empty")
+        with self._lock:
+            yield self._eval_namespaces.setdefault(session_id, {})
 
     def execute(self, code: str, *, filename: str = "<execute_python>") -> Any:
         """Execute code and persist variables atomically in this context."""
@@ -758,6 +768,7 @@ class ScriptExecutionContext:
         with self._lock:
             self._dcc_namespace = {}
             self._script_namespace.clear()
+            self._eval_namespaces.clear()
 
 
 _DEFAULT_SCRIPT_EXECUTION_CONTEXT = ScriptExecutionContext()
