@@ -137,6 +137,26 @@ class TestEvalContext:
         assert isinstance(observed.get("error"), TimeoutError)
         assert "safe preemption is unavailable" in str(observed["error"])
 
+    def test_callable_cannot_swallow_deadline_timeout(self):
+        import signal
+
+        EvalContext = _batch.EvalContext
+        ctx = EvalContext(FakeDispatcher(), timeout_secs=1)
+        caught = []
+
+        def swallow_timeout():
+            try:
+                time.sleep(1.1)
+            except TimeoutError:
+                caught.append("timeout")
+            return "late-success"
+
+        with pytest.raises(TimeoutError):
+            ctx.run_callable(swallow_timeout)
+
+        if hasattr(signal, "SIGALRM"):
+            assert caught == ["timeout"]
+
 
 # ── issue #407: elicitation ──────────────────────────────────────────────────
 
