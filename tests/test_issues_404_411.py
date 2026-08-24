@@ -451,6 +451,68 @@ class TestDccApiCatalog:
 
 
 class TestDccApiExecutor:
+    def test_execute_persistent_namespace_is_opt_in_and_session_scoped(self, tmp_path):
+        from dcc_mcp_core.script_execution import clear_script_namespace
+
+        DccApiExecutor = _dcc_api_executor.DccApiExecutor
+        ex = DccApiExecutor("maya", script_materialization_root=tmp_path)
+
+        first = ex.execute_params(
+            {
+                "code": "cached_value = 41\nreturn cached_value",
+                "session_id": "session-a",
+                "persist_namespace": True,
+            }
+        )
+        second = ex.execute_params(
+            {
+                "code": "return cached_value + 1",
+                "session_id": "session-a",
+                "persist_namespace": True,
+            }
+        )
+        isolated = ex.execute_params(
+            {
+                "code": "return cached_value",
+                "session_id": "session-b",
+                "persist_namespace": True,
+            }
+        )
+
+        assert first["output"] == 41
+        assert second["output"] == 42
+        assert isolated["success"] is False
+
+        clear_script_namespace(context=ex.script_execution_context)
+        cleared = ex.execute_params(
+            {
+                "code": "return cached_value",
+                "session_id": "session-a",
+                "persist_namespace": True,
+            }
+        )
+        assert cleared["success"] is False
+
+        ephemeral = ex.execute_params({"code": "temporary_value = 7\nreturn temporary_value"})
+        not_reused = ex.execute_params({"code": "return temporary_value"})
+        assert ephemeral["output"] == 7
+        assert not_reused["success"] is False
+
+    def test_execute_persistent_namespace_keeps_restricted_builtins(self, tmp_path):
+        DccApiExecutor = _dcc_api_executor.DccApiExecutor
+        ex = DccApiExecutor("maya", script_materialization_root=tmp_path)
+
+        result = ex.execute_params(
+            {
+                "code": "return __import__('os')",
+                "session_id": "restricted",
+                "persist_namespace": True,
+            }
+        )
+
+        assert result["success"] is False
+        assert "__import__" in result["error"]
+
     def test_search(self):
         DccApiCatalog = _dcc_api_executor.DccApiCatalog
         DccApiExecutor = _dcc_api_executor.DccApiExecutor

@@ -15,6 +15,7 @@ from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.checkpoint import checkpoint_every
 from dcc_mcp_core.checkpoint import clear_checkpoint
 from dcc_mcp_core.checkpoint import configure_checkpoint_store
+from dcc_mcp_core.checkpoint import default_checkpoint_path
 from dcc_mcp_core.checkpoint import get_checkpoint
 from dcc_mcp_core.checkpoint import get_default_checkpoint_store
 from dcc_mcp_core.checkpoint import list_checkpoints
@@ -32,6 +33,13 @@ def test_checkpoint_state_seams_are_public() -> None:
 
 
 class TestCheckpointStore:
+    def test_default_checkpoint_path_is_stable_per_dcc(self, tmp_path: Path) -> None:
+        first = default_checkpoint_path("Maya 2026", root=tmp_path)
+        second = default_checkpoint_path("Maya 2026", root=tmp_path)
+
+        assert first == second
+        assert first == tmp_path / "maya-2026" / "default" / "checkpoints.json"
+
     def test_save_and_get(self) -> None:
         store = CheckpointStore()
         store.save("job-1", {"count": 10}, progress_hint="10/100")

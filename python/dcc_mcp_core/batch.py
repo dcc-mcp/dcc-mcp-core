@@ -59,6 +59,7 @@ from copy import deepcopy
 import hashlib
 import json
 import logging
+import types
 from typing import Any
 import uuid
 
@@ -333,6 +334,8 @@ class EvalContext:
             ``None`` means no limit.  Default ``30``.
         parent_request_id: Optional parent request ID for batch attribution.
         batch_id: Optional batch group identifier. Auto-generated if not set.
+        namespace: Optional caller-owned variables retained between runs.
+            Restricted builtins are always refreshed when sandboxing is on.
 
     Example::
 
@@ -374,6 +377,7 @@ class EvalContext:
         timeout_secs: int | None = 30,
         parent_request_id: str | None = None,
         batch_id: str | None = None,
+        namespace: dict[str, Any] | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._sandbox = sandbox
@@ -381,6 +385,7 @@ class EvalContext:
         self._parent_request_id = parent_request_id
         self._batch_id = batch_id or generate_batch_id()
         self._call_index = 0
+        self._namespace = namespace
 
     def _make_builtins(self) -> dict[str, Any]:
         import builtins
@@ -443,17 +448,37 @@ class EvalContext:
             TimeoutError: If ``timeout_secs`` is set and the script exceeds it.
 
         """
-        ns: dict[str, Any] = {
-            "dispatch": self._dispatch_fn,
-            "json": json,
-        }
+        ns = self._namespace if self._namespace is not None else {}
+        ns["dispatch"] = self._dispatch_fn
+        ns["json"] = json
 
         if self._sandbox:
             ns["__builtins__"] = self._make_builtins()
 
-        # Wrap script in a function so `return` works at the top level.
+        # Wrap script in a function so `return` works at the top level. When a
+        # caller provides a session namespace, promote function locals to
+        # globals so assignments survive the call without widening builtins.
         indented = "\n".join("    " + line for line in script.splitlines())
         wrapped = f"def __dcc_eval_fn__():\n{indented}\n"
+        if self._namespace is not None:
+            probe = compile(wrapped, "<dcc_eval>", "exec")
+            function_code = next(
+                (
+                    value
+                    for value in probe.co_consts
+                    if isinstance(value, types.CodeType) and value.co_name == "__dcc_eval_fn__"
+                ),
+                None,
+            )
+            reserved = {"dispatch", "json", "__builtins__", "__dcc_eval_fn__"}
+            persistent_names = sorted(
+                name
+                for name in (function_code.co_varnames if function_code is not None else ())
+                if name not in reserved
+            )
+            if persistent_names:
+                declaration = "    global " + ", ".join(persistent_names) + "\n"
+                wrapped = f"def __dcc_eval_fn__():\n{declaration}{indented}\n"
 
         try:
             if self._timeout_secs is not None:
@@ -471,9 +496,9 @@ class EvalContext:
 
             try:
                 exec(wrapped, ns)
-                result = ns["__dcc_eval_fn__"]()
-                return result
+                return ns["__dcc_eval_fn__"]()
             finally:
+                ns.pop("__dcc_eval_fn__", None)
                 if self._timeout_secs is not None:
                     try:
                         import signal as _signal2

@@ -125,15 +125,17 @@ class GatewayOptions:
 class ObservabilityOptions:
     """File logging, job persistence, and telemetry configuration.
 
-    All three flags can be overridden at runtime via env vars
+    All flags can be overridden at runtime via env vars
     (``DCC_MCP_DISABLE_FILE_LOGGING``, ``DCC_MCP_DISABLE_JOB_PERSISTENCE``,
-    ``DCC_MCP_DISABLE_TELEMETRY``).  The *effective* flag is the logical AND
+    ``DCC_MCP_DISABLE_CHECKPOINT_PERSISTENCE``, ``DCC_MCP_DISABLE_TELEMETRY``).
+    The *effective* flag is the logical AND
     of the option and the absence of the env override — resolved at server
     startup, not here.
     """
 
     enable_file_logging: bool = True
     enable_job_persistence: bool = True
+    enable_checkpoint_persistence: bool = True
     enable_telemetry: bool = True
 
 
@@ -347,6 +349,7 @@ class DccServerOptions:
         # observability kwargs
         enable_file_logging: bool = True,
         enable_job_persistence: bool = True,
+        enable_checkpoint_persistence: bool = True,
         enable_telemetry: bool = True,
         # diagnostics kwargs
         dcc_pid: int | None = None,
@@ -408,6 +411,7 @@ class DccServerOptions:
         observability = ObservabilityOptions(
             enable_file_logging=enable_file_logging,
             enable_job_persistence=enable_job_persistence,
+            enable_checkpoint_persistence=enable_checkpoint_persistence,
             enable_telemetry=enable_telemetry,
         )
         diagnostics = DiagnosticsOptions(

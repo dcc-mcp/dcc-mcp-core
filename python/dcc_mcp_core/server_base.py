@@ -43,6 +43,7 @@ from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
 from dcc_mcp_core._version_util import package_version
 from dcc_mcp_core.checkpoint import CheckpointStore
+from dcc_mcp_core.checkpoint import default_checkpoint_path
 from dcc_mcp_core.feedback import FeedbackStore
 from dcc_mcp_core.script_execution import ScriptExecutionContext
 
@@ -130,7 +131,9 @@ class DccServerBase:
         self._diagnostic_state = DiagnosticRuntimeState(options.dcc_name)
         self._feedback_store = FeedbackStore()
         self._script_execution_context = ScriptExecutionContext()
-        self._checkpoint_store = CheckpointStore()
+        self._checkpoint_store = CheckpointStore(
+            path=default_checkpoint_path(options.dcc_name) if obs.checkpoint_persistence else None
+        )
 
         # Resolve execution mode from the tagged union
         execution = resolve_execution_binding(options.execution.mode)
@@ -292,7 +295,13 @@ class DccServerBase:
         """Instance-owned checkpoint store for long-running adapter jobs."""
         store = self.__dict__.get("_checkpoint_store")
         if store is None:
-            store = CheckpointStore()
+            options = self.__dict__.get("_options")
+            if options is not None:
+                obs = resolve_observability_flags(options.observability)
+                path = default_checkpoint_path(options.dcc_name) if obs.checkpoint_persistence else None
+            else:
+                path = None
+            store = CheckpointStore(path=path)
             self._checkpoint_store = store
         return store
 

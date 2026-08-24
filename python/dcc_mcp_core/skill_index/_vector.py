@@ -53,11 +53,15 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
+from pathlib import Path
 from threading import RLock
 from typing import Iterable
 
 from dcc_mcp_core._typing import Protocol
 from dcc_mcp_core._typing import runtime_checkable
+from dcc_mcp_core.skill_index._embedding_cache import EmbeddingCache
+from dcc_mcp_core.skill_index._embedding_cache import default_embedding_cache_path
+from dcc_mcp_core.skill_index._embedding_cache import embedder_fingerprint
 from dcc_mcp_core.skill_index._protocol import SkillDocument
 from dcc_mcp_core.skill_index._protocol import SkillSearchHit
 from dcc_mcp_core.vector_embedder import Embedder
@@ -173,9 +177,21 @@ class VectorSkillIndex:
         *,
         embedder: Embedder | None = None,
         store: VectorStore | None = None,
+        embedding_cache_path: str | Path | None = None,
+        enable_embedding_cache: bool = True,
     ) -> None:
+        """Create an index with durable document embeddings by default.
+
+        Pass ``enable_embedding_cache=False`` for an explicit in-memory-only
+        lifecycle, or ``embedding_cache_path`` to select an operator-owned
+        cache location.
+        """
         self._embedder: Embedder = embedder if embedder is not None else HashedEmbedder()
         self._store: VectorStore = store if store is not None else InMemoryVectorStore()
+        self._embedding_cache = (
+            EmbeddingCache(embedding_cache_path or default_embedding_cache_path()) if enable_embedding_cache else None
+        )
+        self._embedder_fingerprint = embedder_fingerprint(self._embedder)
 
     def __len__(self) -> int:
         return len(self._store)
@@ -193,9 +209,20 @@ class VectorSkillIndex:
     def index(self, documents: Iterable[SkillDocument]) -> int:
         added = 0
         for doc in documents:
-            vec = self._embedder.embed(doc.corpus())
+            corpus = doc.corpus()
+            vec = (
+                self._embedding_cache.get(self._embedder_fingerprint, corpus, dim=self._embedder.dim)
+                if self._embedding_cache is not None
+                else None
+            )
+            if vec is None:
+                vec = self._embedder.embed(corpus)
+                if self._embedding_cache is not None:
+                    self._embedding_cache.put(self._embedder_fingerprint, corpus, vec)
             self._store.add(doc.skill_id, vec)
             added += 1
+        if self._embedding_cache is not None:
+            self._embedding_cache.flush()
         return added
 
     def remove(self, skill_id: str) -> bool:

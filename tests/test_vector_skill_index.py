@@ -295,6 +295,63 @@ def test_vector_index_accepts_custom_embedder_and_store() -> None:
     assert idx.store is store
 
 
+def test_vector_index_warm_start_skips_unchanged_document_embeddings(tmp_path) -> None:
+    class _CountingEmbedder:
+        dim = 2
+        model_name = "counting-v1"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def embed(self, text: str) -> array:
+            self.calls += 1
+            return array("d", [1.0, 0.0])
+
+        def embed_batch(self, texts):
+            return [self.embed(text) for text in texts]
+
+    cache_path = tmp_path / "skill-embeddings.json"
+    docs = _make_docs()
+    cold = _CountingEmbedder()
+    VectorSkillIndex(embedder=cold, embedding_cache_path=cache_path).index(docs)
+    assert cold.calls == len(docs)
+
+    warm = _CountingEmbedder()
+    VectorSkillIndex(embedder=warm, embedding_cache_path=cache_path).index(docs)
+    assert warm.calls == 0
+
+
+def test_vector_index_reembeds_only_changed_document_content(tmp_path) -> None:
+    class _CountingEmbedder:
+        dim = 2
+        model_name = "counting-v1"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def embed(self, text: str) -> array:
+            self.calls += 1
+            return array("d", [1.0, 0.0])
+
+        def embed_batch(self, texts):
+            return [self.embed(text) for text in texts]
+
+    cache_path = tmp_path / "skill-embeddings.json"
+    VectorSkillIndex(embedder=_CountingEmbedder(), embedding_cache_path=cache_path).index(_make_docs())
+    changed_docs = _make_docs()
+    changed_docs[0] = SkillDocument(
+        skill_id=changed_docs[0].skill_id,
+        name=changed_docs[0].name,
+        summary="Create two polygon spheres.",
+        tags=changed_docs[0].tags,
+    )
+    warm = _CountingEmbedder()
+
+    VectorSkillIndex(embedder=warm, embedding_cache_path=cache_path).index(changed_docs)
+
+    assert warm.calls == 1
+
+
 # ── OnnxEmbedder gating ────────────────────────────────────────────────
 
 
