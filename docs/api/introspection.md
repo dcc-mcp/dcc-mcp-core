@@ -63,10 +63,19 @@ Regex-search exported names in `module_name` (case-insensitive).
 introspect_eval(expression: str) -> dict
 ```
 
-Evaluate a read-only Python expression and return its repr. Only bare expressions allowed — no assignments, imports, or multi-statement code.
+Evaluate a bounded expression and return its repr. The accepted subset contains
+literals, bounded arithmetic and indexing, plus allowlisted pure builtins such
+as `len`, `range`, `sorted`, and `type`.
 
-::: warning
-`introspect_eval` has a lightweight guard against obvious statement patterns, but it evaluates code in the DCC interpreter. Use `SandboxPolicy` in production.
-:::
+Attribute access, comprehensions, imports, assignments, lambdas, dynamic
+builtin lookup, and unbounded container expansion are rejected before
+evaluation. Use `introspect_list_module`, `introspect_search`, and
+`introspect_signature` for DCC API discovery; `introspect_eval` cannot invoke
+DCC objects.
+
+```python
+introspect_eval("sorted([3, 1, 2], reverse=True)")
+# -> {"success": True, "context": {"repr": "[3, 2, 1]", ...}, ...}
+```
 
 **Returns:** `{"repr": str}` on success, or `{"success": False, "message": err}` on error.
