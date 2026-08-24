@@ -368,6 +368,10 @@ def main(radius: float, segments: int = 16, label: Optional[str] = None):
         "def main(value: int):\n    return value\nmain = lambda name: name\n",
         "from package import helper as main\ndef main(value: int):\n    return value\n",
         "if True:\n    def main(value: int):\n        return value\n",
+        "def main(value: int):\n    return value\ndel main\n",
+        "from package import *\ndef main(value: int):\n    return value\n",
+        "@decorate\ndef main(value: int):\n    return value\n",
+        "def main(value: int):\n    return value\nmatch 1:\n    case main:\n        pass\n",
     ],
 )
 def test_derive_script_parameters_schema_rejects_ambiguous_main_bindings(source: str) -> None:

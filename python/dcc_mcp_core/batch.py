@@ -376,6 +376,7 @@ class EvalContext:
         signal_module: Any | None = None
         old_handler: Any | None = None
         timer_installed = False
+        deadline_triggered = False
         if threading.current_thread() is threading.main_thread():
             try:
                 import signal
@@ -384,6 +385,8 @@ class EvalContext:
                     signal_module = signal
 
                     def _timeout_handler(signum: int, frame: Any) -> None:
+                        nonlocal deadline_triggered
+                        deadline_triggered = True
                         raise TimeoutError(f"EvalContext call exceeded {timeout_secs}s timeout")
 
                     old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
@@ -398,21 +401,24 @@ class EvalContext:
                 timer_installed = False
 
         started = time.monotonic()
+
+        def _deadline_exceeded() -> bool:
+            return deadline_triggered or time.monotonic() - started > timeout_secs
+
         try:
             try:
                 result = callback(*args, **kwargs)
             except BaseException as exc:
-                if not timer_installed and time.monotonic() - started > timeout_secs:
-                    raise TimeoutError(
-                        f"EvalContext call completed after the {timeout_secs}s timeout; "
-                        "safe preemption is unavailable on this runtime"
-                    ) from exc
+                if _deadline_exceeded():
+                    raise TimeoutError(f"EvalContext call exceeded the {timeout_secs}s timeout") from exc
                 raise
-            if not timer_installed and time.monotonic() - started > timeout_secs:
-                raise TimeoutError(
-                    f"EvalContext call completed after the {timeout_secs}s timeout; "
-                    "safe preemption is unavailable on this runtime"
+            if _deadline_exceeded():
+                detail = (
+                    ""
+                    if timer_installed
+                    else "; safe preemption is unavailable on this runtime, so execution completed synchronously"
                 )
+                raise TimeoutError(f"EvalContext call exceeded the {timeout_secs}s timeout{detail}")
             return result
         finally:
             if timer_installed and signal_module is not None:

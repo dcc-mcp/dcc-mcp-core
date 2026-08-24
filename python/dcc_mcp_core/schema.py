@@ -490,6 +490,7 @@ class _ScriptModuleBindingVisitor(ast.NodeVisitor):
 
     def __init__(self) -> None:
         self.bindings: list[tuple[str, ast.AST]] = []
+        self.has_wildcard_import = False
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.bindings.append((node.name, node))
@@ -506,7 +507,9 @@ class _ScriptModuleBindingVisitor(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         for alias in node.names:
-            if alias.name != "*":
+            if alias.name == "*":
+                self.has_wildcard_import = True
+            else:
                 self.bindings.append((alias.asname or alias.name, node))
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
@@ -515,8 +518,25 @@ class _ScriptModuleBindingVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
-        if isinstance(node.ctx, ast.Store):
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
             self.bindings.append((node.id, node))
+
+    def visit_MatchAs(self, node: ast.AST) -> None:
+        name = getattr(node, "name", None)
+        if isinstance(name, str):
+            self.bindings.append((name, node))
+        self.generic_visit(node)
+
+    def visit_MatchStar(self, node: ast.AST) -> None:
+        name = getattr(node, "name", None)
+        if isinstance(name, str):
+            self.bindings.append((name, node))
+
+    def visit_MatchMapping(self, node: ast.AST) -> None:
+        rest = getattr(node, "rest", None)
+        if isinstance(rest, str):
+            self.bindings.append((rest, node))
+        self.generic_visit(node)
 
 
 def _script_annotation_name(node: ast.AST) -> str | None:
@@ -614,11 +634,13 @@ def derive_script_parameters_schema(
         return None
     binding_visitor = _ScriptModuleBindingVisitor()
     binding_visitor.visit(module)
+    if binding_visitor.has_wildcard_import:
+        return None
     matching_bindings = [node for name, node in binding_visitor.bindings if name == function_name]
     if len(matching_bindings) != 1:
         return None
     function = matching_bindings[0]
-    if not isinstance(function, ast.FunctionDef) or function not in module.body:
+    if not isinstance(function, ast.FunctionDef) or function not in module.body or function.decorator_list:
         return None
     if getattr(function.args, "posonlyargs", ()):
         return None
