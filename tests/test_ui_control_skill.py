@@ -1096,8 +1096,13 @@ def test_ui_control_cua_host_recording_accepts_trusted_adapter_scope(tmp_path: P
             },
         }
     )
+    state = backend.recording_state_tool({"session_id": "unreal-playtest"})
+    stopped = backend.recording_stop_tool({"session_id": "unreal-playtest"})
 
     assert started["success"] is True
+    assert state["success"] is True
+    assert stopped["success"] is True
+    assert len(_FakeHostClient.instances) == 1
     assert _FakeHostClient.instances[0].kwargs["dcc_type"] == "unreal"
     assert _FakeHostClient.instances[0].kwargs["process_id"] == 4242
     assert _FakeHostClient.instances[0].kwargs["window_handle"] == 9001
@@ -1112,6 +1117,20 @@ def test_ui_control_cua_host_requires_operator_bound_scope(monkeypatch: Any) -> 
     monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
 
     result = backend.snapshot_tool({"session_id": "untrusted", "process_id": 1234})
+
+    assert result["success"] is False
+    assert result["error"] == "permission_denied"
+    assert not _FakeHostClient.instances
+
+
+def test_ui_control_cua_host_recording_state_without_existing_session_requires_scope(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
+    _FakeHostClient.instances.clear()
+    monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_ID", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
+
+    result = backend.recording_state_tool({"session_id": "untrusted-recording"})
 
     assert result["success"] is False
     assert result["error"] == "permission_denied"
