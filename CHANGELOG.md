@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.12](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.11...v0.20.12) (2026-08-24)
+
+
+### Features
+
+* add feedback finding schema v1 ([d18d2e0](https://github.com/dcc-mcp/dcc-mcp-core/commit/d18d2e00f879a68f6f7002eabaf1e33a17c8380f))
+* expose verified tool postconditions ([#2340](https://github.com/dcc-mcp/dcc-mcp-core/issues/2340)) ([7ef03ae](https://github.com/dcc-mcp/dcc-mcp-core/commit/7ef03aeef15e9310f45f9aa221f69b09507c1f0d))
+* persist accepted feedback reports ([76fda9f](https://github.com/dcc-mcp/dcc-mcp-core/commit/76fda9f1e92366834ba4d9a5dfc8db62fd941baf))
+* query persisted feedback reports ([09ee788](https://github.com/dcc-mcp/dcc-mcp-core/commit/09ee788fa1094202efe74221809ac0ccdad6d264))
+
+
+### Bug Fixes
+
+* **ci:** bind backfills to release tags ([75be6f2](https://github.com/dcc-mcp/dcc-mcp-core/commit/75be6f2b211b61dc476cac95755162629f7e49c3))
+* **ci:** rebuild missing release assets ([75576a4](https://github.com/dcc-mcp/dcc-mcp-core/commit/75576a4874facf00b8b9122569e3b8255c78f877))
+* wait for verified adapter jobs ([#2345](https://github.com/dcc-mcp/dcc-mcp-core/issues/2345)) ([86906d1](https://github.com/dcc-mcp/dcc-mcp-core/commit/86906d1324d4d9ead6686c26e52356f0b43611dd))
+
 ## [0.20.11](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.10...v0.20.11) (2026-08-23)
 
 
