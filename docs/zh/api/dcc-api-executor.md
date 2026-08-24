@@ -87,6 +87,29 @@ from dcc_mcp_core import (
 
 `output` 为脚本顶层 `return` 返回的值（最后一行表达式不会隐式返回）。
 
+### `.execute_params({file_path, params, ...}) -> dict`
+
+需要反复调整参数时，只物化一次带类型的脚本，然后以结构化参数调用入口：
+
+```python
+script = materialize_script(
+    "def main(scale: float, copies: int = 1):\n"
+    "    return {'value': scale * copies}\n",
+    dcc_type="maya",
+    instance_id="maya-local",
+    session_id="task-42",
+    reuse=True,
+    reuse_key="scale-assets",
+)
+executor.execute_params({"file_path": script.file_path, "params": {"scale": 2.5, "copies": 4}})
+```
+
+物化结果会公开通过静态分析得到的 `parameters_schema`。`execute_params`
+在导入脚本前按该契约校验 `params`，随后调用 `main(**params)`。同一文件使用
+不同参数不会重写文件，并返回
+`context.materialized_script.reused=true`。可选的 `sha256` 用于校验内容完整性。
+未传 `params` 的调用继续保持原有的沙箱内联脚本/顶层 `return` 行为。
+
 ## `register_dcc_api_executor(server, executor, *, search_tool_name="dcc_search", execute_tool_name="dcc_execute") -> None`
 
 在 `server.start()` **之前**在 `McpHttpServer` 上注册这两个工具。工具名可覆盖，用于多 DCC gateway 消歧（`maya_search`、`blender_search`）。

@@ -68,7 +68,9 @@ import re
 from typing import Any
 
 from dcc_mcp_core import json_dumps
+from dcc_mcp_core._server.inprocess_executor import run_skill_script
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
+from dcc_mcp_core.skills_helper import ToolValidator
 
 logger = logging.getLogger(__name__)
 
@@ -281,12 +283,42 @@ class DccApiExecutor:
                 reuse=_optional_bool(params, "reuse", default=False),
                 reuse_key=_optional_string(params, "reuse_key"),
             )
-            ctx = EvalContext(
-                self._dispatcher,
-                sandbox=True,
-                timeout_secs=script.timeout_secs,
-            )
-            result = ctx.run(script.code)
+        except (FileNotFoundError, TypeError, ValueError) as exc:
+            return {
+                "success": False,
+                "message": f"Script parameters are invalid on {self._dcc_name}.",
+                "error": str(exc),
+            }
+
+        if script.params_provided:
+            try:
+                if script.file_path is None:
+                    raise ValueError("params require a file-backed script")
+                if script.parameters_schema is None:
+                    raise ValueError("params require a fully typed main(...) entry point")
+                valid, errors = ToolValidator.from_schema_json(
+                    json_dumps(script.parameters_schema),
+                ).validate(json_dumps(script.params))
+                if not valid:
+                    raise ValueError(f"params failed schema validation: {'; '.join(errors)}")
+            except (TypeError, ValueError) as exc:
+                return {
+                    "success": False,
+                    "message": f"Script parameters are invalid on {self._dcc_name}.",
+                    "error": str(exc),
+                }
+
+        try:
+            if script.params_provided:
+                assert script.file_path is not None
+                result = run_skill_script(script.file_path, script.params)
+            else:
+                ctx = EvalContext(
+                    self._dispatcher,
+                    sandbox=True,
+                    timeout_secs=script.timeout_secs,
+                )
+                result = ctx.run(script.code)
             materialized_context = script.materialized_context()
             context = {"materialized_script": materialized_context} if materialized_context is not None else {}
             return {
@@ -295,19 +327,13 @@ class DccApiExecutor:
                 "output": result,
                 "context": context,
             }
-        except (FileNotFoundError, TypeError, ValueError) as exc:
-            return {
-                "success": False,
-                "message": f"Script parameters are invalid on {self._dcc_name}.",
-                "error": str(exc),
-            }
         except TimeoutError as exc:
             return {
                 "success": False,
                 "message": f"Script timed out on {self._dcc_name}.",
                 "error": str(exc),
             }
-        except RuntimeError as exc:
+        except Exception as exc:
             return {
                 "success": False,
                 "message": f"Script failed on {self._dcc_name}.",
@@ -356,8 +382,10 @@ def register_dcc_api_executor(
         f"When to use: when you need to run multiple {dcc} API calls in one round-trip "
         f"to reduce token usage (~37% reduction vs individual calls). "
         f"How to use: pass file_path when possible; inline code is materialized "
-        f"before execution unless script_materialization_policy=off. "
-        f"Scripts are sandboxed and time-limited."
+        f"before execution unless script_materialization_policy=off. Pass params "
+        f"to call a typed file-backed main(**params) entry point. "
+        f"Legacy inline scripts are sandboxed and time-limited; typed entry points "
+        f"use the established skill-script runtime."
     )
 
     search_schema = json_dumps(
@@ -395,6 +423,14 @@ def register_dcc_api_executor(
                 "script_path": {
                     "type": "string",
                     "description": "Deprecated alias for file_path",
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Arguments for a typed file-backed main(**params) entry point",
+                },
+                "sha256": {
+                    "type": "string",
+                    "description": "Optional expected SHA-256 digest for code or file_path",
                 },
                 "script_materialization_policy": {
                     "type": "string",

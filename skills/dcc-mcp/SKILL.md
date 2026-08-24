@@ -402,9 +402,9 @@ Native MCP/REST clients may subscribe to `/v1/jobs/{job_id}/events`; otherwise k
 Do not create a scheduled task by default. After an explicit cross-session monitoring request, schedule only a one-shot status check for that ID and stop it at terminal state.
 During a host reload or gateway restart, keep the ID because status stays routable; `--wait` reports `control_plane_reconnecting` then `wait_recovery` and returns `tracking_status=owner_exited` when the DCC/sidecar owner is gone; never resubmit the render or cook.
 
-Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside
-the `--json` object. Do not pass them as top-level CLI flags unless the CLI adds
-an explicit first-class flag later.
+Tool-specific fields (`code`, `file_path`, `radius`, and similar) belong inside the `--json` object; do not pass them as top-level CLI flags unless the CLI adds an explicit first-class flag later.
+
+For materialized escape-hatch scripts, generate one typed `def main(...)`, materialize it with `reuse=true` plus a stable `reuse_key`, inspect `parameters_schema`, then iterate on the same `file_path` by changing only `params`; never bake varying values into regenerated source, and when supported repeat `sha256` as an integrity assertion and require `context.materialized_script.reused=true`.
 
 If the selected instance has an active pool lease, every `call` must carry the
 same `lease_owner` through `--meta-json`. Missing owner metadata fails with
