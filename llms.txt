@@ -67,8 +67,9 @@ legacy unsigned staging, and does not replace a running server.
 
 **Building a DCC-MCP adapter?** Follow the release train docs in order:
 1. [`new-adapter-onboarding.md`](docs/guide/new-adapter-onboarding.md) — scaffolding template
-2. [`adapter-release-checklist.md`](docs/guide/adapter-release-checklist.md) — release gate checklist
-3. [`adapter-compatibility-matrix.md`](docs/guide/adapter-compatibility-matrix.md) — per-DCC version table
+2. [`adapter-install-sop.md`](docs/guide/adapter-install-sop.md) — install/status/verify/uninstall/upgrade contract
+3. [`adapter-release-checklist.md`](docs/guide/adapter-release-checklist.md) — release gate checklist
+4. [`adapter-compatibility-matrix.md`](docs/guide/adapter-compatibility-matrix.md) — per-DCC version table
 
 ---
 

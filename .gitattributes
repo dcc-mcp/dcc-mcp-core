@@ -1,1 +1,2 @@
 .githooks/* text eol=lf
+python/dcc_mcp_core/schemas/*.schema.json text eol=lf

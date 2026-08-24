@@ -49,6 +49,8 @@ dcc-mcp-ui-control-server = "dcc_mcp_core.ui_control_server:cli"
 
 [project.optional-dependencies]
 test = [
+    "jsonschema>=4.18; python_version>='3.8'",
+    "jsonschema==4.17.3; python_version<'3.8'",  # Last jsonschema line supporting the Python 3.7 LTS gate
     "pytest>=8.3.0; python_version>='3.8'",  # CVE-2025-71176: fixed line for maintained Python runtimes
     "pytest==7.4.4,<8.0; python_version<'3.8'",  # Last pytest line supporting the Python 3.7 LTS gate
     "pytest-cov>=4.0; python_version>='3.8'",

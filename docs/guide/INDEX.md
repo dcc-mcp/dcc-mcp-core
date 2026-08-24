@@ -75,6 +75,7 @@ Documentation contract:
 | [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
 | [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |
 | [adapter-install-lifecycle.md](adapter-install-lifecycle.md) | Import-light adapter install/uninstall helpers for registry query, sidecar stop, and Windows native-file lock handling |
+| [adapter-install-sop.md](adapter-install-sop.md) | Install SOP v1: shared command, JSON result, exit-code, receipt, verification, and rollback contract |
 
 ## Operator & deployment
 
@@ -133,6 +134,7 @@ Documentation contract:
 |----------|---------|
 | [adapter-release-checklist.md](adapter-release-checklist.md) | Release train checklist: core pin, sidecar metadata, gateway smoke, release-please config |
 | [new-adapter-onboarding.md](new-adapter-onboarding.md) | Onboarding template: pyproject deps, adapter_version, readiness, CI/CD, first skill |
+| [adapter-install-sop.md](adapter-install-sop.md) | Adapter-owned installation contract and reusable `install.md` template |
 | [adapter-compatibility-matrix.md](adapter-compatibility-matrix.md) | Per-DCC compatibility rows: core pin, adapter version, DCC min version, dispatcher pattern |
 
 ## Integration

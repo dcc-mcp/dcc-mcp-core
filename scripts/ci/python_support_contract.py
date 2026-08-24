@@ -102,6 +102,18 @@ def validate_contract(contract: dict[str, Any]) -> None:
         row = distributions.get(name, {})
         if row.get("pyproject") != pyproject or row.get("support_profile") != "lts":
             raise ContractError(f"distribution {name} must project the Python LTS profile")
+        resources = row.get("wheel_resources", [])
+        if not isinstance(resources, list) or not all(isinstance(resource, dict) for resource in resources):
+            raise ContractError(f"distribution {name} wheel_resources must be a list of objects")
+        for resource in resources:
+            for key in ("member", "source", "canonical_url", "sha256"):
+                if not isinstance(resource.get(key), str) or not resource[key]:
+                    raise ContractError(f"distribution {name} wheel resource {key} must be a non-empty string")
+            digest = resource["sha256"]
+            if len(digest) != 64 or digest != digest.lower() or any(char not in "0123456789abcdef" for char in digest):
+                raise ContractError(f"distribution {name} wheel resource sha256 must be lowercase hex")
+            if not resource["canonical_url"].startswith("https://"):
+                raise ContractError(f"distribution {name} wheel resource canonical_url must use HTTPS")
 
     semantic = optional_dependencies.get("semantic", {})
     if semantic.get("owner_distribution") != "dcc-mcp-core":
@@ -153,7 +165,7 @@ def validate_contract(contract: dict[str, Any]) -> None:
     if "dcc_mcp_core._core" in smoke["lite_py37"]:
         raise ContractError("lite_py37 smoke must not require dcc_mcp_core._core")
 
-    for name in ("pytest", "pytest_xdist", "typing_extensions"):
+    for name in ("jsonschema_py37", "pytest", "pytest_xdist", "typing_extensions"):
         if not toolchain.get(name):
             raise ContractError(f"test_toolchain.{name} is required")
 
@@ -323,6 +335,7 @@ def python37_test_requirements(contract: dict[str, Any]) -> list[str]:
     """Return the pinned test tools used by every Python 3.7 CI profile."""
     toolchain = contract["test_toolchain"]
     return [
+        f"jsonschema=={toolchain['jsonschema_py37']}",
         f"pytest=={toolchain['pytest']}",
         f"pytest-xdist=={toolchain['pytest_xdist']}",
         f"typing-extensions=={toolchain['typing_extensions']}",

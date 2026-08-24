@@ -65,6 +65,7 @@ def expected_fragments(contract: Mapping[str, Any]) -> dict[str, list[str]]:
             "--extra semantic",
             "--python-version 3.7",
             "for platform in windows x86_64-manylinux_2_28",
+            "pip install pytest pytest-xdist jsonschema",
             f'python-version: "{native["python"]}"',
         ],
         ".github/workflows/build-wheels.yml": [
@@ -80,7 +81,10 @@ def expected_fragments(contract: Mapping[str, Any]) -> dict[str, list[str]]:
             'profile="semantic_native_py37"',
             'profile="semantic_abi3"',
         ],
-        ".github/workflows/python-matrix-full.yml": full_matrix_versions,
+        ".github/workflows/python-matrix-full.yml": [
+            *full_matrix_versions,
+            "pip install pytest pytest-xdist jsonschema",
+        ],
         ".github/actions/build-wheel/action.yml": [
             "check_python_wheel.py",
             "smoke_python37_runtime.py --profile native_py37",
@@ -95,6 +99,8 @@ def expected_fragments(contract: Mapping[str, Any]) -> dict[str, list[str]]:
         [
             f'python_version = "{support["minimum_python"]}"',
             f'target-version = "py{support["minimum_python"].replace(".", "")}"',
+            "jsonschema>=4.18; python_version>='3.8'",
+            f"jsonschema=={toolchain['jsonschema_py37']}; python_version<'3.8'",
             f"pytest=={toolchain['pytest']},<8.0; python_version<'3.8'",
             f"pytest-xdist=={toolchain['pytest_xdist']}; python_version<'3.8'",
             f"typing-extensions=={toolchain['typing_extensions']}; python_version<'3.8'",

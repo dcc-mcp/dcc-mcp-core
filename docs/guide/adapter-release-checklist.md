@@ -15,7 +15,42 @@ in order. Tick every box before merging the release PR.
 - [ ] Compatibility matrix in the core docs has been updated with the new row
       (see [Adapter Compatibility Matrix](adapter-compatibility-matrix.md)).
 
-## 1. Required Sidecar Metadata
+## 1. Install SOP v1
+
+The release MUST conform to
+[Adapter Install SOP v1](adapter-install-sop.md):
+
+- [ ] Root `install.md` is based on
+      [the reusable template](templates/adapter-install.md) and contains
+      Requirements / Supported versions / Agent quick path / Manual path /
+      Verify / Upgrade / Uninstall / Troubleshooting.
+- [ ] The adapter exposes
+      `dcc-mcp-<dcc> install|status|verify|uninstall|upgrade` with the uniform
+      `--json --yes --dry-run --dcc-path --python` flags where applicable.
+- [ ] Every verb emits schema version 1 and validates against the packaged
+      `dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json` resource.
+- [ ] Exit codes keep the `0/10/20/30/40/50` mapping exported by
+      `dcc_mcp_core.deployment`.
+- [ ] Install and upgrade stage changes, preserve the previous state until
+      commit, and restore that state plus its receipt on failure.
+- [ ] Uninstall is receipt-driven, idempotent, and refuses ambiguous
+      unreceipted user-owned files.
+- [ ] Verify checks artifact digest, target-interpreter package/import,
+      host enablement/bootstrap state, and a typed readiness probe when the
+      host can run. `directly_usable` is never inferred from copied files or a
+      process alone.
+- [ ] Bootstrap failures remain visible through `capture_bootstrap_errors` or
+      an equivalent structured host-owned record.
+- [ ] CI proves plan -> execute -> verify -> status -> uninstall, dry-run
+      no-mutation, receipt round-trip, idempotency, and rollback fault
+      injection. Any unavailable live-host smoke is stated as a release gap.
+- [ ] Catalog `instructions_url` points to:
+      `https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-<dcc>/main/install.md`.
+
+Do not substitute a bespoke installer executable, prose-only next steps,
+delete-then-copy overwrite, or README-only instructions.
+
+## 2. Required Sidecar Metadata
 
 Every adapter that launches a sidecar (`dcc-mcp-server sidecar`) must expose
 these metadata fields in the discovery and registry records:
@@ -31,7 +66,7 @@ these metadata fields in the discovery and registry records:
 Declare these in the adapter's `start_server()` or composition root so they
 flow into `gateway://instances` and `POST /v1/instances`.
 
-## 2. Gateway Smoke Steps
+## 3. Gateway Smoke Steps
 
 Copy these steps from `TESTING_AND_RELEASE.md` into the release PR notes.
 Adapt the port and DCC name as needed:
@@ -66,7 +101,7 @@ curl -s http://127.0.0.1:9765/admin/api/health | python -m json.tool
 If the real DCC is unavailable, mock the HTTP test in CI and document the manual
 smoke command in the adapter repository.
 
-## 3. Release-Please & Tag Naming
+## 4. Release-Please & Tag Naming
 
 ### Tag Convention
 
@@ -116,7 +151,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) as the source
 of truth. Merge the release-please PR to generate the changelog. Do not write
 changelog entries by hand.
 
-## 4. Validation Gates
+## 5. Validation Gates
 
 Before the release PR is merged, run these gates:
 
@@ -124,10 +159,11 @@ Before the release PR is merged, run these gates:
 - [ ] `ruff format --check src tests`
 - [ ] `pytest` (unit + integration)
 - [ ] Release-please PR guard passes (if the repo has one)
-- [ ] Gateway smoke commands run without error (Section 2)
+- [ ] Gateway smoke commands run without error (Section 3)
+- [ ] Install SOP v1 checks and JSON-schema contract tests pass (Section 1)
 - [ ] Core dependency range is still valid: `>=0.<core_latest>.0,<1.0.0`
 
-## 5. PR Notes Template
+## 6. PR Notes Template
 
 The release PR description must include:
 
@@ -138,7 +174,7 @@ The release PR description must include:
 
 ## Validation
 
-<!-- Paste the gateway smoke output (Section 2) -->
+<!-- Paste the gateway smoke output (Section 3) -->
 
 ## Compatibility
 
@@ -151,7 +187,7 @@ The release PR description must include:
 <!-- Any live-DCC test gap, known issues, deferred features -->
 ```
 
-## 6. Post-Release
+## 7. Post-Release
 
 - [ ] Compatibility matrix row is merged into core `main`.
 - [ ] If the release changes an established adapter pattern (dispatcher wiring,

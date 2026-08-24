@@ -76,10 +76,19 @@ def test_native_matrix_and_test_toolchain_are_generated_from_contract() -> None:
     ]
     assert [row["platform"] for row in matrix["include"] if row["full_suite"]] == ["linux-x86_64"]
     assert python37_test_requirements(contract) == [
+        "jsonschema==4.17.3",
         "pytest==7.4.4",
         "pytest-xdist==3.5.0",
         "typing-extensions==4.7.1",
     ]
+
+
+def test_jsonschema_test_dependency_is_projected_for_all_supported_python_profiles() -> None:
+    contract = load_contract(_REPO_ROOT)
+    fragments = expected_fragments(contract)["pyproject.toml"]
+
+    assert "jsonschema>=4.18; python_version>='3.8'" in fragments
+    assert "jsonschema==4.17.3; python_version<'3.8'" in fragments
 
 
 def test_native_matrix_rejects_runner_and_boolean_drift() -> None:

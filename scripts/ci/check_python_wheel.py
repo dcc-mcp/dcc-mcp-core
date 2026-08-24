@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from email.parser import Parser
 import fnmatch
+import hashlib
 from pathlib import Path
 import re
 import sys
@@ -91,6 +92,22 @@ def _core_ui_control_contract_errors(archive: zipfile.ZipFile, names: list[str])
     return errors
 
 
+def _wheel_resource_errors(archive: zipfile.ZipFile, resources: list[dict[str, str]]) -> list[str]:
+    """Validate byte-exact public resources without newline normalization."""
+    errors: list[str] = []
+    names = set(archive.namelist())
+    for resource in resources:
+        member = resource["member"]
+        if member not in names:
+            errors.append(f"wheel is missing required resource {member!r}")
+            continue
+        actual = hashlib.sha256(archive.read(member)).hexdigest()
+        expected = resource["sha256"]
+        if actual != expected:
+            errors.append(f"wheel resource {member} SHA-256 is {actual}, expected {expected}")
+    return errors
+
+
 def validate_wheel(
     path: Path,
     profile: str,
@@ -106,6 +123,7 @@ def validate_wheel(
     if platform_policy is None:
         return [f"profile {profile!r} does not support platform {platform!r}"]
     expected_tag = profile_contract["wheel_tag"]
+    expected_distribution = profile_contract["distribution"]
 
     try:
         with zipfile.ZipFile(str(path)) as archive:
@@ -121,10 +139,11 @@ def validate_wheel(
                 and actual_release >= (0, 19, 63)
             ):
                 errors.extend(_core_ui_control_contract_errors(archive, names))
+            distribution_contract = contract["distributions"][expected_distribution]
+            errors.extend(_wheel_resource_errors(archive, distribution_contract.get("wheel_resources", [])))
     except (OSError, ValueError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
         return [f"cannot inspect wheel: {exc}"]
 
-    expected_distribution = profile_contract["distribution"]
     actual_distribution = str(metadata.get("Name", "")).lower().replace("_", "-")
     if actual_distribution != expected_distribution:
         errors.append(f"Name is {actual_distribution!r}, expected {expected_distribution!r}")

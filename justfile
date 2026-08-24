@@ -219,7 +219,7 @@ build-py37 *EXTRA:
 
 # Install dev/test dependencies
 install-dev-deps:
-    pip install maturin pytest pytest-cov anyio ruff
+    pip install maturin pytest pytest-cov anyio jsonschema ruff
 
 # ── Python tests ──────────────────────────────────────────────────────────────
 
