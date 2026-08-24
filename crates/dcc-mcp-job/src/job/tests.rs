@@ -5,7 +5,9 @@ use crate::job_storage::{JobFilter, JobStorage, JobStorageError};
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 #[derive(Debug, Default)]
 struct FailingStorage {
@@ -27,6 +29,51 @@ impl JobStorage for FailingStorage {
         let attempt = self.puts.fetch_add(1, Ordering::SeqCst);
         let suffix = if self.alternating { attempt % 2 } else { 0 };
         Err(JobStorageError::Backend(format!("readonly-{suffix}")))
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        Ok(0)
+    }
+}
+
+struct BlockingStorage {
+    entered: mpsc::SyncSender<()>,
+    release: std::sync::Mutex<mpsc::Receiver<()>>,
+}
+
+impl std::fmt::Debug for BlockingStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BlockingStorage")
+            .finish_non_exhaustive()
+    }
+}
+
+impl JobStorage for BlockingStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        self.entered.send(()).unwrap();
+        self.release.lock().unwrap().recv().unwrap();
+        Ok(())
     }
 
     fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
@@ -446,4 +493,35 @@ fn different_put_failures_do_not_trip_identical_error_latch() {
         JobPersistenceState::Degraded
     );
     assert_eq!(jobs.persistence_status().consecutive_failures, 1);
+}
+
+#[test]
+fn persistence_status_does_not_wait_for_a_blocked_storage_write() {
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let storage = Arc::new(BlockingStorage {
+        entered: entered_tx,
+        release: std::sync::Mutex::new(release_rx),
+    });
+    let jobs = Arc::new(JobManager::with_storage(storage));
+
+    let writer_jobs = jobs.clone();
+    let writer = thread::spawn(move || writer_jobs.create("scene.inspect"));
+    entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("storage write did not start");
+
+    let (status_tx, status_rx) = mpsc::sync_channel(1);
+    let status_jobs = jobs.clone();
+    let status_reader = thread::spawn(move || {
+        status_tx.send(status_jobs.persistence_status()).unwrap();
+    });
+    let status = status_rx.recv_timeout(Duration::from_secs(2));
+
+    release_tx.send(()).unwrap();
+    writer.join().unwrap();
+    status_reader.join().unwrap();
+
+    let status = status.expect("persistence health blocked behind storage I/O");
+    assert_eq!(status.state, JobPersistenceState::Healthy);
 }

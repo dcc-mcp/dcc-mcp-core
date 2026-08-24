@@ -133,11 +133,18 @@ impl JobManager {
         let Some(storage) = &self.storage else {
             return;
         };
+        if !self.persistence.lock().can_write() {
+            return;
+        }
+        let result = storage.put(job);
         let mut persistence = self.persistence.lock();
+        // Another in-flight write may have crossed the sticky failure
+        // threshold while this backend call was running. Do not recover or
+        // mutate a circuit that has already been disabled.
         if !persistence.can_write() {
             return;
         }
-        match storage.put(job) {
+        match result {
             Ok(()) => {
                 if persistence.record_success() {
                     tracing::info!("job persistence recovered after a transient write failure");
