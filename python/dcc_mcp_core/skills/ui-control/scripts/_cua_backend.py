@@ -477,6 +477,7 @@ def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "output_dir",
         "record_video",
         "policy",
+        "trusted_adapter_scope",
     }
     if set(params) - allowed:
         return skill_error(
