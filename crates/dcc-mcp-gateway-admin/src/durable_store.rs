@@ -11,7 +11,10 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::{AdminAuditRecord, AgentContextTrust, DispatchTrace, LlmUsage, TokenTelemetry};
+use crate::{
+    AdminAuditRecord, AgentContextTrust, DispatchTrace, LlmUsage, ScriptExecutionTelemetry,
+    TokenTelemetry,
+};
 
 /// Bounded JSONL store for audit records and dispatch traces.
 #[derive(Debug, Clone)]
@@ -68,6 +71,8 @@ struct PersistedAuditRecord {
     success: bool,
     error: Option<String>,
     duration_ms: Option<u64>,
+    #[serde(default)]
+    script_execution: Option<ScriptExecutionTelemetry>,
     #[serde(default)]
     token_accounting: Option<TokenTelemetry>,
     #[serde(default)]
@@ -239,6 +244,7 @@ impl From<&AdminAuditRecord> for PersistedAuditRecord {
             success: record.success,
             error: record.error.clone(),
             duration_ms: record.duration_ms,
+            script_execution: record.script_execution.clone(),
             token_accounting: record.token_accounting.clone(),
             llm_usage: record.llm_usage.clone(),
         }
@@ -275,6 +281,7 @@ impl From<PersistedAuditRecord> for AdminAuditRecord {
             success: record.success,
             error: record.error,
             duration_ms: record.duration_ms,
+            script_execution: record.script_execution,
             token_accounting: record.token_accounting,
             llm_usage: record.llm_usage,
         }
@@ -315,6 +322,7 @@ mod tests {
             success: true,
             error: None,
             duration_ms: Some(7),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         }
@@ -361,6 +369,7 @@ mod tests {
             spans: Vec::new(),
             input: None,
             output: None,
+            script_execution: None,
             token_accounting: Some(token_telemetry()),
             llm_usage: None,
         };

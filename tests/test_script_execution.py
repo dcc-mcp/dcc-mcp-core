@@ -245,6 +245,7 @@ def test_file_backed_normalizer_preserves_structured_params_and_materialized_pro
     assert params.params_provided is True
     assert params.materialized_script is not None
     assert params.materialized_context()["reused"] is True
+    assert params.materialized_context()["reuse_key"] == "scale-tool"
     assert params.materialized_context()["parameters_schema"]["required"] == ["scale"]
 
     with pytest.raises(ValueError, match="sha256 does not match"):

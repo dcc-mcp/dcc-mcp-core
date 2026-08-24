@@ -80,6 +80,8 @@ def test_materialize_script_reuses_identical_content_when_requested(tmp_path: Pa
     assert first.file_path == second.file_path
     assert first.reused is False
     assert second.reused is True
+    assert first.reuse_key == "bootstrap"
+    assert second.to_dict()["reuse_key"] == "bootstrap"
 
 
 def test_materialize_script_surfaces_typed_main_parameters_without_execution(tmp_path: Path) -> None:

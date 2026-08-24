@@ -211,6 +211,7 @@ pub(in crate::gateway::admin) mod admin_tests {
             success,
             error: error.map(str::to_string),
             duration_ms: Some(12),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         }
@@ -1097,6 +1098,7 @@ filters:
                 success: true,
                 error: None,
                 duration_ms: Some(42),
+                script_execution: None,
                 token_accounting: Some(token_telemetry("toon", 100, 40)),
                 llm_usage: None,
             },
@@ -1128,6 +1130,7 @@ filters:
                 success: false,
                 error: Some("timeout".to_string()),
                 duration_ms: None,
+                script_execution: None,
                 token_accounting: None,
                 llm_usage: None,
             },
@@ -1222,6 +1225,7 @@ filters:
             success: true,
             error: None,
             duration_ms: Some(100),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         }]));
@@ -1517,6 +1521,7 @@ filters:
             success: true,
             error: None,
             duration_ms: Some(11),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         }]));
@@ -1546,6 +1551,7 @@ filters:
             spans: vec![],
             input: None,
             output: None,
+            script_execution: None,
             token_accounting: Some(token_telemetry("toon", 100, 40)),
             llm_usage: None,
         });

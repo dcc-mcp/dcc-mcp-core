@@ -57,6 +57,9 @@ class EscapeHatchInvocation:
     tool_role: str
     reason_category: str
     reason: str
+    script_sha256: str | None = None
+    script_reused: bool | None = None
+    script_reuse_key: str | None = None
 
 
 class EscapeHatchPolicy:
@@ -110,12 +113,23 @@ class EscapeHatchPolicy:
                 "after confirming nothing typed matches the query",
             )
 
+        script = payload.get("materialized_script")
+        script_meta = script if isinstance(script, dict) else {}
         invocation = EscapeHatchInvocation(
             dcc_name=ctx.dcc_name,
             tool_name=_str(payload.get("tool_name")),
             tool_role=role or ESCAPE_HATCH_ROLE,
             reason_category=_categorise_reason(reason),
             reason=reason,
+            script_sha256=_script_sha256(
+                payload.get("script_sha256", script_meta.get("sha256")),
+            ),
+            script_reused=_optional_bool(
+                payload.get("script_reused", script_meta.get("reused")),
+            ),
+            script_reuse_key=_bounded_identifier(
+                payload.get("script_reuse_key", script_meta.get("reuse_key")),
+            ),
         )
         self._observed.append(invocation)
         if self._telemetry_sink is not None:
@@ -144,6 +158,22 @@ def _str(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _script_sha256(value: Any) -> str | None:
+    text = _str(value).strip().lower()
+    if len(text) != 64 or any(char not in "0123456789abcdef" for char in text):
+        return None
+    return text
+
+
+def _optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _bounded_identifier(value: Any) -> str | None:
+    text = _str(value).strip()
+    return text[:128] if text else None
 
 
 __all__ = ["ESCAPE_HATCH_ROLE", "HOST_SCRIPT_RISK", "EscapeHatchInvocation", "EscapeHatchPolicy"]

@@ -617,6 +617,7 @@ mod tests {
             success,
             error: (!success).then(|| "boom".to_string()),
             duration_ms: Some(40),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         }

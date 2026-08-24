@@ -422,6 +422,7 @@ def _materialized_script_context(
             "session_id": materialized_script.session_id,
             "tool_call_id": materialized_script.tool_call_id,
             "correlation_id": materialized_script.correlation_id,
+            "reuse_key": materialized_script.reuse_key,
             "parameters_schema": materialized_script.parameters_schema,
         }
     return dict(materialized_script)

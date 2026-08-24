@@ -319,6 +319,7 @@ async fn test_admin_workflows_group_steps_and_quality_signals() {
         spans: vec![],
         input: None,
         output: None,
+        script_execution: None,
         token_accounting: Some(token_telemetry("toon", 100, 40)),
         llm_usage: None,
     });
@@ -371,6 +372,7 @@ async fn test_admin_workflows_group_steps_and_quality_signals() {
         success: false,
         error: Some("document closed".into()),
         duration_ms: Some(9),
+        script_execution: None,
         token_accounting: None,
         llm_usage: None,
     }]));
@@ -495,6 +497,7 @@ async fn test_admin_tasks_and_debug_bundle_from_trace() {
             1024,
         )),
         output: None,
+        script_execution: None,
         token_accounting: None,
         llm_usage: None,
     });
@@ -519,6 +522,7 @@ async fn test_admin_tasks_and_debug_bundle_from_trace() {
         spans: vec![],
         input: None,
         output: None,
+        script_execution: None,
         token_accounting: None,
         llm_usage: None,
     });
@@ -560,6 +564,7 @@ async fn test_admin_tasks_and_debug_bundle_from_trace() {
                     .into(),
             ),
             duration_ms: Some(25),
+            script_execution: None,
             token_accounting: Some(token_telemetry("toon", 100, 40)),
             llm_usage: None,
         }]));

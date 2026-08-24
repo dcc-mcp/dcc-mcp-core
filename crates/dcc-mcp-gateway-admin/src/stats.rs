@@ -803,6 +803,7 @@ mod tests {
             spans: vec![],
             input: None,
             output: None,
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         }
