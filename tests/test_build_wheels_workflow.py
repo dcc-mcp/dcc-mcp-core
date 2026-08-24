@@ -61,6 +61,11 @@ def test_manual_backfill_rebuilds_from_tag_when_release_has_no_core_assets() -> 
     classifier_commands = "\n".join(step.get("run", "") for step in classifier["steps"])
     assert "gh release view" in classifier_commands
     assert "--classify-assets" in classifier_commands
+    assert 'if [ "$CHECKOUT_REF" != "$RELEASE_TAG" ]' in classifier_commands
+    release_read = next(
+        step for step in classifier["steps"] if step.get("name") == "Read dcc-mcp-core GitHub Release assets"
+    )
+    assert release_read["env"]["CHECKOUT_REF"] == "${{ inputs.checkout-ref }}"
     classifier_checkout = next(step for step in classifier["steps"] if step.get("uses") == "actions/checkout@v6")
     assert classifier_checkout["with"]["ref"] == "${{ github.workflow_sha }}"
 
