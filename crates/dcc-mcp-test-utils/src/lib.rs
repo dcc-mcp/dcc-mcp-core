@@ -45,6 +45,14 @@ pub mod skill_rest {
 /// `remove_var` race on the process-global environment table.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+fn lock_env() -> MutexGuard<'static, ()> {
+    // The panicking test already failed; recover the guard so unrelated tests
+    // can restore their own environment instead of failing secondarily.
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// RAII guard that sets an environment variable and restores the previous
 /// value (or removes it) when dropped.
 ///
@@ -60,7 +68,7 @@ impl EnvVarGuard {
     /// Set `key` to `value` (or remove it when `value` is `None`), saving
     /// the previous value so it can be restored on drop.
     pub fn set(key: &'static str, value: Option<&str>) -> Self {
-        let lock = ENV_LOCK.lock().expect("env lock poisoned");
+        let lock = lock_env();
         let previous = std::env::var(key).ok();
         // SAFETY: serialised by ENV_LOCK; the previous value is restored on
         // drop so no other test can observe the side-effect past this guard's
@@ -102,7 +110,7 @@ impl EnvVarsGuard {
     /// Set each var in `vars` to its corresponding value (or remove it
     /// when the value is `None`), saving all previous values.
     pub fn set(vars: &[(&'static str, Option<&str>)]) -> Self {
-        let lock = ENV_LOCK.lock().expect("env lock poisoned");
+        let lock = lock_env();
         let previous = vars
             .iter()
             .map(|(key, _)| (*key, std::env::var(key).ok()))
@@ -172,6 +180,20 @@ mod tests {
         ]);
         assert_eq!(std::env::var("DCC_MCP_TEST_UTILS_A").unwrap(), "1");
         assert_eq!(std::env::var("DCC_MCP_TEST_UTILS_B").unwrap(), "2");
+    }
+
+    #[test]
+    fn poisoned_env_lock_does_not_break_later_guard() {
+        const KEY: &str = "DCC_MCP_TEST_UTILS_POISON_RECOVERY";
+
+        let poisoner = std::thread::spawn(|| {
+            let _guard = EnvVarGuard::set(KEY, Some("before-panic"));
+            panic!("intentional test panic while holding the env lock");
+        });
+        assert!(poisoner.join().is_err());
+
+        let _guard = EnvVarGuard::set(KEY, Some("after-panic"));
+        assert_eq!(std::env::var(KEY).as_deref(), Ok("after-panic"));
     }
 }
 
