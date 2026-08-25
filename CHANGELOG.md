@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.16](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.15...v0.20.16) (2026-08-25)
+
+
+### Features
+
+* persist startup findings without request IDs ([7247033](https://github.com/dcc-mcp/dcc-mcp-core/commit/724703353604970ec875b98e491090b19f671bb2))
+
+
+### Bug Fixes
+
+* harden startup error capture ([35cf984](https://github.com/dcc-mcp/dcc-mcp-core/commit/35cf984e3ac86a47f0e35b18351d6f735a421e6d))
+* preserve startup error identity ([349fbe0](https://github.com/dcc-mcp/dcc-mcp-core/commit/349fbe07645b2c093df6b06b42394de66ef3e71d))
+
 ## [0.20.15](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.14...v0.20.15) (2026-08-25)
 
 
