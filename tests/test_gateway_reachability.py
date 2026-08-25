@@ -63,7 +63,8 @@ def _http_status(url: str) -> int:
 class TestAdminDefaults:
     """Admin/gateway defaults must match the documented Python API contract."""
 
-    def test_python_config_defaults_gateway_and_admin_on(self):
+    def test_python_config_defaults_gateway_and_admin_on(self, monkeypatch):
+        monkeypatch.delenv("DCC_MCP_GATEWAY_PORT", raising=False)
         config = McpHttpConfig(port=0, server_name="admin-defaults")
         assert config.gateway_port == 9765
         assert config.admin_enabled is True
@@ -116,9 +117,24 @@ class TestAdminDefaults:
 class TestInstanceListenerReachable:
     """Instance MCP listener must be reachable whenever ``.start()`` returns."""
 
+    def test_pytest_gateway_opt_out_reaches_native_config_and_start(self, monkeypatch):
+        """The public native config must honor the pytest gateway opt-out."""
+        monkeypatch.setenv("DCC_MCP_GATEWAY_PORT", "0")
+        config = McpHttpConfig(port=0, server_name="reach-py-no-gateway")
+        assert config.gateway_port == 0
+
+        server = McpHttpServer(_empty_registry(), config)
+        handle = server.start()
+        try:
+            assert handle.is_gateway is False
+            assert _wait_reachable("127.0.0.1", handle.port, budget=1.0)
+        finally:
+            handle.shutdown()
+
     def test_dedicated_default_reachable(self):
         """The Python default (dedicated spawn mode) must produce a reachable listener."""
         config = McpHttpConfig(port=0, server_name="reach-py-dedicated")
+        config.gateway_port = 0
         # Issue #303: Python default is "dedicated".
         assert config.spawn_mode == "dedicated"
         server = McpHttpServer(_empty_registry(), config)
@@ -133,6 +149,7 @@ class TestInstanceListenerReachable:
     def test_ambient_opt_out_reachable(self):
         """When the caller explicitly opts out of Dedicated mode it must still work."""
         config = McpHttpConfig(port=0, server_name="reach-py-ambient")
+        config.gateway_port = 0
         config.spawn_mode = "ambient"
         server = McpHttpServer(_empty_registry(), config)
         handle = server.start()
@@ -147,6 +164,7 @@ class TestInstanceListenerReachable:
     def test_repeated_start_shutdown_cycles(self, round_):
         """Starting/stopping several times must remain reachable every time."""
         config = McpHttpConfig(port=0, server_name=f"reach-py-cycle-{round_}")
+        config.gateway_port = 0
         server = McpHttpServer(_empty_registry(), config)
         handle = server.start()
         try:
@@ -180,6 +198,7 @@ class TestGILPressure:
             # Start server *after* GIL burners are active.
             time.sleep(0.05)
             config = McpHttpConfig(port=0, server_name="reach-py-gil")
+            config.gateway_port = 0
             server = McpHttpServer(_empty_registry(), config)
             handle = server.start()
             try:

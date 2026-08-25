@@ -1,5 +1,15 @@
 use dcc_mcp_http_types::config::{McpHttpConfig, ServerSpawnMode};
 
+const DEFAULT_GATEWAY_PORT: u16 = 9765;
+const GATEWAY_PORT_ENV: &str = "DCC_MCP_GATEWAY_PORT";
+
+fn gateway_port_from_env() -> u16 {
+    std::env::var(GATEWAY_PORT_ENV)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(DEFAULT_GATEWAY_PORT)
+}
+
 /// Build the Rust config backing `PyMcpHttpConfig.__new__`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_config(
@@ -27,7 +37,7 @@ pub(crate) fn build_config(
     }
     cfg.server.enable_cors = enable_cors;
     cfg.server.request_timeout_ms = request_timeout_ms;
-    cfg.gateway.gateway_port = 9765;
+    cfg.gateway.gateway_port = gateway_port_from_env();
     cfg.gateway.remote_host = Some("0.0.0.0".to_string());
     cfg.gateway.remote_gateway_port = 59765;
     cfg.gateway.backend_timeout_ms = backend_timeout_ms;
