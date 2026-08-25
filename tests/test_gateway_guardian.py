@@ -106,6 +106,7 @@ def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch)
     monkeypatch.setattr(gg, "urlopen", _urlopen)
     monkeypatch.setattr(gg, "launch_detached", _launch_detached)
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+    monkeypatch.setenv("DCC_MCP_GATEWAY_PORT", "9876")
     result = gg.ensure_gateway_daemon(
         gateway_host="127.0.0.1",
         gateway_port=9876,
