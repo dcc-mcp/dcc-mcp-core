@@ -14,9 +14,11 @@ use crate::domain::install::{
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 
+mod pip;
 mod policy;
 mod report;
 
+use pip::{pip_install_args, pip_show_args, pip_uninstall_args};
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
 pub use report::{
     InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
@@ -73,6 +75,12 @@ enum StepRollback {
     RemovePath(PathBuf),
     /// Run a shell command to revert.
     Command { program: String, args: Vec<String> },
+}
+
+#[derive(Debug)]
+enum StepExecution {
+    Completed(Option<StepRollback>),
+    Deferred,
 }
 
 pub struct InstallService {
@@ -210,7 +218,7 @@ impl InstallService {
             plan,
             skip_confirmation,
             |action, plan| match action {
-                InstallStepAction::Verify => execute_verify(plan),
+                InstallStepAction::Verify => execute_verify(plan).map(StepExecution::Completed),
                 _ => execute_action(action),
             },
             execute_rollback,
@@ -225,7 +233,7 @@ impl InstallService {
         mut rollback_step: R,
     ) -> InstallExecutionReport
     where
-        E: FnMut(&InstallStepAction, &InstallPlan) -> Result<Option<StepRollback>, InstallError>,
+        E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
         R: FnMut(&StepRollback) -> Result<(), InstallError>,
     {
         let mut report = execution_report_for_plan(plan);
@@ -264,6 +272,7 @@ impl InstallService {
         }
 
         let mut completed: Vec<(usize, Option<StepRollback>)> = Vec::new();
+        let mut has_deferred_steps = false;
 
         for (ordinal, (step_index, action)) in executable_steps.iter().enumerate() {
             let step_id = stable_step_id(action);
@@ -273,7 +282,7 @@ impl InstallService {
                 executable_steps.len()
             );
             match execute_step(action, plan) {
-                Ok(rollback) => {
+                Ok(StepExecution::Completed(rollback)) => {
                     eprintln!("OK");
                     report.steps[*step_index].status = "ok".into();
                     report.steps[*step_index].rollback.status = if rollback.is_some() {
@@ -282,6 +291,12 @@ impl InstallService {
                         "not_available".into()
                     };
                     completed.push((*step_index, rollback));
+                }
+                Ok(StepExecution::Deferred) => {
+                    eprintln!("DEFERRED");
+                    report.steps[*step_index].status = "deferred".into();
+                    report.steps[*step_index].rollback.status = "not_available".into();
+                    has_deferred_steps = true;
                 }
                 Err(_) => {
                     eprintln!("FAILED");
@@ -331,8 +346,13 @@ impl InstallService {
             }
         }
 
-        eprintln!("Installation execution completed.");
-        report.status = "ok".into();
+        if has_deferred_steps {
+            eprintln!("Installation execution completed with deferred manual steps.");
+            report.status = "partial".into();
+        } else {
+            eprintln!("Installation execution completed.");
+            report.status = "ok".into();
+        }
         report.stage = "complete".into();
         report.exit_code = 0;
         report.next_steps = success_next_steps(&report.dcc_type);
@@ -344,8 +364,8 @@ impl InstallService {
 
 // ── step executors ───────────────────────────────────────────────────────────────
 
-/// Execute a single install action, returning an optional rollback handle.
-fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, InstallError> {
+/// Execute a single install action, distinguishing completed work from manual deferral.
+fn execute_action(action: &InstallStepAction) -> Result<StepExecution, InstallError> {
     match action {
         InstallStepAction::PipInstall {
             package,
@@ -361,19 +381,26 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
             python.as_deref(),
             artifact_url.as_deref(),
             sha256.as_deref(),
-        ),
+        )
+        .map(StepExecution::Completed),
         InstallStepAction::GitClone { url, ref_, dest } => {
-            execute_git_clone(url, ref_.as_deref(), dest)
+            execute_git_clone(url, ref_.as_deref(), dest).map(StepExecution::Completed)
         }
         InstallStepAction::ZipExtract { url, sha256, dest } => {
-            execute_zip_extract(url, sha256.as_deref(), dest)
+            execute_zip_extract(url, sha256.as_deref(), dest).map(StepExecution::Completed)
         }
-        InstallStepAction::PathCopy { source, dest } => execute_path_copy(source, dest),
+        InstallStepAction::PathCopy { source, dest } => {
+            execute_path_copy(source, dest).map(StepExecution::Completed)
+        }
         InstallStepAction::RegisterDcc {
             dcc_type,
             entry_point,
             dcc_path,
-        } => execute_register_dcc(dcc_type, entry_point.as_deref(), dcc_path.as_deref()),
+        } => Ok(execute_register_dcc(
+            dcc_type,
+            entry_point.as_deref(),
+            dcc_path.as_deref(),
+        )),
         InstallStepAction::Verify => Err(InstallError::StepFailed {
             step: "verify".into(),
             message: "verify requires the full install plan".into(),
@@ -492,35 +519,6 @@ fn verified_pip_artifact_spec(
         "{package_with_extras} @ {artifact_url}#sha256={}",
         checksum.to_ascii_lowercase()
     ))
-}
-
-fn pip_install_args(package_spec: &str) -> Vec<String> {
-    vec![
-        "-m".into(),
-        "pip".into(),
-        "install".into(),
-        "--upgrade".into(),
-        package_spec.into(),
-    ]
-}
-
-fn pip_uninstall_args(package: &str) -> Vec<String> {
-    vec![
-        "-m".into(),
-        "pip".into(),
-        "uninstall".into(),
-        "-y".into(),
-        package.to_string(),
-    ]
-}
-
-fn pip_show_args(package: &str) -> Vec<String> {
-    vec![
-        "-m".into(),
-        "pip".into(),
-        "show".into(),
-        package.to_string(),
-    ]
 }
 
 fn execute_git_clone(
@@ -715,12 +713,11 @@ fn execute_register_dcc(
     _dcc_type: &str,
     _entry_point: Option<&str>,
     _dcc_path: Option<&Path>,
-) -> Result<Option<StepRollback>, InstallError> {
+) -> StepExecution {
     // Registration is owned by the DCC plugin's sidecar. The CLI can install
     // packages, but it must not pretend a host process is registered until the
     // plugin starts, stays alive, and advertises itself in the registry.
-    eprintln!("Start or enable the requested DCC plugin, then confirm self-registration.");
-    Ok(None)
+    StepExecution::Deferred
 }
 
 fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallError> {
@@ -863,6 +860,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), InstallError> {
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[path = "install/recovery_tests.rs"]
+mod recovery_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1096,10 +1097,9 @@ mod tests {
     }
 
     #[test]
-    fn register_dcc_is_noop() {
+    fn register_dcc_is_explicitly_deferred() {
         let result = execute_register_dcc("maya", Some("dcc_mcp_maya.cli:main"), None);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
+        assert!(matches!(result, StepExecution::Deferred));
     }
 
     #[test]
@@ -1256,8 +1256,12 @@ mod tests {
             dest: PathBuf::from("dest"),
         });
 
-        let report =
-            service.execute_plan_with(&plan, true, |_action, _plan| Ok(None), |_rollback| Ok(()));
+        let report = service.execute_plan_with(
+            &plan,
+            true,
+            |_action, _plan| Ok(StepExecution::Completed(None)),
+            |_rollback| Ok(()),
+        );
 
         assert_eq!(report.status, "ok");
         assert_eq!(report.stage, "complete");
@@ -1316,7 +1320,9 @@ mod tests {
             |_action, _plan| {
                 calls += 1;
                 if calls == 1 {
-                    Ok(Some(StepRollback::RemovePath(PathBuf::from("secret-a"))))
+                    Ok(StepExecution::Completed(Some(StepRollback::RemovePath(
+                        PathBuf::from("secret-a"),
+                    ))))
                 } else {
                     Err(InstallError::StepFailed {
                         step: "secret-stage".into(),
@@ -1383,7 +1389,9 @@ mod tests {
             |_action, _plan| {
                 calls += 1;
                 if calls == 1 {
-                    Ok(Some(StepRollback::RemovePath(PathBuf::from("secret-path"))))
+                    Ok(StepExecution::Completed(Some(StepRollback::RemovePath(
+                        PathBuf::from("secret-path"),
+                    ))))
                 } else {
                     Err(InstallError::StepFailed {
                         step: "install".into(),
@@ -1458,7 +1466,9 @@ mod tests {
             |_action, _plan| {
                 calls += 1;
                 if calls == 1 {
-                    Ok(Some(StepRollback::RemovePath(PathBuf::from("private"))))
+                    Ok(StepExecution::Completed(Some(StepRollback::RemovePath(
+                        PathBuf::from("private"),
+                    ))))
                 } else {
                     Err(InstallError::StepFailed {
                         step: "private".into(),

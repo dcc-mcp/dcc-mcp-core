@@ -1,9 +1,78 @@
 mod support;
 
 use serde_json::json;
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 
 use support::*;
+
+fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
+    let package = temp.path().join("pip");
+    std::fs::create_dir(&package).unwrap();
+    std::fs::write(package.join("__init__.py"), "").unwrap();
+    std::fs::write(
+        package.join("__main__.py"),
+        format!(
+            "import sys\nif len(sys.argv) > 1 and sys.argv[1] == 'show':\n    print('Name: dcc-mcp-maya')\n    print('Version: {version}')\n"
+        ),
+    )
+    .unwrap();
+    temp.path().to_path_buf()
+}
+
+#[test]
+fn install_execute_json_reports_manual_registration_as_deferred() {
+    let temp = TempDir::new().unwrap();
+    let plan = run_json(&["install", "--dcc-type", "maya", "--python", "python"]);
+    let python_path = fake_pip(&temp, plan["version"].as_str().unwrap());
+    let output = cli_command()
+        .args([
+            "install",
+            "--dcc-type",
+            "maya",
+            "--python",
+            "python",
+            "--execute",
+            "--json",
+        ])
+        .env_remove("DCC_MCP_INSTALL_DISABLED")
+        .env_remove("DCC_MCP_CATALOG_PATH")
+        .env_remove("DCC_MCP_INSTALL_PYTHON")
+        .env("PYTHONPATH", &python_path)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "partial");
+    assert_eq!(report["stage"], "complete");
+    assert_eq!(report["exit_code"], 0);
+    assert_eq!(report["error"], serde_json::Value::Null);
+    let register_step = report["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["id"] == "register-dcc")
+        .expect("real planner report must include register-dcc");
+    assert_eq!(register_step["status"], "deferred");
+    assert_ne!(register_step["status"], "ok");
+    assert_eq!(register_step["rollback"]["attempted"], false);
+    assert_eq!(register_step["rollback"]["status"], "not_available");
+    assert_eq!(report["verify"]["directly_usable"], false);
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("register-dcc ... DEFERRED"));
+    assert!(!stderr.contains("register-dcc ... OK"));
+    assert!(!stdout.contains(python_path.to_str().unwrap()));
+    assert!(!stderr.contains(python_path.to_str().unwrap()));
+}
 
 #[test]
 fn install_execute_json_failure_emits_one_safe_execution_report() {

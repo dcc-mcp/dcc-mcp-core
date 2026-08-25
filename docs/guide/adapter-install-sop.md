@@ -149,9 +149,10 @@ diagnostics. `--execute` is the explicit mutation opt-in, so JSON execution does
 not add an interactive prompt.
 
 The current Core executor verifies local install artifacts but does not launch
-or control the DCC. A locally successful execution therefore reports the
-install steps as `ok` while keeping `verify.directly_usable` false with
-`LIVE_DCC_VERIFICATION_REQUIRED`; `confirm-readiness` is returned as an
+or control the DCC. Locally completed artifact steps report `ok`, while the
+manual `register-dcc` step reports `deferred`; the overall result is `partial`
+with exit `0`, and `verify.directly_usable` remains false with
+`LIVE_DCC_VERIFICATION_REQUIRED`. `confirm-readiness` is returned as an
 executable next step. This is a truthful boundary, not a substitute for the
 later standalone verification slice.
 
