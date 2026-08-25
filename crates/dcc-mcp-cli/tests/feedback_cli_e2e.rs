@@ -181,7 +181,7 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
             "phase": "startup",
             "severity": "blocker",
             "intent": "Start the Godot adapter",
-            "observed": "The bridge did not start",
+            "observed": "The bridge did not start; public support code 4321",
             "expected": "The bridge becomes ready",
             "repro": {"argv": ["dcc-mcp-cli", "status"]},
             "evidence": {
@@ -257,6 +257,10 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     assert_eq!(body["schema_version"], "dcc-mcp.feedback-bundle.v1");
     assert_eq!(body["privacy_mode"], "public-safe");
     assert_eq!(body["complete"], false);
+    assert_eq!(
+        body["finding"]["observed"],
+        "The bridge did not start; public support code 4321"
+    );
     assert_eq!(body["components"]["issue_report"]["status"], "included");
     assert_eq!(body["components"]["doctor"]["status"], "included");
     assert_eq!(body["components"]["host_errors"]["status"], "included");
