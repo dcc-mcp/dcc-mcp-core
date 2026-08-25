@@ -302,7 +302,10 @@ Use the existing surfaces instead of copying unbounded logs:
    and does not open a GitHub issue.
 4. Review persisted reports with
    `dcc-mcp-cli feedback list --range 7d --dcc <dcc> --json`; use
-   `feedback export` for the largest bounded machine-readable window.
+   `feedback export` for the largest bounded machine-readable window. A failed
+   `DccServerBase.start()` writes a `needs-review` startup Finding to this store
+   even though no gateway `request_id` exists. Treat its exception-derived
+   observed text as local evidence until it has been reviewed and redacted.
 5. When a Finding v1 JSON file is available, run
    `dcc-mcp-cli feedback route finding.json --json`. The offline command uses
    exact catalog or Skill-metadata ownership and never creates the external

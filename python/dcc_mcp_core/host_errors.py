@@ -28,6 +28,8 @@ from ._version_util import package_version
 from .constants import ENV_DISABLE_FILE_LOGGING
 from .constants import ENV_LOG_DIR
 
+logger = logging.getLogger(__name__)
+
 _ERROR_LOG_LOCK = threading.Lock()
 _MAX_MESSAGE_CHARS = 8192
 _MAX_TRACEBACK_CHARS = 32768
@@ -231,6 +233,8 @@ class _HostErrorCapture:
         output_capture: Any = None,
         session_events: Any = None,
         notify_updated: Any = None,
+        finding_context: Any = None,
+        feedback_store: Any = None,
     ) -> None:
         self.dcc_name = str(dcc_name)
         self.dcc_pid = int(dcc_pid)
@@ -242,6 +246,8 @@ class _HostErrorCapture:
         self.output_capture = output_capture
         self.session_events = session_events
         self._notify_updated = notify_updated
+        self._finding_context = finding_context
+        self._feedback_store = feedback_store
         self._installed = False
         self._logging_handler = _ErrorLoggingHandler(self)
         self._previous_sys_hook: Any = None
@@ -379,6 +385,8 @@ class _HostErrorCapture:
             log_dir=self.log_dir,
             enabled=self.persist_to_file,
         )
+        if event["phase"] == "startup":
+            self._record_startup_finding(event)
         output_stream = stream if stream in {"stdout", "stderr", "script_editor"} else "stderr"
         output_text = traceback_text or message
         if self.output_capture is not None:
@@ -409,6 +417,45 @@ class _HostErrorCapture:
                     with contextlib.suppress(Exception):
                         self._notify_updated(uri)
         return event
+
+    def _record_startup_finding(self, event: Dict[str, Any]) -> None:
+        """Persist a local-review Finding v1 without masking startup errors."""
+        if self._finding_context is None or self._feedback_store is None:
+            return
+        try:
+            import uuid
+
+            from dcc_mcp_core.schemas.finding import build_finding_v1
+
+            error_kind = str(event.get("exception_type") or "adapter_startup_failed")
+            observed = f"{error_kind}: {event['message']}"[:4096]
+            context = self._finding_context() if callable(self._finding_context) else self._finding_context
+            finding = build_finding_v1(
+                {
+                    "phase": "startup",
+                    "severity": "blocker",
+                    "intent": f"Start the {self.dcc_name} DCC-MCP adapter",
+                    "observed": observed,
+                    "expected": "The adapter starts and registers a ready DCC-MCP instance",
+                    "repro": {
+                        "steps": [f"Start the {self.dcc_name} adapter using its configured bootstrap entry point"]
+                    },
+                    "evidence": {
+                        "error_kind": error_kind,
+                        "instance_id": self.instance_id,
+                    },
+                },
+                context,
+            )
+            self._feedback_store.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "timestamp": time.time(),
+                    **finding,
+                }
+            )
+        except Exception as exc:
+            logger.warning("Could not persist startup Finding v1: %s", exc)
 
 
 __all__ = ["capture_bootstrap_errors", "record_bootstrap_error"]

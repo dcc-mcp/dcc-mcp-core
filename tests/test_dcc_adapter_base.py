@@ -14,10 +14,12 @@ from __future__ import annotations
 from contextlib import ExitStack
 import logging
 from pathlib import Path
+import sys
 
 # Import built-in modules
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any
 from typing import List
 from typing import Optional
@@ -468,6 +470,37 @@ class TestDccServerBase:
         }
         capture.close.assert_called_once_with()
         assert server._handle is None
+
+    def test_host_error_capture_wires_startup_finding_context_and_store(self, tmp_path):
+        from dcc_mcp_core.feedback import FeedbackStore
+
+        server = self._make_server(tmp_path, dcc_name="photoshop")
+        server._feedback_store = FeedbackStore(path=tmp_path / "feedback.jsonl")
+        server._log_dir = str(tmp_path)
+        server._options = SimpleNamespace(
+            server_name="dcc-mcp-photoshop",
+            server_version="0.4.0",
+            sidecar=SimpleNamespace(display_name=None, adapter_version="0.4.0"),
+        )
+        server._version_string = lambda: "26.4.1"
+        capture = server.observability.init_host_error_capture(
+            core_version="0.20.15",
+            adapter_version="0.4.0",
+        )
+
+        capture.report(
+            "listener bind failed",
+            source="dcc_server.start",
+            phase="startup",
+            exception_type="builtins.RuntimeError",
+        )
+
+        [finding] = server.feedback_store.recent()
+        assert finding["adapter"] == "dcc-mcp-photoshop"
+        assert finding["adapter_version"] == "0.4.0"
+        assert finding["host_version"] == "26.4.1"
+        assert finding["core_version"] == "0.20.15"
+        assert finding["os"] == sys.platform
 
     def test_resources_returns_public_inner_handle(self, tmp_path):
         server = self._make_server(tmp_path)

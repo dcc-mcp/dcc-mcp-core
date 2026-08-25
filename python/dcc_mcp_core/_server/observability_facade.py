@@ -46,6 +46,7 @@ class ObservabilityFacade:
 
     def init_host_error_capture(self, *, core_version: str, adapter_version: str | None = None) -> Any:
         """Wire shared output/event resources and process-level error hooks."""
+        from dcc_mcp_core._server.finding_context import finding_context_for_server
         from dcc_mcp_core.host_errors import _HostErrorCapture
 
         owner = self._owner
@@ -78,6 +79,11 @@ class ObservabilityFacade:
             output_capture=output_capture,
             session_events=session_events,
             notify_updated=self.notify_resource_updated,
+            finding_context=lambda: finding_context_for_server(
+                owner,
+                core_version=core_version,
+            ),
+            feedback_store=owner.feedback_store,
         )
 
     def report_host_error(

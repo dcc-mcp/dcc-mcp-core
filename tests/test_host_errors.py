@@ -11,8 +11,10 @@ import threading
 
 import pytest
 
+from dcc_mcp_core.feedback import FeedbackStore
 from dcc_mcp_core.host_errors import _HostErrorCapture
 from dcc_mcp_core.host_errors import capture_bootstrap_errors
+from dcc_mcp_core.schemas.finding import FindingRuntimeContext
 
 
 def _payload(path: Path) -> dict:
@@ -122,6 +124,118 @@ def test_runtime_error_reuses_output_and_session_event_resources(tmp_path: Path)
         "events://session/photoshop-77",
     ]
     assert _payload(next(tmp_path.glob("*.log")))["message"] == "renderer failed"
+
+
+def test_startup_error_persists_needs_review_finding_without_request_id(tmp_path: Path) -> None:
+    store = FeedbackStore(path=tmp_path / "feedback" / "photoshop-77.jsonl")
+    capture = _HostErrorCapture(
+        "photoshop",
+        77,
+        instance_id="photoshop-77",
+        core_version="0.20.15",
+        adapter_version="0.4.0",
+        log_dir=str(tmp_path),
+        finding_context=FindingRuntimeContext(
+            dcc_type="photoshop",
+            adapter="dcc-mcp-photoshop",
+            adapter_version="0.4.0",
+            core_version="0.20.15",
+            host_version="26.4.1",
+            os="win32",
+            owning_repo="dcc-mcp/dcc-mcp-photoshop",
+        ),
+        feedback_store=store,
+    )
+
+    try:
+        raise RuntimeError("adapter listener bind failed")
+    except RuntimeError as exc:
+        capture.report_exception(
+            type(exc),
+            exc,
+            exc.__traceback__,
+            source="dcc_server.start",
+            phase="startup",
+        )
+
+    [finding] = store.recent()
+    assert finding["schema_version"] == 1
+    assert finding["phase"] == "startup"
+    assert finding["severity"] == "blocker"
+    assert finding["dcc_type"] == "photoshop"
+    assert finding["adapter"] == "dcc-mcp-photoshop"
+    assert finding["observed"] == "builtins.RuntimeError: adapter listener bind failed"
+    assert finding["evidence"] == {
+        "error_kind": "builtins.RuntimeError",
+        "instance_id": "photoshop-77",
+    }
+    assert "request_id" not in finding["evidence"]
+    assert finding["redaction_status"]["mode"] == "needs-review"
+    assert (tmp_path / "feedback" / "photoshop-77.jsonl").is_file()
+
+
+def test_runtime_error_does_not_create_startup_finding(tmp_path: Path) -> None:
+    store = FeedbackStore(path=tmp_path / "feedback.jsonl")
+    capture = _HostErrorCapture(
+        "photoshop",
+        77,
+        instance_id="photoshop-77",
+        core_version="0.20.15",
+        adapter_version="0.4.0",
+        log_dir=str(tmp_path),
+        finding_context=FindingRuntimeContext(
+            dcc_type="photoshop",
+            adapter="dcc-mcp-photoshop",
+            adapter_version="0.4.0",
+            core_version="0.20.15",
+            host_version="26.4.1",
+            os="win32",
+            owning_repo="dcc-mcp/dcc-mcp-photoshop",
+        ),
+        feedback_store=store,
+    )
+
+    capture.report("frame render failed", source="photoshop.console", phase="runtime")
+
+    assert store.recent() == []
+    assert not (tmp_path / "feedback.jsonl").exists()
+
+
+def test_startup_finding_failure_does_not_mask_host_error(tmp_path: Path, caplog) -> None:
+    class _FailingStore:
+        def append(self, _entry: dict) -> None:
+            raise OSError("feedback storage unavailable")
+
+    capture = _HostErrorCapture(
+        "photoshop",
+        77,
+        instance_id="photoshop-77",
+        core_version="0.20.15",
+        adapter_version="0.4.0",
+        log_dir=str(tmp_path),
+        finding_context=FindingRuntimeContext(
+            dcc_type="photoshop",
+            adapter="dcc-mcp-photoshop",
+            adapter_version="0.4.0",
+            core_version="0.20.15",
+            host_version="26.4.1",
+            os="win32",
+            owning_repo="dcc-mcp/dcc-mcp-photoshop",
+        ),
+        feedback_store=_FailingStore(),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="dcc_mcp_core.host_errors"):
+        event = capture.report(
+            "listener bind failed",
+            source="dcc_server.start",
+            phase="startup",
+            exception_type="builtins.RuntimeError",
+        )
+
+    assert event["message"] == "listener bind failed"
+    assert _payload(next(tmp_path.glob("*.log")))["message"] == "listener bind failed"
+    assert "Could not persist startup Finding v1" in caplog.text
 
 
 def test_process_hooks_are_restored_and_capture_logging_errors(tmp_path: Path) -> None:

@@ -171,7 +171,10 @@ flag to true. The host-error source is one exact regular file, capped at 256
 KiB and at most 200 requested records; raw messages, tracebacks, metadata,
 paths, tokens, and PID are excluded. Treat `unavailable` components and
 `complete=false` as incomplete evidence. Keep raw issue reports and host logs
-local, and never infer permission to create or attach to an external issue.
+local, and never infer permission to create or attach to an external issue. A
+failed `DccServerBase.start()` is available through `feedback list`/`export` as
+a `needs-review` startup Finding without a request id; review and redact its
+exception-derived observed text before using `route`, `bundle`, or `file`.
 `file` is read-only unless `--yes` is paired with exactly one explicit decision
 and the complete authorization binding from the plan. It searches the routed
 repository by fingerprint before title keywords. The replay binds the canonical
