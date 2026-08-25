@@ -197,6 +197,15 @@ defects to `dcc-mcp-core`; create an external issue only with user authorization
 Adapters also mirror accepted reports to bounded, rotated JSONL files below the
 shared registry directory. Query those durable records through the gateway:
 
+A `DccServerBase.start()` exception also appends one local Finding v1 to the
+same instance-owned store before the error is re-raised. This startup Finding
+has no `request_id`, uses the shared server-owned adapter, host, OS, and
+repository identity, and remains `needs-review`. Its bounded observed field can
+still contain local exception text; review and redact it before changing the
+mode to `public-safe`. Finding construction or persistence failure is logged
+but never replaces the original startup exception, and no external tracker I/O
+is performed.
+
 ```bash
 dcc-mcp-cli feedback list --range 7d --dcc maya --severity blocked --json
 dcc-mcp-cli feedback export --range all --dcc maya --json

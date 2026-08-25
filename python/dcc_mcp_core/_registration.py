@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
-import sys
 import time
 from typing import Any
 from typing import Sequence
@@ -197,9 +196,8 @@ class FeedbackToolPhase(RegistrationPhase):
 
     def run(self, context: RegistrationContext) -> None:
         try:
-            from dcc_mcp_core._version_util import package_version
+            from dcc_mcp_core._server.finding_context import finding_context_for_server
             from dcc_mcp_core.feedback import register_feedback_tool
-            from dcc_mcp_core.schemas.finding import FindingRuntimeContext
         except ImportError:
             return
         server = context.server
@@ -209,21 +207,8 @@ class FeedbackToolPhase(RegistrationPhase):
         def instance_id_provider() -> str | None:
             return server.instance_id
 
-        def finding_context_provider() -> FindingRuntimeContext:
-            options = server._options
-            adapter = options.server_name or options.sidecar.display_name or f"dcc-mcp-{server._dcc_name}"
-            adapter_version = options.sidecar.adapter_version or options.server_version or "unknown"
-            host_version = str(server._version_string() or "unknown")
-            owning_repo = f"dcc-mcp/{adapter}" if adapter.startswith("dcc-mcp-") else adapter
-            return FindingRuntimeContext(
-                dcc_type=server._dcc_name,
-                adapter=adapter,
-                adapter_version=adapter_version,
-                core_version=package_version(fallback="unknown", load_core=True),
-                host_version=host_version,
-                os=sys.platform,
-                owning_repo=owning_repo,
-            )
+        def finding_context_provider():
+            return finding_context_for_server(server)
 
         register_feedback_tool(
             server._server,
