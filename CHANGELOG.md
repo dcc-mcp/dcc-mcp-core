@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.19](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.18...v0.20.19) (2026-08-25)
+
+
+### Features
+
+* **cli:** emit install execution reports ([2dc574c](https://github.com/dcc-mcp/dcc-mcp-core/commit/2dc574c1c655af5fc5506d97cb8bd42e372bf007))
+
+
+### Bug Fixes
+
+* **cli:** report manual registration as deferred ([34b324e](https://github.com/dcc-mcp/dcc-mcp-core/commit/34b324ee132e81769d0b765673b253e634608419))
+
 ## [0.20.18](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.17...v0.20.18) (2026-08-25)
 
 
