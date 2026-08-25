@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.15](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.14...v0.20.15) (2026-08-25)
+
+
+### Features
+
+* add authorized feedback filing ([#2355](https://github.com/dcc-mcp/dcc-mcp-core/issues/2355)) ([3fa9528](https://github.com/dcc-mcp/dcc-mcp-core/commit/3fa95286399653209248694079d3dea495f54fed))
+
+
+### Bug Fixes
+
+* harden introspection expression sandbox ([a2ef5c5](https://github.com/dcc-mcp/dcc-mcp-core/commit/a2ef5c586b4a847f7d093bf296aa09edb682ec88))
+* prune logs across process lifetimes ([f0e6bec](https://github.com/dcc-mcp/dcc-mcp-core/commit/f0e6bec89e52e2c7c4f152318f0ac85bcc373732))
+* suspend idle capability watchers ([ede6301](https://github.com/dcc-mcp/dcc-mcp-core/commit/ede6301dc6563ec4bc7c7210ad5eae8b064fc7aa))
+
 ## [0.20.14](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.13...v0.20.14) (2026-08-24)
 
 
