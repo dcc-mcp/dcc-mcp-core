@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 from functools import partial
+import hashlib
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 _ERROR_LOG_LOCK = threading.Lock()
 _MAX_MESSAGE_CHARS = 8192
 _MAX_TRACEBACK_CHARS = 32768
+_MAX_FINDING_ERROR_KIND_CHARS = 256
 
 
 _package_version = partial(package_version, fallback="unknown")
@@ -119,6 +121,39 @@ def _format_exception(
     tb: Any,
 ) -> str:
     return "".join(traceback.format_exception(exc_type, exc, tb))
+
+
+def _qualified_exception_name(exc_type: type) -> str:
+    return f"{exc_type.__module__}.{exc_type.__name__}"
+
+
+def _safe_exception_message(exc_type: type, exc: BaseException) -> str:
+    try:
+        return str(exc) or exc_type.__name__
+    except Exception:
+        return f"{exc_type.__name__} (message unavailable)"
+
+
+def _safe_format_exception(exc_type: type, exc: BaseException, tb: Any) -> str:
+    try:
+        return _format_exception(exc_type, exc, tb)
+    except Exception:
+        try:
+            traceback_text = "".join(traceback.format_tb(tb)) if tb is not None else ""
+        except Exception:
+            traceback_text = ""
+        summary = f"{_qualified_exception_name(exc_type)}: {_safe_exception_message(exc_type, exc)}\n"
+        return traceback_text + summary
+
+
+def _canonical_error_identity(value: Optional[str]) -> str:
+    identity = str(value or "adapter_startup_failed")
+    if len(identity) <= _MAX_FINDING_ERROR_KIND_CHARS:
+        return identity
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    suffix = f"~sha256:{digest}"
+    prefix_length = _MAX_FINDING_ERROR_KIND_CHARS - len(suffix)
+    return identity[:prefix_length] + suffix
 
 
 def record_bootstrap_error(
@@ -341,12 +376,12 @@ class _HostErrorCapture:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return self.report(
-            message or str(exc) or exc_type.__name__,
+            message or _safe_exception_message(exc_type, exc),
             source=source,
             stream="stderr",
             phase=phase,
-            exception_type=f"{exc_type.__module__}.{exc_type.__name__}",
-            traceback_text=_format_exception(exc_type, exc, tb),
+            exception_type=_qualified_exception_name(exc_type),
+            traceback_text=_safe_format_exception(exc_type, exc, tb),
             metadata=metadata,
         )
 
@@ -427,7 +462,7 @@ class _HostErrorCapture:
 
             from dcc_mcp_core.schemas.finding import build_finding_v1
 
-            error_kind = str(event.get("exception_type") or "adapter_startup_failed")
+            error_kind = _canonical_error_identity(event.get("exception_type"))
             observed = f"{error_kind}: {event['message']}"[:4096]
             context = self._finding_context() if callable(self._finding_context) else self._finding_context
             finding = build_finding_v1(
@@ -455,7 +490,10 @@ class _HostErrorCapture:
                 }
             )
         except Exception as exc:
-            logger.warning("Could not persist startup Finding v1: %s", exc)
+            logger.warning(
+                "Could not persist startup Finding v1 (%s)",
+                _qualified_exception_name(type(exc)),
+            )
 
 
 __all__ = ["capture_bootstrap_errors", "record_bootstrap_error"]
