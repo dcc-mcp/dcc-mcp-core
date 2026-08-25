@@ -27,6 +27,8 @@ use tracing_subscriber::fmt::format::DefaultFields;
 #[cfg(feature = "tracy")]
 const TRACY_TARGET: &str = "dcc_mcp::profiling";
 
+const RUST_LOG_ENV: &str = "RUST_LOG";
+
 #[cfg(feature = "tracy")]
 fn is_tracy_profile(target: &str, is_span: bool) -> bool {
     is_span && target == TRACY_TARGET
@@ -86,7 +88,8 @@ static RELOAD_HANDLE: OnceLock<FileLayerReloadHandle> = OnceLock::new();
 /// Initialize the tracing subscriber (called once from Python module init).
 ///
 /// Installs:
-/// - an `EnvFilter` driven by `DCC_MCP_LOG_LEVEL` (fallback [`DEFAULT_LOG_FILTER`]);
+/// - an `EnvFilter` selected from `DCC_MCP_LOG_LEVEL`, legacy
+///   `MCP_LOG_LEVEL`, then `RUST_LOG` (fallback [`DEFAULT_LOG_FILTER`]);
 /// - a stderr `fmt::Layer` (thread names, targets on);
 /// - a [`reload::Layer`] holding an `Option<BoxedLayer>` for dynamic
 ///   attachment of a rolling-file layer by
@@ -97,9 +100,14 @@ static RELOAD_HANDLE: OnceLock<FileLayerReloadHandle> = OnceLock::new();
 /// the internal [`std::sync::Once`].
 pub fn init_logging() {
     INIT.call_once(|| {
-        let filter = EnvFilter::try_from_env(ENV_LOG_LEVEL)
-            .or_else(|_| EnvFilter::try_from_env(LEGACY_ENV_LOG_LEVEL))
-            .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
+        let filter = [ENV_LOG_LEVEL, LEGACY_ENV_LOG_LEVEL, RUST_LOG_ENV]
+            .into_iter()
+            .find_map(|name| {
+                std::env::var(name)
+                    .ok()
+                    .and_then(|value| EnvFilter::try_new(value).ok())
+            })
+            .unwrap_or_else(|| EnvFilter::new(DEFAULT_LOG_FILTER));
 
         #[cfg(feature = "tracy")]
         let filter = enable_tracy_target(filter);
@@ -193,7 +201,10 @@ impl std::error::Error for FileLayerInstallError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     use tracing::Level;
+
+    const FILTER_CHILD_EXPECT: &str = "DCC_MCP_TEST_FILTER_CHILD_EXPECT";
 
     #[test]
     fn test_init_logging_is_idempotent() {
@@ -212,6 +223,88 @@ mod tests {
             assert!(!tracing::enabled!(target: "hyper_util::client", Level::DEBUG));
             assert!(!tracing::enabled!(target: "rmcp::service", Level::DEBUG));
         });
+    }
+
+    #[test]
+    fn log_filter_precedence_child() {
+        let Some(expected) = std::env::var_os(FILTER_CHILD_EXPECT) else {
+            return;
+        };
+
+        init_logging();
+
+        let enabled = (
+            tracing::enabled!(target: "dcc_mcp_precedence_dcc", Level::TRACE),
+            tracing::enabled!(target: "dcc_mcp_precedence_legacy", Level::TRACE),
+            tracing::enabled!(target: "dcc_mcp_precedence_rust", Level::TRACE),
+        );
+        let expected = expected.to_string_lossy();
+        let expected_enabled = match expected.as_ref() {
+            "dcc" => (true, false, false),
+            "legacy" => (false, true, false),
+            "rust" => (false, false, true),
+            "default" => (false, false, false),
+            value => panic!("unknown child expectation: {value}"),
+        };
+
+        assert_eq!(enabled, expected_enabled);
+        if expected == "default" {
+            assert!(tracing::enabled!(target: "dcc_mcp_http", Level::DEBUG));
+            assert!(!tracing::enabled!(target: "tower_http::trace", Level::DEBUG));
+        }
+    }
+
+    fn run_log_filter_child(
+        dcc_filter: Option<&str>,
+        legacy_filter: Option<&str>,
+        rust_filter: Option<&str>,
+        expected: &str,
+    ) {
+        let mut command = Command::new(std::env::current_exe().expect("test executable exists"));
+        command
+            .arg("--exact")
+            .arg("config::tests::log_filter_precedence_child")
+            .arg("--nocapture")
+            .env_remove(ENV_LOG_LEVEL)
+            .env_remove(LEGACY_ENV_LOG_LEVEL)
+            .env_remove(RUST_LOG_ENV)
+            .env(FILTER_CHILD_EXPECT, expected);
+
+        if let Some(value) = dcc_filter {
+            command.env(ENV_LOG_LEVEL, value);
+        }
+        if let Some(value) = legacy_filter {
+            command.env(LEGACY_ENV_LOG_LEVEL, value);
+        }
+        if let Some(value) = rust_filter {
+            command.env(RUST_LOG_ENV, value);
+        }
+
+        let output = command.output().expect("isolated child process runs");
+        assert!(
+            output.status.success(),
+            "filter child {expected} failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn log_filter_precedence_isolated_per_process() {
+        run_log_filter_child(
+            Some("dcc_mcp_precedence_dcc=trace"),
+            Some("dcc_mcp_precedence_legacy=trace"),
+            Some("dcc_mcp_precedence_rust=trace"),
+            "dcc",
+        );
+        run_log_filter_child(
+            None,
+            Some("dcc_mcp_precedence_legacy=trace"),
+            Some("dcc_mcp_precedence_rust=trace"),
+            "legacy",
+        );
+        run_log_filter_child(None, None, Some("dcc_mcp_precedence_rust=trace"), "rust");
+        run_log_filter_child(None, None, None, "default");
     }
 
     #[cfg(feature = "tracy")]
