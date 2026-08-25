@@ -4,6 +4,8 @@ name: Version Consistency Check
 # Triggers on any PR that modifies a version-bearing file:
 #   - Cargo.toml (workspace version)
 #   - pyproject.toml (Python package version)
+#   - uv.lock (editable root package version and resolved lock state)
+#   - release-please-config.json (fixed root package identity)
 #   - .release-please-manifest.json (release-please source-of-truth)
 #   - Any __version__.py files
 
@@ -14,8 +16,12 @@ on:
     paths:
       - "Cargo.toml"
       - "pyproject.toml"
+      - "uv.lock"
+      - "release-please-config.json"
       - ".release-please-manifest.json"
       - "**/__version__.py"
+      - "scripts/ci/check_uv_lock.py"
+      - ".github/workflows/version-consistency.yml"
 
 permissions:
   contents: read
@@ -34,6 +40,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
 
       - name: Check version consistency
         run: |
@@ -133,3 +144,8 @@ jobs:
 
           print("Version consistency check passed.")
           PY
+
+      - name: Check uv lock consistency
+        run: |
+          python scripts/ci/check_uv_lock.py
+          vx uv lock --check
