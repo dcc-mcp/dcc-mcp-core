@@ -1294,6 +1294,7 @@ def test_launch_sidecar_uses_detached_popen_contract(
             captured["kwargs"] = kwargs
 
     monkeypatch.setattr(sidecar_lifecycle.subprocess, "Popen", FakePopen)
+    monkeypatch.delenv("DCC_MCP_GATEWAY_PORT", raising=False)
 
     result = lifecycle.launch_sidecar(
         dcc_type="houdini",

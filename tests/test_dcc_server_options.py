@@ -42,6 +42,11 @@ class TestGatewayOptions:
         assert gw.registry_dir is None
         assert gw.enable_failover is True
 
+    def test_pytest_session_disables_default_gateway(self):
+        """Ordinary pytest sessions must not join the operator gateway."""
+        assert os.environ["DCC_MCP_GATEWAY_PORT"] == "0"
+        assert GatewayOptions.from_env().port == 0
+
     def test_from_env_reads_gateway_port(self, monkeypatch):
         monkeypatch.setenv("DCC_MCP_GATEWAY_PORT", "9999")
         gw = GatewayOptions.from_env()

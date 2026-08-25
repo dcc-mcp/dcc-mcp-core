@@ -2,6 +2,7 @@
 
 Auto-use fixtures in this file provide:
 - Session-scoped registry directory isolation (``DCC_MCP_REGISTRY_DIR``)
+- Gateway isolation for ordinary tests (``DCC_MCP_GATEWAY_PORT=0``)
 - Default skill-path isolation (``DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS``)
 - Env-var restore guard that snapshots env before the session and restores
   on teardown, preventing env-var-based test-order dependency.
@@ -57,6 +58,7 @@ SKILLS_DIR = str(REPO_ROOT / "skills")
 #: Environment variable read by the Rust GatewayRunner / McpHttpConfig to
 #: override the default shared registry directory (issue #793).
 _DCC_MCP_REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
+_DCC_MCP_GATEWAY_PORT_ENV = "DCC_MCP_GATEWAY_PORT"
 _DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV = "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"
 
 
@@ -70,6 +72,18 @@ def _isolated_default_skill_paths():
         os.environ.pop(_DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV, None)
     else:
         os.environ[_DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _disabled_default_gateway():
+    """Keep ordinary tests from joining or preempting an operator gateway."""
+    previous = os.environ.get(_DCC_MCP_GATEWAY_PORT_ENV)
+    os.environ[_DCC_MCP_GATEWAY_PORT_ENV] = "0"
+    yield
+    if previous is None:
+        os.environ.pop(_DCC_MCP_GATEWAY_PORT_ENV, None)
+    else:
+        os.environ[_DCC_MCP_GATEWAY_PORT_ENV] = previous
 
 
 @pytest.fixture(scope="session", autouse=True)
