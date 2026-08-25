@@ -124,23 +124,23 @@ def _format_exception(
 
 
 def _qualified_exception_name(exc_type: type) -> str:
-    return f"{exc_type.__module__}.{exc_type.__name__}"
+    return f"{exc_type.__module__}.{exc_type.__qualname__}"
 
 
 def _safe_exception_message(exc_type: type, exc: BaseException) -> str:
     try:
         return str(exc) or exc_type.__name__
-    except Exception:
+    except BaseException:
         return f"{exc_type.__name__} (message unavailable)"
 
 
 def _safe_format_exception(exc_type: type, exc: BaseException, tb: Any) -> str:
     try:
         return _format_exception(exc_type, exc, tb)
-    except Exception:
+    except BaseException:
         try:
             traceback_text = "".join(traceback.format_tb(tb)) if tb is not None else ""
-        except Exception:
+        except BaseException:
             traceback_text = ""
         summary = f"{_qualified_exception_name(exc_type)}: {_safe_exception_message(exc_type, exc)}\n"
         return traceback_text + summary

@@ -105,7 +105,10 @@ class LifecycleController:
             owner._handle = owner._server.start()
         except Exception as exc:
             if host_error_capture is not None:
-                with contextlib.suppress(Exception):
+                # A primary startup exception is already active. Auxiliary
+                # observation and cleanup must not replace it, even when a
+                # user-defined hook raises a BaseException subclass.
+                with contextlib.suppress(BaseException):
                     host_error_capture.report_exception(
                         type(exc),
                         exc,
@@ -113,7 +116,7 @@ class LifecycleController:
                         source="dcc_server.start",
                         phase="startup",
                     )
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(BaseException):
                     host_error_capture.close()
             raise
         server_version = getattr(owner._config, "server_version", _PKG_VERSION)

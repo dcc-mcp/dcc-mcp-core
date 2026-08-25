@@ -471,15 +471,37 @@ class TestDccServerBase:
         capture.close.assert_called_once_with()
         assert server._handle is None
 
-    @pytest.mark.parametrize("failure_site", ["rendering", "context", "store", "close"])
-    def test_start_failure_preserves_original_identity_when_capture_fails(self, tmp_path, failure_site):
+    @pytest.mark.parametrize(
+        ("failure_site", "auxiliary_error_type"),
+        [
+            ("rendering", ValueError),
+            ("rendering", KeyboardInterrupt),
+            ("rendering", SystemExit),
+            ("rendering", GeneratorExit),
+            ("context", None),
+            ("store", None),
+            ("report", KeyboardInterrupt),
+            ("report", SystemExit),
+            ("report", GeneratorExit),
+            ("close", OSError),
+            ("close", KeyboardInterrupt),
+            ("close", SystemExit),
+            ("close", GeneratorExit),
+        ],
+    )
+    def test_start_failure_preserves_original_identity_when_capture_fails(
+        self,
+        tmp_path,
+        failure_site,
+        auxiliary_error_type,
+    ):
         from dcc_mcp_core.feedback import FeedbackStore
         from dcc_mcp_core.host_errors import _HostErrorCapture
         from dcc_mcp_core.schemas.finding import FindingRuntimeContext
 
         class _UnprintableStartupError(RuntimeError):
             def __str__(self):
-                raise ValueError("startup exception rendering failed")
+                raise auxiliary_error_type("startup exception rendering failed")
 
         class _FailingStore:
             def append(self, _entry):
@@ -511,11 +533,17 @@ class TestDccServerBase:
             feedback_store=_FailingStore() if failure_site == "store" else store,
         )
         close_capture = capture.close
+        if failure_site == "report":
+
+            def fail_report(*_args, **_kwargs):
+                raise auxiliary_error_type("capture report failed")
+
+            capture.report_exception = fail_report
         if failure_site == "close":
 
             def fail_close():
                 close_capture()
-                raise OSError("capture close failed")
+                raise auxiliary_error_type("capture close failed")
 
             capture.close = fail_close
 
@@ -527,14 +555,17 @@ class TestDccServerBase:
             raise original
 
         server._server.start = fail_start
+        caught = None
         try:
-            with pytest.raises(type(original)) as caught:
-                server.start(install_atexit_hook=False)
+            server.start(install_atexit_hook=False)
+        except BaseException as exc:
+            caught = exc
         finally:
             close_capture()
 
-        assert caught.value is original
+        assert caught is original
         assert server._handle is None
+        assert capture._installed is False
         if failure_site in {"rendering", "close"}:
             assert len(store.recent()) == 1
 

@@ -290,6 +290,22 @@ def test_startup_finding_uses_bounded_collision_resistant_error_identity(tmp_pat
     assert first_error_kind != second["evidence"]["error_kind"]
     assert first["fingerprint"] != second["fingerprint"]
 
+    class Alpha:
+        class StartupFailure(RuntimeError):
+            pass
+
+    class Beta:
+        class StartupFailure(RuntimeError):
+            pass
+
+    alpha = record(Alpha.StartupFailure, "alpha")
+    alpha_repeated = record(Alpha.StartupFailure, "alpha-repeated")
+    beta = record(Beta.StartupFailure, "beta")
+    assert alpha["evidence"]["error_kind"] == alpha_repeated["evidence"]["error_kind"]
+    assert alpha["fingerprint"] == alpha_repeated["fingerprint"]
+    assert alpha["evidence"]["error_kind"] != beta["evidence"]["error_kind"]
+    assert alpha["fingerprint"] != beta["fingerprint"]
+
 
 def test_process_hooks_are_restored_and_capture_logging_errors(tmp_path: Path) -> None:
     capture, _, events, _ = _capture(tmp_path)
