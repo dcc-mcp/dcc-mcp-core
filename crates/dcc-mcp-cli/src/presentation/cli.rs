@@ -314,6 +314,9 @@ enum Command {
         /// Execute the install plan with consent gating.
         #[arg(long, short = 'x')]
         execute: bool,
+        /// Emit the plan or execution report as one compact JSON document.
+        #[arg(long)]
+        json: bool,
     },
     /// Search and manage DCC-MCP marketplace sources.
     Marketplace {
@@ -572,6 +575,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
 
     let output = match &command {
         Command::Feedback(args) => args.resolve_output(output),
+        Command::Install { json: true, .. } => Ok(OutputFormat::Json),
         _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
@@ -620,6 +624,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
 
     let mut failed = false;
     let mut exit_code = ExitCode::GeneralError;
+    let mut explicit_exit_code = None;
     let mut value = match command {
         Command::Smoke {
             url,
@@ -916,6 +921,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             python,
             dcc_path,
             execute,
+            json,
         } => {
             let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
             let req = InstallRequest {
@@ -926,7 +932,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 dcc_path,
             };
             if execute {
-                to_json(service.execute(req, non_interactive)?)?
+                // `--execute` is the mutation opt-in; JSON mode must never add
+                // an interactive prompt to the machine-readable contract.
+                let report = service.execute(req, non_interactive || json);
+                explicit_exit_code = Some(report.exit_code);
+                to_json(report)?
             } else {
                 to_json(service.plan(req)?)?
             }
@@ -1144,6 +1154,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     }
 
     writer.write_data(&value)?;
+    if let Some(code) = explicit_exit_code
+        && code != 0
+    {
+        std::process::exit(code);
+    }
     if failed {
         let envelope = ErrorEnvelope::new(
             exit_code_to_error_code(exit_code),

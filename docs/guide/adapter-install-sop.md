@@ -7,9 +7,11 @@ commands or interpreting prose.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. The
 contract applies to adapter-owned installers now and to the shared Core
-installer as its remaining execution slices adopt the same behavior. This
-foundation does not itself implement the Rust installer executor, verification
-command, uninstall command, or catalog migration.
+installer as its remaining execution slices adopt the same behavior. The Core
+CLI now emits this schema for plan execution, including real step and rollback
+outcomes. Interpreter discovery, receipt ownership, a standalone verification
+command, uninstall, idempotent retry, and catalog migration remain separate
+implementation slices.
 
 See [Adapter Install Lifecycle](adapter-install-lifecycle.md) for Core's
 import-light sidecar, readiness, process, and lock-classification primitives.
@@ -134,6 +136,24 @@ The required top-level fields are stable for schema v1. Additive adapter fields
 are allowed. A consumer MUST reject an unsupported higher schema version with
 an upgrade diagnostic; it MUST NOT silently reinterpret, delete, or rewrite the
 result.
+
+For the Core CLI, `install --dcc-type <dcc> --json` remains a non-mutating plan
+with its existing plan shape. `install --dcc-type <dcc> --execute --json`
+instead emits exactly one post-execution schema-v1 document and uses the stable
+Install SOP process exit code reported in `exit_code`. It never echoes the
+pre-execution plan as an execution result. The report includes stable step IDs,
+observed step states, rollback attempts and outcomes, executable recovery
+commands, nullable receipt state, and verification state. Raw paths, subprocess
+output, exception text, and credentials do not enter public fields or operator
+diagnostics. `--execute` is the explicit mutation opt-in, so JSON execution does
+not add an interactive prompt.
+
+The current Core executor verifies local install artifacts but does not launch
+or control the DCC. A locally successful execution therefore reports the
+install steps as `ok` while keeping `verify.directly_usable` false with
+`LIVE_DCC_VERIFICATION_REQUIRED`; `confirm-readiness` is returned as an
+executable next step. This is a truthful boundary, not a substitute for the
+later standalone verification slice.
 
 `status` is one of `planned`, `running`, `ok`, `failed`, `partial`, or
 `requires_restart`. Each `steps[]` entry has a stable `id` and `status`.

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "status": "failed",
+  "dcc_type": "maya",
+  "adapter_version": "unknown",
+  "core_version": "0.0.0-test",
+  "stage": "install",
+  "exit_code": 30,
+  "steps": [
+    {
+      "id": "install-path",
+      "status": "ok",
+      "rollback": {"attempted": true, "status": "ok"}
+    },
+    {
+      "id": "register-dcc",
+      "status": "failed",
+      "rollback": {"attempted": false, "status": "not_available"}
+    },
+    {
+      "id": "verify",
+      "status": "not_run",
+      "rollback": {"attempted": false, "status": "not_attempted"}
+    }
+  ],
+  "rollback": {"attempted": true, "status": "ok", "failure_count": 0},
+  "next_steps": [
+    {
+      "id": "inspect-runtime",
+      "description": "Inspect safe local runtime diagnostics.",
+      "why": "Diagnostics can identify a safe remediation before retrying installation.",
+      "command": ["dcc-mcp-cli", "doctor"]
+    },
+    {
+      "id": "review-plan",
+      "description": "Review a fresh non-mutating install plan for maya.",
+      "why": "The plan can be reviewed safely before another authorized execution.",
+      "command": ["dcc-mcp-cli", "install", "--dcc-type", "maya", "--json"]
+    }
+  ],
+  "receipt_path": null,
+  "verify": {
+    "directly_usable": false,
+    "failure_stage": "install",
+    "failure_reason": "INSTALL_STEP_FAILED"
+  },
+  "error": {
+    "code": "INSTALL_STEP_FAILED",
+    "stage": "install",
+    "exit_code": 30
+  }
+}
