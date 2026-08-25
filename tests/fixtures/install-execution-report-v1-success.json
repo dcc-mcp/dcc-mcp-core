@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "ok",
+  "dcc_type": "maya",
+  "adapter_version": "unknown",
+  "core_version": "0.0.0-test",
+  "stage": "complete",
+  "exit_code": 0,
+  "steps": [
+    {
+      "id": "install-path",
+      "status": "ok",
+      "rollback": {"attempted": false, "status": "not_available"}
+    },
+    {
+      "id": "verify",
+      "status": "ok",
+      "rollback": {"attempted": false, "status": "not_available"}
+    }
+  ],
+  "rollback": {"attempted": false, "status": "not_attempted", "failure_count": 0},
+  "next_steps": [
+    {
+      "id": "inspect-runtime",
+      "description": "Inspect safe local runtime diagnostics.",
+      "why": "Diagnostics confirm the installed CLI and local gateway prerequisites.",
+      "command": ["dcc-mcp-cli", "doctor"]
+    },
+    {
+      "id": "confirm-readiness",
+      "description": "Confirm that a live maya adapter becomes ready.",
+      "why": "Host readiness is separate from local installation success.",
+      "command": ["dcc-mcp-cli", "wait-ready", "--dcc-type", "maya"]
+    }
+  ],
+  "receipt_path": null,
+  "verify": {
+    "directly_usable": false,
+    "failure_stage": "host-readiness",
+    "failure_reason": "LIVE_DCC_VERIFICATION_REQUIRED"
+  }
+}

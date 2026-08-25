@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 use support::*;
 
 #[test]
-fn non_interactive_install_execute_skips_confirmation_and_runs_plan() {
+fn install_execute_json_failure_emits_one_safe_execution_report() {
     let output = cli_command()
         .args([
             "install",
@@ -15,20 +15,59 @@ fn non_interactive_install_execute_skips_confirmation_and_runs_plan() {
             "--python",
             "/__nonexistent__/python",
             "--execute",
-            "--non-interactive",
-            "--output",
-            "json",
+            "--json",
         ])
         .env_remove("DCC_MCP_INSTALL_DISABLED")
         .output()
         .unwrap();
 
-    assert_ne!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.status.code(), Some(30));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["status"], "failed");
+    assert_eq!(report["dcc_type"], "maya");
+    assert_eq!(report["exit_code"], 30);
+    assert_eq!(report["stage"], "install");
+    assert_eq!(report["error"]["code"], "INSTALL_STEP_FAILED");
+    assert_eq!(report["error"]["stage"], "install");
+    assert_eq!(report["error"]["exit_code"], 30);
+    assert_eq!(report["steps"][0]["id"], "install-pip");
+    assert_eq!(report["steps"][0]["status"], "failed");
+    assert_eq!(report["steps"][1]["status"], "not_run");
+    assert_eq!(report["receipt_path"], serde_json::Value::Null);
+    assert_eq!(report["verify"]["directly_usable"], false);
+    assert_eq!(report["verify"]["failure_stage"], "install");
+    assert_eq!(report["verify"]["failure_reason"], "INSTALL_STEP_FAILED");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to launch /__nonexistent__/python"));
+    for public_output in [&*stdout, &*stderr] {
+        assert!(!public_output.contains("/__nonexistent__/python"));
+        assert!(!public_output.contains("failed to launch"));
+        assert!(!public_output.contains("No such file"));
+    }
     assert!(!stderr.contains("requires confirmation"));
     assert!(!stderr.contains("Proceed with installation?"));
+}
+
+#[test]
+fn install_json_alias_preserves_the_plan_only_response() {
+    let output = cli_command()
+        .args(["install", "--dcc-type", "maya", "--json"])
+        .env_remove("DCC_MCP_INSTALL_DISABLED")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(plan["dcc_type"], "maya");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
+    assert!(plan.get("schema_version").is_none());
+    assert!(
+        plan["steps"]
+            .as_array()
+            .is_some_and(|steps| !steps.is_empty())
+    );
 }
 
 #[test]
@@ -152,38 +191,49 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
 }
 
 #[test]
-fn install_policy_env_disables_execute_and_returns_custom_prompt() {
-    let plan = run_json_with_env_removed(
-        &[
+fn install_policy_env_disables_execute_with_a_stable_preflight_report() {
+    let output = cli_command()
+        .args([
             "install",
             "--dcc-type",
             "maya",
             "--python",
             "/__nonexistent__/python",
             "--execute",
-        ],
-        &[
-            ("DCC_MCP_INSTALL_DISABLED", "1"),
-            (
-                "DCC_MCP_INSTALL_DISABLED_PROMPT",
-                "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
-            ),
-        ],
-        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
-    );
+            "--json",
+        ])
+        .env("DCC_MCP_INSTALL_DISABLED", "1")
+        .env(
+            "DCC_MCP_INSTALL_DISABLED_PROMPT",
+            "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
+        )
+        .env_remove("DCC_MCP_CATALOG_PATH")
+        .env_remove("DCC_MCP_INSTALL_PYTHON")
+        .output()
+        .unwrap();
 
-    assert_eq!(plan["dcc_type"], "maya");
-    assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
-    assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
-    assert_eq!(
-        plan["steps"][0]["action"]["python"],
-        "/__nonexistent__/python"
+    assert_eq!(output.status.code(), Some(10));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["status"], "failed");
+    assert_eq!(report["dcc_type"], "maya");
+    assert_eq!(report["stage"], "preflight");
+    assert_eq!(report["exit_code"], 10);
+    assert_eq!(report["error"]["code"], "AUTO_INSTALL_DISABLED");
+    assert!(
+        report["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|step| step["status"] == "not_run")
     );
-    assert_eq!(plan["install_policy"]["auto_install_enabled"], false);
-    assert_eq!(
-        plan["install_policy"]["prompt"],
-        "Auto install unavailable; contact PipelineTD to deploy dcc-mcp-maya for maya."
+    let public = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
+    assert!(!public.contains("/__nonexistent__/python"));
+    assert!(!public.contains("PipelineTD"));
 }
 
 #[test]

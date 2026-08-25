@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use dcc_mcp_models::DccName;
 use serde::Serialize;
@@ -14,9 +13,19 @@ use crate::domain::install::{
 };
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
-const INSTALL_DISABLED_ENV: &str = "DCC_MCP_INSTALL_DISABLED";
-const INSTALL_DISABLED_PROMPT_ENV: &str = "DCC_MCP_INSTALL_DISABLED_PROMPT";
-const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dcc-mcp-cli list`.";
+
+mod policy;
+mod report;
+
+use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
+pub use report::{
+    InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
+    InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
+};
+use report::{
+    action_failure, empty_execution_report, execution_report_for_plan, failed_report,
+    safe_report_identifier, stable_step_id, success_next_steps,
+};
 
 #[derive(Debug, Error)]
 pub enum InstallError {
@@ -55,13 +64,6 @@ pub struct DccAdapterSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub catalog_install_available: bool,
-}
-
-/// Result of a single executed step with optional rollback data.
-struct StepResult {
-    step_name: String,
-    /// Rollback action to undo this step, if applicable.
-    rollback: Option<StepRollback>,
 }
 
 /// Describes how to undo a completed step.
@@ -157,16 +159,24 @@ impl InstallService {
 
     /// Generate and execute an install plan with user consent.
     ///
-    /// Steps are executed sequentially.  If any step fails, all prior steps
-    /// are rolled back in reverse order.  Returns the full plan (with step
-    /// results) on success.
+    /// Execution always returns one machine-readable Install SOP v1 report.
+    /// Internal errors are reduced to stable public codes before serialization.
     pub fn execute(
         &self,
         request: InstallRequest,
         skip_confirmation: bool,
-    ) -> Result<InstallPlan, InstallError> {
-        let plan = self.plan(request)?;
-        self.execute_plan(&plan, skip_confirmation)
+    ) -> InstallExecutionReport {
+        let requested_dcc = safe_report_identifier(&request.dcc_type, "unknown");
+        match self.plan(request) {
+            Ok(plan) => self.execute_plan(&plan, skip_confirmation),
+            Err(_) => failed_report(
+                empty_execution_report(requested_dcc),
+                "preflight",
+                10,
+                "INSTALL_PLAN_FAILED",
+                None,
+            ),
+        }
     }
 
     fn load_entries(
@@ -195,135 +205,141 @@ impl InstallService {
         plan
     }
 
-    fn execute_plan(
+    fn execute_plan(&self, plan: &InstallPlan, skip_confirmation: bool) -> InstallExecutionReport {
+        self.execute_plan_with(
+            plan,
+            skip_confirmation,
+            |action, plan| match action {
+                InstallStepAction::Verify => execute_verify(plan),
+                _ => execute_action(action),
+            },
+            execute_rollback,
+        )
+    }
+
+    fn execute_plan_with<E, R>(
         &self,
         plan: &InstallPlan,
         skip_confirmation: bool,
-    ) -> Result<InstallPlan, InstallError> {
+        mut execute_step: E,
+        mut rollback_step: R,
+    ) -> InstallExecutionReport
+    where
+        E: FnMut(&InstallStepAction, &InstallPlan) -> Result<Option<StepRollback>, InstallError>,
+        R: FnMut(&StepRollback) -> Result<(), InstallError>,
+    {
+        let mut report = execution_report_for_plan(plan);
+
         if !plan.install_policy.auto_install_enabled {
-            if let Some(prompt) = &plan.install_policy.prompt {
-                eprintln!("{prompt}");
-            }
-            return Ok(plan.clone());
+            eprintln!("Automatic installation is disabled by policy.");
+            return failed_report(report, "preflight", 10, "AUTO_INSTALL_DISABLED", None);
         }
 
-        // Filter to executable steps
-        let executable_steps: Vec<_> = plan.steps.iter().filter(|s| s.action.is_some()).collect();
+        let executable_steps = plan
+            .steps
+            .iter()
+            .enumerate()
+            .filter_map(|(index, step)| step.action.as_ref().map(|action| (index, action)))
+            .collect::<Vec<_>>();
 
         if executable_steps.is_empty() {
             eprintln!("No executable steps in the install plan.");
-            return Ok(plan.clone());
+            return failed_report(report, "preflight", 10, "NO_EXECUTABLE_STEPS", None);
         }
 
-        // ── consent gating ────────────────────────────────────────────────
-        eprintln!();
-        eprintln!("╔══════════════════════════════════════════════╗");
-        eprintln!("║         DCC-MCP Install Plan                ║");
-        eprintln!("╠══════════════════════════════════════════════╣");
-        eprintln!("║  Adapter:  {:<30} ║", plan.adapter.name);
-        eprintln!("║  DCC type: {:<30} ║", plan.dcc_type);
-        if let Some(ver) = &plan.version {
-            eprintln!("║  Version:  {:<30} ║", ver);
-        }
-        eprintln!("╠══════════════════════════════════════════════╣");
-        eprintln!("║  Steps:                                    ║");
-        for (i, step) in executable_steps.iter().enumerate() {
-            eprintln!("║    {}. {:<34} ║", i + 1, step.name);
-            eprintln!("║       {:<34} ║", step.description);
-        }
-        eprintln!("╚══════════════════════════════════════════════╝");
-        eprintln!();
-
-        if !skip_confirmation && !ask_consent("Proceed with installation? [Y/n]")? {
-            return Err(InstallError::ConsentDenied);
-        }
-
-        // ── execute with rollback support ────────────────────────────────
-        let mut completed: Vec<StepResult> = Vec::new();
-
-        for step in &executable_steps {
-            let action = step.action.as_ref().expect("filtered to Some above");
-            eprint!(
-                "  [{}/{}] {} ... ",
-                completed.len() + 1,
-                executable_steps.len(),
-                step.name
-            );
-
-            let result = match action {
-                InstallStepAction::Verify => execute_verify(plan),
-                _ => execute_action(action),
-            };
-
-            match result {
-                Ok(rollback) => {
-                    eprintln!("OK");
-                    completed.push(StepResult {
-                        step_name: step.name.clone(),
-                        rollback,
-                    });
+        eprintln!(
+            "Install execution requires {} step(s).",
+            executable_steps.len()
+        );
+        if !skip_confirmation {
+            match ask_consent("Proceed with installation? [Y/n]") {
+                Ok(true) => {}
+                Ok(false) => {
+                    return failed_report(report, "preflight", 10, "CONSENT_DENIED", None);
                 }
-                Err(e) => {
-                    eprintln!("FAILED");
-                    // Roll back all completed steps in reverse order
-                    eprintln!("  Rolling back...");
-                    rollback_all(&completed);
-                    return Err(InstallError::StepFailed {
-                        step: step.name.clone(),
-                        message: e.to_string(),
-                    });
+                Err(_) => {
+                    return failed_report(report, "preflight", 10, "CONSENT_INPUT_FAILED", None);
                 }
             }
         }
 
-        eprintln!();
-        eprintln!("Installation complete for {}.", plan.adapter.name);
-        Ok(plan.clone())
-    }
-}
+        let mut completed: Vec<(usize, Option<StepRollback>)> = Vec::new();
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AutoInstallPolicy {
-    enabled: bool,
-    prompt_template: String,
-}
+        for (ordinal, (step_index, action)) in executable_steps.iter().enumerate() {
+            let step_id = stable_step_id(action);
+            eprint!(
+                "  [{}/{}] {step_id} ... ",
+                ordinal + 1,
+                executable_steps.len()
+            );
+            match execute_step(action, plan) {
+                Ok(rollback) => {
+                    eprintln!("OK");
+                    report.steps[*step_index].status = "ok".into();
+                    report.steps[*step_index].rollback.status = if rollback.is_some() {
+                        "available".into()
+                    } else {
+                        "not_available".into()
+                    };
+                    completed.push((*step_index, rollback));
+                }
+                Err(_) => {
+                    eprintln!("FAILED");
+                    report.steps[*step_index].status = "failed".into();
+                    report.steps[*step_index].rollback.status = "not_available".into();
+                    let (failure_stage, failure_exit, failure_code) = action_failure(action);
 
-impl AutoInstallPolicy {
-    fn from_env() -> Self {
-        let disabled = std::env::var(INSTALL_DISABLED_ENV)
-            .ok()
-            .is_some_and(|value| env_flag_enabled(&value));
-        let prompt_template = std::env::var(INSTALL_DISABLED_PROMPT_ENV)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_INSTALL_DISABLED_PROMPT.to_string());
-        Self {
-            enabled: !disabled,
-            prompt_template,
+                    let mut rollback_attempted = false;
+                    let mut rollback_failures = 0;
+                    for (completed_index, rollback) in completed.iter().rev() {
+                        let Some(rollback) = rollback else {
+                            continue;
+                        };
+                        rollback_attempted = true;
+                        let rollback_report = &mut report.steps[*completed_index].rollback;
+                        rollback_report.attempted = true;
+                        if rollback_step(rollback).is_ok() {
+                            rollback_report.status = "ok".into();
+                        } else {
+                            rollback_report.status = "failed".into();
+                            rollback_failures += 1;
+                        }
+                    }
+                    report.rollback = InstallRollbackReport {
+                        attempted: rollback_attempted,
+                        status: if rollback_failures > 0 {
+                            "failed".into()
+                        } else if rollback_attempted {
+                            "ok".into()
+                        } else {
+                            "not_attempted".into()
+                        },
+                        failure_count: rollback_failures,
+                    };
+
+                    if rollback_failures > 0 {
+                        return failed_report(
+                            report,
+                            "rollback",
+                            30,
+                            "ROLLBACK_FAILED",
+                            Some(failure_code),
+                        );
+                    }
+                    return failed_report(report, failure_stage, failure_exit, failure_code, None);
+                }
+            }
         }
+
+        eprintln!("Installation execution completed.");
+        report.status = "ok".into();
+        report.stage = "complete".into();
+        report.exit_code = 0;
+        report.next_steps = success_next_steps(&report.dcc_type);
+        report.verify.failure_stage = Some("host-readiness".into());
+        report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
+        report
     }
-
-    #[cfg(test)]
-    fn disabled(prompt_template: impl Into<String>) -> Self {
-        Self {
-            enabled: false,
-            prompt_template: prompt_template.into(),
-        }
-    }
-}
-
-fn env_flag_enabled(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on" | "disabled" | "disable"
-    )
-}
-
-fn render_install_policy_prompt(template: &str, plan: &InstallPlan) -> String {
-    template
-        .replace("{adapter}", &plan.adapter.name)
-        .replace("{dcc_type}", &plan.dcc_type)
-        .replace("{version}", plan.version.as_deref().unwrap_or(""))
 }
 
 // ── step executors ───────────────────────────────────────────────────────────────
@@ -376,7 +392,9 @@ fn execute_pip_install(
     let python_cmd = python.unwrap_or("python");
     let package_spec = verified_pip_artifact_spec(package, version, extras, artifact_url, sha256)?;
     let mut cmd = Command::new(python_cmd);
-    cmd.args(pip_install_args(&package_spec));
+    cmd.args(pip_install_args(&package_spec))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     let status = cmd.status().map_err(|e| InstallError::StepFailed {
         step: format!("pip-install-{package}"),
@@ -694,19 +712,14 @@ fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>,
 }
 
 fn execute_register_dcc(
-    dcc_type: &str,
+    _dcc_type: &str,
     _entry_point: Option<&str>,
-    dcc_path: Option<&Path>,
+    _dcc_path: Option<&Path>,
 ) -> Result<Option<StepRollback>, InstallError> {
     // Registration is owned by the DCC plugin's sidecar. The CLI can install
     // packages, but it must not pretend a host process is registered until the
     // plugin starts, stays alive, and advertises itself in the registry.
-    eprintln!();
-    if let Some(path) = dcc_path {
-        eprintln!("    └─ host path: {}", path.display());
-    }
-    eprint!("    └─ note: start or enable the '{dcc_type}' plugin, ");
-    eprintln!("then re-run `dcc-mcp-cli list` to confirm self-registration.");
+    eprintln!("Start or enable the requested DCC plugin, then confirm self-registration.");
     Ok(None)
 }
 
@@ -793,44 +806,7 @@ fn verify_pip_package(
     Ok(())
 }
 
-// ── consent ──────────────────────────────────────────────────────────────────────
-
-/// Prompt the user for Y/n consent.  Returns `true` if the user agrees.
-fn ask_consent(prompt: &str) -> Result<bool, InstallError> {
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
-
-    loop {
-        write!(stdout, "{prompt} ")?;
-        stdout.flush()?;
-
-        let mut line = String::new();
-        stdin.lock().read_line(&mut line)?;
-        let trimmed = line.trim().to_lowercase();
-
-        match trimmed.as_str() {
-            "" | "y" | "yes" => return Ok(true),
-            "n" | "no" => return Ok(false),
-            _ => {
-                write!(stdout, "  Please answer Y or n: ")?;
-                stdout.flush()?;
-            }
-        }
-    }
-}
-
 // ── rollback ─────────────────────────────────────────────────────────────────────
-
-/// Roll back all completed steps in reverse order, best-effort.
-fn rollback_all(completed: &[StepResult]) {
-    for result in completed.iter().rev() {
-        if let Some(rollback) = &result.rollback
-            && let Err(e) = execute_rollback(rollback)
-        {
-            eprintln!("  ⚠  rollback of '{}' failed: {e}", result.step_name);
-        }
-    }
-}
 
 fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
     match rollback {
@@ -845,12 +821,15 @@ fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
             Ok(())
         }
         StepRollback::Command { program, args } => {
-            let status = Command::new(program).args(args).status().map_err(|e| {
-                InstallError::RollbackFailed {
+            let status = Command::new(program)
+                .args(args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| InstallError::RollbackFailed {
                     step: program.clone(),
                     message: format!("failed to launch {program}: {e}"),
-                }
-            })?;
+                })?;
             if !status.success() {
                 return Err(InstallError::RollbackFailed {
                     step: program.clone(),
@@ -1013,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_returns_plan_without_running_steps_when_auto_install_is_disabled() {
+    fn execute_reports_preflight_failure_when_auto_install_is_disabled() {
         let service = InstallService::with_auto_install_policy(
             PathBuf::from("__missing_dcc_mcp_catalog__.yml"),
             AutoInstallPolicy::disabled(
@@ -1021,21 +1000,28 @@ mod tests {
             ),
         );
 
-        let plan = service
-            .execute(
-                InstallRequest {
-                    dcc_type: "maya".into(),
-                    version: None,
-                    catalog_path: None,
-                    python: Some("/__nonexistent__/python".into()),
-                    dcc_path: None,
-                },
-                true,
-            )
-            .unwrap();
+        let report = service.execute(
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: Some("/__nonexistent__/python".into()),
+                dcc_path: None,
+            },
+            true,
+        );
 
-        assert!(!plan.install_policy.auto_install_enabled);
-        assert_eq!(plan.steps[0].name, "install-pip");
+        assert_eq!(report.status, "failed");
+        assert_eq!(report.stage, "preflight");
+        assert_eq!(report.exit_code, 10);
+        assert_eq!(report.error.as_ref().unwrap().code, "AUTO_INSTALL_DISABLED");
+        assert!(report.steps.iter().all(|step| step.status == "not_run"));
+        assert!(!report.verify.directly_usable);
+        assert_eq!(report.verify.failure_stage.as_deref(), Some("preflight"));
+        assert_eq!(
+            report.verify.failure_reason.as_deref(),
+            Some("AUTO_INSTALL_DISABLED")
+        );
     }
 
     #[test]
@@ -1260,5 +1246,235 @@ mod tests {
                 if step == "verify" && message.contains("installed directory is empty")),
             "expected verify StepFailed, got {err}"
         );
+    }
+
+    #[test]
+    fn execution_report_success_keeps_live_dcc_readiness_unproven() {
+        let service = InstallService::new(PathBuf::from("__unused__.yml"));
+        let plan = verify_plan(InstallStepAction::PathCopy {
+            source: PathBuf::from("source"),
+            dest: PathBuf::from("dest"),
+        });
+
+        let report =
+            service.execute_plan_with(&plan, true, |_action, _plan| Ok(None), |_rollback| Ok(()));
+
+        assert_eq!(report.status, "ok");
+        assert_eq!(report.stage, "complete");
+        assert_eq!(report.exit_code, 0);
+        assert!(report.error.is_none());
+        assert_eq!(report.steps[0].id, "install-path");
+        assert_eq!(report.steps[0].status, "ok");
+        assert_eq!(report.steps[0].rollback.status, "not_available");
+        assert_eq!(report.steps[1].id, "verify");
+        assert_eq!(report.steps[1].status, "ok");
+        assert!(!report.verify.directly_usable);
+        assert_eq!(
+            report.verify.failure_stage.as_deref(),
+            Some("host-readiness")
+        );
+        assert_eq!(
+            report.verify.failure_reason.as_deref(),
+            Some("LIVE_DCC_VERIFICATION_REQUIRED")
+        );
+        assert_eq!(report.receipt_path, None);
+
+        let mut actual = serde_json::to_value(report).unwrap();
+        actual["core_version"] = serde_json::json!("0.0.0-test");
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/install-execution-report-v1-success.json"
+        ))
+        .unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn execution_report_mid_failure_rolls_back_completed_steps_in_reverse() {
+        let service = InstallService::new(PathBuf::from("__unused__.yml"));
+        let mut plan = verify_plan(InstallStepAction::PathCopy {
+            source: PathBuf::from("source"),
+            dest: PathBuf::from("dest"),
+        });
+        plan.steps.insert(
+            1,
+            InstallStep {
+                name: "register-dcc".into(),
+                description: "Register adapter".into(),
+                action: Some(InstallStepAction::RegisterDcc {
+                    dcc_type: "maya".into(),
+                    entry_point: None,
+                    dcc_path: None,
+                }),
+            },
+        );
+        let mut calls = 0;
+        let mut rollback_order = Vec::new();
+
+        let report = service.execute_plan_with(
+            &plan,
+            true,
+            |_action, _plan| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(Some(StepRollback::RemovePath(PathBuf::from("secret-a"))))
+                } else {
+                    Err(InstallError::StepFailed {
+                        step: "secret-stage".into(),
+                        message: "token=super-secret".into(),
+                    })
+                }
+            },
+            |rollback| {
+                if let StepRollback::RemovePath(path) = rollback {
+                    rollback_order.push(path.clone());
+                }
+                Ok(())
+            },
+        );
+
+        assert_eq!(rollback_order, vec![PathBuf::from("secret-a")]);
+        assert_eq!(report.status, "failed");
+        assert_eq!(report.stage, "install");
+        assert_eq!(report.exit_code, 30);
+        assert_eq!(report.error.as_ref().unwrap().code, "INSTALL_STEP_FAILED");
+        assert_eq!(report.steps[0].status, "ok");
+        assert!(report.steps[0].rollback.attempted);
+        assert_eq!(report.steps[0].rollback.status, "ok");
+        assert_eq!(report.steps[1].status, "failed");
+        assert_eq!(report.steps[2].status, "not_run");
+        assert!(report.rollback.attempted);
+        assert_eq!(report.rollback.status, "ok");
+        assert_eq!(report.rollback.failure_count, 0);
+        assert_eq!(
+            report.verify.failure_reason.as_deref(),
+            Some("INSTALL_STEP_FAILED")
+        );
+
+        let public = serde_json::to_string(&report).unwrap();
+        assert!(!public.contains("secret-a"));
+        assert!(!public.contains("secret-stage"));
+        assert!(!public.contains("super-secret"));
+    }
+
+    #[test]
+    fn execution_report_rollback_failure_is_partial_and_stable() {
+        let service = InstallService::new(PathBuf::from("__unused__.yml"));
+        let mut plan = verify_plan(InstallStepAction::PathCopy {
+            source: PathBuf::from("source"),
+            dest: PathBuf::from("dest"),
+        });
+        plan.steps.insert(
+            1,
+            InstallStep {
+                name: "register-dcc".into(),
+                description: "Register adapter".into(),
+                action: Some(InstallStepAction::RegisterDcc {
+                    dcc_type: "maya".into(),
+                    entry_point: None,
+                    dcc_path: None,
+                }),
+            },
+        );
+        let mut calls = 0;
+
+        let report = service.execute_plan_with(
+            &plan,
+            true,
+            |_action, _plan| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(Some(StepRollback::RemovePath(PathBuf::from("secret-path"))))
+                } else {
+                    Err(InstallError::StepFailed {
+                        step: "install".into(),
+                        message: "primary secret".into(),
+                    })
+                }
+            },
+            |_rollback| {
+                Err(InstallError::RollbackFailed {
+                    step: "secret-program".into(),
+                    message: "rollback secret".into(),
+                })
+            },
+        );
+
+        assert_eq!(report.status, "partial");
+        assert_eq!(report.stage, "rollback");
+        assert_eq!(report.exit_code, 30);
+        let error = report.error.as_ref().unwrap();
+        assert_eq!(error.code, "ROLLBACK_FAILED");
+        assert_eq!(error.primary_code.as_deref(), Some("INSTALL_STEP_FAILED"));
+        assert_eq!(report.steps[0].rollback.status, "failed");
+        assert_eq!(report.rollback.status, "failed");
+        assert_eq!(report.rollback.failure_count, 1);
+        assert_eq!(
+            report.verify.failure_reason.as_deref(),
+            Some("ROLLBACK_FAILED")
+        );
+
+        let public = serde_json::to_string(&report).unwrap();
+        for secret in [
+            "secret-path",
+            "secret-program",
+            "primary secret",
+            "rollback secret",
+        ] {
+            assert!(!public.contains(secret));
+        }
+
+        let mut actual = serde_json::to_value(report).unwrap();
+        actual["core_version"] = serde_json::json!("0.0.0-test");
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/install-execution-report-v1-rollback-failed.json"
+        ))
+        .unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn failed_execution_report_matches_shared_cross_language_fixture() {
+        let service = InstallService::new(PathBuf::from("__unused__.yml"));
+        let mut plan = verify_plan(InstallStepAction::PathCopy {
+            source: PathBuf::from("source"),
+            dest: PathBuf::from("dest"),
+        });
+        plan.steps.insert(
+            1,
+            InstallStep {
+                name: "register-dcc".into(),
+                description: "Register adapter".into(),
+                action: Some(InstallStepAction::RegisterDcc {
+                    dcc_type: "maya".into(),
+                    entry_point: None,
+                    dcc_path: None,
+                }),
+            },
+        );
+        let mut calls = 0;
+        let report = service.execute_plan_with(
+            &plan,
+            true,
+            |_action, _plan| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(Some(StepRollback::RemovePath(PathBuf::from("private"))))
+                } else {
+                    Err(InstallError::StepFailed {
+                        step: "private".into(),
+                        message: "private".into(),
+                    })
+                }
+            },
+            |_rollback| Ok(()),
+        );
+        let mut actual = serde_json::to_value(report).unwrap();
+        actual["core_version"] = serde_json::json!("0.0.0-test");
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/install-execution-report-v1-failed.json"
+        ))
+        .unwrap();
+
+        assert_eq!(actual, expected);
     }
 }

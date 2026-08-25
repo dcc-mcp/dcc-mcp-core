@@ -268,6 +268,54 @@ def test_reusable_install_template_usable_result_is_schema_valid() -> None:
     Draft202012Validator(load_install_sop_schema()).validate(json.loads(result_text))
 
 
+def test_rust_cli_failed_execution_report_fixture_is_schema_valid() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    fixture = REPO_ROOT / "tests" / "fixtures" / "install-execution-report-v1-failed.json"
+    report = json.loads(fixture.read_text(encoding="utf-8"))
+
+    Draft202012Validator(load_install_sop_schema()).validate(report)
+    assert report["exit_code"] == 30
+    assert report["stage"] == "install"
+    assert report["error"]["code"] == "INSTALL_STEP_FAILED"
+    assert report["rollback"] == {"attempted": True, "status": "ok", "failure_count": 0}
+    assert [step["status"] for step in report["steps"]] == ["ok", "failed", "not_run"]
+
+
+def test_rust_cli_success_execution_report_fixture_is_schema_valid() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    fixture = REPO_ROOT / "tests" / "fixtures" / "install-execution-report-v1-success.json"
+    report = json.loads(fixture.read_text(encoding="utf-8"))
+
+    Draft202012Validator(load_install_sop_schema()).validate(report)
+    assert report["status"] == "ok"
+    assert report["exit_code"] == 0
+    assert report["receipt_path"] is None
+    assert report["verify"] == {
+        "directly_usable": False,
+        "failure_stage": "host-readiness",
+        "failure_reason": "LIVE_DCC_VERIFICATION_REQUIRED",
+    }
+
+
+def test_rust_cli_rollback_failure_report_fixture_is_schema_valid() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    fixture = REPO_ROOT / "tests" / "fixtures" / "install-execution-report-v1-rollback-failed.json"
+    report = json.loads(fixture.read_text(encoding="utf-8"))
+
+    Draft202012Validator(load_install_sop_schema()).validate(report)
+    assert report["status"] == "partial"
+    assert report["error"] == {
+        "code": "ROLLBACK_FAILED",
+        "stage": "rollback",
+        "exit_code": 30,
+        "primary_code": "INSTALL_STEP_FAILED",
+    }
+    assert report["rollback"] == {"attempted": True, "status": "failed", "failure_count": 1}
+
+
 def test_adapter_onboarding_and_release_gate_the_install_sop() -> None:
     onboarding = (REPO_ROOT / "docs" / "guide" / "new-adapter-onboarding.md").read_text(encoding="utf-8")
     release = (REPO_ROOT / "docs" / "guide" / "adapter-release-checklist.md").read_text(encoding="utf-8")
