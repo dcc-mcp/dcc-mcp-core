@@ -238,6 +238,59 @@ def test_startup_finding_failure_does_not_mask_host_error(tmp_path: Path, caplog
     assert "Could not persist startup Finding v1" in caplog.text
 
 
+def test_startup_finding_uses_bounded_collision_resistant_error_identity(tmp_path: Path) -> None:
+    context = FindingRuntimeContext(
+        dcc_type="photoshop",
+        adapter="dcc-mcp-photoshop",
+        adapter_version="0.4.0",
+        core_version="0.20.15",
+        host_version="26.4.1",
+        os="win32",
+        owning_repo="dcc-mcp/dcc-mcp-photoshop",
+    )
+    shared_prefix = "AdapterStartupError" + "x" * 300
+    first_type = type(shared_prefix + "A", (RuntimeError,), {"__module__": "dcc_adapter.bootstrap"})
+    second_type = type(shared_prefix + "B", (RuntimeError,), {"__module__": "dcc_adapter.bootstrap"})
+
+    def record(error_type: type, name: str) -> dict:
+        store = FeedbackStore(path=tmp_path / f"{name}.jsonl")
+        capture = _HostErrorCapture(
+            "photoshop",
+            77,
+            instance_id="photoshop-77",
+            core_version="0.20.15",
+            adapter_version="0.4.0",
+            log_dir=str(tmp_path),
+            persist_to_file=False,
+            finding_context=context,
+            feedback_store=store,
+        )
+        try:
+            raise error_type("listener bind failed")
+        except error_type as exc:
+            capture.report_exception(
+                type(exc),
+                exc,
+                exc.__traceback__,
+                source="dcc_server.start",
+                phase="startup",
+            )
+        findings = store.recent()
+        assert len(findings) == 1
+        return findings[0]
+
+    first = record(first_type, "first")
+    repeated = record(first_type, "repeated")
+    second = record(second_type, "second")
+
+    first_error_kind = first["evidence"]["error_kind"]
+    assert len(first_error_kind) <= 256
+    assert first_error_kind == repeated["evidence"]["error_kind"]
+    assert first["fingerprint"] == repeated["fingerprint"]
+    assert first_error_kind != second["evidence"]["error_kind"]
+    assert first["fingerprint"] != second["fingerprint"]
+
+
 def test_process_hooks_are_restored_and_capture_logging_errors(tmp_path: Path) -> None:
     capture, _, events, _ = _capture(tmp_path)
     previous_sys_hook = sys.excepthook
