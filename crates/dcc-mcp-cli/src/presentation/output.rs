@@ -9,8 +9,26 @@
 
 use std::io::{IsTerminal, Write};
 
+use anyhow::Context;
 use serde::Serialize;
 use serde_json::Value;
+
+pub(crate) fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
+    serde_json::to_value(value).context("failed to serialize command output")
+}
+
+pub(crate) fn exit_code_to_error_code(exit_code: ExitCode) -> &'static str {
+    match exit_code {
+        ExitCode::Success => "OK",
+        ExitCode::GeneralError => "GENERAL_ERROR",
+        ExitCode::InvalidInput => "INVALID_INPUT",
+        ExitCode::Unavailable => "UNAVAILABLE",
+        ExitCode::Timeout => "TIMEOUT",
+        ExitCode::Cancelled => "CANCELLED",
+        ExitCode::PermissionDenied => "PERMISSION_DENIED",
+        ExitCode::Conflict => "CONFLICT",
+    }
+}
 
 // ---------------------------------------------------------------------------
 // OutputFormat

@@ -35,6 +35,9 @@ Until live-host verification is implemented for the shared executor, a local
 artifact verification step may be `ok` while `verify.directly_usable` remains
 false with `LIVE_DCC_VERIFICATION_REQUIRED`. Keep that boundary in adapter
 tests instead of treating package installation as live DCC readiness.
+Any planner step that still requires operator or live-host work, such as
+`register-dcc`, must be `deferred` rather than `ok`; a zero exit code does not
+turn that manual boundary into completed registration.
 
 Exercise the complete `plan -> execute -> verify -> status -> uninstall`
 round trip in CI. The gate must also prove that failed replacement restores the

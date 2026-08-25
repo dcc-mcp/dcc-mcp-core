@@ -4,10 +4,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
-use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::output::{ErrorEnvelope, ExitCode, OutputFormat, OutputWriter};
+use super::output::{
+    ErrorEnvelope, ExitCode, OutputFormat, OutputWriter, exit_code_to_error_code, to_json,
+};
 
 use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
@@ -1467,10 +1468,6 @@ fn endpoint_for_mcp(raw: &str) -> String {
     }
 }
 
-fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
-    serde_json::to_value(value).context("failed to serialize command output")
-}
-
 /// Check whether a command timeout would be ignored in favor of a distinct global timeout.
 fn command_has_distinct_per_timeout(command: &Command, global_timeout_secs: Option<u64>) -> bool {
     let per_command_timeout = match command {
@@ -1493,19 +1490,6 @@ fn command_has_configured_timeout_env(command: &Command) -> bool {
         command,
         Command::Call { .. } | Command::CallBatch { .. } | Command::UiControl { .. }
     ) && std::env::var_os("DCC_MCP_CLI_CALL_TIMEOUT_SECS").is_some()
-}
-
-fn exit_code_to_error_code(exit_code: ExitCode) -> &'static str {
-    match exit_code {
-        ExitCode::Success => "OK",
-        ExitCode::GeneralError => "GENERAL_ERROR",
-        ExitCode::InvalidInput => "INVALID_INPUT",
-        ExitCode::Unavailable => "UNAVAILABLE",
-        ExitCode::Timeout => "TIMEOUT",
-        ExitCode::Cancelled => "CANCELLED",
-        ExitCode::PermissionDenied => "PERMISSION_DENIED",
-        ExitCode::Conflict => "CONFLICT",
-    }
 }
 
 #[cfg(test)]

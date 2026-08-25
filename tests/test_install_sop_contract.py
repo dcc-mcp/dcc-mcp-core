@@ -299,6 +299,19 @@ def test_rust_cli_success_execution_report_fixture_is_schema_valid() -> None:
     }
 
 
+def test_rust_cli_deferred_registration_report_fixture_is_schema_valid() -> None:
+    from dcc_mcp_core import load_install_sop_schema
+
+    fixture = REPO_ROOT / "tests" / "fixtures" / "install-execution-report-v1-deferred.json"
+    report = json.loads(fixture.read_text(encoding="utf-8"))
+
+    Draft202012Validator(load_install_sop_schema()).validate(report)
+    assert report["status"] == "partial"
+    assert report["exit_code"] == 0
+    assert [step["status"] for step in report["steps"]] == ["ok", "deferred", "ok"]
+    assert report["verify"]["directly_usable"] is False
+
+
 def test_rust_cli_rollback_failure_report_fixture_is_schema_valid() -> None:
     from dcc_mcp_core import load_install_sop_schema
 
