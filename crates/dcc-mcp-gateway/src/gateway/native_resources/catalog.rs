@@ -370,6 +370,20 @@ mod tests {
         f
     }
 
+    async fn build_payload_with_catalog(content: &str, query: &Query) -> Result<Value, String> {
+        let file = write_catalog_yaml(content);
+        let catalog_path = file
+            .path()
+            .to_str()
+            .expect("temporary path should be UTF-8");
+        let _env = EnvVarsGuard::set(&[
+            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
+            ("DCC_MCP_CATALOG_PATH", Some(catalog_path)),
+        ]);
+        LOADER.clear_cache().await;
+        build_payload(query).await
+    }
+
     const TWO_ENTRY_YAML: &str = r#"
 version: "1"
 entries:
@@ -397,18 +411,14 @@ entries:
 
     #[tokio::test]
     async fn build_payload_list_empty_query_returns_all() {
-        LOADER.clear_cache().await;
-        let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        let _g = EnvVarsGuard::set(&[
-            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
-            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
-        ]);
-
-        let v = build_payload(&Query::List {
-            query: String::new(),
-            limit: None,
-            offset: 0,
-        })
+        let v = build_payload_with_catalog(
+            TWO_ENTRY_YAML,
+            &Query::List {
+                query: String::new(),
+                limit: None,
+                offset: 0,
+            },
+        )
         .await
         .expect("build_payload should succeed");
 
@@ -417,18 +427,14 @@ entries:
 
     #[tokio::test]
     async fn build_payload_list_keyword_filters_results() {
-        LOADER.clear_cache().await;
-        let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        let _g = EnvVarsGuard::set(&[
-            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
-            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
-        ]);
-
-        let v = build_payload(&Query::List {
-            query: "maya".to_string(),
-            limit: None,
-            offset: 0,
-        })
+        let v = build_payload_with_catalog(
+            TWO_ENTRY_YAML,
+            &Query::List {
+                query: "maya".to_string(),
+                limit: None,
+                offset: 0,
+            },
+        )
         .await
         .expect("build_payload should succeed");
 
@@ -438,18 +444,14 @@ entries:
 
     #[tokio::test]
     async fn build_payload_list_paginated_limit() {
-        LOADER.clear_cache().await;
-        let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        let _g = EnvVarsGuard::set(&[
-            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
-            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
-        ]);
-
-        let v = build_payload(&Query::List {
-            query: String::new(),
-            limit: Some(1),
-            offset: 0,
-        })
+        let v = build_payload_with_catalog(
+            TWO_ENTRY_YAML,
+            &Query::List {
+                query: String::new(),
+                limit: Some(1),
+                offset: 0,
+            },
+        )
         .await
         .expect("build_payload should succeed");
 
@@ -460,18 +462,14 @@ entries:
 
     #[tokio::test]
     async fn build_payload_list_paginated_offset() {
-        LOADER.clear_cache().await;
-        let f = write_catalog_yaml(TWO_ENTRY_YAML);
-        let _g = EnvVarsGuard::set(&[
-            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
-            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
-        ]);
-
-        let v = build_payload(&Query::List {
-            query: String::new(),
-            limit: None,
-            offset: 1,
-        })
+        let v = build_payload_with_catalog(
+            TWO_ENTRY_YAML,
+            &Query::List {
+                query: String::new(),
+                limit: None,
+                offset: 1,
+            },
+        )
         .await
         .expect("build_payload should succeed");
 
@@ -482,16 +480,12 @@ entries:
 
     #[tokio::test]
     async fn build_payload_single_existing_entry_returns_data() {
-        LOADER.clear_cache().await;
-        let f = write_catalog_yaml(ONE_ENTRY_YAML);
-        let _g = EnvVarsGuard::set(&[
-            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
-            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
-        ]);
-
-        let v = build_payload(&Query::Single {
-            name: "maya-skills".to_string(),
-        })
+        let v = build_payload_with_catalog(
+            ONE_ENTRY_YAML,
+            &Query::Single {
+                name: "maya-skills".to_string(),
+            },
+        )
         .await
         .expect("describe should succeed");
 
@@ -501,19 +495,46 @@ entries:
 
     #[tokio::test]
     async fn build_payload_single_missing_entry_errors() {
-        LOADER.clear_cache().await;
-        let f = write_catalog_yaml(ONE_ENTRY_YAML);
-        let _g = EnvVarsGuard::set(&[
-            ("DCC_MCP_MARKETPLACE_OFFLINE", Some("1")),
-            ("DCC_MCP_CATALOG_PATH", f.path().to_str()),
-        ]);
-
-        let err = build_payload(&Query::Single {
-            name: "does-not-exist".to_string(),
-        })
+        let err = build_payload_with_catalog(
+            ONE_ENTRY_YAML,
+            &Query::Single {
+                name: "does-not-exist".to_string(),
+            },
+        )
         .await
         .expect_err("missing entry should return Err");
 
         assert!(err.contains("not found"));
+    }
+
+    #[test]
+    fn concurrent_catalog_fixtures_do_not_share_cached_entries() {
+        let fixtures = [(ONE_ENTRY_YAML, 1), (TWO_ENTRY_YAML, 2)];
+        let workers = fixtures.map(|(fixture, expected_total)| {
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("test runtime should build");
+
+                for _ in 0..16 {
+                    let payload = runtime
+                        .block_on(build_payload_with_catalog(
+                            fixture,
+                            &Query::List {
+                                query: String::new(),
+                                limit: None,
+                                offset: 0,
+                            },
+                        ))
+                        .expect("fixture payload should load");
+                    assert_eq!(payload["total"], expected_total);
+                }
+            })
+        });
+
+        for worker in workers {
+            worker.join().expect("fixture worker should not panic");
+        }
     }
 }
