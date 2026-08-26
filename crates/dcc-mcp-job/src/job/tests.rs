@@ -69,6 +69,51 @@ impl std::fmt::Debug for BlockingStorage {
     }
 }
 
+struct NeverReturningStorage {
+    entered: mpsc::SyncSender<()>,
+}
+
+impl std::fmt::Debug for NeverReturningStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NeverReturningStorage")
+            .finish_non_exhaustive()
+    }
+}
+
+impl JobStorage for NeverReturningStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        self.entered.send(()).unwrap();
+        loop {
+            thread::park();
+        }
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        Ok(0)
+    }
+}
+
 impl JobStorage for BlockingStorage {
     fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
         self.entered.send(()).unwrap();
@@ -656,6 +701,78 @@ fn offloaded_storage_flushes_job_lifecycle_in_fifo_order_on_drop() {
         *storage.statuses.lock().unwrap(),
         [JobStatus::Pending, JobStatus::Running, JobStatus::Completed,]
     );
+}
+
+#[test]
+fn offloaded_storage_drop_is_bounded_when_backend_never_returns() {
+    const HELPER_ENV: &str = "DCC_MCP_TEST_BLOCKED_PERSISTENCE_DROP_HELPER";
+    const READY_PATH_ENV: &str = "DCC_MCP_TEST_BLOCKED_PERSISTENCE_DROP_READY_PATH";
+    const TEST_NAME: &str =
+        "job::tests::offloaded_storage_drop_is_bounded_when_backend_never_returns";
+
+    if std::env::var_os(HELPER_ENV).is_some() {
+        let ready_path = std::path::PathBuf::from(
+            std::env::var_os(READY_PATH_ENV).expect("watchdog helper ready path is missing"),
+        );
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let jobs = JobManager::with_offloaded_storage(Arc::new(NeverReturningStorage {
+            entered: entered_tx,
+        }));
+        jobs.create("scene.inspect.blocked-drop");
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("storage worker did not enter the blocking put");
+        std::fs::write(ready_path, b"ready").expect("failed to publish watchdog ready marker");
+        drop(jobs);
+        return;
+    }
+
+    let ready_path = std::env::temp_dir().join(format!(
+        "dcc-mcp-persistence-drop-{}-{}.ready",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg(TEST_NAME)
+        .arg("--exact")
+        .env(HELPER_ENV, "1")
+        .env(READY_PATH_ENV, &ready_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn persistence-drop watchdog helper");
+
+    let ready_deadline = Instant::now() + Duration::from_secs(5);
+    while !ready_path.is_file() {
+        if let Some(status) = child.try_wait().unwrap() {
+            let _ = std::fs::remove_file(&ready_path);
+            panic!("watchdog helper exited before ready with {status}");
+        }
+        if Instant::now() >= ready_deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            let _ = std::fs::remove_file(&ready_path);
+            panic!("watchdog helper did not enter the blocked storage call within 5 seconds");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            let _ = std::fs::remove_file(&ready_path);
+            assert!(status.success(), "watchdog helper exited with {status}");
+            break;
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            let _ = std::fs::remove_file(&ready_path);
+            panic!("dropping a blocked persistence writer did not finish within 1 second");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[test]

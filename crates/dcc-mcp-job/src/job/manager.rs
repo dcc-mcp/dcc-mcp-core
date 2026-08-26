@@ -73,8 +73,9 @@ impl JobManager {
     ///
     /// Job mutations enqueue persistence in FIFO order and return without
     /// waiting for backend I/O. HTTP servers use this mode so synchronous
-    /// storage drivers cannot starve the request runtime. The worker still
-    /// flushes queued writes when the manager is dropped.
+    /// storage drivers cannot starve the request runtime. Drop gives the worker
+    /// a bounded shutdown window; a backend call that never returns cannot
+    /// block the owning runtime indefinitely.
     pub fn with_offloaded_storage(storage: Arc<dyn crate::job_storage::JobStorage>) -> Self {
         Self::with_storage_mode(storage, false)
     }
@@ -452,14 +453,9 @@ impl JobManager {
             }
         }
         if removed > 0
-            && let Some(storage) = &self.storage
+            && let Some(writer) = &self.persistence_writer
         {
-            if let Some(writer) = &self.persistence_writer {
-                writer.flush();
-            }
-            if let Err(e) = storage.delete_older_than(cutoff) {
-                tracing::warn!(error = %e, "JobStorage.delete_older_than failed during gc_stale");
-            }
+            writer.delete_older_than(cutoff);
         }
         removed
     }
@@ -469,8 +465,9 @@ impl JobManager {
     /// `older_than_hours` from both the in-process map and any attached
     /// [`JobStorage`] backend.
     ///
-    /// Returns the number of rows removed (from the in-process map —
-    /// the storage delete is authoritative for persisted rows).
+    /// Returns the number of rows removed from the in-process map. With
+    /// offloaded storage, the persisted-row delete is queued on the same FIFO
+    /// worker and may complete after this method returns.
     pub fn cleanup_older_than_hours(&self, older_than_hours: u64) -> usize {
         // Clamp to i64 to stay inside chrono's range. 1000 years is
         // more than any real caller should ever pass.

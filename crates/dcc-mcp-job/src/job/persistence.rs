@@ -1,6 +1,8 @@
 use std::sync::Arc;
-use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +12,7 @@ use crate::job_storage::JobStorageError;
 
 pub(super) const PERSISTENCE_FAILURE_THRESHOLD: u32 = 3;
 const PERSISTENCE_QUEUE_CAPACITY: usize = 64;
+const PERSISTENCE_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Runtime state of the optional job-persistence backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,9 +118,18 @@ enum PersistenceCommand {
         job: Box<Job>,
         completed: Option<SyncSender<()>>,
     },
-    Flush {
-        completed: SyncSender<()>,
+    DeleteOlderThan {
+        cutoff: DateTime<Utc>,
+        completed: Option<SyncSender<()>>,
     },
+}
+
+struct WorkerDone(SyncSender<()>);
+
+impl Drop for WorkerDone {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
 }
 
 /// Single-owner persistence worker.
@@ -128,6 +140,7 @@ enum PersistenceCommand {
 pub(super) struct PersistenceWriter {
     sender: Option<SyncSender<PersistenceCommand>>,
     worker: Option<std::thread::JoinHandle<()>>,
+    worker_done: Option<Mutex<Receiver<()>>>,
     circuit: Arc<Mutex<PersistenceCircuit>>,
     wait_for_completion: bool,
 }
@@ -139,10 +152,12 @@ impl PersistenceWriter {
         wait_for_completion: bool,
     ) -> Result<Self, std::io::Error> {
         let (sender, receiver) = mpsc::sync_channel(PERSISTENCE_QUEUE_CAPACITY);
+        let (worker_done_tx, worker_done_rx) = mpsc::sync_channel(1);
         let worker_circuit = circuit.clone();
         let worker = std::thread::Builder::new()
             .name("dcc-mcp-job-persistence".to_string())
             .spawn(move || {
+                let _done = WorkerDone(worker_done_tx);
                 while let Ok(command) = receiver.recv() {
                     match command {
                         PersistenceCommand::Put { job, completed } => {
@@ -151,8 +166,16 @@ impl PersistenceWriter {
                                 let _ = completed.send(());
                             }
                         }
-                        PersistenceCommand::Flush { completed } => {
-                            let _ = completed.send(());
+                        PersistenceCommand::DeleteOlderThan { cutoff, completed } => {
+                            if let Err(error) = storage.delete_older_than(cutoff) {
+                                tracing::warn!(
+                                    error = %error,
+                                    "JobStorage.delete_older_than failed during gc_stale"
+                                );
+                            }
+                            if let Some(completed) = completed {
+                                let _ = completed.send(());
+                            }
                         }
                     }
                 }
@@ -160,6 +183,7 @@ impl PersistenceWriter {
         Ok(Self {
             sender: Some(sender),
             worker: Some(worker),
+            worker_done: Some(Mutex::new(worker_done_rx)),
             circuit,
             wait_for_completion,
         })
@@ -202,23 +226,37 @@ impl PersistenceWriter {
         }
     }
 
-    pub(super) fn flush(&self) {
+    pub(super) fn delete_older_than(&self, cutoff: DateTime<Utc>) {
         let Some(sender) = &self.sender else {
             self.disable("worker_unavailable");
             return;
         };
-        let (completed_tx, completed_rx) = mpsc::sync_channel(0);
-        if sender
-            .send(PersistenceCommand::Flush {
-                completed: completed_tx,
-            })
-            .is_err()
-        {
-            self.disable("worker_unavailable");
+
+        if self.wait_for_completion {
+            let (completed_tx, completed_rx) = mpsc::sync_channel(0);
+            if sender
+                .send(PersistenceCommand::DeleteOlderThan {
+                    cutoff,
+                    completed: Some(completed_tx),
+                })
+                .is_err()
+            {
+                self.disable("worker_unavailable");
+                return;
+            }
+            if completed_rx.recv().is_err() {
+                self.disable("worker_unavailable");
+            }
             return;
         }
-        if completed_rx.recv().is_err() {
-            self.disable("worker_unavailable");
+
+        match sender.try_send(PersistenceCommand::DeleteOlderThan {
+            cutoff,
+            completed: None,
+        }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => self.disable("queue_full"),
+            Err(TrySendError::Disconnected(_)) => self.disable("worker_unavailable"),
         }
     }
 
@@ -237,8 +275,27 @@ impl PersistenceWriter {
 impl Drop for PersistenceWriter {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(worker) = self.worker.take() {
+        let Some(worker) = self.worker.take() else {
+            return;
+        };
+        let worker_finished = match self.worker_done.take() {
+            Some(done) => match done.lock().recv_timeout(PERSISTENCE_SHUTDOWN_TIMEOUT) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => true,
+                Err(RecvTimeoutError::Timeout) => false,
+            },
+            None => false,
+        };
+        if worker_finished {
             let _ = worker.join();
+        } else {
+            self.disable("shutdown_timeout");
+            tracing::warn!(
+                timeout_ms = PERSISTENCE_SHUTDOWN_TIMEOUT.as_millis(),
+                "job persistence worker did not stop within the bounded shutdown window"
+            );
+            // Rust cannot pre-empt an arbitrary synchronous trait call. Dropping
+            // the JoinHandle detaches that call, while the closed sender and
+            // disabled circuit ensure it cannot accept new manager work.
         }
     }
 }
