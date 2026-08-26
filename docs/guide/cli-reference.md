@@ -226,7 +226,7 @@ launching operation.
 | `feedback list [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | List persisted per-instance feedback newest first. The gateway deduplicates by feedback id, skips malformed/oversized lines with explicit counters, and rejects scans that exceed its safety bounds. |
 | `feedback export [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | Export the same structured contract with a bounded default of 1,000 records; `--json` is a shortcut for `--output json`. |
 | `feedback route <finding.json> [--catalog <path>] [--json]` | local Finding v1 + public catalog | Resolve a validated finding to `repo`, `issues_url`, and a stable rationale without starting a gateway or creating an issue. Missing or conflicting ownership metadata fails closed. |
-| `feedback bundle <finding.json> [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | local Finding/doctor/host errors + optional `GET /v1/debug/issue-reports/{request_id}` | Assemble `dcc-mcp.feedback-bundle.v1` without auto-starting a Gateway. The Finding must already be marked public-safe. Host-error input is capped at 256 KiB and projected without raw messages, tracebacks, metadata, paths, tokens, or PID. Every missing component is explicit and `complete=false` while the install-report contract is unavailable. |
+| `feedback bundle <finding.json> [--install-report <report.json>] [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | local Finding/doctor/host errors/Install SOP v1 report + optional `GET /v1/debug/issue-reports/{request_id}` | Assemble `dcc-mcp.feedback-bundle.v1` without auto-starting a Gateway. The Finding must already be marked public-safe. `--install-report` accepts one terminal, regular, non-symlink Install SOP v1 execution report up to 256 KiB, binds its DCC/core/adapter identity to the Finding, and projects only public-safe fields. Invalid or mismatched reports fail closed. Missing components remain explicit; `complete=true` only when every component is resolved. |
 | `feedback file <finding.json> [--catalog <path>] [--existing <number>\|--create] [--yes] [--json]` | local public-safe Finding + GitHub CLI | Route and deduplicate a Finding against open issues. The default is read-only and returns an executable `next_step`; execute that argv exactly after review and user authorization. A write binds the canonical Finding path, canonical catalog path or exact bundled sentinel, content SHA, fingerprint, and repository. Drift, bodies above 65,536 Unicode scalar values, exact conflicts, ambiguity, closed issues, tracker failures, or the bounded full-process-tree `gh` timeout stop the operation before mutation. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, and server binary diagnostics without auto-starting services. |
 | `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
@@ -311,10 +311,15 @@ Use the existing surfaces instead of copying unbounded logs:
    exact catalog or Skill-metadata ownership and never creates the external
    issue; a routing error must be resolved instead of guessed.
 6. After reviewing the Finding and setting all public-safe exclusion flags,
-   run `dcc-mcp-cli feedback bundle finding.json --json`. It adds the safe
-   issue report when a request id exists, a redacted doctor snapshot, version
-   matrix, and an exact-file bounded host-error tail. Treat any `unavailable`
-   component or `complete=false` as incomplete evidence.
+   run `dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json`.
+   Pass the single JSON stdout object from `install --execute --json` when it
+   is available. The bundle adds the safe issue report when a request id
+   exists, a redacted doctor snapshot, version matrix, an exact-file bounded
+   host-error tail, and a public-safe terminal Install SOP v1 report. The
+   report must be a regular non-symlink file no larger than 256 KiB and match
+   the Finding's DCC/core/adapter identity. Treat a validation failure as
+   fail-closed; treat any `unavailable` component or `complete=false` as
+   incomplete evidence.
 7. Run `dcc-mcp-cli feedback file finding.json --json` to search the routed
    repository without writing. A single exact fingerprint match returns one
    comment next step; no match returns a create next step. Keyword-only or

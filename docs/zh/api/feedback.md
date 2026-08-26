@@ -62,6 +62,8 @@ Finding 仍保持 `redaction_status.mode="needs-review"`；解析出路由不代
 
 ```bash
 dcc-mcp-cli feedback bundle finding.json --json
+# 包含 install --execute --json 输出的终态 JSON：
+dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json
 # Finding 中没有 PID 或需要指定日志根目录时：
 dcc-mcp-cli feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root --json
 ```
@@ -73,10 +75,17 @@ dcc-mcp-cli feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root
 traceback、metadata、路径、token 与 DCC PID。PID 来自 `--dcc-pid` 或
 `evidence.dcc_pid`；日志根目录按 `--log-dir`、`DCC_MCP_LOG_DIR`、平台默认目录解析。
 
+`--install-report` 接受一个终态 Install SOP v1 执行报告，输入必须是最大 256 KiB 的
+常规非符号链接文件。报告的 DCC 类型、Core 版本和 adapter 版本必须与 Finding 完全一致
+（包括双方都记录为 `unknown` 的情况）。CLI 会在收集其余 bundle 证据前拒绝格式错误、
+非终态、超限或身份不匹配的报告，并只通过同一 public-safe 路径/凭据投影输出已审查
+字段；原始命令输出与异常文本不属于可接受输入。
+
 结果契约为 `dcc-mcp.feedback-bundle.v1`。每个组件显式返回 `included`、
-`not_applicable` 或 `unavailable`，缺失证据不会伪装为完成。当前版本在验证过的安装
-执行报告契约可用前，会把该组件标为 unavailable，因此 `complete=false`。命令不提供
-raw bundle 模式；raw issue report 和 host log 只能留在本地人工审查，禁止自动附加。
+`not_applicable` 或 `unavailable`，缺失证据不会伪装为完成。不传 `--install-report`
+会把该组件标为 `unavailable`；只有所有组件都已解析时才返回 `complete=true`。命令
+不提供 raw bundle 模式；raw issue report 和 host log 只能留在本地人工审查，禁止
+自动附加。
 
 ## 授权与去重后的 Issue 提交
 

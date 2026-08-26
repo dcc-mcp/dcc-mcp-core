@@ -14,6 +14,7 @@ pub struct FeedbackBundleInput {
     pub doctor: Value,
     pub issue_report: Option<Value>,
     pub host_errors: HostErrorTail,
+    pub install_execution_report: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +78,10 @@ impl<T> BundleComponent<T> {
             reason: Some(reason.into()),
             data: None,
         }
+    }
+
+    fn is_resolved(&self) -> bool {
+        self.status != BundleComponentStatus::Unavailable
     }
 }
 
@@ -203,6 +208,14 @@ pub fn assemble_public_bundle(
     validate_public_finding(&finding)?;
 
     let issue_report = issue_report_component(&finding, input.issue_report)?;
+    let host_errors = input.host_errors.into_component();
+    let install_execution_report = input
+        .install_execution_report
+        .map(|report| BundleComponent::included(project_public_install_execution_report(&report)))
+        .unwrap_or_else(|| BundleComponent::unavailable("install_execution_report_not_provided"));
+    let complete = issue_report.is_resolved()
+        && host_errors.is_resolved()
+        && install_execution_report.is_resolved();
     let version_matrix = VersionMatrix {
         dcc_type: finding.dcc_type.clone(),
         adapter: finding.adapter.clone(),
@@ -215,16 +228,14 @@ pub fn assemble_public_bundle(
     Ok(FeedbackBundle {
         schema_version: FEEDBACK_BUNDLE_SCHEMA_VERSION,
         privacy_mode: "public-safe",
-        complete: false,
+        complete,
         finding,
         version_matrix,
         components: FeedbackBundleComponents {
             issue_report,
             doctor: BundleComponent::included(project_public_doctor(&input.doctor)),
-            host_errors: input.host_errors.into_component(),
-            install_execution_report: BundleComponent::unavailable(
-                "install_execution_report_contract_not_available",
-            ),
+            host_errors,
+            install_execution_report,
         },
         redaction_status: BundleRedactionStatus {
             mode: "public-safe",
@@ -238,6 +249,34 @@ pub fn assemble_public_bundle(
             host_error_payload_fields_excluded: true,
         },
     })
+}
+
+#[must_use]
+pub fn project_public_install_execution_report(value: &Value) -> Value {
+    let Some(object) = value.as_object() else {
+        return Value::Object(Map::new());
+    };
+    let mut projected = Map::new();
+    for key in [
+        "schema_version",
+        "status",
+        "dcc_type",
+        "adapter_version",
+        "core_version",
+        "stage",
+        "exit_code",
+        "steps",
+        "rollback",
+        "next_steps",
+        "receipt_path",
+        "verify",
+        "error",
+    ] {
+        if let Some(value) = object.get(key) {
+            projected.insert(key.to_string(), sanitize_json(value, Some(key)));
+        }
+    }
+    Value::Object(projected)
 }
 
 pub fn validate_public_finding(finding: &FindingV1) -> Result<(), FeedbackBundleError> {
@@ -474,6 +513,7 @@ mod tests {
             doctor: json!({"status": "ok"}),
             issue_report: None,
             host_errors: HostErrorTail::not_available("dcc_pid_not_available"),
+            install_execution_report: None,
         })
         .unwrap_err();
 
@@ -559,12 +599,13 @@ mod tests {
     }
 
     #[test]
-    fn bundle_is_incomplete_until_install_execution_report_contract_lands() {
+    fn bundle_without_an_install_execution_report_is_explicitly_incomplete() {
         let bundle = assemble_public_bundle(FeedbackBundleInput {
             finding: finding(FindingRedactionMode::PublicSafe),
             doctor: json!({"status": "ok"}),
             issue_report: None,
             host_errors: HostErrorTail::included(vec![json!({"event": "dcc_host_error"})], false),
+            install_execution_report: None,
         })
         .unwrap();
         let value = serde_json::to_value(bundle).unwrap();
@@ -580,10 +621,68 @@ mod tests {
         assert_eq!(value["components"]["host_errors"]["status"], "included");
         assert_eq!(
             value["components"]["install_execution_report"]["reason"],
-            "install_execution_report_contract_not_available"
+            "install_execution_report_not_provided"
         );
         assert_eq!(value["version_matrix"]["dcc_type"], "godot");
         assert_eq!(value["version_matrix"]["core"], "0.20.11");
+    }
+
+    #[test]
+    fn bundle_includes_a_public_safe_terminal_install_execution_report() {
+        let bundle = assemble_public_bundle(FeedbackBundleInput {
+            finding: finding(FindingRedactionMode::PublicSafe),
+            doctor: json!({"status": "ok"}),
+            issue_report: None,
+            host_errors: HostErrorTail::included(vec![json!({"event": "dcc_host_error"})], false),
+            install_execution_report: Some(json!({
+                "schema_version": 1,
+                "status": "failed",
+                "dcc_type": "godot",
+                "adapter_version": "0.3.0",
+                "core_version": "0.20.11",
+                "stage": "install",
+                "exit_code": 30,
+                "steps": [{
+                    "id": "install-path",
+                    "status": "failed",
+                    "rollback": {"attempted": false, "status": "not_available"}
+                }],
+                "rollback": {"attempted": false, "status": "not_attempted", "failure_count": 0},
+                "next_steps": [{
+                    "id": "inspect-runtime",
+                    "description": "Inspect safe local runtime diagnostics.",
+                    "why": "Diagnostics can identify a safe remediation before retrying installation.",
+                    "command": ["dcc-mcp-cli", "doctor", "C:\\Users\\artist\\private.json"]
+                }],
+                "receipt_path": "C:\\Users\\artist\\receipt.json",
+                "verify": {
+                    "directly_usable": false,
+                    "failure_stage": "install",
+                    "failure_reason": "INSTALL_STEP_FAILED"
+                },
+                "error": {"code": "INSTALL_STEP_FAILED", "stage": "install", "exit_code": 30}
+            })),
+        })
+        .unwrap();
+        let value = serde_json::to_value(bundle).unwrap();
+        let encoded = serde_json::to_string(&value).unwrap();
+
+        assert_eq!(value["complete"], true);
+        assert_eq!(
+            value["components"]["install_execution_report"]["status"],
+            "included"
+        );
+        assert_eq!(
+            value["components"]["install_execution_report"]["data"]["receipt_path"],
+            "[path-redacted]"
+        );
+        assert_eq!(
+            value["components"]["install_execution_report"]["data"]["next_steps"][0]["command"][2],
+            "[path-redacted]"
+        );
+        assert!(!encoded.contains("artist"));
+        assert!(!encoded.contains("private.json"));
+        assert!(!encoded.contains("receipt.json"));
     }
 
     #[test]
@@ -595,6 +694,7 @@ mod tests {
             doctor: json!({"status": "ok"}),
             issue_report,
             host_errors: HostErrorTail::not_available("dcc_pid_not_available"),
+            install_execution_report: None,
         };
 
         let raw = assemble_public_bundle(input(Some(json!({
