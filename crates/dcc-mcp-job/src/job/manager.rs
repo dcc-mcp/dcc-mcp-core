@@ -11,7 +11,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use super::types::{Job, JobEvent, JobProgress, JobStatus, JobSubscriber};
-use super::{JobPersistenceStatus, persistence::PersistenceCircuit};
+use super::{
+    JobPersistenceStatus,
+    persistence::{PersistenceCircuit, PersistenceWriter},
+};
 
 /// Thread-safe registry of [`Job`]s.
 pub struct JobManager {
@@ -19,10 +22,11 @@ pub struct JobManager {
     /// Subscribers invoked on every status transition. See [`Self::subscribe`].
     subscribers: RwLock<Vec<JobSubscriber>>,
     /// Optional persistence backend (issue #328). When `Some`, every
-    /// mutation is written through to storage so the next process
-    /// incarnation can see and mark-interrupted any in-flight jobs.
+    /// mutation is submitted to the owned persistence worker so the next
+    /// process incarnation can see and mark-interrupted in-flight jobs.
     storage: Option<Arc<dyn crate::job_storage::JobStorage>>,
-    persistence: parking_lot::Mutex<PersistenceCircuit>,
+    persistence: Arc<parking_lot::Mutex<PersistenceCircuit>>,
+    persistence_writer: Option<PersistenceWriter>,
 }
 
 impl Default for JobManager {
@@ -49,31 +53,73 @@ impl JobManager {
             jobs: DashMap::new(),
             subscribers: RwLock::new(Vec::new()),
             storage: None,
-            persistence: parking_lot::Mutex::new(PersistenceCircuit::default()),
+            persistence: Arc::new(parking_lot::Mutex::new(PersistenceCircuit::default())),
+            persistence_writer: None,
         }
     }
 
     /// Create a manager that writes every mutation through to `storage`
     /// (issue #328).
     ///
-    /// Does NOT perform recovery automatically — call
+    /// This constructor waits for each serialized worker transaction before
+    /// returning from a mutation. It does NOT perform recovery automatically — call
     /// [`Self::recover_from_storage`] once after construction if the
     /// backend may already contain rows from a previous process.
     pub fn with_storage(storage: Arc<dyn crate::job_storage::JobStorage>) -> Self {
+        Self::with_storage_mode(storage, true)
+    }
+
+    /// Create a manager whose storage writes run on a single bounded worker.
+    ///
+    /// Job mutations enqueue persistence in FIFO order and return without
+    /// waiting for backend I/O. HTTP servers use this mode so synchronous
+    /// storage drivers cannot starve the request runtime. The worker still
+    /// flushes queued writes when the manager is dropped.
+    pub fn with_offloaded_storage(storage: Arc<dyn crate::job_storage::JobStorage>) -> Self {
+        Self::with_storage_mode(storage, false)
+    }
+
+    fn with_storage_mode(
+        storage: Arc<dyn crate::job_storage::JobStorage>,
+        wait_for_completion: bool,
+    ) -> Self {
+        let (persistence, persistence_writer) =
+            Self::build_persistence_runtime(&storage, wait_for_completion);
         Self {
             jobs: DashMap::new(),
             subscribers: RwLock::new(Vec::new()),
             storage: Some(storage),
-            persistence: parking_lot::Mutex::new(PersistenceCircuit::configured()),
+            persistence,
+            persistence_writer,
         }
+    }
+
+    fn build_persistence_runtime(
+        storage: &Arc<dyn crate::job_storage::JobStorage>,
+        wait_for_completion: bool,
+    ) -> (
+        Arc<parking_lot::Mutex<PersistenceCircuit>>,
+        Option<PersistenceWriter>,
+    ) {
+        let persistence = Arc::new(parking_lot::Mutex::new(PersistenceCircuit::configured()));
+        let persistence_writer =
+            PersistenceWriter::new(storage.clone(), persistence.clone(), wait_for_completion)
+                .map_err(|error| {
+                    tracing::error!(error = %error, "failed to start job persistence worker");
+                    persistence.lock().disable("worker_unavailable");
+                })
+                .ok();
+        (persistence, persistence_writer)
     }
 
     /// Attach a storage backend to an existing manager. Intended for
     /// uncommon build-up paths; the primary entry point is
     /// [`Self::with_storage`].
     pub fn set_storage(&mut self, storage: Arc<dyn crate::job_storage::JobStorage>) {
+        let (persistence, persistence_writer) = Self::build_persistence_runtime(&storage, true);
         self.storage = Some(storage);
-        self.persistence = parking_lot::Mutex::new(PersistenceCircuit::configured());
+        self.persistence = persistence;
+        self.persistence_writer = persistence_writer;
     }
 
     /// Borrow the underlying storage, if any.
@@ -130,46 +176,8 @@ impl JobManager {
     }
 
     fn persist_put(&self, job: &Job) {
-        let Some(storage) = &self.storage else {
-            return;
-        };
-        if !self.persistence.lock().can_write() {
-            return;
-        }
-        let result = storage.put(job);
-        let mut persistence = self.persistence.lock();
-        // Another in-flight write may have crossed the sticky failure
-        // threshold while this backend call was running. Do not recover or
-        // mutate a circuit that has already been disabled.
-        if !persistence.can_write() {
-            return;
-        }
-        match result {
-            Ok(()) => {
-                if persistence.record_success() {
-                    tracing::info!("job persistence recovered after a transient write failure");
-                }
-            }
-            Err(error) => {
-                let disabled = persistence.record_failure(&error);
-                let status = persistence.status();
-                drop(persistence);
-                if disabled {
-                    tracing::warn!(
-                        error = %error,
-                        error_kind = status.last_error_kind.as_deref().unwrap_or("unknown"),
-                        consecutive_failures = status.consecutive_failures,
-                        "job persistence disabled after repeated identical write failures"
-                    );
-                } else {
-                    tracing::debug!(
-                        job_id = %job.id,
-                        error = %error,
-                        consecutive_failures = status.consecutive_failures,
-                        "JobStorage.put failed"
-                    );
-                }
-            }
+        if let Some(writer) = &self.persistence_writer {
+            writer.put(job);
         }
     }
 
@@ -445,9 +453,13 @@ impl JobManager {
         }
         if removed > 0
             && let Some(storage) = &self.storage
-            && let Err(e) = storage.delete_older_than(cutoff)
         {
-            tracing::warn!(error = %e, "JobStorage.delete_older_than failed during gc_stale");
+            if let Some(writer) = &self.persistence_writer {
+                writer.flush();
+            }
+            if let Err(e) = storage.delete_older_than(cutoff) {
+                tracing::warn!(error = %e, "JobStorage.delete_older_than failed during gc_stale");
+            }
         }
         removed
     }

@@ -3,11 +3,11 @@
 use super::*;
 use crate::job_storage::{JobFilter, JobStorage, JobStorageError};
 use serde_json::json;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Barrier, Condvar};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Default)]
 struct FailingStorage {
@@ -73,6 +73,116 @@ impl JobStorage for BlockingStorage {
     fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
         self.entered.send(()).unwrap();
         self.release.lock().unwrap().recv().unwrap();
+        Ok(())
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        Ok(0)
+    }
+}
+
+#[derive(Debug, Default)]
+struct ControlledFailingStorage {
+    puts: AtomicUsize,
+    entered: (std::sync::Mutex<usize>, Condvar),
+    releases: (std::sync::Mutex<usize>, Condvar),
+}
+
+impl ControlledFailingStorage {
+    fn wait_for_puts(&self, expected: usize, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let (lock, ready) = &self.entered;
+        let mut entered = lock.lock().unwrap();
+        while *entered < expected {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, result) = ready.wait_timeout(entered, remaining).unwrap();
+            entered = next;
+            if result.timed_out() && *entered < expected {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn release_one(&self) {
+        let (lock, ready) = &self.releases;
+        *lock.lock().unwrap() += 1;
+        ready.notify_one();
+    }
+}
+
+impl JobStorage for ControlledFailingStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        self.puts.fetch_add(1, Ordering::SeqCst);
+        let (entered_lock, entered_ready) = &self.entered;
+        *entered_lock.lock().unwrap() += 1;
+        entered_ready.notify_all();
+
+        let (release_lock, release_ready) = &self.releases;
+        let mut releases = release_lock.lock().unwrap();
+        while *releases == 0 {
+            releases = release_ready.wait(releases).unwrap();
+        }
+        *releases -= 1;
+        Err(JobStorageError::Backend("readonly-controlled".to_string()))
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        Ok(0)
+    }
+}
+
+#[derive(Debug, Default)]
+struct RecordingStorage {
+    statuses: std::sync::Mutex<Vec<JobStatus>>,
+}
+
+impl JobStorage for RecordingStorage {
+    fn put(&self, job: &Job) -> Result<(), JobStorageError> {
+        self.statuses.lock().unwrap().push(job.status);
         Ok(())
     }
 
@@ -476,6 +586,117 @@ fn repeated_identical_put_failures_latch_persistence() {
         }
     );
     assert_eq!(jobs.list().len(), 5, "in-memory jobs must keep working");
+}
+
+#[test]
+fn concurrent_identical_failures_do_not_start_a_fourth_backend_write() {
+    let storage = Arc::new(ControlledFailingStorage::default());
+    let jobs = Arc::new(JobManager::with_storage(storage.clone()));
+    let start = Arc::new(Barrier::new(5));
+    let writers: Vec<_> = (0..4)
+        .map(|index| {
+            let jobs = jobs.clone();
+            let start = start.clone();
+            thread::spawn(move || {
+                start.wait();
+                jobs.create(format!("scene.inspect.{index}"));
+            })
+        })
+        .collect();
+
+    start.wait();
+    let all_four_started_before_any_result = storage.wait_for_puts(4, Duration::from_millis(500));
+
+    if all_four_started_before_any_result {
+        for _ in 0..4 {
+            storage.release_one();
+        }
+    } else {
+        assert!(storage.wait_for_puts(1, Duration::from_secs(2)));
+        for expected in 1..=3 {
+            storage.release_one();
+            if expected < 3 {
+                assert!(storage.wait_for_puts(expected + 1, Duration::from_secs(2)));
+            }
+        }
+    }
+
+    for writer in writers {
+        writer.join().unwrap();
+    }
+
+    assert_eq!(
+        storage.puts.load(Ordering::SeqCst),
+        3,
+        "the failure threshold must reserve write ownership before backend I/O"
+    );
+    assert_eq!(
+        jobs.list().len(),
+        4,
+        "all jobs must remain available in memory"
+    );
+    assert_eq!(
+        jobs.persistence_status().state,
+        JobPersistenceState::Disabled
+    );
+}
+
+#[test]
+fn offloaded_storage_flushes_job_lifecycle_in_fifo_order_on_drop() {
+    let storage = Arc::new(RecordingStorage::default());
+    {
+        let jobs = JobManager::with_offloaded_storage(storage.clone());
+        let job = jobs.create("scene.inspect");
+        let job_id = job.read().id.clone();
+        jobs.start(&job_id).unwrap();
+        jobs.complete(&job_id, json!({"ok": true})).unwrap();
+    }
+
+    assert_eq!(
+        *storage.statuses.lock().unwrap(),
+        [JobStatus::Pending, JobStatus::Running, JobStatus::Completed,]
+    );
+}
+
+#[test]
+fn offloaded_storage_queue_is_bounded_and_fails_closed_without_blocking_callers() {
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let storage = Arc::new(BlockingStorage {
+        entered: entered_tx,
+        release: std::sync::Mutex::new(release_rx),
+    });
+    let jobs = Arc::new(JobManager::with_offloaded_storage(storage));
+    jobs.create("scene.inspect.blocked");
+    entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("storage worker did not start the blocking write");
+
+    let flood_jobs = jobs.clone();
+    let (done_tx, done_rx) = mpsc::sync_channel(1);
+    let flood = thread::spawn(move || {
+        for index in 0..65 {
+            flood_jobs.create(format!("scene.inspect.queued.{index}"));
+        }
+        done_tx.send(()).unwrap();
+    });
+    done_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("bounded persistence queue blocked a job caller");
+
+    assert_eq!(
+        jobs.persistence_status(),
+        JobPersistenceStatus {
+            state: JobPersistenceState::Disabled,
+            consecutive_failures: 0,
+            last_error_kind: Some("queue_full".to_string()),
+        }
+    );
+    assert_eq!(jobs.list().len(), 66);
+
+    release_tx.send(()).unwrap();
+    flood.join().unwrap();
+    drop(jobs);
 }
 
 #[test]
