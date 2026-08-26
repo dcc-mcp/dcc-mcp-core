@@ -313,6 +313,10 @@ would be unsafe.
   DCC/sidecar process, that status tool must be owned by the worker/service or
   another independently live control process; gateway restart alone cannot
   recreate an API whose owner exited.
+- Read `job_persistence` from the server `/health` payload before claiming
+  durable job history. `degraded` means recent writes failed; `disabled` means
+  the manager latched repeated failures and is serving jobs from memory only.
+  Do not expose backend messages or filesystem paths from that status.
 - Make every adapter-owned launch return its durable `job_id` and one canonical
   status (`pending`, `running`, `completed`, `failed`, `cancelled`, or
   `interrupted`). Declare its status tool in `next-tools.on-success`. Automatic
