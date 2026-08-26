@@ -273,8 +273,112 @@ pub fn project_public_install_execution_report(value: &Value) -> Value {
         "error",
     ] {
         if let Some(value) = object.get(key) {
-            projected.insert(key.to_string(), sanitize_json(value, Some(key)));
+            let value = if key == "next_steps" {
+                project_public_install_next_steps(value)
+            } else {
+                sanitize_json(value, Some(key))
+            };
+            projected.insert(key.to_string(), value);
         }
+    }
+    Value::Object(projected)
+}
+
+fn project_public_install_next_steps(value: &Value) -> Value {
+    let Some(steps) = value.as_array() else {
+        return Value::Array(Vec::new());
+    };
+    Value::Array(
+        steps
+            .iter()
+            .filter_map(|step| {
+                let object = step.as_object()?;
+                let mut projected = Map::new();
+                for key in ["id", "description", "why"] {
+                    if let Some(value) = object.get(key) {
+                        projected.insert(key.to_string(), sanitize_json(value, Some(key)));
+                    }
+                }
+                if let Some(command) = object.get("command") {
+                    projected.insert("command".to_string(), sanitize_command_argv(command));
+                }
+                if let Some(file_edit) = object.get("file_edit") {
+                    projected.insert(
+                        "file_edit".to_string(),
+                        project_public_install_file_edit(file_edit),
+                    );
+                }
+                Some(Value::Object(projected))
+            })
+            .collect(),
+    )
+}
+
+fn sanitize_command_argv(value: &Value) -> Value {
+    let Some(arguments) = value.as_array() else {
+        return Value::Array(Vec::new());
+    };
+    let mut redact_next = false;
+    Value::Array(
+        arguments
+            .iter()
+            .map(|argument| {
+                let Some(argument) = argument.as_str() else {
+                    return Value::String("[value-redacted]".to_string());
+                };
+                if redact_next {
+                    redact_next = false;
+                    return Value::String("[auth-redacted]".to_string());
+                }
+                if let Some(has_inline_value) = sensitive_command_option(argument) {
+                    redact_next = !has_inline_value;
+                    return Value::String("[auth-redacted]".to_string());
+                }
+                if contains_absolute_path(argument) || looks_like_relative_path(argument) {
+                    return Value::String("[path-redacted]".to_string());
+                }
+                Value::String(sanitize_public_text(argument))
+            })
+            .collect(),
+    )
+}
+
+fn sensitive_command_option(argument: &str) -> Option<bool> {
+    if !argument.starts_with('-') {
+        return None;
+    }
+    let (name, inline_value) = argument
+        .split_once('=')
+        .map_or((argument, false), |(name, _)| (name, true));
+    sensitive_key(name.trim_start_matches('-')).then_some(inline_value)
+}
+
+fn looks_like_relative_path(argument: &str) -> bool {
+    let lower = argument.to_ascii_lowercase();
+    argument.contains('/')
+        || argument.contains('\\')
+        || lower.starts_with("./")
+        || lower.starts_with("../")
+        || [
+            ".json", ".jsonl", ".yaml", ".yml", ".toml", ".log", ".txt", ".md",
+        ]
+        .iter()
+        .any(|extension| lower.ends_with(extension))
+}
+
+fn project_public_install_file_edit(value: &Value) -> Value {
+    let Some(object) = value.as_object() else {
+        return Value::Object(Map::new());
+    };
+    let mut projected = Map::new();
+    if object.contains_key("path") {
+        projected.insert(
+            "path".to_string(),
+            Value::String("[path-redacted]".to_string()),
+        );
+    }
+    if let Some(action) = object.get("action") {
+        projected.insert("action".to_string(), sanitize_json(action, Some("action")));
     }
     Value::Object(projected)
 }
@@ -393,7 +497,7 @@ fn sanitize_json(value: &Value, key: Option<&str>) -> Value {
 }
 
 fn sensitive_key(key: &str) -> bool {
-    let lower = key.to_ascii_lowercase();
+    let lower = key.to_ascii_lowercase().replace('-', "_");
     [
         "token",
         "secret",
@@ -401,6 +505,8 @@ fn sensitive_key(key: &str) -> bool {
         "credential",
         "authorization",
         "api_key",
+        "access_key",
+        "private_key",
     ]
     .iter()
     .any(|needle| lower.contains(needle))
@@ -429,11 +535,11 @@ fn identifier_key(key: &str) -> bool {
 
 fn sanitize_public_text(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
-    if lower.contains("http://") || lower.contains("https://") {
-        return "[url-redacted]".to_string();
-    }
     if contains_absolute_path(text) {
         return "[path-redacted]".to_string();
+    }
+    if contains_uri_scheme(text) {
+        return "[url-redacted]".to_string();
     }
     if ["token=", "secret=", "password=", "bearer ", "api_key="]
         .iter()
@@ -442,6 +548,30 @@ fn sanitize_public_text(text: &str) -> String {
         return "[auth-redacted]".to_string();
     }
     text.to_string()
+}
+
+fn contains_uri_scheme(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    (0..bytes.len()).any(|start| {
+        if !bytes[start].is_ascii_alphabetic()
+            || (start > 0 && uri_scheme_character(bytes[start - 1]))
+        {
+            return false;
+        }
+        let mut end = start + 1;
+        while end < bytes.len() && uri_scheme_character(bytes[end]) {
+            end += 1;
+        }
+        end - start >= 2
+            && bytes.get(end) == Some(&b':')
+            && bytes
+                .get(end + 1)
+                .is_some_and(|character| !character.is_ascii_whitespace())
+    })
+}
+
+fn uri_scheme_character(character: u8) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, b'+' | b'-' | b'.')
 }
 
 fn contains_absolute_path(text: &str) -> bool {
@@ -683,6 +813,95 @@ mod tests {
         assert!(!encoded.contains("artist"));
         assert!(!encoded.contains("private.json"));
         assert!(!encoded.contains("receipt.json"));
+    }
+
+    #[test]
+    fn bundle_redacts_structured_install_next_steps() {
+        let bundle = assemble_public_bundle(FeedbackBundleInput {
+            finding: finding(FindingRedactionMode::PublicSafe),
+            doctor: json!({"status": "ok"}),
+            issue_report: None,
+            host_errors: HostErrorTail::included(vec![json!({"event": "dcc_host_error"})], false),
+            install_execution_report: Some(json!({
+                "schema_version": 1,
+                "status": "failed",
+                "dcc_type": "godot",
+                "adapter_version": "0.3.0",
+                "core_version": "0.20.11",
+                "steps": [{"id": "register", "status": "failed"}],
+                "next_steps": [
+                    {
+                        "id": "inspect-runtime",
+                        "description": "Inspect safe runtime diagnostics.",
+                        "why": "Diagnostics identify the next safe action.",
+                        "command": [
+                            "dcc-mcp-cli",
+                            "doctor",
+                            "--token",
+                            "REVIEW_SECRET_7f0a",
+                            "private/reports/install-result.json",
+                            "mailto:private-contact@example.invalid",
+                            "custom+report:private-location",
+                            "--api-key=INLINE_REVIEW_SECRET_d820",
+                            "contact(mailto:embedded-private@example.invalid)"
+                        ]
+                    },
+                    {
+                        "id": "update-registration",
+                        "description": "Update the host registration file.",
+                        "why": "Manual registration is still required.",
+                        "file_edit": {
+                            "path": "private/config/registration.json",
+                            "action": "update",
+                            "content": "REVIEW_FILE_EDIT_SECRET_4b91"
+                        }
+                    }
+                ],
+                "receipt_path": null,
+                "verify": {
+                    "directly_usable": false,
+                    "failure_stage": "register",
+                    "failure_reason": "MANUAL_REGISTRATION_REQUIRED"
+                }
+            })),
+        })
+        .unwrap();
+        let value = serde_json::to_value(bundle).unwrap();
+        let report = &value["components"]["install_execution_report"]["data"];
+        let encoded = serde_json::to_string(report).unwrap();
+
+        assert_eq!(report["next_steps"][0]["command"][0], "dcc-mcp-cli");
+        assert_eq!(report["next_steps"][0]["command"][1], "doctor");
+        assert_eq!(report["next_steps"][0]["command"][2], "[auth-redacted]");
+        assert_eq!(report["next_steps"][0]["command"][3], "[auth-redacted]");
+        assert_eq!(report["next_steps"][0]["command"][4], "[path-redacted]");
+        assert_eq!(report["next_steps"][0]["command"][5], "[url-redacted]");
+        assert_eq!(report["next_steps"][0]["command"][6], "[url-redacted]");
+        assert_eq!(report["next_steps"][0]["command"][7], "[auth-redacted]");
+        assert_eq!(report["next_steps"][0]["command"][8], "[url-redacted]");
+        assert_eq!(
+            report["next_steps"][1]["file_edit"]["path"],
+            "[path-redacted]"
+        );
+        assert_eq!(report["next_steps"][1]["file_edit"]["action"], "update");
+        assert!(
+            report["next_steps"][1]["file_edit"]
+                .get("content")
+                .is_none()
+        );
+        for private in [
+            "--token",
+            "REVIEW_SECRET_7f0a",
+            "private/reports/install-result.json",
+            "mailto:private-contact@example.invalid",
+            "custom+report:private-location",
+            "--api-key=INLINE_REVIEW_SECRET_d820",
+            "contact(mailto:embedded-private@example.invalid)",
+            "private/config/registration.json",
+            "REVIEW_FILE_EDIT_SECRET_4b91",
+        ] {
+            assert!(!encoded.contains(private), "bundle leaked {private}");
+        }
     }
 
     #[test]

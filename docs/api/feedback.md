@@ -97,7 +97,12 @@ Finding's DCC type, Core version, and adapter version (including `unknown` when
 that is the recorded identity). The CLI rejects malformed, non-terminal, oversized, or
 mismatched reports before collecting the remaining bundle evidence. It emits
 only the reviewed report fields through the same public-safe path/credential
-projection; raw command output and exception text are never accepted.
+projection. Raw JSON is first validated against the published Install SOP v1
+Draft 2020-12 schema, including the exactly-one `command`/`file_edit` next-step
+contract. Public output redacts sensitive command option/value pairs, relative
+and absolute paths, and every URL scheme; `file_edit.content` and the input
+report path are never emitted. Raw command output and exception text are never
+accepted.
 
 The result uses `dcc-mcp.feedback-bundle.v1`. Each component reports
 `included`, `not_applicable`, or `unavailable`, so missing evidence is never

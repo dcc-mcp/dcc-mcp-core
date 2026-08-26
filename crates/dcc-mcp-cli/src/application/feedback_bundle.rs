@@ -3,13 +3,16 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use dcc_mcp_models::FindingV1;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::feedback::{FeedbackRouteServiceError, read_finding};
-use crate::application::install::InstallExecutionReport;
+use crate::application::install::{
+    InstallExecutionError, InstallRollbackReport, InstallStepRollbackReport, InstallVerifyReport,
+};
 use crate::domain::feedback_bundle::{
     FeedbackBundle, FeedbackBundleError, FeedbackBundleInput, HostErrorTail, MAX_HOST_ERROR_BYTES,
     MAX_HOST_ERROR_LINES, assemble_public_bundle, project_public_host_event,
@@ -18,6 +21,68 @@ use crate::domain::feedback_bundle::{
 
 const HOST_ERROR_PREFIX: &str = "dcc_mcp_core.host_errors: ";
 const MAX_INSTALL_REPORT_BYTES: usize = 256 * 1024;
+const INSTALL_SOP_V1_SCHEMA_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
+));
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BundledInstallExecutionReport {
+    schema_version: u8,
+    status: String,
+    dcc_type: String,
+    adapter_version: String,
+    core_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
+    steps: Vec<BundledInstallStep>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rollback: Option<InstallRollbackReport>,
+    next_steps: Vec<BundledInstallNextStep>,
+    receipt_path: Option<String>,
+    verify: InstallVerifyReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<InstallExecutionError>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BundledInstallStep {
+    id: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rollback: Option<InstallStepRollbackReport>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum BundledInstallNextStep {
+    Command {
+        id: String,
+        description: String,
+        why: String,
+        command: Vec<String>,
+    },
+    FileEdit {
+        id: String,
+        description: String,
+        why: String,
+        file_edit: BundledInstallFileEdit,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BundledInstallFileEdit {
+    path: String,
+    action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct FeedbackBundleRequest {
@@ -136,11 +201,19 @@ fn read_install_execution_report(
     if bytes.len() > MAX_INSTALL_REPORT_BYTES {
         return Err(FeedbackBundleServiceError::InstallReportTooLarge);
     }
-    let report: InstallExecutionReport = serde_json::from_slice(&bytes)
+    let raw_report: Value = serde_json::from_slice(&bytes)
         .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
-    if report.schema_version != 1 || !install_execution_report_contract_is_valid(&report) {
+    let schema: Value = serde_json::from_str(INSTALL_SOP_V1_SCHEMA_JSON)
+        .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
+    let validator = jsonschema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .build(&schema)
+        .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
+    if !validator.is_valid(&raw_report) {
         return Err(FeedbackBundleServiceError::InstallReportInvalid);
     }
+    let report: BundledInstallExecutionReport = serde_json::from_value(raw_report)
+        .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
     if !matches!(
         report.status.as_str(),
         "ok" | "failed" | "partial" | "requires_restart"
@@ -154,30 +227,6 @@ fn read_install_execution_report(
         return Err(FeedbackBundleServiceError::InstallReportMismatch);
     }
     serde_json::to_value(report).map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)
-}
-
-fn install_execution_report_contract_is_valid(report: &InstallExecutionReport) -> bool {
-    let present = |value: &str| value.chars().any(|character| !character.is_whitespace());
-    present(&report.dcc_type)
-        && present(&report.adapter_version)
-        && present(&report.core_version)
-        && present(&report.stage)
-        && report.steps.iter().all(|step| {
-            present(&step.id) && present(&step.status) && present(&step.rollback.status)
-        })
-        && present(&report.rollback.status)
-        && report.next_steps.iter().all(|step| {
-            present(&step.id)
-                && present(&step.description)
-                && present(&step.why)
-                && !step.command.is_empty()
-                && step.command.iter().all(|argument| present(argument))
-        })
-        && report.error.as_ref().is_none_or(|error| {
-            present(&error.code)
-                && present(&error.stage)
-                && error.primary_code.as_deref().is_none_or(present)
-        })
 }
 
 fn resolve_log_dir(explicit: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
@@ -494,6 +543,89 @@ mod tests {
         assert_eq!(report["schema_version"], 1);
         assert_eq!(report["status"], "failed");
         assert_eq!(report["dcc_type"], "maya");
+    }
+
+    #[test]
+    fn install_execution_report_enforces_published_next_step_variants() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("install-report.json");
+        let mut expected = finding(json!({}));
+        expected.dcc_type = "maya".into();
+        expected.adapter_version = "unknown".into();
+        expected.core_version = "0.0.0-test".into();
+
+        let file_edit_only = json!({
+            "schema_version": 1,
+            "status": "failed",
+            "dcc_type": "maya",
+            "adapter_version": "unknown",
+            "core_version": "0.0.0-test",
+            "steps": [{"id": "preflight", "status": "failed", "duration_ms": 12}],
+            "next_steps": [{
+                "id": "update-install-guide",
+                "description": "Update the adapter install guide.",
+                "why": "The adapter requires a host-specific registration entry.",
+                "file_edit": {
+                    "path": "private/install.md",
+                    "action": "update",
+                    "content": "private registration content",
+                    "encoding": "utf-8"
+                },
+                "confirmation": "operator"
+            }],
+            "receipt_path": null,
+            "verify": {
+                "directly_usable": false,
+                "failure_stage": "register",
+                "failure_reason": "MANUAL_REGISTRATION_REQUIRED"
+            },
+            "adapter_diagnostic": {"secret": "unreviewed-adapter-value"}
+        });
+        fs::write(&path, serde_json::to_vec(&file_edit_only).unwrap()).unwrap();
+
+        let projected = read_install_execution_report(&path, &expected).unwrap();
+        assert_eq!(projected["next_steps"][0]["file_edit"]["action"], "update");
+        let projected_text = serde_json::to_string(&projected).unwrap();
+        for omitted in [
+            "duration_ms",
+            "encoding",
+            "confirmation",
+            "adapter_diagnostic",
+            "unreviewed-adapter-value",
+        ] {
+            assert!(!projected_text.contains(omitted), "projected {omitted}");
+        }
+
+        let mut dual_variant: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/install-execution-report-v1-failed.json"
+        ))
+        .unwrap();
+        dual_variant["next_steps"][0]["file_edit"] =
+            json!({"path": "install.md", "action": "remove"});
+        fs::write(&path, serde_json::to_vec(&dual_variant).unwrap()).unwrap();
+
+        assert_eq!(
+            read_install_execution_report(&path, &expected)
+                .unwrap_err()
+                .to_string(),
+            "install execution report is invalid"
+        );
+
+        dual_variant["next_steps"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("command");
+        dual_variant["next_steps"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("file_edit");
+        fs::write(&path, serde_json::to_vec(&dual_variant).unwrap()).unwrap();
+        assert_eq!(
+            read_install_execution_report(&path, &expected)
+                .unwrap_err()
+                .to_string(),
+            "install execution report is invalid"
+        );
     }
 
     #[test]

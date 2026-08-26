@@ -176,6 +176,10 @@ terminal report, save that single stdout object and pass it with
 `--install-report`. The bundle accepts only a regular non-symlink file up to
 256 KiB whose DCC/core/adapter identity matches the Finding, then projects only
 public-safe Install SOP v1 fields. Invalid or mismatched input fails closed.
+The raw report is validated against the published Draft 2020-12 schema first,
+including mutually exclusive `command`/`file_edit` next steps. Public output
+redacts sensitive option/value pairs, relative and absolute paths, and all URL
+schemes; it omits `file_edit.content` and the input report path.
 Treat `unavailable` components and `complete=false` as incomplete evidence.
 Keep raw issue reports and host logs local, and never infer permission to create
 or attach to an external issue. A
