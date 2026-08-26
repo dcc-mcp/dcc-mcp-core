@@ -192,7 +192,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 
 ## Version / language support
 
-- **Current version**: 0.20.20 <!-- x-release-please-version -->
+- **Current version**: 0.20.21 <!-- x-release-please-version -->
 - **Python**: 3.7–3.14. Native cp37 wheels cover Linux/Windows, `py37-lite` is the sidecar fallback, and Python 3.8+ uses `abi3-py38`.
 - **Rust**: Edition 2024; MSRV pinned in `rust-toolchain.toml` at the repo root
 - **Build**: maturin + PyO3

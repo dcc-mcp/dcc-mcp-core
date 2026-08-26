@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.21](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.20...v0.20.21) (2026-08-26)
+
+
+### Bug Fixes
+
+* **job:** bound persistence cleanup and shutdown ([a909e9b](https://github.com/dcc-mcp/dcc-mcp-core/commit/a909e9b99dbc5ffac889e78571c9a876b45b4cdc))
+* **job:** cancel persistence work after disable ([a099cf0](https://github.com/dcc-mcp/dcc-mcp-core/commit/a099cf0fb58dbc496e6f7fcde31f78ba880c5062))
+* keep persistence health responsive ([315fdac](https://github.com/dcc-mcp/dcc-mcp-core/commit/315fdacc9e41db38ba0e755c2fab9a40d796e147))
+* latch repeated job storage failures ([f66ffc6](https://github.com/dcc-mcp/dcc-mcp-core/commit/f66ffc693b916bbd7dea630eabdd8c2992cdeac9))
+* serialize job persistence writes ([b6e7c95](https://github.com/dcc-mcp/dcc-mcp-core/commit/b6e7c958276aa0e6ca19109132973709408ae33e))
+
+
+### Documentation
+
+* document job persistence health state ([e1a2c36](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1a2c360528258440378020387608113fc53d250))
+
 ## [0.20.20](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.19...v0.20.20) (2026-08-26)
 
 
