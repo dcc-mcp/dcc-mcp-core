@@ -4,7 +4,8 @@ use http::{Method, Request, Response, StatusCode};
 use parking_lot::Mutex;
 use std::{
     io::{self, Write},
-    sync::Arc,
+    sync::{Arc, mpsc},
+    time::{Duration, Instant},
 };
 use tower::ServiceExt;
 use tower_http::classify::{ClassifiedResponse, ClassifyResponse, MakeClassifier};
@@ -18,6 +19,153 @@ fn health_payload_surfaces_job_persistence_state() {
     assert_eq!(payload["job_persistence"]["state"], "not_configured");
     assert_eq!(payload["job_persistence"]["consecutive_failures"], 0);
     assert!(payload["job_persistence"]["last_error_kind"].is_null());
+}
+
+struct HttpBlockingStorage {
+    entered: mpsc::SyncSender<()>,
+    release: std::sync::Mutex<mpsc::Receiver<()>>,
+}
+
+impl std::fmt::Debug for HttpBlockingStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HttpBlockingStorage")
+            .finish_non_exhaustive()
+    }
+}
+
+impl crate::JobStorage for HttpBlockingStorage {
+    fn put(&self, _job: &crate::Job) -> Result<(), crate::JobStorageError> {
+        self.entered.send(()).unwrap();
+        self.release.lock().unwrap().recv().unwrap();
+        Ok(())
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<crate::Job>, crate::JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: crate::JobFilter) -> Result<Vec<crate::Job>, crate::JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: crate::JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), crate::JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, crate::JobStorageError> {
+        Ok(0)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dedicated_health_remains_responsive_while_job_storage_is_blocked() {
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let jobs = Arc::new(crate::JobManager::with_offloaded_storage(Arc::new(
+        HttpBlockingStorage {
+            entered: entered_tx,
+            release: std::sync::Mutex::new(release_rx),
+        },
+    )));
+    let writer_jobs = jobs.clone();
+    let health_jobs = jobs.clone();
+    let router = Router::new()
+        .route(
+            "/jobs",
+            routing::post(move || {
+                let jobs = writer_jobs.clone();
+                async move {
+                    jobs.create("scene.inspect");
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        )
+        .route(
+            "/health",
+            routing::get(move || {
+                let jobs = health_jobs.clone();
+                async move { Json(health_payload(&jobs)) }
+            }),
+        );
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let actual_bind = listener.local_addr().unwrap().to_string();
+    let port = listener.local_addr().unwrap().port();
+    let mut config = McpHttpConfig::default();
+    config.server.spawn_mode = crate::ServerSpawnMode::Dedicated;
+    config.server.self_probe_timeout_ms = 0;
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (join, serve_thread) = spawn_impl::spawn_http_server(
+        listener,
+        router,
+        &config,
+        actual_bind,
+        port,
+        shutdown_tx.clone(),
+        shutdown_rx,
+    )
+    .await
+    .unwrap();
+    assert!(join.is_none());
+
+    let client = reqwest::Client::new();
+    let write_client = client.clone();
+    let write_request = tokio::spawn(async move {
+        write_client
+            .post(format!("http://127.0.0.1:{port}/jobs"))
+            .send()
+            .await
+    });
+    tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(2)))
+        .await
+        .unwrap()
+        .expect("storage write did not start");
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        release_tx.send(()).unwrap();
+    });
+
+    let health_started = Instant::now();
+    let health_response = tokio::time::timeout(
+        Duration::from_millis(100),
+        client.get(format!("http://127.0.0.1:{port}/health")).send(),
+    )
+    .await;
+    let health_elapsed = health_started.elapsed();
+
+    let write_response = tokio::time::timeout(Duration::from_secs(2), write_request)
+        .await
+        .expect("job request did not finish after storage release")
+        .unwrap()
+        .unwrap();
+    assert_eq!(write_response.status(), StatusCode::NO_CONTENT);
+    tokio::task::spawn_blocking(move || release.join().unwrap())
+        .await
+        .unwrap();
+    let _ = shutdown_tx.send(true);
+    if let Some(thread) = serve_thread {
+        tokio::task::spawn_blocking(move || thread.join().unwrap())
+            .await
+            .unwrap();
+    }
+
+    let health_response = health_response.unwrap_or_else(|_| {
+        panic!("/health was starved for {health_elapsed:?} by synchronous storage I/O")
+    });
+    assert_eq!(health_response.unwrap().status(), StatusCode::OK);
+    assert!(
+        health_elapsed < Duration::from_millis(100),
+        "/health took {health_elapsed:?}"
+    );
 }
 
 #[cfg(feature = "auto-gateway")]

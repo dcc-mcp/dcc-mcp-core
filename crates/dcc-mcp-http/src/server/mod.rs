@@ -834,9 +834,9 @@ fn build_job_manager(config: &McpHttpConfig) -> HttpResult<Arc<crate::job::JobMa
                         path.display()
                     ))
                 })?;
-                Ok(Arc::new(crate::job::JobManager::with_storage(Arc::new(
-                    storage,
-                ))))
+                Ok(Arc::new(crate::job::JobManager::with_offloaded_storage(
+                    Arc::new(storage),
+                )))
             }
             #[cfg(not(feature = "job-persist-sqlite"))]
             {

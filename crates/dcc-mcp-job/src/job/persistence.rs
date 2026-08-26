@@ -1,8 +1,15 @@
+use std::sync::Arc;
+use std::sync::mpsc::{self, SyncSender, TrySendError};
+
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
+use super::Job;
+use crate::job_storage::JobStorage;
 use crate::job_storage::JobStorageError;
 
 pub(super) const PERSISTENCE_FAILURE_THRESHOLD: u32 = 3;
+const PERSISTENCE_QUEUE_CAPACITY: usize = 64;
 
 /// Runtime state of the optional job-persistence backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +83,15 @@ impl PersistenceCircuit {
         }
     }
 
+    pub(super) fn disable(&mut self, error_kind: &str) -> bool {
+        let changed = !self.disabled;
+        self.disabled = true;
+        self.consecutive_failures = 0;
+        self.last_error = None;
+        self.last_error_kind = Some(error_kind.to_string());
+        changed
+    }
+
     pub(super) fn status(&self) -> JobPersistenceStatus {
         let state = if !self.configured {
             JobPersistenceState::NotConfigured
@@ -90,6 +106,178 @@ impl PersistenceCircuit {
             state,
             consecutive_failures: self.consecutive_failures,
             last_error_kind: self.last_error_kind.clone(),
+        }
+    }
+}
+
+enum PersistenceCommand {
+    Put {
+        job: Box<Job>,
+        completed: Option<SyncSender<()>>,
+    },
+    Flush {
+        completed: SyncSender<()>,
+    },
+}
+
+/// Single-owner persistence worker.
+///
+/// The worker owns the complete `can_write -> storage.put -> record result`
+/// transaction. That makes the failure threshold atomic across concurrent job
+/// mutations without holding the public health-state mutex during backend I/O.
+pub(super) struct PersistenceWriter {
+    sender: Option<SyncSender<PersistenceCommand>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+    circuit: Arc<Mutex<PersistenceCircuit>>,
+    wait_for_completion: bool,
+}
+
+impl PersistenceWriter {
+    pub(super) fn new(
+        storage: Arc<dyn JobStorage>,
+        circuit: Arc<Mutex<PersistenceCircuit>>,
+        wait_for_completion: bool,
+    ) -> Result<Self, std::io::Error> {
+        let (sender, receiver) = mpsc::sync_channel(PERSISTENCE_QUEUE_CAPACITY);
+        let worker_circuit = circuit.clone();
+        let worker = std::thread::Builder::new()
+            .name("dcc-mcp-job-persistence".to_string())
+            .spawn(move || {
+                while let Ok(command) = receiver.recv() {
+                    match command {
+                        PersistenceCommand::Put { job, completed } => {
+                            persist_one(&storage, &worker_circuit, &job);
+                            if let Some(completed) = completed {
+                                let _ = completed.send(());
+                            }
+                        }
+                        PersistenceCommand::Flush { completed } => {
+                            let _ = completed.send(());
+                        }
+                    }
+                }
+            })?;
+        Ok(Self {
+            sender: Some(sender),
+            worker: Some(worker),
+            circuit,
+            wait_for_completion,
+        })
+    }
+
+    pub(super) fn put(&self, job: &Job) {
+        if !self.circuit.lock().can_write() {
+            return;
+        }
+        let Some(sender) = &self.sender else {
+            self.disable("worker_unavailable");
+            return;
+        };
+
+        if self.wait_for_completion {
+            let (completed_tx, completed_rx) = mpsc::sync_channel(0);
+            if sender
+                .send(PersistenceCommand::Put {
+                    job: Box::new(job.clone()),
+                    completed: Some(completed_tx),
+                })
+                .is_err()
+            {
+                self.disable("worker_unavailable");
+                return;
+            }
+            if completed_rx.recv().is_err() {
+                self.disable("worker_unavailable");
+            }
+            return;
+        }
+
+        match sender.try_send(PersistenceCommand::Put {
+            job: Box::new(job.clone()),
+            completed: None,
+        }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => self.disable("queue_full"),
+            Err(TrySendError::Disconnected(_)) => self.disable("worker_unavailable"),
+        }
+    }
+
+    pub(super) fn flush(&self) {
+        let Some(sender) = &self.sender else {
+            self.disable("worker_unavailable");
+            return;
+        };
+        let (completed_tx, completed_rx) = mpsc::sync_channel(0);
+        if sender
+            .send(PersistenceCommand::Flush {
+                completed: completed_tx,
+            })
+            .is_err()
+        {
+            self.disable("worker_unavailable");
+            return;
+        }
+        if completed_rx.recv().is_err() {
+            self.disable("worker_unavailable");
+        }
+    }
+
+    fn disable(&self, error_kind: &'static str) {
+        let mut circuit = self.circuit.lock();
+        if circuit.disable(error_kind) {
+            tracing::warn!(
+                error_kind,
+                queue_capacity = PERSISTENCE_QUEUE_CAPACITY,
+                "job persistence disabled because its bounded worker cannot accept writes"
+            );
+        }
+    }
+}
+
+impl Drop for PersistenceWriter {
+    fn drop(&mut self) {
+        self.sender.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn persist_one(storage: &Arc<dyn JobStorage>, circuit: &Arc<Mutex<PersistenceCircuit>>, job: &Job) {
+    if !circuit.lock().can_write() {
+        return;
+    }
+
+    let result = storage.put(job);
+    let mut persistence = circuit.lock();
+    if !persistence.can_write() {
+        return;
+    }
+    match result {
+        Ok(()) => {
+            if persistence.record_success() {
+                tracing::info!("job persistence recovered after a transient write failure");
+            }
+        }
+        Err(error) => {
+            let disabled = persistence.record_failure(&error);
+            let status = persistence.status();
+            drop(persistence);
+            if disabled {
+                tracing::warn!(
+                    error = %error,
+                    error_kind = status.last_error_kind.as_deref().unwrap_or("unknown"),
+                    consecutive_failures = status.consecutive_failures,
+                    "job persistence disabled after repeated identical write failures"
+                );
+            } else {
+                tracing::debug!(
+                    job_id = %job.id,
+                    error = %error,
+                    consecutive_failures = status.consecutive_failures,
+                    "JobStorage.put failed"
+                );
+            }
         }
     }
 }
