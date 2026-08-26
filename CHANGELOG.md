@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.20](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.19...v0.20.20) (2026-08-26)
+
+
+### Features
+
+* include install reports in feedback bundles ([614c1bd](https://github.com/dcc-mcp/dcc-mcp-core/commit/614c1bd0c1dac668605dc74f28b7c9b59156ea07))
+
+
+### Bug Fixes
+
+* enforce install report bundle contracts ([c5b06c2](https://github.com/dcc-mcp/dcc-mcp-core/commit/c5b06c2a1e2577c4a12ab2b165339c7c6910c151))
+* isolate native pytest servers from gateway ([5d266b5](https://github.com/dcc-mcp/dcc-mcp-core/commit/5d266b59ae03811acfc940e04e3a4aa4386e661b))
+* isolate pytest sessions from operator gateway ([06e68d8](https://github.com/dcc-mcp/dcc-mcp-core/commit/06e68d8468a4594dc5f9570111340d01e8942dc0))
+* log registry membership changes only ([ddb772b](https://github.com/dcc-mcp/dcc-mcp-core/commit/ddb772bba1c0c757e263f8f2beef8a25f0cabf4e))
+* preserve additive install report contracts ([5ae8c47](https://github.com/dcc-mcp/dcc-mcp-core/commit/5ae8c47987673e093d757c521a2ebf5f36c68ebb))
+
 ## [0.20.19](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.18...v0.20.19) (2026-08-25)
 
 
