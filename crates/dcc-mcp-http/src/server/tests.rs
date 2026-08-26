@@ -34,6 +34,51 @@ impl std::fmt::Debug for HttpBlockingStorage {
     }
 }
 
+struct HttpCleanupBlockingStorage {
+    entered: mpsc::SyncSender<()>,
+    release: std::sync::Mutex<mpsc::Receiver<()>>,
+}
+
+impl std::fmt::Debug for HttpCleanupBlockingStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HttpCleanupBlockingStorage")
+            .finish_non_exhaustive()
+    }
+}
+
+impl crate::JobStorage for HttpCleanupBlockingStorage {
+    fn put(&self, _job: &crate::Job) -> Result<(), crate::JobStorageError> {
+        Ok(())
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<crate::Job>, crate::JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: crate::JobFilter) -> Result<Vec<crate::Job>, crate::JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: crate::JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), crate::JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, crate::JobStorageError> {
+        self.entered.send(()).unwrap();
+        self.release.lock().unwrap().recv().unwrap();
+        Ok(1)
+    }
+}
+
 impl crate::JobStorage for HttpBlockingStorage {
     fn put(&self, _job: &crate::Job) -> Result<(), crate::JobStorageError> {
         self.entered.send(()).unwrap();
@@ -160,6 +205,116 @@ async fn dedicated_health_remains_responsive_while_job_storage_is_blocked() {
 
     let health_response = health_response.unwrap_or_else(|_| {
         panic!("/health was starved for {health_elapsed:?} by synchronous storage I/O")
+    });
+    assert_eq!(health_response.unwrap().status(), StatusCode::OK);
+    assert!(
+        health_elapsed < Duration::from_millis(100),
+        "/health took {health_elapsed:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dedicated_health_remains_responsive_while_job_cleanup_is_blocked() {
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let jobs = Arc::new(crate::JobManager::with_offloaded_storage(Arc::new(
+        HttpCleanupBlockingStorage {
+            entered: entered_tx,
+            release: std::sync::Mutex::new(release_rx),
+        },
+    )));
+    let old_job = jobs.create("scene.inspect.cleanup");
+    let old_job_id = old_job.read().id.clone();
+    jobs.start(&old_job_id).unwrap();
+    jobs.complete(&old_job_id, serde_json::json!({"ok": true}))
+        .unwrap();
+    old_job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+
+    let cleanup_jobs = jobs.clone();
+    let health_jobs = jobs.clone();
+    let router = Router::new()
+        .route(
+            "/cleanup",
+            routing::post(move || {
+                let jobs = cleanup_jobs.clone();
+                async move {
+                    Json(serde_json::json!({
+                        "removed": jobs.cleanup_older_than_hours(1),
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/health",
+            routing::get(move || {
+                let jobs = health_jobs.clone();
+                async move { Json(health_payload(&jobs)) }
+            }),
+        );
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let actual_bind = listener.local_addr().unwrap().to_string();
+    let port = listener.local_addr().unwrap().port();
+    let mut config = McpHttpConfig::default();
+    config.server.spawn_mode = crate::ServerSpawnMode::Dedicated;
+    config.server.self_probe_timeout_ms = 0;
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (join, serve_thread) = spawn_impl::spawn_http_server(
+        listener,
+        router,
+        &config,
+        actual_bind,
+        port,
+        shutdown_tx.clone(),
+        shutdown_rx,
+    )
+    .await
+    .unwrap();
+    assert!(join.is_none());
+
+    let client = reqwest::Client::new();
+    let cleanup_client = client.clone();
+    let cleanup_request = tokio::spawn(async move {
+        cleanup_client
+            .post(format!("http://127.0.0.1:{port}/cleanup"))
+            .send()
+            .await
+    });
+    tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(2)))
+        .await
+        .unwrap()
+        .expect("storage cleanup did not start");
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        release_tx.send(()).unwrap();
+    });
+
+    let health_started = Instant::now();
+    let health_response = tokio::time::timeout(
+        Duration::from_millis(100),
+        client.get(format!("http://127.0.0.1:{port}/health")).send(),
+    )
+    .await;
+    let health_elapsed = health_started.elapsed();
+
+    let cleanup_response = tokio::time::timeout(Duration::from_secs(2), cleanup_request)
+        .await
+        .expect("cleanup request did not finish after storage release")
+        .unwrap()
+        .unwrap();
+    assert_eq!(cleanup_response.status(), StatusCode::OK);
+    tokio::task::spawn_blocking(move || release.join().unwrap())
+        .await
+        .unwrap();
+    let _ = shutdown_tx.send(true);
+    if let Some(thread) = serve_thread {
+        tokio::task::spawn_blocking(move || thread.join().unwrap())
+            .await
+            .unwrap();
+    }
+
+    let health_response = health_response.unwrap_or_else(|_| {
+        panic!("/health was starved for {health_elapsed:?} by synchronous cleanup storage I/O")
     });
     assert_eq!(health_response.unwrap().status(), StatusCode::OK);
     assert!(
