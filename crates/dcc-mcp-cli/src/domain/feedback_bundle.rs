@@ -562,8 +562,7 @@ fn contains_uri_scheme(text: &str) -> bool {
         while end < bytes.len() && uri_scheme_character(bytes[end]) {
             end += 1;
         }
-        end - start >= 2
-            && bytes.get(end) == Some(&b':')
+        bytes.get(end) == Some(&b':')
             && bytes
                 .get(end + 1)
                 .is_some_and(|character| !character.is_ascii_whitespace())
