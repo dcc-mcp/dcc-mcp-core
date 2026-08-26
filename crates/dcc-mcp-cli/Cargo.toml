@@ -29,6 +29,7 @@ dcc-mcp-models.workspace = true
 dcc-mcp-skills.workspace = true
 dirs.workspace = true
 flate2 = "1"
+jsonschema = "0.28"
 reqwest.workspace = true
 semver.workspace = true
 serde.workspace = true

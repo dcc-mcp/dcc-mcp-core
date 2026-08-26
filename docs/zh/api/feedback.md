@@ -79,7 +79,10 @@ traceback、metadata、路径、token 与 DCC PID。PID 来自 `--dcc-pid` 或
 常规非符号链接文件。报告的 DCC 类型、Core 版本和 adapter 版本必须与 Finding 完全一致
 （包括双方都记录为 `unknown` 的情况）。CLI 会在收集其余 bundle 证据前拒绝格式错误、
 非终态、超限或身份不匹配的报告，并只通过同一 public-safe 路径/凭据投影输出已审查
-字段；原始命令输出与异常文本不属于可接受输入。
+字段。CLI 会先按已发布的 Install SOP v1 Draft 2020-12 schema 验证原始 JSON，
+包括每个 next step 必须且只能包含 `command` 或 `file_edit`。公开输出会脱敏敏感命令
+option/value 对、相对与绝对路径及所有 URL scheme；`file_edit.content` 与输入报告路径
+绝不会输出。原始命令输出与异常文本不属于可接受输入。
 
 结果契约为 `dcc-mcp.feedback-bundle.v1`。每个组件显式返回 `included`、
 `not_applicable` 或 `unavailable`，缺失证据不会伪装为完成。不传 `--install-report`

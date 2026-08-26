@@ -1,5 +1,8 @@
 mod support;
 
+use std::io::ErrorKind;
+use std::net::TcpListener;
+
 use serde_json::{Value, json};
 
 use support::*;
@@ -242,7 +245,26 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
                 "id": "inspect-runtime",
                 "description": "Inspect safe local runtime diagnostics.",
                 "why": "Diagnostics can identify a safe remediation before retrying installation.",
-                "command": ["dcc-mcp-cli", "doctor"]
+                "command": [
+                    "dcc-mcp-cli",
+                    "doctor",
+                    "--token",
+                    "CLI_REVIEW_SECRET_9c2a",
+                    "private/reports/install-result.json",
+                    "mailto:private-contact@example.invalid",
+                    "custom+report:private-location",
+                    "--api-key=CLI_INLINE_SECRET_826d",
+                    "contact(mailto:embedded-cli-private@example.invalid)"
+                ]
+            }, {
+                "id": "update-registration",
+                "description": "Update the host registration file.",
+                "why": "Manual registration is still required.",
+                "file_edit": {
+                    "path": "private/config/registration.json",
+                    "action": "update",
+                    "content": "CLI_FILE_EDIT_SECRET_a73f"
+                }
             }],
             "receipt_path": "C:\\Users\\artist\\private-install-receipt.json",
             "verify": {
@@ -332,12 +354,127 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
         "token=private",
         "private traceback",
         "private-install-receipt.json",
+        "--token",
+        "CLI_REVIEW_SECRET_9c2a",
+        "private/reports/install-result.json",
+        "mailto:private-contact@example.invalid",
+        "custom+report:private-location",
+        "--api-key=CLI_INLINE_SECRET_826d",
+        "contact(mailto:embedded-cli-private@example.invalid)",
+        "private/config/registration.json",
+        "CLI_FILE_EDIT_SECRET_a73f",
         &finding_arg,
         &install_report_arg,
         &log_dir_arg,
         &fixture.base_url,
     ] {
         assert!(!encoded.contains(private), "bundle leaked {private}");
+    }
+}
+
+#[test]
+fn feedback_bundle_rejects_invalid_install_report_before_control_plane_io() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let temp = tempfile::tempdir().unwrap();
+    let finding_path = temp.path().join("finding.json");
+    let install_report_path = temp.path().join("install-report.json");
+    std::fs::write(
+        &finding_path,
+        serde_json::to_vec(&json!({
+            "schema_version": 1,
+            "fingerprint": format!("sha256:{}", "b".repeat(64)),
+            "dcc_type": "godot",
+            "adapter": "dcc-mcp-godot",
+            "adapter_version": "0.3.0",
+            "core_version": "0.20.11",
+            "host_version": "4.4.1",
+            "os": "windows",
+            "phase": "startup",
+            "severity": "blocker",
+            "intent": "Start the Godot adapter",
+            "observed": "The bridge did not start",
+            "expected": "The bridge becomes ready",
+            "repro": {"argv": ["dcc-mcp-cli", "status"]},
+            "evidence": {"request_id": "request-42", "error_kind": "startup_failed"},
+            "redaction_status": {
+                "mode": "public-safe",
+                "redaction_markers_detected": false,
+                "raw_payloads_excluded": true,
+                "prompts_excluded": true,
+                "scripts_excluded": true,
+                "auth_material_excluded": true,
+                "local_urls_excluded": true,
+                "absolute_paths_excluded": true,
+                "private_identifiers_excluded": true
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let valid_command_report = json!({
+        "schema_version": 1,
+        "status": "failed",
+        "dcc_type": "godot",
+        "adapter_version": "0.3.0",
+        "core_version": "0.20.11",
+        "steps": [{"id": "register", "status": "failed"}],
+        "next_steps": [{
+            "id": "invalid-dual-form",
+            "description": "This must fail before any request.",
+            "why": "The published schema requires one executable form.",
+            "command": ["dcc-mcp-cli", "doctor"]
+        }],
+        "receipt_path": null,
+        "verify": {
+            "directly_usable": false,
+            "failure_stage": "register",
+            "failure_reason": "MANUAL_REGISTRATION_REQUIRED"
+        }
+    });
+    let mut dual_variant = valid_command_report.clone();
+    dual_variant["next_steps"][0]["file_edit"] = json!({"path": "install.md", "action": "remove"});
+    let mut missing_variant = valid_command_report.clone();
+    missing_variant["next_steps"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("command");
+    let mut malformed_file_edit = missing_variant.clone();
+    malformed_file_edit["next_steps"][0]["file_edit"] =
+        json!({"path": "install.md", "action": "update"});
+    let finding_arg = finding_path.to_string_lossy().into_owned();
+    let report_arg = install_report_path.to_string_lossy().into_owned();
+
+    for invalid_report in [dual_variant, missing_variant, malformed_file_edit] {
+        std::fs::write(
+            &install_report_path,
+            serde_json::to_vec(&invalid_report).unwrap(),
+        )
+        .unwrap();
+        let output = cli_command()
+            .args([
+                "--base-url",
+                &base_url,
+                "feedback",
+                "bundle",
+                &finding_arg,
+                "--install-report",
+                &report_arg,
+                "--json",
+            ])
+            .current_dir(temp.path())
+            .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+            .env("DCC_MCP_REGISTRY_DIR", temp.path().join("registry"))
+            .output()
+            .unwrap();
+
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("install execution report is invalid"));
+        assert!(!stderr.contains(&report_arg));
+        assert_eq!(listener.accept().unwrap_err().kind(), ErrorKind::WouldBlock);
     }
 }
 

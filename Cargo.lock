@@ -1208,6 +1208,7 @@ dependencies = [
  "dirs",
  "flate2",
  "hex",
+ "jsonschema",
  "libc",
  "reqwest 0.13.4",
  "semver",
