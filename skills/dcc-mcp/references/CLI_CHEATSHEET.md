@@ -157,6 +157,8 @@ paths, or full tool payloads.
 dcc-mcp-cli feedback route finding.json --json
 dcc-mcp-cli feedback bundle reviewed-finding.json --json
 dcc-mcp-cli feedback bundle reviewed-finding.json \
+  --install-report install-report.json --json
+dcc-mcp-cli feedback bundle reviewed-finding.json \
   --dcc-pid 4321 --log-dir /safe/log/root --host-error-lines 50 --json
 dcc-mcp-cli feedback file reviewed-finding.json --json
 # Only after reviewing the plan and receiving explicit user authorization,
@@ -169,9 +171,14 @@ public-safe issue report when the Finding has a request id. Run it only after
 human review has set `redaction_status.mode=public-safe` and every exclusion
 flag to true. The host-error source is one exact regular file, capped at 256
 KiB and at most 200 requested records; raw messages, tracebacks, metadata,
-paths, tokens, and PID are excluded. Treat `unavailable` components and
-`complete=false` as incomplete evidence. Keep raw issue reports and host logs
-local, and never infer permission to create or attach to an external issue. A
+paths, tokens, and PID are excluded. When `install --execute --json` produced a
+terminal report, save that single stdout object and pass it with
+`--install-report`. The bundle accepts only a regular non-symlink file up to
+256 KiB whose DCC/core/adapter identity matches the Finding, then projects only
+public-safe Install SOP v1 fields. Invalid or mismatched input fails closed.
+Treat `unavailable` components and `complete=false` as incomplete evidence.
+Keep raw issue reports and host logs local, and never infer permission to create
+or attach to an external issue. A
 failed `DccServerBase.start()` is available through `feedback list`/`export` as
 a `needs-review` startup Finding without a request id; review and redact its
 exception-derived observed text before using `route`, `bundle`, or `file`.

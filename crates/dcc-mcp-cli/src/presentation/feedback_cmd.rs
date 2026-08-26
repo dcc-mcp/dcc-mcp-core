@@ -84,6 +84,9 @@ pub(crate) struct FeedbackBundleArgs {
     /// Public-safe Finding v1 JSON file to bundle.
     #[arg(value_name = "FINDING_JSON")]
     pub(super) finding: PathBuf,
+    /// Terminal Install SOP v1 execution report to include as public-safe evidence.
+    #[arg(long, value_name = "INSTALL_REPORT_JSON")]
+    pub(super) install_report: Option<PathBuf>,
     /// Host-error log directory; defaults to DCC_MCP_LOG_DIR or the platform log directory.
     #[arg(long)]
     pub(super) log_dir: Option<PathBuf>,
@@ -355,6 +358,7 @@ impl FeedbackArgs {
                     .bundle(
                         FeedbackBundleRequest {
                             finding_path: bundle.finding,
+                            install_report_path: bundle.install_report,
                             doctor_request: doctor.request(None, None, None),
                             log_dir: bundle.log_dir,
                             dcc_pid: bundle.dcc_pid,

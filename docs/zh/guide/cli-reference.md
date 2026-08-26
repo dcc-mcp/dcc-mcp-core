@@ -184,7 +184,7 @@ dcc-mcp-cli lint path/to/skills
 | `feedback list [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | 按时间倒序列出实例持久化反馈；Gateway 按 feedback id 去重，显式报告损坏/超长行计数，并在扫描超出安全边界时失败。 |
 | `feedback export [--range 1h\|24h\|7d\|all] [--dcc <dcc>] [--severity <level>] [--limit <n>] [--json]` | `GET /admin/api/feedback` | 导出同一结构化契约，默认上限 1,000 条；`--json` 等价于 `--output json`。 |
 | `feedback route <finding.json> [--catalog <path>] [--json]` | 本地 Finding v1 + 公开 catalog | 不启动 Gateway，把已校验 Finding 解析为 `repo`、`issues_url` 和稳定理由；不会创建 Issue，归属缺失或冲突时 fail-closed。 |
-| `feedback bundle <finding.json> [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | 本地 Finding/doctor/host error + 可选 `GET /v1/debug/issue-reports/{request_id}` | 不自动启动 Gateway，组装 `dcc-mcp.feedback-bundle.v1`。Finding 必须已标记 public-safe；host-error 输入最多 256 KiB，输出不包含原始 message、traceback、metadata、路径、token 或 PID。缺失组件显式标记，安装报告契约不可用时 `complete=false`。 |
+| `feedback bundle <finding.json> [--install-report <report.json>] [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | 本地 Finding/doctor/host error/Install SOP v1 report + 可选 `GET /v1/debug/issue-reports/{request_id}` | 不自动启动 Gateway，组装 `dcc-mcp.feedback-bundle.v1`。Finding 必须已标记 public-safe；`--install-report` 只接受最大 256 KiB 的终态常规非符号链接 Install SOP v1 执行报告，并将 DCC/Core/adapter 身份与 Finding 绑定后仅投影 public-safe 字段。无效或不匹配的报告会 fail-closed；缺失组件显式标记，所有组件均已解析时才有 `complete=true`。 |
 | `feedback file <finding.json> [--catalog <path>] [--existing <number>\|--create] [--yes] [--json]` | 本地 public-safe Finding + GitHub CLI | 默认只读去重并返回可执行 `next_step`；审查并获得用户授权后只能原样执行该 argv。写入必须绑定规范 Finding 路径、规范 catalog 路径或精确内置 sentinel、内容 SHA、fingerprint 和仓库。任何漂移、超过 65,536 个 Unicode 标量值的正文、冲突、歧义、closed Issue、tracker 错误或有界 `gh` 进程树超时都会在 mutation 前终止。 |
 | `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | 不启动或下载服务，输出 profile、有效 control route、该路径是否进入 Gateway stats、本地 readiness、daemon 状态和 server binary 诊断。 |
 | `list [--gateway <profile>]` | local FileRegistry 或 `GET /v1/instances` | 列出在线 DCC 实例。默认先确保 loopback gateway，再读取本机 FileRegistry；远程 profile 走选中的 gateway。 |
@@ -230,9 +230,12 @@ dcc-mcp-cli lint path/to/skills
    `dcc-mcp-cli feedback route finding.json --json`。该离线命令只使用精确的
    catalog 或 Skill 元数据归属，不会创建外部 Issue；路由失败时不得猜测仓库。
 6. 人工审查 Finding 并设置所有 public-safe 排除标志后，运行
-   `dcc-mcp-cli feedback bundle finding.json --json`。命令会组合 safe issue
-   report、脱敏 doctor、版本矩阵和准确文件的有界 host-error tail；任何
-   `unavailable` 组件或 `complete=false` 都表示证据不完整。
+   `dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json`。
+   如果 `install --execute --json` 生成了单一 JSON stdout 对象，应把该终态报告
+   原样保存并传入。命令会组合 safe issue report、脱敏 doctor、版本矩阵、准确文件的
+   有界 host-error tail，以及 public-safe Install SOP v1 报告；报告必须是最大
+   256 KiB 的常规非符号链接文件，且 DCC/Core/adapter 身份与 Finding 一致。
+   验证失败会 fail-closed；任何 `unavailable` 组件或 `complete=false` 都表示证据不完整。
 7. 运行 `dcc-mcp-cli feedback file finding.json --json` 做只读去重。只有在
    人工审查并获得用户授权后，才可原样执行返回的 `next_step.argv`；禁止根据
    `--existing`/`--create` 手工重建。CLI 会在写入前复核规范 Finding 路径、规范

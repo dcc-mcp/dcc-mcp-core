@@ -165,6 +165,7 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     let fixture = spawn_gateway_fixture();
     let temp = tempfile::tempdir().unwrap();
     let finding_path = temp.path().join("finding.json");
+    let install_report_path = temp.path().join("install-report.json");
     let log_dir = temp.path().join("logs");
     std::fs::create_dir(&log_dir).unwrap();
     std::fs::write(
@@ -221,7 +222,41 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
         ),
     )
     .unwrap();
+    std::fs::write(
+        &install_report_path,
+        serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "status": "failed",
+            "dcc_type": "godot",
+            "adapter_version": "0.3.0",
+            "core_version": "0.20.11",
+            "stage": "install",
+            "exit_code": 30,
+            "steps": [{
+                "id": "install-path",
+                "status": "failed",
+                "rollback": {"attempted": false, "status": "not_available"}
+            }],
+            "rollback": {"attempted": false, "status": "not_attempted", "failure_count": 0},
+            "next_steps": [{
+                "id": "inspect-runtime",
+                "description": "Inspect safe local runtime diagnostics.",
+                "why": "Diagnostics can identify a safe remediation before retrying installation.",
+                "command": ["dcc-mcp-cli", "doctor"]
+            }],
+            "receipt_path": "C:\\Users\\artist\\private-install-receipt.json",
+            "verify": {
+                "directly_usable": false,
+                "failure_stage": "install",
+                "failure_reason": "INSTALL_STEP_FAILED"
+            },
+            "error": {"code": "INSTALL_STEP_FAILED", "stage": "install", "exit_code": 30}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     let finding_arg = finding_path.to_string_lossy().into_owned();
+    let install_report_arg = install_report_path.to_string_lossy().into_owned();
     let log_dir_arg = log_dir.to_string_lossy().into_owned();
 
     let output = cli_command()
@@ -231,6 +266,8 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
             "feedback",
             "bundle",
             &finding_arg,
+            "--install-report",
+            &install_report_arg,
             "--log-dir",
             &log_dir_arg,
             "--host-error-lines",
@@ -256,7 +293,7 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     let encoded = serde_json::to_string(&body).unwrap();
     assert_eq!(body["schema_version"], "dcc-mcp.feedback-bundle.v1");
     assert_eq!(body["privacy_mode"], "public-safe");
-    assert_eq!(body["complete"], false);
+    assert_eq!(body["complete"], true);
     assert_eq!(
         body["finding"]["observed"],
         "The bridge did not start; public support code 4321"
@@ -280,13 +317,23 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     );
     assert_eq!(
         body["components"]["install_execution_report"]["status"],
-        "unavailable"
+        "included"
+    );
+    assert_eq!(
+        body["components"]["install_execution_report"]["data"]["status"],
+        "failed"
+    );
+    assert_eq!(
+        body["components"]["install_execution_report"]["data"]["receipt_path"],
+        "[path-redacted]"
     );
     for private in [
         "secret.godot",
         "token=private",
         "private traceback",
+        "private-install-receipt.json",
         &finding_arg,
+        &install_report_arg,
         &log_dir_arg,
         &fixture.base_url,
     ] {

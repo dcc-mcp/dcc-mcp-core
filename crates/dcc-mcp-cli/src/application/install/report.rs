@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::install::{InstallPlan, InstallStepAction, normalized_dcc_key};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallExecutionReport {
     pub schema_version: u8,
     pub status: String,
@@ -20,27 +20,27 @@ pub struct InstallExecutionReport {
     pub error: Option<InstallExecutionError>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallStepReport {
     pub id: String,
     pub status: String,
     pub rollback: InstallStepRollbackReport,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallStepRollbackReport {
     pub attempted: bool,
     pub status: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallRollbackReport {
     pub attempted: bool,
     pub status: String,
     pub failure_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallReportNextStep {
     pub id: String,
     pub description: String,
@@ -48,14 +48,14 @@ pub struct InstallReportNextStep {
     pub command: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallVerifyReport {
     pub directly_usable: bool,
     pub failure_stage: Option<String>,
     pub failure_reason: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallExecutionError {
     pub code: String,
     pub stage: String,

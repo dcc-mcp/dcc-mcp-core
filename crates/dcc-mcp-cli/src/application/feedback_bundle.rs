@@ -9,6 +9,7 @@ use thiserror::Error;
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::feedback::{FeedbackRouteServiceError, read_finding};
+use crate::application::install::InstallExecutionReport;
 use crate::domain::feedback_bundle::{
     FeedbackBundle, FeedbackBundleError, FeedbackBundleInput, HostErrorTail, MAX_HOST_ERROR_BYTES,
     MAX_HOST_ERROR_LINES, assemble_public_bundle, project_public_host_event,
@@ -16,10 +17,12 @@ use crate::domain::feedback_bundle::{
 };
 
 const HOST_ERROR_PREFIX: &str = "dcc_mcp_core.host_errors: ";
+const MAX_INSTALL_REPORT_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct FeedbackBundleRequest {
     pub finding_path: std::path::PathBuf,
+    pub install_report_path: Option<std::path::PathBuf>,
     pub doctor_request: DoctorRequest,
     pub log_dir: Option<std::path::PathBuf>,
     pub dcc_pid: Option<u32>,
@@ -37,6 +40,11 @@ impl FeedbackBundleService {
     ) -> Result<FeedbackBundle, FeedbackBundleServiceError> {
         let finding = read_finding(&request.finding_path)?;
         validate_public_finding(&finding)?;
+        let install_execution_report = request
+            .install_report_path
+            .as_deref()
+            .map(|path| read_install_execution_report(path, &finding))
+            .transpose()?;
         let doctor = run_doctor(request.doctor_request)
             .await
             .map_err(|error| FeedbackBundleServiceError::Doctor(error.to_string()))?;
@@ -62,6 +70,7 @@ impl FeedbackBundleService {
             doctor,
             issue_report,
             host_errors,
+            install_execution_report,
         })
         .map_err(Into::into)
     }
@@ -75,6 +84,100 @@ pub enum FeedbackBundleServiceError {
     Doctor(String),
     #[error(transparent)]
     Bundle(#[from] FeedbackBundleError),
+    #[error("install execution report could not be read")]
+    InstallReportRead,
+    #[error("install execution report is not a regular file")]
+    InstallReportNotRegular,
+    #[error("install execution report exceeds the {MAX_INSTALL_REPORT_BYTES}-byte limit")]
+    InstallReportTooLarge,
+    #[error("install execution report is invalid")]
+    InstallReportInvalid,
+    #[error("install execution report is not terminal")]
+    InstallReportNotTerminal,
+    #[error("install execution report does not match the finding")]
+    InstallReportMismatch,
+}
+
+fn read_install_execution_report(
+    path: &Path,
+    finding: &FindingV1,
+) -> Result<Value, FeedbackBundleServiceError> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|_| FeedbackBundleServiceError::InstallReportRead)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(FeedbackBundleServiceError::InstallReportNotRegular);
+    }
+    if metadata.len() > MAX_INSTALL_REPORT_BYTES as u64 {
+        return Err(FeedbackBundleServiceError::InstallReportTooLarge);
+    }
+
+    let file = File::open(path).map_err(|_| FeedbackBundleServiceError::InstallReportRead)?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|_| FeedbackBundleServiceError::InstallReportRead)?;
+    let current_metadata =
+        fs::symlink_metadata(path).map_err(|_| FeedbackBundleServiceError::InstallReportRead)?;
+    if !opened_metadata.is_file()
+        || current_metadata.file_type().is_symlink()
+        || !current_metadata.is_file()
+    {
+        return Err(FeedbackBundleServiceError::InstallReportNotRegular);
+    }
+    if opened_metadata.len() > MAX_INSTALL_REPORT_BYTES as u64
+        || current_metadata.len() > MAX_INSTALL_REPORT_BYTES as u64
+    {
+        return Err(FeedbackBundleServiceError::InstallReportTooLarge);
+    }
+
+    let mut bytes = Vec::with_capacity(opened_metadata.len() as usize);
+    file.take((MAX_INSTALL_REPORT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| FeedbackBundleServiceError::InstallReportRead)?;
+    if bytes.len() > MAX_INSTALL_REPORT_BYTES {
+        return Err(FeedbackBundleServiceError::InstallReportTooLarge);
+    }
+    let report: InstallExecutionReport = serde_json::from_slice(&bytes)
+        .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
+    if report.schema_version != 1 || !install_execution_report_contract_is_valid(&report) {
+        return Err(FeedbackBundleServiceError::InstallReportInvalid);
+    }
+    if !matches!(
+        report.status.as_str(),
+        "ok" | "failed" | "partial" | "requires_restart"
+    ) {
+        return Err(FeedbackBundleServiceError::InstallReportNotTerminal);
+    }
+    if report.dcc_type != finding.dcc_type
+        || report.core_version != finding.core_version
+        || report.adapter_version != finding.adapter_version
+    {
+        return Err(FeedbackBundleServiceError::InstallReportMismatch);
+    }
+    serde_json::to_value(report).map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)
+}
+
+fn install_execution_report_contract_is_valid(report: &InstallExecutionReport) -> bool {
+    let present = |value: &str| value.chars().any(|character| !character.is_whitespace());
+    present(&report.dcc_type)
+        && present(&report.adapter_version)
+        && present(&report.core_version)
+        && present(&report.stage)
+        && report.steps.iter().all(|step| {
+            present(&step.id) && present(&step.status) && present(&step.rollback.status)
+        })
+        && present(&report.rollback.status)
+        && report.next_steps.iter().all(|step| {
+            present(&step.id)
+                && present(&step.description)
+                && present(&step.why)
+                && !step.command.is_empty()
+                && step.command.iter().all(|argument| present(argument))
+        })
+        && report.error.as_ref().is_none_or(|error| {
+            present(&error.code)
+                && present(&error.stage)
+                && error.primary_code.as_deref().is_none_or(present)
+        })
 }
 
 fn resolve_log_dir(explicit: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
@@ -232,6 +335,7 @@ fn safe_dcc_name(dcc_type: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
     use dcc_mcp_models::{
         FINDING_V1_SCHEMA_VERSION, FindingEvidenceV1, FindingPhase, FindingRedactionStatusV1,
@@ -239,7 +343,10 @@ mod tests {
     };
     use serde_json::{Value, json};
 
-    use super::{read_host_error_tail, resolve_dcc_pid};
+    use super::{
+        MAX_INSTALL_REPORT_BYTES, read_host_error_tail, read_install_execution_report,
+        resolve_dcc_pid,
+    };
 
     fn finding(extra: Value) -> FindingV1 {
         FindingV1 {
@@ -371,5 +478,136 @@ mod tests {
 
         assert_eq!(value["data"]["records"].as_array().unwrap().len(), 1);
         assert_eq!(value["data"]["skipped_invalid"], 1);
+    }
+
+    #[test]
+    fn install_execution_report_is_terminal_bounded_and_bound_to_the_finding() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/install-execution-report-v1-failed.json");
+        let mut expected = finding(json!({}));
+        expected.dcc_type = "maya".into();
+        expected.adapter_version = "unknown".into();
+        expected.core_version = "0.0.0-test".into();
+
+        let report = read_install_execution_report(&fixture, &expected).unwrap();
+
+        assert_eq!(report["schema_version"], 1);
+        assert_eq!(report["status"], "failed");
+        assert_eq!(report["dcc_type"], "maya");
+    }
+
+    #[test]
+    fn install_execution_report_rejects_non_terminal_and_cross_finding_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("install-report.json");
+        let mut report: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/install-execution-report-v1-failed.json"
+        ))
+        .unwrap();
+        let mut expected = finding(json!({}));
+        expected.dcc_type = "maya".into();
+        expected.adapter_version = "unknown".into();
+        expected.core_version = "0.0.0-test".into();
+
+        report["status"] = json!("running");
+        fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+        assert_eq!(
+            read_install_execution_report(&path, &expected)
+                .unwrap_err()
+                .to_string(),
+            "install execution report is not terminal"
+        );
+
+        report["status"] = json!("failed");
+        report["dcc_type"] = json!("houdini");
+        fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+        assert_eq!(
+            read_install_execution_report(&path, &expected)
+                .unwrap_err()
+                .to_string(),
+            "install execution report does not match the finding"
+        );
+
+        report["dcc_type"] = json!("maya");
+        report["adapter_version"] = json!("different-version");
+        fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+        assert_eq!(
+            read_install_execution_report(&path, &expected)
+                .unwrap_err()
+                .to_string(),
+            "install execution report does not match the finding"
+        );
+    }
+
+    #[test]
+    fn install_execution_report_rejects_unsafe_file_shapes_before_parsing() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut expected = finding(json!({}));
+        expected.dcc_type = "maya".into();
+        expected.adapter_version = "unknown".into();
+        expected.core_version = "0.0.0-test".into();
+
+        assert_eq!(
+            read_install_execution_report(temp.path(), &expected)
+                .unwrap_err()
+                .to_string(),
+            "install execution report is not a regular file"
+        );
+
+        let oversized = temp.path().join("oversized.json");
+        fs::write(&oversized, vec![b' '; MAX_INSTALL_REPORT_BYTES + 1]).unwrap();
+        assert_eq!(
+            read_install_execution_report(&oversized, &expected)
+                .unwrap_err()
+                .to_string(),
+            format!("install execution report exceeds the {MAX_INSTALL_REPORT_BYTES}-byte limit")
+        );
+    }
+
+    #[test]
+    fn install_execution_report_drops_unknown_unreviewed_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("install-report.json");
+        let mut report: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/install-execution-report-v1-failed.json"
+        ))
+        .unwrap();
+        report["raw_secret"] = json!("do-not-project");
+        fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+        let mut expected = finding(json!({}));
+        expected.dcc_type = "maya".into();
+        expected.adapter_version = "unknown".into();
+        expected.core_version = "0.0.0-test".into();
+
+        let safe_report = read_install_execution_report(&path, &expected).unwrap();
+        assert!(safe_report.get("raw_secret").is_none());
+        assert!(
+            !serde_json::to_string(&safe_report)
+                .unwrap()
+                .contains("do-not-project")
+        );
+    }
+
+    #[test]
+    fn install_execution_report_rejects_schema_invalid_nested_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("install-report.json");
+        let mut report: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/install-execution-report-v1-failed.json"
+        ))
+        .unwrap();
+        report["steps"][0]["id"] = json!("");
+        fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+        let mut expected = finding(json!({}));
+        expected.dcc_type = "maya".into();
+        expected.adapter_version = "unknown".into();
+        expected.core_version = "0.0.0-test".into();
+
+        assert_eq!(
+            read_install_execution_report(&path, &expected)
+                .unwrap_err()
+                .to_string(),
+            "install execution report is invalid"
+        );
     }
 }

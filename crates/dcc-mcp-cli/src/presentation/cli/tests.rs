@@ -1144,6 +1144,8 @@ fn feedback_bundle_is_no_auto_gateway_and_enforces_tail_bounds() {
         "feedback",
         "bundle",
         "finding.json",
+        "--install-report",
+        "install-report.json",
         "--dcc-pid",
         "4321",
         "--host-error-lines",
@@ -1160,6 +1162,10 @@ fn feedback_bundle_is_no_auto_gateway_and_enforces_tail_bounds() {
         panic!("expected feedback bundle action");
     };
     assert_eq!(bundle.finding, PathBuf::from("finding.json"));
+    assert_eq!(
+        bundle.install_report,
+        Some(PathBuf::from("install-report.json"))
+    );
     assert_eq!(bundle.dcc_pid, Some(4321));
     assert_eq!(bundle.host_error_lines, 200);
     assert!(bundle.json);
