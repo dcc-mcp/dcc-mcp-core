@@ -253,6 +253,7 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
                     "private/reports/install-result.json",
                     "mailto:private-contact@example.invalid",
                     "custom+report:private-location",
+                    "x:PRIVATE_URI_VALUE_71aa",
                     "--api-key=CLI_INLINE_SECRET_826d",
                     "contact(mailto:embedded-cli-private@example.invalid)"
                 ]
@@ -359,6 +360,7 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
         "private/reports/install-result.json",
         "mailto:private-contact@example.invalid",
         "custom+report:private-location",
+        "x:PRIVATE_URI_VALUE_71aa",
         "--api-key=CLI_INLINE_SECRET_826d",
         "contact(mailto:embedded-cli-private@example.invalid)",
         "private/config/registration.json",
@@ -370,6 +372,97 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     ] {
         assert!(!encoded.contains(private), "bundle leaked {private}");
     }
+}
+
+#[test]
+fn feedback_bundle_accepts_schema_additive_install_report_shapes() {
+    let fixture = spawn_gateway_fixture();
+    let temp = tempfile::tempdir().unwrap();
+    let finding_path = temp.path().join("finding.json");
+    let install_report_path = temp.path().join("install-report.json");
+    std::fs::write(
+        &finding_path,
+        serde_json::to_vec(&json!({
+            "schema_version": 1,
+            "fingerprint": format!("sha256:{}", "c".repeat(64)),
+            "dcc_type": "maya",
+            "adapter": "dcc-mcp-maya",
+            "adapter_version": "unknown",
+            "core_version": "0.0.0-test",
+            "host_version": "2026",
+            "os": "windows",
+            "phase": "install",
+            "severity": "blocker",
+            "intent": "Install the Maya adapter",
+            "observed": "The adapter was not ready",
+            "expected": "The adapter becomes ready",
+            "repro": {"argv": ["dcc-mcp-cli", "install", "maya"]},
+            "evidence": {"error_kind": "install_failed"},
+            "redaction_status": {
+                "mode": "public-safe",
+                "redaction_markers_detected": false,
+                "raw_payloads_excluded": true,
+                "prompts_excluded": true,
+                "scripts_excluded": true,
+                "auth_material_excluded": true,
+                "local_urls_excluded": true,
+                "absolute_paths_excluded": true,
+                "private_identifiers_excluded": true
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut report: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/install-execution-report-v1-failed.json"
+    ))
+    .unwrap();
+    report["rollback"] = json!({
+        "future_shape": {
+            "private_uri": "x:ROLLBACK_FUTURE_URI_28f1",
+            "private_path": "private/future/rollback.json"
+        }
+    });
+    std::fs::write(&install_report_path, serde_json::to_vec(&report).unwrap()).unwrap();
+    let finding_arg = finding_path.to_string_lossy().into_owned();
+    let report_arg = install_report_path.to_string_lossy().into_owned();
+
+    let output = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "feedback",
+            "bundle",
+            &finding_arg,
+            "--install-report",
+            &report_arg,
+            "--json",
+        ])
+        .current_dir(temp.path())
+        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
+        .env("DCC_MCP_REGISTRY_DIR", temp.path().join("registry"))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let report = &body["components"]["install_execution_report"]["data"];
+    assert_eq!(
+        report["rollback"]["future_shape"]["private_uri"],
+        "[url-redacted]"
+    );
+    assert_eq!(
+        report["rollback"]["future_shape"]["private_path"],
+        "[path-redacted]"
+    );
+    let encoded = serde_json::to_string(&body).unwrap();
+    assert!(!encoded.contains("ROLLBACK_FUTURE_URI_28f1"));
+    assert!(!encoded.contains("private/future/rollback.json"));
+    assert!(!encoded.contains(&report_arg));
 }
 
 #[test]

@@ -3,16 +3,12 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use dcc_mcp_models::FindingV1;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::feedback::{FeedbackRouteServiceError, read_finding};
-use crate::application::install::{
-    InstallExecutionError, InstallRollbackReport, InstallStepRollbackReport, InstallVerifyReport,
-};
 use crate::domain::feedback_bundle::{
     FeedbackBundle, FeedbackBundleError, FeedbackBundleInput, HostErrorTail, MAX_HOST_ERROR_BYTES,
     MAX_HOST_ERROR_LINES, assemble_public_bundle, project_public_host_event,
@@ -25,64 +21,6 @@ const INSTALL_SOP_V1_SCHEMA_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
 ));
-
-#[derive(Debug, Deserialize, Serialize)]
-struct BundledInstallExecutionReport {
-    schema_version: u8,
-    status: String,
-    dcc_type: String,
-    adapter_version: String,
-    core_version: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stage: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    exit_code: Option<i32>,
-    steps: Vec<BundledInstallStep>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    rollback: Option<InstallRollbackReport>,
-    next_steps: Vec<BundledInstallNextStep>,
-    receipt_path: Option<String>,
-    verify: InstallVerifyReport,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<InstallExecutionError>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct BundledInstallStep {
-    id: String,
-    status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    rollback: Option<InstallStepRollbackReport>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-enum BundledInstallNextStep {
-    Command {
-        id: String,
-        description: String,
-        why: String,
-        command: Vec<String>,
-    },
-    FileEdit {
-        id: String,
-        description: String,
-        why: String,
-        file_edit: BundledInstallFileEdit,
-    },
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct BundledInstallFileEdit {
-    path: String,
-    action: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 pub struct FeedbackBundleRequest {
@@ -212,21 +150,32 @@ fn read_install_execution_report(
     if !validator.is_valid(&raw_report) {
         return Err(FeedbackBundleServiceError::InstallReportInvalid);
     }
-    let report: BundledInstallExecutionReport = serde_json::from_value(raw_report)
-        .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
-    if !matches!(
-        report.status.as_str(),
-        "ok" | "failed" | "partial" | "requires_restart"
-    ) {
+    let status = raw_report
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or(FeedbackBundleServiceError::InstallReportInvalid)?;
+    if !matches!(status, "ok" | "failed" | "partial" | "requires_restart") {
         return Err(FeedbackBundleServiceError::InstallReportNotTerminal);
     }
-    if report.dcc_type != finding.dcc_type
-        || report.core_version != finding.core_version
-        || report.adapter_version != finding.adapter_version
+    let dcc_type = raw_report
+        .get("dcc_type")
+        .and_then(Value::as_str)
+        .ok_or(FeedbackBundleServiceError::InstallReportInvalid)?;
+    let core_version = raw_report
+        .get("core_version")
+        .and_then(Value::as_str)
+        .ok_or(FeedbackBundleServiceError::InstallReportInvalid)?;
+    let adapter_version = raw_report
+        .get("adapter_version")
+        .and_then(Value::as_str)
+        .ok_or(FeedbackBundleServiceError::InstallReportInvalid)?;
+    if dcc_type != finding.dcc_type
+        || core_version != finding.core_version
+        || adapter_version != finding.adapter_version
     {
         return Err(FeedbackBundleServiceError::InstallReportMismatch);
     }
-    serde_json::to_value(report).map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)
+    Ok(raw_report)
 }
 
 fn resolve_log_dir(explicit: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
@@ -583,11 +532,15 @@ mod tests {
         });
         fs::write(&path, serde_json::to_vec(&file_edit_only).unwrap()).unwrap();
 
-        let projected = read_install_execution_report(&path, &expected).unwrap();
-        assert_eq!(projected["next_steps"][0]["file_edit"]["action"], "update");
+        let validated = read_install_execution_report(&path, &expected).unwrap();
+        assert_eq!(validated["next_steps"][0]["file_edit"]["action"], "update");
+        assert_eq!(validated["steps"][0]["duration_ms"], 12);
+        assert_eq!(validated["next_steps"][0]["confirmation"], "operator");
+        let projected =
+            crate::domain::feedback_bundle::project_public_install_execution_report(&validated);
+        assert_eq!(projected["steps"][0]["duration_ms"], 12);
         let projected_text = serde_json::to_string(&projected).unwrap();
         for omitted in [
-            "duration_ms",
             "encoding",
             "confirmation",
             "adapter_diagnostic",
@@ -697,7 +650,7 @@ mod tests {
     }
 
     #[test]
-    fn install_execution_report_drops_unknown_unreviewed_fields() {
+    fn install_execution_report_accepts_additive_top_level_fields() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("install-report.json");
         let mut report: Value = serde_json::from_str(include_str!(
@@ -711,7 +664,11 @@ mod tests {
         expected.adapter_version = "unknown".into();
         expected.core_version = "0.0.0-test".into();
 
-        let safe_report = read_install_execution_report(&path, &expected).unwrap();
+        let validated_report = read_install_execution_report(&path, &expected).unwrap();
+        assert_eq!(validated_report["raw_secret"], "do-not-project");
+        let safe_report = crate::domain::feedback_bundle::project_public_install_execution_report(
+            &validated_report,
+        );
         assert!(safe_report.get("raw_secret").is_none());
         assert!(
             !serde_json::to_string(&safe_report)
