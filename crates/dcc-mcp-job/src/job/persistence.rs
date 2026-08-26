@@ -167,11 +167,10 @@ impl PersistenceWriter {
                             }
                         }
                         PersistenceCommand::DeleteOlderThan { cutoff, completed } => {
-                            if let Err(error) = storage.delete_older_than(cutoff) {
-                                tracing::warn!(
-                                    error = %error,
-                                    "JobStorage.delete_older_than failed during gc_stale"
-                                );
+                            let can_write = worker_circuit.lock().can_write();
+                            if can_write && let Err(error) = storage.delete_older_than(cutoff)
+                            {
+                                tracing::warn!(error = %error, "JobStorage.delete_older_than failed during gc_stale");
                             }
                             if let Some(completed) = completed {
                                 let _ = completed.send(());
@@ -227,6 +226,10 @@ impl PersistenceWriter {
     }
 
     pub(super) fn delete_older_than(&self, cutoff: DateTime<Utc>) {
+        let can_write = self.circuit.lock().can_write();
+        if !can_write {
+            return;
+        }
         let Some(sender) = &self.sender else {
             self.disable("worker_unavailable");
             return;

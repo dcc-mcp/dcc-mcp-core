@@ -1,5 +1,6 @@
 //! Unit tests for [`crate::job::JobManager`].
 
+use super::persistence::PERSISTENCE_FAILURE_THRESHOLD;
 use super::*;
 use crate::job_storage::{JobFilter, JobStorage, JobStorageError};
 use serde_json::json;
@@ -73,11 +74,101 @@ struct NeverReturningStorage {
     entered: mpsc::SyncSender<()>,
 }
 
+struct ShutdownObservingStorage {
+    put_entered: mpsc::SyncSender<()>,
+    put_release: std::sync::Mutex<mpsc::Receiver<()>>,
+    delete_called: mpsc::SyncSender<()>,
+}
+
+struct FailingDeleteObservingStorage {
+    delete_called: mpsc::SyncSender<()>,
+}
+
 impl std::fmt::Debug for NeverReturningStorage {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("NeverReturningStorage")
             .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for ShutdownObservingStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ShutdownObservingStorage")
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for FailingDeleteObservingStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FailingDeleteObservingStorage")
+            .finish_non_exhaustive()
+    }
+}
+
+impl JobStorage for FailingDeleteObservingStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        Err(JobStorageError::Backend("readonly".to_string()))
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        self.delete_called.send(()).unwrap();
+        Ok(0)
+    }
+}
+
+impl JobStorage for ShutdownObservingStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        self.put_entered.send(()).unwrap();
+        self.put_release.lock().unwrap().recv().unwrap();
+        Ok(())
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        self.delete_called.send(()).unwrap();
+        Ok(0)
     }
 }
 
@@ -773,6 +864,116 @@ fn offloaded_storage_drop_is_bounded_when_backend_never_returns() {
         }
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+#[test]
+fn offloaded_storage_shutdown_timeout_cancels_queued_cleanup() {
+    let (put_entered_tx, put_entered_rx) = mpsc::sync_channel(1);
+    let (put_release_tx, put_release_rx) = mpsc::sync_channel(1);
+    let (delete_called_tx, delete_called_rx) = mpsc::sync_channel(1);
+    let storage = Arc::new(ShutdownObservingStorage {
+        put_entered: put_entered_tx,
+        put_release: std::sync::Mutex::new(put_release_rx),
+        delete_called: delete_called_tx,
+    });
+    let jobs = JobManager::with_offloaded_storage(storage);
+    let job = jobs.create("scene.inspect.queued-cleanup");
+    put_entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("storage worker did not enter the blocking put");
+
+    let job_id = job.read().id.clone();
+    jobs.start(&job_id).unwrap();
+    jobs.complete(&job_id, json!({"ok": true})).unwrap();
+    job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+    assert_eq!(jobs.cleanup_older_than_hours(1), 1);
+
+    let drop_started = Instant::now();
+    drop(jobs);
+    assert!(
+        drop_started.elapsed() < Duration::from_secs(1),
+        "manager drop exceeded its bounded shutdown window"
+    );
+
+    put_release_tx.send(()).unwrap();
+    assert!(
+        delete_called_rx
+            .recv_timeout(Duration::from_millis(500))
+            .is_err(),
+        "a detached disabled worker executed queued cleanup after manager drop"
+    );
+}
+
+#[test]
+fn offloaded_storage_queue_full_disable_cancels_cleanup_before_backend() {
+    let (put_entered_tx, put_entered_rx) = mpsc::sync_channel(1);
+    let (put_release_tx, put_release_rx) = mpsc::sync_channel(1);
+    let (delete_called_tx, delete_called_rx) = mpsc::sync_channel(1);
+    let storage = Arc::new(ShutdownObservingStorage {
+        put_entered: put_entered_tx,
+        put_release: std::sync::Mutex::new(put_release_rx),
+        delete_called: delete_called_tx,
+    });
+    let jobs = JobManager::with_offloaded_storage(storage);
+    let job = jobs.create("scene.inspect.queue-full-cleanup");
+    put_entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("storage worker did not enter the blocking put");
+
+    let job_id = job.read().id.clone();
+    jobs.start(&job_id).unwrap();
+    jobs.complete(&job_id, json!({"ok": true})).unwrap();
+    job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+    assert_eq!(jobs.cleanup_older_than_hours(1), 1);
+    for index in 0..65 {
+        jobs.create(format!("scene.inspect.queue-full-cleanup.{index}"));
+    }
+    assert_eq!(
+        jobs.persistence_status(),
+        JobPersistenceStatus {
+            state: JobPersistenceState::Disabled,
+            consecutive_failures: 0,
+            last_error_kind: Some("queue_full".to_string()),
+        }
+    );
+
+    put_release_tx.send(()).unwrap();
+    drop(jobs);
+    assert!(
+        delete_called_rx
+            .recv_timeout(Duration::from_millis(500))
+            .is_err(),
+        "queue-full disable allowed cleanup to reach the backend"
+    );
+}
+
+#[test]
+fn disabled_storage_circuit_rejects_cleanup_before_enqueue() {
+    let (delete_called_tx, delete_called_rx) = mpsc::sync_channel(1);
+    let jobs = JobManager::with_storage(Arc::new(FailingDeleteObservingStorage {
+        delete_called: delete_called_tx,
+    }));
+    for index in 0..PERSISTENCE_FAILURE_THRESHOLD {
+        jobs.create(format!("scene.inspect.disable-before-cleanup.{index}"));
+    }
+    assert_eq!(
+        jobs.persistence_status().state,
+        JobPersistenceState::Disabled
+    );
+
+    let old_job = jobs.create("scene.inspect.disabled-cleanup");
+    let old_job_id = old_job.read().id.clone();
+    jobs.start(&old_job_id).unwrap();
+    jobs.complete(&old_job_id, json!({"ok": true})).unwrap();
+    old_job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+    assert_eq!(jobs.cleanup_older_than_hours(1), 1);
+
+    assert!(
+        delete_called_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "a disabled persistence circuit accepted cleanup backend I/O"
+    );
 }
 
 #[test]
