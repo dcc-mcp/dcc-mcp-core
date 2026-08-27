@@ -14,6 +14,7 @@ from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolDispatcher
 from dcc_mcp_core import ToolPipeline
 from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import register_script_materialization_tools
 from dcc_mcp_core import reset_cancel_token
 from dcc_mcp_core import set_cancel_token
 from dcc_mcp_core.batch import EvalContext
@@ -73,6 +74,103 @@ def _metadata_path(root: Path) -> Path:
 
 def _materialized_store_files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*") if path.is_file())
+
+
+def _replace_parameters_schema(root: Path, parameters_schema: dict) -> None:
+    metadata_path = _metadata_path(root)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["parameters_schema"] = parameters_schema
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+
+def _stale_object_schema() -> dict:
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {"value": {"type": "object"}},
+        "required": ["value"],
+        "additionalProperties": False,
+    }
+
+
+def test_materialization_reuse_clears_stale_schema_when_body_is_not_publishable(tmp_path: Path) -> None:
+    source = "from typing import Dict\ndef main(value: Dict[int, str]):\n    return value\n"
+    first = materialize_script(
+        source,
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+        reuse=True,
+        reuse_key="stale-schema",
+    )
+    assert first.parameters_schema is None
+    _replace_parameters_schema(tmp_path, _stale_object_schema())
+
+    reused = materialize_script(
+        source,
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+        reuse=True,
+        reuse_key="stale-schema",
+    )
+
+    assert reused.reused is True
+    assert reused.parameters_schema is None
+    metadata = json.loads(_metadata_path(tmp_path).read_text(encoding="utf-8"))
+    assert metadata.get("parameters_schema") is None
+
+
+def test_materialize_script_tool_does_not_publish_stale_schema_from_reused_sidecar(tmp_path: Path) -> None:
+    source = "from typing import Dict\ndef main(value: Dict[int, str]):\n    return value\n"
+    materialize_script(
+        source,
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+        reuse=True,
+        reuse_key="stale-schema",
+    )
+    _replace_parameters_schema(tmp_path, _stale_object_schema())
+
+    server = McpHttpServer(ToolRegistry(), McpHttpConfig(port=0, server_name="stale-schema-test"))
+    register_script_materialization_tools(
+        server,
+        dcc_name="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+    )
+    handle = server.start()
+    try:
+        code, body = McpClient(handle.mcp_url()).post(
+            {
+                "jsonrpc": "2.0",
+                "id": "materialize-stale-schema",
+                "method": "tools/call",
+                "params": {
+                    "name": "materialize_script",
+                    "arguments": {
+                        "content": source,
+                        "reuse": True,
+                        "reuse_key": "stale-schema",
+                    },
+                },
+            }
+        )
+    finally:
+        handle.shutdown()
+
+    assert code == 200
+    assert body["result"]["isError"] is False
+    payload = json.loads(body["result"]["content"][0]["text"])
+    assert payload["reused"] is True
+    assert payload.get("parameters_schema") is None
+    metadata = json.loads(_metadata_path(tmp_path).read_text(encoding="utf-8"))
+    assert metadata.get("parameters_schema") is None
 
 
 def test_structured_params_preserve_dispatcher_execution_capability(tmp_path: Path) -> None:
