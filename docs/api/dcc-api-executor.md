@@ -123,9 +123,13 @@ a conflicting sidecar schema, validates `params`, and then invokes
 `main(**params)`. Legacy sidecars without `parameters_schema` remain valid and
 use the re-derived contract. Script entry points accept only annotations whose
 JSON values preserve their runtime meaning; fixed tuples enforce every emitted
-`prefixItems` and length constraint. Parameterized and legacy calls share the
-same sandbox, dispatcher, owner thread, and timeout boundary. Reusing the same
-file with different parameters does not rewrite it and returns
+`prefixItems` and length constraint. A parameter is required whenever it has no
+default, independently of whether its annotation is nullable. Leading-underscore
+parameter names follow normal `main(**params)` semantics. For Python 3.8 runtime
+compatibility, parameterized containers use `typing.List`, `typing.Dict`, and
+`typing.Tuple`; PEP 585 built-in generics are not published. Parameterized and
+legacy calls share the same sandbox, dispatcher, owner thread, and timeout
+boundary. Reusing the same file with different parameters does not rewrite it and returns
 `context.materialized_script.reused=true`. Optional `sha256` verifies content
 integrity.
 

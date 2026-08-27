@@ -54,6 +54,7 @@ return result
 """
 
 from __future__ import annotations
+import __future__
 
 import json
 import logging
@@ -333,13 +334,10 @@ class EvalContext:
                 safe[name] = getattr(builtins, name)
 
         annotation_symbols = {
-            name: value
+            name: name
             for name in ("Annotated", "Any", "Dict", "List", "Literal", "Optional", "Tuple", "Union")
-            for value in [
-                getattr(typing_module, name, None)
-                or (getattr(typing_extensions, name, None) if typing_extensions is not None else None)
-            ]
-            if value is not None
+            if getattr(typing_module, name, None) is not None
+            or (getattr(typing_extensions, name, None) if typing_extensions is not None else None) is not None
         }
         typing_proxy = SimpleNamespace(**annotation_symbols)
 
@@ -488,7 +486,14 @@ class EvalContext:
 
         def _execute() -> Any:
             try:
-                exec(wrapped, ns)
+                compiled = compile(
+                    wrapped,
+                    "<dcc-eval>",
+                    "exec",
+                    flags=__future__.annotations.compiler_flag,
+                    dont_inherit=True,
+                )
+                exec(compiled, ns)
                 return ns["__dcc_eval_fn__"]()
             except TimeoutError:
                 raise
@@ -517,7 +522,14 @@ class EvalContext:
 
         def _execute() -> Any:
             try:
-                exec(script, ns)
+                compiled = compile(
+                    script,
+                    "<dcc-entrypoint>",
+                    "exec",
+                    flags=__future__.annotations.compiler_flag,
+                    dont_inherit=True,
+                )
+                exec(compiled, ns)
                 entrypoint = ns.get("main")
                 if not callable(entrypoint):
                     raise TypeError("script must define a callable main")
