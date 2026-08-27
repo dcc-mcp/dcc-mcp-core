@@ -396,7 +396,7 @@ def materialize_script(
             existing_descriptor = None
         if existing_descriptor is not None and existing_descriptor.sha256 == sha256:
             existing = existing_descriptor.to_dict()
-            if parameters_schema is not None and existing.get("parameters_schema") != parameters_schema:
+            if existing.get("parameters_schema") != parameters_schema:
                 existing["parameters_schema"] = parameters_schema
                 _atomic_write(
                     metadata_path,
