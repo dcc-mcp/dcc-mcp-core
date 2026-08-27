@@ -43,7 +43,12 @@ from typing import Callable
 from typing import get_type_hints as _typing_get_type_hints
 import uuid
 
-from dcc_mcp_core._typing import Literal as _LITERAL_TYPE
+_LITERAL_TYPE = getattr(typing, "Literal", None)
+if _LITERAL_TYPE is None:  # pragma: no cover - Python 3.7 compatibility
+    try:
+        from typing_extensions import Literal as _LITERAL_TYPE
+    except ImportError:
+        _LITERAL_TYPE = None
 
 try:
     from typing import get_args
