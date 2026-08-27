@@ -580,12 +580,14 @@ def _script_annotation(node: ast.AST | None) -> Any:
     module_name = name.split(".", 1)[0] if name and "." in name else None
     if module_name is not None and module_name != "typing":
         raise TypeError(f"unsupported script annotation: {name}")
+    if short_name in {"list", "dict", "tuple"}:
+        raise TypeError(f"script annotation requires Python 3.9+: {short_name}")
     args = _script_subscript_args(node)
-    if short_name in {"List", "list"} and len(args) == 1:
+    if short_name == "List" and len(args) == 1:
         return typing.List[_script_annotation(args[0])]
-    if short_name in {"Dict", "dict"} and len(args) == 2:
+    if short_name == "Dict" and len(args) == 2:
         return typing.Dict[_script_annotation(args[0]), _script_annotation(args[1])]
-    if short_name in {"Tuple", "tuple"} and args:
+    if short_name == "Tuple" and args:
         resolved = tuple(
             Ellipsis if isinstance(arg, ast.Constant) and arg.value is Ellipsis else _script_annotation(arg)
             for arg in args
@@ -645,8 +647,6 @@ def derive_script_parameters_schema(
         parameters: list[inspect.Parameter] = []
         positional_only = len(getattr(function.args, "posonlyargs", ()))
         for index, (argument, default) in enumerate(zip(positional, positional_defaults)):
-            if argument.arg.startswith("_"):
-                return None
             kind = (
                 inspect.Parameter.POSITIONAL_ONLY
                 if index < positional_only
@@ -661,8 +661,6 @@ def derive_script_parameters_schema(
                 )
             )
         for argument, default_node in zip(function.args.kwonlyargs, function.args.kw_defaults):
-            if argument.arg.startswith("_"):
-                return None
             parameters.append(
                 inspect.Parameter(
                     argument.arg,
@@ -693,7 +691,7 @@ def derive_script_parameters_schema(
             if description:
                 prop = {**prop, "description": description}
             properties[parameter.name] = prop
-            if parameter.default is inspect.Parameter.empty and not is_opt:
+            if parameter.default is inspect.Parameter.empty:
                 required.append(parameter.name)
         schema: dict[str, Any] = {
             "$schema": _JSON_SCHEMA_DRAFT,
