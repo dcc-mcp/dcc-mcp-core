@@ -9,6 +9,7 @@ from dataclasses import field
 import datetime
 import enum
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 from typing import Dict
@@ -36,6 +37,46 @@ from dcc_mcp_core.schema import schema_from_doc
 from dcc_mcp_core.schema import tool_spec_from_callable
 
 # ── Primitives ─────────────────────────────────────────────────────────────
+
+
+def test_schema_module_loads_standalone_without_package_import() -> None:
+    schema_path = Path(__file__).parents[1] / "python" / "dcc_mcp_core" / "schema.py"
+    script = """
+import importlib.util
+import json
+import pathlib
+import sys
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+# Blender can load this module directly from an adapter bundle where the
+# dcc_mcp_core package is not importable.  Make accidental package imports
+# fail even when the test runner itself uses an editable installation.
+sys.modules["dcc_mcp_core"] = None
+
+spec = importlib.util.spec_from_file_location("dcc_mcp_schema", pathlib.Path(sys.argv[1]))
+schema = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(schema)
+
+@dataclass
+class BlenderExportInput:
+    object_names: List[str]
+    frame_range: Tuple[int, int]
+    collection: Optional[str] = None
+
+derived = schema.derive_schema(BlenderExportInput)
+print(json.dumps(derived, sort_keys=True))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script, str(schema_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert '"object_names": {"items": {"type": "string"}, "type": "array"}' in completed.stdout
+    assert '"prefixItems": [{"type": "integer"}, {"type": "integer"}]' in completed.stdout
 
 
 class TestPrimitiveTypes:
