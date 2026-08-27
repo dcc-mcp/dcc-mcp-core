@@ -69,7 +69,6 @@ from typing import Any
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
-from dcc_mcp_core.skills_helper import ToolValidator
 
 logger = logging.getLogger(__name__)
 
@@ -288,24 +287,6 @@ class DccApiExecutor:
                 "message": f"Script parameters are invalid on {self._dcc_name}.",
                 "error": str(exc),
             }
-
-        if script.params_provided:
-            try:
-                if script.file_path is None:
-                    raise ValueError("params require a file-backed script")
-                if script.parameters_schema is None:
-                    raise ValueError("params require a fully typed main(...) entry point")
-                valid, errors = ToolValidator.from_schema_json(
-                    json_dumps(script.parameters_schema),
-                ).validate(json_dumps(script.params))
-                if not valid:
-                    raise ValueError(f"params failed schema validation: {'; '.join(errors)}")
-            except (TypeError, ValueError) as exc:
-                return {
-                    "success": False,
-                    "message": f"Script parameters are invalid on {self._dcc_name}.",
-                    "error": str(exc),
-                }
 
         try:
             ctx = EvalContext(
