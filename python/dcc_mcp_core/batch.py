@@ -63,6 +63,7 @@ from typing import Callable
 import uuid
 
 from dcc_mcp_core import json_dumps
+from dcc_mcp_core.schema import _SCRIPT_ANNOTATION_MODULES
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +343,7 @@ class EvalContext:
         typing_proxy = SimpleNamespace(**annotation_symbols)
 
         def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name not in {"typing", "typing_extensions"}:
+            if name not in _SCRIPT_ANNOTATION_MODULES:
                 raise ImportError(f"sandbox import is not allowed: {name}")
             return typing_proxy
 

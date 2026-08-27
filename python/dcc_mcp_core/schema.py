@@ -476,7 +476,7 @@ _SCRIPT_ANNOTATION_ATOMS: dict[str, Any] = {
     "int": int,
     "str": str,
 }
-_SCRIPT_ANNOTATION_MODULES = {"typing"}
+_SCRIPT_ANNOTATION_MODULES = frozenset({"typing", "typing_extensions"})
 
 
 class _ScriptModuleBindingVisitor(ast.NodeVisitor):
@@ -578,7 +578,7 @@ def _script_annotation(node: ast.AST | None) -> Any:
     name = _script_annotation_name(node.value)
     short_name = name.rsplit(".", 1)[-1] if name else ""
     module_name = name.split(".", 1)[0] if name and "." in name else None
-    if module_name is not None and module_name != "typing":
+    if module_name is not None and module_name not in _SCRIPT_ANNOTATION_MODULES:
         raise TypeError(f"unsupported script annotation: {name}")
     if short_name in {"list", "dict", "tuple"}:
         raise TypeError(f"script annotation requires Python 3.9+: {short_name}")
