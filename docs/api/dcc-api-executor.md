@@ -118,11 +118,16 @@ executor.execute_params({"file_path": script.file_path, "params": {"scale": 2.5,
 ```
 
 The materialize result exposes a statically derived `parameters_schema`.
-`execute_params` validates `params` against it before importing the script and
-then invokes `main(**params)`. Reusing the same file with different parameters
-does not rewrite it and returns `context.materialized_script.reused=true`.
-Optional `sha256` verifies content integrity. Calls without `params` keep the
-legacy sandboxed inline/top-level-`return` behavior.
+`execute_params` re-derives that schema from the verified script body, rejects
+a conflicting sidecar schema, validates `params`, and then invokes
+`main(**params)`. Legacy sidecars without `parameters_schema` remain valid and
+use the re-derived contract. Script entry points accept only annotations whose
+JSON values preserve their runtime meaning; fixed tuples enforce every emitted
+`prefixItems` and length constraint. Parameterized and legacy calls share the
+same sandbox, dispatcher, owner thread, and timeout boundary. Reusing the same
+file with different parameters does not rewrite it and returns
+`context.materialized_script.reused=true`. Optional `sha256` verifies content
+integrity.
 
 ## `register_dcc_api_executor(server, executor, *, search_tool_name="dcc_search", execute_tool_name="dcc_execute") -> None`
 

@@ -533,14 +533,21 @@ class TestDccApiExecutor:
     def test_execute_structured_params_honors_timeout(self, tmp_path):
         DccApiExecutor = _dcc_api_executor.DccApiExecutor
         descriptor = materialize_script(
-            "import time\ndef main(delay: float) -> str:\n    time.sleep(delay)\n    return 'late'\n",
+            "def main(delay: float) -> str:\n    dispatch('delay', {'seconds': delay})\n    return 'late'\n",
             dcc_type="maya",
             instance_id="maya-1",
             session_id="session-1",
             root=tmp_path,
             reuse=True,
         )
-        ex = DccApiExecutor("maya", script_materialization_root=tmp_path)
+
+        class SlowDispatcher:
+            def dispatch(self, name, params_json):
+                assert name == "delay"
+                time.sleep(json.loads(params_json)["seconds"])
+                return {"output": {"success": True}}
+
+        ex = DccApiExecutor("maya", dispatcher=SlowDispatcher(), script_materialization_root=tmp_path)
 
         started = time.monotonic()
         result = ex.execute_params(

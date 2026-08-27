@@ -105,10 +105,12 @@ executor.execute_params({"file_path": script.file_path, "params": {"scale": 2.5,
 ```
 
 物化结果会公开通过静态分析得到的 `parameters_schema`。`execute_params`
-在导入脚本前按该契约校验 `params`，随后调用 `main(**params)`。同一文件使用
-不同参数不会重写文件，并返回
+会从已验证的脚本文本重新推导该契约：旧 sidecar 缺少该字段时保持兼容，已存
+schema 与脚本文本冲突时则关闭失败。参数在执行前完成校验，并在与无参数调用
+相同的沙箱、dispatcher、owner thread 和 timeout 边界中传给 `main(**params)`。
+入口注解仅允许保持 JSON 运行时语义的类型，固定 tuple 的每个位置及长度约束
+都会执行。同一文件使用不同参数不会重写文件，并返回
 `context.materialized_script.reused=true`。可选的 `sha256` 用于校验内容完整性。
-未传 `params` 的调用继续保持原有的沙箱内联脚本/顶层 `return` 行为。
 
 ## `register_dcc_api_executor(server, executor, *, search_tool_name="dcc_search", execute_tool_name="dcc_execute") -> None`
 

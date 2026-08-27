@@ -1455,12 +1455,16 @@ migration, but new code should treat them as deprecated aliases.
 
 For parameter-only iteration, generate the script once with a typed
 `def main(...)`, materialize it with `reuse=true` and a stable `reuse_key`, then
-send only `params` with the same `file_path`. Parameters are validated against
-the surfaced closed-object schema before the script is imported and are passed
-to `main(**params)`. A supplied `sha256` acts as an integrity assertion. Calls
-that omit `params` retain the legacy inline/top-level-return behavior. Resolving
-an unchanged materialized file reports `context.materialized_script.reused=true`;
-changing `params` never rematerializes the file.
+send only `params` with the same `file_path`. The executor re-derives the
+closed-object schema from the verified body, accepts legacy sidecars that omit
+the schema, and fails closed when a stored schema conflicts. Parameters are
+validated before execution and passed to `main(**params)` inside the same
+sandbox, dispatcher, owner-thread, and timeout boundary as a call without
+parameters. Entry-point annotations must preserve JSON runtime types, and every
+generated tuple constraint is enforced. A supplied `sha256` acts as an
+integrity assertion. Resolving an unchanged materialized file reports
+`context.materialized_script.reused=true`; changing `params` never
+rematerializes the file.
 
 ### MCP HTTP Server Spawn Modes (issue #303)
 
