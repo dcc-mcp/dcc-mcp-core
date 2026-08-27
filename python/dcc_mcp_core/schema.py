@@ -34,6 +34,7 @@ from dataclasses import is_dataclass
 import datetime
 import enum
 import inspect
+import json
 import pathlib
 import sys
 import types
@@ -68,6 +69,16 @@ if _union_type is not None:  # pragma: no cover - Python 3.10+
     _UNION_ORIGINS = (*_UNION_ORIGINS, _union_type)
 
 _TYPEDDICT_META = getattr(typing, "_TypedDictMeta", None)
+
+
+def _require_json(value: Any, error: str, *, scalars: bool = False) -> Any:
+    if scalars and not all(item is None or type(item) in (bool, float, int, str) for item in value):
+        raise TypeError(error)
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(error) from exc
+    return value
 
 
 def _literal_origins() -> tuple[Any, ...]:
@@ -163,6 +174,7 @@ def _literal_schema(tp: Any) -> dict[str, Any] | None:
     origin = get_origin(tp)
     if any(origin is literal_origin for literal_origin in _literal_origins()):
         values = list(get_args(tp))
+        _require_json(values, "Literal values must be JSON scalars", scalars=True)
         types_seen = {type(v) for v in values}
         # If all values share a single primitive type, pin it — this helps
         # validators short-circuit.
@@ -180,6 +192,7 @@ def _enum_schema(tp: Any) -> dict[str, Any] | None:
     """Return a schema for an ``Enum`` subclass or ``None``."""
     if isinstance(tp, type) and issubclass(tp, enum.Enum):
         values = [member.value for member in tp]
+        _require_json(values, "Enum values must be JSON scalars", scalars=True)
         schema: dict[str, Any] = {"enum": values, "title": tp.__name__}
         types_seen = {type(v) for v in values}
         if types_seen == {str}:
@@ -404,12 +417,12 @@ def derive_schema(tp: type, *, allow_additional: bool = False) -> dict[str, Any]
         if defs:
             body["$defs"] = defs
         body.setdefault("$schema", _JSON_SCHEMA_DRAFT)
-        return body
+        return _require_json(body, "derived schema contains a non-JSON value")
 
     # Primitive / container top-level.
     if defs:
         top = {**top, "$defs": defs}
-    return top
+    return _require_json(top, "derived schema contains a non-JSON value")
 
 
 def derive_parameters_schema(fn: Callable[..., Any]) -> dict[str, Any]:
@@ -471,7 +484,7 @@ def derive_parameters_schema(fn: Callable[..., Any]) -> dict[str, Any]:
         schema["required"] = required
     if defs:
         schema["$defs"] = defs
-    return schema
+    return _require_json(schema, "derived schema contains a non-JSON value")
 
 
 _SCRIPT_ANNOTATION_ATOMS: dict[str, Any] = {
@@ -730,7 +743,7 @@ def derive_script_parameters_schema(
             schema["required"] = required
         if defs:
             schema["$defs"] = defs
-        return schema
+        return _require_json(schema, "derived schema contains a non-JSON value")
     except (SyntaxError, TypeError, ValueError):
         return None
 

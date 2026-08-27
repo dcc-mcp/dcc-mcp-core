@@ -484,6 +484,28 @@ def test_module_main_rejects_non_json_preserving_annotations(source: str) -> Non
     assert derive_script_parameters_schema(source) is None
 
 
+@pytest.mark.parametrize("literal", ["b'x'", "..."])
+def test_module_main_rejects_non_json_literal_values(literal: str) -> None:
+    source = f"from typing import Literal\ndef main(value: Literal[{literal}]):\n    return value\n"
+
+    assert derive_script_parameters_schema(source) is None
+
+
+@pytest.mark.parametrize("literal", ["b'x'", "..."])
+def test_non_json_literal_keeps_legacy_materialization_available(tmp_path: Path, literal: str) -> None:
+    source = f"from typing import Literal\ndef main(value: Literal[{literal}]):\n    return value\n"
+
+    descriptor = materialize_script(
+        source,
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+    )
+
+    assert descriptor.parameters_schema is None
+
+
 def test_generated_fixed_tuple_schema_is_enforced_by_validator() -> None:
     schema = derive_script_parameters_schema(
         "from typing import Tuple\ndef main(pair: Tuple[int, int]) -> int:\n    return pair[0] + pair[1]\n",
