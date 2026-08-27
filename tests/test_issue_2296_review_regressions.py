@@ -279,6 +279,52 @@ def test_structured_params_typing_annotations_do_not_expose_runtime_modules(tmp_
     assert result["success"] is False
 
 
+def test_structured_params_support_qualified_typing_extensions_annotations(tmp_path: Path) -> None:
+    source = (
+        "import typing_extensions\n"
+        "def main(\n"
+        "    value: typing_extensions.Optional[int],\n"
+        "    values: typing_extensions.List[int],\n"
+        "    mode: typing_extensions.Literal['sum', 'count'],\n"
+        ") -> int:\n"
+        "    if mode == 'count':\n"
+        "        return len(values)\n"
+        "    return (value or 0) + sum(values)\n"
+    )
+
+    schema = derive_script_parameters_schema(source)
+    assert schema is not None
+    assert schema["required"] == ["value", "values", "mode"]
+    assert schema["properties"]["value"] == {
+        "anyOf": [{"type": "integer"}, {"type": "null"}],
+    }
+    assert schema["properties"]["values"] == {
+        "type": "array",
+        "items": {"type": "integer"},
+    }
+    assert schema["properties"]["mode"] == {
+        "type": "string",
+        "enum": ["sum", "count"],
+    }
+
+    descriptor = materialize_script(
+        source,
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+    )
+    result = DccApiExecutor("maya", script_materialization_root=tmp_path).execute_params(
+        {
+            "file_path": descriptor.file_path,
+            "params": {"value": None, "values": [2, 3], "mode": "sum"},
+        },
+    )
+
+    assert result["success"] is True
+    assert result["output"] == 5
+
+
 @pytest.mark.parametrize(
     ("module_name", "escape"),
     [
@@ -312,6 +358,7 @@ def test_structured_params_typing_proxy_objects_have_no_module_global_escape(
         session_id="session-1",
         root=tmp_path,
     )
+    assert descriptor.parameters_schema is not None
 
     result = DccApiExecutor("maya", script_materialization_root=tmp_path).execute_params(
         {"file_path": descriptor.file_path, "params": {"value": 1}},
