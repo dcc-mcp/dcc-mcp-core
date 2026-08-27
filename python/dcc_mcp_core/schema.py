@@ -43,6 +43,8 @@ from typing import Callable
 from typing import get_type_hints as _typing_get_type_hints
 import uuid
 
+from dcc_mcp_core._typing import Literal as _LITERAL_TYPE
+
 try:
     from typing import get_args
     from typing import get_origin
@@ -60,7 +62,6 @@ _union_type = getattr(types, "UnionType", None)
 if _union_type is not None:  # pragma: no cover - Python 3.10+
     _UNION_ORIGINS = (*_UNION_ORIGINS, _union_type)
 
-_LITERAL_TYPE = getattr(typing, "Literal", None)
 _TYPEDDICT_META = getattr(typing, "_TypedDictMeta", None)
 
 
@@ -477,6 +478,26 @@ _SCRIPT_ANNOTATION_ATOMS: dict[str, Any] = {
     "str": str,
 }
 _SCRIPT_ANNOTATION_MODULES = frozenset({"typing", "typing_extensions"})
+_SCRIPT_LITERAL_MISSING = object()
+
+
+def _script_literal_value(node: ast.AST) -> Any:
+    """Read a literal AST value across the supported Python versions."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if sys.version_info >= (3, 8):
+        return _SCRIPT_LITERAL_MISSING
+    for node_name, attribute in (
+        ("Str", "s"),
+        ("Num", "n"),
+        ("NameConstant", "value"),
+        ("Bytes", "s"),
+        ("Ellipsis", None),
+    ):
+        node_type = getattr(ast, node_name, None)
+        if node_type is not None and isinstance(node, node_type):
+            return Ellipsis if attribute is None else getattr(node, attribute)
+    return _SCRIPT_LITERAL_MISSING
 
 
 class _ScriptModuleBindingVisitor(ast.NodeVisitor):
@@ -556,11 +577,12 @@ def _script_annotation(node: ast.AST | None) -> Any:
     """Resolve a safe annotation AST without importing or executing source."""
     if node is None:
         return inspect.Parameter.empty
-    if isinstance(node, ast.Constant):
-        if node.value is None:
+    literal_value = _script_literal_value(node)
+    if literal_value is not _SCRIPT_LITERAL_MISSING:
+        if literal_value is None:
             return type(None)
-        if isinstance(node.value, str):
-            return _script_annotation(ast.parse(node.value, mode="eval").body)
+        if isinstance(literal_value, str):
+            return _script_annotation(ast.parse(literal_value, mode="eval").body)
     if isinstance(node, (ast.Name, ast.Attribute)):
         name = _script_annotation_name(node)
         short_name = name.rsplit(".", 1)[-1] if name else ""
@@ -589,8 +611,7 @@ def _script_annotation(node: ast.AST | None) -> Any:
         return typing.Dict[_script_annotation(args[0]), _script_annotation(args[1])]
     if short_name == "Tuple" and args:
         resolved = tuple(
-            Ellipsis if isinstance(arg, ast.Constant) and arg.value is Ellipsis else _script_annotation(arg)
-            for arg in args
+            Ellipsis if _script_literal_value(arg) is Ellipsis else _script_annotation(arg) for arg in args
         )
         return typing.Tuple[resolved]
     if short_name == "Optional" and len(args) == 1:
@@ -600,9 +621,10 @@ def _script_annotation(node: ast.AST | None) -> Any:
     if short_name == "Literal" and args and _LITERAL_TYPE is not None:
         values: list[Any] = []
         for arg in args:
-            if not isinstance(arg, ast.Constant):
+            value = _script_literal_value(arg)
+            if value is _SCRIPT_LITERAL_MISSING:
                 raise TypeError("Literal values must be constants")
-            values.append(arg.value)
+            values.append(value)
         return _LITERAL_TYPE[tuple(values)]
     if short_name == "Annotated" and args:
         return _script_annotation(args[0])
