@@ -246,7 +246,22 @@ component for adapters that also register IPC diagnostics. The compatibility def
 omit the argument and exposes an explicit test reset seam.
 
 `DccServerBase` also owns `feedback_store`, `script_execution_context`, and
-`checkpoint_store`. The base registration wires `dcc_feedback__report` to the
+`checkpoint_store`. For adapter `execute_python` tools, scene-digest support is
+an explicit instance capability. Register a cheap host/main-thread callback with
+`register_state_digest_provider(provider, context=server.script_execution_context)`;
+the provider returns `SceneStats` or the equivalent mapping. Use
+`execute_with_state_digest(...)` to sample immediately before and after the
+script, then give both typed snapshots to `ScriptExecutionResult.from_value(...)`.
+Core validates the required counts/mesh flag, redacts sensitive keys and local
+paths, bounds the payload, and fingerprints canonical JSON. Missing, raised,
+malformed, fingerprint-mismatched, or one-sided evidence fails closed. A changed
+fingerprint is state evidence, not proof that the requested semantic effect
+occurred: set `verified=True` only after an adapter-owned postcondition confirms
+the claim. Core rejects `verified=True` when the bounded scene digest is
+unchanged. A script exception is wrapped as `SceneDigestExecutionError`; pass
+its `cause` and both snapshots to `ScriptExecutionResult.from_exception(...)`
+so the failed result retains retry evidence with `verified=false`. The base
+registration wires `dcc_feedback__report` to the
 configured gateway `/v1/feedback` endpoint, late-binds the current instance id,
 and mirrors only gateway-accepted receipts into a bounded, write-through JSONL
 store at `<registry_dir>/feedback/<dcc>-<pid>.jsonl`. Each append is synced

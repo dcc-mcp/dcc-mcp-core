@@ -33,6 +33,12 @@ from typing import TextIO
 from dcc_mcp_core.errors import DccMcpError
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 from dcc_mcp_core.schema import derive_script_parameters_schema
+from dcc_mcp_core.runtime.scene_digest import SceneDigestError
+from dcc_mcp_core.runtime.scene_digest import SceneDigestExecution
+from dcc_mcp_core.runtime.scene_digest import SceneDigestExecutionError
+from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
+from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
+from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
 from dcc_mcp_core.script_materialization import default_script_materialization_root
@@ -600,8 +606,20 @@ class ScriptExecutionResult:
         repr_fallback: bool | None = None,
         message: str = "Script executed successfully",
         materialized_script: MaterializedScript | FileBackedScriptExecutionParams | Mapping[str, Any] | None = None,
+        postcondition: Mapping[str, Any] | None = None,
+        scene_digest_before: SceneDigestSnapshot | None = None,
+        scene_digest_after: SceneDigestSnapshot | None = None,
+        verified: bool | None = None,
     ) -> dict[str, Any]:
         """Return a success envelope, or a strict serialization error envelope."""
+        digest_evidence = _scene_digest_postcondition(
+            scene_digest_before,
+            scene_digest_after,
+            postcondition=postcondition,
+            verified=verified,
+        )
+        if isinstance(digest_evidence, dict) and digest_evidence.get("success") is False:
+            return digest_evidence
         use_repr = not strict_json if repr_fallback is None else repr_fallback
         try:
             normalized = _normalize_result(
@@ -624,7 +642,7 @@ class ScriptExecutionResult:
         }
         if materialized_script is not None:
             context["materialized_script"] = _materialized_script_context(materialized_script)
-        return ToolResultEnvelope.ok(message, **context).to_dict()
+        return ToolResultEnvelope.ok(message, postcondition=digest_evidence, **context).to_dict()
 
     @staticmethod
     def from_exception(
@@ -633,11 +651,13 @@ class ScriptExecutionResult:
         stdout: str = "",
         stderr: str = "",
         message: str | None = None,
+        scene_digest_before: SceneDigestSnapshot | None = None,
+        scene_digest_after: SceneDigestSnapshot | None = None,
     ) -> dict[str, Any]:
         """Return a structured failure envelope with traceback and captured output."""
         error_type = type(exc).__name__
         formatted_traceback = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        return ToolResultEnvelope.fail(
+        result = ToolResultEnvelope.fail(
             message or f"Script execution failed: {exc}",
             error="script_execution_error",
             _meta={
@@ -653,24 +673,43 @@ class ScriptExecutionResult:
             exception_message=str(exc),
             traceback=formatted_traceback,
         ).to_dict()
+        digest_evidence = _scene_digest_postcondition(
+            scene_digest_before,
+            scene_digest_after,
+            postcondition={"verified": False},
+            verified=None,
+        )
+        if isinstance(digest_evidence, dict) and digest_evidence.get("success") is False:
+            return digest_evidence
+        if digest_evidence is not None:
+            result["postcondition"] = digest_evidence
+        return result
 
 
 __all__ = [
     "FileBackedScriptExecutionParams",
+    "SceneDigestError",
+    "SceneDigestExecution",
+    "SceneDigestExecutionError",
+    "SceneDigestSnapshot",
     "ScriptExecutionCapture",
     "ScriptExecutionContext",
     "ScriptExecutionParams",
     "ScriptExecutionResult",
     "ScriptExecutionSerializationError",
+    "StateDigestProvider",
     "allow_script_materialization_root",
+    "capture_state_digest",
     "cleanup_temp_scripts",
     "clear_script_namespace",
     "execute_with_context",
+    "execute_with_state_digest",
     "get_default_script_execution_context",
     "get_script_namespace",
     "normalize_file_backed_script_execution_params",
     "normalize_script_execution_params",
     "register_dcc_namespace",
+    "register_state_digest_provider",
     "reset_default_script_execution_context_for_tests",
     "validate_script_file_path",
     "write_temp_script",
@@ -758,11 +797,29 @@ class ScriptExecutionContext:
         self._lock = threading.RLock()
         self._dcc_namespace: dict[str, Any] = {}
         self._script_namespace: dict[str, Any] = {}
+        self._state_digest_provider: StateDigestProvider | None = None
 
     def register_dcc_namespace(self, namespace: dict[str, Any]) -> None:
         """Use *namespace* as the live DCC globals for later executions."""
         with self._lock:
             self._dcc_namespace = namespace
+
+    def register_state_digest_provider(self, provider: StateDigestProvider) -> None:
+        """Enable the scene-digest capability for this server instance."""
+        if not callable(provider):
+            raise TypeError("state digest provider must be callable")
+        with self._lock:
+            self._state_digest_provider = provider
+
+    def capture_state_digest(self) -> SceneDigestSnapshot:
+        """Read one bounded digest, failing closed when capability is absent."""
+        with self._lock:
+            if self._state_digest_provider is None:
+                raise SceneDigestError(
+                    "scene_digest_provider_missing",
+                    "No scene digest provider is registered for this script context",
+                )
+            return snapshot_from_provider(self._state_digest_provider)
 
     def script_namespace(self) -> dict[str, Any]:
         """Return a shallow copy of persistent variables."""
@@ -785,11 +842,29 @@ class ScriptExecutionContext:
             self._script_namespace.update(local_namespace)
             return local_namespace.get("result")
 
+    def execute_with_state_digest(
+        self,
+        code: str,
+        *,
+        filename: str = "<execute_python>",
+    ) -> SceneDigestExecution:
+        """Capture host state immediately before and after one script."""
+        with self._lock:
+            before = self.capture_state_digest()
+            try:
+                value = self.execute(code, filename=filename)
+            except Exception as exc:
+                after = self.capture_state_digest()
+                raise SceneDigestExecutionError(exc, before, after) from None
+            after = self.capture_state_digest()
+            return SceneDigestExecution(value, before, after)
+
     def reset_for_tests(self) -> None:
         """Clear both DCC and persistent script namespaces."""
         with self._lock:
             self._dcc_namespace = {}
             self._script_namespace.clear()
+            self._state_digest_provider = None
 
 
 _DEFAULT_SCRIPT_EXECUTION_CONTEXT = ScriptExecutionContext()
@@ -832,6 +907,23 @@ def register_dcc_namespace(
     _script_context(context).register_dcc_namespace(ns)
 
 
+def register_state_digest_provider(
+    provider: StateDigestProvider,
+    *,
+    context: ScriptExecutionContext | None = None,
+) -> None:
+    """Register one host-owned scene digest provider for an adapter instance."""
+    _script_context(context).register_state_digest_provider(provider)
+
+
+def capture_state_digest(
+    *,
+    context: ScriptExecutionContext | None = None,
+) -> SceneDigestSnapshot:
+    """Capture one validated digest through the registered capability."""
+    return _script_context(context).capture_state_digest()
+
+
 def get_script_namespace(*, context: ScriptExecutionContext | None = None) -> dict[str, Any]:
     """Return a copy of the persistent script namespace."""
     return _script_context(context).script_namespace()
@@ -857,3 +949,50 @@ def execute_with_context(
     that newly-assigned variables are visible to the next call.
     """
     return _script_context(context).execute(code, filename=filename)
+
+
+def execute_with_state_digest(
+    code: str,
+    *,
+    filename: str = "<execute_python>",
+    context: ScriptExecutionContext | None = None,
+) -> SceneDigestExecution:
+    """Execute code with fail-closed before/after scene digest evidence."""
+    return _script_context(context).execute_with_state_digest(code, filename=filename)
+
+
+def _scene_digest_postcondition(
+    before: SceneDigestSnapshot | None,
+    after: SceneDigestSnapshot | None,
+    *,
+    postcondition: Mapping[str, Any] | None,
+    verified: bool | None,
+) -> dict[str, Any] | None:
+    evidence = dict(postcondition) if postcondition is not None else {}
+    if verified is not None:
+        existing = evidence.get("verified")
+        if existing is not None and existing is not verified:
+            raise ValueError("'verified' conflicts with postcondition verification evidence")
+        evidence["verified"] = verified
+    if before is None and after is None:
+        return evidence or None
+    if before is None or after is None:
+        return ToolResultEnvelope.fail(
+            "Scene digest evidence requires both before and after observations",
+            error="scene_digest_evidence_missing",
+        ).to_dict()
+    try:
+        before.validate()
+        after.validate()
+    except SceneDigestError as exc:
+        return ToolResultEnvelope.fail(str(exc), error=exc.code).to_dict()
+    is_verified = evidence.get("verified") is True
+    if is_verified and before.fingerprint == after.fingerprint:
+        return ToolResultEnvelope.fail(
+            "Verified scene mutation did not change the observed scene digest",
+            error="scene_digest_postcondition_mismatch",
+        ).to_dict()
+    evidence.setdefault("verified", False)
+    evidence["scene_digest_before"] = before.to_dict()
+    evidence["scene_digest_after"] = after.to_dict()
+    return evidence

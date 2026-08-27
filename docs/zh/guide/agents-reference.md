@@ -164,7 +164,19 @@ from dcc_mcp_core._core import DeferredExecutor   # 需要直接导入
 或 Photoshop 服务共享 recorder、capturer、dispatcher 与实例上下文。
 
 `DccServerBase` 还分别拥有 `feedback_store`、`script_execution_context` 和
-`checkpoint_store`。适配器应把这些组件传入 Core helper 的 `store=` 或
+`checkpoint_store`。对于适配器的 `execute_python` 工具，场景摘要是一项显式的实例
+能力。通过
+`register_state_digest_provider(provider, context=server.script_execution_context)`
+注册一个低成本、由宿主主线程读取状态的回调；provider 返回 `SceneStats` 或等价映射。
+使用 `execute_with_state_digest(...)` 在脚本执行前后立即采样，再把两个类型化快照传给
+`ScriptExecutionResult.from_value(...)`。Core 会校验必需的计数与网格标志、脱敏敏感键
+和本地路径、限制 payload 大小，并对规范 JSON 计算确定性指纹。provider 缺失、抛错、
+返回畸形数据、指纹不匹配或只提供单侧证据时都会 fail-closed。指纹变化只证明观察到的
+状态发生变化，不证明请求的语义效果正确；只有适配器自有 postcondition 确认声明后才能
+设置 `verified=True`。当有界场景摘要未变化时，Core 会拒绝 `verified=True`。捕获
+`SceneDigestExecutionError` 后，应把它的 `cause` 与两个快照传给
+`ScriptExecutionResult.from_exception(...)`，使失败结果保留重试证据并保持
+`verified=false`。适配器应把这些组件传入 Core helper 的 `store=` 或
 `context=` 参数，不要再创建模块级 feedback buffer、脚本命名空间或默认存储。
 
 **Python 工具处理器返回 `ToolResultEnvelope`（#2183），不要手写字典：**

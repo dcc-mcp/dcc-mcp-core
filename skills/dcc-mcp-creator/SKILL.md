@@ -131,6 +131,21 @@ the server from its exact target environment. Gateway Admin is check-only.
    It also owns `feedback_store`, `script_execution_context`, and
    `checkpoint_store`; inject them into core helpers instead of creating
    adapter-level feedback buffers, persistent exec namespaces, or default stores.
+   Adapters that expose `execute_python` should capability-gate cheap scene-state
+   evidence by registering one host-owned callback with
+   `register_state_digest_provider(..., context=server.script_execution_context)`.
+   The callback returns `SceneStats` or its mapping shape (`object_count`,
+   `vertex_count`, `has_mesh`, optional `extra`). Run scripts through
+   `execute_with_state_digest(...)`, then pass both snapshots to
+   `ScriptExecutionResult.from_value(...)`. Core bounds and redacts the payload,
+   computes a deterministic fingerprint, and fails closed when the provider is
+   absent, raises, returns malformed data, or supplies a mismatched fingerprint.
+   Digest change proves only that observed state changed; leave `verified`
+   omitted/false unless an adapter-owned postcondition verifies the claimed
+   effect. Never turn contract-test evidence into a real-host success claim.
+   If the script raises, catch `SceneDigestExecutionError` and pass its `cause`
+   plus both snapshots to `ScriptExecutionResult.from_exception(...)`; this
+   preserves retry evidence while keeping the failed call `verified=false`.
    Core persists gateway-accepted feedback under
    `<registry_dir>/feedback/<dcc>-<pid>.jsonl` with bounded rotation and
    session-end syncing. Treat `feedback_persistence_failed` as a real degraded
