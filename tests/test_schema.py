@@ -202,6 +202,15 @@ class TestUnionAndLiterals:
         assert result["enum"] == ["on", 1, True]
         assert "type" not in result  # mixed types → no `type` pin
 
+    def test_json_literal_scalars_include_null(self) -> None:
+        result = derive_schema(Literal["on", 1, True, None])
+        assert result["enum"] == ["on", 1, True, None]
+
+    @pytest.mark.parametrize("annotation", [Literal[b"x"], Literal[...]])
+    def test_non_json_literal_values_fail_closed(self, annotation: Any) -> None:
+        with pytest.raises(TypeError, match="Literal values must be JSON scalars"):
+            derive_schema(annotation)
+
     def test_typing_extensions_literal(self) -> None:
         typing_extensions = pytest.importorskip("typing_extensions")
 
@@ -238,6 +247,13 @@ class TestUnionAndLiterals:
         schema = derive_schema(Status)
         assert schema["enum"] == [0, 1]
         assert schema["type"] == "integer"
+
+    def test_non_json_enum_values_fail_closed(self) -> None:
+        class Binary(enum.Enum):
+            VALUE = b"x"
+
+        with pytest.raises(TypeError, match="Enum values must be JSON scalars"):
+            derive_schema(Binary)
 
 
 # ── Dataclasses ────────────────────────────────────────────────────────────
