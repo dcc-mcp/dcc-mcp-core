@@ -183,9 +183,13 @@ def normalize_file_backed_script_execution_params(
             pass
         else:
             descriptor = resolve_materialized_script(trusted_path, root=store_root)
-        parameters_schema = (
-            descriptor.parameters_schema if descriptor is not None else derive_script_parameters_schema(code)
-        )
+        parameters_schema = derive_script_parameters_schema(code)
+        if (
+            descriptor is not None
+            and descriptor.parameters_schema is not None
+            and descriptor.parameters_schema != parameters_schema
+        ):
+            raise ValueError("materialized script parameters_schema does not match the verified script body")
         actual_sha256 = descriptor.sha256 if descriptor is not None else _hash_text(code)
         if expected_sha256 is not None and expected_sha256 != actual_sha256:
             raise ValueError("sha256 does not match the script file")

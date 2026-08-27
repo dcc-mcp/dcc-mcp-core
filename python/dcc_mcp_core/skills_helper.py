@@ -746,9 +746,22 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, *, path: str, 
         if not isinstance(value, list):
             errors.append(f"{path}: expected array, got {type(value).__name__}")
             return
+        min_items = schema.get("minItems")
+        if isinstance(min_items, int) and len(value) < min_items:
+            errors.append(f"{path}: expected at least {min_items} items, got {len(value)}")
+        max_items = schema.get("maxItems")
+        if isinstance(max_items, int) and len(value) > max_items:
+            errors.append(f"{path}: expected at most {max_items} items, got {len(value)}")
+        prefix_items = schema.get("prefixItems")
+        prefix_count = 0
+        if isinstance(prefix_items, list):
+            prefix_count = len(prefix_items)
+            for index, subschema in enumerate(prefix_items):
+                if index < len(value) and isinstance(subschema, Mapping):
+                    _validate_schema_value(subschema, value[index], path=f"{path}[{index}]", errors=errors)
         items = schema.get("items")
         if isinstance(items, Mapping):
-            for index, item in enumerate(value):
+            for index, item in enumerate(value[prefix_count:], start=prefix_count):
                 _validate_schema_value(items, item, path=f"{path}[{index}]", errors=errors)
 
 

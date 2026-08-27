@@ -319,11 +319,36 @@ class EvalContext:
 
     def _make_builtins(self) -> dict[str, Any]:
         import builtins
+        from types import SimpleNamespace
+        import typing as typing_module
+
+        try:
+            import typing_extensions
+        except ImportError:  # pragma: no cover - Python 3.7 wheel declares the backport
+            typing_extensions = None
 
         safe: dict[str, Any] = {}
         for name in dir(builtins):
             if name not in self._BLOCKED_BUILTINS:
                 safe[name] = getattr(builtins, name)
+
+        annotation_symbols = {
+            name: value
+            for name in ("Annotated", "Any", "Dict", "List", "Literal", "Optional", "Tuple", "Union")
+            for value in [
+                getattr(typing_module, name, None)
+                or (getattr(typing_extensions, name, None) if typing_extensions is not None else None)
+            ]
+            if value is not None
+        }
+        typing_proxy = SimpleNamespace(**annotation_symbols)
+
+        def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name not in {"typing", "typing_extensions"}:
+                raise ImportError(f"sandbox import is not allowed: {name}")
+            return typing_proxy
+
+        safe["__import__"] = _safe_import
         return safe
 
     def _dispatch_fn(self, tool_name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -474,3 +499,32 @@ class EvalContext:
             return self.run_callable(_execute)
         except TimeoutError:
             raise
+
+    def run_entrypoint(self, script: str, params: dict[str, Any]) -> Any:
+        """Execute module source and call its ``main(**params)`` in this context.
+
+        This deliberately shares the same dispatcher, restricted builtins, and
+        synchronous deadline as :meth:`run`; structured parameters must not
+        select a more trusted execution environment.
+        """
+        ns: dict[str, Any] = {
+            "dispatch": self._dispatch_fn,
+            "json": json,
+            "__dcc_params__": dict(params),
+        }
+        if self._sandbox:
+            ns["__builtins__"] = self._make_builtins()
+
+        def _execute() -> Any:
+            try:
+                exec(script, ns)
+                entrypoint = ns.get("main")
+                if not callable(entrypoint):
+                    raise TypeError("script must define a callable main")
+                return entrypoint(**ns["__dcc_params__"])
+            except TimeoutError:
+                raise
+            except Exception as exc:
+                raise RuntimeError(f"EvalContext script failed: {exc}") from exc
+
+        return self.run_callable(_execute)

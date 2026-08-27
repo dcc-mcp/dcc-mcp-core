@@ -68,7 +68,6 @@ import re
 from typing import Any
 
 from dcc_mcp_core import json_dumps
-from dcc_mcp_core._server.inprocess_executor import run_skill_script
 from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
 from dcc_mcp_core.skills_helper import ToolValidator
 
@@ -314,11 +313,7 @@ class DccApiExecutor:
                 sandbox=True,
                 timeout_secs=script.timeout_secs,
             )
-            if script.params_provided:
-                assert script.file_path is not None
-                result = ctx.run_callable(run_skill_script, script.file_path, script.params)
-            else:
-                result = ctx.run(script.code)
+            result = ctx.run_entrypoint(script.code, script.params) if script.params_provided else ctx.run(script.code)
             materialized_context = script.materialized_context()
             context = {"materialized_script": materialized_context} if materialized_context is not None else {}
             return {
@@ -384,8 +379,8 @@ def register_dcc_api_executor(
         f"How to use: pass file_path when possible; inline code is materialized "
         f"before execution unless script_materialization_policy=off. Pass params "
         f"to call a typed file-backed main(**params) entry point. "
-        f"Legacy inline scripts are sandboxed; typed entry points use the established "
-        f"skill-script runtime. Both paths stay on the owner thread and report timeout "
+        f"Legacy inline scripts and typed entry points share the same sandbox and "
+        f"dispatcher capabilities. Both paths stay on the owner thread and report timeout "
         f"overruns without leaving background DCC mutations."
     )
 

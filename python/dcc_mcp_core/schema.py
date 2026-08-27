@@ -472,17 +472,11 @@ _SCRIPT_ANNOTATION_ATOMS: dict[str, Any] = {
     "Any": Any,
     "None": type(None),
     "bool": bool,
-    "bytes": bytes,
-    "date": datetime.date,
-    "datetime": datetime.datetime,
     "float": float,
     "int": int,
-    "Path": pathlib.Path,
-    "PurePath": pathlib.PurePath,
     "str": str,
-    "UUID": uuid.UUID,
 }
-_SCRIPT_ANNOTATION_MODULES = {"datetime", "pathlib", "typing", "uuid"}
+_SCRIPT_ANNOTATION_MODULES = {"typing"}
 
 
 class _ScriptModuleBindingVisitor(ast.NodeVisitor):
@@ -589,8 +583,6 @@ def _script_annotation(node: ast.AST | None) -> Any:
     args = _script_subscript_args(node)
     if short_name in {"List", "list"} and len(args) == 1:
         return typing.List[_script_annotation(args[0])]
-    if short_name in {"Set", "set"} and len(args) == 1:
-        return typing.Set[_script_annotation(args[0])]
     if short_name in {"Dict", "dict"} and len(args) == 2:
         return typing.Dict[_script_annotation(args[0]), _script_annotation(args[1])]
     if short_name in {"Tuple", "tuple"} and args:
@@ -653,6 +645,8 @@ def derive_script_parameters_schema(
         parameters: list[inspect.Parameter] = []
         positional_only = len(getattr(function.args, "posonlyargs", ()))
         for index, (argument, default) in enumerate(zip(positional, positional_defaults)):
+            if argument.arg.startswith("_"):
+                return None
             kind = (
                 inspect.Parameter.POSITIONAL_ONLY
                 if index < positional_only
@@ -667,6 +661,8 @@ def derive_script_parameters_schema(
                 )
             )
         for argument, default_node in zip(function.args.kwonlyargs, function.args.kw_defaults):
+            if argument.arg.startswith("_"):
+                return None
             parameters.append(
                 inspect.Parameter(
                     argument.arg,
@@ -676,15 +672,40 @@ def derive_script_parameters_schema(
                 )
             )
 
-        def script_main() -> None:
-            return None
+        defs: dict[str, dict[str, Any]] = {}
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+        descriptions: dict[str, str] = {}
+        doc = ast.get_docstring(function)
+        if doc:
 
-        script_main.__name__ = function_name
-        script_main.__qualname__ = function_name
-        script_main.__doc__ = ast.get_docstring(function)
-        script_main.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
-        script_main.__annotations__ = {parameter.name: parameter.annotation for parameter in parameters}
-        return derive_parameters_schema(script_main)
+            def _documented_main() -> None:
+                return None
+
+            _documented_main.__doc__ = doc
+            descriptions = schema_from_doc(_documented_main)
+        for parameter in parameters:
+            is_opt, inner = _is_optional(parameter.annotation)
+            prop = _derive(inner, defs)
+            if is_opt:
+                prop = {"anyOf": [prop, {"type": "null"}]}
+            description = descriptions.get(parameter.name)
+            if description:
+                prop = {**prop, "description": description}
+            properties[parameter.name] = prop
+            if parameter.default is inspect.Parameter.empty and not is_opt:
+                required.append(parameter.name)
+        schema: dict[str, Any] = {
+            "$schema": _JSON_SCHEMA_DRAFT,
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": False,
+        }
+        if required:
+            schema["required"] = required
+        if defs:
+            schema["$defs"] = defs
+        return schema
     except (SyntaxError, TypeError, ValueError):
         return None
 
