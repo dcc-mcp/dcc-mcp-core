@@ -11,15 +11,27 @@ from dcc_mcp_core._lite_fallback import is_gui_executable
 from dcc_mcp_core._lite_fallback import parse_skill_md
 from dcc_mcp_core._lite_fallback import scan_and_load_strict
 from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
+from dcc_mcp_core.runtime.scene_digest import SCENE_DIGEST_SCHEMA_VERSION
+from dcc_mcp_core.runtime.scene_digest import SceneDigestError
+from dcc_mcp_core.runtime.scene_digest import SceneDigestExecution
+from dcc_mcp_core.runtime.scene_digest import SceneDigestExecutionError
+from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
+from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
 
 McpHttpConfig = resolve_mcp_http_config_class()
 
 __all__ = [
+    "SCENE_DIGEST_SCHEMA_VERSION",
     "DccCapabilities",
     "GuiExecutableHint",
     "McpHttpConfig",
     "PyPumpedDispatcher",
     "ReadinessProbe",
+    "SceneDigestError",
+    "SceneDigestExecution",
+    "SceneDigestExecutionError",
+    "SceneDigestSnapshot",
+    "StateDigestProvider",
     "correct_python_executable",
     "is_gui_executable",
     "parse_skill_md",
