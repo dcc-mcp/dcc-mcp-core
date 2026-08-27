@@ -56,6 +56,7 @@ return result
 from __future__ import annotations
 import __future__
 
+import ast
 import json
 import logging
 from typing import Any
@@ -72,6 +73,79 @@ __all__ = [
     "batch_dispatch",
     "generate_batch_id",
 ]
+
+
+_REFLECTIVE_ACCESS_ERROR = "reflective dunder access is not allowed"
+
+
+class _SandboxCallable:
+    """Callable facade that does not expose a bound method or Python closure."""
+
+    __slots__ = ("_callback",)
+
+    def __init__(self, callback: Callable[..., Any]) -> None:
+        object.__setattr__(self, "_callback", callback)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        callback = object.__getattribute__(self, "_callback")
+        return callback(*args, **kwargs)
+
+    def __getattribute__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(_REFLECTIVE_ACCESS_ERROR)
+        return object.__getattribute__(self, name)
+
+
+class _SandboxNamespace:
+    """Read-only public-name facade for sandbox helper modules."""
+
+    __slots__ = ("_values",)
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        object.__setattr__(self, "_values", dict(values))
+
+    def __getattribute__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(_REFLECTIVE_ACCESS_ERROR)
+        values = object.__getattribute__(self, "_values")
+        try:
+            return values[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+
+def _subscript_string_key(node: ast.Subscript) -> str | None:
+    slice_node = node.slice
+    index_type = getattr(ast, "Index", None)
+    if index_type is not None and isinstance(slice_node, index_type):
+        slice_node = slice_node.value
+    if isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str):
+        return slice_node.value
+    if type(slice_node).__name__ == "Str":  # pragma: no cover - Python 3.7 AST
+        return slice_node.s
+    return None
+
+
+def _validate_sandbox_source(source: str) -> None:
+    tree = ast.parse(source, mode="exec")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            raise ValueError(_REFLECTIVE_ACCESS_ERROR)
+        if isinstance(node, ast.Name) and node.id.startswith("__"):
+            raise ValueError(_REFLECTIVE_ACCESS_ERROR)
+        if isinstance(node, ast.Subscript):
+            key = _subscript_string_key(node)
+            if key is not None and key.startswith("__"):
+                raise ValueError(_REFLECTIVE_ACCESS_ERROR)
+
+
+def _sandbox_json() -> _SandboxNamespace:
+    return _SandboxNamespace(
+        {
+            "dumps": _SandboxCallable(json.dumps),
+            "loads": _SandboxCallable(json.loads),
+        },
+    )
 
 
 def generate_batch_id() -> str:
@@ -259,9 +333,10 @@ class EvalContext:
     ``__builtins__`` that removes dangerous built-ins (``open``, ``exec``,
     ``eval``, ``__import__``, ``compile``, ``getattr``, ``setattr``,
     ``delattr``, ``vars``, ``dir``, ``globals``, ``locals``).  This is a
-    *best-effort* sandbox — it does not provide OS-level isolation.  For
-    untrusted user input, combine with ``SandboxPolicy`` and run inside
-    a subprocess or container.
+    *best-effort* sandbox — helper modules and dispatch are exposed through
+    narrow facades, and reflective private/dunder traversal fails closed, but
+    this does not provide OS-level isolation.  For untrusted user input,
+    combine with ``SandboxPolicy`` and run inside a subprocess or container.
 
     Args:
         dispatcher: ``ToolDispatcher`` instance.
@@ -321,7 +396,6 @@ class EvalContext:
 
     def _make_builtins(self) -> dict[str, Any]:
         import builtins
-        from types import SimpleNamespace
         import typing as typing_module
 
         try:
@@ -340,14 +414,14 @@ class EvalContext:
             if getattr(typing_module, name, None) is not None
             or (getattr(typing_extensions, name, None) if typing_extensions is not None else None) is not None
         }
-        typing_proxy = SimpleNamespace(**annotation_symbols)
+        typing_proxy = _SandboxNamespace(annotation_symbols)
 
-        def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        def _import_allowed(name: str, *args: Any, **kwargs: Any) -> Any:
             if name not in _SCRIPT_ANNOTATION_MODULES:
                 raise ImportError(f"sandbox import is not allowed: {name}")
             return typing_proxy
 
-        safe["__import__"] = _safe_import
+        safe["__import__"] = _SandboxCallable(_import_allowed)
         return safe
 
     def _dispatch_fn(self, tool_name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -381,6 +455,23 @@ class EvalContext:
                     "error": str(exc),
                 },
             }
+
+    def _script_namespace(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Build globals for trusted or sandboxed script execution."""
+        if self._sandbox:
+            ns: dict[str, Any] = {
+                "dispatch": _SandboxCallable(self._dispatch_fn),
+                "json": _sandbox_json(),
+                "__builtins__": self._make_builtins(),
+            }
+        else:
+            ns = {
+                "dispatch": self._dispatch_fn,
+                "json": json,
+            }
+        if params is not None:
+            ns["__dcc_params__"] = dict(params)
+        return ns
 
     def run_callable(self, callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Run a trusted callable on the current thread under this deadline.
@@ -473,17 +564,13 @@ class EvalContext:
             TimeoutError: If ``timeout_secs`` is set and the script exceeds it.
 
         """
-        ns: dict[str, Any] = {
-            "dispatch": self._dispatch_fn,
-            "json": json,
-        }
-
-        if self._sandbox:
-            ns["__builtins__"] = self._make_builtins()
+        ns = self._script_namespace()
 
         # Wrap script in a function so `return` works at the top level.
         indented = "\n".join("    " + line for line in script.splitlines())
         wrapped = f"def __dcc_eval_fn__():\n{indented}\n"
+        if self._sandbox:
+            _validate_sandbox_source(wrapped)
 
         def _execute() -> Any:
             try:
@@ -513,13 +600,9 @@ class EvalContext:
         synchronous deadline as :meth:`run`; structured parameters must not
         select a more trusted execution environment.
         """
-        ns: dict[str, Any] = {
-            "dispatch": self._dispatch_fn,
-            "json": json,
-            "__dcc_params__": dict(params),
-        }
+        ns = self._script_namespace(params)
         if self._sandbox:
-            ns["__builtins__"] = self._make_builtins()
+            _validate_sandbox_source(script)
 
         def _execute() -> Any:
             try:

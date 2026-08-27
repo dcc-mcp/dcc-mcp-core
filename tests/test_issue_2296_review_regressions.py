@@ -15,6 +15,7 @@ from dcc_mcp_core import ToolPipeline
 from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import reset_cancel_token
 from dcc_mcp_core import set_cancel_token
+from dcc_mcp_core.batch import EvalContext
 from dcc_mcp_core.dcc_api_executor import DccApiExecutor
 from dcc_mcp_core.dcc_api_executor import register_dcc_api_executor
 from dcc_mcp_core.schema import derive_script_parameters_schema
@@ -365,6 +366,116 @@ def test_structured_params_typing_proxy_objects_have_no_module_global_escape(
     )
 
     assert result["success"] is False
+
+
+@pytest.mark.parametrize(
+    "escape",
+    [
+        "dispatch.__self__._dispatcher",
+        "dispatch.__call__.__self__",
+        "__builtins__['__import__'].__globals__['__name__']",
+        "__builtins__['__import__'].__call__.__self__",
+        "json.dumps.__globals__['__builtins__']['__import__']('os').getcwd()",
+        "json.loads.__self__",
+        "json.__dict__",
+    ],
+)
+def test_structured_params_reject_reflective_dunder_capability_escape(
+    tmp_path: Path,
+    escape: str,
+) -> None:
+    descriptor = materialize_script(
+        f"def main(value: int):\n    return {escape}\n",
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+    )
+    assert descriptor.parameters_schema is not None
+
+    result = DccApiExecutor(
+        "maya",
+        dispatcher=_real_dispatch_pipeline([]),
+        script_materialization_root=tmp_path,
+    ).execute_params(
+        {"file_path": descriptor.file_path, "params": {"value": 1}},
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "reflective dunder access is not allowed"
+
+
+def test_structured_params_keep_safe_json_and_typing_proxy_identity(tmp_path: Path) -> None:
+    descriptor = materialize_script(
+        "import typing\n"
+        "import typing_extensions\n"
+        "def main(value: typing_extensions.Optional[int]):\n"
+        "    encoded = json.dumps({'value': value})\n"
+        "    return {\n"
+        "        'decoded': json.loads(encoded),\n"
+        "        'same_proxy': typing is typing_extensions,\n"
+        "        'typing_optional': typing.Optional,\n"
+        "        'dispatch_has_self': hasattr(dispatch, '__self__'),\n"
+        "        'dispatch_has_globals': hasattr(dispatch, '__globals__'),\n"
+        "        'dispatch_has_dict': hasattr(dispatch, '__dict__'),\n"
+        "        'dispatch_has_callback': hasattr(dispatch, '_callback'),\n"
+        "        'json_has_globals': hasattr(json.dumps, '__globals__'),\n"
+        "        'json_dumps_has_self': hasattr(json.dumps, '__self__'),\n"
+        "        'json_dumps_has_callback': hasattr(json.dumps, '_callback'),\n"
+        "        'json_has_dict': hasattr(json, '__dict__'),\n"
+        "        'json_has_values': hasattr(json, '_values'),\n"
+        "        'typing_has_dict': hasattr(typing, '__dict__'),\n"
+        "        'typing_has_values': hasattr(typing, '_values'),\n"
+        "    }\n",
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+    )
+    assert descriptor.parameters_schema is not None
+
+    result = DccApiExecutor(
+        "maya",
+        dispatcher=_real_dispatch_pipeline([]),
+        script_materialization_root=tmp_path,
+    ).execute_params(
+        {"file_path": descriptor.file_path, "params": {"value": 2}},
+    )
+
+    assert result["success"] is True
+    assert result["output"] == {
+        "decoded": {"value": 2},
+        "same_proxy": True,
+        "typing_optional": "Optional",
+        "dispatch_has_self": False,
+        "dispatch_has_globals": False,
+        "dispatch_has_dict": False,
+        "dispatch_has_callback": False,
+        "json_has_globals": False,
+        "json_dumps_has_self": False,
+        "json_dumps_has_callback": False,
+        "json_has_dict": False,
+        "json_has_values": False,
+        "typing_has_dict": False,
+        "typing_has_values": False,
+    }
+
+
+@pytest.mark.parametrize("mode", ["entrypoint", "inline"])
+def test_trusted_eval_keeps_full_json_module_compatibility(mode: str) -> None:
+    context = EvalContext(
+        _real_dispatch_pipeline([]),
+        sandbox=False,
+        timeout_secs=None,
+    )
+    source = "return json.JSONDecoder().decode('1')"
+
+    if mode == "entrypoint":
+        result = context.run_entrypoint(f"def main(value: int):\n    {source}\n", {"value": 1})
+    else:
+        result = context.run(source)
+
+    assert result == 1
 
 
 def test_structured_params_rederive_missing_legacy_sidecar_schema(tmp_path: Path) -> None:
