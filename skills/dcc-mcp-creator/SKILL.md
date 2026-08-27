@@ -117,6 +117,10 @@ the server from its exact target environment. Gateway Admin is check-only.
    - Other out-of-process adapter: pass `dcc_pid=current_dcc_pid` so `McpHttpConfig.host_pid` binds discovery to the DCC lifetime.
    - Standalone/headless service: pass `instance_type="standalone"`, leave `dcc_pid` unset, and do not bind it to an optional GUI process. Runtime identity is independent from `standalone_main_thread`, which controls tool execution only.
 5. Route host API calls through `HostExecutionBridge`; do not hand-roll a second script executor. Standalone services with no host-thread boundary should keep the default inline execution path.
+   For file-backed typed `main(**params)` execution, publish mapping annotations
+   only when their keys are strings (`Dict[str, V]`). Validate the requested
+   SHA-256, derived schema, and structured params before materializing inline
+   source; an invalid request must leave no script or sidecar file behind.
 6. Keep service identity data-driven: `dcc_name`/custom service id, `server_name`, env-var prefix, skill names, and gateway metadata.
    Leave the instance port unset so core resolves `DCC_MCP_<DCC>_PORT` or asks the OS for a free port.
 7. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers. Python `DccServerBase.collect_skill_search_paths()` includes marketplace-installed skills under `~/.dcc-mcp/marketplace/<dcc>` (or `DCC_MCP_MARKETPLACE_INSTALL_ROOT/<dcc>`) when the directory exists, so adapters should not add a second marketplace path convention. Hermetic adapter tests should set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`; this excludes implicit local/platform defaults, marketplace installs, and Admin custom paths while explicit, bundled, and environment-provided skill paths remain active.

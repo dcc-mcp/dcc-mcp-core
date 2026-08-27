@@ -1460,9 +1460,12 @@ closed-object schema from the verified body, accepts legacy sidecars that omit
 the schema, and fails closed when a stored schema conflicts. Parameters are
 validated before execution and passed to `main(**params)` inside the same
 sandbox, dispatcher, owner-thread, and timeout boundary as a call without
-parameters. Entry-point annotations must preserve JSON runtime types, and every
-generated tuple constraint is enforced. A supplied `sha256` acts as an
-integrity assertion. Resolving an unchanged materialized file reports
+parameters. Entry-point annotations must preserve JSON runtime types; mapping
+annotations are publishable only with string keys (`Dict[str, V]`), and every
+generated tuple constraint is enforced. For inline auto-materialization, the
+digest, derived schema, and structured params are validated before any script
+or sidecar is written. A supplied `sha256` acts as an integrity assertion.
+Resolving an unchanged materialized file reports
 `context.materialized_script.reused=true`; changing `params` never
 rematerializes the file.
 

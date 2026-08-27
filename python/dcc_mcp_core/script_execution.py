@@ -193,6 +193,7 @@ def normalize_file_backed_script_execution_params(
         actual_sha256 = descriptor.sha256 if descriptor is not None else _hash_text(code)
         if expected_sha256 is not None and expected_sha256 != actual_sha256:
             raise ValueError("sha256 does not match the script file")
+        _validate_structured_script_params(parameters_schema, structured_params, params_provided=params_provided)
         return FileBackedScriptExecutionParams(
             code=code,
             file_path=str(trusted_path),
@@ -229,6 +230,12 @@ def normalize_file_backed_script_execution_params(
             params_provided=params_provided,
         )
 
+    actual_sha256 = _hash_text(code)
+    if expected_sha256 is not None and expected_sha256 != actual_sha256:
+        raise ValueError("sha256 does not match inline code")
+    parameters_schema = derive_script_parameters_schema(code)
+    _validate_structured_script_params(parameters_schema, structured_params, params_provided=params_provided)
+
     descriptor = materialize_script(
         code,
         dcc_type=dcc_type,
@@ -243,8 +250,6 @@ def normalize_file_backed_script_execution_params(
         reuse=reuse,
         reuse_key=reuse_key,
     )
-    if expected_sha256 is not None and expected_sha256 != descriptor.sha256:
-        raise ValueError("sha256 does not match materialized code")
     path = Path(descriptor.file_path)
     return FileBackedScriptExecutionParams(
         code=path.read_text(encoding="utf-8"),
@@ -353,6 +358,24 @@ def _normalize_expected_sha256(params: Mapping[str, Any]) -> str | None:
     if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
         raise ValueError("sha256 must contain 64 hexadecimal characters")
     return normalized
+
+
+def _validate_structured_script_params(
+    parameters_schema: Mapping[str, Any] | None,
+    params: Mapping[str, Any],
+    *,
+    params_provided: bool,
+) -> None:
+    if not params_provided:
+        return
+    if parameters_schema is None:
+        raise ValueError("params require a fully typed main(...) entry point")
+
+    from dcc_mcp_core.skills_helper import ToolValidator
+
+    valid, errors = ToolValidator.from_schema_json(json.dumps(parameters_schema)).validate(json.dumps(params))
+    if not valid:
+        raise ValueError(f"params failed schema validation: {'; '.join(errors)}")
 
 
 def _required_code(params: Mapping[str, Any]) -> str:

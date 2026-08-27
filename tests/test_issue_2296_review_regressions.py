@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import time
+from typing import Dict
 
 import pytest
 
@@ -18,6 +19,7 @@ from dcc_mcp_core import set_cancel_token
 from dcc_mcp_core.batch import EvalContext
 from dcc_mcp_core.dcc_api_executor import DccApiExecutor
 from dcc_mcp_core.dcc_api_executor import register_dcc_api_executor
+from dcc_mcp_core.schema import derive_schema
 from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.script_materialization import materialize_script
 from dcc_mcp_core.skills_helper import ToolValidator
@@ -67,6 +69,10 @@ def _metadata_path(root: Path) -> Path:
     matches = list(root.rglob("*.json"))
     assert len(matches) == 1
     return matches[0]
+
+
+def _materialized_store_files(root: Path) -> list[Path]:
+    return sorted(path for path in root.rglob("*") if path.is_file())
 
 
 def test_structured_params_preserve_dispatcher_execution_capability(tmp_path: Path) -> None:
@@ -568,6 +574,129 @@ def test_optional_without_default_is_required_but_nullable() -> None:
     assert missing is False
     assert missing_errors
     assert explicit_null is True, null_errors
+
+
+def test_non_string_mapping_key_annotation_is_not_published() -> None:
+    with pytest.raises(TypeError, match="string keys"):
+        derive_schema(Dict[int, str])
+
+    assert (
+        derive_script_parameters_schema(
+            "from typing import Dict\ndef main(values: Dict[int, str]) -> str:\n    return values[1]\n",
+        )
+        is None
+    )
+
+
+def test_non_string_mapping_key_annotation_is_rejected_by_executor(tmp_path: Path) -> None:
+    descriptor = materialize_script(
+        "from typing import Dict\ndef main(values: Dict[int, str]) -> str:\n    return values[1]\n",
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+    )
+
+    result = DccApiExecutor("maya", script_materialization_root=tmp_path).execute_params(
+        {"file_path": descriptor.file_path, "params": {"values": {"1": "ok"}}},
+    )
+
+    assert descriptor.parameters_schema is None
+    assert result["success"] is False
+    assert "fully typed main" in result["error"]
+
+
+def test_non_string_mapping_key_annotation_is_rejected_by_real_mcp(tmp_path: Path) -> None:
+    descriptor = materialize_script(
+        "from typing import Dict\ndef main(values: Dict[int, str]) -> str:\n    return values[1]\n",
+        dcc_type="maya",
+        instance_id="maya-1",
+        session_id="session-1",
+        root=tmp_path,
+    )
+    server = McpHttpServer(ToolRegistry(), McpHttpConfig(port=0, server_name="dict-key-contract-test"))
+    register_dcc_api_executor(server, DccApiExecutor("maya", script_materialization_root=tmp_path))
+
+    handle = server.start()
+    try:
+        code, body = McpClient(handle.mcp_url()).post(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "dcc_execute",
+                    "arguments": {"file_path": descriptor.file_path, "params": {"values": {"1": "ok"}}},
+                },
+            },
+        )
+    finally:
+        handle.shutdown()
+
+    assert code == 200
+    payload = json.loads(body["result"]["content"][0]["text"])
+    assert payload["success"] is False
+    assert "fully typed main" in payload["error"]
+
+
+@pytest.mark.parametrize(
+    "invalid_arguments",
+    [
+        {"params": {"scale": "wrong"}},
+        {"params": {"scale": 2.5}, "sha256": "0" * 64},
+    ],
+    ids=["invalid-structured-params", "invalid-sha256"],
+)
+def test_invalid_inline_request_does_not_materialize_via_executor(
+    tmp_path: Path,
+    invalid_arguments: dict,
+) -> None:
+    source = "def main(scale: float) -> float:\n    return scale * 2\n"
+    arguments = {"code": source, **invalid_arguments}
+    executor = DccApiExecutor("maya", script_materialization_root=tmp_path)
+
+    result = executor.execute_params(arguments)
+
+    assert result["success"] is False
+    assert _materialized_store_files(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "invalid_arguments",
+    [
+        {"params": {"scale": "wrong"}},
+        {"params": {"scale": 2.5}, "sha256": "0" * 64},
+    ],
+    ids=["invalid-structured-params", "invalid-sha256"],
+)
+def test_invalid_inline_request_does_not_materialize_via_real_mcp(
+    tmp_path: Path,
+    invalid_arguments: dict,
+) -> None:
+    source = "def main(scale: float) -> float:\n    return scale * 2\n"
+    server = McpHttpServer(ToolRegistry(), McpHttpConfig(port=0, server_name="prevalidation-store-test"))
+    register_dcc_api_executor(server, DccApiExecutor("maya", script_materialization_root=tmp_path))
+
+    handle = server.start()
+    try:
+        code, body = McpClient(handle.mcp_url()).post(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "dcc_execute",
+                    "arguments": {"code": source, **invalid_arguments},
+                },
+            },
+        )
+    finally:
+        handle.shutdown()
+
+    assert code == 200
+    payload = json.loads(body["result"]["content"][0]["text"])
+    assert payload["success"] is False
+    assert _materialized_store_files(tmp_path) == []
 
 
 @pytest.mark.parametrize(

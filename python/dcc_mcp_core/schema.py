@@ -226,9 +226,9 @@ def _container_schema(tp: Any, defs: dict[str, dict[str, Any]]) -> dict[str, Any
             }
         return {"type": "array"}
     if origin is dict:
-        # JSON objects only accept string keys.  We don't enforce the key type
-        # in the schema because JSON pointers make that explicit anyway.
         if len(args) == 2:
+            if args[0] is not str:
+                raise TypeError("JSON object mappings require string keys")
             return {"type": "object", "additionalProperties": _derive(args[1], defs)}
         return {"type": "object"}
     return None
