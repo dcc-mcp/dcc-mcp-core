@@ -205,8 +205,14 @@ class TestUnionAndLiterals:
         result = derive_schema(Literal["on", 1, True, None])
         assert result["enum"] == ["on", 1, True, None]
 
-    @pytest.mark.parametrize("annotation", [Literal[b"x"], Literal[...]])
-    def test_non_json_literal_values_fail_closed(self, annotation: Any) -> None:
+    @pytest.mark.parametrize("value", [b"x", ...])
+    def test_non_json_literal_values_fail_closed(self, value: Any) -> None:
+        if sys.version_info[:2] == (3, 7):
+            with pytest.raises(TypeError, match="Literal values must be JSON-preserving scalars"):
+                Literal[value]
+            return
+
+        annotation = Literal[value]
         with pytest.raises(TypeError, match="Literal values must be JSON scalars"):
             derive_schema(annotation)
 
