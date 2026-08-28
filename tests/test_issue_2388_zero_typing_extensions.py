@@ -135,6 +135,57 @@ class TypingCompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "only to protocol classes"):
             compat.runtime_checkable(ConcreteRunner)
 
+    def test_python37_concrete_protocol_descendants_use_nominal_type_checks(self):
+        compat = _load_simulated_python37_typing()
+
+        for runtime_enabled in (False, True):
+
+            class RunnerProtocol(compat.Protocol):
+                def run(self) -> int: ...
+
+            if runtime_enabled:
+                compat.runtime_checkable(RunnerProtocol)
+
+            class ConcreteRunner(RunnerProtocol):
+                def run(self) -> int:
+                    return 1
+
+            class ChildRunner(ConcreteRunner):
+                pass
+
+            class GrandchildRunner(ChildRunner):
+                pass
+
+            class SiblingRunner(RunnerProtocol):
+                def run(self) -> int:
+                    return 1
+
+            class StructuralRunner:
+                def run(self) -> int:
+                    return 1
+
+            cases = (
+                (object, ConcreteRunner, False),
+                (ConcreteRunner, ConcreteRunner, True),
+                (ChildRunner, ConcreteRunner, True),
+                (GrandchildRunner, ConcreteRunner, True),
+                (GrandchildRunner, ChildRunner, True),
+                (ChildRunner, ChildRunner, True),
+                (ConcreteRunner, ChildRunner, False),
+                (object, ChildRunner, False),
+                (SiblingRunner, ConcreteRunner, False),
+                (StructuralRunner, ConcreteRunner, False),
+            )
+            for candidate, target, expected in cases:
+                for check, value in ((isinstance, candidate()), (issubclass, candidate)):
+                    with self.subTest(
+                        runtime_enabled=runtime_enabled,
+                        check=check.__name__,
+                        candidate=candidate.__name__,
+                        target=target.__name__,
+                    ):
+                        self.assertIs(check(value, target), expected)
+
     def test_python37_protocol_declaration_rejects_every_non_protocol_base(self):
         compat = _load_simulated_python37_typing()
 

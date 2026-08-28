@@ -66,6 +66,8 @@ except ImportError:  # pragma: no cover - Python 3.7 only
             return super().__call__(*args, **kwargs)
 
         def __instancecheck__(cls, instance):
+            if not cls.__dict__.get("_is_protocol", False):
+                return super().__instancecheck__(instance)
             if not cls.__dict__.get("_is_runtime_protocol", False):
                 raise TypeError("Instance checks require @runtime_checkable")
             members, callable_members = _protocol_members(cls)
@@ -78,6 +80,8 @@ except ImportError:  # pragma: no cover - Python 3.7 only
             return True
 
         def __subclasscheck__(cls, subclass):
+            if not cls.__dict__.get("_is_protocol", False):
+                return super().__subclasscheck__(subclass)
             raise TypeError("issubclass() is not supported by the Python 3.7 Protocol subset")
 
     class Protocol(metaclass=_ProtocolMeta):  # type: ignore[no-redef]

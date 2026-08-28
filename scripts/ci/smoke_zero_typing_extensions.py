@@ -129,6 +129,20 @@ def _verify_protocol(Protocol, runtime_checkable) -> None:
             raise RuntimeError("fallback protocol declaration was instantiable")
     if getattr(_ConcreteRunner, "_is_protocol", True) or _ConcreteRunner().run() != 1:
         raise RuntimeError("fallback protocol misclassified a concrete subclass")
+
+    class _ChildRunner(_ConcreteRunner):
+        pass
+
+    for candidate, target, expected in (
+        (object, _ConcreteRunner, False),
+        (_ConcreteRunner, _ConcreteRunner, True),
+        (_ChildRunner, _ConcreteRunner, True),
+        (_ConcreteRunner, _ChildRunner, False),
+        (object, _ChildRunner, False),
+        (_DescriptorRunner, _ConcreteRunner, False),
+    ):
+        if isinstance(candidate(), target) is not expected or issubclass(candidate, target) is not expected:
+            raise RuntimeError("fallback concrete subclass lost nominal type checks")
     try:
         runtime_checkable(_ConcreteRunner)
     except TypeError:
