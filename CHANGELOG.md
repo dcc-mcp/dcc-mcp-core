@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.22](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.21...v0.20.22) (2026-08-28)
+
+
+### Features
+
+* support structured materialized script params ([ad35b90](https://github.com/dcc-mcp/dcc-mcp-core/commit/ad35b90c15e2af07949ede92ada13caa6b1a96cc))
+
+
+### Bug Fixes
+
+* clear stale materialized script schemas ([c889728](https://github.com/dcc-mcp/dcc-mcp-core/commit/c8897284163ffaa56c7d45246601e5e6ce962cbe))
+* enforce structured script execution boundaries ([4ebcc50](https://github.com/dcc-mcp/dcc-mcp-core/commit/4ebcc500bb71896f61a6116eaa814dbb6d5ae942))
+* enforce zero-backport compatibility contracts ([583cca8](https://github.com/dcc-mcp/dcc-mcp-core/commit/583cca815365ead72dce519f939c08606024a8de))
+* harden Python 3.7 typing boundary ([ec5223b](https://github.com/dcc-mcp/dcc-mcp-core/commit/ec5223b1b1b9f93cf709b8630ee1076e48c303ed))
+* harden structured script parameter contracts ([e60c016](https://github.com/dcc-mcp/dcc-mcp-core/commit/e60c016e301f78c3dad8d6ef13bd0aa79858e4a9))
+* harden structured script validation ([2c4c411](https://github.com/dcc-mcp/dcc-mcp-core/commit/2c4c411d9d0039841c53c619e9ec634e682f27ac))
+* harden typing and archive publication ([ddb36d4](https://github.com/dcc-mcp/dcc-mcp-core/commit/ddb36d4046f80d213f5456b498e66f4342545c18))
+* isolate restricted script interfaces ([292b18f](https://github.com/dcc-mcp/dcc-mcp-core/commit/292b18f434f73d034cff836b2c6c6d1c19786d1a))
+* preserve nominal checks for concrete protocol subclasses ([b8f7875](https://github.com/dcc-mcp/dcc-mcp-core/commit/b8f7875b16ab2681bc1d83493d1339237a6b262a))
+* preserve standalone schema loading ([2f08fe6](https://github.com/dcc-mcp/dcc-mcp-core/commit/2f08fe684634407ffd72df60b5a0a5a150b004a4))
+* preserve structured script execution contracts ([f91b654](https://github.com/dcc-mcp/dcc-mcp-core/commit/f91b654774e7e423c926b864cace82e856ffa75a))
+* reject ambiguous script entrypoints ([2210a1f](https://github.com/dcc-mcp/dcc-mcp-core/commit/2210a1f220b1c6eb18fdbae99f5fc90632632ca8))
+* reject non-json script schema values ([4967225](https://github.com/dcc-mcp/dcc-mcp-core/commit/4967225c9138d77c9bbddda75433ad995ba5675d))
+* restore zero-dependency Python 3.7 typing ([7e55164](https://github.com/dcc-mcp/dcc-mcp-core/commit/7e5516410673fde8f65b49e0cebf6df3ec5c4023))
+* support Python 3.7 script literals ([b352575](https://github.com/dcc-mcp/dcc-mcp-core/commit/b352575844a6b414b34a7dbaa418cafeaf240828))
+* support typing extensions script schemas ([ff8a544](https://github.com/dcc-mcp/dcc-mcp-core/commit/ff8a54453366796e62cdf5d53bd283f6d9659391))
+
 ## [0.20.21](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.20...v0.20.21) (2026-08-26)
 
 
