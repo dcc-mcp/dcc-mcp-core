@@ -234,6 +234,14 @@ runs:
           --platform "$platform" \
           dist/*.whl
 
+    - name: Test zero-backport Python 3.7 wheel
+      if: inputs.python-version == '3.7'
+      shell: bash
+      run: |
+        if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
+          python scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+        fi
+
     - name: Test wheel
       if: inputs.test-wheel == 'true'
       shell: bash

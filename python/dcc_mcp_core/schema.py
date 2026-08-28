@@ -33,6 +33,7 @@ from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 import datetime
 import enum
+import importlib.util
 import inspect
 import json
 import pathlib
@@ -44,12 +45,16 @@ from typing import Callable
 from typing import get_type_hints as _typing_get_type_hints
 import uuid
 
-_LITERAL_TYPE = getattr(typing, "Literal", None)
-if _LITERAL_TYPE is None:  # pragma: no cover - Python 3.7 compatibility
-    try:
-        from typing_extensions import Literal as _LITERAL_TYPE
-    except ImportError:
-        _LITERAL_TYPE = None
+try:
+    from dcc_mcp_core._typing import Literal as _LITERAL_TYPE
+except ImportError:  # pragma: no cover - standalone adapter bundle loading
+    _typing_path = pathlib.Path(__file__).with_name("_typing.py")
+    _typing_spec = importlib.util.spec_from_file_location("_dcc_mcp_core_local_typing", _typing_path)
+    if _typing_spec is None or _typing_spec.loader is None:
+        raise ImportError(f"cannot load local typing compatibility boundary from {_typing_path}") from None
+    _typing_module = importlib.util.module_from_spec(_typing_spec)
+    _typing_spec.loader.exec_module(_typing_module)
+    _LITERAL_TYPE = _typing_module.Literal
 
 try:
     from typing import get_args
@@ -82,12 +87,8 @@ def _require_json(value: Any, error: str, *, scalars: bool = False) -> Any:
 
 
 def _literal_origins() -> tuple[Any, ...]:
-    """Return known Literal origins by identity without importing packages."""
+    """Return Core's local Literal origins by identity."""
     candidates = [_LITERAL_TYPE]
-    for module_name in ("typing_extensions", "dcc_mcp_core._typing"):
-        module = sys.modules.get(module_name)
-        if module is not None:
-            candidates.append(getattr(module, "Literal", None))
 
     origins: list[Any] = []
     for candidate in candidates:

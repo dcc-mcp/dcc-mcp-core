@@ -38,9 +38,6 @@ dependencies = [
     # pure-Python code only and users install dcc-mcp-server separately when
     # their platform provides a compatible binary wheel.
     "dcc-mcp-server>=0.18.17,<1.0.0",
-    # Python 3.7 lacks Protocol, runtime_checkable, and Literal. Use the
-    # standards-compatible backport instead of maintaining local typing semantics.
-    "typing-extensions==4.7.1; python_version<'3.8'",
 ]
 
 [project.scripts]
@@ -57,6 +54,8 @@ test = [
     "pytest-cov>=4.0,<5.0; python_version<'3.8'",
     "pytest-xdist>=3.0; python_version>='3.8'",
     "pytest-xdist==3.5.0; python_version<'3.8'",
+    # Test-only conformance fixture. Production code must never import this backport.
+    "typing-extensions==4.7.1; python_version<'3.8'",
     "rez",
     "zipp>=3.19.1; python_version>='3.8'",  # CVE-2024-5569; fixed releases require Python 3.8+
     # Qt UI inspector live-Qt tests (issue #1332); skipped on Py<3.9 / when missing

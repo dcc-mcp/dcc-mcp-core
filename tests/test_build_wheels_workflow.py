@@ -111,7 +111,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
     }
 
 
-def test_python37_runtime_smokes_provision_workflow_owned_typing_extensions() -> None:
+def test_python37_runtime_smokes_run_without_provisioning_typing_extensions() -> None:
     smoke_steps = {
         "py37-lite": "Test py37-lite wheel",
         "linux-py37": "Test native Python 3.7 wheel with workflow smoke",
@@ -120,15 +120,10 @@ def test_python37_runtime_smokes_provision_workflow_owned_typing_extensions() ->
 
     for job_id, smoke_step_name in smoke_steps.items():
         steps = _jobs()[job_id]["steps"]
-        provision_index, provision = next(
-            (index, step)
-            for index, step in enumerate(steps)
-            if step.get("name") == "Provision Python 3.7 smoke dependencies"
-        )
+        assert all(step.get("name") != "Provision Python 3.7 smoke dependencies" for step in steps)
         smoke_index = next(index for index, step in enumerate(steps) if step.get("name") == smoke_step_name)
-
-        assert provision_index < smoke_index
-        command = provision["run"]
-        assert ".workflow-tools/compatibility/python.json" in command
-        assert '["test_toolchain"]["typing_extensions"]' in command
-        assert '"typing-extensions==${TYPING_EXTENSIONS_VERSION}"' in command
+        isolated_index = next(
+            index for index, step in enumerate(steps) if step.get("name") == "Test zero-backport Python 3.7 wheel"
+        )
+        assert isolated_index < smoke_index
+        assert "smoke_zero_typing_extensions.py" in steps[isolated_index]["run"]

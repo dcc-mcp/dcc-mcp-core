@@ -77,9 +77,9 @@ Repository rulesets should require the exact aggregate job name
   shipped Python modules.
 - Do not evaluate modern annotations on Python 3.7 without a compatibility
   adapter. `compile()` alone is not a runtime proof.
-- Use `dcc_mcp_core._typing`, which selects the standard library or the pinned
-  official `typing_extensions` backport, for runtime `Protocol`, `Literal`,
-  and related APIs unavailable from Python 3.7's `typing` module.
+- Use `dcc_mcp_core._typing`, which preserves standard-library identity on
+  Python 3.8+ and provides Core's bounded fail-closed `Protocol`, `Literal`,
+  and `runtime_checkable` subset on Python 3.7 without importing a backport.
 - Do not import `_core` unconditionally on code paths that must support the
   lite profile.
 - New public Python APIs need tests in both the native and lite profiles when

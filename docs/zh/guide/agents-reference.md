@@ -433,7 +433,7 @@ json_str = result.to_json()    # JSON 字符串
 - **不要在 domain skill `description` 中省略"Not for X"句** — 代理需要显式反例以避免选择错误的 skill
 - **不要在 infrastructure 和 domain skill 之间重叠 `search-hint` 关键词** — 重叠关键词使 `search_skills()` 返回歧义结果
 - 不要使用已移除的传输 API：`FramedChannel`、`connect_ipc()`、`IpcListener`、`TransportManager`、`CircuitBreaker`、`ConnectionPool` — 在 v0.14 (#251) 中移除。改用 `IpcChannelAdapter` / `DccLinkFrame`
-- 不要添加 Python 运行时依赖 — 项目设计为零依赖
+- 不要添加 Python 运行时依赖 — Python 3.7 由 Core 私有 `_typing` 有界兼容层支持；测试 backport 只能放在显式 extra 中
 - 不要手动更新版本号或编辑 `CHANGELOG.md` — Release Please 负责处理
 - 不要硬编码 API 密钥、令牌或密码 — 使用环境变量
 - 不要在分支名中使用 `docs/` 前缀 — 会导致 `refs/heads/docs/...` 冲突

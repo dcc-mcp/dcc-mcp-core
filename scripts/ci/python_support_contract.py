@@ -114,6 +114,16 @@ def validate_contract(contract: dict[str, Any]) -> None:
                 raise ContractError(f"distribution {name} wheel resource sha256 must be lowercase hex")
             if not resource["canonical_url"].startswith("https://"):
                 raise ContractError(f"distribution {name} wheel resource canonical_url must use HTTPS")
+        forbidden_dependencies = row.get("forbidden_runtime_dependencies", [])
+        if not isinstance(forbidden_dependencies, list) or not all(
+            isinstance(dependency, dict) for dependency in forbidden_dependencies
+        ):
+            raise ContractError(f"distribution {name} forbidden_runtime_dependencies must be a list of objects")
+        for dependency in forbidden_dependencies:
+            if not isinstance(dependency.get("name"), str) or not dependency["name"]:
+                raise ContractError(f"distribution {name} forbidden runtime dependency name must be non-empty")
+            if not isinstance(dependency.get("from_version"), str) or not dependency["from_version"]:
+                raise ContractError(f"distribution {name} forbidden runtime dependency version must be non-empty")
 
     semantic = optional_dependencies.get("semantic", {})
     if semantic.get("owner_distribution") != "dcc-mcp-core":

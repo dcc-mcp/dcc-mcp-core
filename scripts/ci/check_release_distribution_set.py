@@ -14,10 +14,12 @@ import tarfile
 import zipfile
 
 try:
+    from .check_python_wheel import forbidden_runtime_dependency_errors
     from .check_python_wheel import validate_wheel
     from .python_support_contract import load_contract
 except ImportError:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from check_python_wheel import forbidden_runtime_dependency_errors
     from check_python_wheel import validate_wheel
     from python_support_contract import load_contract
 
@@ -111,7 +113,7 @@ def _validate_wheels(dist_dir: Path, version: str, wheel_names: set[str]) -> Non
         )
 
 
-def _validate_sdist(path: Path, version: str) -> None:
+def _validate_sdist(path: Path, version: str, contract: dict | None = None) -> None:
     root = f"dcc_mcp_core-{version}"
     pkg_info_name = f"{root}/PKG-INFO"
     try:
@@ -136,6 +138,11 @@ def _validate_sdist(path: Path, version: str) -> None:
                 if member.name == pkg_info_name:
                     pkg_info = data.decode("utf-8")
             _validate_metadata(pkg_info, version, path.name)
+            active_contract = contract if contract is not None else load_contract()
+            distribution = active_contract.get("distributions", {}).get("dcc-mcp-core", {})
+            dependency_errors = forbidden_runtime_dependency_errors(Parser().parsestr(pkg_info), distribution)
+            if dependency_errors:
+                raise DistributionSetError(f"{path.name}: " + "; ".join(dependency_errors))
     except (OSError, UnicodeDecodeError, tarfile.TarError) as exc:
         raise DistributionSetError(f"{path.name}: cannot inspect sdist: {exc}") from exc
 
@@ -207,7 +214,7 @@ def verify_distribution_set(payload: dict, dist_dir: Path, version: str) -> dict
     if set(downloaded) != {*wheel_names, sdist_name}:
         raise DistributionSetError("Core Release must contain six wheels and one exact-version sdist")
     _validate_wheels(dist_dir, version, wheel_names)
-    _validate_sdist(dist_dir / sdist_name, version)
+    _validate_sdist(dist_dir / sdist_name, version, load_contract())
     return {
         "asset_count": len(downloaded),
         "total_bytes": sum(path.stat().st_size for path in downloaded.values()),

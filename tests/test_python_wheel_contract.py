@@ -11,6 +11,7 @@ from scripts.ci.check_python_wheel import _expanded_filename_tags
 from scripts.ci.check_python_wheel import main
 from scripts.ci.check_python_wheel import validate_wheel
 from scripts.ci.python_support_contract import load_contract
+from scripts.ci.smoke_zero_typing_extensions import _is_default_requirement as smoke_is_default_requirement
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _INSTALL_SOP_SCHEMA_SOURCE = "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
@@ -35,6 +36,7 @@ def _write_wheel(
     extension_module: str = "dcc_mcp_core/_core",
     ui_control_contract: str = "canonical",
     install_sop_schema_bytes: bytes = _INSTALL_SOP_SCHEMA_GIT_BYTES,
+    requires_dist: list[str] | None = None,
 ) -> None:
     root_is_pure = "true" if pure else "false"
     wheel_tags = tags or sorted(_expanded_filename_tags(path))
@@ -42,7 +44,9 @@ def _write_wheel(
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
             f"{dist_info}-{version}.dist-info/METADATA",
-            f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\nRequires-Python: {requires_python}\n",
+            f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n"
+            f"Requires-Python: {requires_python}\n"
+            + "".join(f"Requires-Dist: {requirement}\n" for requirement in requires_dist or []),
         )
         archive.writestr(
             f"{dist_info}-{version}.dist-info/WHEEL",
@@ -128,6 +132,55 @@ def test_wheel_rejects_requires_python_drift(tmp_path: Path) -> None:
     _write_wheel(wheel, pure=False, with_core=True, requires_python=">=3.8")
     errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
     assert any("Requires-Python" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "profile,filename,platform,pure,with_core",
+    [
+        ("native_py37", "dcc_mcp_core-1.0.0-cp37-cp37m-win_amd64.whl", "windows-x86_64", False, True),
+        ("lite_py37", "dcc_mcp_core-1.0.0-py3-none-any.whl", "any", True, False),
+        ("abi3", "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl", "windows-x86_64", False, True),
+    ],
+)
+def test_core_wheels_reject_typing_extensions_runtime_dependency(
+    tmp_path: Path,
+    profile: str,
+    filename: str,
+    platform: str,
+    pure: bool,
+    with_core: bool,
+) -> None:
+    wheel = tmp_path / filename
+    _write_wheel(
+        wheel,
+        pure=pure,
+        with_core=with_core,
+        requires_dist=["typing_extensions==4.7.1; python_version < '3.8'"],
+    )
+
+    errors = validate_wheel(wheel, profile, platform, load_contract(_REPO_ROOT))
+
+    assert any("forbidden runtime dependency 'typing-extensions'" in error for error in errors)
+
+
+def test_core_wheel_allows_explicit_test_only_typing_extensions(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
+    _write_wheel(
+        wheel,
+        pure=False,
+        with_core=True,
+        requires_dist=["typing-extensions==4.7.1; python_version < '3.8' and extra == 'test'"],
+    )
+
+    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
+
+    assert not any("forbidden runtime dependency 'typing-extensions'" in error for error in errors)
+
+
+def test_zero_backport_smoke_fails_closed_for_ambiguous_extra_marker() -> None:
+    assert not smoke_is_default_requirement("typing-extensions; python_version < '3.8' and extra == 'test'")
+    assert smoke_is_default_requirement("typing-extensions; python_version < '3.8'")
+    assert smoke_is_default_requirement("typing-extensions; extra == 'test' or python_version < '3.8'")
 
 
 def test_wheel_rejects_internal_tag_drift(tmp_path: Path) -> None:

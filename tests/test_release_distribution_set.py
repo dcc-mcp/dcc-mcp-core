@@ -14,6 +14,7 @@ import zipfile
 import pytest
 from scripts.ci import check_release_distribution_set
 from scripts.ci.check_release_distribution_set import DistributionSetError
+from scripts.ci.check_release_distribution_set import _validate_sdist
 from scripts.ci.check_release_distribution_set import classify_distribution_assets
 from scripts.ci.check_release_distribution_set import verify_distribution_set
 
@@ -48,11 +49,35 @@ def test_classify_distribution_assets_reuses_complete_core_asset_sets() -> None:
     assert classify_distribution_assets(payload, VERSION) == "reuse"
 
 
-def _metadata_bytes(name: str, version: str) -> bytes:
+def test_sdist_rejects_typing_extensions_runtime_dependency(tmp_path: Path) -> None:
+    sdist = tmp_path / SDIST_NAME
+    pkg_info = _metadata_bytes("dcc-mcp-core", VERSION, ("typing-extensions==4.7.1",))
+    with tarfile.open(sdist, "w:gz") as archive:
+        member = tarfile.TarInfo(f"dcc_mcp_core-{VERSION}/PKG-INFO")
+        member.size = len(pkg_info)
+        archive.addfile(member, io.BytesIO(pkg_info))
+
+    with pytest.raises(DistributionSetError, match="forbidden runtime dependency 'typing-extensions'"):
+        _validate_sdist(
+            sdist,
+            VERSION,
+            {
+                "distributions": {
+                    "dcc-mcp-core": {
+                        "forbidden_runtime_dependencies": [{"name": "typing-extensions", "from_version": "0.20.0"}]
+                    }
+                }
+            },
+        )
+
+
+def _metadata_bytes(name: str, version: str, requirements: tuple[str, ...] = ()) -> bytes:
     message = Message()
     message["Metadata-Version"] = "2.1"
     message["Name"] = name
     message["Version"] = version
+    for requirement in requirements:
+        message["Requires-Dist"] = requirement
     buffer = io.BytesIO()
     BytesGenerator(buffer).flatten(message)
     return buffer.getvalue()

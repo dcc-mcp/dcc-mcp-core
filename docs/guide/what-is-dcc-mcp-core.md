@@ -6,7 +6,7 @@
 - **MCP-only IDE clients** → the gateway's small, static MCP workflow (`search`, `describe`, `load_skill`, `call`).
 - **Traditional callers** (cURL, CI, any HTTP client) → a full **`/v1/*` REST API** on every per-DCC server and on the gateway facade.
 
-The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). Python 3.8+ needs no typing backport; Python 3.7 installs the pinned `typing_extensions` compatibility dependency. The companion `dcc-mcp-server` wheel supplies the packaged gateway daemon binary.
+The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). Python 3.8+ uses standard-library typing objects directly; Python 3.7 uses a bounded internal compatibility subset without installing or importing a typing backport. The companion `dcc-mcp-server` wheel supplies the packaged gateway daemon binary.
 
 ---
 

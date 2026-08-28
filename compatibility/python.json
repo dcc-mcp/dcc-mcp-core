@@ -55,6 +55,12 @@
     "dcc-mcp-core": {
       "pyproject": "pyproject.toml",
       "support_profile": "lts",
+      "forbidden_runtime_dependencies": [
+        {
+          "name": "typing-extensions",
+          "from_version": "0.20.22"
+        }
+      ],
       "wheel_resources": [
         {
           "member": "dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json",

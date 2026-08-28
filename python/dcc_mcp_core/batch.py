@@ -64,6 +64,7 @@ from typing import Callable
 import uuid
 
 from dcc_mcp_core import json_dumps
+from dcc_mcp_core._typing import Literal as _CompatLiteral
 from dcc_mcp_core.schema import _SCRIPT_ANNOTATION_MODULES
 
 logger = logging.getLogger(__name__)
@@ -398,11 +399,6 @@ class EvalContext:
         import builtins
         import typing as typing_module
 
-        try:
-            import typing_extensions
-        except ImportError:  # pragma: no cover - Python 3.7 wheel declares the backport
-            typing_extensions = None
-
         safe: dict[str, Any] = {}
         for name in dir(builtins):
             if name not in self._BLOCKED_BUILTINS:
@@ -411,8 +407,7 @@ class EvalContext:
         annotation_symbols = {
             name: name
             for name in ("Annotated", "Any", "Dict", "List", "Literal", "Optional", "Tuple", "Union")
-            if getattr(typing_module, name, None) is not None
-            or (getattr(typing_extensions, name, None) if typing_extensions is not None else None) is not None
+            if getattr(typing_module, name, None) is not None or (name == "Literal" and _CompatLiteral is not None)
         }
         typing_proxy = _SandboxNamespace(annotation_symbols)
 

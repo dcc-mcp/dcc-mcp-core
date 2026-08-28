@@ -97,8 +97,9 @@ stores evaluated aliases must use a compatibility layer.
 Python 3.7's `typing` module lacks several runtime APIs used by newer code,
 including `Literal`, `Protocol`, and `runtime_checkable`. The private
 `dcc_mcp_core._typing` boundary selects the standard library on modern Python
-and the pinned official `typing_extensions` backport on Python 3.7. Do not
-implement local typing semantics.
+and a bounded fail-closed Core subset on Python 3.7. It never imports
+`typing_extensions`; production callers must not create a second compatibility
+path.
 
 ## Source rules
 

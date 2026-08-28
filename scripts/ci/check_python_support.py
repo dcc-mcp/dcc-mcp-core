@@ -88,6 +88,7 @@ def expected_fragments(contract: Mapping[str, Any]) -> dict[str, list[str]]:
         ".github/actions/build-wheel/action.yml": [
             "check_python_wheel.py",
             "smoke_python37_runtime.py --profile native_py37",
+            "smoke_zero_typing_extensions.py",
         ],
     }
     for distribution in contract["distributions"].values():

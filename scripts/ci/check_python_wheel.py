@@ -63,6 +63,39 @@ def _release_tuple(version: str) -> tuple[int, int, int] | None:
     return tuple(int(part) for part in match.groups())
 
 
+def _requirement_name(requirement: str) -> str:
+    """Return a normalized distribution name from one Requires-Dist value."""
+    match = re.match(r"\s*([A-Za-z0-9_.-]+)", requirement)
+    if match is None:
+        return ""
+    return match.group(1).lower().replace("_", "-")
+
+
+def _is_default_requirement(requirement: str) -> bool:
+    """Conservatively distinguish an extra-only requirement from a default one."""
+    marker = requirement.partition(";")[2]
+    extra_equality = re.search(r"\bextra\s*==\s*(['\"])[^'\"]+\1", marker, re.IGNORECASE)
+    return extra_equality is None or re.search(r"\bor\b", marker, re.IGNORECASE) is not None
+
+
+def forbidden_runtime_dependency_errors(metadata: Any, distribution: dict[str, Any]) -> list[str]:
+    """Return active forbidden default dependencies found in package metadata."""
+    version = _release_tuple(str(metadata.get("Version", "")))
+    requirements = metadata.get_all("Requires-Dist") or []
+    names = {
+        _requirement_name(str(requirement)) for requirement in requirements if _is_default_requirement(str(requirement))
+    }
+    errors = []
+    for rule in distribution.get("forbidden_runtime_dependencies", []):
+        starts_at = _release_tuple(rule["from_version"])
+        if version is None or starts_at is None or version < starts_at:
+            continue
+        normalized = rule["name"].lower().replace("_", "-")
+        if normalized in names:
+            errors.append(f"forbidden runtime dependency {normalized!r} is present")
+    return errors
+
+
 def _core_ui_control_contract_errors(archive: zipfile.ZipFile, names: list[str]) -> list[str]:
     """Validate the post-0.19.63 Python/skill UI Control naming cutover."""
     errors: list[str] = []
@@ -141,6 +174,7 @@ def validate_wheel(
                 errors.extend(_core_ui_control_contract_errors(archive, names))
             distribution_contract = contract["distributions"][expected_distribution]
             errors.extend(_wheel_resource_errors(archive, distribution_contract.get("wheel_resources", [])))
+            errors.extend(forbidden_runtime_dependency_errors(metadata, distribution_contract))
     except (OSError, ValueError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
         return [f"cannot inspect wheel: {exc}"]
 

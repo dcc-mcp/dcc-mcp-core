@@ -417,9 +417,10 @@ Supported types (stdlib only): `bool`, `int`, `float`, `str`, `bytes`,
 `Literal[...]`, `Enum`, `datetime.datetime`, `datetime.date`,
 `pathlib.Path`, `uuid.UUID`, `@dataclass`, `TypedDict`. On Python 3.7
 (Maya 2022), spell containers and unions with `typing.List`, `typing.Dict`,
-`typing.Tuple`, `typing.Optional`, and `typing.Union`; `Literal` and
-`TypedDict` require `typing_extensions` in the skill author's environment.
-The core package still imports without third-party Python library dependencies. Unsupported
+`typing.Tuple`, `typing.Optional`, and `typing.Union`. Core-owned runtime code
+uses the private `_typing.Literal` subset; skill authors who choose external
+`TypedDict` or typing backports must install them explicitly or provide an
+explicit schema. The core package still imports without third-party Python library dependencies. Unsupported
 types raise `TypeError` with a clear escape hatch: pass an explicit
 `input_schema=...` dict or use pydantic's `MyModel.model_json_schema()`.
 

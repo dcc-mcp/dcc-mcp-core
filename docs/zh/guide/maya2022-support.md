@@ -70,9 +70,10 @@ Maya 2022 / CPython 3.7
 - 发布代码不能使用 assignment expression、仅限位置参数、debug f-string、
   `match` 等 Python 3.8+ 语法。
 - `compile()` 通过不等于运行时兼容；不能在 3.7 上直接求值现代注解。
-- 对 Python 3.7 `typing` 中不存在的 `Protocol`、`Literal` 等运行时 API，
-  使用 `dcc_mcp_core._typing`；它选择标准库或固定版本的官方
-  `typing_extensions` backport，不要自行实现 typing 语义。
+- 对 Python 3.7 `typing` 中不存在的 `Protocol`、`Literal`、
+  `runtime_checkable`，使用唯一的 `dcc_mcp_core._typing` 边界；它在
+  Python 3.8+ 保持标准库对象 identity，在 3.7 提供有界、失败关闭的内部子集，
+  不导入 backport。
 - 需要支持 lite 档位的代码不能无条件导入 `_core`。
 - 新增跨 Rust/Python 边界的公开 API 时，应覆盖原生和 lite 两种档位。
 

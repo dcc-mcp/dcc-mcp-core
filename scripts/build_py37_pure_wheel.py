@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_ROOT = ROOT / "python"
 PACKAGE_DIR = PYTHON_ROOT / "dcc_mcp_core"
 DIST = ROOT / "dist"
+_NATIVE_SUFFIXES = frozenset({".dll", ".dylib", ".pdb", ".pyd", ".so"})
 
 
 def _ensure_wheel() -> None:
@@ -54,6 +55,11 @@ def _read_console_scripts() -> dict[str, str]:
     return dict(re.findall(r'^([^\s=]+)\s*=\s*"([^"]+)"\s*$', match.group(1), re.MULTILINE))
 
 
+def _is_lite_payload_file(path: Path) -> bool:
+    """Exclude development/native build residue from the pure-Python wheel."""
+    return path.is_file() and "__pycache__" not in path.parts and path.suffix.lower() not in _NATIVE_SUFFIXES
+
+
 def main() -> int:
     """Assemble a pure-Python wheel from ``python/dcc_mcp_core``."""
     _ensure_wheel()
@@ -84,9 +90,7 @@ def main() -> int:
 
     with WheelFile(str(wheel_path), "w") as wf:
         for file_path in sorted(PACKAGE_DIR.rglob("*")):
-            if not file_path.is_file():
-                continue
-            if "__pycache__" in file_path.parts:
+            if not _is_lite_payload_file(file_path):
                 continue
             arcname = file_path.relative_to(PYTHON_ROOT).as_posix()
             wf.write(str(file_path), arcname)

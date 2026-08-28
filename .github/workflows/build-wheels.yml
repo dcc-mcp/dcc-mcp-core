@@ -213,11 +213,12 @@ jobs:
           --platform any
           dist/*.whl
         shell: bash
-      - name: Provision Python 3.7 smoke dependencies
+      - name: Test zero-backport Python 3.7 wheel
         shell: bash
         run: |
-          TYPING_EXTENSIONS_VERSION="$(python -c 'import json; print(json.load(open(".workflow-tools/compatibility/python.json", encoding="utf-8"))["test_toolchain"]["typing_extensions"])')"
-          python -m pip install --disable-pip-version-check "typing-extensions==${TYPING_EXTENSIONS_VERSION}"
+          if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
+            python .workflow-tools/scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+          fi
       - name: Test py37-lite wheel
         shell: bash
         run: |
@@ -274,11 +275,12 @@ jobs:
           --profile native_py37
           --platform linux-x86_64
           dist/*.whl
-      - name: Provision Python 3.7 smoke dependencies
+      - name: Test zero-backport Python 3.7 wheel
         shell: bash
         run: |
-          TYPING_EXTENSIONS_VERSION="$(python -c 'import json; print(json.load(open(".workflow-tools/compatibility/python.json", encoding="utf-8"))["test_toolchain"]["typing_extensions"])')"
-          python -m pip install --disable-pip-version-check "typing-extensions==${TYPING_EXTENSIONS_VERSION}"
+          if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
+            python .workflow-tools/scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+          fi
       - name: Test native Python 3.7 wheel with workflow smoke
         shell: bash
         run: |
@@ -322,11 +324,12 @@ jobs:
           --profile native_py37
           --platform windows-x86_64
           dist/*.whl
-      - name: Provision Python 3.7 smoke dependencies
+      - name: Test zero-backport Python 3.7 wheel
         shell: bash
         run: |
-          TYPING_EXTENSIONS_VERSION="$(python -c 'import json; print(json.load(open(".workflow-tools/compatibility/python.json", encoding="utf-8"))["test_toolchain"]["typing_extensions"])')"
-          python -m pip install --disable-pip-version-check "typing-extensions==${TYPING_EXTENSIONS_VERSION}"
+          if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
+            python .workflow-tools/scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+          fi
       - name: Test native Python 3.7 wheel with workflow smoke
         shell: bash
         run: |
