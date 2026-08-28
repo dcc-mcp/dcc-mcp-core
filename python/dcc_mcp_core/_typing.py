@@ -49,9 +49,14 @@ except ImportError:  # pragma: no cover - Python 3.7 only
 
         def __new__(mcls, name, bases, namespace):
             cls = super().__new__(mcls, name, bases, namespace)
-            cls._is_protocol = name == "Protocol" or any(getattr(base, "_is_protocol", False) for base in bases)
+            cls._is_protocol = name == "Protocol" or Protocol in bases
             cls._is_runtime_protocol = False
             return cls
+
+        def __call__(cls, *args, **kwargs):
+            if cls.__dict__.get("_is_protocol", False):
+                raise TypeError("Protocols cannot be instantiated")
+            return super().__call__(*args, **kwargs)
 
         def __instancecheck__(cls, instance):
             if not cls.__dict__.get("_is_runtime_protocol", False):
@@ -73,7 +78,7 @@ except ImportError:  # pragma: no cover - Python 3.7 only
 
     def runtime_checkable(cls):  # type: ignore[misc]
         """Enable bounded runtime instance checks for a fallback Protocol."""
-        if not isinstance(cls, _ProtocolMeta) or not getattr(cls, "_is_protocol", False):
+        if not isinstance(cls, _ProtocolMeta) or not cls.__dict__.get("_is_protocol", False):
             raise TypeError("@runtime_checkable can be applied only to protocol classes")
         cls._is_runtime_protocol = True
         return cls

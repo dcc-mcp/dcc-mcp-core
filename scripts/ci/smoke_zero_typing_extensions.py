@@ -14,6 +14,12 @@ import tempfile
 import typing
 import zipfile
 
+try:
+    from .archive_payload_policy import archive_member_errors
+except ImportError:  # pragma: no cover - direct script execution
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from archive_payload_policy import archive_member_errors
+
 
 class _BlockTypingExtensions:
     """Reject accidental backport imports inside the isolated child."""
@@ -42,6 +48,9 @@ def _single_wheel(raw: str) -> Path:
 def _check_wheel_archive(wheel: Path, root: Path) -> None:
     with zipfile.ZipFile(str(wheel)) as archive:
         names = archive.namelist()
+        payload_errors = archive_member_errors(names)
+        if payload_errors:
+            raise RuntimeError("; ".join(payload_errors))
         metadata_names = [name for name in names if name.endswith(".dist-info/METADATA")]
         if len(metadata_names) != 1:
             raise RuntimeError("wheel must contain exactly one METADATA file")
@@ -53,8 +62,6 @@ def _check_wheel_archive(wheel: Path, root: Path) -> None:
             for requirement in requirements
         ):
             raise RuntimeError("wheel metadata contains typing-extensions")
-        if any("typing_extensions" in Path(name).parts for name in names):
-            raise RuntimeError("wheel contains a typing_extensions package")
         archive.extractall(str(root))
 
 
@@ -100,10 +107,34 @@ def _verify_protocol(Protocol, runtime_checkable) -> None:
         def run(self):
             return 1
 
+    class _ConcreteRunner(_SizedRunner):
+        name = "runner"
+
+        def __len__(self):
+            return 1
+
+        def run(self):
+            return 1
+
     if not isinstance(_DescriptorRunner(), _SizedRunner):
         raise RuntimeError("static protocol check rejected a valid descriptor-backed object")
     if isinstance(_DynamicRunner(), _SizedRunner):
         raise RuntimeError("static protocol check accepted a dynamic-only object")
+    for protocol in (Protocol, _SizedRunner):
+        try:
+            protocol()
+        except TypeError:
+            pass
+        else:
+            raise RuntimeError("fallback protocol declaration was instantiable")
+    if getattr(_ConcreteRunner, "_is_protocol", True) or _ConcreteRunner().run() != 1:
+        raise RuntimeError("fallback protocol misclassified a concrete subclass")
+    try:
+        runtime_checkable(_ConcreteRunner)
+    except TypeError:
+        pass
+    else:
+        raise RuntimeError("fallback runtime_checkable accepted a concrete subclass")
     try:
         issubclass(_DescriptorRunner, _SizedRunner)
     except TypeError:

@@ -113,6 +113,28 @@ class TypingCompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "issubclass"):
             issubclass(Plain, compat.runtime_checkable(Undecorated))
 
+    def test_python37_protocol_declarations_reject_instantiation_and_concrete_decorator_misuse(self):
+        compat = _load_simulated_python37_typing()
+
+        class DeclaredProtocol(compat.Protocol):
+            def run(self) -> int: ...
+
+        class ConcreteRunner(DeclaredProtocol):
+            def run(self) -> int:
+                return 1
+
+        with self.assertRaisesRegex(TypeError, "Protocols cannot be instantiated"):
+            compat.Protocol()
+        with self.assertRaisesRegex(TypeError, "Protocols cannot be instantiated"):
+            DeclaredProtocol()
+
+        self.assertTrue(DeclaredProtocol._is_protocol)
+        self.assertFalse(ConcreteRunner._is_protocol)
+        self.assertEqual(ConcreteRunner().run(), 1)
+        self.assertIs(compat.runtime_checkable(DeclaredProtocol), DeclaredProtocol)
+        with self.assertRaisesRegex(TypeError, "only to protocol classes"):
+            compat.runtime_checkable(ConcreteRunner)
+
     def test_python37_literal_accepts_only_nonempty_json_preserving_scalars(self):
         compat = _load_simulated_python37_typing()
 

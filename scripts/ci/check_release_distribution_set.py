@@ -14,11 +14,15 @@ import tarfile
 import zipfile
 
 try:
+    from .archive_payload_policy import archive_member_errors
+    from .archive_payload_policy import normalize_archive_member
     from .check_python_wheel import forbidden_runtime_dependency_errors
     from .check_python_wheel import validate_wheel
     from .python_support_contract import load_contract
 except ImportError:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from archive_payload_policy import archive_member_errors
+    from archive_payload_policy import normalize_archive_member
     from check_python_wheel import forbidden_runtime_dependency_errors
     from check_python_wheel import validate_wheel
     from python_support_contract import load_contract
@@ -98,6 +102,9 @@ def _validate_wheels(dist_dir: Path, version: str, wheel_names: set[str]) -> Non
                 corrupt_member = archive.testzip()
                 if corrupt_member is not None:
                     raise DistributionSetError(f"{filename}: corrupt ZIP member {corrupt_member!r}")
+                payload_errors = archive_member_errors(archive.namelist())
+                if payload_errors:
+                    raise DistributionSetError(f"{filename}: " + "; ".join(payload_errors))
                 _validate_metadata(_single_metadata(archive), version, filename)
         except (OSError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
             raise DistributionSetError(f"{filename}: cannot inspect wheel: {exc}") from exc
@@ -120,11 +127,13 @@ def _validate_sdist(path: Path, version: str, contract: dict | None = None) -> N
         with tarfile.open(path, "r:gz") as archive:
             members = archive.getmembers()
             names = [member.name for member in members]
-            if names.count(pkg_info_name) != 1:
+            payload_errors = archive_member_errors(names)
+            if payload_errors:
+                raise DistributionSetError(f"{path.name}: " + "; ".join(payload_errors))
+            normalized_names = [normalize_archive_member(name) for name in names]
+            if normalized_names.count(pkg_info_name) != 1:
                 raise DistributionSetError(f"sdist must contain exactly one {pkg_info_name!r}")
-            invalid_names = [
-                name for name in names if name != root and (not name.startswith(f"{root}/") or ".." in Path(name).parts)
-            ]
+            invalid_names = [name for name in normalized_names if name != root and not name.startswith(f"{root}/")]
             if invalid_names:
                 raise DistributionSetError(f"sdist contains paths outside {root!r}: {invalid_names[:3]}")
             pkg_info = ""
@@ -135,7 +144,7 @@ def _validate_sdist(path: Path, version: str, contract: dict | None = None) -> N
                 if stream is None:
                     raise DistributionSetError(f"sdist member {member.name!r} is unreadable")
                 data = stream.read()
-                if member.name == pkg_info_name:
+                if normalize_archive_member(member.name) == pkg_info_name:
                     pkg_info = data.decode("utf-8")
             _validate_metadata(pkg_info, version, path.name)
             active_contract = contract if contract is not None else load_contract()

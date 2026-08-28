@@ -11,6 +11,7 @@ from scripts.ci.check_python_wheel import _expanded_filename_tags
 from scripts.ci.check_python_wheel import main
 from scripts.ci.check_python_wheel import validate_wheel
 from scripts.ci.python_support_contract import load_contract
+from scripts.ci.smoke_zero_typing_extensions import _check_wheel_archive
 from scripts.ci.smoke_zero_typing_extensions import _is_default_requirement as smoke_is_default_requirement
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +38,7 @@ def _write_wheel(
     ui_control_contract: str = "canonical",
     install_sop_schema_bytes: bytes = _INSTALL_SOP_SCHEMA_GIT_BYTES,
     requires_dist: list[str] | None = None,
+    extra_members: list[str] | None = None,
 ) -> None:
     root_is_pure = "true" if pure else "false"
     wheel_tags = tags or sorted(_expanded_filename_tags(path))
@@ -81,6 +83,8 @@ def _write_wheel(
             archive.writestr("dcc_mcp_core/skills/app-ui/tools.yaml", "tools: []\n")
         if with_core:
             archive.writestr(f"{extension_module}.pyd", b"native")
+        for member in extra_members or []:
+            archive.writestr(member, b"injected")
 
 
 def test_native_py37_wheel_requires_cp37_tag_and_core(tmp_path: Path) -> None:
@@ -175,6 +179,38 @@ def test_core_wheel_allows_explicit_test_only_typing_extensions(tmp_path: Path) 
     errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
 
     assert not any("forbidden runtime dependency 'typing-extensions'" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "typing_extensions.py",
+        "./Typing-Extensions.py",
+        "vendor/typing_extensions/__init__.py",
+        "typing_extensions-4.12.2.dist-info/METADATA",
+    ],
+)
+def test_wheel_gates_reject_normalized_typing_extensions_payloads(tmp_path: Path, member: str) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
+    _write_wheel(wheel, pure=True, with_core=False, extra_members=[member])
+
+    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("typing_extensions payload" in error for error in errors)
+
+    with pytest.raises(RuntimeError, match="typing_extensions payload"):
+        _check_wheel_archive(wheel, tmp_path / "isolated")
+
+
+@pytest.mark.parametrize("member", ["../typing_extensions.py", "/typing_extensions.py", "C:\\typing_extensions.py"])
+def test_wheel_gates_reject_unsafe_archive_member_paths(tmp_path: Path, member: str) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
+    _write_wheel(wheel, pure=True, with_core=False, extra_members=[member])
+
+    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("unsafe archive member" in error for error in errors)
+
+    with pytest.raises(RuntimeError, match="unsafe archive member"):
+        _check_wheel_archive(wheel, tmp_path / "isolated")
 
 
 def test_zero_backport_smoke_fails_closed_for_ambiguous_extra_marker() -> None:

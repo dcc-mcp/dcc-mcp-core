@@ -71,6 +71,30 @@ def test_sdist_rejects_typing_extensions_runtime_dependency(tmp_path: Path) -> N
         )
 
 
+@pytest.mark.parametrize(
+    "member_name",
+    [
+        "dcc_mcp_core-1.0.0/typing_extensions.py",
+        "dcc_mcp_core-1.0.0/./Typing-Extensions.py",
+        "dcc_mcp_core-1.0.0/vendor/typing_extensions/__init__.py",
+        "dcc_mcp_core-1.0.0/typing_extensions-4.12.2.dist-info/METADATA",
+    ],
+)
+def test_sdist_rejects_normalized_typing_extensions_payloads(tmp_path: Path, member_name: str) -> None:
+    sdist = tmp_path / "dcc_mcp_core-1.0.0.tar.gz"
+    pkg_info = b"Metadata-Version: 2.1\nName: dcc-mcp-core\nVersion: 1.0.0\nRequires-Python: >=3.7\n"
+    with tarfile.open(sdist, "w:gz") as archive:
+        metadata = tarfile.TarInfo("dcc_mcp_core-1.0.0/PKG-INFO")
+        metadata.size = len(pkg_info)
+        archive.addfile(metadata, io.BytesIO(pkg_info))
+        injected = tarfile.TarInfo(member_name)
+        injected.size = len(b"injected")
+        archive.addfile(injected, io.BytesIO(b"injected"))
+
+    with pytest.raises(DistributionSetError, match="typing_extensions payload"):
+        _validate_sdist(sdist, "1.0.0", check_release_distribution_set.load_contract())
+
+
 def _metadata_bytes(name: str, version: str, requirements: tuple[str, ...] = ()) -> bytes:
     message = Message()
     message["Metadata-Version"] = "2.1"
@@ -161,6 +185,21 @@ def test_verify_distribution_set_runs_existing_wheel_contract(monkeypatch: pytes
     )
 
     with pytest.raises(DistributionSetError, match="synthetic contract drift"):
+        verify_distribution_set(payload, dist_dir, VERSION)
+
+
+def test_release_distribution_gate_rejects_injected_wheel_payload_before_contract_delegate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_fixture_set(dist_dir)
+    with zipfile.ZipFile(dist_dir / WHEEL_NAMES[-1], "a") as archive:
+        archive.writestr("typing_extensions.py", b"injected")
+    payload = _asset_payload(dist_dir)
+    monkeypatch.setattr(check_release_distribution_set, "validate_wheel", lambda *_args: [])
+    monkeypatch.setattr(check_release_distribution_set, "load_contract", lambda: {})
+
+    with pytest.raises(DistributionSetError, match="typing_extensions payload"):
         verify_distribution_set(payload, dist_dir, VERSION)
 
 

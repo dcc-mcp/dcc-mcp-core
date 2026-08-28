@@ -13,10 +13,12 @@ from typing import Any
 import zipfile
 
 try:
+    from .archive_payload_policy import archive_member_errors
     from .python_support_contract import load_contract
     from .python_support_contract import minimum_python_spec
 except ImportError:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from archive_payload_policy import archive_member_errors
     from python_support_contract import load_contract
     from python_support_contract import minimum_python_spec
 
@@ -161,6 +163,7 @@ def validate_wheel(
     try:
         with zipfile.ZipFile(str(path)) as archive:
             names = archive.namelist()
+            errors.extend(archive_member_errors(names))
             has_extension = _contains_extension(names, profile_contract.get("extension_module"))
             metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/METADATA"))
             wheel_metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/WHEEL"))
@@ -176,7 +179,7 @@ def validate_wheel(
             errors.extend(_wheel_resource_errors(archive, distribution_contract.get("wheel_resources", [])))
             errors.extend(forbidden_runtime_dependency_errors(metadata, distribution_contract))
     except (OSError, ValueError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
-        return [f"cannot inspect wheel: {exc}"]
+        return [*errors, f"cannot inspect wheel: {exc}"]
 
     actual_distribution = str(metadata.get("Name", "")).lower().replace("_", "-")
     if actual_distribution != expected_distribution:
