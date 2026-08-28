@@ -14,11 +14,13 @@ import zipfile
 
 try:
     from .archive_payload_policy import archive_member_errors
+    from .dependency_marker_policy import is_default_requirement as _is_default_requirement
     from .python_support_contract import load_contract
     from .python_support_contract import minimum_python_spec
 except ImportError:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from archive_payload_policy import archive_member_errors
+    from dependency_marker_policy import is_default_requirement as _is_default_requirement
     from python_support_contract import load_contract
     from python_support_contract import minimum_python_spec
 
@@ -71,13 +73,6 @@ def _requirement_name(requirement: str) -> str:
     if match is None:
         return ""
     return re.sub(r"[-_.]+", "-", match.group(1)).lower()
-
-
-def _is_default_requirement(requirement: str) -> bool:
-    """Conservatively distinguish an extra-only requirement from a default one."""
-    marker = requirement.partition(";")[2]
-    extra_equality = re.search(r"\bextra\s*==\s*(['\"])[^'\"]+\1", marker, re.IGNORECASE)
-    return extra_equality is None or re.search(r"\bor\b", marker, re.IGNORECASE) is not None
 
 
 def forbidden_runtime_dependency_errors(metadata: Any, distribution: dict[str, Any]) -> list[str]:

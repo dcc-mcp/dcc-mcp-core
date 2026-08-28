@@ -124,7 +124,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
     }
 
 
-def test_python37_runtime_smokes_run_without_provisioning_typing_extensions() -> None:
+def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparation() -> None:
     smoke_steps = {
         "py37-lite": "Test py37-lite wheel",
         "linux-py37": "Test native Python 3.7 wheel with workflow smoke",
@@ -133,10 +133,11 @@ def test_python37_runtime_smokes_run_without_provisioning_typing_extensions() ->
 
     for job_id, smoke_step_name in smoke_steps.items():
         steps = _jobs()[job_id]["steps"]
-        assert all(step.get("name") != "Provision Python 3.7 smoke dependencies" for step in steps)
         smoke_index = next(index for index, step in enumerate(steps) if step.get("name") == smoke_step_name)
-        isolated_index = next(
-            index for index, step in enumerate(steps) if step.get("name") == "Test zero-backport Python 3.7 wheel"
-        )
-        assert isolated_index < smoke_index
-        assert "smoke_zero_typing_extensions.py" in steps[isolated_index]["run"]
+        smoke = steps[smoke_index]
+        assert "python37_wheel_smoke.py" in smoke["run"]
+        assert '--checkout-ref "$CHECKOUT_REF"' in smoke["run"]
+        assert smoke["env"]["CHECKOUT_REF"] == "${{ inputs.checkout-ref || github.ref }}"
+        assert "--profile " + ("lite_py37" if job_id == "py37-lite" else "native_py37") in smoke["run"]
+        assert "if [[ -f" not in smoke["run"]
+        assert all("test_issue_2388_zero_typing_extensions.py" not in step.get("run", "") for step in steps)

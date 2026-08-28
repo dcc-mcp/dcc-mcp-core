@@ -64,7 +64,6 @@ from typing import Callable
 import uuid
 
 from dcc_mcp_core import json_dumps
-from dcc_mcp_core._typing import Literal as _CompatLiteral
 from dcc_mcp_core.schema import _SCRIPT_ANNOTATION_MODULES
 
 logger = logging.getLogger(__name__)
@@ -397,17 +396,16 @@ class EvalContext:
 
     def _make_builtins(self) -> dict[str, Any]:
         import builtins
-        import typing as typing_module
 
         safe: dict[str, Any] = {}
         for name in dir(builtins):
             if name not in self._BLOCKED_BUILTINS:
                 safe[name] = getattr(builtins, name)
 
+        # Both execution paths postpone annotations. These are inert names for
+        # the schema-supported subset, not runtime typing objects or backports.
         annotation_symbols = {
-            name: name
-            for name in ("Annotated", "Any", "Dict", "List", "Literal", "Optional", "Tuple", "Union")
-            if getattr(typing_module, name, None) is not None or (name == "Literal" and _CompatLiteral is not None)
+            name: name for name in ("Annotated", "Any", "Dict", "List", "Literal", "Optional", "Tuple", "Union")
         }
         typing_proxy = _SandboxNamespace(annotation_symbols)
 

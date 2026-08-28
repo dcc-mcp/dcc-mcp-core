@@ -197,6 +197,87 @@ class TypingCompatibilityTests(unittest.TestCase):
             class InvalidProtocol(NonProtocolBase, compat.Protocol):
                 def run(self) -> int: ...
 
+    def test_python37_class_name_cannot_change_protocol_classification(self):
+        compat = _load_simulated_python37_typing()
+
+        class Runner(compat.Protocol):
+            def run(self) -> int: ...
+
+        for name in ("Protocol", "ConcreteRunner"):
+            with self.subTest(name=name):
+                concrete = type(name, (Runner,), {"run": lambda self: 7})
+                child = type(name, (concrete,), {})
+                self.assertFalse(concrete._is_protocol)
+                self.assertFalse(child._is_protocol)
+                self.assertEqual(concrete().run(), 7)
+                self.assertIsInstance(child(), concrete)
+                self.assertTrue(issubclass(child, concrete))
+                self.assertNotIsInstance(object(), concrete)
+                self.assertFalse(issubclass(object, concrete))
+                with self.assertRaises(TypeError):
+                    compat.runtime_checkable(concrete)
+
+    def test_python37_named_protocol_declarations_preserve_base_restrictions(self):
+        compat = _load_simulated_python37_typing()
+
+        class NonProtocol:
+            pass
+
+        for name in ("Protocol", "RunnerProtocol"):
+            with self.subTest(name=name):
+                declared = type(name, (compat.Protocol,), {"__annotations__": {}, "run": lambda self: None})
+                self.assertTrue(declared._is_protocol)
+                with self.assertRaises(TypeError):
+                    declared()
+                with self.assertRaises(TypeError):
+                    isinstance(object(), declared)
+                self.assertIs(compat.runtime_checkable(declared), declared)
+                self.assertNotIsInstance(object(), declared)
+                for bases in ((NonProtocol, compat.Protocol), (compat.Protocol, NonProtocol)):
+                    with self.subTest(bases=bases), self.assertRaisesRegex(TypeError, "non-protocol"):
+                        type(name, bases, {})
+
+    def test_python37_default_data_members_remain_static_requirements(self):
+        compat = _load_simulated_python37_typing()
+
+        class Versioned(compat.Protocol):
+            # Keep the simulated 3.7 namespace independent of newer lazy annotation descriptors.
+            __annotations__ = {}
+            revision = 1
+
+        @compat.runtime_checkable
+        class Runner(Versioned, compat.Protocol):
+            __annotations__ = {}
+
+            def run(self) -> int: ...
+
+        class WithoutRevision:
+            def run(self):
+                return 7
+
+            def __getattr__(self, name):
+                raise AssertionError("dynamic lookup must not execute")
+
+        class WithRevision(WithoutRevision):
+            revision = None
+
+        class HostileDescriptor:
+            def __get__(self, instance, owner):
+                raise AssertionError("descriptor must not execute")
+
+        class DescriptorRevision(WithoutRevision):
+            revision = HostileDescriptor()
+
+        class BrokenMethod(WithRevision):
+            run = None
+
+        self.assertNotIsInstance(WithoutRevision(), Runner)
+        self.assertIsInstance(WithRevision(), Runner)
+        self.assertIsInstance(DescriptorRevision(), Runner)
+        self.assertNotIsInstance(BrokenMethod(), Runner)
+        with self.assertRaisesRegex(TypeError, "issubclass"):
+            issubclass(WithRevision, Runner)
+
     def test_python37_literal_accepts_only_nonempty_json_preserving_scalars(self):
         compat = _load_simulated_python37_typing()
 

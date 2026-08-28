@@ -16,9 +16,11 @@ import zipfile
 
 try:
     from .archive_payload_policy import archive_member_errors
+    from .dependency_marker_policy import is_default_requirement as _is_default_requirement
 except ImportError:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from archive_payload_policy import archive_member_errors
+    from dependency_marker_policy import is_default_requirement as _is_default_requirement
 
 
 class _BlockTypingExtensions:
@@ -29,12 +31,6 @@ class _BlockTypingExtensions:
         if fullname == "typing_extensions":
             raise ModuleNotFoundError("typing_extensions is intentionally absent")
         return None
-
-
-def _is_default_requirement(requirement: str) -> bool:
-    marker = requirement.partition(";")[2]
-    extra_equality = re.search(r"\bextra\s*==\s*(['\"])[^'\"]+\1", marker, re.IGNORECASE)
-    return extra_equality is None or re.search(r"\bor\b", marker, re.IGNORECASE) is not None
 
 
 def _single_wheel(raw: str) -> Path:
@@ -156,6 +152,36 @@ def _verify_protocol(Protocol, runtime_checkable) -> None:
     else:
         raise RuntimeError("unsupported fallback issubclass semantics did not fail closed")
 
+    concrete = type("Protocol", (_SizedRunner,), {"name": "runner", "__len__": lambda self: 1, "run": lambda self: 1})
+    child = type("Protocol", (concrete,), {})
+    if concrete._is_protocol or child._is_protocol or concrete().run() != 1:
+        raise RuntimeError("fallback class name changed concrete classification")
+    if not isinstance(child(), concrete) or not issubclass(child, concrete) or isinstance(object(), concrete):
+        raise RuntimeError("fallback named concrete class lost nominal checks")
+    for bases in ((_DescriptorRunner, Protocol), (Protocol, _DescriptorRunner)):
+        try:
+            type("Protocol", bases, {})
+        except TypeError:
+            pass
+        else:
+            raise RuntimeError("fallback class name bypassed protocol base restrictions")
+
+    @runtime_checkable
+    class _VersionedRunner(Protocol):
+        revision = 1
+
+        def run(self) -> int: ...
+
+    class _RevisionDescriptor:
+        def __get__(self, instance, owner):
+            raise AssertionError("default data descriptor must not execute")
+
+    class _VersionedObject(_DescriptorRunner):
+        revision = _RevisionDescriptor()
+
+    if isinstance(_DynamicRunner(), _VersionedRunner) or not isinstance(_VersionedObject(), _VersionedRunner):
+        raise RuntimeError("fallback default data member lost its static presence requirement")
+
 
 def _verify_isolated_root(root: Path) -> None:
     if sys.version_info[:2] != (3, 7):
@@ -195,6 +221,7 @@ def _verify_isolated_root(root: Path) -> None:
     sandbox_builtins = EvalContext(None)._make_builtins()
     if sandbox_builtins["__import__"]("typing").Literal != "Literal":
         raise RuntimeError("batch annotation sandbox omitted the local Literal")
+    _verify_annotation_execution()
 
     callers = (
         "dcc_mcp_core._server._inprocess_contracts",
@@ -211,6 +238,53 @@ def _verify_isolated_root(root: Path) -> None:
         importlib.import_module(module_name)
     if "typing_extensions" in sys.modules:
         raise RuntimeError("isolated runtime imported typing_extensions")
+
+
+def _verify_annotation_execution() -> None:
+    """Schema-valid annotations must survive materialization and sandbox execution."""
+    from dcc_mcp_core.dcc_api_executor import DccApiExecutor
+    from dcc_mcp_core.script_execution import normalize_file_backed_script_execution_params
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        executor = DccApiExecutor("3dsmax", dispatcher=None, script_materialization_root=root)
+        for module in ("typing", "typing_extensions"):
+            for annotation, value, schema_type in (
+                ("Annotated[int, 'units']", 7, "integer"),
+                ("Literal['fbx', 'usd']", "fbx", "string"),
+                ("List[int]", [1, 2], "array"),
+            ):
+                symbol = annotation.split("[", 1)[0]
+                source = f"from {module} import {symbol}\ndef main(value: {annotation}):\n    return value\n"
+                prepared = normalize_file_backed_script_execution_params(
+                    {"code": source, "params": {"value": value}},
+                    dcc_type="3dsmax",
+                    instance_id="annotation-contract",
+                    session_id="offline",
+                    materialization_root=root,
+                )
+                if prepared.parameters_schema["properties"]["value"]["type"] != schema_type:
+                    raise RuntimeError("script lost its parameter schema")
+                result = executor.execute_params({"file_path": prepared.file_path, "params": {"value": value}})
+                if not result["success"] or result["output"] != value:
+                    raise RuntimeError(f"materialized annotation script failed: {result}")
+            for body, error in (
+                ("return Annotated(int)", "not callable"),
+                ("return Annotated.__class__", "reflective"),
+                ("import os\n    return value", "sandbox import"),
+                ("from typing_extensions import get_type_hints\n    return value", "cannot import name"),
+            ):
+                source = f"from {module} import Annotated\ndef main(value: Annotated[int, 'units']):\n    {body}\n"
+                prepared = normalize_file_backed_script_execution_params(
+                    {"code": source, "params": {"value": 7}},
+                    dcc_type="3dsmax",
+                    instance_id="annotation-contract",
+                    session_id="offline",
+                    materialization_root=root,
+                )
+                result = executor.execute_params({"file_path": prepared.file_path, "params": {"value": 7}})
+                if result["success"] or error not in result["error"]:
+                    raise RuntimeError(f"materialized annotation script weakened sandbox restrictions: {result}")
 
 
 def main(argv=None) -> int:

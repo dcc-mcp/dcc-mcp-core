@@ -11,6 +11,7 @@ try:
     from typing import runtime_checkable
 except ImportError:  # pragma: no cover - Python 3.7 only
     _MISSING = object()
+    _PROTOCOL_ROOT = None
     _PROTOCOL_INTERNALS = frozenset(
         {
             "__annotations__",
@@ -32,14 +33,13 @@ except ImportError:  # pragma: no cover - Python 3.7 only
         members = set()
         callable_members = set()
         for base in protocol.__mro__:
-            if not getattr(base, "_is_protocol", False) or base is Protocol:
+            if not getattr(base, "_is_protocol", False) or base is _PROTOCOL_ROOT:
                 continue
             members.update(inspect.getattr_static(base, "__annotations__", ()))
             for name, value in base.__dict__.items():
                 if name in _PROTOCOL_INTERNALS or name.startswith("_abc_"):
                     continue
-                if callable(value) or isinstance(value, (classmethod, property, staticmethod)):
-                    members.add(name)
+                members.add(name)
                 if callable(value) or isinstance(value, (classmethod, staticmethod)):
                     callable_members.add(name)
         return members, callable_members
@@ -48,10 +48,13 @@ except ImportError:  # pragma: no cover - Python 3.7 only
         """Minimal, static structural checks for Core's Python 3.7 protocols."""
 
         def __new__(mcls, name, bases, namespace):
-            declares_protocol = name == "Protocol" or Protocol in bases
-            if name != "Protocol" and Protocol in bases:
+            bootstrapping = _PROTOCOL_ROOT is None
+            declares_protocol = bootstrapping or any(base is _PROTOCOL_ROOT for base in bases)
+            if not bootstrapping and declares_protocol:
                 invalid_bases = [
-                    base for base in bases if base is not Protocol and not base.__dict__.get("_is_protocol", False)
+                    base
+                    for base in bases
+                    if base is not _PROTOCOL_ROOT and not base.__dict__.get("_is_protocol", False)
                 ]
                 if invalid_bases:
                     raise TypeError("Protocols can only inherit from other protocols, got non-protocol base")
@@ -86,6 +89,8 @@ except ImportError:  # pragma: no cover - Python 3.7 only
 
     class Protocol(metaclass=_ProtocolMeta):  # type: ignore[no-redef]
         """Structural Protocol subset required by Core on Python 3.7."""
+
+    _PROTOCOL_ROOT = Protocol
 
     def runtime_checkable(cls):  # type: ignore[misc]
         """Enable bounded runtime instance checks for a fallback Protocol."""

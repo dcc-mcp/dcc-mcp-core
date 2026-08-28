@@ -25,7 +25,7 @@ def _member_name(member) -> str:
 
 
 def _unsafe_component(component: str) -> bool:
-    if component.endswith((".", " ")) or ":" in component:
+    if component.endswith((".", " ")) or any(character in '<>:"|?*' for character in component):
         return True
     if any(ord(character) < 32 or ord(character) == 127 for character in component):
         return True
@@ -61,8 +61,13 @@ def _project_name(value: str) -> str:
 
 def _is_typing_extensions_component(component: str) -> bool:
     folded = component.casefold()
-    if folded.endswith(".py") and _project_name(folded[:-3]) == "typing-extensions":
-        return True
+    if folded.endswith((".py", ".pyc")):
+        module = folded.rsplit(".", 1)[0]
+        if folded.endswith(".pyc"):
+            # CPython caches retain the module name before the cache/opt tag.
+            module = re.sub(r"\.cpython-[0-9]+(?:\.opt-[a-z0-9]+)?$", "", module)
+        if _project_name(module) == "typing-extensions":
+            return True
     if _project_name(folded) == "typing-extensions":
         return True
     for suffix in _METADATA_SUFFIXES:
@@ -91,6 +96,9 @@ def _member_type_error(member, name: str) -> str | None:
         mode = (external_attr >> 16) & 0xFFFF
         if mode and stat.S_ISLNK(mode):
             return f"archive contains forbidden symlink member {name!r}"
+        file_type = stat.S_IFMT(mode)
+        if file_type not in (0, stat.S_IFREG, stat.S_IFDIR):
+            return f"archive contains forbidden special member {name!r}"
 
     is_symbolic_link = getattr(member, "issym", None)
     is_hard_link = getattr(member, "islnk", None)
@@ -109,9 +117,10 @@ def _member_type_error(member, name: str) -> str | None:
 
 
 def archive_member_errors(members) -> list[str]:
-    """Reject unsafe, linked, duplicate, or typing_extensions archive members."""
+    """Reject unsafe, linked, conflicting, duplicate, or backport members."""
     errors = []
     seen = {}
+    directories = {}
     for member in members:
         name = None
         try:
@@ -131,6 +140,18 @@ def archive_member_errors(members) -> list[str]:
             errors.append(f"archive contains duplicate portable member paths {previous!r} and {name!r}")
         else:
             seen[portable_key] = name
+        is_directory = getattr(member, "is_dir", None) or getattr(member, "isdir", None)
+        member_is_directory = is_directory() if callable(is_directory) else name.endswith(("/", "\\"))
+        parts = portable_key.split("/")
+        for depth in range(1, len(parts) + 1):
+            path = "/".join(parts[:depth])
+            # Every ancestor is an implied directory. An explicit directory
+            # may confirm it later, but a regular file can never occupy it.
+            requires_directory = depth < len(parts) or member_is_directory
+            if path in directories and directories[path] != requires_directory:
+                errors.append(f"archive contains file/directory conflict at {path!r} from member {name!r}")
+            else:
+                directories[path] = requires_directory
         if _contains_typing_extensions_alias(normalized):
             errors.append(f"archive contains forbidden typing_extensions payload {name!r}")
     return sorted(set(errors))
