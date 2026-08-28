@@ -659,8 +659,18 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: .workflow-tools
           sparse-checkout: |
+            compatibility
             scripts/ci
           persist-credentials: false
+
+      - name: Validate complete Core distribution set before PyPI
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_release_distribution_set.py
+          --dist-dir dist
+          --version "$RELEASE_VERSION"
 
       - name: Check PyPI project size budget
         shell: bash

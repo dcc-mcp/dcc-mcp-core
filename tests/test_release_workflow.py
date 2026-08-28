@@ -109,6 +109,19 @@ def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
     assert sum(len(_pypi_steps(job)) for job in jobs.values()) == 3
 
 
+def test_core_pypi_publish_validates_complete_distribution_set_before_upload() -> None:
+    publish = _release_jobs()["publish-core-pypi"]
+    steps = publish["steps"]
+    validate_index = next(
+        index for index, step in enumerate(steps) if "check_release_distribution_set.py" in step.get("run", "")
+    )
+    upload_index = next(index for index, step in enumerate(steps) if step.get("uses") == PYPI_ACTION)
+
+    assert validate_index < upload_index
+    assert "--dist-dir dist" in steps[validate_index]["run"]
+    assert "--version" in steps[validate_index]["run"]
+
+
 def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> None:
     jobs = _release_jobs()
     safety = jobs["publish-github-release-assets"]

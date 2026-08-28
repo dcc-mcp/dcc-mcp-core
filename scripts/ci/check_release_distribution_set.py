@@ -102,7 +102,7 @@ def _validate_wheels(dist_dir: Path, version: str, wheel_names: set[str]) -> Non
                 corrupt_member = archive.testzip()
                 if corrupt_member is not None:
                     raise DistributionSetError(f"{filename}: corrupt ZIP member {corrupt_member!r}")
-                payload_errors = archive_member_errors(archive.namelist())
+                payload_errors = archive_member_errors(archive.infolist())
                 if payload_errors:
                     raise DistributionSetError(f"{filename}: " + "; ".join(payload_errors))
                 _validate_metadata(_single_metadata(archive), version, filename)
@@ -127,7 +127,7 @@ def _validate_sdist(path: Path, version: str, contract: dict | None = None) -> N
         with tarfile.open(path, "r:gz") as archive:
             members = archive.getmembers()
             names = [member.name for member in members]
-            payload_errors = archive_member_errors(names)
+            payload_errors = archive_member_errors(members)
             if payload_errors:
                 raise DistributionSetError(f"{path.name}: " + "; ".join(payload_errors))
             normalized_names = [normalize_archive_member(name) for name in names]
@@ -191,6 +191,31 @@ def classify_distribution_assets(payload: dict, version: str) -> str:
     return "reuse"
 
 
+def validate_distribution_directory(dist_dir: Path, version: str) -> dict[str, int]:
+    """Validate a freshly built seven-file Core distribution set before publication."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
+        raise DistributionSetError(f"invalid release version {version!r}")
+    if not dist_dir.is_dir():
+        raise DistributionSetError(f"distribution directory does not exist: {dist_dir}")
+    paths = [path for path in dist_dir.iterdir() if path.is_file()]
+    if any(path.is_symlink() for path in paths):
+        raise DistributionSetError("distribution directory contains a symbolic link")
+    downloaded = {path.name: path for path in paths}
+    if len(downloaded) != len(paths):
+        raise DistributionSetError("distribution directory contains duplicate filenames")
+
+    sdist_name = f"dcc_mcp_core-{version}.tar.gz"
+    wheel_names = {name for name in downloaded if name.endswith(".whl")}
+    if set(downloaded) != {*wheel_names, sdist_name}:
+        raise DistributionSetError("Core distribution set must contain six wheels and one exact-version sdist")
+    _validate_wheels(dist_dir, version, wheel_names)
+    _validate_sdist(dist_dir / sdist_name, version, load_contract())
+    return {
+        "asset_count": len(downloaded),
+        "total_bytes": sum(path.stat().st_size for path in downloaded.values()),
+    }
+
+
 def verify_distribution_set(payload: dict, dist_dir: Path, version: str) -> dict[str, int]:
     """Verify the exact seven-file Core distribution set and return evidence."""
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
@@ -218,32 +243,25 @@ def verify_distribution_set(payload: dict, dist_dir: Path, version: str) -> dict
         if actual_digest != digest.split(":", 1)[1].lower():
             raise DistributionSetError(f"{name}: digest mismatch with GitHub Release metadata")
 
-    sdist_name = f"dcc_mcp_core-{version}.tar.gz"
-    wheel_names = {name for name in downloaded if name.endswith(".whl")}
-    if set(downloaded) != {*wheel_names, sdist_name}:
-        raise DistributionSetError("Core Release must contain six wheels and one exact-version sdist")
-    _validate_wheels(dist_dir, version, wheel_names)
-    _validate_sdist(dist_dir / sdist_name, version, load_contract())
-    return {
-        "asset_count": len(downloaded),
-        "total_bytes": sum(path.stat().st_size for path in downloaded.values()),
-    }
+    return validate_distribution_directory(dist_dir, version)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Validate Release asset metadata and downloaded distributions."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--assets-json", type=Path, required=True)
+    parser.add_argument("--assets-json", type=Path)
     parser.add_argument("--dist-dir", type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--classify-assets", action="store_true")
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args(argv)
-    try:
-        payload = json.loads(args.assets_json.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise DistributionSetError(f"cannot read GitHub Release asset JSON: {exc}") from exc
     if args.classify_assets:
+        if args.assets_json is None:
+            raise DistributionSetError("--assets-json is required with --classify-assets")
+        try:
+            payload = json.loads(args.assets_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise DistributionSetError(f"cannot read GitHub Release asset JSON: {exc}") from exc
         mode = classify_distribution_assets(payload, args.version)
         if args.github_output is not None:
             with args.github_output.open("a", encoding="utf-8", newline="\n") as stream:
@@ -251,7 +269,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Core release asset backfill mode: {mode}")
         return 0
     if args.dist_dir is None:
-        raise DistributionSetError("--dist-dir is required unless --classify-assets is set")
+        raise DistributionSetError("--dist-dir is required")
+    if args.assets_json is None:
+        evidence = validate_distribution_directory(args.dist_dir, args.version)
+        print(f"Validated {evidence['asset_count']} fresh Core distribution(s), {evidence['total_bytes']} byte(s)")
+        return 0
+    try:
+        payload = json.loads(args.assets_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DistributionSetError(f"cannot read GitHub Release asset JSON: {exc}") from exc
     evidence = verify_distribution_set(payload, args.dist_dir, args.version)
     print(f"Verified {evidence['asset_count']} immutable Core distribution(s), {evidence['total_bytes']} byte(s)")
     return 0

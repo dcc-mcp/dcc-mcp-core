@@ -101,7 +101,20 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         "merge-multiple": True,
     }
 
-    upload = publish["steps"][1]
+    validate_index = next(
+        index
+        for index, step in enumerate(publish["steps"])
+        if "check_release_distribution_set.py" in step.get("run", "")
+    )
+    upload_index = next(
+        index for index, step in enumerate(publish["steps"]) if step.get("uses") == "softprops/action-gh-release@v3"
+    )
+    assert validate_index < upload_index
+    validation = publish["steps"][validate_index]
+    assert "--dist-dir dist" in validation["run"]
+    assert "--version" in validation["run"]
+
+    upload = publish["steps"][upload_index]
     assert upload["uses"] == "softprops/action-gh-release@v3"
     assert upload["with"] == {
         "tag_name": "${{ inputs.release-tag-name }}",

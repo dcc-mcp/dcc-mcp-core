@@ -49,9 +49,10 @@ def test_classify_distribution_assets_reuses_complete_core_asset_sets() -> None:
     assert classify_distribution_assets(payload, VERSION) == "reuse"
 
 
-def test_sdist_rejects_typing_extensions_runtime_dependency(tmp_path: Path) -> None:
+@pytest.mark.parametrize("requirement", ["typing-extensions==4.7.1", "typing.extensions==4.7.1"])
+def test_sdist_rejects_typing_extensions_runtime_dependency(tmp_path: Path, requirement: str) -> None:
     sdist = tmp_path / SDIST_NAME
-    pkg_info = _metadata_bytes("dcc-mcp-core", VERSION, ("typing-extensions==4.7.1",))
+    pkg_info = _metadata_bytes("dcc-mcp-core", VERSION, (requirement,))
     with tarfile.open(sdist, "w:gz") as archive:
         member = tarfile.TarInfo(f"dcc_mcp_core-{VERSION}/PKG-INFO")
         member.size = len(pkg_info)
@@ -78,6 +79,10 @@ def test_sdist_rejects_typing_extensions_runtime_dependency(tmp_path: Path) -> N
         "dcc_mcp_core-1.0.0/./Typing-Extensions.py",
         "dcc_mcp_core-1.0.0/vendor/typing_extensions/__init__.py",
         "dcc_mcp_core-1.0.0/typing_extensions-4.12.2.dist-info/METADATA",
+        "dcc_mcp_core-1.0.0/typing_extensions.py.",
+        "dcc_mcp_core-1.0.0/typing_extensions.py ",
+        "dcc_mcp_core-1.0.0/typing\uff3fextensions.py",
+        "dcc_mcp_core-1.0.0/TYPING_EXTENSIONS.PY",
     ],
 )
 def test_sdist_rejects_normalized_typing_extensions_payloads(tmp_path: Path, member_name: str) -> None:
@@ -92,6 +97,78 @@ def test_sdist_rejects_normalized_typing_extensions_payloads(tmp_path: Path, mem
         archive.addfile(injected, io.BytesIO(b"injected"))
 
     with pytest.raises(DistributionSetError, match="typing_extensions payload"):
+        _validate_sdist(sdist, "1.0.0", check_release_distribution_set.load_contract())
+
+
+@pytest.mark.parametrize(
+    "member_name",
+    [
+        "dcc_mcp_core-1.0.0/CON.py",
+        "dcc_mcp_core-1.0.0/payload.py:typing_extensions.py",
+        "dcc_mcp_core-1.0.0/trailing. /payload.py",
+        "dcc_mcp_core-1.0.0//payload.py",
+    ],
+)
+def test_sdist_rejects_windows_unsafe_aliases(tmp_path: Path, member_name: str) -> None:
+    sdist = tmp_path / "dcc_mcp_core-1.0.0.tar.gz"
+    pkg_info = _metadata_bytes("dcc-mcp-core", "1.0.0")
+    with tarfile.open(sdist, "w:gz") as archive:
+        metadata = tarfile.TarInfo("dcc_mcp_core-1.0.0/PKG-INFO")
+        metadata.size = len(pkg_info)
+        archive.addfile(metadata, io.BytesIO(pkg_info))
+        injected = tarfile.TarInfo(member_name)
+        injected.size = len(b"injected")
+        archive.addfile(injected, io.BytesIO(b"injected"))
+
+    with pytest.raises(DistributionSetError, match="unsafe archive member"):
+        _validate_sdist(sdist, "1.0.0", check_release_distribution_set.load_contract())
+
+
+def test_sdist_rejects_duplicate_portable_member_paths(tmp_path: Path) -> None:
+    sdist = tmp_path / "dcc_mcp_core-1.0.0.tar.gz"
+    pkg_info = _metadata_bytes("dcc-mcp-core", "1.0.0")
+    with tarfile.open(sdist, "w:gz") as archive:
+        metadata = tarfile.TarInfo("dcc_mcp_core-1.0.0/PKG-INFO")
+        metadata.size = len(pkg_info)
+        archive.addfile(metadata, io.BytesIO(pkg_info))
+        for name in ("dcc_mcp_core-1.0.0/duplicate.py", "dcc_mcp_core-1.0.0/./duplicate.py"):
+            member = tarfile.TarInfo(name)
+            member.size = 1
+            archive.addfile(member, io.BytesIO(b"x"))
+
+    with pytest.raises(DistributionSetError, match="duplicate"):
+        _validate_sdist(sdist, "1.0.0", check_release_distribution_set.load_contract())
+
+
+@pytest.mark.parametrize("link_type", [tarfile.SYMTYPE, tarfile.LNKTYPE])
+def test_sdist_rejects_links_and_traversal_targets(tmp_path: Path, link_type: bytes) -> None:
+    sdist = tmp_path / "dcc_mcp_core-1.0.0.tar.gz"
+    pkg_info = _metadata_bytes("dcc-mcp-core", "1.0.0")
+    with tarfile.open(sdist, "w:gz") as archive:
+        metadata = tarfile.TarInfo("dcc_mcp_core-1.0.0/PKG-INFO")
+        metadata.size = len(pkg_info)
+        archive.addfile(metadata, io.BytesIO(pkg_info))
+        link = tarfile.TarInfo("dcc_mcp_core-1.0.0/pkg/link.py")
+        link.type = link_type
+        link.linkname = "../../typing_extensions.py"
+        archive.addfile(link)
+
+    with pytest.raises(DistributionSetError, match="link"):
+        _validate_sdist(sdist, "1.0.0", check_release_distribution_set.load_contract())
+
+
+def test_sdist_rejects_special_device_members(tmp_path: Path) -> None:
+    sdist = tmp_path / "dcc_mcp_core-1.0.0.tar.gz"
+    pkg_info = _metadata_bytes("dcc-mcp-core", "1.0.0")
+    with tarfile.open(sdist, "w:gz") as archive:
+        metadata = tarfile.TarInfo("dcc_mcp_core-1.0.0/PKG-INFO")
+        metadata.size = len(pkg_info)
+        archive.addfile(metadata, io.BytesIO(pkg_info))
+        fifo = tarfile.TarInfo("dcc_mcp_core-1.0.0/pkg/channel")
+        fifo.type = tarfile.FIFOTYPE
+        archive.addfile(fifo)
+
+    with pytest.raises(DistributionSetError, match="special"):
         _validate_sdist(sdist, "1.0.0", check_release_distribution_set.load_contract())
 
 
@@ -203,6 +280,44 @@ def test_release_distribution_gate_rejects_injected_wheel_payload_before_contrac
         verify_distribution_set(payload, dist_dir, VERSION)
 
 
+def test_release_distribution_gate_rejects_wheel_symlink(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_fixture_set(dist_dir)
+    link = zipfile.ZipInfo("dcc_mcp_core/link.py")
+    link.create_system = 3
+    link.external_attr = 0o120777 << 16
+    with zipfile.ZipFile(dist_dir / WHEEL_NAMES[-1], "a") as archive:
+        archive.writestr(link, b"../../typing_extensions.py")
+    payload = _asset_payload(dist_dir)
+    monkeypatch.setattr(check_release_distribution_set, "validate_wheel", lambda *_args: [])
+    monkeypatch.setattr(check_release_distribution_set, "load_contract", lambda: {})
+
+    with pytest.raises(DistributionSetError, match="symlink"):
+        verify_distribution_set(payload, dist_dir, VERSION)
+
+
+def test_release_distribution_gate_rejects_sdist_hardlink(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_fixture_set(dist_dir)
+    original = dist_dir / SDIST_NAME
+    replacement = dist_dir / f"{SDIST_NAME}.new"
+    with tarfile.open(original, "r:gz") as source, tarfile.open(replacement, "w:gz") as target:
+        for member in source.getmembers():
+            stream = source.extractfile(member) if member.isfile() else None
+            target.addfile(member, stream)
+        link = tarfile.TarInfo(f"dcc_mcp_core-{VERSION}/pkg/hard.py")
+        link.type = tarfile.LNKTYPE
+        link.linkname = "../../typing_extensions.py"
+        target.addfile(link)
+    replacement.replace(original)
+    payload = _asset_payload(dist_dir)
+    monkeypatch.setattr(check_release_distribution_set, "validate_wheel", lambda *_args: [])
+    monkeypatch.setattr(check_release_distribution_set, "load_contract", lambda: {})
+
+    with pytest.raises(DistributionSetError, match="link"):
+        verify_distribution_set(payload, dist_dir, VERSION)
+
+
 def test_cli_reads_release_asset_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     _write_fixture_set(dist_dir)
@@ -217,6 +332,17 @@ def test_cli_reads_release_asset_json(monkeypatch: pytest.MonkeyPatch, tmp_path:
         )
         == 0
     )
+
+
+def test_cli_validates_fresh_local_distribution_set_without_release_assets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_fixture_set(dist_dir)
+    monkeypatch.setattr(check_release_distribution_set, "validate_wheel", lambda *_args: [])
+    monkeypatch.setattr(check_release_distribution_set, "load_contract", lambda: {})
+
+    assert check_release_distribution_set.main(["--dist-dir", str(dist_dir), "--version", VERSION]) == 0
 
 
 def test_cli_classifies_missing_assets_for_github_actions(tmp_path: Path) -> None:

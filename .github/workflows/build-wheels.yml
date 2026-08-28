@@ -458,6 +458,25 @@ jobs:
           pattern: wheels-*
           path: dist
           merge-multiple: true
+      - name: Checkout immutable distribution verification tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+      - name: Validate complete Core distribution set before publication
+        env:
+          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${RELEASE_VERSION#v}"
+          python .workflow-tools/scripts/ci/check_release_distribution_set.py \
+            --dist-dir dist \
+            --version "$RELEASE_VERSION"
       - name: Upload wheels to GitHub Release
         uses: softprops/action-gh-release@v3
         with:

@@ -135,6 +135,17 @@ class TypingCompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "only to protocol classes"):
             compat.runtime_checkable(ConcreteRunner)
 
+    def test_python37_protocol_declaration_rejects_every_non_protocol_base(self):
+        compat = _load_simulated_python37_typing()
+
+        class NonProtocolBase:
+            pass
+
+        with self.assertRaisesRegex(TypeError, "non-protocol"):
+
+            class InvalidProtocol(NonProtocolBase, compat.Protocol):
+                def run(self) -> int: ...
+
     def test_python37_literal_accepts_only_nonempty_json_preserving_scalars(self):
         compat = _load_simulated_python37_typing()
 

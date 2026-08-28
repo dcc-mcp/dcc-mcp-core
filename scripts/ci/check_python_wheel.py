@@ -70,7 +70,7 @@ def _requirement_name(requirement: str) -> str:
     match = re.match(r"\s*([A-Za-z0-9_.-]+)", requirement)
     if match is None:
         return ""
-    return match.group(1).lower().replace("_", "-")
+    return re.sub(r"[-_.]+", "-", match.group(1)).lower()
 
 
 def _is_default_requirement(requirement: str) -> bool:
@@ -92,7 +92,7 @@ def forbidden_runtime_dependency_errors(metadata: Any, distribution: dict[str, A
         starts_at = _release_tuple(rule["from_version"])
         if version is None or starts_at is None or version < starts_at:
             continue
-        normalized = rule["name"].lower().replace("_", "-")
+        normalized = re.sub(r"[-_.]+", "-", rule["name"]).lower()
         if normalized in names:
             errors.append(f"forbidden runtime dependency {normalized!r} is present")
     return errors
@@ -163,7 +163,7 @@ def validate_wheel(
     try:
         with zipfile.ZipFile(str(path)) as archive:
             names = archive.namelist()
-            errors.extend(archive_member_errors(names))
+            errors.extend(archive_member_errors(archive.infolist()))
             has_extension = _contains_extension(names, profile_contract.get("extension_module"))
             metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/METADATA"))
             wheel_metadata = Parser().parsestr(_read_single_member(archive, ".dist-info/WHEEL"))

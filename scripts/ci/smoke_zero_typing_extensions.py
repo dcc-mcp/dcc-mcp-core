@@ -48,7 +48,7 @@ def _single_wheel(raw: str) -> Path:
 def _check_wheel_archive(wheel: Path, root: Path) -> None:
     with zipfile.ZipFile(str(wheel)) as archive:
         names = archive.namelist()
-        payload_errors = archive_member_errors(names)
+        payload_errors = archive_member_errors(archive.infolist())
         if payload_errors:
             raise RuntimeError("; ".join(payload_errors))
         metadata_names = [name for name in names if name.endswith(".dist-info/METADATA")]
@@ -57,7 +57,7 @@ def _check_wheel_archive(wheel: Path, root: Path) -> None:
         metadata = Parser().parsestr(archive.read(metadata_names[0]).decode("utf-8"))
         requirements = metadata.get_all("Requires-Dist") or []
         if any(
-            str(requirement).lower().replace("_", "-").startswith("typing-extensions")
+            re.sub(r"[-_.]+", "-", str(requirement).lower()).startswith("typing-extensions")
             and _is_default_requirement(str(requirement))
             for requirement in requirements
         ):

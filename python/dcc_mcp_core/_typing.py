@@ -48,8 +48,15 @@ except ImportError:  # pragma: no cover - Python 3.7 only
         """Minimal, static structural checks for Core's Python 3.7 protocols."""
 
         def __new__(mcls, name, bases, namespace):
+            declares_protocol = name == "Protocol" or Protocol in bases
+            if name != "Protocol" and Protocol in bases:
+                invalid_bases = [
+                    base for base in bases if base is not Protocol and not base.__dict__.get("_is_protocol", False)
+                ]
+                if invalid_bases:
+                    raise TypeError("Protocols can only inherit from other protocols, got non-protocol base")
             cls = super().__new__(mcls, name, bases, namespace)
-            cls._is_protocol = name == "Protocol" or Protocol in bases
+            cls._is_protocol = declares_protocol
             cls._is_runtime_protocol = False
             return cls
 

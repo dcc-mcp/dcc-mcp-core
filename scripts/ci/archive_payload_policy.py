@@ -3,22 +3,51 @@
 from __future__ import annotations
 
 import re
+import stat
+import unicodedata
 
 _METADATA_SUFFIXES = (".data", ".dist-info", ".egg-info")
+_WINDOWS_RESERVED = frozenset(
+    {"aux", "con", "nul", "prn"} | {f"com{index}" for index in range(1, 10)} | {f"lpt{index}" for index in range(1, 10)}
+)
+
+
+def _member_name(member) -> str:
+    if isinstance(member, str):
+        return member
+    filename = getattr(member, "filename", None)
+    if isinstance(filename, str):
+        return filename
+    name = getattr(member, "name", None)
+    if isinstance(name, str):
+        return name
+    raise ValueError(f"unsafe archive member {member!r}")
+
+
+def _unsafe_component(component: str) -> bool:
+    if component.endswith((".", " ")) or ":" in component:
+        return True
+    if any(ord(character) < 32 or ord(character) == 127 for character in component):
+        return True
+    stem = component.split(".", 1)[0].casefold()
+    return stem in _WINDOWS_RESERVED
 
 
 def normalize_archive_member(name: str) -> str:
     """Return a platform-independent relative archive path or reject it."""
     if not isinstance(name, str) or not name or "\x00" in name:
         raise ValueError(f"unsafe archive member {name!r}")
-    portable = name.replace("\\", "/")
-    if portable.startswith("/") or re.match(r"^[A-Za-z]:", portable):
+    try:
+        portable = unicodedata.normalize("NFKC", name.replace("\\", "/"))
+    except UnicodeError as exc:
+        raise ValueError(f"unsafe archive member {name!r}") from exc
+    if portable.startswith("/") or "//" in portable or re.match(r"^[A-Za-z]:", portable):
         raise ValueError(f"unsafe archive member {name!r}")
     parts = []
     for part in portable.split("/"):
         if part in ("", "."):
             continue
-        if part == "..":
+        if part == ".." or _unsafe_component(part):
             raise ValueError(f"unsafe archive member {name!r}")
         parts.append(part)
     if not parts:
@@ -27,7 +56,7 @@ def normalize_archive_member(name: str) -> str:
 
 
 def _project_name(value: str) -> str:
-    return re.sub(r"[-_.]+", "-", value).lower()
+    return re.sub(r"[-_.]+", "-", unicodedata.normalize("NFKC", value).casefold())
 
 
 def _is_typing_extensions_component(component: str) -> bool:
@@ -45,15 +74,63 @@ def _is_typing_extensions_component(component: str) -> bool:
     return False
 
 
-def archive_member_errors(names) -> list[str]:
-    """Reject unsafe paths and any normalized typing_extensions payload."""
-    errors = []
-    for name in names:
+def _contains_typing_extensions_alias(name: str) -> bool:
+    try:
+        portable = unicodedata.normalize("NFKC", name.replace("\\", "/"))
+    except UnicodeError:
+        return False
+    components = []
+    for part in portable.split("/"):
+        components.extend(part.split(":"))
+    return any(_is_typing_extensions_component(part.rstrip(". ")) for part in components if part)
+
+
+def _member_type_error(member, name: str) -> str | None:
+    external_attr = getattr(member, "external_attr", None)
+    if isinstance(external_attr, int):
+        mode = (external_attr >> 16) & 0xFFFF
+        if mode and stat.S_ISLNK(mode):
+            return f"archive contains forbidden symlink member {name!r}"
+
+    is_symbolic_link = getattr(member, "issym", None)
+    is_hard_link = getattr(member, "islnk", None)
+    if callable(is_symbolic_link) and callable(is_hard_link) and (is_symbolic_link() or is_hard_link()):
+        target = getattr(member, "linkname", "")
         try:
+            normalize_archive_member(target)
+        except ValueError:
+            return f"archive contains forbidden link member {name!r} with unsafe target {target!r}"
+        return f"archive contains forbidden link member {name!r}"
+    is_file = getattr(member, "isfile", None)
+    is_directory = getattr(member, "isdir", None)
+    if callable(is_file) and callable(is_directory) and not (is_file() or is_directory()):
+        return f"archive contains forbidden special member {name!r}"
+    return None
+
+
+def archive_member_errors(members) -> list[str]:
+    """Reject unsafe, linked, duplicate, or typing_extensions archive members."""
+    errors = []
+    seen = {}
+    for member in members:
+        name = None
+        try:
+            name = _member_name(member)
             normalized = normalize_archive_member(name)
         except ValueError as exc:
             errors.append(str(exc))
+            if isinstance(name, str) and _contains_typing_extensions_alias(name):
+                errors.append(f"archive contains forbidden typing_extensions payload {name!r}")
             continue
-        if any(_is_typing_extensions_component(part) for part in normalized.split("/")):
+        member_type_error = _member_type_error(member, name)
+        if member_type_error is not None:
+            errors.append(member_type_error)
+        portable_key = normalized.casefold()
+        previous = seen.get(portable_key)
+        if previous is not None:
+            errors.append(f"archive contains duplicate portable member paths {previous!r} and {name!r}")
+        else:
+            seen[portable_key] = name
+        if _contains_typing_extensions_alias(normalized):
             errors.append(f"archive contains forbidden typing_extensions payload {name!r}")
     return sorted(set(errors))

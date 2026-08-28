@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import stat
 import subprocess
 import zipfile
 
@@ -38,7 +39,7 @@ def _write_wheel(
     ui_control_contract: str = "canonical",
     install_sop_schema_bytes: bytes = _INSTALL_SOP_SCHEMA_GIT_BYTES,
     requires_dist: list[str] | None = None,
-    extra_members: list[str] | None = None,
+    extra_members: list[str | zipfile.ZipInfo] | None = None,
 ) -> None:
     root_is_pure = "true" if pure else "false"
     wheel_tags = tags or sorted(_expanded_filename_tags(path))
@@ -146,6 +147,13 @@ def test_wheel_rejects_requires_python_drift(tmp_path: Path) -> None:
         ("abi3", "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl", "windows-x86_64", False, True),
     ],
 )
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "typing_extensions==4.7.1; python_version < '3.8'",
+        "typing.extensions==4.7.1; python_version < '3.8'",
+    ],
+)
 def test_core_wheels_reject_typing_extensions_runtime_dependency(
     tmp_path: Path,
     profile: str,
@@ -153,13 +161,14 @@ def test_core_wheels_reject_typing_extensions_runtime_dependency(
     platform: str,
     pure: bool,
     with_core: bool,
+    requirement: str,
 ) -> None:
     wheel = tmp_path / filename
     _write_wheel(
         wheel,
         pure=pure,
         with_core=with_core,
-        requires_dist=["typing_extensions==4.7.1; python_version < '3.8'"],
+        requires_dist=[requirement],
     )
 
     errors = validate_wheel(wheel, profile, platform, load_contract(_REPO_ROOT))
@@ -210,6 +219,83 @@ def test_wheel_gates_reject_unsafe_archive_member_paths(tmp_path: Path, member: 
     assert any("unsafe archive member" in error for error in errors)
 
     with pytest.raises(RuntimeError, match="unsafe archive member"):
+        _check_wheel_archive(wheel, tmp_path / "isolated")
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "dcc_mcp_core/typing_extensions.py.",
+        "dcc_mcp_core/typing_extensions.py ",
+        "dcc_mcp_core/typing\uff3fextensions.py",
+        "dcc_mcp_core/TYPING_EXTENSIONS.PY",
+    ],
+)
+def test_wheel_gates_reject_portable_typing_extensions_aliases(tmp_path: Path, member: str) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
+    _write_wheel(wheel, pure=True, with_core=False, extra_members=[member])
+
+    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("typing_extensions payload" in error for error in errors)
+
+    with pytest.raises(RuntimeError, match="typing_extensions payload"):
+        _check_wheel_archive(wheel, tmp_path / "isolated")
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "dcc_mcp_core/CON.py",
+        "dcc_mcp_core/payload.py:typing_extensions.py",
+        "dcc_mcp_core/trailing. /payload.py",
+        "dcc_mcp_core//payload.py",
+    ],
+)
+def test_wheel_gates_reject_windows_unsafe_aliases(tmp_path: Path, member: str) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
+    _write_wheel(wheel, pure=True, with_core=False, extra_members=[member])
+
+    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("unsafe archive member" in error for error in errors)
+
+    with pytest.raises(RuntimeError, match="unsafe archive member"):
+        _check_wheel_archive(wheel, tmp_path / "isolated")
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        ["dcc_mcp_core/duplicate.py", "dcc_mcp_core/./duplicate.py"],
+        ["dcc_mcp_core/Readme.py", "dcc_mcp_core/\uff32\uff25\uff21\uff24\uff2d\uff25.py"],
+    ],
+)
+def test_wheel_gates_reject_duplicate_portable_member_paths(tmp_path: Path, members: list[str]) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
+    _write_wheel(
+        wheel,
+        pure=True,
+        with_core=False,
+        extra_members=members,
+    )
+
+    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("duplicate" in error.lower() for error in errors)
+
+    with pytest.raises(RuntimeError, match="duplicate"):
+        _check_wheel_archive(wheel, tmp_path / "isolated")
+
+
+def test_wheel_gates_reject_symlink_members(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-py3-none-any.whl"
+    link = zipfile.ZipInfo("dcc_mcp_core/link.py")
+    link.create_system = 3
+    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+    _write_wheel(wheel, pure=True, with_core=False, extra_members=[link])
+
+    errors = validate_wheel(wheel, "lite_py37", "any", load_contract(_REPO_ROOT))
+    assert any("symlink" in error.lower() for error in errors)
+
+    with pytest.raises(RuntimeError, match="symlink"):
         _check_wheel_archive(wheel, tmp_path / "isolated")
 
 
