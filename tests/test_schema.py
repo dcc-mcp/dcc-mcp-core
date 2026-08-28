@@ -1,6 +1,6 @@
 """Tests for dcc_mcp_core.schema — zero-dep type → JSON Schema derivation (#242)."""
 
-# ruff: noqa: UP006, UP045
+# ruff: noqa: UP006, UP037, UP045
 
 from __future__ import annotations
 
@@ -24,12 +24,11 @@ import uuid
 import pytest
 
 try:
-    from typing import Literal
     from typing import TypedDict
 except ImportError:  # pragma: no cover - exercised by the Python 3.7 LTS gate
-    from typing_extensions import Literal
     from typing_extensions import TypedDict
 
+from dcc_mcp_core._typing import Literal
 from dcc_mcp_core.schema import derive_parameters_schema
 from dcc_mcp_core.schema import derive_schema
 from dcc_mcp_core.schema import derive_script_parameters_schema
@@ -211,13 +210,12 @@ class TestUnionAndLiterals:
         with pytest.raises(TypeError, match="Literal values must be JSON scalars"):
             derive_schema(annotation)
 
-    def test_typing_extensions_literal(self) -> None:
+    @pytest.mark.skipif(sys.version_info[:2] != (3, 7), reason="exercises the Python 3.7 boundary")
+    def test_typing_extensions_literal_is_not_an_alternate_runtime_boundary(self) -> None:
         typing_extensions = pytest.importorskip("typing_extensions")
 
-        assert derive_schema(typing_extensions.Literal["fbx", "usd"]) == {
-            "enum": ["fbx", "usd"],
-            "type": "string",
-        }
+        with pytest.raises(TypeError, match="derive_schema: unsupported type"):
+            derive_schema(typing_extensions.Literal["fbx", "usd"])
 
     def test_generic_named_literal_is_not_treated_as_typing_literal(self) -> None:
         item_type = TypeVar("item_type")
