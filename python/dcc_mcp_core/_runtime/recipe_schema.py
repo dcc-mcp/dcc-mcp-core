@@ -51,6 +51,7 @@ class _RecipeSchemaValidator:
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("schema is not JSON data") from exc
         self._check_schema(schema, "$")
+        self._check_refs(schema, set())
 
     def validate(self, instance: Any) -> list[str]:
         try:
@@ -221,7 +222,7 @@ class _RecipeSchemaValidator:
             nonlocal frame_has_quantifier
             nonlocal atom_has_quantifier
             nonlocal quantifier_pending
-            if not atom_present or atom_has_quantifier or atom_has_alternation or frame_has_quantifier:
+            if not atom_present or atom_has_quantifier or atom_has_alternation:
                 return False
             frame_has_quantifier = True
             atom_has_quantifier = True
@@ -347,7 +348,57 @@ class _RecipeSchemaValidator:
             atom_has_alternation = False
             quantifier_pending = False
             index += 1
-        return not escaped and not in_character_class and not frames
+        # Matching is deliberately bounded to anchored patterns.  This keeps
+        # the remaining backtracking work proportional to the input length and
+        # avoids unbounded search offsets on attacker-controlled strings.
+        return (
+            not escaped
+            and not in_character_class
+            and not frames
+            and pattern.startswith("^")
+            and pattern.endswith("$")
+            and not cls._has_adjacent_quantifiers(pattern)
+        )
+
+    @staticmethod
+    def _has_adjacent_quantifiers(pattern: str) -> bool:
+        """Detect adjacent quantified literal atoms that can overlap."""
+        previous_quantified: str | None = None
+        index = 0
+        while index < len(pattern):
+            character = pattern[index]
+            if character == "\\":
+                index += 2
+                previous_quantified = None
+                continue
+            if character == "[":
+                end = index + 1
+                while end < len(pattern) and pattern[end] != "]":
+                    end += 2 if pattern[end] == "\\" else 1
+                index = min(end + 1, len(pattern))
+                previous_quantified = None
+                continue
+            if character in "^$|()":
+                previous_quantified = None
+                index += 1
+                continue
+            token = character
+            quantifier_end = index + 1
+            if quantifier_end < len(pattern) and pattern[quantifier_end] in "*+?":
+                quantifier_end += 1
+            elif quantifier_end < len(pattern) and pattern[quantifier_end] == "{":
+                end = pattern.find("}", quantifier_end + 1)
+                if end >= 0:
+                    quantifier_end = end + 1
+            if quantifier_end > index + 1:
+                if previous_quantified is not None and previous_quantified == token:
+                    return True
+                previous_quantified = token
+                index = quantifier_end
+            else:
+                previous_quantified = None
+                index += 1
+        return False
 
     @staticmethod
     def _linear_alternation_group(body: str) -> bool:
@@ -401,10 +452,38 @@ class _RecipeSchemaValidator:
         value: Any = self.schema
         for component in ref[2:].split("/"):
             component = component.replace("~1", "/").replace("~0", "~")
-            if not isinstance(value, dict) or component not in value:
-                raise ValueError(ref)
-            value = value[component]
+            if isinstance(value, dict):
+                if component not in value:
+                    raise ValueError(ref)
+                value = value[component]
+                continue
+            if isinstance(value, list) and component.isdigit():
+                index = int(component)
+                if index >= len(value):
+                    raise ValueError(ref)
+                value = value[index]
+                continue
+            raise ValueError(ref)
         return value
+
+    def _check_refs(self, value: Any, seen: set[int]) -> None:
+        if isinstance(value, dict):
+            identity = id(value)
+            if identity in seen:
+                return
+            seen.add(identity)
+            ref = value.get("$ref")
+            if ref is not None:
+                self._resolve_ref(ref)
+            for child in value.values():
+                self._check_refs(child, seen)
+        elif isinstance(value, list):
+            identity = id(value)
+            if identity in seen:
+                return
+            seen.add(identity)
+            for child in value:
+                self._check_refs(child, seen)
 
     @staticmethod
     def _type_name(value: Any) -> str:
@@ -438,6 +517,26 @@ class _RecipeSchemaValidator:
         if isinstance(left, dict) and isinstance(right, dict):
             return set(left) == set(right) and all(_RecipeSchemaValidator._json_equal(left[k], right[k]) for k in left)
         return type(left) is type(right) and left == right
+
+    @classmethod
+    def _canonical_json(cls, value: Any) -> Any:
+        """Build a hashable JSON form with mathematical number equality."""
+        if isinstance(value, bool):
+            return ("bool", value)
+        if value is None:
+            return ("null",)
+        if isinstance(value, (int, float)):
+            try:
+                return ("number", Decimal(str(value)).normalize())
+            except (InvalidOperation, ValueError):
+                return ("number", repr(value))
+        if isinstance(value, str):
+            return ("string", value)
+        if isinstance(value, list):
+            return ("array", tuple(cls._canonical_json(item) for item in value))
+        if isinstance(value, dict):
+            return ("object", tuple(sorted((key, cls._canonical_json(item)) for key, item in value.items())))
+        return (type(value).__name__, repr(value))
 
     @staticmethod
     def _is_multiple_of(value: Any, divisor: Any) -> bool:
@@ -603,11 +702,14 @@ class _RecipeSchemaValidator:
                 errors.append(f"{path}: Array exceeds the maximum number of items")
                 valid = False
             if schema.get("uniqueItems"):
-                for i, item in enumerate(value):
-                    if any(self._json_equal(item, prior) for prior in value[:i]):
-                        errors.append(f"{path}[{i}]: Array items must be unique")
+                seen_items: set[Any] = set()
+                for index, item in enumerate(value):
+                    canonical = self._canonical_json(item)
+                    if canonical in seen_items:
+                        errors.append(f"{path}[{index}]: Array items must be unique")
                         valid = False
                         break
+                    seen_items.add(canonical)
             for index, child in enumerate(schema.get("prefixItems", ())):
                 if index < len(value) and not self._validate(
                     value[index], child, f"{path}[{index}]", errors, resolving, depth + 1
