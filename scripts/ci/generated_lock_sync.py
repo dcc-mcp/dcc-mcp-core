@@ -9,15 +9,19 @@ commit and uses a force-with-lease push for the final, narrowly scoped write.
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 from typing import Iterable
 from typing import Mapping
 from typing import NamedTuple
 from typing import NoReturn
+from typing import Sequence
+from urllib.parse import urlparse
 
 LOCK_OUTPUTS = frozenset(("Cargo.lock", "uv.lock", "crates/workspace-hack/Cargo.toml"))
 BRANCH_PREFIXES = ("release-please--branches--main", "renovate/")
@@ -98,7 +102,98 @@ def run_generation(root: Path, *, timeout_seconds: int = 900) -> None:
     env = sanitized_environment(os.environ)
     commands = (("cargo", "update", "-w"), ("cargo", "hakari", "generate"), ("vx", "uv", "lock"))
     for command in commands:
-        subprocess.run(command, cwd=str(root), env=env, check=True, timeout=timeout_seconds)
+        run_bounded(command, cwd=root, env=env, timeout_seconds=timeout_seconds)
+
+
+def process_exists(pid: int) -> bool:
+    """Return whether a process ID is still live."""
+    if os.name == "nt":
+        result = subprocess.run(
+            ("tasklist", "/FI", f"PID eq {pid}", "/NH"),
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return result.returncode == 0 and str(pid) in result.stdout
+    try:
+        os.kill(pid, 0)
+    except (OSError, ProcessLookupError):
+        return False
+    return True
+
+
+def run_bounded(
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout_seconds: float,
+) -> None:
+    """Run a command in a process group/tree and kill descendants on timeout."""
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+    process = subprocess.Popen(
+        command,
+        cwd=str(cwd) if cwd is not None else None,
+        env=dict(env) if env is not None else None,
+        start_new_session=os.name != "nt",
+        creationflags=creationflags,
+    )
+    try:
+        process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(("taskkill", "/PID", str(process.pid), "/T", "/F"), check=False)
+        else:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, command)
+
+
+def _remote_repository(url: str) -> str | None:
+    """Parse a GitHub remote URL into owner/repository, rejecting ambiguity."""
+    value = url.strip()
+    if value.startswith("git@"):
+        prefix, separator, path = value.partition(":")
+        if separator and prefix == "git@github.com":
+            return path[:-4].strip("/") if path.endswith(".git") else path.strip("/")
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme not in ("https", "ssh") or parsed.hostname != "github.com" or parsed.port is not None:
+        return None
+    if parsed.username not in (None, "git") or parsed.password is not None:
+        return None
+    path = parsed.path
+    return (path[:-4] if path.endswith(".git") else path).strip("/")
+
+
+def validate_remote_url(url: str, expected_repository: str) -> list[str]:
+    """Ensure a remote URL targets github.com and the expected owner/repo."""
+    repository = _remote_repository(url)
+    if repository != expected_repository:
+        return [f"remote URL is not bound to expected repository {expected_repository!r}"]
+    return []
+
+
+def validate_remote(root: Path, expected_repository: str) -> None:
+    """Validate both fetch and push URLs before any generated-lock mutation."""
+    for kind, args in (("fetch", ("get-url", "origin")), ("push", ("get-url", "--push", "origin"))):
+        result = subprocess.run(("git", "remote", *args), cwd=str(root), check=False, stdout=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            _fail(f"could not read origin {kind} URL")
+        errors = validate_remote_url(result.stdout, expected_repository)
+        if errors:
+            _fail(f"origin {kind} URL rejected: {errors[0]}")
+
+
+def validate_force_with_lease(expected_sha: str, observed_sha: str) -> list[str]:
+    """Return an error when the remote head changed since preflight."""
+    if expected_sha != observed_sha:
+        return ["stale head: remote branch advanced since preflight"]
+    return []
 
 
 def _fail(message: str) -> NoReturn:
@@ -207,7 +302,8 @@ def main() -> None:
     """Dispatch the requested generated-lock contract operation."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "command", choices=("generate", "preflight", "remote-preflight", "verify-diff", "verify-commit")
+        "command",
+        choices=("generate", "preflight", "remote-preflight", "validate-remote", "verify-diff", "verify-commit"),
     )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args()
@@ -217,6 +313,11 @@ def main() -> None:
         preflight(args.root)
     elif args.command == "remote-preflight":
         _remote_preflight(_identity_from_env())
+    elif args.command == "validate-remote":
+        repository = os.environ.get("GITHUB_REPOSITORY", "")
+        if not repository:
+            _fail("GITHUB_REPOSITORY is required")
+        validate_remote(args.root, repository)
     elif args.command == "verify-commit":
         verify_commit(args.root)
     else:

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -249,13 +250,14 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     job = workflow["jobs"]["sync-cargo-metadata"]
     checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
     assert checkout["with"]["persist-credentials"] is False
+    remote_check = next(step for step in job["steps"] if step.get("name") == "Validate checkout remote")
+    assert remote_check["run"] == "python scripts/ci/generated_lock_sync.py validate-remote"
     generation = next(step for step in job["steps"] if step.get("name") == "Sync generated lock metadata")
     assert generation["run"].find("generated_lock_sync.py") >= 0
     assert "PUSH_TOKEN" not in generation.get("env", {})
     push = next(step for step in job["steps"] if step.get("name") == "Push fixed generated lock commit")
     assert push["if"] == "steps.commit.outputs.changed == 'true'"
-    assert push["env"]["PUSH_TOKEN"] == "${{ secrets.PERSONAL_ACCESS_TOKEN }}"
-    assert "trap" in push["run"] and "unset PUSH_TOKEN" in push["run"]
+    assert "trap" in push["run"] and 'rm -f "$credential_file"' in push["run"]
     assert "--force-with-lease" in push["run"]
     assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight" in push["run"]
     assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit" in push["run"]
@@ -263,6 +265,9 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert {"scripts/ci/generated_lock_sync.py", ".github/workflows/release-please-lock-sync.yml"}.issubset(
         trigger_paths
     )
+    assert "PUSH_TOKEN" not in push["env"]
+    assert "credential.helper" in push["run"]
+    assert "validate-remote" in push["run"]
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
@@ -327,6 +332,59 @@ def test_generated_diff_is_exactly_bounded() -> None:
     spec.loader.exec_module(module)
     assert module.validate_changed_files(["Cargo.lock", "uv.lock"]) == []
     assert module.validate_changed_files(["Cargo.lock", "evil.py"]) == ["unexpected generated-lock diff paths: evil.py"]
+
+
+def test_remote_urls_are_bound_to_expected_owner_and_repo() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_remote", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    expected = "dcc-mcp/dcc-mcp-core"
+    assert module.validate_remote_url("https://github.com/dcc-mcp/dcc-mcp-core.git", expected) == []
+    assert module.validate_remote_url("git@github.com:dcc-mcp/dcc-mcp-core.git", expected) == []
+    assert module.validate_remote_url("https://attacker.example/dcc-mcp/dcc-mcp-core.git", expected)
+    assert module.validate_remote_url("https://github.com/attacker/repo.git", expected)
+
+
+def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_timeout", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    child_pid = tmp_path / "child.pid"
+    grandchild_pid = tmp_path / "grandchild.pid"
+    probe = tmp_path / "descendants.py"
+    probe.write_text(
+        "import os, subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "subprocess.Popen([sys.executable, '-c', \"from pathlib import Path; import os,sys,time; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)\", sys.argv[2]])\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        module.run_bounded([sys.executable, str(probe), str(child_pid), str(grandchild_pid)], timeout_seconds=0.2)
+    assert child_pid.exists() and grandchild_pid.exists()
+    for pid_path in (child_pid, grandchild_pid):
+        pid = int(pid_path.read_text())
+        for _ in range(20):
+            if not module.process_exists(pid):
+                break
+            time.sleep(0.05)
+        assert not module.process_exists(pid)
+
+
+def test_stale_head_and_unexpected_diff_contracts_block_push() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_push", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.validate_force_with_lease("a" * 40, "a" * 40) == []
+    assert module.validate_force_with_lease("a" * 40, "b" * 40)
+    assert module.validate_changed_files(["Cargo.lock", "unexpected.txt"])
 
 
 def test_comment_only_workflow_text_is_not_an_executable_command() -> None:

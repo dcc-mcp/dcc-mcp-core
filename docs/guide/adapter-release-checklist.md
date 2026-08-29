@@ -166,6 +166,14 @@ copy the boundary implemented by
   unset it on exit. A failed lease or any identity mismatch must result in no
   remote mutation.
 
+The helper runs timed child processes in a process group (POSIX) or a Windows
+process group/tree (`taskkill /T`), so timeout cleanup includes descendants and
+their inherited pipes. This contract does not remove credentials held by
+registry/cloud CLIs or runner services; those remain an operational residual
+risk. The repository's Python 3.7 interpreter and Windows-shell CI jobs remain
+the authoritative compatibility boundary; local Python 3.12+ or PowerShell
+checks alone are not equivalent proof.
+
 Do not broaden this workflow to publish packages or alter release gates. Keep
 the same checks and output allowlist when adapting the pattern downstream.
 

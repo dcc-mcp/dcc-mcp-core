@@ -39,6 +39,11 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
+      - name: Validate checkout remote
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/ci/generated_lock_sync.py validate-remote
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: actions/setup-python@v6
@@ -97,14 +102,17 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          trap 'unset PUSH_TOKEN' EXIT
           # Re-capture remote identity without passing the write token to the
           # validation child processes, then enforce the immutable lease.
+          env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py validate-remote
           env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight
           env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit
-          git -c credential.helper='!f() { echo username=x-access-token; echo password=$PUSH_TOKEN; }; f' \
+          credential_file="$(mktemp)"
+          trap 'rm -f "$credential_file"' EXIT
+          chmod 600 "$credential_file"
+          printf 'https://x-access-token:%s@github.com\n' '${{ secrets.PERSONAL_ACCESS_TOKEN }}' > "$credential_file"
+          git -c credential.helper="store --file=${credential_file}" \
             push --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
             origin "HEAD:${HEAD_REF}"
