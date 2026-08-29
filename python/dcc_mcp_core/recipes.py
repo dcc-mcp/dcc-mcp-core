@@ -490,6 +490,15 @@ class _RecipeSchemaValidator:
             re.compile(schema["pattern"])
         if "uniqueItems" in schema and not isinstance(schema["uniqueItems"], bool):
             raise ValueError(path)
+        if "unevaluatedProperties" in schema and any(
+            key in schema for key in ("$ref", "allOf", "anyOf", "oneOf", "dependentSchemas")
+        ):
+            # Evaluation results from applicator branches are not safely
+            # mergeable in this dependency-free implementation.  Reject the
+            # contract rather than silently accepting an extra property.
+            raise ValueError(path)
+        if "unevaluatedItems" in schema and any(key in schema for key in ("$ref", "allOf", "anyOf", "oneOf")):
+            raise ValueError(path)
         if "enum" in schema and (not isinstance(schema["enum"], list) or not schema["enum"]):
             raise ValueError(path)
         if "dependentRequired" in schema:
