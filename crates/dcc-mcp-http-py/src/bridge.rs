@@ -403,5 +403,6 @@ pub fn py_create_skill_server(
         prompts,
         attached_dispatcher: parking_lot::Mutex::new(None),
         readiness_probe: parking_lot::Mutex::new(None),
+        split_phase_store: parking_lot::Mutex::new(None),
     })
 }

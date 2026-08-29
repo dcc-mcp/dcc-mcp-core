@@ -123,6 +123,9 @@ impl PyServerHandle {
 
     /// Signal shutdown without blocking.
     fn signal_shutdown(&self) {
+        if let Some(store) = self.split_phase_store.as_ref() {
+            store.drain();
+        }
         if let Some(handle) = &self.inner {
             handle.signal_shutdown();
         }

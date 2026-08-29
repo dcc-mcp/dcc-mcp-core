@@ -127,3 +127,18 @@ def test_split_phase_resolution_fails_closed_on_host_thread() -> None:
     )
     assert result["success"] is False
     assert "host thread" in result["message"].lower()
+
+
+def test_split_phase_shutdown_during_continuation_blocks_commit() -> None:
+    bridge = HostExecutionBridge()
+
+    def continuation(_probe):
+        bridge.close_script_admission()
+        return {"published": True}
+
+    result = bridge.dispatch_callable(
+        lambda: SplitPhaseOutcome(continuation),
+        thread_affinity="main",
+    )
+    assert result["success"] is False
+    assert "cancel" in result["message"].lower()
