@@ -319,11 +319,8 @@ class _RecipeSchemaValidator:
             condition_valid = self._validate(value, schema["if"], path, condition, resolving)
             condition_annotations = self._annotations
             self._annotations = base_annotations
-            # ``if`` evaluates its subschema regardless of whether the
-            # condition succeeds; preserve its evaluated annotations so
-            # unevaluatedProperties does not reclassify inspected fields.
-            self._merge_annotations(condition_annotations)
             if condition_valid:
+                self._merge_annotations(condition_annotations)
                 if "then" in schema and not self._validate(value, schema["then"], path, errors, resolving):
                     valid = False
             elif "else" in schema and not self._validate(value, schema["else"], path, errors, resolving):

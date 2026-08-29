@@ -601,7 +601,10 @@ class TestRegisterRecipesTools:
             "unevaluatedProperties": False,
         }
         assert validate_recipe_inputs({"inputs_schema": conditional}, {"kind": "a", "value": 1}) == []
-        assert validate_recipe_inputs({"inputs_schema": conditional}, {"kind": "b", "fallback": "ok"}) == []
+        assert any(
+            "$.kind" in error
+            for error in validate_recipe_inputs({"inputs_schema": conditional}, {"kind": "b", "fallback": "ok"})
+        )
         assert any(
             "$.extra" in error
             for error in validate_recipe_inputs(
@@ -616,7 +619,9 @@ class TestRegisterRecipesTools:
         assert validate_recipe_inputs({"inputs_schema": nested}, {"outer": {"kind": "a", "value": 1}}) == []
         no_branch = {"if": {"properties": {"kind": {"const": "a"}}}, "unevaluatedProperties": False}
         assert validate_recipe_inputs({"inputs_schema": no_branch}, {"kind": "a"}) == []
-        assert validate_recipe_inputs({"inputs_schema": no_branch}, {"kind": "b"}) == []
+        assert any("$.kind" in error for error in validate_recipe_inputs({"inputs_schema": no_branch}, {"kind": "b"}))
+        nested_errors = validate_recipe_inputs({"inputs_schema": nested}, {"outer": {"kind": "b"}})
+        assert any("$.outer" in error for error in nested_errors)
 
     def test_unique_items_is_bounded_without_item_schemas(self) -> None:
         values = list(range(_RecipeSchemaValidator._MAX_CONTAINER_ITEMS + 1))
