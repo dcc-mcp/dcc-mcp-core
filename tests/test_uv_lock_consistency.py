@@ -79,7 +79,7 @@ def _workflow_pull_request_paths(workflow_text: str) -> set[str]:
     assert isinstance(workflow, dict)
     trigger = workflow.get("on", workflow.get(True))
     assert isinstance(trigger, dict)
-    pull_request = trigger.get("pull_request")
+    pull_request = trigger.get("pull_request", trigger.get("pull_request_target"))
     assert isinstance(pull_request, dict)
     paths = pull_request.get("paths")
     assert isinstance(paths, list)
@@ -219,7 +219,7 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         job="sync-cargo-metadata",
         step_name="Sync generated lock metadata",
     )
-    assert sync_commands == ["python scripts/ci/generated_lock_sync.py generate"]
+    assert sync_commands == ['python "$RUNNER_TEMP/generated_lock_sync.py" generate']
     commit_commands = _workflow_step_commands(
         sync_workflow,
         job="sync-cargo-metadata",
@@ -248,10 +248,15 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert isinstance(workflow, dict)
     assert workflow["permissions"]["contents"] == "read"
     job = workflow["jobs"]["sync-cargo-metadata"]
+    trusted = next(step for step in job["steps"] if step.get("name") == "Checkout trusted lock validator")
+    assert trusted["with"]["ref"] == "${{ github.event.pull_request.base.sha }}"
+    assert trusted["with"]["persist-credentials"] is False
+    pin = next(step for step in job["steps"] if step.get("name") == "Pin trusted lock validator")
+    assert "$RUNNER_TEMP/generated_lock_sync.py" in pin["run"]
     checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
     assert checkout["with"]["persist-credentials"] is False
     remote_check = next(step for step in job["steps"] if step.get("name") == "Validate checkout remote")
-    assert remote_check["run"] == "python scripts/ci/generated_lock_sync.py validate-remote"
+    assert remote_check["run"] == 'python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote'
     generation = next(step for step in job["steps"] if step.get("name") == "Sync generated lock metadata")
     assert generation["run"].find("generated_lock_sync.py") >= 0
     assert "PUSH_TOKEN" not in generation.get("env", {})
@@ -259,8 +264,8 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert push["if"] == "steps.commit.outputs.changed == 'true'"
     assert "trap" in push["run"] and 'rm -f "$credential_file"' in push["run"]
     assert "--force-with-lease" in push["run"]
-    assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight" in push["run"]
-    assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit" in push["run"]
+    assert 'env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" remote-preflight' in push["run"]
+    assert 'env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" verify-commit' in push["run"]
     trigger_paths = _workflow_pull_request_paths(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
     assert {"scripts/ci/generated_lock_sync.py", ".github/workflows/release-please-lock-sync.yml"}.issubset(
         trigger_paths
@@ -268,6 +273,7 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "PUSH_TOKEN" not in push["env"]
     assert "credential.helper" in push["run"]
     assert "validate-remote" in push["run"]
+    assert "--no-verify" in push["run"]
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
@@ -345,6 +351,9 @@ def test_remote_urls_are_bound_to_expected_owner_and_repo() -> None:
     assert module.validate_remote_url("git@github.com:dcc-mcp/dcc-mcp-core.git", expected) == []
     assert module.validate_remote_url("https://attacker.example/dcc-mcp/dcc-mcp-core.git", expected)
     assert module.validate_remote_url("https://github.com/attacker/repo.git", expected)
+    assert module.validate_remote_urls(
+        ["https://github.com/dcc-mcp/dcc-mcp-core.git", "https://attacker.example/pwn.git"], expected, "push"
+    )
 
 
 def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
@@ -385,6 +394,50 @@ def test_stale_head_and_unexpected_diff_contracts_block_push() -> None:
     assert module.validate_force_with_lease("a" * 40, "a" * 40) == []
     assert module.validate_force_with_lease("a" * 40, "b" * 40)
     assert module.validate_changed_files(["Cargo.lock", "unexpected.txt"])
+
+
+def test_commit_parent_is_bound_to_original_pr_head(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_parent", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "test"], check=True)
+    (tmp_path / "Cargo.lock").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "Cargo.lock"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "base"], check=True)
+    parent = subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True).strip()
+    (tmp_path / "Cargo.lock").write_text("generated\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qam", "generated"], check=True)
+    module.verify_commit(tmp_path, parent)
+    with pytest.raises(SystemExit):
+        module.verify_commit(tmp_path, "f" * 40)
+
+
+def test_no_verify_prevents_malicious_pre_push_hook_from_running(tmp_path: Path) -> None:
+    bare = tmp_path / "remote.git"
+    work = tmp_path / "work"
+    subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.name", "test"], check=True)
+    (work / "Cargo.lock").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(work), "add", "Cargo.lock"], check=True)
+    subprocess.run(["git", "-C", str(work), "commit", "-qm", "base"], check=True)
+    subprocess.run(["git", "-C", str(work), "branch", "-M", "main"], check=True)
+    subprocess.run(["git", "-C", str(work), "remote", "add", "origin", str(bare)], check=True)
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], check=True)
+    marker = tmp_path / "hook-ran"
+    hook = work / ".git" / "hooks" / "pre-push"
+    hook.write_text(f"#!/bin/sh\nprintf '%s' \"$PUSH_TOKEN\" > '{marker}'\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+    (work / "Cargo.lock").write_text("generated\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(work), "commit", "-qam", "generated"], check=True)
+    result = subprocess.run(["git", "-C", str(work), "push", "--no-verify", "origin", "HEAD:main"], check=False)
+    assert result.returncode == 0
+    assert not marker.exists()
 
 
 def test_comment_only_workflow_text_is_not_an_executable_command() -> None:

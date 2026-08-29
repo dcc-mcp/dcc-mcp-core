@@ -1,7 +1,9 @@
 name: Generated Cargo metadata sync
 
 on:
-  pull_request:
+  # Run the workflow definition from the trusted default branch; PR content
+  # is data checked out explicitly below and never supplies the security gate.
+  pull_request_target:
     types: [opened, reopened, synchronize, edited]
     branches: [main]
     paths:
@@ -35,6 +37,20 @@ jobs:
       )
     steps:
       - uses: actions/checkout@v6
+        name: Checkout trusted lock validator
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-lock-validator
+          persist-credentials: false
+
+      - name: Pin trusted lock validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp trusted-lock-validator/scripts/ci/generated_lock_sync.py "$RUNNER_TEMP/generated_lock_sync.py"
+          rm -rf trusted-lock-validator
+
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
@@ -42,7 +58,7 @@ jobs:
       - name: Validate checkout remote
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python scripts/ci/generated_lock_sync.py validate-remote
+        run: python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -60,7 +76,7 @@ jobs:
           tool: cargo-hakari
 
       - name: Sync generated lock metadata
-        run: python scripts/ci/generated_lock_sync.py generate
+        run: python "$RUNNER_TEMP/generated_lock_sync.py" generate
 
       - name: Revalidate pull request identity and generated diff
         env:
@@ -72,8 +88,8 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          python scripts/ci/generated_lock_sync.py preflight
-          python scripts/ci/generated_lock_sync.py verify-diff
+          python "$RUNNER_TEMP/generated_lock_sync.py" preflight
+          python "$RUNNER_TEMP/generated_lock_sync.py" verify-diff
 
       - name: Commit and push changes
         id: commit
@@ -106,13 +122,14 @@ jobs:
           set -euo pipefail
           # Re-capture remote identity without passing the write token to the
           # validation child processes, then enforce the immutable lease.
-          env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py validate-remote
-          env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight
-          env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit
+          env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote
+          env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" remote-preflight
+          env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" verify-commit
           credential_file="$(mktemp)"
           trap 'rm -f "$credential_file"' EXIT
           chmod 600 "$credential_file"
           printf 'https://x-access-token:%s@github.com\n' '${{ secrets.PERSONAL_ACCESS_TOKEN }}' > "$credential_file"
           git -c credential.helper="store --file=${credential_file}" \
+            --no-verify \
             push --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
             origin "HEAD:${HEAD_REF}"

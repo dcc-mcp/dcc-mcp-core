@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import argparse
 from contextlib import suppress
+import ctypes
 import json
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 from typing import Iterable
 from typing import Mapping
 from typing import NamedTuple
@@ -131,6 +133,9 @@ def run_bounded(
     timeout_seconds: float,
 ) -> None:
     """Run a command in a process group/tree and kill descendants on timeout."""
+    if os.name not in ("nt", "posix"):
+        raise RuntimeError("process containment is unavailable on this platform")
+    _enable_child_subreaper()
     creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
     process = subprocess.Popen(
         command,
@@ -142,15 +147,58 @@ def run_bounded(
     try:
         process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
+        descendants: set[int] = set()
         if os.name == "nt":
             subprocess.run(("taskkill", "/PID", str(process.pid), "/T", "/F"), check=False)
         else:
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
+            for _ in range(10):
+                current = set(_descendant_pids(process.pid))
+                descendants.update(current)
+                for pid in current:
+                    with suppress(ProcessLookupError):
+                        os.kill(pid, signal.SIGKILL)
+                if not current:
+                    break
+                time.sleep(0.02)
         process.communicate()
+        remaining = [pid for pid in descendants if process_exists(pid)]
+        if remaining:
+            raise RuntimeError(f"process containment failed; descendants survived timeout: {remaining}") from None
         raise
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, command)
+
+
+def _enable_child_subreaper() -> None:
+    """Arrange for escaped POSIX descendants to be reparented to this process."""
+    if os.name != "posix" or not sys.platform.startswith("linux"):
+        return
+    try:
+        libc = ctypes.CDLL(None)
+        libc.prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
+    except (AttributeError, OSError):
+        return
+
+
+def _descendant_pids(root_pid: int) -> list[int]:
+    """Return the currently observable descendant process IDs."""
+    result = subprocess.run(("ps", "-eo", "pid=,ppid="), check=False, stdout=subprocess.PIPE, text=True)
+    children: dict[int, list[int]] = {}
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        pid, parent = (int(fields[0]), int(fields[1]))
+        children.setdefault(parent, []).append(pid)
+    pending = list(children.get(root_pid, []))
+    descendants: list[int] = []
+    while pending:
+        pid = pending.pop()
+        descendants.append(pid)
+        pending.extend(children.get(pid, []))
+    return descendants
 
 
 def _remote_repository(url: str) -> str | None:
@@ -178,13 +226,24 @@ def validate_remote_url(url: str, expected_repository: str) -> list[str]:
     return []
 
 
+def validate_remote_urls(urls: Iterable[str], expected_repository: str, kind: str) -> list[str]:
+    """Require one and only one origin URL for each fetch/push direction."""
+    entries = [url.strip() for url in urls if url.strip()]
+    if len(entries) != 1:
+        return [f"origin {kind} URL must have exactly one configured entry"]
+    return validate_remote_url(entries[0], expected_repository)
+
+
 def validate_remote(root: Path, expected_repository: str) -> None:
     """Validate both fetch and push URLs before any generated-lock mutation."""
-    for kind, args in (("fetch", ("get-url", "origin")), ("push", ("get-url", "--push", "origin"))):
+    for kind, args in (
+        ("fetch", ("get-url", "--all", "origin")),
+        ("push", ("get-url", "--push", "--all", "origin")),
+    ):
         result = subprocess.run(("git", "remote", *args), cwd=str(root), check=False, stdout=subprocess.PIPE, text=True)
         if result.returncode != 0:
             _fail(f"could not read origin {kind} URL")
-        errors = validate_remote_url(result.stdout, expected_repository)
+        errors = validate_remote_urls(result.stdout.splitlines(), expected_repository, kind)
         if errors:
             _fail(f"origin {kind} URL rejected: {errors[0]}")
 
@@ -290,8 +349,11 @@ def verify_diff(root: Path) -> None:
         _fail(errors[0])
 
 
-def verify_commit(root: Path) -> None:
-    """Ensure the commit about to be pushed contains only lock outputs."""
+def verify_commit(root: Path, expected_parent: str) -> None:
+    """Ensure the commit has exactly the immutable PR head as its parent."""
+    parents = _git(root, "rev-list", "--parents", "-n", "1", "HEAD").split()
+    if len(parents) != 2 or parents[1] != expected_parent:
+        _fail("generated commit parent is not the immutable original PR head")
     paths = _git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()
     errors = validate_changed_files(paths)
     if errors:
@@ -306,6 +368,7 @@ def main() -> None:
         choices=("generate", "preflight", "remote-preflight", "validate-remote", "verify-diff", "verify-commit"),
     )
     parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--expected-parent", default=os.environ.get("PR_HEAD_SHA", ""))
     args = parser.parse_args()
     if args.command == "generate":
         run_generation(args.root)
@@ -319,7 +382,9 @@ def main() -> None:
             _fail("GITHUB_REPOSITORY is required")
         validate_remote(args.root, repository)
     elif args.command == "verify-commit":
-        verify_commit(args.root)
+        if not args.expected_parent:
+            _fail("expected immutable PR head is required")
+        verify_commit(args.root, args.expected_parent)
     else:
         verify_diff(args.root)
 
