@@ -120,6 +120,8 @@ pub struct SplitPhaseStore {
     owner: String,
     generation: std::sync::atomic::AtomicU64,
     shutdown: std::sync::atomic::AtomicBool,
+    /// Serializes admission with shutdown/generation transitions.
+    admission: Mutex<()>,
     entries: Mutex<HashMap<String, SplitPhaseRegistration>>,
     active: Mutex<HashMap<String, SplitPhaseControl>>,
 }
@@ -137,6 +139,7 @@ impl SplitPhaseStore {
             owner: uuid::Uuid::new_v4().to_string(),
             generation: std::sync::atomic::AtomicU64::new(0),
             shutdown: std::sync::atomic::AtomicBool::new(false),
+            admission: Mutex::new(()),
             entries: Mutex::new(HashMap::new()),
             active: Mutex::new(HashMap::new()),
         });
@@ -168,6 +171,12 @@ impl SplitPhaseStore {
         timeout: Duration,
     ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
+        let _admission = self.admission.lock();
+        if self.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+            // Preserve the marker shape for callers while ensuring the
+            // rejected registration has no retained callback to execute.
+            return id;
+        }
         let generation = self.generation();
         let control = SplitPhaseControl {
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -190,6 +199,11 @@ impl SplitPhaseStore {
     }
 
     pub fn take(&self, id: &str) -> Option<SplitPhaseRegistration> {
+        let _admission = self.admission.lock();
+        self.take_inner(id)
+    }
+
+    fn take_inner(&self, id: &str) -> Option<SplitPhaseRegistration> {
         self.reap_expired();
         let registration = self.entries.lock().remove(id);
         if let Some(registration) = registration.as_ref() {
@@ -208,12 +222,14 @@ impl SplitPhaseStore {
     }
 
     pub fn take_if_generation(&self, id: &str, generation: u64) -> Option<SplitPhaseRegistration> {
+        let _admission = self.admission.lock();
         (self.generation() == generation)
-            .then(|| self.take(id))
+            .then(|| self.take_inner(id))
             .flatten()
     }
 
     pub fn drain(&self) {
+        let _admission = self.admission.lock();
         self.shutdown
             .store(true, std::sync::atomic::Ordering::Release);
         self.entries.lock().clear();
@@ -226,6 +242,7 @@ impl SplitPhaseStore {
     }
 
     pub fn resume(&self) {
+        let _admission = self.admission.lock();
         self.shutdown
             .store(false, std::sync::atomic::Ordering::Release);
         self.generation

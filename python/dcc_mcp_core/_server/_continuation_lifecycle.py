@@ -24,6 +24,11 @@ def resolve_bridge_result(
     """Resolve a bridge result while enforcing continuation lifecycle gates."""
     if isinstance(result, ContinuationOutcome):
         is_host_thread = getattr(dispatcher, "is_host_thread", None)
+        if dispatcher is not None and not callable(is_host_thread):
+            return exception_to_error_envelope(
+                RuntimeError("dispatcher does not expose host thread identity"),
+                message="Split-phase continuation requires dispatcher thread identity",
+            )
         if callable(is_host_thread) and is_host_thread():
             return exception_to_error_envelope(
                 RuntimeError("split-phase continuation cannot resolve on the host thread"),

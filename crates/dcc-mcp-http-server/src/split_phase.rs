@@ -5,6 +5,12 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+pub const SPLIT_PHASE_ERROR_PREFIX: &str = "SPLIT_PHASE_";
+
+fn split_phase_error(code: &str, message: &str) -> String {
+    format!("{SPLIT_PHASE_ERROR_PREFIX}{code}: {message}")
+}
+
 /// Resolve a continuation marker after the main-affinity dispatch closure has
 /// returned. The callback is consumed before execution, enforcing ownership
 /// and one-shot replay protection.
@@ -31,10 +37,23 @@ pub async fn resolve_output(
             &owner, &id, generation,
         )
     else {
-        return Err("split-phase continuation is missing or already consumed".to_string());
+        return Err(split_phase_error(
+            "MISSING",
+            "continuation is missing or already consumed",
+        ));
     };
     let timeout = registration.timeout;
     let control = registration.control();
+    // Re-check the lifecycle after ownership transfer and immediately before
+    // submitting the blocking callback. Shutdown may race with marker take;
+    // never start a callback that cannot commit durably.
+    if !registration.commit_allowed() {
+        registration.cancel();
+        return Err(split_phase_error(
+            "INVALIDATED",
+            "continuation invalidated before execution",
+        ));
+    }
     let worker = tokio::time::timeout(
         timeout,
         tokio::task::spawn_blocking({
@@ -49,7 +68,7 @@ pub async fn resolve_output(
             result = &mut worker => result,
             _ = token.cancelled() => {
                 registration.cancel();
-                return Err("CANCELLED".to_string());
+                return Err(split_phase_error("CANCELLED", "continuation cancelled"));
             }
         }
     } else {
@@ -58,7 +77,7 @@ pub async fn resolve_output(
     let result = match result {
         Err(_) => {
             registration.cancel();
-            return Err("split-phase continuation timed out".to_string());
+            return Err(split_phase_error("TIMEOUT", "continuation timed out"));
         }
         Ok(result) => {
             result.map_err(|err| format!("split-phase continuation worker failed: {err}"))??
@@ -66,16 +85,22 @@ pub async fn resolve_output(
     };
 
     if dcc_mcp_skills::catalog::execute::split_phase_marker(&result).is_some() {
-        return Err("nested split-phase continuation rejected".to_string());
+        return Err(split_phase_error(
+            "NESTED",
+            "nested split-phase continuation rejected",
+        ));
     }
     if cancellation
         .as_ref()
         .is_some_and(CancellationToken::is_cancelled)
     {
-        return Err("CANCELLED".to_string());
+        return Err(split_phase_error("CANCELLED", "continuation cancelled"));
     }
     if !registration.commit_allowed() {
-        return Err("split-phase continuation invalidated by shutdown".to_string());
+        return Err(split_phase_error(
+            "SHUTDOWN",
+            "continuation invalidated by shutdown",
+        ));
     }
     Ok(result)
 }
@@ -180,6 +205,38 @@ mod tests {
         let err = task.await.unwrap().unwrap_err();
         assert!(err.contains("invalidated"));
         assert!(!published.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn shutdown_rejects_new_registration_and_resume_recovers() {
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        store.drain();
+        let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_in_callback = called.clone();
+        let id = store.register(
+            Arc::new(move |_| {
+                called_in_callback.store(true, std::sync::atomic::Ordering::Release);
+                Ok(json!({"published": true}))
+            }),
+            std::time::Duration::from_secs(1),
+        );
+        let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
+        assert!(resolve_output(marker, None).await.is_err());
+        assert!(!called.load(std::sync::atomic::Ordering::Acquire));
+
+        store.resume();
+        let id = store.register(
+            Arc::new(|control| {
+                control.check()?;
+                Ok(json!({"published": true}))
+            }),
+            std::time::Duration::from_secs(1),
+        );
+        let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
+        assert_eq!(
+            resolve_output(marker, None).await.unwrap(),
+            json!({"published": true})
+        );
     }
 
     #[test]

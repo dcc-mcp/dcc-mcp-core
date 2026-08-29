@@ -272,6 +272,21 @@ fn record_native_image_error(rich: &mut serde_json::Map<String, Value>, message:
 
 pub(crate) fn dispatch_err_result(tool_name: &str, msg: impl Into<String>) -> CallToolResult {
     let err_msg = msg.into();
+    if let Some((code, detail)) = err_msg
+        .split_once(": ")
+        .filter(|(prefix, _)| prefix.starts_with(crate::split_phase::SPLIT_PHASE_ERROR_PREFIX))
+    {
+        let envelope = ToolCallErrorEnvelope::new("instance", code, detail);
+        let structured = serde_json::from_str::<Value>(&envelope.to_json()).ok();
+        return CallToolResult {
+            content: vec![ToolContent::Text {
+                text: envelope.to_json(),
+            }],
+            structured_content: structured,
+            is_error: true,
+            meta: None,
+        };
+    }
     if err_msg.contains("no handler registered") {
         let envelope = ToolCallErrorEnvelope::new(
             "instance",

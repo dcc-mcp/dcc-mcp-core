@@ -1114,6 +1114,16 @@ pub fn dispatch_error_to_service_error(err: DispatchError) -> ServiceError {
         DispatchError::HandlerError(m) if m == "CANCELLED" => {
             ServiceError::new(ServiceErrorKind::BackendError, m)
         }
+        DispatchError::HandlerError(m) if m.starts_with("SPLIT_PHASE_") => {
+            let (code, detail) = m.split_once(": ").unwrap_or(("SPLIT_PHASE_ERROR", &m));
+            ServiceError::new(ServiceErrorKind::BackendError, detail.to_string()).with_context(
+                serde_json::json!({
+                    "layer": "instance",
+                    "code": code,
+                    "message": detail,
+                }),
+            )
+        }
         DispatchError::HandlerError(m) => ServiceError::new(ServiceErrorKind::BackendError, m),
         DispatchError::MetadataNotFound(m) => ServiceError::new(ServiceErrorKind::Internal, m),
     }

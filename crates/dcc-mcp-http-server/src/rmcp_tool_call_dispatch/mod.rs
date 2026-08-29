@@ -1319,6 +1319,17 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn split_phase_errors_use_structured_instance_envelope() {
+        let result =
+            dispatch_err_result("split_tool", "SPLIT_PHASE_TIMEOUT: continuation timed out");
+        assert!(result.is_error);
+        let structured = result.structured_content.expect("structured error");
+        assert_eq!(structured["layer"], "instance");
+        assert_eq!(structured["code"], "SPLIT_PHASE_TIMEOUT");
+        assert_eq!(structured["message"], "continuation timed out");
+    }
+
     #[tokio::test]
     async fn sync_tool_with_timeout_hint_returns_result_payload() {
         let registry = ToolRegistry::new();
