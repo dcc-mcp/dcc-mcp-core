@@ -730,6 +730,60 @@ class TestRegisterRecipesTools:
         assert applied["success"] is False
         assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
 
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            {
+                "$defs": {"name": {"$dynamicAnchor": "name", "type": "string"}},
+                "$dynamicRef": "#name",
+            },
+            {"$dynamicAnchor": "root", "type": "string"},
+        ],
+    )
+    def test_dynamic_reference_vocabulary_is_rejected_fail_closed(self, schema: dict[str, object]) -> None:
+        assert validate_recipe_inputs({"inputs_schema": schema}, 42) == ["$: Recipe input schema is invalid"]
+
+    def test_dynamic_reference_rejection_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        recipe_path = tmp_path / "dynamic.yaml"
+        recipe_path.write_text(
+            json.dumps(
+                {
+                    "recipes": [
+                        {
+                            "name": "dynamic",
+                            "inputs_schema": {"$dynamicRef": "#missing"},
+                            "steps": [],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        skill_dir = tmp_path / "dynamic-skill"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_path), nested=True)
+        md.name = "dynamic-skill"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+        params = {"skill": "dynamic-skill", "recipe": "dynamic", "inputs": {"secret": "redacted"}}
+        validated = handlers["recipes__validate"](json.dumps(params))
+        applied = handlers["recipes__apply"](json.dumps(params))
+        assert validated["context"]["valid"] is False
+        assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+        assert applied["success"] is False
+        assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    def test_local_anchor_reference_is_supported(self) -> None:
+        schema = {"$defs": {"name": {"$anchor": "name", "type": "string"}}, "$ref": "#name"}
+        assert validate_recipe_inputs({"inputs_schema": schema}, "ok") == []
+        assert validate_recipe_inputs({"inputs_schema": schema}, 42) == ["$: Expected type string, got int"]
+
+    @pytest.mark.parametrize("keyword", ["const", "enum"])
+    def test_ref_like_instance_data_is_not_preflighted(self, keyword: str) -> None:
+        literal = {"$ref": "#/missing"}
+        schema = {keyword: literal if keyword == "const" else [literal]}
+        assert validate_recipe_inputs({"inputs_schema": schema}, literal) == []
+
     def test_multiple_of_and_unique_items_use_exact_json_number_comparison(self) -> None:
         schema = {
             "type": "object",

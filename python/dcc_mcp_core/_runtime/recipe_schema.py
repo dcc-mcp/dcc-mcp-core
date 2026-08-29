@@ -45,12 +45,14 @@ class _RecipeSchemaValidator:
 
     def __init__(self, schema: Any) -> None:
         self.schema = schema
+        self._anchors: dict[str, Any] = {}
         try:
             if len(json.dumps(schema, ensure_ascii=False).encode("utf-8")) > self._MAX_SCHEMA_SIZE:
                 raise ValueError("schema size budget exceeded")
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("schema is not JSON data") from exc
         self._check_schema(schema, "$")
+        self._collect_anchors(schema, set())
         self._check_refs(schema, set())
 
     def validate(self, instance: Any) -> list[str]:
@@ -88,7 +90,17 @@ class _RecipeSchemaValidator:
             return
         if not isinstance(schema, dict):
             raise ValueError(path)
+        # Dynamic references require runtime scope tracking that this
+        # dependency-free validator does not implement. Reject them during
+        # schema admission rather than silently ignoring their assertions.
+        if "$dynamicRef" in schema or "$dynamicAnchor" in schema:
+            raise ValueError(path)
         if "$ref" in schema and not isinstance(schema["$ref"], str):
+            raise ValueError(path)
+        if "$anchor" in schema and (
+            not isinstance(schema["$anchor"], str)
+            or re.fullmatch(r"[A-Za-z_][A-Za-z0-9._-]*", schema["$anchor"]) is None
+        ):
             raise ValueError(path)
         if "type" in schema:
             typ = schema["type"]
@@ -447,6 +459,11 @@ class _RecipeSchemaValidator:
     def _resolve_ref(self, ref: str) -> Any:
         if ref == "#":
             return self.schema
+        if ref.startswith("#") and not ref.startswith("#/"):
+            anchor = ref[1:]
+            if anchor in self._anchors:
+                return self._anchors[anchor]
+            raise ValueError(ref)
         if not ref.startswith("#/"):
             raise ValueError(ref)
         value: Any = self.schema
@@ -466,6 +483,55 @@ class _RecipeSchemaValidator:
             raise ValueError(ref)
         return value
 
+    @classmethod
+    def _schema_children(cls, value: dict[str, Any]) -> list[Any]:
+        """Return only schema-valued children, excluding instance data."""
+        children: list[Any] = []
+        for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
+            mapping = value.get(key)
+            if isinstance(mapping, dict):
+                children.extend(mapping.values())
+        for key in (
+            "additionalProperties",
+            "unevaluatedProperties",
+            "propertyNames",
+            "contains",
+            "items",
+            "unevaluatedItems",
+            "not",
+            "if",
+            "then",
+            "else",
+        ):
+            if key in value:
+                children.append(value[key])
+        for key in ("prefixItems", "allOf", "anyOf", "oneOf"):
+            items = value.get(key)
+            if isinstance(items, list):
+                children.extend(items)
+        return children
+
+    def _collect_anchors(self, value: Any, seen: set[int]) -> None:
+        if isinstance(value, dict):
+            identity = id(value)
+            if identity in seen:
+                return
+            seen.add(identity)
+            anchor = value.get("$anchor")
+            if anchor is not None:
+                if anchor in self._anchors and self._anchors[anchor] is not value:
+                    raise ValueError("duplicate schema anchor")
+                self._anchors[anchor] = value
+            for child in self._schema_children(value):
+                self._collect_anchors(child, seen)
+        elif isinstance(value, list):
+            identity = id(value)
+            if identity in seen:
+                return
+            seen.add(identity)
+            for child in value:
+                self._collect_anchors(child, seen)
+
     def _check_refs(self, value: Any, seen: set[int]) -> None:
         if isinstance(value, dict):
             identity = id(value)
@@ -475,7 +541,7 @@ class _RecipeSchemaValidator:
             ref = value.get("$ref")
             if ref is not None:
                 self._resolve_ref(ref)
-            for child in value.values():
+            for child in self._schema_children(value):
                 self._check_refs(child, seen)
         elif isinstance(value, list):
             identity = id(value)
