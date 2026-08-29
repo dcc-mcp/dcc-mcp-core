@@ -294,6 +294,7 @@ def test_trusted_validator_ref_contains_attested_file() -> None:
     result = subprocess.run(
         ["git", "cat-file", "-e", f"{ref}:scripts/ci/generated_lock_sync.py"],
         check=False,
+        cwd=REPO_ROOT,
     )
     assert result.returncode == 0
 
@@ -449,7 +450,10 @@ def test_bounded_runner_fails_closed_on_escaped_daemon(tmp_path: Path) -> None:
         if daemon_pid.exists():
             pid = int(daemon_pid.read_text())
             if module.process_exists(pid):
-                subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False)
+                if os.name == "nt":
+                    subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False, timeout=5)
+                else:
+                    os.kill(pid, 9)
     assert not daemon_pid.exists() or not module.process_exists(int(daemon_pid.read_text()))
 
 
@@ -484,6 +488,7 @@ def test_windows_process_controls_have_bounded_timeout() -> None:
     assert script_text.count("timeout=5") >= 2
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows process probe contract")
 def test_windows_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_probe_timeout", script)
@@ -562,6 +567,23 @@ def test_posix_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(module.subprocess, "run", timeout_run)
     with pytest.raises(RuntimeError, match="process enumeration timed out"):
+        module._descendant_pids(1234)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process probe contract")
+def test_posix_process_probe_malformed_output_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_posix_probe_malformed", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="not-a-pid still-not-a-pid\n"),
+    )
+    with pytest.raises(RuntimeError, match="malformed output"):
         module._descendant_pids(1234)
 
 

@@ -125,6 +125,12 @@ def process_exists(pid: int) -> bool:
             raise RuntimeError(f"process probe timed out for PID {pid}") from exc
         return result.returncode == 0 and str(pid) in result.stdout
     try:
+        if sys.platform.startswith("linux"):
+            stat = Path(f"/proc/{pid}/stat")
+            if not stat.exists():
+                return False
+            if stat.read_text(encoding="utf-8").split()[2] == "Z":
+                return False
         os.kill(pid, 0)
     except (OSError, ProcessLookupError):
         return False
@@ -286,7 +292,10 @@ def _descendant_pids(root_pid: int) -> list[int]:
         for line in result.stdout.splitlines():
             fields = line.split()
             if len(fields) == 2:
-                entries.append((int(fields[0]), int(fields[1])))
+                try:
+                    entries.append((int(fields[0]), int(fields[1])))
+                except ValueError as exc:
+                    raise RuntimeError("process enumeration returned malformed output") from exc
     for pid, parent in entries:
         children.setdefault(parent, []).append(pid)
     pending = list(children.get(root_pid, []))
