@@ -138,6 +138,7 @@ def run_bounded(
     if os.name not in ("nt", "posix"):
         raise RuntimeError("process containment is unavailable on this platform")
     _enable_child_subreaper()
+    baseline = set(_descendant_pids(os.getpid()))
     creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
     process = subprocess.Popen(
         command,
@@ -149,14 +150,21 @@ def run_bounded(
     observed: set[int] = set()
     stop_observer = Event()
 
-    def observe_descendants() -> None:
-        while not stop_observer.is_set():
-            observed.update(_descendant_pids(process.pid))
-            stop_observer.wait(0.02)
+    def collect_descendants() -> None:
+        roots = (process.pid,) if os.name == "nt" else (process.pid, *tuple(observed))
+        for root in roots:
+            observed.update(_descendant_pids(root))
+        if os.name == "posix":
+            observed.update(set(_descendant_pids(os.getpid())) - baseline - {process.pid})
 
-    observer = Thread(target=observe_descendants, daemon=True) if os.name == "posix" else None
-    if observer is not None:
-        observer.start()
+    def observe_descendants() -> None:
+        interval = 0.5 if os.name == "nt" else 0.02
+        while not stop_observer.is_set():
+            collect_descendants()
+            stop_observer.wait(interval)
+
+    observer = Thread(target=observe_descendants, daemon=True) if os.name in ("nt", "posix") else None
+    observer.start() if observer is not None else None
     try:
         process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
@@ -167,7 +175,8 @@ def run_bounded(
         if observer is not None:
             observer.join()
         descendants = set(observed)
-        descendants.update(_descendant_pids(process.pid) if os.name == "posix" else ())
+        collect_descendants()
+        descendants.update(observed)
         if os.name == "nt":
             subprocess.run(("taskkill", "/PID", str(process.pid), "/T", "/F"), check=False)
         else:
@@ -191,14 +200,21 @@ def run_bounded(
             raise RuntimeError(f"process containment failed; descendants survived timeout: {remaining}") from None
         raise
     finally:
-        stop_observer.set()
         if observer is not None:
+            for _ in range(5):
+                collect_descendants()
+                time.sleep(0.02)
+            stop_observer.set()
             observer.join()
+    collect_descendants()
     escaped = [pid for pid in observed if process_exists(pid)]
     if escaped:
         for pid in escaped:
-            with suppress(ProcessLookupError):
-                os.kill(pid, signal.SIGKILL)
+            if os.name == "nt":
+                subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False)
+            else:
+                with suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
         raise RuntimeError(f"process containment failed; descendants survived completion: {escaped}")
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, command)
@@ -217,7 +233,18 @@ def _enable_child_subreaper() -> None:
 
 def _descendant_pids(root_pid: int) -> list[int]:
     """Return the currently observable descendant process IDs."""
-    result = subprocess.run(("ps", "-eo", "pid=,ppid="), check=False, stdout=subprocess.PIPE, text=True)
+    command = (
+        (
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1}' -f $_.ProcessId, $_.ParentProcessId }",
+        )
+        if os.name == "nt"
+        else ("ps", "-eo", "pid=,ppid=")
+    )
+    result = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
     children: dict[int, list[int]] = {}
     for line in result.stdout.splitlines():
         fields = line.split()

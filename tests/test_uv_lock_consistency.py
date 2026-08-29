@@ -452,6 +452,55 @@ def test_bounded_runner_fails_closed_on_escaped_daemon(tmp_path: Path) -> None:
     assert not daemon_pid.exists() or not module.process_exists(int(daemon_pid.read_text()))
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_bounded_runner_fails_closed_on_windows_normal_daemon(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_windows_daemon", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    daemon_pid = tmp_path / "daemon.pid"
+    probe = tmp_path / "windows_daemon.py"
+    probe.write_text(
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "subprocess.Popen([sys.executable, '-c', \"from pathlib import Path; import os,sys,time; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)\", sys.argv[1]])\n"
+        "time.sleep(0.2)\n",
+        encoding="utf-8",
+    )
+    try:
+        with pytest.raises(RuntimeError, match="descendants survived"):
+            module.run_bounded([sys.executable, str(probe), str(daemon_pid)], timeout_seconds=5)
+    finally:
+        if daemon_pid.exists() and module.process_exists(int(daemon_pid.read_text())):
+            subprocess.run(("taskkill", "/PID", daemon_pid.read_text(), "/T", "/F"), check=False)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="escaped setsid descendants are a POSIX contract")
+def test_bounded_runner_catches_last_fork_after_leader_exit(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_last_fork", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    grandchild_pid = tmp_path / "grandchild.pid"
+    probe = tmp_path / "last_fork.py"
+    probe.write_text(
+        "import os, subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "leader = os.getpid()\n"
+        "subprocess.Popen([sys.executable, '-c', \"import os,subprocess,sys,time; from pathlib import Path; leader=int(sys.argv[2]); pid_file=sys.argv[1];\\nwhile os.getppid() == leader: time.sleep(0.01)\\nchild=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True); Path(pid_file).write_text(str(child.pid)); time.sleep(60)\", sys.argv[1], str(leader)], start_new_session=True)\n"
+        "os._exit(0)\n",
+        encoding="utf-8",
+    )
+    try:
+        with pytest.raises(RuntimeError, match="descendants survived"):
+            module.run_bounded([sys.executable, str(probe), str(grandchild_pid)], timeout_seconds=5)
+    finally:
+        if grandchild_pid.exists() and module.process_exists(int(grandchild_pid.read_text())):
+            os.kill(int(grandchild_pid.read_text()), 9)
+
+
 def test_stale_head_and_unexpected_diff_contracts_block_push() -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_push", script)
