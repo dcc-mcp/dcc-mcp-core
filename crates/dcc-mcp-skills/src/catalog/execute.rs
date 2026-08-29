@@ -276,7 +276,7 @@ pub fn split_phase_marker(value: &serde_json::Value) -> Option<(&str, &str, u64)
 #[pyclass(frozen)]
 pub struct DispatchCancellationProbe {
     pub context: DispatchJobContext,
-    pub control: SplitPhaseControl,
+    pub control: Option<SplitPhaseControl>,
 }
 
 #[cfg(feature = "python-bindings")]
@@ -284,7 +284,11 @@ pub struct DispatchCancellationProbe {
 impl DispatchCancellationProbe {
     #[getter]
     fn cancelled(&self) -> bool {
-        self.context.is_cancelled() || self.control.cancelled()
+        self.context.is_cancelled()
+            || self
+                .control
+                .as_ref()
+                .map_or(false, SplitPhaseControl::cancelled)
     }
 
     fn check(&self) -> PyResult<()> {
@@ -310,7 +314,14 @@ pub fn cancellation_probe(
     context: DispatchJobContext,
     control: SplitPhaseControl,
 ) -> PyResult<Py<PyAny>> {
-    Ok(Py::new(py, DispatchCancellationProbe { context, control })?.into_any())
+    Ok(Py::new(
+        py,
+        DispatchCancellationProbe {
+            context,
+            control: Some(control),
+        },
+    )?
+    .into_any())
 }
 
 /// Add server-owned job identity and a read-only cancellation probe to Python
@@ -326,6 +337,7 @@ pub fn set_job_context_kwargs(py: Python<'_>, kwargs: &Bound<'_, PyDict>) -> PyR
                 py,
                 DispatchCancellationProbe {
                     context: job_context,
+                    control: None,
                 },
             )?,
         )?;

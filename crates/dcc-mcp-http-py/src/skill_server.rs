@@ -474,20 +474,21 @@ impl PyMcpHttpServer {
                             dcc_mcp_skills::catalog::execute::SplitPhaseContinuation,
                         > = std::sync::Arc::new(move |control| {
                             Python::attach(|py| {
-                                let value = if let Some(job_context) = callback_context.as_ref() {
+                                let job_context = callback_context.clone().unwrap_or_else(|| {
+                                    dcc_mcp_actions::DispatchJobContext::new("split-phase", || {
+                                        false
+                                    })
+                                });
+                                let value = {
                                     let probe =
                                         dcc_mcp_skills::catalog::execute::cancellation_probe(
                                             py,
-                                            job_context.clone(),
+                                            job_context,
                                             control,
                                         )
                                         .map_err(|e| format!("cancellation probe: {e}"))?;
                                     continuation
                                         .call1(py, (probe,))
-                                        .map_err(|e| format!("continuation error: {e}"))?
-                                } else {
-                                    continuation
-                                        .call0(py)
                                         .map_err(|e| format!("continuation error: {e}"))?
                                 };
                                 py_any_to_json_value(value.bind(py)).map_err(|e| e.to_string())
