@@ -668,13 +668,15 @@ class TestRegisterRecipesTools:
         ]
 
     def test_catastrophic_pattern_is_rejected_before_matching(self) -> None:
-        schema = {"type": "string", "pattern": "(a+)+$"}
-        instance = "a" * 27 + "!"
-        started = time.perf_counter()
-        errors = validate_recipe_inputs({"inputs_schema": schema}, instance)
-        elapsed = time.perf_counter() - started
-        assert errors == ["$: Recipe input schema is invalid"]
-        assert elapsed < 1.0
+        for pattern, instance in (
+            ("(a+)+$", "a" * 27 + "!"),
+            ("((ab)*)*$", "ab" * 24 + "!"),
+        ):
+            started = time.perf_counter()
+            errors = validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance)
+            elapsed = time.perf_counter() - started
+            assert errors == ["$: Recipe input schema is invalid"]
+            assert elapsed < 1.0
 
     def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
         for malformed in ([], "schema", None):
