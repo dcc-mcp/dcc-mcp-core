@@ -214,7 +214,7 @@ class _RecipeSchemaValidator:
             nonlocal frame_has_quantifier
             nonlocal atom_has_quantifier
             nonlocal quantifier_pending
-            if not atom_present or atom_has_quantifier or atom_has_alternation:
+            if not atom_present or atom_has_quantifier or atom_has_alternation or frame_has_quantifier:
                 return False
             frame_has_quantifier = True
             atom_has_quantifier = True
@@ -344,7 +344,7 @@ class _RecipeSchemaValidator:
 
     @staticmethod
     def _linear_alternation_group(body: str) -> bool:
-        """Return whether a group is a disjoint one-character alternation."""
+        """Return whether a group is a disjoint fixed-literal alternation."""
         for prefix in ("?:", "?=", "?!", "?<=", "?<!", "?>"):
             if body.startswith(prefix):
                 body = body[len(prefix) :]
@@ -381,9 +381,9 @@ class _RecipeSchemaValidator:
             return False
         tokens: list[str] = []
         for branch in branches:
-            if len(branch) != 1 or branch in "\\[](){}*+?^$|.":
+            if not branch or any(character in "\\[](){}*+?^$|." for character in branch):
                 return False
-            tokens.append(branch)
+            tokens.append(branch[0])
         return len(set(tokens)) == len(tokens)
 
     def _resolve_ref(self, ref: str) -> Any:

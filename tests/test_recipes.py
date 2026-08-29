@@ -671,6 +671,7 @@ class TestRegisterRecipesTools:
         for pattern, instance in (
             ("(a+)+$", "a" * 27 + "!"),
             ("((ab)*)*$", "ab" * 24 + "!"),
+            ("a*a*$", "a" * 1000 + "!"),
         ):
             started = time.perf_counter()
             errors = validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance)
@@ -680,8 +681,8 @@ class TestRegisterRecipesTools:
 
     def test_linear_alternation_pattern_remains_supported(self) -> None:
         errors = validate_recipe_inputs(
-            {"inputs_schema": {"type": "string", "pattern": "(a|b)+$"}},
-            "ababab",
+            {"inputs_schema": {"type": "string", "pattern": "(ab|cd)+$"}},
+            "abcdab",
         )
         assert errors == []
 
