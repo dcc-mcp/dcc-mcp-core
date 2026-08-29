@@ -207,7 +207,7 @@ impl GatewayRunner {
             let key = service_key.clone();
             let secs = self.config.heartbeat_secs;
             let provider = metadata_provider;
-            let template = registration_template;
+            let template = registration_template.clone();
             let active = registration_active.clone();
             let h = tokio::spawn(async move {
                 loop {
@@ -278,6 +278,22 @@ impl GatewayRunner {
         } else {
             (false, None, None, None, None, None)
         };
+
+        // Startup hygiene runs inside the gateway task group and may race the
+        // initial registration on filesystems with coarse timestamp/lock
+        // semantics.  The instance is owned by this process, so restore the
+        // registration before returning a handle if that one-shot sweep
+        // observed it as missing.  This keeps `start()`'s contract that a
+        // successful handle always has a live registry row to deregister.
+        if self.registry.get(&service_key).is_none() {
+            self.registry
+                .register_async(registration_template.clone())
+                .await?;
+            tracing::warn!(
+                instance = %service_key.instance_id,
+                "FileRegistry row disappeared during gateway startup; restored registration"
+            );
+        }
 
         // Issue #718: on clean shutdown the `Drop` impl deregisters every
         // key we own (the instance row, plus the gateway sentinel if we
