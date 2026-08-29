@@ -48,7 +48,7 @@ def test_sentry_real_ingest_via_rust_probe() -> None:
         "dcc-mcp-server",
         "--features",
         "sentry",
-        "sentry_real_ingest_e2e",
+        "sentry_init::tests::sentry_real_ingest_e2e",
         "--",
         "--exact",
         "--test-threads=1",
@@ -66,3 +66,7 @@ def test_sentry_real_ingest_via_rust_probe() -> None:
     if result.returncode != 0:
         combined = f"{result.stdout}\n{result.stderr}".strip()
         pytest.fail(f"sentry_real_ingest_e2e failed (exit {result.returncode}):\n{combined}")
+    combined = f"{result.stdout}\n{result.stderr}"
+    assert "test result: ok. 1 passed" in combined or "1 passed; 0 failed" in combined, (
+        "sentry selector matched no test; expected exactly one executed test\n" + combined
+    )

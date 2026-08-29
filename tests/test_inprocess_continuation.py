@@ -26,6 +26,9 @@ def test_split_phase_releases_main_segment_before_continuation() -> None:
     segments: list[float] = []
 
     class MainDispatcher:
+        def is_host_thread(self):
+            return False
+
         def dispatch_callable(self, func, **kwargs):
             started = time.perf_counter()
             value = func()
@@ -164,6 +167,20 @@ def test_split_phase_resolution_fails_closed_on_host_thread() -> None:
     assert "host thread" in result["message"].lower()
 
 
+def test_split_phase_resolution_fails_closed_without_thread_identity() -> None:
+    class OpaqueDispatcher:
+        def dispatch_callable(self, func, **kwargs):
+            return func()
+
+    bridge = HostExecutionBridge(dispatcher=OpaqueDispatcher())
+    result = bridge.dispatch_callable(
+        lambda: SplitPhaseOutcome(lambda _probe: {"ok": True}),
+        thread_affinity="main",
+    )
+    assert result["success"] is False
+    assert "thread identity" in result["message"].lower()
+
+
 def test_split_phase_shutdown_during_continuation_blocks_commit() -> None:
     bridge = HostExecutionBridge()
 
@@ -214,7 +231,9 @@ def test_sync_continuation_receives_deadline_probe_without_cancel_token() -> Non
 
     def continuation(probe):
         observed.append(probe)
-        time.sleep(0.01)
+        deadline = time.perf_counter() + 0.02
+        while time.perf_counter() < deadline:
+            pass
         probe.check()
         return {"published": True}
 

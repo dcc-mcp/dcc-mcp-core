@@ -681,6 +681,18 @@ fn queue_overload_maps_to_host_busy() {
     }
 }
 
+#[test]
+fn split_phase_errors_preserve_structured_instance_context() {
+    let err = dispatch_error_to_service_error(DispatchError::HandlerError(
+        "SPLIT_PHASE_TIMEOUT: continuation timed out".into(),
+    ));
+    assert_eq!(err.kind, ServiceErrorKind::BackendError);
+    assert_eq!(err.message, "continuation timed out");
+    let context = err.context.expect("structured split-phase context");
+    assert_eq!(context["layer"], "instance");
+    assert_eq!(context["code"], "SPLIT_PHASE_TIMEOUT");
+}
+
 #[tokio::test]
 async fn call_dispatches_and_normalises_slug() {
     let (svc, inv) = build_service(vec![sphere_action(true)]);
