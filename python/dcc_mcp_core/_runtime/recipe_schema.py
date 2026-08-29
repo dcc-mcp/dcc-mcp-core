@@ -199,7 +199,7 @@ class _RecipeSchemaValidator:
         # Each frame records whether its group already contains a quantifier or
         # an alternation. The preceding atom carries the same metadata when a
         # closing parenthesis makes the group quantifiable.
-        frames: list[tuple[bool, bool]] = []
+        frames: list[tuple[bool, bool, int]] = []
         frame_has_quantifier = False
         frame_has_alternation = False
         atom_present = False
@@ -263,7 +263,7 @@ class _RecipeSchemaValidator:
                 # in this deliberately small safety grammar.
                 if pattern.startswith("(?P=", index):
                     return False
-                frames.append((frame_has_quantifier, frame_has_alternation))
+                frames.append((frame_has_quantifier, frame_has_alternation, index))
                 frame_has_quantifier = False
                 frame_has_alternation = False
                 atom_present = False
@@ -285,7 +285,8 @@ class _RecipeSchemaValidator:
                     return False
                 group_has_quantifier = frame_has_quantifier
                 group_has_alternation = frame_has_alternation
-                frame_has_quantifier, frame_has_alternation = frames.pop()
+                _, _, group_start = frames[-1]
+                frame_has_quantifier, frame_has_alternation, _ = frames.pop()
                 # Preserve nested structure in the enclosing group. Without
                 # this propagation, ``((a|b)c)+`` would hide its alternation
                 # behind an inner pair of parentheses.
@@ -293,7 +294,9 @@ class _RecipeSchemaValidator:
                 frame_has_alternation = frame_has_alternation or group_has_alternation
                 atom_present = True
                 atom_has_quantifier = group_has_quantifier
-                atom_has_alternation = group_has_alternation
+                atom_has_alternation = group_has_alternation and not cls._linear_alternation_group(
+                    pattern[group_start + 1 : index]
+                )
                 quantifier_pending = False
                 index += 1
                 continue
@@ -338,6 +341,50 @@ class _RecipeSchemaValidator:
             quantifier_pending = False
             index += 1
         return not escaped and not in_character_class and not frames
+
+    @staticmethod
+    def _linear_alternation_group(body: str) -> bool:
+        """Return whether a group is a disjoint one-character alternation."""
+        for prefix in ("?:", "?=", "?!", "?<=", "?<!", "?>"):
+            if body.startswith(prefix):
+                body = body[len(prefix) :]
+                break
+        branches: list[str] = []
+        start = 0
+        escaped = False
+        depth = 0
+        in_class = False
+        for index, character in enumerate(body):
+            if escaped:
+                escaped = False
+                continue
+            if character == "\\":
+                escaped = True
+                continue
+            if in_class:
+                if character == "]":
+                    in_class = False
+                continue
+            if character == "[":
+                in_class = True
+            elif character == "(":
+                depth += 1
+            elif character == ")" and depth:
+                depth -= 1
+            elif character == "|" and depth == 0:
+                branches.append(body[start:index])
+                start = index + 1
+        if in_class or escaped or depth:
+            return False
+        branches.append(body[start:])
+        if len(branches) < 2:
+            return False
+        tokens: list[str] = []
+        for branch in branches:
+            if len(branch) != 1 or branch in "\\[](){}*+?^$|.":
+                return False
+            tokens.append(branch)
+        return len(set(tokens)) == len(tokens)
 
     def _resolve_ref(self, ref: str) -> Any:
         if ref == "#":

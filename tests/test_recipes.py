@@ -678,6 +678,13 @@ class TestRegisterRecipesTools:
             assert errors == ["$: Recipe input schema is invalid"]
             assert elapsed < 1.0
 
+    def test_linear_alternation_pattern_remains_supported(self) -> None:
+        errors = validate_recipe_inputs(
+            {"inputs_schema": {"type": "string", "pattern": "(a|b)+$"}},
+            "ababab",
+        )
+        assert errors == []
+
     def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
         for malformed in ([], "schema", None):
             assert validate_recipe_inputs({"inputs_schema": malformed}, {}) == ["$: Recipe input schema is invalid"]
