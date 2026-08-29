@@ -277,6 +277,10 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     )
     assert "PUSH_TOKEN" not in push["env"]
     assert "credential.helper" in push["run"]
+    # Clear any PR-controlled local helper before installing the ephemeral
+    # trusted store helper; otherwise `credential.helper=!…` in .git/config
+    # can execute during the PAT-bearing push.
+    assert 'git -c credential.helper= \\\n  -c credential.helper="store --file=${credential_file}"' in push["run"]
     assert "validate-remote" in push["run"]
     assert "--no-verify" in push["run"]
     assert "trusted-lock-validator show" in push["run"] and "python - verify-commit" in push["run"]
@@ -286,6 +290,47 @@ def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
     workflow_text = LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8")
     assert "$RUNNER_TEMP/generated_lock_sync.py" not in workflow_text
     assert workflow_text.count("trusted-lock-validator show") >= 5
+
+
+@pytest.mark.skipif(os.name == "nt", reason="credential helper shell contract is POSIX-only")
+def test_ephemeral_push_helper_ignores_pr_local_helper(tmp_path: Path) -> None:
+    """A PR-controlled local helper must not run while resolving push creds."""
+    work = tmp_path / "work"
+    subprocess.run(["git", "init", "-q", str(work)], check=True, timeout=30)
+    marker = tmp_path / "helper-ran"
+    probe = tmp_path / "malicious-helper.sh"
+    probe.write_text(f"#!/bin/sh\nprintf '%s' \"$PUSH_TOKEN\" > '{marker}'\nexit 1\n", encoding="utf-8")
+    probe.chmod(0o755)
+    subprocess.run(
+        ["git", "-C", str(work), "config", "credential.helper", f"!{probe}"],
+        check=True,
+        timeout=30,
+    )
+    credential_file = tmp_path / "credentials"
+    credential_file.write_text("https://x-access-token:ephemeral-pat@github.com\n", encoding="utf-8")
+    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0", "PUSH_TOKEN": "parent-secret"}
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(work),
+            "-c",
+            "credential.helper=",
+            "-c",
+            f"credential.helper=store --file={credential_file}",
+            "credential",
+            "fill",
+        ],
+        input="protocol=https\nhost=github.com\n\n",
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "password=ephemeral-pat" in result.stdout
+    assert not marker.exists(), "PR-controlled local credential helper executed"
 
 
 def test_trusted_validator_ref_contains_attested_file() -> None:

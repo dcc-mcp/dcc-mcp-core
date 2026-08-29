@@ -135,7 +135,11 @@ jobs:
           trap 'rm -f "$credential_file"' EXIT
           chmod 600 "$credential_file"
           printf 'https://x-access-token:%s@github.com\n' '${{ secrets.PERSONAL_ACCESS_TOKEN }}' > "$credential_file"
-          git -c credential.helper="store --file=${credential_file}" \
+          # Reset repository-local helpers before installing the ephemeral
+          # trusted store helper.  This prevents PR-controlled
+          # credential.helper=!… entries from executing during push.
+          git -c credential.helper= \
+            -c credential.helper="store --file=${credential_file}" \
             --no-verify \
             push --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
             origin "HEAD:${HEAD_REF}"
