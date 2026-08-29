@@ -617,6 +617,9 @@ jobs:
     name: Sentry E2E
     needs: [rust-check]
     runs-on: ubuntu-latest
+    # Real-ingest is an external service probe. Bound the whole job so a
+    # stalled transport cannot hold every PR's required CI indefinitely.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -637,8 +640,21 @@ jobs:
             echo "DCC_MCP_SENTRY_DSN secret not configured; skipping Sentry E2E"
             exit 0
           fi
-          vx cargo test -p dcc-mcp-server --features sentry sentry_real_ingest_e2e \
-            -- --exact --test-threads=1 --nocapture
+          # Keep the probe deadline shorter than the job timeout and terminate
+          # the process group so a blocked DNS/TLS/transport cannot leak.
+          output_file="$(mktemp)"
+          trap 'rm -f "$output_file"' EXIT
+          if ! timeout --signal=TERM --kill-after=60s 15m \
+            vx cargo test -p dcc-mcp-server --features sentry \
+            sentry_init::tests::sentry_real_ingest_e2e \
+            -- --exact --test-threads=1 --nocapture 2>&1 | tee "$output_file"; then
+            echo "::error::Sentry real-ingest test command failed"
+            exit 1
+          fi
+          if ! grep -Eq 'running [1-9][0-9]* tests?' "$output_file"; then
+            echo "::error::Sentry real-ingest selector ran zero tests"
+            exit 1
+          fi
 
   # -- mcpcall e2e: real MCP client vs live MCP servers/gateway --
   # Exercises the full HTTP stack from outside the process:
