@@ -27,6 +27,7 @@ pub mod job_aware_invoker;
 pub mod notifications;
 pub mod server_state;
 pub mod session;
+pub mod split_phase;
 pub mod workspace;
 
 pub mod mcp_tool_catalog;

@@ -160,7 +160,9 @@ async fn run_async_execution_lane(
         );
 
         let outcome = match response.await {
-            Ok(Ok(result)) => Ok(result.output),
+            Ok(Ok(result)) => {
+                crate::split_phase::resolve_output(result.output, Some(cancel_token.clone())).await
+            }
             Ok(Err(error)) => Err(error.to_string()),
             Err(_) => Err("CANCELLED".to_string()),
         };
@@ -197,6 +199,12 @@ async fn run_async_execution_lane(
             .await
             .map_err(|err| err.to_string())
             .and_then(|inner| inner);
+        let outcome = match outcome {
+            Ok(output) => {
+                crate::split_phase::resolve_output(output, Some(cancel_token.clone())).await
+            }
+            Err(err) => Err(err),
+        };
         if cancel_token.is_cancelled() {
             Err("CANCELLED".to_string())
         } else {

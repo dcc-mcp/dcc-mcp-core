@@ -42,9 +42,11 @@ from dcc_mcp_core._server.host_ui_dispatcher import current_host_ui_job
 from dcc_mcp_core._server.host_ui_dispatcher import host_ui_outcome
 from dcc_mcp_core._server.host_ui_dispatcher import normalize_affinity
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import ContinuationOutcome
 from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
+from dcc_mcp_core._server.inprocess_executor import SplitPhaseOutcome
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.inprocess_executor import clear_script_package
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
@@ -88,6 +90,7 @@ __all__ = [
     "BaseDccCallableDispatcherFull",
     "BaseDccPump",
     "BridgeExecution",
+    "ContinuationOutcome",
     "DccServerOptions",
     "DeferredToolResult",
     "DiagnosticsOptions",
@@ -126,6 +129,7 @@ __all__ = [
     "ServerRuntimeController",
     "SkillDiscoveryController",
     "SkillQueryClient",
+    "SplitPhaseOutcome",
     "StandaloneMainThreadExecution",
     "TelemetryManager",
     "ThreadedHostTimerAdapter",

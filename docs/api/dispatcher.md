@@ -456,3 +456,21 @@ smokes. The core reference is
 it exercises Maya-like and 3ds Max-like dispatch flows, malformed payloads,
 missing servers, missing source files, executor errors, cancellation, timeout,
 and shutdown cleanup without launching a real DCC.
+## In-process split-phase continuations
+
+Main-affinity in-process tools may return `dcc_mcp_core.SplitPhaseOutcome`
+(alias `ContinuationOutcome`) after completing their bounded host work:
+
+```python
+from dcc_mcp_core import SplitPhaseOutcome
+
+def main(params):
+    snapshot = capture_on_main_thread(params)
+    return SplitPhaseOutcome(lambda: encode_and_publish(snapshot))
+```
+
+Core releases the host lane before invoking the continuation on the request or
+async-job worker. The continuation is transport-internal and never appears in
+MCP/REST JSON. It is one-shot; nested outcomes fail closed. Cancellation and
+shutdown are checked before and after the continuation, so a result cannot be
+committed after a request is cancelled.

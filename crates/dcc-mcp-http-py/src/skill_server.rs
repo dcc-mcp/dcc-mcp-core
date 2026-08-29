@@ -441,7 +441,51 @@ impl PyMcpHttpServer {
                         &kwargs,
                     )
                     .map_err(|e| format!("executor error: {e}"))?;
-                    py_any_to_json_value(raw.bind(gil)).map_err(|e| e.to_string())
+                    let raw_bound = raw.bind(gil);
+                    // A ``ContinuationOutcome`` is transport-internal: retain
+                    // its callable in Core and return only an opaque marker.
+                    // The marker is consumed by MCP/REST routing after the
+                    // bounded host-thread phase, never serialized to clients.
+                    if raw_bound
+                        .getattr("_dcc_mcp_split_phase")
+                        .ok()
+                        .and_then(|v| v.extract::<bool>().ok())
+                        .unwrap_or(false)
+                    {
+                        let continuation = raw_bound
+                            .getattr("continuation")
+                            .map_err(|e| format!("continuation attribute: {e}"))?;
+                        if !continuation.is_callable() {
+                            return Err("split-phase continuation must be callable".to_string());
+                        }
+                        let continuation = continuation.unbind();
+                        let callback: std::sync::Arc<dcc_mcp_skills::catalog::execute::SplitPhaseContinuation> =
+                            std::sync::Arc::new(move || {
+                                Python::attach(|py| {
+                                    let value = continuation
+                                        .call0(py)
+                                        .map_err(|e| format!("continuation error: {e}"))?;
+                                    py_any_to_json_value(value.bind(py)).map_err(|e| e.to_string())
+                                })
+                            });
+                        let timeout_secs = raw_bound
+                            .getattr("timeout_secs")
+                            .ok()
+                            .and_then(|v| v.extract::<f64>().ok())
+                            .filter(|value| value.is_finite() && *value > 0.0)
+                            .unwrap_or(3600.0);
+                        let id = dcc_mcp_skills::catalog::execute::register_split_phase_continuation_with_timeout(
+                            callback,
+                            std::time::Duration::from_secs_f64(timeout_secs),
+                        );
+                        return Ok(serde_json::json!({
+                            "_dcc_mcp_split_phase": {
+                                "kind": "continuation.v1",
+                                "continuation_id": id
+                            }
+                        }));
+                    }
+                    py_any_to_json_value(raw_bound).map_err(|e| e.to_string())
                 })
             });
         tracing::info!(

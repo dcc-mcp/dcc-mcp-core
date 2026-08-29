@@ -9,6 +9,7 @@ from typing import Any
 from typing import Callable
 import uuid
 
+from dcc_mcp_core._server._inprocess_contracts import ContinuationOutcome
 from dcc_mcp_core._server._inprocess_contracts import DeferredToolResult
 from dcc_mcp_core._server._inprocess_contracts import InProcessExecutionContext
 from dcc_mcp_core._server._inprocess_contracts import attach_deferred_streams
@@ -33,6 +34,8 @@ def resolve_execution_result(
             message="Chunked tool returned a monolithic result",
         )
     if not isinstance(result, DeferredToolResult):
+        if isinstance(result, ContinuationOutcome):
+            return _resolve_continuation(result, context)
         return result
 
     deadline = time.monotonic() + result.timeout_secs
@@ -67,6 +70,54 @@ def resolve_execution_result(
             return attach_deferred_streams(finished, result)
 
         time.sleep(result.poll_interval_secs)
+
+
+def _resolve_continuation(
+    outcome: ContinuationOutcome,
+    context: InProcessExecutionContext,
+) -> Any:
+    """Run a split-phase continuation off the host dispatch closure.
+
+    ``dispatch_raw`` has already returned before this function is entered,
+    which is the key main-affinity invariant.  The continuation is one-shot;
+    nested outcomes are rejected so an adapter cannot accidentally retain the
+    host lane through recursive hand-offs.
+    """
+    if not outcome.claim():
+        return exception_to_error_envelope(
+            RuntimeError("split-phase continuation already consumed"),
+            message="Split-phase continuation replay rejected",
+        )
+    started = time.monotonic()
+    try:
+        # Cancellation is checked both before submit and at the commit seam.
+        # ``check_cancelled`` is a no-op when no request token is installed.
+        from dcc_mcp_core.cancellation import check_cancelled
+
+        check_cancelled()
+        finished = outcome.continuation()
+        check_cancelled()
+    except Exception as exc:
+        return exception_to_error_envelope(exc, message="Split-phase continuation failed")
+
+    if time.monotonic() - started > outcome.timeout_secs:
+        return exception_to_error_envelope(
+            TimeoutError(f"Continuation timed out after {outcome.timeout_secs:g}s"),
+            message="Split-phase continuation exceeded timeout",
+        )
+    if isinstance(finished, (ContinuationOutcome, DeferredToolResult)):
+        return exception_to_error_envelope(
+            TypeError("Nested continuation outcomes are not supported"),
+            message="Nested split-phase continuation rejected",
+        )
+    try:
+        json.dumps(finished)
+    except TypeError as exc:
+        return exception_to_error_envelope(
+            exc,
+            message="Split-phase continuation returned a non-serialisable result",
+        )
+    return finished
 
 
 def _resolve_chunked_runner(
