@@ -64,11 +64,13 @@ pub struct SplitPhaseControl {
 
 impl SplitPhaseControl {
     pub fn cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
-            || Instant::now() >= self.deadline
-            || self.lifecycle.upgrade().map_or(true, |store| {
-                store.shutdown.load(Ordering::Acquire) || store.generation() != self.generation
-            })
+        if self.cancelled.load(Ordering::Acquire) || Instant::now() >= self.deadline {
+            return true;
+        }
+        let Some(store) = self.lifecycle.upgrade() else {
+            return true;
+        };
+        store.shutdown.load(Ordering::Acquire) || store.generation() != self.generation
     }
 
     pub fn check(&self) -> Result<(), String> {

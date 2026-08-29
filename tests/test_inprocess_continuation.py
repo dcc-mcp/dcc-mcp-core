@@ -55,7 +55,7 @@ def test_split_phase_releases_main_segment_before_continuation() -> None:
 def test_split_phase_rejects_nested_outcome() -> None:
     bridge = HostExecutionBridge()
     result = bridge.dispatch_callable(
-        lambda: ContinuationOutcome(lambda: ContinuationOutcome(lambda: {"bad": True})),
+        lambda: ContinuationOutcome(lambda _probe: ContinuationOutcome(lambda _nested_probe: {"bad": True})),
         thread_affinity="main",
     )
     assert result["success"] is False
@@ -65,7 +65,7 @@ def test_split_phase_rejects_nested_outcome() -> None:
 def test_split_phase_non_serializable_output_fails_closed() -> None:
     bridge = HostExecutionBridge()
     result = bridge.dispatch_callable(
-        lambda: SplitPhaseOutcome(lambda: object()),
+        lambda: SplitPhaseOutcome(lambda _probe: object()),
         thread_affinity="main",
     )
     assert result["success"] is False
@@ -75,7 +75,7 @@ def test_split_phase_non_serializable_output_fails_closed() -> None:
 def test_split_phase_exception_is_structured() -> None:
     bridge = HostExecutionBridge()
 
-    def fail():
+    def fail(_probe):
         raise RuntimeError("encode failed")
 
     result = bridge.dispatch_callable(lambda: SplitPhaseOutcome(fail), thread_affinity="main")
@@ -130,6 +130,23 @@ def test_split_phase_rejects_uncancellable_callback_before_side_effect() -> None
     assert "uncancellable" in result["message"].lower()
 
 
+def test_split_phase_rejects_uncancellable_sync_callback_without_token() -> None:
+    published = []
+    bridge = HostExecutionBridge()
+
+    def continuation():
+        published.append(True)
+        return {"published": True}
+
+    result = bridge.dispatch_callable(
+        lambda: SplitPhaseOutcome(continuation),
+        thread_affinity="main",
+    )
+    assert result["success"] is False
+    assert published == []
+    assert "uncancellable" in result["message"].lower()
+
+
 def test_split_phase_resolution_fails_closed_on_host_thread() -> None:
     class HostDispatcher:
         def is_host_thread(self):
@@ -140,7 +157,7 @@ def test_split_phase_resolution_fails_closed_on_host_thread() -> None:
 
     bridge = HostExecutionBridge(dispatcher=HostDispatcher())
     result = bridge.dispatch_callable(
-        lambda: SplitPhaseOutcome(lambda: {"ok": True}),
+        lambda: SplitPhaseOutcome(lambda _probe: {"ok": True}),
         thread_affinity="main",
     )
     assert result["success"] is False
@@ -189,3 +206,22 @@ def test_running_cancellation_probe_blocks_durable_side_effect() -> None:
         result = call.result(timeout=2)
     assert result["success"] is False
     assert published == []
+
+
+def test_sync_continuation_receives_deadline_probe_without_cancel_token() -> None:
+    observed = []
+    bridge = HostExecutionBridge()
+
+    def continuation(probe):
+        observed.append(probe)
+        time.sleep(0.01)
+        probe.check()
+        return {"published": True}
+
+    result = bridge.dispatch_callable(
+        lambda: SplitPhaseOutcome(continuation, timeout_secs=0.001),
+        thread_affinity="main",
+    )
+    assert result["success"] is False
+    assert observed and observed[0] is not None
+    assert "cancel" in result["message"].lower()

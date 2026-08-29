@@ -18,7 +18,49 @@ from dcc_mcp_core._server._inprocess_contracts import exception_to_error_envelop
 from dcc_mcp_core._server._inprocess_contracts import timeout_hint_secs_to_ms
 from dcc_mcp_core.cancellation import DccMcpCancelledError
 from dcc_mcp_core.cancellation import check_cancelled
+from dcc_mcp_core.cancellation import reset_cancel_token
+from dcc_mcp_core.cancellation import set_cancel_token
 from dcc_mcp_core.chunked_runner import ChunkedRunner
+
+
+class _ContinuationProbe:
+    """Cooperative cancellation/deadline probe for split-phase callbacks.
+
+    The probe is always passed to a continuation, including synchronous
+    MCP/REST calls that do not have a server cancellation token.  This keeps
+    the callback contract identical across all routes and gives callbacks a
+    deadline gate before durable work.
+    """
+
+    __slots__ = ("_cancel_token", "_deadline", "_lifecycle_check")
+
+    def __init__(
+        self,
+        cancel_token: Any | None,
+        deadline: float,
+        lifecycle_check: Callable[[], bool] | None,
+    ) -> None:
+        self._cancel_token = cancel_token
+        self._deadline = deadline
+        self._lifecycle_check = lifecycle_check
+
+    @property
+    def cancelled(self) -> bool:
+        token = self._cancel_token
+        if token is not None and bool(getattr(token, "cancelled", False)):
+            return True
+        if time.monotonic() >= self._deadline:
+            return True
+        return self._lifecycle_check is not None and not self._lifecycle_check()
+
+    @property
+    def job_id(self) -> str | None:
+        job_id = getattr(self._cancel_token, "job_id", None)
+        return job_id if isinstance(job_id, str) else None
+
+    def check(self) -> None:
+        if self.cancelled:
+            raise DccMcpCancelledError("Split-phase continuation cancelled or timed out")
 
 
 def resolve_execution_result(
@@ -105,14 +147,16 @@ def _resolve_continuation(
     try:
         # Cancellation is checked both before submit and at the commit seam.
         # ``check_cancelled`` is a no-op when no request token is installed.
-        if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
-            raise DccMcpCancelledError("Request cancelled by client")
-        if lifecycle_check is not None and not lifecycle_check():
-            raise DccMcpCancelledError("Host execution bridge is shutting down")
-        # A cancellable request must expose its probe to the continuation;
-        # otherwise a blocking callback could perform durable work after the
-        # request has timed out/cancelled.  Refuse such callbacks before they
-        # run (fail closed rather than guessing at side effects).
+        probe = _ContinuationProbe(
+            cancel_token,
+            started + outcome.timeout_secs,
+            lifecycle_check,
+        )
+        probe.check()
+        # Every continuation must expose a probe; otherwise a blocking
+        # callback could perform durable work after its deadline or lifecycle
+        # has been cancelled. Refuse such callbacks before they run (fail
+        # closed rather than guessing at side effects).
         continuation = outcome.continuation
         accepts_probe = False
         try:
@@ -123,16 +167,17 @@ def _resolve_continuation(
             ) or any(parameter.kind == parameter.VAR_POSITIONAL for parameter in signature.parameters.values())
         except (TypeError, ValueError):
             accepts_probe = False
-        if cancel_token is not None and not accepts_probe:
+        if not accepts_probe:
             return exception_to_error_envelope(
                 TypeError("continuation does not accept a cancellation probe"),
                 message="Uncancellable continuation rejected before commit",
             )
-        finished = continuation(cancel_token) if accepts_probe else continuation()
-        if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
-            raise DccMcpCancelledError("Request cancelled by client")
-        if lifecycle_check is not None and not lifecycle_check():
-            raise DccMcpCancelledError("Host execution bridge is shutting down")
+        reset = set_cancel_token(probe)
+        try:
+            finished = continuation(probe)
+        finally:
+            reset_cancel_token(reset)
+        probe.check()
         check_cancelled()
     except DccMcpCancelledError as exc:
         return exception_to_error_envelope(exc, message="Split-phase continuation cancelled before commit")
