@@ -11,6 +11,29 @@ fn split_phase_error(code: &str, message: &str) -> String {
     format!("{SPLIT_PHASE_ERROR_PREFIX}{code}: {message}")
 }
 
+/// Project a split-phase failure into the transport-neutral job envelope.
+/// Legacy non-split errors remain plain strings for wire compatibility.
+#[must_use]
+pub fn project_error_for_job(message: &str) -> String {
+    let message = if message == "CANCELLED" {
+        split_phase_error("CANCELLED", "continuation cancelled")
+    } else {
+        message.to_owned()
+    };
+    let Some((code, detail)) = message.split_once(": ") else {
+        return message;
+    };
+    if !code.starts_with(SPLIT_PHASE_ERROR_PREFIX) {
+        return message;
+    }
+    serde_json::json!({
+        "layer": "instance",
+        "code": code,
+        "message": detail,
+    })
+    .to_string()
+}
+
 /// Resolve a continuation marker after the main-affinity dispatch closure has
 /// returned. The callback is consumed before execution, enforcing ownership
 /// and one-shot replay protection.
@@ -36,7 +59,7 @@ pub async fn resolve_output(
         .is_some_and(CancellationToken::is_cancelled)
     {
         let _ = dcc_mcp_skills::catalog::execute::take_split_phase_continuation(&owner, &id);
-        return Err("CANCELLED".to_string());
+        return Err(split_phase_error("CANCELLED", "continuation cancelled"));
     }
     let Some(registration) =
         dcc_mcp_skills::catalog::execute::take_split_phase_continuation_if_generation(
@@ -154,9 +177,18 @@ mod tests {
         token.cancel();
         assert_eq!(
             resolve_output(marker.clone(), Some(token)).await,
-            Err("CANCELLED".into())
+            Err("SPLIT_PHASE_CANCELLED: continuation cancelled".into())
         );
         assert!(resolve_output(marker, None).await.is_err());
+    }
+
+    #[test]
+    fn project_error_for_job_preserves_machine_readable_fields() {
+        let projected = project_error_for_job("SPLIT_PHASE_TIMEOUT: continuation timed out");
+        let value: serde_json::Value = serde_json::from_str(&projected).expect("JSON envelope");
+        assert_eq!(value["layer"], "instance");
+        assert_eq!(value["code"], "SPLIT_PHASE_TIMEOUT");
+        assert_eq!(value["message"], "continuation timed out");
     }
 
     #[tokio::test]

@@ -116,17 +116,19 @@ impl ToolInvoker for JobAwareInvoker {
                         // split-phase failures so async readback matches MCP
                         // and synchronous REST. Legacy errors remain plain
                         // strings for wire compatibility.
-                        let persisted = if error
+                        let persisted = error
                             .context
                             .as_deref()
                             .and_then(|ctx| ctx.get("code"))
                             .and_then(Value::as_str)
-                            .is_some_and(|code| code.starts_with("SPLIT_PHASE_"))
-                        {
-                            serde_json::to_string(&error).unwrap_or(error.message.clone())
-                        } else {
-                            error.message
-                        };
+                            .filter(|code| code.starts_with("SPLIT_PHASE_"))
+                            .map(|code| {
+                                crate::split_phase::project_error_for_job(&format!(
+                                    "{code}: {}",
+                                    error.message
+                                ))
+                            })
+                            .unwrap_or(error.message);
                         let _ = jobs.fail(&spawned_job_id, persisted);
                     }
                 }

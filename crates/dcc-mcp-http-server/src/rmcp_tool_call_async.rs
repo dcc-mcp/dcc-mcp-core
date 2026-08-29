@@ -250,7 +250,10 @@ fn spawn_async_registry_dispatch(state: &ServerState, request: AsyncExecutionReq
                 }
             }
             Err(msg) => {
-                jobs.fail(&spawn_job_id, msg);
+                jobs.fail(
+                    &spawn_job_id,
+                    crate::split_phase::project_error_for_job(&msg),
+                );
             }
         }
     });
