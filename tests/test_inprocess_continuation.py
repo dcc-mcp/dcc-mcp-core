@@ -10,6 +10,16 @@ from dcc_mcp_core import HostExecutionBridge
 from dcc_mcp_core import SplitPhaseOutcome
 
 
+def test_continuation_public_import_parity() -> None:
+    from dcc_mcp_core._server._continuation_lifecycle import resolve_bridge_result
+    from dcc_mcp_core._server._inprocess_results import resolve_execution_result
+    from dcc_mcp_core._server.inprocess_executor import ContinuationOutcome as ExecutorOutcome
+
+    assert ExecutorOutcome is ContinuationOutcome
+    assert callable(resolve_bridge_result)
+    assert callable(resolve_execution_result)
+
+
 def test_split_phase_releases_main_segment_before_continuation() -> None:
     segments: list[float] = []
 

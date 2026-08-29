@@ -34,6 +34,7 @@ from typing import Mapping
 from typing import Sequence
 import uuid
 
+from dcc_mcp_core._server._continuation_lifecycle import resolve_bridge_result
 from dcc_mcp_core._server._inprocess_contracts import BaseDccCallableDispatcher
 from dcc_mcp_core._server._inprocess_contracts import ContinuationOutcome
 from dcc_mcp_core._server._inprocess_contracts import DeferredToolResult
@@ -44,7 +45,6 @@ from dcc_mcp_core._server._inprocess_contracts import is_host_queue_dispatcher a
 from dcc_mcp_core._server._inprocess_contracts import resolve_sandbox_action_name as _resolve_sandbox_action_name
 from dcc_mcp_core._server._inprocess_contracts import sandbox_denied_envelope
 from dcc_mcp_core._server._inprocess_contracts import timeout_hint_secs_to_ms
-from dcc_mcp_core._server._inprocess_results import resolve_execution_result
 from dcc_mcp_core.cancellation import _reset_current_job_id
 from dcc_mcp_core.cancellation import _set_current_job_id
 from dcc_mcp_core.cancellation import check_cancelled
@@ -348,27 +348,14 @@ class HostExecutionBridge:
         context: InProcessExecutionContext,
     ) -> Any:
         """Resolve a DeferredToolResult or ChunkedRunner."""
-        if isinstance(result, ContinuationOutcome):
-            is_host_thread = getattr(self.dispatcher, "is_host_thread", None)
-            if callable(is_host_thread) and is_host_thread():
-                return exception_to_error_envelope(
-                    RuntimeError("split-phase continuation cannot resolve on the host thread"),
-                    message="Split-phase continuation must resolve off the host thread",
-                )
-        generation = self._current_generation()
-        if generation is None and isinstance(result, ContinuationOutcome):
-            return self._shutdown_error()
-        return resolve_execution_result(
+        return resolve_bridge_result(
             result,
             context,
             dispatcher=self.dispatcher,
             dispatch_raw=self._dispatch_raw,
             cancel_token=context.cancel_token,
-            lifecycle_check=(
-                (lambda: self._is_current_generation(generation))
-                if isinstance(result, ContinuationOutcome) and generation is not None
-                else None
-            ),
+            current_generation=self._current_generation,
+            is_current_generation=self._is_current_generation,
         )
 
     def execute_script(
