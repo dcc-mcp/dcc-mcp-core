@@ -226,6 +226,38 @@ mod tests {
     }
 
     #[test]
+    fn jobs_get_status_projects_split_phase_error_as_structured_envelope() {
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register_action(ToolMeta {
+            name: "split_tool".into(),
+            ..Default::default()
+        });
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let jobs = Arc::new(JobManager::new());
+        let handle = jobs.create("split_tool");
+        let id = handle.read().id.clone();
+        jobs.start(&id).unwrap();
+        jobs.fail(
+            &id,
+            crate::split_phase::project_error_for_job(
+                "SPLIT_PHASE_TIMEOUT: continuation timed out",
+            ),
+        )
+        .unwrap();
+        let state = ServerState::builder(registry, dispatcher, catalog)
+            .with_jobs(jobs)
+            .build();
+        let payload = handle_jobs_get_status(&state, &json!({"job_id": id}));
+        let error = payload.structured_content.unwrap()["error"].clone();
+        assert_eq!(error["layer"], "instance");
+        assert_eq!(error["code"], "SPLIT_PHASE_TIMEOUT");
+    }
+
+    #[test]
     fn terminal_core_job_exposes_declared_adapter_poll_contract() {
         let registry = Arc::new(ToolRegistry::new());
         registry.register_action(ToolMeta {
