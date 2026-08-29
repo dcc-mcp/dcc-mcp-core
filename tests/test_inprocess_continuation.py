@@ -74,7 +74,7 @@ def test_cancelled_token_blocks_commit() -> None:
     token = CancelToken()
     bridge = HostExecutionBridge()
 
-    def continuation():
+    def continuation(_probe):
         token.cancel()
         return {"published": True}
 
@@ -85,3 +85,45 @@ def test_cancelled_token_blocks_commit() -> None:
     )
     assert result["success"] is False
     assert "cancel" in result["message"].lower()
+
+
+@pytest.mark.parametrize("timeout", [float("nan"), float("inf"), 1e300, 301.0])
+def test_split_phase_timeout_is_finite_and_bounded(timeout: float) -> None:
+    with pytest.raises(ValueError):
+        SplitPhaseOutcome(lambda: {"ok": True}, timeout_secs=timeout)
+
+
+def test_split_phase_rejects_uncancellable_callback_before_side_effect() -> None:
+    published = []
+    token = CancelToken()
+    bridge = HostExecutionBridge()
+
+    def continuation():
+        published.append(True)
+        return {"published": True}
+
+    result = bridge.dispatch_callable(
+        lambda: SplitPhaseOutcome(continuation),
+        thread_affinity="main",
+        cancel_token=token,
+    )
+    assert result["success"] is False
+    assert published == []
+    assert "uncancellable" in result["message"].lower()
+
+
+def test_split_phase_resolution_fails_closed_on_host_thread() -> None:
+    class HostDispatcher:
+        def is_host_thread(self):
+            return True
+
+        def dispatch_callable(self, func, **kwargs):
+            return func()
+
+    bridge = HostExecutionBridge(dispatcher=HostDispatcher())
+    result = bridge.dispatch_callable(
+        lambda: SplitPhaseOutcome(lambda: {"ok": True}),
+        thread_affinity="main",
+    )
+    assert result["success"] is False
+    assert "host thread" in result["message"].lower()

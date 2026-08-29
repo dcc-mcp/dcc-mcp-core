@@ -19,6 +19,7 @@ from dcc_mcp_core.result_envelope import ToolResultEnvelope
 logger = logging.getLogger(__name__)
 
 _MAX_TIMEOUT_MS = 3_600_000
+_MAX_CONTINUATION_TIMEOUT_SECS = 300.0
 
 
 @dataclass(frozen=True)
@@ -70,8 +71,8 @@ class ContinuationOutcome:
     only that terminal value to MCP and REST callers.
     """
 
-    continuation: Callable[[], Any]
-    timeout_secs: float = 3600.0
+    continuation: Callable[..., Any]
+    timeout_secs: float = 300.0
     _dcc_mcp_split_phase: bool = True
     _claimed: bool = field(default=False, init=False, repr=False)
     _claim_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
@@ -79,8 +80,12 @@ class ContinuationOutcome:
     def __post_init__(self) -> None:
         if not callable(self.continuation):
             raise TypeError("continuation must be callable")
-        if not math.isfinite(self.timeout_secs) or self.timeout_secs <= 0:
-            raise ValueError("timeout_secs must be finite and > 0")
+        if (
+            not math.isfinite(self.timeout_secs)
+            or self.timeout_secs <= 0
+            or self.timeout_secs > _MAX_CONTINUATION_TIMEOUT_SECS
+        ):
+            raise ValueError("timeout_secs must be finite, > 0, and <= 300 seconds")
 
     def claim(self) -> bool:
         """Atomically claim ownership; returns ``False`` on replay."""

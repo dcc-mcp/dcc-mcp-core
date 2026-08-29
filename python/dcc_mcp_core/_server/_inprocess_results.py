@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import threading
 import time
@@ -99,7 +100,26 @@ def _resolve_continuation(
         # ``check_cancelled`` is a no-op when no request token is installed.
         if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
             raise DccMcpCancelledError("Request cancelled by client")
-        finished = outcome.continuation()
+        # A cancellable request must expose its probe to the continuation;
+        # otherwise a blocking callback could perform durable work after the
+        # request has timed out/cancelled.  Refuse such callbacks before they
+        # run (fail closed rather than guessing at side effects).
+        continuation = outcome.continuation
+        accepts_probe = False
+        try:
+            signature = inspect.signature(continuation)
+            accepts_probe = any(
+                parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+                for parameter in signature.parameters.values()
+            ) or any(parameter.kind == parameter.VAR_POSITIONAL for parameter in signature.parameters.values())
+        except (TypeError, ValueError):
+            accepts_probe = False
+        if cancel_token is not None and not accepts_probe:
+            return exception_to_error_envelope(
+                TypeError("continuation does not accept a cancellation probe"),
+                message="Uncancellable continuation rejected before commit",
+            )
+        finished = continuation(cancel_token) if accepts_probe else continuation()
         if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
             raise DccMcpCancelledError("Request cancelled by client")
         check_cancelled()
