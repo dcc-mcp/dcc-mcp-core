@@ -501,6 +501,15 @@ class TestRegisterRecipesTools:
             root = child
         assert validate_recipe_inputs({"inputs_schema": deep}, {}) == ["$: Recipe input schema is invalid"]
 
+        duplicate_required = {"required": ["x", "x"]}
+        duplicate_dependent = {"dependentRequired": {"x": ["y", "y"]}}
+        assert validate_recipe_inputs({"inputs_schema": duplicate_required}, {}) == [
+            "$: Recipe input schema is invalid"
+        ]
+        assert validate_recipe_inputs({"inputs_schema": duplicate_dependent}, {}) == [
+            "$: Recipe input schema is invalid"
+        ]
+
     def test_recursive_ref_and_ref_siblings_are_validated(self) -> None:
         schema = {
             "$defs": {
@@ -592,6 +601,20 @@ class TestRegisterRecipesTools:
         contains = {"type": "array", "contains": {"const": 1}, "unevaluatedItems": False}
         assert validate_recipe_inputs({"inputs_schema": contains}, [1]) == []
         assert any("[1]" in error for error in validate_recipe_inputs({"inputs_schema": contains}, [1, 2]))
+
+        failed_all_of = {
+            "allOf": [{"properties": {"a": {"type": "string"}}}],
+            "unevaluatedProperties": False,
+        }
+        errors = validate_recipe_inputs({"inputs_schema": failed_all_of}, {"a": 1})
+        assert any("$.a" in error and "Unevaluated" in error for error in errors)
+
+    def test_instance_depth_budget_is_independent_of_rendered_property_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(_RecipeSchemaValidator, "_MAX_DEPTH", 1)
+        schema = {"type": "object", "properties": {"a.b": {"type": "string"}}}
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"a.b": "ok"}) == []
 
     def test_if_annotations_feed_unevaluated_properties(self) -> None:
         conditional = {
