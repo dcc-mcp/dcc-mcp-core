@@ -65,9 +65,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
+import math
 from pathlib import Path
 import re
 from typing import Any
+from typing import ClassVar
 
 from dcc_mcp_core import json_loads
 from dcc_mcp_core import yaml_loads
@@ -363,32 +365,24 @@ def find_recipe_entry(skill_md: Any, recipe_name: str) -> dict[str, Any] | None:
 
 
 def validate_recipe_inputs(recipe: dict[str, Any], inputs: dict[str, Any]) -> list[str]:
-    """Validate inputs against the recipe's JSON-schema-like input shape.
+    """Validate recipe inputs against the published Draft 2020-12 schema.
 
-    This intentionally implements a conservative subset (`required`,
-    `properties`, and primitive `type`) so recipe packs remain zero-dep and
-    useful even before adapters wire richer validation.
+    The core package deliberately does not depend on ``jsonschema`` at
+    runtime (Maya/Blender commonly embed Python 3.7).  This small validator
+    implements the assertion vocabulary used by published recipe packs and
+    fails closed when a schema is malformed.  Both recipe handlers call this
+    function, so validation and application cannot drift.
     """
-    schema = recipe.get("inputs_schema") or {}
-    if not isinstance(schema, dict):
-        return []
-    errors: list[str] = []
-    required = schema.get("required") or []
-    if isinstance(required, list):
-        for name in required:
-            if name not in inputs:
-                errors.append(f"Missing required input: {name}")
-
-    properties = schema.get("properties") or {}
-    if not isinstance(properties, dict):
-        return errors
-    for name, spec in properties.items():
-        if name not in inputs or not isinstance(spec, dict):
-            continue
-        expected = spec.get("type")
-        if expected and not _matches_json_type(inputs[name], expected):
-            errors.append(f"Input '{name}' expected {expected}, got {type(inputs[name]).__name__}")
-    return errors
+    schema = recipe.get("inputs_schema") if isinstance(recipe, dict) else None
+    if schema is None:
+        schema = {}
+    try:
+        validator = _RecipeSchemaValidator(schema)
+        return validator.validate(inputs)
+    except (TypeError, ValueError, re.error):
+        # Schema authors must fix malformed contracts; callers must never get
+        # an execution plan from an unverifiable published schema.
+        return ["$: Recipe input schema is invalid"]
 
 
 def _matches_json_type(value: Any, expected: Any) -> bool:
@@ -409,6 +403,327 @@ def _matches_json_type(value: Any, expected: Any) -> bool:
         if item == "null" and value is None:
             return True
     return False
+
+
+class _RecipeSchemaValidator:
+    """Dependency-free Draft 2020-12 assertion validator for recipe inputs."""
+
+    _TYPES: ClassVar[set[str]] = {"null", "boolean", "object", "array", "number", "integer", "string"}
+
+    def __init__(self, schema: Any) -> None:
+        self.schema = schema
+        self._check_schema(schema, "$")
+
+    def validate(self, instance: Any) -> list[str]:
+        errors: list[str] = []
+        self._validate(instance, self.schema, "$", errors, set())
+        return errors
+
+    @classmethod
+    def _check_schema(cls, schema: Any, path: str) -> None:
+        if isinstance(schema, bool):
+            return
+        if not isinstance(schema, dict):
+            raise ValueError(path)
+        if "$ref" in schema and not isinstance(schema["$ref"], str):
+            raise ValueError(path)
+        if "type" in schema:
+            typ = schema["type"]
+            values = typ if isinstance(typ, list) else [typ]
+            if not values or any(item not in cls._TYPES for item in values) or len(set(values)) != len(values):
+                raise ValueError(path)
+        if "required" in schema:
+            required = schema["required"]
+            if not isinstance(required, list) or any(not isinstance(item, str) for item in required):
+                raise ValueError(path)
+        for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
+            if key in schema and not isinstance(schema[key], dict):
+                raise ValueError(path)
+        for key in (
+            "additionalProperties",
+            "unevaluatedProperties",
+            "propertyNames",
+            "contains",
+            "items",
+            "not",
+            "if",
+            "then",
+            "else",
+        ):
+            if key in schema and not isinstance(schema[key], (dict, bool)):
+                raise ValueError(path)
+        for key in ("prefixItems", "allOf", "anyOf", "oneOf"):
+            if key in schema:
+                value = schema[key]
+                if not isinstance(value, list) or (key in ("allOf", "anyOf", "oneOf") and not value):
+                    raise ValueError(path)
+                for index, item in enumerate(value):
+                    cls._check_schema(item, f"{path}.{key}[{index}]")
+        for key in (
+            "minProperties",
+            "maxProperties",
+            "minItems",
+            "maxItems",
+            "minLength",
+            "maxLength",
+            "minContains",
+            "maxContains",
+        ):
+            if key in schema and (not isinstance(schema[key], int) or isinstance(schema[key], bool) or schema[key] < 0):
+                raise ValueError(path)
+        for key in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"):
+            if key in schema and (
+                not isinstance(schema[key], (int, float))
+                or isinstance(schema[key], bool)
+                or not math.isfinite(schema[key])
+            ):
+                raise ValueError(path)
+        if "multipleOf" in schema and schema["multipleOf"] <= 0:
+            raise ValueError(path)
+        if "pattern" in schema:
+            if not isinstance(schema["pattern"], str):
+                raise ValueError(path)
+            re.compile(schema["pattern"])
+        if "uniqueItems" in schema and not isinstance(schema["uniqueItems"], bool):
+            raise ValueError(path)
+        if "enum" in schema and (not isinstance(schema["enum"], list) or not schema["enum"]):
+            raise ValueError(path)
+        if "dependentRequired" in schema:
+            deps = schema["dependentRequired"]
+            if not isinstance(deps, dict) or any(
+                not isinstance(v, list) or any(not isinstance(x, str) for x in v) for v in deps.values()
+            ):
+                raise ValueError(path)
+        for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
+            for name, child in (schema.get(key) or {}).items():
+                if not isinstance(name, str):
+                    raise ValueError(path)
+                cls._check_schema(child, f"{path}.{key}.{name}")
+        if "additionalProperties" in schema:
+            cls._check_schema(schema["additionalProperties"], f"{path}.additionalProperties")
+        if "unevaluatedProperties" in schema:
+            cls._check_schema(schema["unevaluatedProperties"], f"{path}.unevaluatedProperties")
+        for key in ("propertyNames", "contains", "items", "not", "if", "then", "else"):
+            if key in schema:
+                cls._check_schema(schema[key], f"{path}.{key}")
+        if "const" in schema:
+            try:
+                json.dumps(schema["const"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(path) from exc
+
+    def _resolve_ref(self, ref: str) -> Any:
+        if not ref.startswith("#/"):
+            raise ValueError(ref)
+        value: Any = self.schema
+        for component in ref[2:].split("/"):
+            component = component.replace("~1", "/").replace("~0", "~")
+            if not isinstance(value, dict) or component not in value:
+                raise ValueError(ref)
+            value = value[component]
+        return value
+
+    @staticmethod
+    def _type_name(value: Any) -> str:
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, int):
+            return "int"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, str):
+            return "str"
+        if isinstance(value, list):
+            return "array"
+        if isinstance(value, dict):
+            return "object"
+        return type(value).__name__
+
+    @staticmethod
+    def _matches(value: Any, expected: Any) -> bool:
+        return _matches_json_type(value, expected)
+
+    def _validate(self, value: Any, schema: Any, path: str, errors: list[str], resolving: set[str]) -> bool:
+        if isinstance(schema, bool):
+            if not schema:
+                errors.append(f"{path}: Schema rejected this value")
+                return False
+            return True
+        if not isinstance(schema, dict):
+            raise ValueError(path)
+        ref = schema.get("$ref")
+        if ref is not None:
+            if ref in resolving:
+                raise ValueError(ref)
+            resolving.add(ref)
+            try:
+                return self._validate(value, self._resolve_ref(ref), path, errors, resolving)
+            finally:
+                resolving.remove(ref)
+
+        valid = True
+        if "type" in schema and not self._matches(value, schema["type"]):
+            if path.startswith("$.") and path.count(".") == 1 and "[" not in path and isinstance(schema["type"], str):
+                name = path[2:]
+                errors.append(f"Input '{name}' expected {schema['type']}, got {self._type_name(value)}")
+            else:
+                errors.append(f"{path}: Expected type {schema['type']}, got {self._type_name(value)}")
+            return False
+        if "enum" in schema and not any(
+            value == candidate and type(value) is type(candidate) for candidate in schema["enum"]
+        ):
+            errors.append(f"{path}: Value is not one of the allowed options")
+            valid = False
+        if "const" in schema and not (value == schema["const"] and type(value) is type(schema["const"])):
+            errors.append(f"{path}: Value does not match the required constant")
+            valid = False
+
+        for _index, child in enumerate(schema.get("allOf", ())):
+            if not self._validate(value, child, path, errors, resolving):
+                valid = False
+        for key, mode, message in (("anyOf", "any", "anyOf"), ("oneOf", "one", "oneOf")):
+            if key in schema:
+                matches = 0
+                for child in schema[key]:
+                    branch_errors: list[str] = []
+                    if self._validate(value, child, path, branch_errors, resolving):
+                        matches += 1
+                needed = matches >= 1 if mode == "any" else matches == 1
+                if not needed:
+                    errors.append(f"{path}: Value must satisfy {message}")
+                    valid = False
+        if "not" in schema and self._validate(value, schema["not"], path, [], resolving):
+            errors.append(f"{path}: Value must not satisfy the schema")
+            valid = False
+        if "if" in schema:
+            condition: list[str] = []
+            if self._validate(value, schema["if"], path, condition, resolving):
+                if "then" in schema and not self._validate(value, schema["then"], path, errors, resolving):
+                    valid = False
+            elif "else" in schema and not self._validate(value, schema["else"], path, errors, resolving):
+                valid = False
+
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if "minimum" in schema and value < schema["minimum"]:
+                errors.append(f"{path}: Number is below the minimum")
+                valid = False
+            if "maximum" in schema and value > schema["maximum"]:
+                errors.append(f"{path}: Number exceeds the maximum")
+                valid = False
+            if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+                errors.append(f"{path}: Number is below the exclusive minimum")
+                valid = False
+            if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
+                errors.append(f"{path}: Number exceeds the exclusive maximum")
+                valid = False
+            if "multipleOf" in schema and not math.isclose(
+                value / schema["multipleOf"], round(value / schema["multipleOf"]), rel_tol=0.0, abs_tol=1e-9
+            ):
+                errors.append(f"{path}: Number is not a multiple of the required value")
+                valid = False
+        if isinstance(value, str):
+            length = len(value)
+            if "minLength" in schema and length < schema["minLength"]:
+                errors.append(f"{path}: String is shorter than the minimum length")
+                valid = False
+            if "maxLength" in schema and length > schema["maxLength"]:
+                errors.append(f"{path}: String exceeds the maximum length")
+                valid = False
+            if "pattern" in schema and re.search(schema["pattern"], value) is None:
+                errors.append(f"{path}: String does not match the required pattern")
+                valid = False
+        if isinstance(value, list):
+            if "minItems" in schema and len(value) < schema["minItems"]:
+                errors.append(f"{path}: Array has fewer than the minimum number of items")
+                valid = False
+            if "maxItems" in schema and len(value) > schema["maxItems"]:
+                errors.append(f"{path}: Array exceeds the maximum number of items")
+                valid = False
+            if schema.get("uniqueItems"):
+                for i, item in enumerate(value):
+                    if any(item == prior and type(item) is type(prior) for prior in value[:i]):
+                        errors.append(f"{path}[{i}]: Array items must be unique")
+                        valid = False
+                        break
+            for index, child in enumerate(schema.get("prefixItems", ())):
+                if index < len(value) and not self._validate(
+                    value[index], child, f"{path}[{index}]", errors, resolving
+                ):
+                    valid = False
+            if "items" in schema:
+                start = len(schema.get("prefixItems", ()))
+                for index in range(start, len(value)):
+                    if not self._validate(value[index], schema["items"], f"{path}[{index}]", errors, resolving):
+                        valid = False
+            if "contains" in schema:
+                matches = sum(
+                    self._validate(item, schema["contains"], f"{path}[{i}]", [], resolving)
+                    for i, item in enumerate(value)
+                )
+                minimum = schema.get("minContains", 1)
+                maximum = schema.get("maxContains")
+                if matches < minimum or (maximum is not None and matches > maximum):
+                    errors.append(f"{path}: Array does not contain the required item count")
+                    valid = False
+        if isinstance(value, dict):
+            required = schema.get("required", ())
+            for name in required:
+                if name not in value:
+                    errors.append(
+                        f"Missing required input: {name}"
+                        if path == "$"
+                        else f"{path}: Missing required property '{name}'"
+                    )
+                    valid = False
+            if "minProperties" in schema and len(value) < schema["minProperties"]:
+                errors.append(f"{path}: Object has fewer than the minimum number of properties")
+                valid = False
+            if "maxProperties" in schema and len(value) > schema["maxProperties"]:
+                errors.append(f"{path}: Object exceeds the maximum number of properties")
+                valid = False
+            properties = schema.get("properties", {})
+            patterns = schema.get("patternProperties", {})
+            evaluated: set[str] = set()
+            for name, child in properties.items():
+                if name in value:
+                    evaluated.add(name)
+                    if not self._validate(value[name], child, f"{path}.{name}", errors, resolving):
+                        valid = False
+            for name, item in value.items():
+                matched = False
+                for pattern, child in patterns.items():
+                    if re.search(pattern, name):
+                        matched = True
+                        evaluated.add(name)
+                        if not self._validate(item, child, f"{path}.{name}", errors, resolving):
+                            valid = False
+                if name not in properties and not matched:
+                    additional = schema.get("additionalProperties", True)
+                    if additional is False:
+                        errors.append(f"{path}.{name}: Additional properties are not allowed")
+                        valid = False
+                    elif additional is not True and not self._validate(
+                        item, additional, f"{path}.{name}", errors, resolving
+                    ):
+                        valid = False
+            if "dependentRequired" in schema:
+                for name, dependencies in schema["dependentRequired"].items():
+                    if name in value:
+                        for dependency in dependencies:
+                            if dependency not in value:
+                                errors.append(f"{path}: Property '{dependency}' is required when '{name}' is present")
+                                valid = False
+            if "dependentSchemas" in schema:
+                for name, child in schema["dependentSchemas"].items():
+                    if name in value and not self._validate(value, child, path, errors, resolving):
+                        valid = False
+            if "propertyNames" in schema:
+                for name in value:
+                    if not self._validate(name, schema["propertyNames"], f"{path}.{name}", errors, resolving):
+                        valid = False
+        return valid
 
 
 def json_dumps_pretty(value: Any) -> str:

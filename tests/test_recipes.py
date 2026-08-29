@@ -92,6 +92,35 @@ def recipe_pack_yaml(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.fixture()
+def bounded_recipe_yaml(tmp_path: Path) -> Path:
+    """Write a published-style bounded schema for registered-handler tests."""
+    payload = {
+        "recipes": [
+            {
+                "name": "bounded_recipe",
+                "inputs_schema": {
+                    "type": "object",
+                    "required": ["axis", "count", "pivot", "name_prefix", "mode"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "axis": {"type": "string", "enum": ["x", "y", "z"]},
+                        "count": {"type": "integer", "minimum": 1, "maximum": 128},
+                        "pivot": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+                        "name_prefix": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                        "mode": {"oneOf": [{"const": "fast"}, {"const": "safe"}]},
+                    },
+                },
+                "steps": [{"tool": "test__bounded"}],
+                "output_contract": "test",
+            }
+        ]
+    }
+    p = tmp_path / "bounded-recipes.yaml"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    return p
+
+
 def _make_metadata(skill_path: str | None, recipes_rel: str | None, *, nested: bool = False) -> MagicMock:
     """Build a minimal SkillMetadata mock."""
     md = MagicMock()
@@ -420,6 +449,48 @@ class TestRegisterRecipesTools:
         assert result["success"] is True
         assert result["context"]["steps"][0]["tool"] == "maya_materials__create"
         assert result["context"]["output_contract"] == "material_graph"
+
+    @pytest.mark.parametrize(
+        "mutate, expected_fragment",
+        [
+            (lambda value: {**value, "axis": "secret-axis"}, "$.axis"),
+            (lambda value: {**value, "objects": ["forbidden"]}, "$.objects"),
+            (lambda value: {**value, "count": 129}, "$.count"),
+            (lambda value: {**value, "pivot": [0, 0]}, "$.pivot"),
+            (lambda value: {**value, "pivot": [0, "bad", 0]}, "$.pivot[1]"),
+            (lambda value: {**value, "name_prefix": ""}, "$.name_prefix"),
+            (lambda value: {**value, "mode": "other"}, "$.mode"),
+        ],
+    )
+    def test_validate_and_apply_reject_complete_schema_counterexamples(
+        self, bounded_recipe_yaml: Path, tmp_path: Path, mutate, expected_fragment: str
+    ) -> None:
+        skill_dir = tmp_path / "bounded"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(bounded_recipe_yaml), nested=True)
+        md.name = "bounded"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+        valid_inputs = {"axis": "x", "count": 3, "pivot": [0, 0, 0], "name_prefix": "item", "mode": "fast"}
+        invalid_inputs = mutate(valid_inputs)
+
+        validated = handlers["recipes__validate"](
+            json.dumps({"skill": "bounded", "recipe": "bounded_recipe", "inputs": invalid_inputs})
+        )
+        applied = handlers["recipes__apply"](
+            json.dumps({"skill": "bounded", "recipe": "bounded_recipe", "inputs": invalid_inputs})
+        )
+
+        assert validated["success"] is True
+        assert validated["context"]["valid"] is False
+        assert any(expected_fragment in error for error in validated["context"]["errors"])
+        assert applied["success"] is False
+        assert any(expected_fragment in error for error in applied["context"]["errors"])
+
+    def test_malformed_published_schema_fails_closed(self, tmp_path: Path) -> None:
+        recipe = {"inputs_schema": {"type": "not-a-json-type"}}
+        errors = validate_recipe_inputs(recipe, {})
+        assert errors == ["$: Recipe input schema is invalid"]
 
     def test_no_registry_logs_warning(self) -> None:
         class _BadServer:
