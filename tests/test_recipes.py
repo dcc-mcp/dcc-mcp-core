@@ -492,6 +492,14 @@ class TestRegisterRecipesTools:
         errors = validate_recipe_inputs(recipe, {})
         assert errors == ["$: Recipe input schema is invalid"]
 
+        deep: dict[str, object] = {"type": "object"}
+        root = deep
+        for _ in range(130):
+            child: dict[str, object] = {"type": "object"}
+            root["properties"] = {"child": child}
+            root = child
+        assert validate_recipe_inputs({"inputs_schema": deep}, {}) == ["$: Recipe input schema is invalid"]
+
     def test_recursive_ref_and_ref_siblings_are_validated(self) -> None:
         schema = {
             "$defs": {
@@ -508,17 +516,25 @@ class TestRegisterRecipesTools:
                 "bounded": {"$ref": "#/$defs/positive", "maximum": 5},
             },
         }
-        assert validate_recipe_inputs(
-            {"inputs_schema": schema},
-            {"tree": {"value": 1, "child": {"value": 2}}, "bounded": 3},
-        ) == []
+        assert (
+            validate_recipe_inputs(
+                {"inputs_schema": schema},
+                {"tree": {"value": 1, "child": {"value": 2}}, "bounded": 3},
+            )
+            == []
+        )
         errors = validate_recipe_inputs({"inputs_schema": schema}, {"tree": {"value": 1}, "bounded": 6})
         assert any("$.bounded" in error and "maximum" in error for error in errors)
         assert validate_recipe_inputs({"inputs_schema": {"$ref": "#/missing"}}, {}) == [
             "$: Recipe input schema is invalid"
         ]
-        assert validate_recipe_inputs({"inputs_schema": {"$ref": "#"}}, {}) == [
-            "$: Recipe input schema is invalid"
+        root_ref_schema = {
+            "type": "object",
+            "required": ["value"],
+            "properties": {"value": {"type": "integer"}, "child": {"$ref": "#"}},
+        }
+        assert validate_recipe_inputs({"inputs_schema": root_ref_schema}, {"value": 1, "child": {}}) == [
+            "$.child: Missing required property 'value'"
         ]
 
     def test_unevaluated_keywords_and_json_number_semantics(self) -> None:
@@ -530,18 +546,51 @@ class TestRegisterRecipesTools:
         assert validate_recipe_inputs({"inputs_schema": schema}, {"value": 1.0, "items": [1]}) == []
         errors = validate_recipe_inputs({"inputs_schema": schema}, {"value": 1, "items": [1], "extra": "secret"})
         assert any("$.extra" in error and "Unevaluated" in error for error in errors)
-        assert validate_recipe_inputs(
-            {"inputs_schema": {"allOf": [{"type": "object"}], "unevaluatedProperties": False}}, {}
-        ) == ["$: Recipe input schema is invalid"]
-        assert validate_recipe_inputs(
-            {"inputs_schema": {"type": "array", "prefixItems": [{"type": "number"}], "unevaluatedItems": False}},
-            [1],
-        ) == []
+        composed = {
+            "allOf": [{"type": "object", "properties": {"known": {"type": "string"}}}],
+            "unevaluatedProperties": False,
+        }
+        assert validate_recipe_inputs({"inputs_schema": composed}, {"known": "ok"}) == []
+        assert any(
+            "$.extra" in error
+            for error in validate_recipe_inputs({"inputs_schema": composed}, {"known": "ok", "extra": 1})
+        )
+        ref_composed = {
+            "$defs": {"base": {"properties": {"known": {"type": "string"}}}},
+            "$ref": "#/$defs/base",
+            "unevaluatedProperties": False,
+        }
+        assert validate_recipe_inputs({"inputs_schema": ref_composed}, {"known": "ok"}) == []
+        either = {
+            "anyOf": [
+                {"properties": {"left": {"type": "integer"}}},
+                {"properties": {"right": {"type": "integer"}}},
+            ],
+            "unevaluatedProperties": False,
+        }
+        assert validate_recipe_inputs({"inputs_schema": either}, {"left": 1}) == []
+        assert any("$.extra" in error for error in validate_recipe_inputs({"inputs_schema": either}, {"extra": 1}))
+        additional = {
+            "type": "object",
+            "additionalProperties": True,
+            "unevaluatedProperties": False,
+        }
+        assert validate_recipe_inputs({"inputs_schema": additional}, {"extra": "allowed"}) == []
+        assert (
+            validate_recipe_inputs(
+                {"inputs_schema": {"type": "array", "prefixItems": [{"type": "number"}], "unevaluatedItems": False}},
+                [1],
+            )
+            == []
+        )
         errors = validate_recipe_inputs(
             {"inputs_schema": {"type": "array", "prefixItems": [{"type": "number"}], "unevaluatedItems": False}},
             [1, 2],
         )
         assert any("[1]" in error and "Unevaluated" in error for error in errors)
+        contains = {"type": "array", "contains": {"const": 1}, "unevaluatedItems": False}
+        assert validate_recipe_inputs({"inputs_schema": contains}, [1]) == []
+        assert any("[1]" in error for error in validate_recipe_inputs({"inputs_schema": contains}, [1, 2]))
 
     def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
         for malformed in ([], "schema", None):
@@ -567,10 +616,20 @@ class TestRegisterRecipesTools:
         assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
 
     def test_multiple_of_and_unique_items_use_exact_json_number_comparison(self) -> None:
-        schema = {"type": "object", "properties": {"value": {"type": "number", "multipleOf": 0.1}, "values": {"uniqueItems": True}}}
+        schema = {
+            "type": "object",
+            "properties": {
+                "value": {"type": "number", "multipleOf": 0.1},
+                "integer": {"type": "integer"},
+                "values": {"uniqueItems": True},
+            },
+        }
         assert validate_recipe_inputs({"inputs_schema": schema}, {"value": 0.3, "values": [1, 1.0]}) == [
             "$.values[1]: Array items must be unique"
         ]
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"integer": 1.0}) == []
+        huge = 10**2000
+        assert validate_recipe_inputs({"inputs_schema": {"type": "integer", "multipleOf": huge}}, huge) == []
         assert validate_recipe_inputs(
             {
                 "inputs_schema": {
@@ -580,9 +639,7 @@ class TestRegisterRecipesTools:
                 }
             },
             {"source": True},
-        ) == [
-            "$: Property 'format' is required when 'source' is present"
-        ]
+        ) == ["$: Property 'format' is required when 'source' is present"]
 
     def test_no_registry_logs_warning(self) -> None:
         class _BadServer:
