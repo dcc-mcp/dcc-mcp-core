@@ -260,7 +260,9 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight" in push["run"]
     assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit" in push["run"]
     trigger_paths = _workflow_pull_request_paths(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
-    assert {"scripts/ci/generated_lock_sync.py", ".github/workflows/release-please-lock-sync.yml"}.issubset(trigger_paths)
+    assert {"scripts/ci/generated_lock_sync.py", ".github/workflows/release-please-lock-sync.yml"}.issubset(
+        trigger_paths
+    )
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
@@ -324,9 +326,7 @@ def test_generated_diff_is_exactly_bounded() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.validate_changed_files(["Cargo.lock", "uv.lock"]) == []
-    assert module.validate_changed_files(["Cargo.lock", "evil.py"]) == [
-        "unexpected generated-lock diff paths: evil.py"
-    ]
+    assert module.validate_changed_files(["Cargo.lock", "evil.py"]) == ["unexpected generated-lock diff paths: evil.py"]
 
 
 def test_comment_only_workflow_text_is_not_an_executable_command() -> None:

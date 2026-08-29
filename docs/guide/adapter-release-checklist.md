@@ -150,7 +150,7 @@ Refer to the core `.release-please-manifest.json` at
 When a release-please or Renovate pull request needs generated lock updates,
 copy the boundary implemented by
 `.github/workflows/release-please-lock-sync.yml` and
-[`scripts/ci/generated_lock_sync.py`](../../scripts/ci/generated_lock_sync.py):
+[`scripts/ci/generated_lock_sync.py`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/scripts/ci/generated_lock_sync.py):
 
 - declare `contents: read` for the job and set
   `persist-credentials: false` on checkout;
