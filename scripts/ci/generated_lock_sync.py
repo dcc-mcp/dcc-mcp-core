@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 
 LOCK_OUTPUTS = frozenset(("Cargo.lock", "uv.lock", "crates/workspace-hack/Cargo.toml"))
 BRANCH_PREFIXES = ("release-please--branches--main", "renovate/")
+GIT_COMMAND_TIMEOUT_SECONDS = 30
 CREDENTIAL_ENV_KEYS = frozenset(
     (
         "GITHUB_TOKEN",
@@ -426,6 +427,23 @@ def validate_remote(root: Path, expected_repository: str) -> None:
         errors = validate_remote_urls(result.stdout.splitlines(), expected_repository, kind)
         if errors:
             _fail(f"origin {kind} URL rejected: {errors[0]}")
+    config = subprocess.run(
+        ("git", "config", "--local", "--name-only", "--get-regexp", ".*"),
+        cwd=str(root),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=GIT_COMMAND_TIMEOUT_SECONDS,
+    )
+    if config.returncode not in (0, 1):
+        _fail("could not inspect local Git configuration")
+    proxy_keys = [
+        key.strip()
+        for key in config.stdout.splitlines()
+        if key.strip().lower().endswith(".proxy") or key.strip().lower() == "core.gitproxy"
+    ]
+    if proxy_keys:
+        _fail(f"local Git proxy configuration is not allowed: {proxy_keys[0]}")
 
 
 def validate_force_with_lease(expected_sha: str, observed_sha: str) -> list[str]:
@@ -458,7 +476,17 @@ def _identity_from_env() -> PullRequestIdentity:
 
 
 def _git(root: Path, *args: str) -> str:
-    result = subprocess.run(("git", *args), cwd=str(root), check=True, stdout=subprocess.PIPE, text=True)
+    try:
+        result = subprocess.run(
+            ("git", *args),
+            cwd=str(root),
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("git command timed out") from exc
     return result.stdout.strip()
 
 

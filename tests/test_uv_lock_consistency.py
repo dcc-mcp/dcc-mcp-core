@@ -477,6 +477,45 @@ def test_validate_remote_enumerates_and_rejects_multiple_urls(tmp_path: Path, mo
     assert calls and calls[0][-3:] == ("get-url", "--all", "origin")
 
 
+@pytest.mark.parametrize("proxy_key", ["http.https://github.com/.proxy", "http.*.proxy", "remote.origin.proxy", "core.gitProxy"])
+def test_validate_remote_rejects_local_proxy_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, proxy_key: str
+) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_proxy_guard", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def fake_run(command, **kwargs):
+        if command[:3] == ("git", "remote", "get-url"):
+            return SimpleNamespace(returncode=0, stdout="https://github.com/dcc-mcp/dcc-mcp-core.git\n")
+        return SimpleNamespace(returncode=0, stdout=f"{proxy_key}\n")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit):
+        module.validate_remote(tmp_path, "dcc-mcp/dcc-mcp-core")
+
+
+def test_git_helper_uses_hard_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_git_timeout", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    observed: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        observed.update(kwargs)
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="git command timed out"):
+        module._git(tmp_path, "diff", "--name-only")
+    assert isinstance(observed.get("timeout"), (int, float))
+    assert observed["timeout"] > 0
+
+
 def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_timeout", script)
