@@ -395,7 +395,12 @@ jobs:
       matrix: ${{ fromJSON(needs.python37-contract.outputs.native-matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
+      # The native full-suite contract attests the immutable trusted validator
+      # ref; retain repository history so that fixed ref can be verified even
+      # on the shallow PR merge checkout.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Download admin UI bundle
         uses: actions/download-artifact@v8
         with:

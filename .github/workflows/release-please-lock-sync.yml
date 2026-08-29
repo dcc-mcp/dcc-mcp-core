@@ -1,7 +1,9 @@
 name: Generated Cargo metadata sync
 
 on:
-  pull_request:
+  # Run the workflow definition from the trusted default branch; PR content
+  # is data checked out explicitly below and never supplies the security gate.
+  pull_request_target:
     types: [opened, reopened, synchronize, edited]
     branches: [main]
     paths:
@@ -11,9 +13,11 @@ on:
       - "crates/**/Cargo.toml"
       - "pyproject.toml"
       - "release-please-config.json"
+      - "scripts/ci/generated_lock_sync.py"
+      - ".github/workflows/release-please-lock-sync.yml"
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 concurrency:
@@ -24,6 +28,8 @@ jobs:
   sync-cargo-metadata:
     name: Sync generated Cargo metadata
     runs-on: ubuntu-latest
+    env:
+      TRUSTED_VALIDATOR_REF: 07b57c8aec591fe9ee549f8252bfd5894041f2af
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
@@ -33,9 +39,29 @@ jobs:
       )
     steps:
       - uses: actions/checkout@v6
+        name: Checkout trusted lock validator
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          ref: 07b57c8aec591fe9ee549f8252bfd5894041f2af
+          path: trusted-lock-validator
+          persist-credentials: false
+
+      - name: Verify trusted lock validator object
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C trusted-lock-validator cat-file -e "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Validate checkout remote
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - validate-remote
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -54,21 +80,71 @@ jobs:
 
       - name: Sync generated lock metadata
         run: |
-          cargo update -w
-          cargo hakari generate
-          vx uv lock
+          set -euo pipefail
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - generate
+
+      - name: Revalidate pull request identity and generated diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - preflight
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - verify-diff
 
       - name: Commit and push changes
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        id: commit
         run: |
           if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml; then
             echo "Generated lock metadata is already in sync."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           git config user.name "loonghao"
           git config user.email "hal.long@outlook.com"
           git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
-          git commit -m "chore(ci): sync generated lock metadata"
-          git push origin "HEAD:${HEAD_REF}"
+          git commit --no-verify -m "chore(ci): sync generated lock metadata"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push fixed generated lock commit
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Re-capture remote identity without passing the write token to the
+          # validation child processes, then enforce the immutable lease.
+          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - validate-remote
+          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - remote-preflight
+          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - verify-commit
+          credential_file="$(mktemp)"
+          trap 'rm -f "$credential_file"' EXIT
+          chmod 600 "$credential_file"
+          printf 'https://x-access-token:%s@github.com\n' '${{ secrets.PERSONAL_ACCESS_TOKEN }}' > "$credential_file"
+          # Reset repository-local helpers before installing the ephemeral
+          # trusted store helper.  This prevents PR-controlled
+          # credential.helper=!… entries from executing during push.
+          env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+            -u ALL_PROXY -u all_proxy \
+            git -c http.proxy= \
+            -c https.proxy= \
+            -c core.gitProxy= \
+            -c credential.helper= \
+            -c credential.helper="store --file=${credential_file}" \
+            --no-verify \
+            push --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
+            "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
