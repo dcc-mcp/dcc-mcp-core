@@ -477,7 +477,9 @@ def test_validate_remote_enumerates_and_rejects_multiple_urls(tmp_path: Path, mo
     assert calls and calls[0][-3:] == ("get-url", "--all", "origin")
 
 
-@pytest.mark.parametrize("proxy_key", ["http.https://github.com/.proxy", "http.*.proxy", "remote.origin.proxy", "core.gitProxy"])
+@pytest.mark.parametrize(
+    "proxy_key", ["http.https://github.com/.proxy", "http.*.proxy", "remote.origin.proxy", "core.gitProxy"]
+)
 def test_validate_remote_rejects_local_proxy_configuration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, proxy_key: str
 ) -> None:
