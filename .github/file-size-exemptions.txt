@@ -17,3 +17,6 @@ crates/dcc-mcp-gateway/src/gateway/admin/trace.rs
 crates/dcc-mcp-skill-rest/src/service.rs
 # PIP-1799 — capability_service.rs 1507L, exceeds 1500 limit by 7 lines
 crates/dcc-mcp-gateway/src/gateway/capability_service.rs
+# #2385 — recipes.py now owns the dependency-free Draft 2020-12 recipe validator;
+# split into a dedicated schema module in a follow-up refactor.
+python/dcc_mcp_core/recipes.py
