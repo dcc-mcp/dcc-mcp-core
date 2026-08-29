@@ -12,8 +12,9 @@ pub async fn resolve_output(
     output: Value,
     cancellation: Option<CancellationToken>,
 ) -> Result<Value, String> {
-    let Some(id) =
-        dcc_mcp_skills::catalog::execute::split_phase_continuation_id(&output).map(str::to_owned)
+    let Some((owner, id, generation)) =
+        dcc_mcp_skills::catalog::execute::split_phase_marker(&output)
+            .map(|(owner, id, generation)| (owner.to_owned(), id.to_owned(), generation))
     else {
         return Ok(output);
     };
@@ -22,10 +23,13 @@ pub async fn resolve_output(
         .as_ref()
         .is_some_and(CancellationToken::is_cancelled)
     {
-        let _ = dcc_mcp_skills::catalog::execute::take_split_phase_continuation(&id);
+        let _ = dcc_mcp_skills::catalog::execute::take_split_phase_continuation(&owner, &id);
         return Err("CANCELLED".to_string());
     }
-    let Some(registration) = dcc_mcp_skills::catalog::execute::take_split_phase_continuation(&id)
+    let Some(registration) =
+        dcc_mcp_skills::catalog::execute::take_split_phase_continuation_if_generation(
+            &owner, &id, generation,
+        )
     else {
         return Err("split-phase continuation is missing or already consumed".to_string());
     };
@@ -38,7 +42,7 @@ pub async fn resolve_output(
     .map_err(|_| "split-phase continuation timed out".to_string())?
     .map_err(|err| format!("split-phase continuation worker failed: {err}"))??;
 
-    if dcc_mcp_skills::catalog::execute::split_phase_continuation_id(&result).is_some() {
+    if dcc_mcp_skills::catalog::execute::split_phase_marker(&result).is_some() {
         return Err("nested split-phase continuation rejected".to_string());
     }
     if cancellation
@@ -57,12 +61,12 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_once_and_rejects_replay() {
-        let id =
-            dcc_mcp_skills::catalog::execute::register_split_phase_continuation(Arc::new(|| {
-                Ok(serde_json::json!({"ok": true}))
-            }));
-        let marker =
-            json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "continuation_id": id}});
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let id = store.register(
+            Arc::new(|| Ok(serde_json::json!({"ok": true}))),
+            std::time::Duration::from_secs(1),
+        );
+        let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
         assert_eq!(
             resolve_output(marker.clone(), None).await.unwrap(),
             json!({"ok": true})
@@ -72,11 +76,12 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_is_checked_before_continuation_and_consumes_ownership() {
-        let id =
-            dcc_mcp_skills::catalog::execute::register_split_phase_continuation(Arc::new(|| {
-                Ok(serde_json::json!({"published": true}))
-            }));
-        let marker = serde_json::json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "continuation_id": id}});
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let id = store.register(
+            Arc::new(|| Ok(serde_json::json!({"published": true}))),
+            std::time::Duration::from_secs(1),
+        );
+        let marker = serde_json::json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
         let token = CancellationToken::new();
         token.cancel();
         assert_eq!(
@@ -88,14 +93,15 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_fails_closed() {
-        let id = dcc_mcp_skills::catalog::execute::register_split_phase_continuation_with_timeout(
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let id = store.register(
             Arc::new(|| {
                 std::thread::sleep(std::time::Duration::from_millis(30));
                 Ok(serde_json::json!({"ok": true}))
             }),
             std::time::Duration::from_millis(1),
         );
-        let marker = serde_json::json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "continuation_id": id}});
+        let marker = serde_json::json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
         let err = resolve_output(marker, None).await.unwrap_err();
         assert!(err.contains("timed out"));
     }
