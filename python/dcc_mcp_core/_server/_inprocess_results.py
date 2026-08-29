@@ -17,7 +17,6 @@ from dcc_mcp_core._server._inprocess_contracts import attach_deferred_streams
 from dcc_mcp_core._server._inprocess_contracts import exception_to_error_envelope
 from dcc_mcp_core._server._inprocess_contracts import timeout_hint_secs_to_ms
 from dcc_mcp_core.cancellation import DccMcpCancelledError
-from dcc_mcp_core.cancellation import check_cancelled
 from dcc_mcp_core.cancellation import reset_cancel_token
 from dcc_mcp_core.cancellation import set_cancel_token
 from dcc_mcp_core.chunked_runner import ChunkedRunner
@@ -146,7 +145,6 @@ def _resolve_continuation(
     started = time.monotonic()
     try:
         # Cancellation is checked both before submit and at the commit seam.
-        # ``check_cancelled`` is a no-op when no request token is installed.
         probe = _ContinuationProbe(
             cancel_token,
             started + outcome.timeout_secs,
@@ -178,7 +176,6 @@ def _resolve_continuation(
         finally:
             reset_cancel_token(reset)
         probe.check()
-        check_cancelled()
     except DccMcpCancelledError as exc:
         return exception_to_error_envelope(exc, message="Split-phase continuation cancelled before commit")
     except Exception as exc:
