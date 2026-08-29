@@ -36,7 +36,10 @@ pub async fn resolve_output(
     let timeout = registration.timeout;
     let result = tokio::time::timeout(
         timeout,
-        tokio::task::spawn_blocking(move || (registration.callback)()),
+        tokio::task::spawn_blocking({
+            let callback = registration.callback.clone();
+            move || (callback)()
+        }),
     )
     .await
     .map_err(|_| "split-phase continuation timed out".to_string())?
@@ -50,6 +53,9 @@ pub async fn resolve_output(
         .is_some_and(CancellationToken::is_cancelled)
     {
         return Err("CANCELLED".to_string());
+    }
+    if !registration.commit_allowed() {
+        return Err("split-phase continuation invalidated by shutdown".to_string());
     }
     Ok(result)
 }
@@ -106,6 +112,29 @@ mod tests {
         assert!(err.contains("timed out"));
     }
 
+    #[tokio::test]
+    async fn shutdown_invalidates_running_continuation_before_commit() {
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let started_callback = started.clone();
+        let id = store.register(
+            Arc::new(move || {
+                started_callback.store(true, std::sync::atomic::Ordering::Release);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                Ok(serde_json::json!({"published": true}))
+            }),
+            std::time::Duration::from_secs(1),
+        );
+        let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
+        let task = tokio::spawn(resolve_output(marker, None));
+        while !started.load(std::sync::atomic::Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        store.drain();
+        let err = task.await.unwrap().unwrap_err();
+        assert!(err.contains("invalidated"));
+    }
+
     #[test]
     fn shutdown_generation_drops_old_entries_and_isolates_owners() {
         let first = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
@@ -134,6 +163,20 @@ mod tests {
                 &second_id,
             )
             .is_some()
+        );
+    }
+
+    #[test]
+    fn orphaned_marker_is_reaped_after_ttl_without_take() {
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let id = store.register(
+            Arc::new(|| Ok(serde_json::json!({"orphan": true}))),
+            std::time::Duration::from_millis(10),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        assert!(
+            dcc_mcp_skills::catalog::execute::take_split_phase_continuation(store.owner(), &id,)
+                .is_none()
         );
     }
 }

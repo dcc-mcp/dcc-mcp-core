@@ -26,6 +26,7 @@
 use dcc_mcp_models::{ExecutionMode, JobStrategy, ThreadAffinity, ToolDeclaration};
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -53,15 +54,37 @@ pub struct ScriptExecutionContext {
 pub type SplitPhaseContinuation = dyn Fn() -> Result<serde_json::Value, String> + Send + Sync;
 
 pub struct SplitPhaseRegistration {
+    id: String,
     pub callback: Arc<SplitPhaseContinuation>,
     pub timeout: Duration,
     pub created_at: Instant,
+    store: Weak<SplitPhaseStore>,
+    generation: u64,
+}
+
+impl SplitPhaseRegistration {
+    pub fn commit_allowed(&self) -> bool {
+        self.store.upgrade().is_some_and(|store| {
+            !store.shutdown.load(std::sync::atomic::Ordering::Acquire)
+                && store.generation() == self.generation
+        })
+    }
+}
+
+impl Drop for SplitPhaseRegistration {
+    fn drop(&mut self) {
+        if let Some(store) = self.store.upgrade() {
+            store.active.lock().remove(&self.id);
+        }
+    }
 }
 
 pub struct SplitPhaseStore {
     owner: String,
     generation: std::sync::atomic::AtomicU64,
+    shutdown: std::sync::atomic::AtomicBool,
     entries: Mutex<HashMap<String, SplitPhaseRegistration>>,
+    active: Mutex<HashSet<String>>,
 }
 
 static SPLIT_PHASE_STORES: OnceLock<Mutex<HashMap<String, Weak<SplitPhaseStore>>>> =
@@ -76,11 +99,21 @@ impl SplitPhaseStore {
         let store = Arc::new(Self {
             owner: uuid::Uuid::new_v4().to_string(),
             generation: std::sync::atomic::AtomicU64::new(0),
+            shutdown: std::sync::atomic::AtomicBool::new(false),
             entries: Mutex::new(HashMap::new()),
+            active: Mutex::new(HashSet::new()),
         });
         stores()
             .lock()
             .insert(store.owner.clone(), Arc::downgrade(&store));
+        let weak = Arc::downgrade(&store);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                let Some(store) = weak.upgrade() else { break };
+                store.reap_expired();
+            }
+        });
         store
     }
 
@@ -92,25 +125,41 @@ impl SplitPhaseStore {
         self.generation.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn register(&self, continuation: Arc<SplitPhaseContinuation>, timeout: Duration) -> String {
+    pub fn register(
+        self: &Arc<Self>,
+        continuation: Arc<SplitPhaseContinuation>,
+        timeout: Duration,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
+        let generation = self.generation();
         self.entries.lock().insert(
             id.clone(),
             SplitPhaseRegistration {
+                id: id.clone(),
                 callback: continuation,
                 timeout,
                 created_at: Instant::now(),
+                store: Arc::downgrade(self),
+                generation,
             },
         );
         id
     }
 
     pub fn take(&self, id: &str) -> Option<SplitPhaseRegistration> {
+        self.reap_expired();
+        let registration = self.entries.lock().remove(id);
+        if registration.is_some() {
+            self.active.lock().insert(id.to_owned());
+        }
+        registration
+    }
+
+    pub fn reap_expired(&self) {
         let mut entries = self.entries.lock();
         entries.retain(|_, value| {
             value.created_at.elapsed() < value.timeout.min(Duration::from_secs(300))
         });
-        entries.remove(id)
     }
 
     pub fn take_if_generation(&self, id: &str, generation: u64) -> Option<SplitPhaseRegistration> {
@@ -120,7 +169,17 @@ impl SplitPhaseStore {
     }
 
     pub fn drain(&self) {
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::Release);
         self.entries.lock().clear();
+        self.active.lock().clear();
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn resume(&self) {
+        self.shutdown
+            .store(false, std::sync::atomic::Ordering::Release);
         self.generation
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
@@ -129,6 +188,7 @@ impl SplitPhaseStore {
 impl Drop for SplitPhaseStore {
     fn drop(&mut self) {
         self.entries.lock().clear();
+        self.active.lock().clear();
         stores().lock().remove(&self.owner);
     }
 }

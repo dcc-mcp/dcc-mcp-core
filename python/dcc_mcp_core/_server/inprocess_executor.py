@@ -355,12 +355,20 @@ class HostExecutionBridge:
                     RuntimeError("split-phase continuation cannot resolve on the host thread"),
                     message="Split-phase continuation must resolve off the host thread",
                 )
+        generation = self._current_generation()
+        if generation is None and isinstance(result, ContinuationOutcome):
+            return self._shutdown_error()
         return resolve_execution_result(
             result,
             context,
             dispatcher=self.dispatcher,
             dispatch_raw=self._dispatch_raw,
             cancel_token=context.cancel_token,
+            lifecycle_check=(
+                (lambda: self._is_current_generation(generation))
+                if isinstance(result, ContinuationOutcome) and generation is not None
+                else None
+            ),
         )
 
     def execute_script(

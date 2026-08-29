@@ -28,6 +28,7 @@ def resolve_execution_result(
     dispatcher: Any,
     dispatch_raw: Callable[..., Any],
     cancel_token: Any | None = None,
+    lifecycle_check: Callable[[], bool] | None = None,
 ) -> Any:
     """Resolve a returned chunk runner or deferred result."""
     if isinstance(result, ChunkedRunner):
@@ -39,7 +40,12 @@ def resolve_execution_result(
         )
     if not isinstance(result, DeferredToolResult):
         if isinstance(result, ContinuationOutcome):
-            return _resolve_continuation(result, context, cancel_token=cancel_token)
+            return _resolve_continuation(
+                result,
+                context,
+                cancel_token=cancel_token,
+                lifecycle_check=lifecycle_check,
+            )
         return result
 
     deadline = time.monotonic() + result.timeout_secs
@@ -81,6 +87,7 @@ def _resolve_continuation(
     context: InProcessExecutionContext,
     *,
     cancel_token: Any | None = None,
+    lifecycle_check: Callable[[], bool] | None = None,
 ) -> Any:
     """Run a split-phase continuation off the host dispatch closure.
 
@@ -100,6 +107,8 @@ def _resolve_continuation(
         # ``check_cancelled`` is a no-op when no request token is installed.
         if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
             raise DccMcpCancelledError("Request cancelled by client")
+        if lifecycle_check is not None and not lifecycle_check():
+            raise DccMcpCancelledError("Host execution bridge is shutting down")
         # A cancellable request must expose its probe to the continuation;
         # otherwise a blocking callback could perform durable work after the
         # request has timed out/cancelled.  Refuse such callbacks before they
@@ -122,6 +131,8 @@ def _resolve_continuation(
         finished = continuation(cancel_token) if accepts_probe else continuation()
         if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
             raise DccMcpCancelledError("Request cancelled by client")
+        if lifecycle_check is not None and not lifecycle_check():
+            raise DccMcpCancelledError("Host execution bridge is shutting down")
         check_cancelled()
     except DccMcpCancelledError as exc:
         return exception_to_error_envelope(exc, message="Split-phase continuation cancelled before commit")

@@ -202,6 +202,10 @@ impl PyMcpHttpServer {
         if let Some(probe) = self.readiness_probe.lock().as_ref().cloned() {
             server = server.with_readiness(probe);
         }
+        let split_phase_store = self.split_phase_store.lock().as_ref().cloned();
+        if let Some(store) = split_phase_store.as_ref() {
+            store.resume();
+        }
         let handle = self
             .runtime
             .block_on(server.start())
@@ -211,8 +215,6 @@ impl PyMcpHttpServer {
         let bind_addr = handle.bind_addr.clone();
         let is_gateway = handle.is_gateway;
         let instance_id = handle.instance_id.map(|id| id.to_string());
-        let split_phase_store = self.split_phase_store.lock().as_ref().cloned();
-
         Ok(PyServerHandle {
             inner: Some(handle),
             runtime: self.runtime.clone(),
