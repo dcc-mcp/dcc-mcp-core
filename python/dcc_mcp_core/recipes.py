@@ -71,7 +71,7 @@ from typing import Any
 
 from dcc_mcp_core import json_loads
 from dcc_mcp_core import yaml_loads
-from dcc_mcp_core._recipe_schema import _RecipeSchemaValidator
+from dcc_mcp_core._runtime.recipe_schema import _RecipeSchemaValidator
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
 from dcc_mcp_core.constants import CATEGORY_RECIPES
