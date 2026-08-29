@@ -43,6 +43,16 @@ class _RecipeSchemaValidator:
     _MAX_SCHEMA_SIZE: ClassVar[int] = 1_000_000
     _MAX_INSTANCE_SIZE: ClassVar[int] = 1_000_000
 
+    _NESTED_QUANTIFIER = re.compile(
+        r"\((?:\?:|\?=|\?!|\?<=|\?<!|\?>)?(?:\\.|[^()\\])*(?:[+*?]|\{\d+(?:,\d*)?\})(?:\\.|[^()\\])*\)"
+        r"(?:[+*?]|\{\d+(?:,\d*)?\})"
+    )
+    _QUANTIFIED_ALTERNATION = re.compile(
+        r"\((?:\?:|\?=|\?!|\?<=|\?<!|\?>)?(?:\\.|[^()\\|])*(?:\|)(?:\\.|[^()\\|])*\)"
+        r"(?:[+*?]|\{\d+(?:,\d*)?\})"
+    )
+    _BACKREFERENCE = re.compile(r"\\[1-9][0-9]*")
+
     def __init__(self, schema: Any) -> None:
         self.schema = schema
         try:
@@ -151,6 +161,8 @@ class _RecipeSchemaValidator:
             if not isinstance(schema["pattern"], str):
                 raise ValueError(path)
             re.compile(schema["pattern"])
+            if not cls._pattern_is_safe(schema["pattern"]):
+                raise ValueError(path)
         if "uniqueItems" in schema and not isinstance(schema["uniqueItems"], bool):
             raise ValueError(path)
         if "enum" in schema and (not isinstance(schema["enum"], list) or not schema["enum"]):
@@ -182,6 +194,21 @@ class _RecipeSchemaValidator:
                 json.dumps(schema["const"])
             except (TypeError, ValueError) as exc:
                 raise ValueError(path) from exc
+
+    @classmethod
+    def _pattern_is_safe(cls, pattern: str) -> bool:
+        """Reject regex constructs with unbounded backtracking risk.
+
+        Python's backtracking engine has no portable interruption API on
+        Python 3.7.  Published schemas therefore use a deliberately bounded
+        subset: nested quantifiers, quantified alternations, and backreferences
+        are rejected before any instance text reaches ``re.search``.
+        """
+        return not (
+            cls._NESTED_QUANTIFIER.search(pattern)
+            or cls._QUANTIFIED_ALTERNATION.search(pattern)
+            or cls._BACKREFERENCE.search(pattern)
+        )
 
     def _resolve_ref(self, ref: str) -> Any:
         if ref == "#":
