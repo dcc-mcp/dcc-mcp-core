@@ -259,6 +259,8 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "--force-with-lease" in push["run"]
     assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight" in push["run"]
     assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit" in push["run"]
+    trigger_paths = _workflow_pull_request_paths(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
+    assert {"scripts/ci/generated_lock_sync.py", ".github/workflows/release-please-lock-sync.yml"}.issubset(trigger_paths)
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:

@@ -11,6 +11,8 @@ on:
       - "crates/**/Cargo.toml"
       - "pyproject.toml"
       - "release-please-config.json"
+      - "scripts/ci/generated_lock_sync.py"
+      - ".github/workflows/release-please-lock-sync.yml"
 
 permissions:
   contents: read
