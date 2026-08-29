@@ -29,7 +29,7 @@ jobs:
     name: Sync generated Cargo metadata
     runs-on: ubuntu-latest
     env:
-      TRUSTED_VALIDATOR_SHA256: b9f35184f5b3d97e5eb4ca347e716644b90e5a809cc1aa9f75d8d423b11ce165
+      TRUSTED_VALIDATOR_REF: e6ee5f0ea9ddcb3a2d294be3cd867450347b6a02
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
@@ -45,15 +45,11 @@ jobs:
           path: trusted-lock-validator
           persist-credentials: false
 
-      - name: Pin trusted lock validator
+      - name: Verify trusted lock validator object
         shell: bash
         run: |
           set -euo pipefail
-          trusted_validator="trusted-lock-validator/scripts/ci/generated_lock_sync.py"
-          test "$(sha256sum "$trusted_validator" | awk '{print $1}')" = "$TRUSTED_VALIDATOR_SHA256"
-          cp "$trusted_validator" "$RUNNER_TEMP/generated_lock_sync.py"
-          chmod 0555 "$RUNNER_TEMP/generated_lock_sync.py"
-          test "$(sha256sum "$RUNNER_TEMP/generated_lock_sync.py" | awk '{print $1}')" = "$TRUSTED_VALIDATOR_SHA256"
+          git -C trusted-lock-validator cat-file -e "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py"
 
       - uses: actions/checkout@v6
         with:
@@ -65,8 +61,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          test "$(sha256sum "$RUNNER_TEMP/generated_lock_sync.py" | awk '{print $1}')" = "$TRUSTED_VALIDATOR_SHA256"
-          python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - validate-remote
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -86,8 +81,7 @@ jobs:
       - name: Sync generated lock metadata
         run: |
           set -euo pipefail
-          test "$(sha256sum "$RUNNER_TEMP/generated_lock_sync.py" | awk '{print $1}')" = "$TRUSTED_VALIDATOR_SHA256"
-          python "$RUNNER_TEMP/generated_lock_sync.py" generate
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - generate
 
       - name: Revalidate pull request identity and generated diff
         env:
@@ -100,9 +94,8 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          test "$(sha256sum "$RUNNER_TEMP/generated_lock_sync.py" | awk '{print $1}')" = "$TRUSTED_VALIDATOR_SHA256"
-          python "$RUNNER_TEMP/generated_lock_sync.py" preflight
-          python "$RUNNER_TEMP/generated_lock_sync.py" verify-diff
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - preflight
+          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - verify-diff
 
       - name: Commit and push changes
         id: commit
@@ -135,10 +128,9 @@ jobs:
           set -euo pipefail
           # Re-capture remote identity without passing the write token to the
           # validation child processes, then enforce the immutable lease.
-          test "$(sha256sum "$RUNNER_TEMP/generated_lock_sync.py" | awk '{print $1}')" = "$TRUSTED_VALIDATOR_SHA256"
-          env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote
-          env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" remote-preflight
-          env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" verify-commit
+          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - validate-remote
+          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - remote-preflight
+          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - verify-commit
           credential_file="$(mktemp)"
           trap 'rm -f "$credential_file"' EXIT
           chmod 600 "$credential_file"

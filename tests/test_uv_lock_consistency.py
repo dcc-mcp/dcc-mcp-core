@@ -220,8 +220,7 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         job="sync-cargo-metadata",
         step_name="Sync generated lock metadata",
     )
-    assert sync_commands[-1] == 'python "$RUNNER_TEMP/generated_lock_sync.py" generate'
-    assert any("TRUSTED_VALIDATOR_SHA256" in command for command in sync_commands)
+    assert any("trusted-lock-validator show" in command and "python - generate" in command for command in sync_commands)
     commit_commands = _workflow_step_commands(
         sync_workflow,
         job="sync-cargo-metadata",
@@ -253,24 +252,24 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     trusted = next(step for step in job["steps"] if step.get("name") == "Checkout trusted lock validator")
     assert trusted["with"]["ref"] == "e6ee5f0ea9ddcb3a2d294be3cd867450347b6a02"
     assert trusted["with"]["persist-credentials"] is False
-    pin = next(step for step in job["steps"] if step.get("name") == "Pin trusted lock validator")
-    assert "$RUNNER_TEMP/generated_lock_sync.py" in pin["run"]
-    assert "TRUSTED_VALIDATOR_SHA256" in pin["run"]
-    assert "sha256sum" in pin["run"]
-    assert "chmod 0555" in pin["run"]
+    pin = next(step for step in job["steps"] if step.get("name") == "Verify trusted lock validator object")
+    assert "$RUNNER_TEMP/generated_lock_sync.py" not in pin["run"]
+    assert "git -C trusted-lock-validator cat-file -e" in pin["run"]
     checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
     assert checkout["with"]["persist-credentials"] is False
     remote_check = next(step for step in job["steps"] if step.get("name") == "Validate checkout remote")
-    assert 'python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote' in remote_check["run"]
+    assert (
+        "git -C trusted-lock-validator show" in remote_check["run"]
+        and "python - validate-remote" in remote_check["run"]
+    )
     generation = next(step for step in job["steps"] if step.get("name") == "Sync generated lock metadata")
-    assert generation["run"].find("generated_lock_sync.py") >= 0
+    assert "trusted-lock-validator show" in generation["run"] and "python - generate" in generation["run"]
     assert "PUSH_TOKEN" not in generation.get("env", {})
     push = next(step for step in job["steps"] if step.get("name") == "Push fixed generated lock commit")
     assert push["if"] == "steps.commit.outputs.changed == 'true'"
     assert "trap" in push["run"] and 'rm -f "$credential_file"' in push["run"]
     assert "--force-with-lease" in push["run"]
-    assert 'env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" remote-preflight' in push["run"]
-    assert 'env -u PUSH_TOKEN python "$RUNNER_TEMP/generated_lock_sync.py" verify-commit' in push["run"]
+    assert "env -u PUSH_TOKEN git -C trusted-lock-validator show" in push["run"]
     trigger_paths = _workflow_pull_request_paths(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
     assert {"scripts/ci/generated_lock_sync.py", ".github/workflows/release-please-lock-sync.yml"}.issubset(
         trigger_paths
@@ -279,14 +278,13 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "credential.helper" in push["run"]
     assert "validate-remote" in push["run"]
     assert "--no-verify" in push["run"]
-    assert "TRUSTED_VALIDATOR_SHA256" in push["run"]
+    assert "trusted-lock-validator show" in push["run"] and "python - verify-commit" in push["run"]
 
 
 def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
     workflow_text = LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8")
-    digest_checks = workflow_text.count('test "$(sha256sum "$RUNNER_TEMP/generated_lock_sync.py"')
-    assert digest_checks >= 4
-    assert "TRUSTED_VALIDATOR_SHA256" in workflow_text
+    assert "$RUNNER_TEMP/generated_lock_sync.py" not in workflow_text
+    assert workflow_text.count("trusted-lock-validator show") >= 5
 
 
 def test_trusted_validator_ref_contains_attested_file() -> None:
@@ -424,6 +422,34 @@ def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
                 break
             time.sleep(0.05)
         assert not module.process_exists(pid)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="escaped setsid descendants are a POSIX contract")
+def test_bounded_runner_fails_closed_on_escaped_daemon(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_escaped_daemon", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    daemon_pid = tmp_path / "daemon.pid"
+    probe = tmp_path / "escaped_daemon.py"
+    probe.write_text(
+        "import os, subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "subprocess.Popen([sys.executable, '-c', \"from pathlib import Path; import os,sys,time; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)\", sys.argv[1]], start_new_session=True)\n"
+        "time.sleep(0.2)\n"
+        "os._exit(0)\n",
+        encoding="utf-8",
+    )
+    try:
+        with pytest.raises(RuntimeError, match="descendants survived"):
+            module.run_bounded([sys.executable, str(probe), str(daemon_pid)], timeout_seconds=5)
+    finally:
+        if daemon_pid.exists():
+            pid = int(daemon_pid.read_text())
+            if module.process_exists(pid):
+                subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False)
+    assert not daemon_pid.exists() or not module.process_exists(int(daemon_pid.read_text()))
 
 
 def test_stale_head_and_unexpected_diff_contracts_block_push() -> None:

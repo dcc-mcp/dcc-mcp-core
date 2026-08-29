@@ -17,6 +17,8 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+from threading import Event
+from threading import Thread
 import time
 from typing import Iterable
 from typing import Mapping
@@ -144,13 +146,28 @@ def run_bounded(
         start_new_session=os.name != "nt",
         creationflags=creationflags,
     )
+    observed: set[int] = set()
+    stop_observer = Event()
+
+    def observe_descendants() -> None:
+        while not stop_observer.is_set():
+            observed.update(_descendant_pids(process.pid))
+            stop_observer.wait(0.02)
+
+    observer = Thread(target=observe_descendants, daemon=True) if os.name == "posix" else None
+    if observer is not None:
+        observer.start()
     try:
         process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
         # Capture the complete tree before terminating the leader.  A POSIX
         # child can call setsid() and leave the leader's process group; taking
         # this snapshot lets the fail-closed cleanup still target that PID.
-        descendants: set[int] = set(_descendant_pids(process.pid)) if os.name == "posix" else set()
+        stop_observer.set()
+        if observer is not None:
+            observer.join()
+        descendants = set(observed)
+        descendants.update(_descendant_pids(process.pid) if os.name == "posix" else ())
         if os.name == "nt":
             subprocess.run(("taskkill", "/PID", str(process.pid), "/T", "/F"), check=False)
         else:
@@ -159,17 +176,30 @@ def run_bounded(
             for _ in range(10):
                 current = set(_descendant_pids(process.pid))
                 descendants.update(current)
-                for pid in current:
+                for pid in descendants | current:
                     with suppress(ProcessLookupError):
                         os.kill(pid, signal.SIGKILL)
                 if not current:
                     break
                 time.sleep(0.02)
-        process.communicate()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("process containment failed; command pipes did not close after cleanup") from None
         remaining = [pid for pid in descendants if process_exists(pid)]
         if remaining:
             raise RuntimeError(f"process containment failed; descendants survived timeout: {remaining}") from None
         raise
+    finally:
+        stop_observer.set()
+        if observer is not None:
+            observer.join()
+    escaped = [pid for pid in observed if process_exists(pid)]
+    if escaped:
+        for pid in escaped:
+            with suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        raise RuntimeError(f"process containment failed; descendants survived completion: {escaped}")
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, command)
 
