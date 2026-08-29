@@ -63,6 +63,8 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
+from decimal import InvalidOperation
 import json
 import logging
 import math
@@ -92,7 +94,7 @@ class RecipeDefinition:
     name: str
     dcc: str = ""
     description: str = ""
-    inputs_schema: dict[str, Any] | None = None
+    inputs_schema: Any = None
     steps: list[Any] | None = None
     output_contract: str | dict[str, Any] | None = None
     toolset_profiles: list[str] | None = None
@@ -104,7 +106,7 @@ class RecipeDefinition:
             "name": self.name,
             "dcc": self.dcc,
             "description": self.description,
-            "inputs_schema": self.inputs_schema or {},
+            "inputs_schema": {} if self.inputs_schema is None else self.inputs_schema,
             "steps": self.steps or [],
             "output_contract": self.output_contract,
             "toolset_profiles": self.toolset_profiles or [],
@@ -314,7 +316,7 @@ def load_recipe_pack(recipes_path: str, *, skill_name: str = "") -> list[RecipeD
                 name=name,
                 dcc=str(item.get("dcc") or ""),
                 description=str(item.get("description") or ""),
-                inputs_schema=item.get("inputs_schema") if isinstance(item.get("inputs_schema"), dict) else {},
+                inputs_schema=item.get("inputs_schema", {}),
                 steps=item.get("steps") if isinstance(item.get("steps"), list) else [],
                 output_contract=item.get("output_contract"),
                 toolset_profiles=[str(p) for p in profiles] if isinstance(profiles, list) else [],
@@ -373,13 +375,11 @@ def validate_recipe_inputs(recipe: dict[str, Any], inputs: dict[str, Any]) -> li
     fails closed when a schema is malformed.  Both recipe handlers call this
     function, so validation and application cannot drift.
     """
-    schema = recipe.get("inputs_schema") if isinstance(recipe, dict) else None
-    if schema is None:
-        schema = {}
+    schema = {} if not isinstance(recipe, dict) or "inputs_schema" not in recipe else recipe["inputs_schema"]
     try:
         validator = _RecipeSchemaValidator(schema)
         return validator.validate(inputs)
-    except (TypeError, ValueError, re.error):
+    except (TypeError, ValueError, re.error, RecursionError, InvalidOperation, OverflowError):
         # Schema authors must fix malformed contracts; callers must never get
         # an execution plan from an unverifiable published schema.
         return ["$: Recipe input schema is invalid"]
@@ -409,6 +409,8 @@ class _RecipeSchemaValidator:
     """Dependency-free Draft 2020-12 assertion validator for recipe inputs."""
 
     _TYPES: ClassVar[set[str]] = {"null", "boolean", "object", "array", "number", "integer", "string"}
+    _MAX_DEPTH: ClassVar[int] = 128
+    _MAX_NODES: ClassVar[int] = 10000
 
     def __init__(self, schema: Any) -> None:
         self.schema = schema
@@ -416,6 +418,7 @@ class _RecipeSchemaValidator:
 
     def validate(self, instance: Any) -> list[str]:
         errors: list[str] = []
+        self._nodes = 0
         self._validate(instance, self.schema, "$", errors, set())
         return errors
 
@@ -445,6 +448,7 @@ class _RecipeSchemaValidator:
             "propertyNames",
             "contains",
             "items",
+            "unevaluatedItems",
             "not",
             "if",
             "then",
@@ -503,7 +507,7 @@ class _RecipeSchemaValidator:
             cls._check_schema(schema["additionalProperties"], f"{path}.additionalProperties")
         if "unevaluatedProperties" in schema:
             cls._check_schema(schema["unevaluatedProperties"], f"{path}.unevaluatedProperties")
-        for key in ("propertyNames", "contains", "items", "not", "if", "then", "else"):
+        for key in ("propertyNames", "contains", "items", "unevaluatedItems", "not", "if", "then", "else"):
             if key in schema:
                 cls._check_schema(schema[key], f"{path}.{key}")
         if "const" in schema:
@@ -542,10 +546,37 @@ class _RecipeSchemaValidator:
         return type(value).__name__
 
     @staticmethod
+    def _json_equal(left: Any, right: Any) -> bool:
+        """Compare JSON values using JSON number (1 == 1.0) semantics."""
+        if isinstance(left, bool) or isinstance(right, bool):
+            return type(left) is type(right) and left == right
+        if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            return left == right
+        if isinstance(left, list) and isinstance(right, list):
+            return len(left) == len(right) and all(
+                _RecipeSchemaValidator._json_equal(a, b) for a, b in zip(left, right)
+            )
+        if isinstance(left, dict) and isinstance(right, dict):
+            return set(left) == set(right) and all(_RecipeSchemaValidator._json_equal(left[k], right[k]) for k in left)
+        return type(left) is type(right) and left == right
+
+    @staticmethod
+    def _is_multiple_of(value: Any, divisor: Any) -> bool:
+        try:
+            return Decimal(str(value)) % Decimal(str(divisor)) == 0
+        except (InvalidOperation, OverflowError, ValueError) as exc:
+            raise ValueError("multipleOf is not representable") from exc
+
+    @staticmethod
     def _matches(value: Any, expected: Any) -> bool:
         return _matches_json_type(value, expected)
 
-    def _validate(self, value: Any, schema: Any, path: str, errors: list[str], resolving: set[str]) -> bool:
+    def _validate(self, value: Any, schema: Any, path: str, errors: list[str], resolving: set[Any]) -> bool:
+        self._nodes += 1
+        if self._nodes > self._MAX_NODES:
+            raise ValueError("schema node budget exceeded")
+        if path.count(".") + path.count("[") > self._MAX_DEPTH:
+            raise ValueError("instance depth exceeded")
         if isinstance(schema, bool):
             if not schema:
                 errors.append(f"{path}: Schema rejected this value")
@@ -554,16 +585,17 @@ class _RecipeSchemaValidator:
         if not isinstance(schema, dict):
             raise ValueError(path)
         ref = schema.get("$ref")
-        if ref is not None:
-            if ref in resolving:
-                raise ValueError(ref)
-            resolving.add(ref)
-            try:
-                return self._validate(value, self._resolve_ref(ref), path, errors, resolving)
-            finally:
-                resolving.remove(ref)
-
         valid = True
+        if ref is not None:
+            resolution_key = (ref, path)
+            if resolution_key in resolving:
+                raise ValueError("recursive schema resolution exceeded")
+            resolving.add(resolution_key)
+            try:
+                if not self._validate(value, self._resolve_ref(ref), path, errors, resolving):
+                    valid = False
+            finally:
+                resolving.remove(resolution_key)
         if "type" in schema and not self._matches(value, schema["type"]):
             if path.startswith("$.") and path.count(".") == 1 and "[" not in path and isinstance(schema["type"], str):
                 name = path[2:]
@@ -571,12 +603,10 @@ class _RecipeSchemaValidator:
             else:
                 errors.append(f"{path}: Expected type {schema['type']}, got {self._type_name(value)}")
             return False
-        if "enum" in schema and not any(
-            value == candidate and type(value) is type(candidate) for candidate in schema["enum"]
-        ):
+        if "enum" in schema and not any(self._json_equal(value, candidate) for candidate in schema["enum"]):
             errors.append(f"{path}: Value is not one of the allowed options")
             valid = False
-        if "const" in schema and not (value == schema["const"] and type(value) is type(schema["const"])):
+        if "const" in schema and not self._json_equal(value, schema["const"]):
             errors.append(f"{path}: Value does not match the required constant")
             valid = False
 
@@ -618,9 +648,7 @@ class _RecipeSchemaValidator:
             if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
                 errors.append(f"{path}: Number exceeds the exclusive maximum")
                 valid = False
-            if "multipleOf" in schema and not math.isclose(
-                value / schema["multipleOf"], round(value / schema["multipleOf"]), rel_tol=0.0, abs_tol=1e-9
-            ):
+            if "multipleOf" in schema and not self._is_multiple_of(value, schema["multipleOf"]):
                 errors.append(f"{path}: Number is not a multiple of the required value")
                 valid = False
         if isinstance(value, str):
@@ -643,7 +671,7 @@ class _RecipeSchemaValidator:
                 valid = False
             if schema.get("uniqueItems"):
                 for i, item in enumerate(value):
-                    if any(item == prior and type(item) is type(prior) for prior in value[:i]):
+                    if any(self._json_equal(item, prior) for prior in value[:i]):
                         errors.append(f"{path}[{i}]: Array items must be unique")
                         valid = False
                         break
@@ -652,10 +680,24 @@ class _RecipeSchemaValidator:
                     value[index], child, f"{path}[{index}]", errors, resolving
                 ):
                     valid = False
+            evaluated_items: set[int] = set(range(min(len(value), len(schema.get("prefixItems", ())))))
             if "items" in schema:
                 start = len(schema.get("prefixItems", ()))
                 for index in range(start, len(value)):
+                    evaluated_items.add(index)
                     if not self._validate(value[index], schema["items"], f"{path}[{index}]", errors, resolving):
+                        valid = False
+            if "unevaluatedItems" in schema:
+                for index, item in enumerate(value):
+                    if index in evaluated_items:
+                        continue
+                    assertion = schema["unevaluatedItems"]
+                    if assertion is False:
+                        errors.append(f"{path}[{index}]: Unevaluated items are not allowed")
+                        valid = False
+                    elif assertion is not True and not self._validate(
+                        item, assertion, f"{path}[{index}]", errors, resolving
+                    ):
                         valid = False
             if "contains" in schema:
                 matches = sum(
@@ -718,6 +760,18 @@ class _RecipeSchemaValidator:
             if "dependentSchemas" in schema:
                 for name, child in schema["dependentSchemas"].items():
                     if name in value and not self._validate(value, child, path, errors, resolving):
+                        valid = False
+            if "unevaluatedProperties" in schema:
+                assertion = schema["unevaluatedProperties"]
+                for name, item in value.items():
+                    if name in evaluated:
+                        continue
+                    if assertion is False:
+                        errors.append(f"{path}.{name}: Unevaluated properties are not allowed")
+                        valid = False
+                    elif assertion is not True and not self._validate(
+                        item, assertion, f"{path}.{name}", errors, resolving
+                    ):
                         valid = False
             if "propertyNames" in schema:
                 for name in value:

@@ -492,6 +492,95 @@ class TestRegisterRecipesTools:
         errors = validate_recipe_inputs(recipe, {})
         assert errors == ["$: Recipe input schema is invalid"]
 
+    def test_recursive_ref_and_ref_siblings_are_validated(self) -> None:
+        schema = {
+            "$defs": {
+                "node": {
+                    "type": "object",
+                    "properties": {"value": {"type": "integer"}, "child": {"$ref": "#/$defs/node"}},
+                    "additionalProperties": False,
+                },
+                "positive": {"type": "integer", "minimum": 2},
+            },
+            "type": "object",
+            "properties": {
+                "tree": {"$ref": "#/$defs/node"},
+                "bounded": {"$ref": "#/$defs/positive", "maximum": 5},
+            },
+        }
+        assert validate_recipe_inputs(
+            {"inputs_schema": schema},
+            {"tree": {"value": 1, "child": {"value": 2}}, "bounded": 3},
+        ) == []
+        errors = validate_recipe_inputs({"inputs_schema": schema}, {"tree": {"value": 1}, "bounded": 6})
+        assert any("$.bounded" in error and "maximum" in error for error in errors)
+        assert validate_recipe_inputs({"inputs_schema": {"$ref": "#/missing"}}, {}) == [
+            "$: Recipe input schema is invalid"
+        ]
+        assert validate_recipe_inputs({"inputs_schema": {"$ref": "#"}}, {}) == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    def test_unevaluated_keywords_and_json_number_semantics(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {"value": {"enum": [1]}, "items": {"type": "array", "prefixItems": [{"type": "number"}]}},
+            "unevaluatedProperties": False,
+        }
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"value": 1.0, "items": [1]}) == []
+        errors = validate_recipe_inputs({"inputs_schema": schema}, {"value": 1, "items": [1], "extra": "secret"})
+        assert any("$.extra" in error and "Unevaluated" in error for error in errors)
+        assert validate_recipe_inputs(
+            {"inputs_schema": {"type": "array", "prefixItems": [{"type": "number"}], "unevaluatedItems": False}},
+            [1],
+        ) == []
+        errors = validate_recipe_inputs(
+            {"inputs_schema": {"type": "array", "prefixItems": [{"type": "number"}], "unevaluatedItems": False}},
+            [1, 2],
+        )
+        assert any("[1]" in error and "Unevaluated" in error for error in errors)
+
+    def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
+        for malformed in ([], "schema", None):
+            assert validate_recipe_inputs({"inputs_schema": malformed}, {}) == ["$: Recipe input schema is invalid"]
+
+    def test_registered_handlers_reject_non_mapping_published_schema(self, tmp_path: Path) -> None:
+        recipe_path = tmp_path / "malformed.yaml"
+        recipe_path.write_text(
+            json.dumps({"recipes": [{"name": "bad", "inputs_schema": [], "steps": []}]}), encoding="utf-8"
+        )
+        skill_dir = tmp_path / "bad-skill"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_path), nested=True)
+        md.name = "bad-skill"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+        params = {"skill": "bad-skill", "recipe": "bad", "inputs": {"secret": "redacted"}}
+        validated = handlers["recipes__validate"](json.dumps(params))
+        applied = handlers["recipes__apply"](json.dumps(params))
+        assert validated["context"]["valid"] is False
+        assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+        assert applied["success"] is False
+        assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    def test_multiple_of_and_unique_items_use_exact_json_number_comparison(self) -> None:
+        schema = {"type": "object", "properties": {"value": {"type": "number", "multipleOf": 0.1}, "values": {"uniqueItems": True}}}
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"value": 0.3, "values": [1, 1.0]}) == [
+            "$.values[1]: Array items must be unique"
+        ]
+        assert validate_recipe_inputs(
+            {
+                "inputs_schema": {
+                    "type": "object",
+                    "dependentRequired": {"source": ["format"]},
+                    "dependentSchemas": {"source": {"properties": {"format": {"const": "json"}}}},
+                }
+            },
+            {"source": True},
+        ) == [
+            "$: Property 'format' is required when 'source' is present"
+        ]
+
     def test_no_registry_logs_warning(self) -> None:
         class _BadServer:
             @property
