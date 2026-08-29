@@ -24,6 +24,10 @@
 //! subprocess path is taken.
 
 use dcc_mcp_models::{ExecutionMode, JobStrategy, ThreadAffinity, ToolDeclaration};
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_actions::{DispatchJobContext, current_dispatch_job_context};
@@ -42,6 +46,57 @@ pub struct ScriptExecutionContext {
     pub execution: ExecutionMode,
     pub timeout_hint_secs: Option<u32>,
     pub job_strategy: JobStrategy,
+}
+
+/// Opaque continuation callback retained between the bounded host phase and
+/// the request/job worker. The callback never crosses the MCP/REST wire.
+pub type SplitPhaseContinuation = dyn Fn() -> Result<serde_json::Value, String> + Send + Sync;
+
+pub struct SplitPhaseRegistration {
+    pub callback: Arc<SplitPhaseContinuation>,
+    pub timeout: Duration,
+}
+
+static SPLIT_PHASE_CONTINUATIONS: OnceLock<Mutex<HashMap<String, SplitPhaseRegistration>>> =
+    OnceLock::new();
+
+fn continuation_store() -> &'static Mutex<HashMap<String, SplitPhaseRegistration>> {
+    SPLIT_PHASE_CONTINUATIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a continuation and return its one-shot opaque id.
+pub fn register_split_phase_continuation(continuation: Arc<SplitPhaseContinuation>) -> String {
+    register_split_phase_continuation_with_timeout(continuation, Duration::from_secs(3600))
+}
+
+pub fn register_split_phase_continuation_with_timeout(
+    continuation: Arc<SplitPhaseContinuation>,
+    timeout: Duration,
+) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    continuation_store().lock().insert(
+        id.clone(),
+        SplitPhaseRegistration {
+            callback: continuation,
+            timeout,
+        },
+    );
+    id
+}
+
+/// Take (consume) a continuation by id. Consumption enforces one-shot
+/// ownership and prevents replay after a terminal result.
+pub fn take_split_phase_continuation(id: &str) -> Option<SplitPhaseRegistration> {
+    continuation_store().lock().remove(id)
+}
+
+/// Extract the reserved transport marker from a handler output.
+pub fn split_phase_continuation_id(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("_dcc_mcp_split_phase")
+        .filter(|v| v.get("kind").and_then(serde_json::Value::as_str) == Some("continuation.v1"))
+        .and_then(|v| v.get("continuation_id"))
+        .and_then(serde_json::Value::as_str)
 }
 
 /// Python-facing read-only view of a Rust cancellation probe.

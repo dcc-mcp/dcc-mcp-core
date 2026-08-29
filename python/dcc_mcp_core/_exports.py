@@ -274,6 +274,8 @@ _ALL_LAZY: dict[str, str] = {
     "BaseDccCallableDispatcherFull": "dcc_mcp_core.server",
     "BaseDccPump": "dcc_mcp_core.server",
     "DeferredToolResult": "dcc_mcp_core.server",
+    "ContinuationOutcome": "dcc_mcp_core.server",
+    "SplitPhaseOutcome": "dcc_mcp_core.server",
     "DebugPathMapping": "dcc_mcp_core.adapter_contracts",
     "DebugSessionDescriptor": "dcc_mcp_core.adapter_contracts",
     "DebugSessionStatus": "dcc_mcp_core.adapter_contracts",

@@ -35,6 +35,7 @@ from typing import Sequence
 import uuid
 
 from dcc_mcp_core._server._inprocess_contracts import BaseDccCallableDispatcher
+from dcc_mcp_core._server._inprocess_contracts import ContinuationOutcome
 from dcc_mcp_core._server._inprocess_contracts import DeferredToolResult
 from dcc_mcp_core._server._inprocess_contracts import InProcessExecutionContext
 from dcc_mcp_core._server._inprocess_contracts import context_from_kwargs as _context_from_kwargs
@@ -69,9 +70,11 @@ _SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS = 1.0
 
 __all__ = [
     "BaseDccCallableDispatcher",
+    "ContinuationOutcome",
     "DeferredToolResult",
     "HostExecutionBridge",
     "InProcessExecutionContext",
+    "SplitPhaseOutcome",
     "build_inprocess_executor",
     "clear_script_package",
     "exception_to_error_envelope",
@@ -79,6 +82,8 @@ __all__ = [
     "sandbox_denied_envelope",
     "timeout_hint_secs_to_ms",
 ]
+
+SplitPhaseOutcome = ContinuationOutcome
 
 
 @dataclass

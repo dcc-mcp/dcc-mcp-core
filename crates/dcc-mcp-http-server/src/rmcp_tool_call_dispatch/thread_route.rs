@@ -67,16 +67,38 @@ async fn run_on_main_thread(
         let response = executor.submit_deferred_typed(&tool_name, cancel_token.clone(), task);
         let outcome = response
             .await
-            .map_err(|_| DispatchError::HandlerError("CANCELLED".to_string()))?;
-        if cancel_token.is_cancelled() {
-            return Err(DispatchError::HandlerError("CANCELLED".to_string()));
-        }
-        outcome
+            .map_err(|_| DispatchError::HandlerError("CANCELLED".to_string()))??;
+        let dcc_mcp_actions::DispatchResult {
+            action,
+            output: raw_output,
+            validation_skipped,
+        } = outcome;
+        let output = crate::split_phase::resolve_output(raw_output, Some(cancel_token.clone()))
+            .await
+            .map_err(DispatchError::HandlerError)?;
+        Ok(DispatchResult {
+            action,
+            output,
+            validation_skipped,
+        })
     } else {
-        executor
+        let outcome = executor
             .execute_typed(task)
             .await
-            .map_err(|e| DispatchError::HandlerError(e.to_string()))?
+            .map_err(|e| DispatchError::HandlerError(e.to_string()))??;
+        let dcc_mcp_actions::DispatchResult {
+            action,
+            output: raw_output,
+            validation_skipped,
+        } = outcome;
+        let output = crate::split_phase::resolve_output(raw_output, None)
+            .await
+            .map_err(DispatchError::HandlerError)?;
+        Ok(DispatchResult {
+            action,
+            output,
+            validation_skipped,
+        })
     }
 }
 
@@ -131,11 +153,18 @@ async fn run_on_worker(request: WorkerDispatch) -> Result<DispatchResult, Dispat
     });
     let outcome = dispatch_fut
         .await
-        .map_err(|err| DispatchError::HandlerError(err.to_string()))?;
-    if cancel_token.is_some_and(|token| token.is_cancelled()) {
+        .map_err(|err| DispatchError::HandlerError(err.to_string()))??;
+    if cancel_token
+        .as_ref()
+        .is_some_and(|token| token.is_cancelled())
+    {
         Err(DispatchError::HandlerError("CANCELLED".to_string()))
     } else {
-        outcome
+        let result = outcome;
+        let output = crate::split_phase::resolve_output(result.output, cancel_token)
+            .await
+            .map_err(DispatchError::HandlerError)?;
+        Ok(DispatchResult { output, ..result })
     }
 }
 
