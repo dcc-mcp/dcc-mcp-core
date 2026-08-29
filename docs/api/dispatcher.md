@@ -466,7 +466,7 @@ from dcc_mcp_core import SplitPhaseOutcome
 
 def main(params):
     snapshot = capture_on_main_thread(params)
-    return SplitPhaseOutcome(lambda cancel: encode_and_publish(snapshot, cancel))
+    return SplitPhaseOutcome(lambda control: encode_and_publish(snapshot, control))
 ```
 
 Core releases the host lane before invoking the continuation on the request or
