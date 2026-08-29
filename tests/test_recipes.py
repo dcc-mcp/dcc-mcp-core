@@ -653,6 +653,12 @@ class TestRegisterRecipesTools:
             "$: Recipe input schema is invalid"
         ]
 
+    def test_unique_items_uses_bounded_canonical_hashing(self) -> None:
+        values = list(range(_RecipeSchemaValidator._MAX_CONTAINER_ITEMS))
+        started = time.perf_counter()
+        assert validate_recipe_inputs({"inputs_schema": {"uniqueItems": True}}, values) == []
+        assert time.perf_counter() - started < 2.0
+
     def test_schema_size_budget_counts_utf8_bytes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         schema = {"const": "界"}
         encoded_size = len(json.dumps(schema, ensure_ascii=False).encode("utf-8"))
@@ -672,6 +678,8 @@ class TestRegisterRecipesTools:
             ("(a+)+$", "a" * 27 + "!"),
             ("((ab)*)*$", "ab" * 24 + "!"),
             ("a*a*$", "a" * 1000 + "!"),
+            ("(a|b)+c$", "a" * 8000 + "!"),
+            ("(.+)x$", "a" * 8000 + "!"),
         ):
             started = time.perf_counter()
             errors = validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance)
@@ -681,7 +689,7 @@ class TestRegisterRecipesTools:
 
     def test_linear_alternation_pattern_remains_supported(self) -> None:
         errors = validate_recipe_inputs(
-            {"inputs_schema": {"type": "string", "pattern": "(ab|cd)+$"}},
+            {"inputs_schema": {"type": "string", "pattern": "^(ab|cd)+$"}},
             "abcdab",
         )
         assert errors == []
@@ -693,6 +701,11 @@ class TestRegisterRecipesTools:
         elapsed = time.perf_counter() - started
         assert errors == ["$: Recipe input schema is invalid"]
         assert elapsed < 1.0
+
+    def test_json_pointer_resolves_array_indices(self) -> None:
+        schema = {"prefixItems": [{"type": "integer"}], "$ref": "#/prefixItems/0"}
+        assert validate_recipe_inputs({"inputs_schema": schema}, 1) == []
+        assert validate_recipe_inputs({"inputs_schema": schema}, "bad") == ["$: Expected type integer, got str"]
 
     def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
         for malformed in ([], "schema", None):
