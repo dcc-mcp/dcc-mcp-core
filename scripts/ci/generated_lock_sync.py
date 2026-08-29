@@ -266,6 +266,23 @@ def run_bounded(
             else:
                 with suppress(ProcessLookupError):
                     os.kill(pid, signal.SIGKILL)
+        # SIGKILL delivery is asynchronous; converge with bounded probes so
+        # callers never proceed while an escaped daemon still has a chance to
+        # observe subsequent credentials.
+        remaining = set(escaped)
+        for _ in range(20):
+            remaining = {pid for pid in remaining if process_exists(pid)}
+            if not remaining:
+                break
+            for pid in remaining:
+                if os.name == "nt":
+                    _kill_windows_tree(pid)
+                else:
+                    with suppress(ProcessLookupError):
+                        os.kill(pid, signal.SIGKILL)
+            time.sleep(0.05)
+        if remaining:
+            raise RuntimeError(f"process containment failed; descendants survived completion: {sorted(remaining)}")
         raise RuntimeError(f"process containment failed; descendants survived completion: {escaped}")
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, command)
