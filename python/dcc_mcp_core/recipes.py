@@ -65,6 +65,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from decimal import InvalidOperation
+from decimal import localcontext
 import json
 import logging
 import math
@@ -391,9 +392,9 @@ def _matches_json_type(value: Any, expected: Any) -> bool:
         if item == "string" and isinstance(value, str):
             return True
         if item == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
-            return True
-        if item == "integer" and isinstance(value, int) and not isinstance(value, bool):
-            return True
+            return isinstance(value, int) or math.isfinite(value)
+        if item == "integer" and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return isinstance(value, int) or (math.isfinite(value) and value.is_integer())
         if item == "boolean" and isinstance(value, bool):
             return True
         if item == "array" and isinstance(value, list):
@@ -411,19 +412,44 @@ class _RecipeSchemaValidator:
     _TYPES: ClassVar[set[str]] = {"null", "boolean", "object", "array", "number", "integer", "string"}
     _MAX_DEPTH: ClassVar[int] = 128
     _MAX_NODES: ClassVar[int] = 10000
+    _MAX_SCHEMA_DEPTH: ClassVar[int] = 128
+    _MAX_SCHEMA_NODES: ClassVar[int] = 10000
+    _MAX_SCHEMA_SIZE: ClassVar[int] = 1_000_000
 
     def __init__(self, schema: Any) -> None:
         self.schema = schema
+        try:
+            if len(json.dumps(schema, ensure_ascii=False)) > self._MAX_SCHEMA_SIZE:
+                raise ValueError("schema size budget exceeded")
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("schema is not JSON data") from exc
         self._check_schema(schema, "$")
 
     def validate(self, instance: Any) -> list[str]:
         errors: list[str] = []
         self._nodes = 0
+        self._annotations = {"properties": {}, "items": {}}
         self._validate(instance, self.schema, "$", errors, set())
         return errors
 
+    def _clone_annotations(self) -> dict[str, dict[str, set[Any]]]:
+        return {
+            kind: {path: set(values) for path, values in paths.items()} for kind, paths in self._annotations.items()
+        }
+
+    def _merge_annotations(self, source: dict[str, dict[str, set[Any]]]) -> None:
+        for kind, paths in source.items():
+            target = self._annotations[kind]
+            for path, values in paths.items():
+                target.setdefault(path, set()).update(values)
+
     @classmethod
-    def _check_schema(cls, schema: Any, path: str) -> None:
+    def _check_schema(cls, schema: Any, path: str, depth: int = 0, state: dict[str, int] | None = None) -> None:
+        if state is None:
+            state = {"nodes": 0}
+        state["nodes"] += 1
+        if depth > cls._MAX_SCHEMA_DEPTH or state["nodes"] > cls._MAX_SCHEMA_NODES:
+            raise ValueError("schema resource budget exceeded")
         if isinstance(schema, bool):
             return
         if not isinstance(schema, dict):
@@ -462,7 +488,7 @@ class _RecipeSchemaValidator:
                 if not isinstance(value, list) or (key in ("allOf", "anyOf", "oneOf") and not value):
                     raise ValueError(path)
                 for index, item in enumerate(value):
-                    cls._check_schema(item, f"{path}.{key}[{index}]")
+                    cls._check_schema(item, f"{path}.{key}[{index}]", depth + 1, state)
         for key in (
             "minProperties",
             "maxProperties",
@@ -479,7 +505,7 @@ class _RecipeSchemaValidator:
             if key in schema and (
                 not isinstance(schema[key], (int, float))
                 or isinstance(schema[key], bool)
-                or not math.isfinite(schema[key])
+                or (isinstance(schema[key], float) and not math.isfinite(schema[key]))
             ):
                 raise ValueError(path)
         if "multipleOf" in schema and schema["multipleOf"] <= 0:
@@ -489,15 +515,6 @@ class _RecipeSchemaValidator:
                 raise ValueError(path)
             re.compile(schema["pattern"])
         if "uniqueItems" in schema and not isinstance(schema["uniqueItems"], bool):
-            raise ValueError(path)
-        if "unevaluatedProperties" in schema and any(
-            key in schema for key in ("$ref", "allOf", "anyOf", "oneOf", "dependentSchemas")
-        ):
-            # Evaluation results from applicator branches are not safely
-            # mergeable in this dependency-free implementation.  Reject the
-            # contract rather than silently accepting an extra property.
-            raise ValueError(path)
-        if "unevaluatedItems" in schema and any(key in schema for key in ("$ref", "allOf", "anyOf", "oneOf")):
             raise ValueError(path)
         if "enum" in schema and (not isinstance(schema["enum"], list) or not schema["enum"]):
             raise ValueError(path)
@@ -511,14 +528,14 @@ class _RecipeSchemaValidator:
             for name, child in (schema.get(key) or {}).items():
                 if not isinstance(name, str):
                     raise ValueError(path)
-                cls._check_schema(child, f"{path}.{key}.{name}")
+                cls._check_schema(child, f"{path}.{key}.{name}", depth + 1, state)
         if "additionalProperties" in schema:
-            cls._check_schema(schema["additionalProperties"], f"{path}.additionalProperties")
+            cls._check_schema(schema["additionalProperties"], f"{path}.additionalProperties", depth + 1, state)
         if "unevaluatedProperties" in schema:
-            cls._check_schema(schema["unevaluatedProperties"], f"{path}.unevaluatedProperties")
+            cls._check_schema(schema["unevaluatedProperties"], f"{path}.unevaluatedProperties", depth + 1, state)
         for key in ("propertyNames", "contains", "items", "unevaluatedItems", "not", "if", "then", "else"):
             if key in schema:
-                cls._check_schema(schema[key], f"{path}.{key}")
+                cls._check_schema(schema[key], f"{path}.{key}", depth + 1, state)
         if "const" in schema:
             try:
                 json.dumps(schema["const"])
@@ -526,6 +543,8 @@ class _RecipeSchemaValidator:
                 raise ValueError(path) from exc
 
     def _resolve_ref(self, ref: str) -> Any:
+        if ref == "#":
+            return self.schema
         if not ref.startswith("#/"):
             raise ValueError(ref)
         value: Any = self.schema
@@ -572,7 +591,21 @@ class _RecipeSchemaValidator:
     @staticmethod
     def _is_multiple_of(value: Any, divisor: Any) -> bool:
         try:
-            return Decimal(str(value)) % Decimal(str(divisor)) == 0
+            if isinstance(value, int) and isinstance(divisor, int):
+                return value % divisor == 0
+            left_text = str(value)
+            right_text = str(divisor)
+            # Keep Decimal work local and bounded: hostile published schemas
+            # must produce the same sanitized schema-invalid result instead of
+            # leaking context/precision exceptions from the process global.
+            precision = min(max(28, len(left_text) + len(right_text) + 16), 1024)
+            with localcontext() as context:
+                context.prec = precision
+                left = Decimal(left_text)
+                right = Decimal(right_text)
+                if not left.is_finite() or not right.is_finite() or right == 0:
+                    raise ValueError("multipleOf is not representable")
+                return left % right == 0
         except (InvalidOperation, OverflowError, ValueError) as exc:
             raise ValueError("multipleOf is not representable") from exc
 
@@ -581,6 +614,8 @@ class _RecipeSchemaValidator:
         return _matches_json_type(value, expected)
 
     def _validate(self, value: Any, schema: Any, path: str, errors: list[str], resolving: set[Any]) -> bool:
+        self._annotations["properties"].setdefault(path, set())
+        self._annotations["items"].setdefault(path, set())
         self._nodes += 1
         if self._nodes > self._MAX_NODES:
             raise ValueError("schema node budget exceeded")
@@ -625,20 +660,38 @@ class _RecipeSchemaValidator:
         for key, mode, message in (("anyOf", "any", "anyOf"), ("oneOf", "one", "oneOf")):
             if key in schema:
                 matches = 0
+                base_annotations = self._annotations
+                successful_annotations: list[dict[str, dict[str, set[Any]]]] = []
                 for child in schema[key]:
                     branch_errors: list[str] = []
+                    self._annotations = self._clone_annotations()
+                    branch_annotations = self._annotations
                     if self._validate(value, child, path, branch_errors, resolving):
                         matches += 1
+                        successful_annotations.append(branch_annotations)
+                    self._annotations = base_annotations
                 needed = matches >= 1 if mode == "any" else matches == 1
+                if needed:
+                    for branch_annotations in successful_annotations:
+                        self._merge_annotations(branch_annotations)
                 if not needed:
                     errors.append(f"{path}: Value must satisfy {message}")
                     valid = False
-        if "not" in schema and self._validate(value, schema["not"], path, [], resolving):
-            errors.append(f"{path}: Value must not satisfy the schema")
-            valid = False
+        if "not" in schema:
+            base_annotations = self._annotations
+            self._annotations = self._clone_annotations()
+            not_valid = self._validate(value, schema["not"], path, [], resolving)
+            self._annotations = base_annotations
+            if not_valid:
+                errors.append(f"{path}: Value must not satisfy the schema")
+                valid = False
         if "if" in schema:
             condition: list[str] = []
-            if self._validate(value, schema["if"], path, condition, resolving):
+            base_annotations = self._annotations
+            self._annotations = self._clone_annotations()
+            condition_valid = self._validate(value, schema["if"], path, condition, resolving)
+            self._annotations = base_annotations
+            if condition_valid:
                 if "then" in schema and not self._validate(value, schema["then"], path, errors, resolving):
                     valid = False
             elif "else" in schema and not self._validate(value, schema["else"], path, errors, resolving):
@@ -689,13 +742,31 @@ class _RecipeSchemaValidator:
                     value[index], child, f"{path}[{index}]", errors, resolving
                 ):
                     valid = False
-            evaluated_items: set[int] = set(range(min(len(value), len(schema.get("prefixItems", ())))))
+            evaluated_items = self._annotations["items"].setdefault(path, set())
+            evaluated_items.update(range(min(len(value), len(schema.get("prefixItems", ())))))
             if "items" in schema:
                 start = len(schema.get("prefixItems", ()))
                 for index in range(start, len(value)):
                     evaluated_items.add(index)
                     if not self._validate(value[index], schema["items"], f"{path}[{index}]", errors, resolving):
                         valid = False
+            if "contains" in schema:
+                matches = 0
+                for index, item in enumerate(value):
+                    base_annotations = self._annotations
+                    self._annotations = self._clone_annotations()
+                    branch_annotations = self._annotations
+                    item_valid = self._validate(item, schema["contains"], f"{path}[{index}]", [], resolving)
+                    self._annotations = base_annotations
+                    if item_valid:
+                        matches += 1
+                        evaluated_items.add(index)
+                        self._merge_annotations(branch_annotations)
+                minimum = schema.get("minContains", 1)
+                maximum = schema.get("maxContains")
+                if matches < minimum or (maximum is not None and matches > maximum):
+                    errors.append(f"{path}: Array does not contain the required item count")
+                    valid = False
             if "unevaluatedItems" in schema:
                 for index, item in enumerate(value):
                     if index in evaluated_items:
@@ -708,16 +779,6 @@ class _RecipeSchemaValidator:
                         item, assertion, f"{path}[{index}]", errors, resolving
                     ):
                         valid = False
-            if "contains" in schema:
-                matches = sum(
-                    self._validate(item, schema["contains"], f"{path}[{i}]", [], resolving)
-                    for i, item in enumerate(value)
-                )
-                minimum = schema.get("minContains", 1)
-                maximum = schema.get("maxContains")
-                if matches < minimum or (maximum is not None and matches > maximum):
-                    errors.append(f"{path}: Array does not contain the required item count")
-                    valid = False
         if isinstance(value, dict):
             required = schema.get("required", ())
             for name in required:
@@ -736,7 +797,7 @@ class _RecipeSchemaValidator:
                 valid = False
             properties = schema.get("properties", {})
             patterns = schema.get("patternProperties", {})
-            evaluated: set[str] = set()
+            evaluated = self._annotations["properties"].setdefault(path, set())
             for name, child in properties.items():
                 if name in value:
                     evaluated.add(name)
@@ -752,6 +813,8 @@ class _RecipeSchemaValidator:
                             valid = False
                 if name not in properties and not matched:
                     additional = schema.get("additionalProperties", True)
+                    if "additionalProperties" in schema:
+                        evaluated.add(name)
                     if additional is False:
                         errors.append(f"{path}.{name}: Additional properties are not allowed")
                         valid = False
