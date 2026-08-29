@@ -201,9 +201,10 @@ def run_bounded(
         raise
     finally:
         if observer is not None:
+            interval = 0.5 if os.name == "nt" else 0.02
             for _ in range(5):
                 collect_descendants()
-                time.sleep(0.02)
+                time.sleep(interval)
             stop_observer.set()
             observer.join()
     collect_descendants()
@@ -233,24 +234,17 @@ def _enable_child_subreaper() -> None:
 
 def _descendant_pids(root_pid: int) -> list[int]:
     """Return the currently observable descendant process IDs."""
-    command = (
-        (
-            "powershell",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1}' -f $_.ProcessId, $_.ParentProcessId }",
-        )
-        if os.name == "nt"
-        else ("ps", "-eo", "pid=,ppid=")
-    )
-    result = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
     children: dict[int, list[int]] = {}
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) != 2:
-            continue
-        pid, parent = (int(fields[0]), int(fields[1]))
+    if os.name == "nt":
+        entries = _windows_process_entries()
+    else:
+        result = subprocess.run(("ps", "-eo", "pid=,ppid="), check=False, stdout=subprocess.PIPE, text=True)
+        entries = []
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) == 2:
+                entries.append((int(fields[0]), int(fields[1])))
+    for pid, parent in entries:
         children.setdefault(parent, []).append(pid)
     pending = list(children.get(root_pid, []))
     descendants: list[int] = []
@@ -259,6 +253,42 @@ def _descendant_pids(root_pid: int) -> list[int]:
         descendants.append(pid)
         pending.extend(children.get(pid, []))
     return descendants
+
+
+def _windows_process_entries() -> list[tuple[int, int]]:
+    """Enumerate Windows processes without spawning an observer subprocess."""
+
+    class ProcessEntry32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", ctypes.c_ulong),
+            ("cntUsage", ctypes.c_ulong),
+            ("th32ProcessID", ctypes.c_ulong),
+            ("th32DefaultHeapID", ctypes.c_void_p),
+            ("th32ModuleID", ctypes.c_ulong),
+            ("cntThreads", ctypes.c_ulong),
+            ("th32ParentProcessID", ctypes.c_ulong),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", ctypes.c_ulong),
+            ("szExeFile", ctypes.c_wchar * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+    if snapshot == ctypes.c_void_p(-1).value:
+        return []
+    entry = ProcessEntry32()
+    entry.dwSize = ctypes.sizeof(entry)
+    entries: list[tuple[int, int]] = []
+    try:
+        if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+            return entries
+        while True:
+            entries.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID)))
+            if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                break
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return entries
 
 
 def _remote_repository(url: str) -> str | None:
