@@ -154,16 +154,16 @@ async fn run_on_worker(request: WorkerDispatch) -> Result<DispatchResult, Dispat
     let outcome = dispatch_fut
         .await
         .map_err(|err| DispatchError::HandlerError(err.to_string()))??;
+    let result = outcome;
+    let output = crate::split_phase::resolve_output(result.output, cancel_token.clone())
+        .await
+        .map_err(DispatchError::HandlerError)?;
     if cancel_token
         .as_ref()
         .is_some_and(|token| token.is_cancelled())
     {
         Err(DispatchError::HandlerError("CANCELLED".to_string()))
     } else {
-        let result = outcome;
-        let output = crate::split_phase::resolve_output(result.output, cancel_token)
-            .await
-            .map_err(DispatchError::HandlerError)?;
         Ok(DispatchResult { output, ..result })
     }
 }

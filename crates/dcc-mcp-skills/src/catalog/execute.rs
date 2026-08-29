@@ -26,8 +26,8 @@
 use dcc_mcp_models::{ExecutionMode, JobStrategy, ThreadAffinity, ToolDeclaration};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, OnceLock, Weak};
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_actions::{DispatchJobContext, current_dispatch_job_context};
@@ -55,48 +55,114 @@ pub type SplitPhaseContinuation = dyn Fn() -> Result<serde_json::Value, String> 
 pub struct SplitPhaseRegistration {
     pub callback: Arc<SplitPhaseContinuation>,
     pub timeout: Duration,
+    pub created_at: Instant,
 }
 
-static SPLIT_PHASE_CONTINUATIONS: OnceLock<Mutex<HashMap<String, SplitPhaseRegistration>>> =
+pub struct SplitPhaseStore {
+    owner: String,
+    generation: std::sync::atomic::AtomicU64,
+    entries: Mutex<HashMap<String, SplitPhaseRegistration>>,
+}
+
+static SPLIT_PHASE_STORES: OnceLock<Mutex<HashMap<String, Weak<SplitPhaseStore>>>> =
     OnceLock::new();
 
-fn continuation_store() -> &'static Mutex<HashMap<String, SplitPhaseRegistration>> {
-    SPLIT_PHASE_CONTINUATIONS.get_or_init(|| Mutex::new(HashMap::new()))
+fn stores() -> &'static Mutex<HashMap<String, Weak<SplitPhaseStore>>> {
+    SPLIT_PHASE_STORES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Register a continuation and return its one-shot opaque id.
-pub fn register_split_phase_continuation(continuation: Arc<SplitPhaseContinuation>) -> String {
-    register_split_phase_continuation_with_timeout(continuation, Duration::from_secs(3600))
+impl SplitPhaseStore {
+    pub fn new() -> Arc<Self> {
+        let store = Arc::new(Self {
+            owner: uuid::Uuid::new_v4().to_string(),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            entries: Mutex::new(HashMap::new()),
+        });
+        stores()
+            .lock()
+            .insert(store.owner.clone(), Arc::downgrade(&store));
+        store
+    }
+
+    pub fn owner(&self) -> &str {
+        &self.owner
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn register(&self, continuation: Arc<SplitPhaseContinuation>, timeout: Duration) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.entries.lock().insert(
+            id.clone(),
+            SplitPhaseRegistration {
+                callback: continuation,
+                timeout,
+                created_at: Instant::now(),
+            },
+        );
+        id
+    }
+
+    pub fn take(&self, id: &str) -> Option<SplitPhaseRegistration> {
+        let mut entries = self.entries.lock();
+        entries.retain(|_, value| {
+            value.created_at.elapsed() < value.timeout.max(Duration::from_secs(3600))
+        });
+        entries.remove(id)
+    }
+
+    pub fn take_if_generation(&self, id: &str, generation: u64) -> Option<SplitPhaseRegistration> {
+        (self.generation() == generation)
+            .then(|| self.take(id))
+            .flatten()
+    }
+
+    pub fn drain(&self) {
+        self.entries.lock().clear();
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
-pub fn register_split_phase_continuation_with_timeout(
-    continuation: Arc<SplitPhaseContinuation>,
-    timeout: Duration,
-) -> String {
-    let id = uuid::Uuid::new_v4().to_string();
-    continuation_store().lock().insert(
-        id.clone(),
-        SplitPhaseRegistration {
-            callback: continuation,
-            timeout,
-        },
-    );
-    id
+impl Drop for SplitPhaseStore {
+    fn drop(&mut self) {
+        self.entries.lock().clear();
+        stores().lock().remove(&self.owner);
+    }
 }
 
 /// Take (consume) a continuation by id. Consumption enforces one-shot
 /// ownership and prevents replay after a terminal result.
-pub fn take_split_phase_continuation(id: &str) -> Option<SplitPhaseRegistration> {
-    continuation_store().lock().remove(id)
+pub fn take_split_phase_continuation(owner: &str, id: &str) -> Option<SplitPhaseRegistration> {
+    stores().lock().get(owner).and_then(Weak::upgrade)?.take(id)
+}
+
+pub fn take_split_phase_continuation_if_generation(
+    owner: &str,
+    id: &str,
+    generation: u64,
+) -> Option<SplitPhaseRegistration> {
+    stores()
+        .lock()
+        .get(owner)
+        .and_then(Weak::upgrade)?
+        .take_if_generation(id, generation)
 }
 
 /// Extract the reserved transport marker from a handler output.
-pub fn split_phase_continuation_id(value: &serde_json::Value) -> Option<&str> {
-    value
-        .get("_dcc_mcp_split_phase")
-        .filter(|v| v.get("kind").and_then(serde_json::Value::as_str) == Some("continuation.v1"))
-        .and_then(|v| v.get("continuation_id"))
-        .and_then(serde_json::Value::as_str)
+pub fn split_phase_marker(value: &serde_json::Value) -> Option<(&str, &str, u64)> {
+    value.get("_dcc_mcp_split_phase").and_then(|v| {
+        if v.get("kind").and_then(serde_json::Value::as_str) != Some("continuation.v1") {
+            return None;
+        }
+        Some((
+            v.get("owner")?.as_str()?,
+            v.get("continuation_id")?.as_str()?,
+            v.get("generation")?.as_u64()?,
+        ))
+    })
 }
 
 /// Python-facing read-only view of a Rust cancellation probe.

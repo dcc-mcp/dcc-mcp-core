@@ -15,6 +15,8 @@ from dcc_mcp_core._server._inprocess_contracts import InProcessExecutionContext
 from dcc_mcp_core._server._inprocess_contracts import attach_deferred_streams
 from dcc_mcp_core._server._inprocess_contracts import exception_to_error_envelope
 from dcc_mcp_core._server._inprocess_contracts import timeout_hint_secs_to_ms
+from dcc_mcp_core.cancellation import DccMcpCancelledError
+from dcc_mcp_core.cancellation import check_cancelled
 from dcc_mcp_core.chunked_runner import ChunkedRunner
 
 
@@ -24,6 +26,7 @@ def resolve_execution_result(
     *,
     dispatcher: Any,
     dispatch_raw: Callable[..., Any],
+    cancel_token: Any | None = None,
 ) -> Any:
     """Resolve a returned chunk runner or deferred result."""
     if isinstance(result, ChunkedRunner):
@@ -35,7 +38,7 @@ def resolve_execution_result(
         )
     if not isinstance(result, DeferredToolResult):
         if isinstance(result, ContinuationOutcome):
-            return _resolve_continuation(result, context)
+            return _resolve_continuation(result, context, cancel_token=cancel_token)
         return result
 
     deadline = time.monotonic() + result.timeout_secs
@@ -75,6 +78,8 @@ def resolve_execution_result(
 def _resolve_continuation(
     outcome: ContinuationOutcome,
     context: InProcessExecutionContext,
+    *,
+    cancel_token: Any | None = None,
 ) -> Any:
     """Run a split-phase continuation off the host dispatch closure.
 
@@ -92,11 +97,14 @@ def _resolve_continuation(
     try:
         # Cancellation is checked both before submit and at the commit seam.
         # ``check_cancelled`` is a no-op when no request token is installed.
-        from dcc_mcp_core.cancellation import check_cancelled
-
-        check_cancelled()
+        if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
+            raise DccMcpCancelledError("Request cancelled by client")
         finished = outcome.continuation()
+        if cancel_token is not None and bool(getattr(cancel_token, "cancelled", False)):
+            raise DccMcpCancelledError("Request cancelled by client")
         check_cancelled()
+    except DccMcpCancelledError as exc:
+        return exception_to_error_envelope(exc, message="Split-phase continuation cancelled before commit")
     except Exception as exc:
         return exception_to_error_envelope(exc, message="Split-phase continuation failed")
 

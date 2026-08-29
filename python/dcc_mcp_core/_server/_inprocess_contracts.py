@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 import logging
+import math
 from pathlib import Path
 import threading
 import traceback
@@ -78,8 +79,8 @@ class ContinuationOutcome:
     def __post_init__(self) -> None:
         if not callable(self.continuation):
             raise TypeError("continuation must be callable")
-        if self.timeout_secs <= 0:
-            raise ValueError("timeout_secs must be > 0")
+        if not math.isfinite(self.timeout_secs) or self.timeout_secs <= 0:
+            raise ValueError("timeout_secs must be finite and > 0")
 
     def claim(self) -> bool:
         """Atomically claim ownership; returns ``False`` on replay."""

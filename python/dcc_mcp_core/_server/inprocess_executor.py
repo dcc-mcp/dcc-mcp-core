@@ -353,6 +353,7 @@ class HostExecutionBridge:
             context,
             dispatcher=self.dispatcher,
             dispatch_raw=self._dispatch_raw,
+            cancel_token=context.cancel_token,
         )
 
     def execute_script(

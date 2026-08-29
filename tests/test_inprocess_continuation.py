@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from dcc_mcp_core import CancelToken
 from dcc_mcp_core import ContinuationOutcome
 from dcc_mcp_core import HostExecutionBridge
 from dcc_mcp_core import SplitPhaseOutcome
@@ -67,3 +68,20 @@ def test_split_phase_exception_is_structured() -> None:
 def test_split_phase_requires_callable() -> None:
     with pytest.raises(TypeError):
         SplitPhaseOutcome(1)  # type: ignore[arg-type]
+
+
+def test_cancelled_token_blocks_commit() -> None:
+    token = CancelToken()
+    bridge = HostExecutionBridge()
+
+    def continuation():
+        token.cancel()
+        return {"published": True}
+
+    result = bridge.dispatch_callable(
+        lambda: SplitPhaseOutcome(continuation),
+        thread_affinity="main",
+        cancel_token=token,
+    )
+    assert result["success"] is False
+    assert "cancel" in result["message"].lower()

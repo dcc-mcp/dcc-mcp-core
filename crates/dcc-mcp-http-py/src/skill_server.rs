@@ -397,6 +397,7 @@ impl PyMcpHttpServer {
             ));
         }
         let executor_ref = executor.clone_ref(py);
+        let split_phase_store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         self.catalog
             .set_in_process_executor(move |script_path, params, context| {
                 Python::attach(|gil| {
@@ -459,28 +460,30 @@ impl PyMcpHttpServer {
                             return Err("split-phase continuation must be callable".to_string());
                         }
                         let continuation = continuation.unbind();
-                        let callback: std::sync::Arc<dcc_mcp_skills::catalog::execute::SplitPhaseContinuation> =
-                            std::sync::Arc::new(move || {
-                                Python::attach(|py| {
-                                    let value = continuation
-                                        .call0(py)
-                                        .map_err(|e| format!("continuation error: {e}"))?;
-                                    py_any_to_json_value(value.bind(py)).map_err(|e| e.to_string())
-                                })
-                            });
+                        let callback: std::sync::Arc<
+                            dcc_mcp_skills::catalog::execute::SplitPhaseContinuation,
+                        > = std::sync::Arc::new(move || {
+                            Python::attach(|py| {
+                                let value = continuation
+                                    .call0(py)
+                                    .map_err(|e| format!("continuation error: {e}"))?;
+                                py_any_to_json_value(value.bind(py)).map_err(|e| e.to_string())
+                            })
+                        });
                         let timeout_secs = raw_bound
                             .getattr("timeout_secs")
                             .ok()
                             .and_then(|v| v.extract::<f64>().ok())
                             .filter(|value| value.is_finite() && *value > 0.0)
+                            .map(|value| value.min(3_600_000.0))
                             .unwrap_or(3600.0);
-                        let id = dcc_mcp_skills::catalog::execute::register_split_phase_continuation_with_timeout(
-                            callback,
-                            std::time::Duration::from_secs_f64(timeout_secs),
-                        );
+                        let id = split_phase_store
+                            .register(callback, std::time::Duration::from_secs_f64(timeout_secs));
                         return Ok(serde_json::json!({
                             "_dcc_mcp_split_phase": {
                                 "kind": "continuation.v1",
+                                "owner": split_phase_store.owner(),
+                                "generation": split_phase_store.generation(),
                                 "continuation_id": id
                             }
                         }));
