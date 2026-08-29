@@ -41,6 +41,7 @@ class _RecipeSchemaValidator:
     _MAX_SCHEMA_DEPTH: ClassVar[int] = 128
     _MAX_SCHEMA_NODES: ClassVar[int] = 10000
     _MAX_SCHEMA_SIZE: ClassVar[int] = 1_000_000
+    _MAX_INSTANCE_SIZE: ClassVar[int] = 1_000_000
 
     def __init__(self, schema: Any) -> None:
         self.schema = schema
@@ -52,6 +53,12 @@ class _RecipeSchemaValidator:
         self._check_schema(schema, "$")
 
     def validate(self, instance: Any) -> list[str]:
+        try:
+            instance_size = len(json.dumps(instance, ensure_ascii=False).encode("utf-8"))
+        except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+            raise ValueError("instance is not JSON data") from exc
+        if instance_size > self._MAX_INSTANCE_SIZE:
+            raise ValueError("instance size budget exceeded")
         errors: list[str] = []
         self._nodes = 0
         self._annotations = {"properties": {}, "items": {}}
