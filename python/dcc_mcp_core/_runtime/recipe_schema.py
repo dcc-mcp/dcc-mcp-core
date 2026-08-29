@@ -171,6 +171,13 @@ class _RecipeSchemaValidator:
             for name, child in (schema.get(key) or {}).items():
                 if not isinstance(name, str):
                     raise ValueError(path)
+                if key == "patternProperties":
+                    try:
+                        re.compile(name)
+                    except re.error as exc:
+                        raise ValueError(path) from exc
+                    if not cls._pattern_is_safe(name):
+                        raise ValueError(path)
                 cls._check_schema(child, f"{path}.{key}.{name}", depth + 1, state)
         if "additionalProperties" in schema:
             cls._check_schema(schema["additionalProperties"], f"{path}.additionalProperties", depth + 1, state)

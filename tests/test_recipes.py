@@ -686,6 +686,14 @@ class TestRegisterRecipesTools:
         )
         assert errors == []
 
+    def test_pattern_properties_rejects_catastrophic_keys_before_matching(self) -> None:
+        schema = {"type": "object", "patternProperties": {"(a+)+$": {"type": "string"}}}
+        started = time.perf_counter()
+        errors = validate_recipe_inputs({"inputs_schema": schema}, {"a" * 27 + "!": "value"})
+        elapsed = time.perf_counter() - started
+        assert errors == ["$: Recipe input schema is invalid"]
+        assert elapsed < 1.0
+
     def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
         for malformed in ([], "schema", None):
             assert validate_recipe_inputs({"inputs_schema": malformed}, {}) == ["$: Recipe input schema is invalid"]
