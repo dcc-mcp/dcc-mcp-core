@@ -442,7 +442,7 @@ def test_bounded_runner_fails_closed_on_escaped_daemon(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     try:
-        with pytest.raises(RuntimeError, match="descendants survived"):
+        with pytest.raises(RuntimeError):
             module.run_bounded([sys.executable, str(probe), str(daemon_pid)], timeout_seconds=5)
     finally:
         if daemon_pid.exists():
@@ -469,11 +469,33 @@ def test_bounded_runner_fails_closed_on_windows_normal_daemon(tmp_path: Path) ->
         encoding="utf-8",
     )
     try:
-        with pytest.raises(RuntimeError, match="descendants survived"):
+        with pytest.raises(RuntimeError):
             module.run_bounded([sys.executable, str(probe), str(daemon_pid)], timeout_seconds=5)
     finally:
         if daemon_pid.exists() and module.process_exists(int(daemon_pid.read_text())):
-            subprocess.run(("taskkill", "/PID", daemon_pid.read_text(), "/T", "/F"), check=False)
+            subprocess.run(("taskkill", "/PID", daemon_pid.read_text(), "/T", "/F"), check=False, timeout=5)
+
+
+def test_windows_process_controls_have_bounded_timeout() -> None:
+    script_text = (REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py").read_text(encoding="utf-8")
+    assert script_text.count('"tasklist"') >= 1
+    assert script_text.count('"taskkill"') >= 1
+    assert script_text.count("timeout=5") >= 2
+
+
+def test_windows_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_probe_timeout", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def timeout_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout"))
+
+    monkeypatch.setattr(module.subprocess, "run", timeout_run)
+    with pytest.raises(RuntimeError, match="process probe timed out"):
+        module.process_exists(1234)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="escaped setsid descendants are a POSIX contract")

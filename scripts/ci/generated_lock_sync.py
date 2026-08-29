@@ -112,19 +112,33 @@ def run_generation(root: Path, *, timeout_seconds: int = 900) -> None:
 def process_exists(pid: int) -> bool:
     """Return whether a process ID is still live."""
     if os.name == "nt":
-        result = subprocess.run(
-            ("tasklist", "/FI", f"PID eq {pid}", "/NH"),
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ("tasklist", "/FI", f"PID eq {pid}", "/NH"),
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"process probe timed out for PID {pid}") from exc
         return result.returncode == 0 and str(pid) in result.stdout
     try:
         os.kill(pid, 0)
     except (OSError, ProcessLookupError):
         return False
     return True
+
+
+def _kill_windows_tree(pid: int) -> None:
+    """Terminate a Windows process tree with a bounded, fail-closed call."""
+    try:
+        result = subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False, timeout=5)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"process tree kill timed out for PID {pid}") from exc
+    if result.returncode not in (0, 128):
+        raise RuntimeError(f"process tree kill failed for PID {pid}: exit {result.returncode}")
 
 
 def run_bounded(
@@ -178,7 +192,7 @@ def run_bounded(
         collect_descendants()
         descendants.update(observed)
         if os.name == "nt":
-            subprocess.run(("taskkill", "/PID", str(process.pid), "/T", "/F"), check=False)
+            _kill_windows_tree(process.pid)
         else:
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
@@ -212,7 +226,7 @@ def run_bounded(
     if escaped:
         for pid in escaped:
             if os.name == "nt":
-                subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False)
+                _kill_windows_tree(pid)
             else:
                 with suppress(ProcessLookupError):
                     os.kill(pid, signal.SIGKILL)
