@@ -64,6 +64,12 @@ list_recipe_entries(skill_metadata) -> list[dict]
 validate_recipe_inputs(recipe, inputs) -> list[str]
 ```
 
+`validate_recipe_inputs` evaluates the published `inputs_schema` as a
+Draft 2020-12 contract (including nested schemas, bounds, enums/constants,
+`additionalProperties`, and composition such as `oneOf`). It is implemented
+in Core without a runtime `jsonschema` dependency. Malformed schemas fail
+closed and returned errors are path-oriented without echoing input values.
+
 ## register_recipes_tools
 
 ```python
