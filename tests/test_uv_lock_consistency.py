@@ -289,6 +289,16 @@ def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
     assert "TRUSTED_VALIDATOR_SHA256" in workflow_text
 
 
+def test_trusted_validator_ref_contains_attested_file() -> None:
+    workflow = yaml_loads(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
+    ref = workflow["jobs"]["sync-cargo-metadata"]["steps"][0]["with"]["ref"]
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{ref}:scripts/ci/generated_lock_sync.py"],
+        check=False,
+    )
+    assert result.returncode == 0
+
+
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync", script)
