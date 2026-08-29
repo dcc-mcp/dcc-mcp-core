@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from dcc_mcp_core.recipes import _RecipeSchemaValidator
 from dcc_mcp_core.recipes import get_recipe_content
 from dcc_mcp_core.recipes import get_recipes_path
 from dcc_mcp_core.recipes import get_recipes_paths
@@ -592,6 +593,43 @@ class TestRegisterRecipesTools:
         assert validate_recipe_inputs({"inputs_schema": contains}, [1]) == []
         assert any("[1]" in error for error in validate_recipe_inputs({"inputs_schema": contains}, [1, 2]))
 
+    def test_if_annotations_feed_unevaluated_properties(self) -> None:
+        conditional = {
+            "if": {"properties": {"kind": {"const": "a"}}},
+            "then": {"properties": {"value": {"type": "integer"}}},
+            "else": {"properties": {"fallback": {"type": "string"}}},
+            "unevaluatedProperties": False,
+        }
+        assert validate_recipe_inputs({"inputs_schema": conditional}, {"kind": "a", "value": 1}) == []
+        assert validate_recipe_inputs({"inputs_schema": conditional}, {"kind": "b", "fallback": "ok"}) == []
+        assert any(
+            "$.extra" in error
+            for error in validate_recipe_inputs(
+                {"inputs_schema": conditional}, {"kind": "a", "value": 1, "extra": True}
+            )
+        )
+        nested = {
+            "if": {"properties": {"outer": {"properties": {"kind": {"const": "a"}}}}},
+            "then": {"properties": {"outer": {"properties": {"value": {"type": "integer"}}}}},
+            "unevaluatedProperties": False,
+        }
+        assert validate_recipe_inputs({"inputs_schema": nested}, {"outer": {"kind": "a", "value": 1}}) == []
+        no_branch = {"if": {"properties": {"kind": {"const": "a"}}}, "unevaluatedProperties": False}
+        assert validate_recipe_inputs({"inputs_schema": no_branch}, {"kind": "a"}) == []
+        assert validate_recipe_inputs({"inputs_schema": no_branch}, {"kind": "b"}) == []
+
+    def test_unique_items_is_bounded_without_item_schemas(self) -> None:
+        values = list(range(_RecipeSchemaValidator._MAX_CONTAINER_ITEMS + 1))
+        assert validate_recipe_inputs({"inputs_schema": {"uniqueItems": True}}, values) == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    def test_schema_size_budget_counts_utf8_bytes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        schema = {"const": "界"}
+        encoded_size = len(json.dumps(schema, ensure_ascii=False).encode("utf-8"))
+        monkeypatch.setattr(_RecipeSchemaValidator, "_MAX_SCHEMA_SIZE", encoded_size - 1)
+        assert validate_recipe_inputs({"inputs_schema": schema}, "界") == ["$: Recipe input schema is invalid"]
+
     def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
         for malformed in ([], "schema", None):
             assert validate_recipe_inputs({"inputs_schema": malformed}, {}) == ["$: Recipe input schema is invalid"]
@@ -630,6 +668,7 @@ class TestRegisterRecipesTools:
         assert validate_recipe_inputs({"inputs_schema": schema}, {"integer": 1.0}) == []
         huge = 10**2000
         assert validate_recipe_inputs({"inputs_schema": {"type": "integer", "multipleOf": huge}}, huge) == []
+        assert validate_recipe_inputs({"inputs_schema": {"type": "number", "multipleOf": 0.1}}, 1e308) == []
         assert validate_recipe_inputs(
             {
                 "inputs_schema": {
