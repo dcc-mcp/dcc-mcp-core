@@ -729,7 +729,7 @@ def test_commit_no_verify_blocks_malicious_pre_commit_hook(tmp_path: Path) -> No
     assert not marker.exists()
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="escaped setsid descendants are a Linux contract")
+@pytest.mark.skipif(os.name == "nt", reason="escaped setsid descendants are a POSIX contract")
 def test_bounded_runner_catches_last_fork_after_leader_exit(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_last_fork", script)
@@ -743,6 +743,10 @@ def test_bounded_runner_catches_last_fork_after_leader_exit(tmp_path: Path) -> N
         "from pathlib import Path\n"
         "leader = os.getpid()\n"
         "subprocess.Popen([sys.executable, '-c', \"import os,subprocess,sys,time; from pathlib import Path; leader=int(sys.argv[2]); pid_file=sys.argv[1];\\nwhile os.getppid() == leader: time.sleep(0.01)\\nchild=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True); Path(pid_file).write_text(str(child.pid)); time.sleep(60)\", sys.argv[1], str(leader)], start_new_session=True)\n"
+        # Give the observer a bounded opportunity to record the intermediate
+        # setsid child.  The child then forks only after its leader exits,
+        # reproducing the macOS reparent/final-snapshot race.
+        "time.sleep(0.1)\n"
         "os._exit(0)\n",
         encoding="utf-8",
     )

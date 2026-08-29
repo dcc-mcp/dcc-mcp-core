@@ -31,6 +31,12 @@ from urllib.parse import urlparse
 LOCK_OUTPUTS = frozenset(("Cargo.lock", "uv.lock", "crates/workspace-hack/Cargo.toml"))
 BRANCH_PREFIXES = ("release-please--branches--main", "renovate/")
 GIT_COMMAND_TIMEOUT_SECONDS = 30
+# POSIX systems without a child subreaper (notably macOS) can reparent an
+# escaped descendant while the leader is exiting.  Keep a bounded second
+# convergence window long enough for that reparent/fork transition to become
+# observable before any caller can proceed to credential-bearing work.
+POSIX_CONVERGENCE_PASSES = 50
+POSIX_CONVERGENCE_INTERVAL_SECONDS = 0.05
 CREDENTIAL_ENV_KEYS = frozenset(
     (
         "GITHUB_TOKEN",
@@ -226,7 +232,9 @@ def run_bounded(
         else:
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
-            for _ in range(20):
+            convergence_passes = POSIX_CONVERGENCE_PASSES
+            convergence_interval = POSIX_CONVERGENCE_INTERVAL_SECONDS
+            for _ in range(convergence_passes):
                 try:
                     # Once the leader exits, escaped descendants are
                     # reparented to this process (the Linux subreaper).  A
@@ -243,7 +251,7 @@ def run_bounded(
                         os.kill(pid, signal.SIGKILL)
                 if not current:
                     break
-                time.sleep(0.02)
+                time.sleep(convergence_interval)
         try:
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
@@ -258,11 +266,12 @@ def run_bounded(
         if observer is not None:
             stop_observer.set()
             observer.join()
-            interval = 0.5 if os.name == "nt" else 0.02
+            interval = 0.5 if os.name == "nt" else POSIX_CONVERGENCE_INTERVAL_SECONDS
             # Stop observation before the final bounded convergence pass so a
             # last fork racing with process exit cannot be hidden by a stale
             # observer snapshot.
-            for _ in range(10):
+            passes = 10 if os.name == "nt" else POSIX_CONVERGENCE_PASSES
+            for _ in range(passes):
                 try:
                     collect_descendants()
                 except RuntimeError as exc:
@@ -284,7 +293,9 @@ def run_bounded(
         # callers never proceed while an escaped daemon still has a chance to
         # observe subsequent credentials.
         remaining = set(escaped)
-        for _ in range(20):
+        convergence_passes = 20 if os.name == "nt" else POSIX_CONVERGENCE_PASSES
+        convergence_interval = 0.05 if os.name == "nt" else POSIX_CONVERGENCE_INTERVAL_SECONDS
+        for _ in range(convergence_passes):
             remaining = {pid for pid in remaining if process_exists(pid)}
             if not remaining:
                 break
@@ -294,7 +305,7 @@ def run_bounded(
                 else:
                     with suppress(ProcessLookupError):
                         os.kill(pid, signal.SIGKILL)
-            time.sleep(0.05)
+            time.sleep(convergence_interval)
         if remaining:
             raise RuntimeError(f"process containment failed; descendants survived completion: {sorted(remaining)}")
         raise RuntimeError(f"process containment failed; descendants survived completion: {escaped}")
