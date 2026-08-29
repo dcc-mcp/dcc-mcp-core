@@ -147,7 +147,10 @@ def run_bounded(
     try:
         process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
-        descendants: set[int] = set()
+        # Capture the complete tree before terminating the leader.  A POSIX
+        # child can call setsid() and leave the leader's process group; taking
+        # this snapshot lets the fail-closed cleanup still target that PID.
+        descendants: set[int] = set(_descendant_pids(process.pid)) if os.name == "posix" else set()
         if os.name == "nt":
             subprocess.run(("taskkill", "/PID", str(process.pid), "/T", "/F"), check=False)
         else:

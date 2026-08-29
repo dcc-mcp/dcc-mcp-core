@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -356,6 +357,24 @@ def test_remote_urls_are_bound_to_expected_owner_and_repo() -> None:
     )
 
 
+def test_validate_remote_enumerates_and_rejects_multiple_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_remote_enumeration", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(tuple(command))
+        return SimpleNamespace(returncode=0, stdout="https://github.com/dcc-mcp/dcc-mcp-core.git\n" * 2)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit):
+        module.validate_remote(tmp_path, "dcc-mcp/dcc-mcp-core")
+    assert calls and calls[0][-3:] == ("get-url", "--all", "origin")
+
+
 def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_timeout", script)
@@ -369,7 +388,7 @@ def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
         "import os, subprocess, sys, time\n"
         "from pathlib import Path\n"
         "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
-        "subprocess.Popen([sys.executable, '-c', \"from pathlib import Path; import os,sys,time; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)\", sys.argv[2]])\n"
+        "subprocess.Popen([sys.executable, '-c', \"from pathlib import Path; import os,sys,time; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)\", sys.argv[2]], start_new_session=True)\n"
         "time.sleep(60)\n",
         encoding="utf-8",
     )
@@ -438,6 +457,76 @@ def test_no_verify_prevents_malicious_pre_push_hook_from_running(tmp_path: Path)
     result = subprocess.run(["git", "-C", str(work), "push", "--no-verify", "origin", "HEAD:main"], check=False)
     assert result.returncode == 0
     assert not marker.exists()
+
+
+def test_stale_force_lease_does_not_mutate_remote_ref(tmp_path: Path) -> None:
+    bare = tmp_path / "remote.git"
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+    for work in (first, second):
+        subprocess.run(["git", "clone", "-q", str(bare), str(work)], check=True)
+        subprocess.run(["git", "-C", str(work), "config", "user.email", "test@example.invalid"], check=True)
+        subprocess.run(["git", "-C", str(work), "config", "user.name", "test"], check=True)
+    (first / "Cargo.lock").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(first), "add", "Cargo.lock"], check=True)
+    subprocess.run(["git", "-C", str(first), "commit", "-qm", "base"], check=True)
+    subprocess.run(["git", "-C", str(first), "branch", "-M", "main"], check=True)
+    subprocess.run(["git", "-C", str(first), "push", "-q", "origin", "main"], check=True)
+    old_head = subprocess.check_output(["git", "-C", str(first), "rev-parse", "HEAD"], text=True).strip()
+    subprocess.run(["git", "-C", str(second), "fetch", "-q", "origin", "main"], check=True)
+    subprocess.run(["git", "-C", str(second), "checkout", "-q", "-B", "main", "origin/main"], check=True)
+    (second / "Cargo.lock").write_text("remote-advance\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(second), "commit", "-qam", "advance"], check=True)
+    subprocess.run(["git", "-C", str(second), "push", "-q", "origin", "HEAD:main"], check=True)
+    advanced = subprocess.check_output(["git", "-C", str(second), "rev-parse", "HEAD"], text=True).strip()
+    (first / "Cargo.lock").write_text("generated\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(first), "commit", "-qam", "generated"], check=True)
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(first),
+            "push",
+            f"--force-with-lease=refs/heads/main:{old_head}",
+            "origin",
+            "HEAD:main",
+        ],
+        check=False,
+    )
+    assert result.returncode != 0
+    remote_head = subprocess.check_output(
+        ["git", "--git-dir", str(bare), "rev-parse", "refs/heads/main"], text=True
+    ).strip()
+    assert remote_head == advanced
+
+
+def test_unexpected_diff_blocks_before_remote_write(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_unexpected_diff", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    bare = tmp_path / "remote.git"
+    work = tmp_path / "work"
+    subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.name", "test"], check=True)
+    (work / "Cargo.lock").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(work), "add", "Cargo.lock"], check=True)
+    subprocess.run(["git", "-C", str(work), "commit", "-qm", "base"], check=True)
+    subprocess.run(["git", "-C", str(work), "branch", "-M", "main"], check=True)
+    subprocess.run(["git", "-C", str(work), "remote", "add", "origin", str(bare)], check=True)
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], check=True)
+    base_head = subprocess.check_output(["git", "-C", str(work), "rev-parse", "HEAD"], text=True).strip()
+    (work / "evil.py").write_text("print('unexpected')\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        module.verify_diff(work)
+    remote_head = subprocess.check_output(
+        ["git", "--git-dir", str(bare), "rev-parse", "refs/heads/main"], text=True
+    ).strip()
+    assert remote_head == base_head
 
 
 def test_comment_only_workflow_text_is_not_an_executable_command() -> None:
