@@ -220,7 +220,8 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         job="sync-cargo-metadata",
         step_name="Sync generated lock metadata",
     )
-    assert sync_commands == ['python "$RUNNER_TEMP/generated_lock_sync.py" generate']
+    assert sync_commands[-1] == 'python "$RUNNER_TEMP/generated_lock_sync.py" generate'
+    assert any("TRUSTED_VALIDATOR_SHA256" in command for command in sync_commands)
     commit_commands = _workflow_step_commands(
         sync_workflow,
         job="sync-cargo-metadata",
@@ -250,14 +251,17 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert workflow["permissions"]["contents"] == "read"
     job = workflow["jobs"]["sync-cargo-metadata"]
     trusted = next(step for step in job["steps"] if step.get("name") == "Checkout trusted lock validator")
-    assert trusted["with"]["ref"] == "${{ github.event.pull_request.base.sha }}"
+    assert trusted["with"]["ref"] == "e6ee5f0ea9ddcb3a2d294be3cd867450347b6a02"
     assert trusted["with"]["persist-credentials"] is False
     pin = next(step for step in job["steps"] if step.get("name") == "Pin trusted lock validator")
     assert "$RUNNER_TEMP/generated_lock_sync.py" in pin["run"]
+    assert "TRUSTED_VALIDATOR_SHA256" in pin["run"]
+    assert "sha256sum" in pin["run"]
+    assert "chmod 0555" in pin["run"]
     checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
     assert checkout["with"]["persist-credentials"] is False
     remote_check = next(step for step in job["steps"] if step.get("name") == "Validate checkout remote")
-    assert remote_check["run"] == 'python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote'
+    assert 'python "$RUNNER_TEMP/generated_lock_sync.py" validate-remote' in remote_check["run"]
     generation = next(step for step in job["steps"] if step.get("name") == "Sync generated lock metadata")
     assert generation["run"].find("generated_lock_sync.py") >= 0
     assert "PUSH_TOKEN" not in generation.get("env", {})
@@ -275,6 +279,14 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "credential.helper" in push["run"]
     assert "validate-remote" in push["run"]
     assert "--no-verify" in push["run"]
+    assert "TRUSTED_VALIDATOR_SHA256" in push["run"]
+
+
+def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
+    workflow_text = LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8")
+    digest_checks = workflow_text.count('test "$(sha256sum "$RUNNER_TEMP/generated_lock_sync.py"')
+    assert digest_checks >= 4
+    assert "TRUSTED_VALIDATOR_SHA256" in workflow_text
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
@@ -443,18 +455,20 @@ def test_no_verify_prevents_malicious_pre_push_hook_from_running(tmp_path: Path)
     subprocess.run(["git", "-C", str(work), "config", "user.email", "test@example.invalid"], check=True)
     subprocess.run(["git", "-C", str(work), "config", "user.name", "test"], check=True)
     (work / "Cargo.lock").write_text("base\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(work), "add", "Cargo.lock"], check=True)
-    subprocess.run(["git", "-C", str(work), "commit", "-qm", "base"], check=True)
-    subprocess.run(["git", "-C", str(work), "branch", "-M", "main"], check=True)
-    subprocess.run(["git", "-C", str(work), "remote", "add", "origin", str(bare)], check=True)
-    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], check=True)
+    subprocess.run(["git", "-C", str(work), "add", "Cargo.lock"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(work), "commit", "-qm", "base"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(work), "branch", "-M", "main"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(work), "remote", "add", "origin", str(bare)], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], check=True, timeout=30)
     marker = tmp_path / "hook-ran"
     hook = work / ".git" / "hooks" / "pre-push"
     hook.write_text(f"#!/bin/sh\nprintf '%s' \"$PUSH_TOKEN\" > '{marker}'\nexit 1\n", encoding="utf-8")
     hook.chmod(0o755)
     (work / "Cargo.lock").write_text("generated\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(work), "commit", "-qam", "generated"], check=True)
-    result = subprocess.run(["git", "-C", str(work), "push", "--no-verify", "origin", "HEAD:main"], check=False)
+    subprocess.run(["git", "-C", str(work), "commit", "-qam", "generated"], check=True, timeout=30)
+    result = subprocess.run(
+        ["git", "-C", str(work), "push", "--no-verify", "origin", "HEAD:main"], check=False, timeout=30
+    )
     assert result.returncode == 0
     assert not marker.exists()
 
