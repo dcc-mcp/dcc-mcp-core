@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -215,7 +218,7 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         job="sync-cargo-metadata",
         step_name="Sync generated lock metadata",
     )
-    assert sync_commands == ["cargo update -w", "cargo hakari generate", "vx uv lock"]
+    assert sync_commands == ["python scripts/ci/generated_lock_sync.py generate"]
     commit_commands = _workflow_step_commands(
         sync_workflow,
         job="sync-cargo-metadata",
@@ -237,6 +240,91 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         "scripts/ci/check_uv_lock.py",
         ".github/workflows/version-consistency.yml",
     }.issubset(_workflow_pull_request_paths(version_workflow))
+
+
+def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
+    workflow = yaml_loads(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict)
+    assert workflow["permissions"]["contents"] == "read"
+    job = workflow["jobs"]["sync-cargo-metadata"]
+    checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["persist-credentials"] is False
+    generation = next(step for step in job["steps"] if step.get("name") == "Sync generated lock metadata")
+    assert generation["run"].find("generated_lock_sync.py") >= 0
+    assert "PUSH_TOKEN" not in generation.get("env", {})
+    push = next(step for step in job["steps"] if step.get("name") == "Push fixed generated lock commit")
+    assert push["if"] == "steps.commit.outputs.changed == 'true'"
+    assert push["env"]["PUSH_TOKEN"] == "${{ secrets.PERSONAL_ACCESS_TOKEN }}"
+    assert "trap" in push["run"] and "unset PUSH_TOKEN" in push["run"]
+    assert "--force-with-lease" in push["run"]
+    assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight" in push["run"]
+    assert "env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit" in push["run"]
+
+
+def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    expected = module.PullRequestIdentity(
+        repository="dcc-mcp/dcc-mcp-core",
+        number=2381,
+        head_repository="dcc-mcp/dcc-mcp-core",
+        head_branch="renovate/uv-lock",
+        head_sha="a" * 40,
+        title="chore(deps): update locks",
+    )
+    assert module.validate_identity(expected, expected) == []
+    fork = expected._replace(head_repository="attacker/dcc-mcp-core")
+    assert any("fork" in error for error in module.validate_identity(expected, fork))
+    drift = expected._replace(head_sha="b" * 40)
+    assert any("head SHA" in error for error in module.validate_identity(expected, drift))
+
+
+def test_generation_environment_cannot_expose_write_credentials(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_env", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    env = module.sanitized_environment(
+        {
+            **os.environ,
+            "GITHUB_TOKEN": "write-secret",
+            "GH_TOKEN": "write-secret",
+            "PERSONAL_ACCESS_TOKEN": "write-secret",
+            "GIT_CONFIG_GLOBAL": "C:/credential-store",
+        }
+    )
+    assert all("secret" not in value for value in env.values())
+    assert "GITHUB_TOKEN" not in env and "GH_TOKEN" not in env and "PERSONAL_ACCESS_TOKEN" not in env
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+
+    probe = tmp_path / "hostile_lock_backend_probe.py"
+    probe.write_text(
+        "import os, subprocess, sys\n"
+        "if any(os.environ.get(k) for k in ('GITHUB_TOKEN', 'GH_TOKEN', 'PERSONAL_ACCESS_TOKEN')): sys.exit(7)\n"
+        "result = subprocess.run(['git', 'config', '--global', '--get-regexp', 'credential'], capture_output=True)\n"
+        "sys.exit(8 if result.stdout else 0)\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run([sys.executable, str(probe)], env=env, check=False)
+    assert result.returncode == 0
+
+
+def test_generated_diff_is_exactly_bounded() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_diff", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.validate_changed_files(["Cargo.lock", "uv.lock"]) == []
+    assert module.validate_changed_files(["Cargo.lock", "evil.py"]) == [
+        "unexpected generated-lock diff paths: evil.py"
+    ]
 
 
 def test_comment_only_workflow_text_is_not_an_executable_command() -> None:

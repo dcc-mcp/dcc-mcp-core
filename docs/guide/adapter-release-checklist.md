@@ -145,6 +145,30 @@ Every adapter repository should include a `release-please-config.json`:
 Refer to the core `.release-please-manifest.json` at
 [release-please-config.json](../../release-please-config.json) for the canonical pattern.
 
+### Generated-lock credential boundary
+
+When a release-please or Renovate pull request needs generated lock updates,
+copy the boundary implemented by
+`.github/workflows/release-please-lock-sync.yml` and
+[`scripts/ci/generated_lock_sync.py`](../../scripts/ci/generated_lock_sync.py):
+
+- declare `contents: read` for the job and set
+  `persist-credentials: false` on checkout;
+- run every generator with the scrubbed environment provided by
+  `generated_lock_sync.py`, which removes write tokens, disables Git prompts,
+  and ignores global/system Git configuration;
+- bind repository, PR number, head repository, branch, title, and exact head
+  SHA, then re-capture them before committing; reject forks, stale heads, and
+  branches outside the approved release/automation classes;
+- reject any generated diff outside `Cargo.lock`, `uv.lock`, and
+  `crates/workspace-hack/Cargo.toml`;
+- expose a write token only to the final fixed `--force-with-lease` push, and
+  unset it on exit. A failed lease or any identity mismatch must result in no
+  remote mutation.
+
+Do not broaden this workflow to publish packages or alter release gates. Keep
+the same checks and output allowlist when adapting the pattern downstream.
+
 ### CHANGELOG Convention
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) as the source

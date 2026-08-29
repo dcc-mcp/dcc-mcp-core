@@ -13,7 +13,7 @@ on:
       - "release-please-config.json"
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 concurrency:
@@ -34,8 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -53,17 +53,27 @@ jobs:
           tool: cargo-hakari
 
       - name: Sync generated lock metadata
+        run: python scripts/ci/generated_lock_sync.py generate
+
+      - name: Revalidate pull request identity and generated diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          cargo update -w
-          cargo hakari generate
-          vx uv lock
+          python scripts/ci/generated_lock_sync.py preflight
+          python scripts/ci/generated_lock_sync.py verify-diff
 
       - name: Commit and push changes
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        id: commit
         run: |
           if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml; then
             echo "Generated lock metadata is already in sync."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -71,4 +81,28 @@ jobs:
           git config user.email "hal.long@outlook.com"
           git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
           git commit -m "chore(ci): sync generated lock metadata"
-          git push origin "HEAD:${HEAD_REF}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push fixed generated lock commit
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          trap 'unset PUSH_TOKEN' EXIT
+          # Re-capture remote identity without passing the write token to the
+          # validation child processes, then enforce the immutable lease.
+          env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py remote-preflight
+          env -u PUSH_TOKEN python scripts/ci/generated_lock_sync.py verify-commit
+          git -c credential.helper='!f() { echo username=x-access-token; echo password=$PUSH_TOKEN; }; f' \
+            push --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
+            origin "HEAD:${HEAD_REF}"
