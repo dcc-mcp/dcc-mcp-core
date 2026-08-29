@@ -92,6 +92,36 @@ def test_shutdown_stops_server_when_closing_admission_fails() -> None:
     assert events == ["close-admission", "server-shutdown", "clear-packages"]
 
 
+def test_shutdown_advances_split_phase_lifecycle_at_admission_boundary() -> None:
+    events: list[str] = []
+
+    class Bridge:
+        @staticmethod
+        def close_script_admission():
+            events.append("close-admission")
+
+        @staticmethod
+        def clear_script_packages():
+            events.append("clear-packages")
+
+    class Handle:
+        @staticmethod
+        def signal_shutdown():
+            events.append("signal-shutdown")
+
+        @staticmethod
+        def shutdown():
+            events.append("server-shutdown")
+
+    ui_control_server._shutdown(Bridge(), Handle())
+    assert events == [
+        "close-admission",
+        "signal-shutdown",
+        "server-shutdown",
+        "clear-packages",
+    ]
+
+
 def test_main_registers_executor_before_load_and_shuts_down_in_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -290,6 +290,13 @@ pub fn split_phase_marker(value: &serde_json::Value) -> Option<(&str, &str, u64)
     })
 }
 
+/// Return whether a value carries the reserved split-phase field, even when
+/// its payload is malformed. Callers at transport boundaries must fail closed
+/// instead of treating malformed reserved data as ordinary handler output.
+pub fn has_split_phase_marker(value: &serde_json::Value) -> bool {
+    value.get("_dcc_mcp_split_phase").is_some()
+}
+
 /// Python-facing read-only view of a Rust cancellation probe.
 #[cfg(feature = "python-bindings")]
 #[pyclass(frozen)]
