@@ -531,6 +531,9 @@ class TestRegisterRecipesTools:
         errors = validate_recipe_inputs({"inputs_schema": schema}, {"value": 1, "items": [1], "extra": "secret"})
         assert any("$.extra" in error and "Unevaluated" in error for error in errors)
         assert validate_recipe_inputs(
+            {"inputs_schema": {"allOf": [{"type": "object"}], "unevaluatedProperties": False}}, {}
+        ) == ["$: Recipe input schema is invalid"]
+        assert validate_recipe_inputs(
             {"inputs_schema": {"type": "array", "prefixItems": [{"type": "number"}], "unevaluatedItems": False}},
             [1],
         ) == []
