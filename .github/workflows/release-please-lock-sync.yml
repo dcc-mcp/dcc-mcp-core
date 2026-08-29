@@ -29,7 +29,7 @@ jobs:
     name: Sync generated Cargo metadata
     runs-on: ubuntu-latest
     env:
-      TRUSTED_VALIDATOR_REF: e6ee5f0ea9ddcb3a2d294be3cd867450347b6a02
+      TRUSTED_VALIDATOR_REF: 07b57c8aec591fe9ee549f8252bfd5894041f2af
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v6
         name: Checkout trusted lock validator
         with:
-          ref: e6ee5f0ea9ddcb3a2d294be3cd867450347b6a02
+          ref: 07b57c8aec591fe9ee549f8252bfd5894041f2af
           path: trusted-lock-validator
           persist-credentials: false
 

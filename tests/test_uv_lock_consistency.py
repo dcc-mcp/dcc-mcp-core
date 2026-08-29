@@ -251,7 +251,7 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert workflow["permissions"]["contents"] == "read"
     job = workflow["jobs"]["sync-cargo-metadata"]
     trusted = next(step for step in job["steps"] if step.get("name") == "Checkout trusted lock validator")
-    assert trusted["with"]["ref"] == "e6ee5f0ea9ddcb3a2d294be3cd867450347b6a02"
+    assert trusted["with"]["ref"] == "07b57c8aec591fe9ee549f8252bfd5894041f2af"
     assert trusted["with"]["persist-credentials"] is False
     pin = next(step for step in job["steps"] if step.get("name") == "Verify trusted lock validator object")
     assert "$RUNNER_TEMP/generated_lock_sync.py" not in pin["run"]

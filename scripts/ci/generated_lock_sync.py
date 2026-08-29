@@ -212,9 +212,14 @@ def run_bounded(
         else:
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
-            for _ in range(10):
+            for _ in range(20):
                 try:
+                    # Once the leader exits, escaped descendants are
+                    # reparented to this process (the Linux subreaper).  A
+                    # process.pid-only walk would miss those descendants and
+                    # falsely claim containment, so converge over both roots.
                     current = set(_descendant_pids(process.pid))
+                    current.update(set(_descendant_pids(os.getpid())) - baseline - {process.pid})
                 except RuntimeError as exc:
                     cleanup_error = cleanup_error or exc
                     current = set()
@@ -237,16 +242,19 @@ def run_bounded(
         raise
     finally:
         if observer is not None:
+            stop_observer.set()
+            observer.join()
             interval = 0.5 if os.name == "nt" else 0.02
-            for _ in range(5):
+            # Stop observation before the final bounded convergence pass so a
+            # last fork racing with process exit cannot be hidden by a stale
+            # observer snapshot.
+            for _ in range(10):
                 try:
                     collect_descendants()
                 except RuntimeError as exc:
                     observer_errors.append(exc)
                     break
                 time.sleep(interval)
-            stop_observer.set()
-            observer.join()
     collect_descendants()
     if observer_errors:
         raise RuntimeError("process observer failed; containment is not provable") from observer_errors[0]
