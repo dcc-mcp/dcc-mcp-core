@@ -466,11 +466,14 @@ from dcc_mcp_core import SplitPhaseOutcome
 
 def main(params):
     snapshot = capture_on_main_thread(params)
-    return SplitPhaseOutcome(lambda: encode_and_publish(snapshot))
+    return SplitPhaseOutcome(lambda cancel: encode_and_publish(snapshot, cancel))
 ```
 
 Core releases the host lane before invoking the continuation on the request or
 async-job worker. The continuation is transport-internal and never appears in
-MCP/REST JSON. It is one-shot; nested outcomes fail closed. Cancellation and
-shutdown are checked before and after the continuation, so a result cannot be
-committed after a request is cancelled.
+MCP/REST JSON. It is one-shot; nested outcomes fail closed. Continuations must
+accept the cancellation probe and gate durable writes on it; callbacks without
+that probe are rejected before they run. Cancellation and shutdown are checked
+before and after the continuation, so a result cannot be committed after a
+request is cancelled. `timeout_secs` is finite and bounded to 300 seconds;
+server shutdown drains all pending continuations and advances their generation.

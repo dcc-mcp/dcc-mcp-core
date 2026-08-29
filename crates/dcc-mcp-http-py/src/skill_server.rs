@@ -53,6 +53,8 @@ pub struct PyMcpHttpServer {
     /// flip the bits on this one instance.
     pub(crate) readiness_probe:
         parking_lot::Mutex<Option<Arc<dyn dcc_mcp_skill_rest::ReadinessProbe>>>,
+    pub(crate) split_phase_store:
+        parking_lot::Mutex<Option<Arc<dcc_mcp_skills::catalog::execute::SplitPhaseStore>>>,
     /// Shared [`dcc_mcp_http::prompts::PromptRegistry`] (issue #792).
     ///
     /// Built at construction time using the same `PromptRegistry::new`
@@ -109,6 +111,7 @@ impl PyMcpHttpServer {
             prompts,
             attached_dispatcher: parking_lot::Mutex::new(None),
             readiness_probe: parking_lot::Mutex::new(None),
+            split_phase_store: parking_lot::Mutex::new(None),
         })
     }
 
@@ -208,6 +211,7 @@ impl PyMcpHttpServer {
         let bind_addr = handle.bind_addr.clone();
         let is_gateway = handle.is_gateway;
         let instance_id = handle.instance_id.map(|id| id.to_string());
+        let split_phase_store = self.split_phase_store.lock().as_ref().cloned();
 
         Ok(PyServerHandle {
             inner: Some(handle),
@@ -218,6 +222,7 @@ impl PyMcpHttpServer {
             instance_id,
             live_meta: self.live_meta.clone(),
             shutdown_on_drop: self.config.shutdown_on_drop(),
+            split_phase_store,
         })
     }
 
@@ -398,12 +403,14 @@ impl PyMcpHttpServer {
         }
         let executor_ref = executor.clone_ref(py);
         let split_phase_store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        *self.split_phase_store.lock() = Some(split_phase_store.clone());
         self.catalog
             .set_in_process_executor(move |script_path, params, context| {
                 Python::attach(|gil| {
                     use dcc_mcp_models::ExecutionMode;
                     use dcc_mcp_pybridge::py_json::{json_value_to_bound_py, py_any_to_json_value};
                     use pyo3::types::PyDict;
+                    let continuation_context = dcc_mcp_actions::current_dispatch_job_context();
 
                     let py_params = json_value_to_bound_py(gil, &params)
                         .map_err(|e| format!("failed to convert params: {e}"))?;
@@ -460,13 +467,26 @@ impl PyMcpHttpServer {
                             return Err("split-phase continuation must be callable".to_string());
                         }
                         let continuation = continuation.unbind();
+                        let callback_context = continuation_context.clone();
                         let callback: std::sync::Arc<
                             dcc_mcp_skills::catalog::execute::SplitPhaseContinuation,
                         > = std::sync::Arc::new(move || {
                             Python::attach(|py| {
-                                let value = continuation
-                                    .call0(py)
-                                    .map_err(|e| format!("continuation error: {e}"))?;
+                                let value = if let Some(job_context) = callback_context.as_ref() {
+                                    let probe =
+                                        dcc_mcp_skills::catalog::execute::cancellation_probe(
+                                            py,
+                                            job_context.clone(),
+                                        )
+                                        .map_err(|e| format!("cancellation probe: {e}"))?;
+                                    continuation
+                                        .call1(py, (probe,))
+                                        .map_err(|e| format!("continuation error: {e}"))?
+                                } else {
+                                    continuation
+                                        .call0(py)
+                                        .map_err(|e| format!("continuation error: {e}"))?
+                                };
                                 py_any_to_json_value(value.bind(py)).map_err(|e| e.to_string())
                             })
                         });
@@ -475,8 +495,8 @@ impl PyMcpHttpServer {
                             .ok()
                             .and_then(|v| v.extract::<f64>().ok())
                             .filter(|value| value.is_finite() && *value > 0.0)
-                            .map(|value| value.min(3_600_000.0))
-                            .unwrap_or(3600.0);
+                            .map(|value| value.min(300.0))
+                            .unwrap_or(300.0);
                         let id = split_phase_store
                             .register(callback, std::time::Duration::from_secs_f64(timeout_secs));
                         return Ok(serde_json::json!({

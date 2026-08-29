@@ -31,16 +31,23 @@ pub struct PyServerHandle {
     pub(crate) live_meta: Arc<RwLock<LiveMetaInner>>,
     /// Opt-in safety net for forgotten explicit shutdown calls.
     pub(crate) shutdown_on_drop: bool,
+    pub(crate) split_phase_store: Option<Arc<dcc_mcp_skills::catalog::execute::SplitPhaseStore>>,
 }
 
 impl PyServerHandle {
     fn shutdown_inner(&mut self) {
+        if let Some(store) = self.split_phase_store.take() {
+            store.drain();
+        }
         if let Some(handle) = self.inner.take() {
             self.runtime.block_on(handle.shutdown());
         }
     }
 
     fn shutdown_on_drop_inner(&mut self) {
+        if let Some(store) = self.split_phase_store.take() {
+            store.drain();
+        }
         let Some(handle) = self.inner.take() else {
             return;
         };

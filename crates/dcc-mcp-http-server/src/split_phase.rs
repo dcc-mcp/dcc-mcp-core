@@ -105,4 +105,35 @@ mod tests {
         let err = resolve_output(marker, None).await.unwrap_err();
         assert!(err.contains("timed out"));
     }
+
+    #[test]
+    fn shutdown_generation_drops_old_entries_and_isolates_owners() {
+        let first = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let second = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let first_id = first.register(
+            Arc::new(|| Ok(serde_json::json!({"owner": "first"}))),
+            std::time::Duration::from_secs(1),
+        );
+        let second_id = second.register(
+            Arc::new(|| Ok(serde_json::json!({"owner": "second"}))),
+            std::time::Duration::from_secs(1),
+        );
+        let old_generation = first.generation();
+        first.drain();
+        assert!(
+            dcc_mcp_skills::catalog::execute::take_split_phase_continuation_if_generation(
+                first.owner(),
+                &first_id,
+                old_generation,
+            )
+            .is_none()
+        );
+        assert!(
+            dcc_mcp_skills::catalog::execute::take_split_phase_continuation(
+                second.owner(),
+                &second_id,
+            )
+            .is_some()
+        );
+    }
 }

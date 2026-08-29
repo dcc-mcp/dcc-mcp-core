@@ -108,7 +108,7 @@ impl SplitPhaseStore {
     pub fn take(&self, id: &str) -> Option<SplitPhaseRegistration> {
         let mut entries = self.entries.lock();
         entries.retain(|_, value| {
-            value.created_at.elapsed() < value.timeout.max(Duration::from_secs(3600))
+            value.created_at.elapsed() < value.timeout.min(Duration::from_secs(300))
         });
         entries.remove(id)
     }
@@ -169,7 +169,7 @@ pub fn split_phase_marker(value: &serde_json::Value) -> Option<(&str, &str, u64)
 #[cfg(feature = "python-bindings")]
 #[pyclass(frozen)]
 pub struct DispatchCancellationProbe {
-    context: DispatchJobContext,
+    pub context: DispatchJobContext,
 }
 
 #[cfg(feature = "python-bindings")]
@@ -184,6 +184,12 @@ impl DispatchCancellationProbe {
     fn job_id(&self) -> &str {
         self.context.job_id()
     }
+}
+
+/// Construct a Python cancellation probe for a retained continuation.
+#[cfg(feature = "python-bindings")]
+pub fn cancellation_probe(py: Python<'_>, context: DispatchJobContext) -> PyResult<Py<PyAny>> {
+    Ok(Py::new(py, DispatchCancellationProbe { context })?.into_any())
 }
 
 /// Add server-owned job identity and a read-only cancellation probe to Python

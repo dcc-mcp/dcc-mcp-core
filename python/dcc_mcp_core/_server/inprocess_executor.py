@@ -348,6 +348,13 @@ class HostExecutionBridge:
         context: InProcessExecutionContext,
     ) -> Any:
         """Resolve a DeferredToolResult or ChunkedRunner."""
+        if isinstance(result, ContinuationOutcome):
+            is_host_thread = getattr(self.dispatcher, "is_host_thread", None)
+            if callable(is_host_thread) and is_host_thread():
+                return exception_to_error_envelope(
+                    RuntimeError("split-phase continuation cannot resolve on the host thread"),
+                    message="Split-phase continuation must resolve off the host thread",
+                )
         return resolve_execution_result(
             result,
             context,
