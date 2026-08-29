@@ -17,6 +17,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import tempfile
 from threading import Event
 from threading import Thread
 import time
@@ -54,7 +55,7 @@ class PullRequestIdentity(NamedTuple):
     title: str
 
 
-def sanitized_environment(source: Mapping[str, str]) -> dict[str, str]:
+def sanitized_environment(source: Mapping[str, str], *, isolated_home: Path) -> dict[str, str]:
     """Return an environment safe for project-controlled build backends."""
     env = {key: value for key, value in source.items() if key not in CREDENTIAL_ENV_KEYS}
     # Do not allow a repository checkout to re-enable a credential-bearing
@@ -64,6 +65,17 @@ def sanitized_environment(source: Mapping[str, str]) -> dict[str, str]:
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_TERMINAL_PROMPT"] = "0"
+    # Keep user-level Git/Cargo/pip/uv/cloud stores outside the runner user's
+    # home for the entire generation subprocess lifetime.
+    root = str(isolated_home)
+    env["HOME"] = root
+    env["USERPROFILE"] = root
+    env["XDG_CONFIG_HOME"] = str(isolated_home / "config")
+    env["XDG_DATA_HOME"] = str(isolated_home / "data")
+    env["XDG_CACHE_HOME"] = str(isolated_home / "cache")
+    env["CARGO_HOME"] = str(isolated_home / "cargo")
+    env["PIP_CONFIG_FILE"] = str(isolated_home / "pip.conf")
+    env["UV_CONFIG_FILE"] = str(isolated_home / "uv.toml")
     return env
 
 
@@ -103,10 +115,11 @@ def validate_changed_files(paths: Iterable[str]) -> list[str]:
 
 def run_generation(root: Path, *, timeout_seconds: int = 900) -> None:
     """Run lock generators with bounded timeouts and a scrubbed environment."""
-    env = sanitized_environment(os.environ)
-    commands = (("cargo", "update", "-w"), ("cargo", "hakari", "generate"), ("vx", "uv", "lock"))
-    for command in commands:
-        run_bounded(command, cwd=root, env=env, timeout_seconds=timeout_seconds)
+    with tempfile.TemporaryDirectory(prefix="dcc-lock-sync-") as isolated_home:
+        env = sanitized_environment(os.environ, isolated_home=Path(isolated_home))
+        commands = (("cargo", "update", "-w"), ("cargo", "hakari", "generate"), ("vx", "uv", "lock"))
+        for command in commands:
+            run_bounded(command, cwd=root, env=env, timeout_seconds=timeout_seconds)
 
 
 def process_exists(pid: int) -> bool:

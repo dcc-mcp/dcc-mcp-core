@@ -280,7 +280,12 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     # Clear any PR-controlled local helper before installing the ephemeral
     # trusted store helper; otherwise `credential.helper=!…` in .git/config
     # can execute during the PAT-bearing push.
-    assert 'git -c credential.helper= \\\n  -c credential.helper="store --file=${credential_file}"' in push["run"]
+    assert '-c credential.helper= \\\n  -c credential.helper="store --file=${credential_file}"' in push["run"]
+    assert "-c http.proxy=" in push["run"]
+    assert "-c https.proxy=" in push["run"]
+    assert "-c core.gitProxy=" in push["run"]
+    assert '"https://github.com/${GITHUB_REPOSITORY}.git"' in push["run"]
+    assert "env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY" in push["run"]
     assert "validate-remote" in push["run"]
     assert "--no-verify" in push["run"]
     assert "trusted-lock-validator show" in push["run"] and "python - verify-commit" in push["run"]
@@ -331,6 +336,29 @@ def test_ephemeral_push_helper_ignores_pr_local_helper(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "password=ephemeral-pat" in result.stdout
     assert not marker.exists(), "PR-controlled local credential helper executed"
+
+
+def test_generation_uses_ephemeral_credential_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_home", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    captured: list[dict[str, str]] = []
+
+    def fake_run_bounded(command, *, cwd, env, timeout_seconds):
+        captured.append(env)
+
+    monkeypatch.setattr(module, "run_bounded", fake_run_bounded)
+    module.run_generation(tmp_path, timeout_seconds=1)
+    assert len(captured) == 3
+    env = captured[0]
+    assert env["HOME"] != os.environ.get("HOME")
+    assert env["USERPROFILE"] != os.environ.get("USERPROFILE")
+    assert env["XDG_CONFIG_HOME"] != os.environ.get("XDG_CONFIG_HOME")
+    assert env["CARGO_HOME"] != os.environ.get("CARGO_HOME")
+    assert env["PIP_CONFIG_FILE"] != os.environ.get("PIP_CONFIG_FILE")
+    assert not Path(env["HOME"]).exists(), "temporary credential root escaped cleanup"
 
 
 def test_trusted_validator_ref_contains_attested_file() -> None:
@@ -385,7 +413,8 @@ def test_generation_environment_cannot_expose_write_credentials(tmp_path: Path) 
             "GH_TOKEN": "write-secret",
             "PERSONAL_ACCESS_TOKEN": "write-secret",
             "GIT_CONFIG_GLOBAL": "C:/credential-store",
-        }
+        },
+        isolated_home=tmp_path / "isolated-home",
     )
     assert all("secret" not in value for value in env.values())
     assert "GITHUB_TOKEN" not in env and "GH_TOKEN" not in env and "PERSONAL_ACCESS_TOKEN" not in env
