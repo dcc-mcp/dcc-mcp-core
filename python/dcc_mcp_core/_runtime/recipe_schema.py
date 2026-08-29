@@ -43,16 +43,6 @@ class _RecipeSchemaValidator:
     _MAX_SCHEMA_SIZE: ClassVar[int] = 1_000_000
     _MAX_INSTANCE_SIZE: ClassVar[int] = 1_000_000
 
-    _NESTED_QUANTIFIER = re.compile(
-        r"\((?:\?:|\?=|\?!|\?<=|\?<!|\?>)?(?:\\.|[^()\\])*(?:[+*?]|\{\d+(?:,\d*)?\})(?:\\.|[^()\\])*\)"
-        r"(?:[+*?]|\{\d+(?:,\d*)?\})"
-    )
-    _QUANTIFIED_ALTERNATION = re.compile(
-        r"\((?:\?:|\?=|\?!|\?<=|\?<!|\?>)?(?:\\.|[^()\\|])*(?:\|)(?:\\.|[^()\\|])*\)"
-        r"(?:[+*?]|\{\d+(?:,\d*)?\})"
-    )
-    _BACKREFERENCE = re.compile(r"\\[1-9][0-9]*")
-
     def __init__(self, schema: Any) -> None:
         self.schema = schema
         try:
@@ -197,18 +187,157 @@ class _RecipeSchemaValidator:
 
     @classmethod
     def _pattern_is_safe(cls, pattern: str) -> bool:
-        """Reject regex constructs with unbounded backtracking risk.
+        """Accept only patterns whose backtracking structure is provably linear.
 
-        Python's backtracking engine has no portable interruption API on
-        Python 3.7.  Published schemas therefore use a deliberately bounded
-        subset: nested quantifiers, quantified alternations, and backreferences
-        are rejected before any instance text reaches ``re.search``.
+        Python's regular-expression engine has no portable interruption API on
+        Python 3.7. A flat textual blacklist is insufficient (for example,
+        ``((ab)*)*$`` hides a nested quantifier behind two groups), so this
+        scanner tracks the structure of every group and quantifier. Any
+        quantifier applied to a quantified or alternated atom, and every
+        backreference, is rejected before instance text reaches ``re.search``.
         """
-        return not (
-            cls._NESTED_QUANTIFIER.search(pattern)
-            or cls._QUANTIFIED_ALTERNATION.search(pattern)
-            or cls._BACKREFERENCE.search(pattern)
-        )
+        # Each frame records whether its group already contains a quantifier or
+        # an alternation. The preceding atom carries the same metadata when a
+        # closing parenthesis makes the group quantifiable.
+        frames: list[tuple[bool, bool]] = []
+        frame_has_quantifier = False
+        frame_has_alternation = False
+        atom_present = False
+        atom_has_quantifier = False
+        atom_has_alternation = False
+        quantifier_pending = False
+        in_character_class = False
+        escaped = False
+        index = 0
+
+        def mark_quantifier() -> bool:
+            nonlocal frame_has_quantifier
+            nonlocal atom_has_quantifier
+            nonlocal quantifier_pending
+            if not atom_present or atom_has_quantifier or atom_has_alternation:
+                return False
+            frame_has_quantifier = True
+            atom_has_quantifier = True
+            quantifier_pending = True
+            return True
+
+        while index < len(pattern):
+            character = pattern[index]
+            if escaped:
+                # Numeric and named backreferences are non-regular and can
+                # force unbounded backtracking. Reject all digit escapes to
+                # keep the accepted grammar explicit and conservative.
+                if character.isdigit():
+                    return False
+                escaped = False
+                atom_present = True
+                atom_has_quantifier = False
+                atom_has_alternation = False
+                quantifier_pending = False
+                index += 1
+                continue
+            if character == "\\":
+                escaped = True
+                index += 1
+                continue
+            if in_character_class:
+                if character == "]":
+                    in_character_class = False
+                atom_present = True
+                atom_has_quantifier = False
+                atom_has_alternation = False
+                quantifier_pending = False
+                index += 1
+                continue
+            if character == "[":
+                in_character_class = True
+                atom_present = True
+                atom_has_quantifier = False
+                atom_has_alternation = False
+                quantifier_pending = False
+                index += 1
+                continue
+            if character == "(":
+                # Named backreferences use ``(?P=name)``; named captures are
+                # regular, but rejecting the whole construct avoids ambiguity
+                # in this deliberately small safety grammar.
+                if pattern.startswith("(?P=", index):
+                    return False
+                frames.append((frame_has_quantifier, frame_has_alternation))
+                frame_has_quantifier = False
+                frame_has_alternation = False
+                atom_present = False
+                atom_has_quantifier = False
+                atom_has_alternation = False
+                quantifier_pending = False
+                index += 1
+                continue
+            if character == "|":
+                frame_has_alternation = True
+                atom_present = False
+                atom_has_quantifier = False
+                atom_has_alternation = False
+                quantifier_pending = False
+                index += 1
+                continue
+            if character == ")":
+                if not frames:
+                    return False
+                group_has_quantifier = frame_has_quantifier
+                group_has_alternation = frame_has_alternation
+                frame_has_quantifier, frame_has_alternation = frames.pop()
+                # Preserve nested structure in the enclosing group. Without
+                # this propagation, ``((a|b)c)+`` would hide its alternation
+                # behind an inner pair of parentheses.
+                frame_has_quantifier = frame_has_quantifier or group_has_quantifier
+                frame_has_alternation = frame_has_alternation or group_has_alternation
+                atom_present = True
+                atom_has_quantifier = group_has_quantifier
+                atom_has_alternation = group_has_alternation
+                quantifier_pending = False
+                index += 1
+                continue
+            if character in "*+?":
+                # A question mark immediately after another quantifier is its
+                # lazy suffix, not a second quantifier.
+                if character == "?" and quantifier_pending:
+                    quantifier_pending = False
+                    index += 1
+                    continue
+                if atom_present:
+                    if not mark_quantifier():
+                        return False
+                else:
+                    # Group prefixes such as ``?:`` and ``?=`` are syntax,
+                    # not quantifiers; ``re.compile`` validates them.
+                    atom_present = True
+                    atom_has_quantifier = False
+                    atom_has_alternation = False
+                    quantifier_pending = False
+                index += 1
+                continue
+            if character == "{" and atom_present:
+                end = index + 1
+                while end < len(pattern) and pattern[end].isdigit():
+                    end += 1
+                if end > index + 1:
+                    if end < len(pattern) and pattern[end] == ",":
+                        end += 1
+                        while end < len(pattern) and pattern[end].isdigit():
+                            end += 1
+                    if end < len(pattern) and pattern[end] == "}":
+                        if not mark_quantifier():
+                            return False
+                        index = end + 1
+                        continue
+            # Ordinary literals, anchors, and group-prefix punctuation are
+            # single regular atoms.
+            atom_present = True
+            atom_has_quantifier = False
+            atom_has_alternation = False
+            quantifier_pending = False
+            index += 1
+        return not escaped and not in_character_class and not frames
 
     def _resolve_ref(self, ref: str) -> Any:
         if ref == "#":
