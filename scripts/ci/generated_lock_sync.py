@@ -162,6 +162,7 @@ def run_bounded(
         creationflags=creationflags,
     )
     observed: set[int] = set()
+    observer_errors: list[RuntimeError] = []
     stop_observer = Event()
 
     def collect_descendants() -> None:
@@ -174,7 +175,12 @@ def run_bounded(
     def observe_descendants() -> None:
         interval = 0.5 if os.name == "nt" else 0.02
         while not stop_observer.is_set():
-            collect_descendants()
+            try:
+                collect_descendants()
+            except RuntimeError as exc:
+                observer_errors.append(exc)
+                stop_observer.set()
+                return
             stop_observer.wait(interval)
 
     observer = Thread(target=observe_descendants, daemon=True) if os.name in ("nt", "posix") else None
@@ -222,6 +228,8 @@ def run_bounded(
             stop_observer.set()
             observer.join()
     collect_descendants()
+    if observer_errors:
+        raise RuntimeError("process observer failed; containment is not provable") from observer_errors[0]
     escaped = [pid for pid in observed if process_exists(pid)]
     if escaped:
         for pid in escaped:
@@ -252,7 +260,14 @@ def _descendant_pids(root_pid: int) -> list[int]:
     if os.name == "nt":
         entries = _windows_process_entries()
     else:
-        result = subprocess.run(("ps", "-eo", "pid=,ppid="), check=False, stdout=subprocess.PIPE, text=True)
+        try:
+            result = subprocess.run(
+                ("ps", "-eo", "pid=,ppid="), check=False, stdout=subprocess.PIPE, text=True, timeout=5
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError("process enumeration timed out or failed") from exc
+        if result.returncode != 0:
+            raise RuntimeError(f"process enumeration failed with exit {result.returncode}")
         entries = []
         for line in result.stdout.splitlines():
             fields = line.split()

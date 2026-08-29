@@ -227,6 +227,7 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         step_name="Commit and push changes",
     )
     assert "git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml" in commit_commands
+    assert any("--no-verify" in command for command in commit_commands)
 
     check_commands = _workflow_step_commands(
         version_workflow,
@@ -496,6 +497,43 @@ def test_windows_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(module.subprocess, "run", timeout_run)
     with pytest.raises(RuntimeError, match="process probe timed out"):
         module.process_exists(1234)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process probe contract")
+def test_posix_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_posix_probe_timeout", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def timeout_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout"))
+
+    monkeypatch.setattr(module.subprocess, "run", timeout_run)
+    with pytest.raises(RuntimeError, match="process enumeration timed out"):
+        module._descendant_pids(1234)
+
+
+def test_commit_no_verify_blocks_malicious_pre_commit_hook(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_pre_commit", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    work = tmp_path / "work"
+    subprocess.run(["git", "init", "-q", str(work)], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(work), "config", "user.email", "test@example.invalid"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(work), "config", "user.name", "test"], check=True, timeout=30)
+    marker = tmp_path / "hook-ran"
+    hook = work / ".git" / "hooks" / "pre-commit"
+    hook.write_text(f"#!/bin/sh\nprintf x > '{marker}'\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+    (work / "Cargo.lock").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(work), "add", "Cargo.lock"], check=True, timeout=30)
+    result = subprocess.run(["git", "-C", str(work), "commit", "--no-verify", "-qm", "base"], check=False, timeout=30)
+    assert result.returncode == 0
+    assert not marker.exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="escaped setsid descendants are a POSIX contract")

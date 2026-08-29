@@ -109,7 +109,7 @@ jobs:
           git config user.name "loonghao"
           git config user.email "hal.long@outlook.com"
           git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
-          git commit -m "chore(ci): sync generated lock metadata"
+          git commit --no-verify -m "chore(ci): sync generated lock metadata"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Push fixed generated lock commit
