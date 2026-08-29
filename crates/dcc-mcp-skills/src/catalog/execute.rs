@@ -26,7 +26,7 @@
 use dcc_mcp_models::{ExecutionMode, JobStrategy, ThreadAffinity, ToolDeclaration};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -51,7 +51,38 @@ pub struct ScriptExecutionContext {
 
 /// Opaque continuation callback retained between the bounded host phase and
 /// the request/job worker. The callback never crosses the MCP/REST wire.
-pub type SplitPhaseContinuation = dyn Fn() -> Result<serde_json::Value, String> + Send + Sync;
+pub type SplitPhaseContinuation =
+    dyn Fn(SplitPhaseControl) -> Result<serde_json::Value, String> + Send + Sync;
+
+#[derive(Clone)]
+pub struct SplitPhaseControl {
+    cancelled: Arc<AtomicBool>,
+    deadline: Instant,
+    lifecycle: Weak<SplitPhaseStore>,
+    generation: u64,
+}
+
+impl SplitPhaseControl {
+    pub fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+            || Instant::now() >= self.deadline
+            || self.lifecycle.upgrade().map_or(true, |store| {
+                store.shutdown.load(Ordering::Acquire) || store.generation() != self.generation
+            })
+    }
+
+    pub fn check(&self) -> Result<(), String> {
+        if self.cancelled() {
+            Err("split-phase continuation cancelled before durable commit".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
 
 pub struct SplitPhaseRegistration {
     id: String,
@@ -59,15 +90,19 @@ pub struct SplitPhaseRegistration {
     pub timeout: Duration,
     pub created_at: Instant,
     store: Weak<SplitPhaseStore>,
-    generation: u64,
+    control: SplitPhaseControl,
 }
 
 impl SplitPhaseRegistration {
     pub fn commit_allowed(&self) -> bool {
-        self.store.upgrade().is_some_and(|store| {
-            !store.shutdown.load(std::sync::atomic::Ordering::Acquire)
-                && store.generation() == self.generation
-        })
+        self.control.check().is_ok()
+    }
+
+    pub fn cancel(&self) {
+        self.control.cancel();
+    }
+    pub fn control(&self) -> SplitPhaseControl {
+        self.control.clone()
     }
 }
 
@@ -84,7 +119,7 @@ pub struct SplitPhaseStore {
     generation: std::sync::atomic::AtomicU64,
     shutdown: std::sync::atomic::AtomicBool,
     entries: Mutex<HashMap<String, SplitPhaseRegistration>>,
-    active: Mutex<HashSet<String>>,
+    active: Mutex<HashMap<String, SplitPhaseControl>>,
 }
 
 static SPLIT_PHASE_STORES: OnceLock<Mutex<HashMap<String, Weak<SplitPhaseStore>>>> =
@@ -101,7 +136,7 @@ impl SplitPhaseStore {
             generation: std::sync::atomic::AtomicU64::new(0),
             shutdown: std::sync::atomic::AtomicBool::new(false),
             entries: Mutex::new(HashMap::new()),
-            active: Mutex::new(HashSet::new()),
+            active: Mutex::new(HashMap::new()),
         });
         stores()
             .lock()
@@ -132,6 +167,12 @@ impl SplitPhaseStore {
     ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let generation = self.generation();
+        let control = SplitPhaseControl {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            deadline: Instant::now() + timeout.min(Duration::from_secs(300)),
+            lifecycle: Arc::downgrade(self),
+            generation,
+        };
         self.entries.lock().insert(
             id.clone(),
             SplitPhaseRegistration {
@@ -140,7 +181,7 @@ impl SplitPhaseStore {
                 timeout,
                 created_at: Instant::now(),
                 store: Arc::downgrade(self),
-                generation,
+                control,
             },
         );
         id
@@ -149,8 +190,10 @@ impl SplitPhaseStore {
     pub fn take(&self, id: &str) -> Option<SplitPhaseRegistration> {
         self.reap_expired();
         let registration = self.entries.lock().remove(id);
-        if registration.is_some() {
-            self.active.lock().insert(id.to_owned());
+        if let Some(registration) = registration.as_ref() {
+            self.active
+                .lock()
+                .insert(id.to_owned(), registration.control());
         }
         registration
     }
@@ -172,6 +215,9 @@ impl SplitPhaseStore {
         self.shutdown
             .store(true, std::sync::atomic::Ordering::Release);
         self.entries.lock().clear();
+        for control in self.active.lock().values() {
+            control.cancel();
+        }
         self.active.lock().clear();
         self.generation
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -230,6 +276,7 @@ pub fn split_phase_marker(value: &serde_json::Value) -> Option<(&str, &str, u64)
 #[pyclass(frozen)]
 pub struct DispatchCancellationProbe {
     pub context: DispatchJobContext,
+    pub control: SplitPhaseControl,
 }
 
 #[cfg(feature = "python-bindings")]
@@ -237,7 +284,17 @@ pub struct DispatchCancellationProbe {
 impl DispatchCancellationProbe {
     #[getter]
     fn cancelled(&self) -> bool {
-        self.context.is_cancelled()
+        self.context.is_cancelled() || self.control.cancelled()
+    }
+
+    fn check(&self) -> PyResult<()> {
+        if self.cancelled() {
+            Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "split-phase continuation cancelled before durable commit",
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     #[getter]
@@ -248,8 +305,12 @@ impl DispatchCancellationProbe {
 
 /// Construct a Python cancellation probe for a retained continuation.
 #[cfg(feature = "python-bindings")]
-pub fn cancellation_probe(py: Python<'_>, context: DispatchJobContext) -> PyResult<Py<PyAny>> {
-    Ok(Py::new(py, DispatchCancellationProbe { context })?.into_any())
+pub fn cancellation_probe(
+    py: Python<'_>,
+    context: DispatchJobContext,
+    control: SplitPhaseControl,
+) -> PyResult<Py<PyAny>> {
+    Ok(Py::new(py, DispatchCancellationProbe { context, control })?.into_any())
 }
 
 /// Add server-owned job identity and a read-only cancellation probe to Python

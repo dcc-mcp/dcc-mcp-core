@@ -471,9 +471,12 @@ def main(params):
 
 Core releases the host lane before invoking the continuation on the request or
 async-job worker. The continuation is transport-internal and never appears in
-MCP/REST JSON. It is one-shot; nested outcomes fail closed. Continuations must
-accept the cancellation probe and gate durable writes on it; callbacks without
-that probe are rejected before they run. Cancellation and shutdown are checked
-before and after the continuation, so a result cannot be committed after a
-request is cancelled. `timeout_secs` is finite and bounded to 300 seconds;
-server shutdown drains all pending continuations and advances their generation.
+MCP/REST JSON. It is one-shot; nested outcomes fail closed. The callback
+receives a `SplitPhaseControl`; it must call `control.check()` immediately
+before every durable write or host mutation. Timeout, cancellation and
+shutdown revoke that control and invalidate the active registration. A callback
+that cannot observe the control is rejected before it runs; Core only promises
+to publish results after the gate, and does not claim to undo side effects from
+callbacks that ignore the protocol. `timeout_secs` is finite and bounded to
+300 seconds; server shutdown drains all pending continuations and advances
+their generation.

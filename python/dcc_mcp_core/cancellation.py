@@ -104,6 +104,10 @@ class CancellationProbe(Protocol):
         """Server-owned asynchronous job id, when one exists."""
         ...
 
+    def check(self) -> None:
+        """Raise when cancellation has been requested."""
+        ...
+
 
 class CancelToken:
     """Thread-safe cancellation flag settable by the request dispatcher.
@@ -146,6 +150,11 @@ class CancelToken:
         """Whether :meth:`cancel` has been invoked on this token."""
         with self._lock:
             return self._cancelled
+
+    def check(self) -> None:
+        """Raise if cancellation has been requested."""
+        if self.cancelled:
+            raise DccMcpCancelledError("Request cancelled by client")
 
     @property
     def job_id(self) -> str | None:
