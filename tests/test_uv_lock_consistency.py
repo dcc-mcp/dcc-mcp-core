@@ -518,6 +518,7 @@ def test_git_helper_uses_hard_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert observed["timeout"] > 0
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS process execution fails closed")
 def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_timeout", script)
@@ -547,7 +548,10 @@ def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
         assert not module.process_exists(pid)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="escaped setsid descendants are a POSIX contract")
+@pytest.mark.skipif(
+    os.name == "nt" or sys.platform == "darwin",
+    reason="requires a provable POSIX process reaper; macOS fails closed",
+)
 def test_bounded_runner_fails_closed_on_escaped_daemon(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_escaped_daemon", script)
@@ -625,6 +629,7 @@ def test_windows_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPa
         module.process_exists(1234)
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS process execution fails closed")
 def test_observer_failure_still_kills_timeout_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_observer_failure", script)
@@ -729,7 +734,10 @@ def test_commit_no_verify_blocks_malicious_pre_commit_hook(tmp_path: Path) -> No
     assert not marker.exists()
 
 
-@pytest.mark.skipif(os.name == "nt", reason="escaped setsid descendants are a POSIX contract")
+@pytest.mark.skipif(
+    os.name == "nt" or sys.platform == "darwin",
+    reason="requires a provable POSIX process reaper; macOS fails closed",
+)
 def test_bounded_runner_catches_last_fork_after_leader_exit(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_last_fork", script)
@@ -756,6 +764,17 @@ def test_bounded_runner_catches_last_fork_after_leader_exit(tmp_path: Path) -> N
     finally:
         if grandchild_pid.exists() and module.process_exists(int(grandchild_pid.read_text())):
             os.kill(int(grandchild_pid.read_text()), 9)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS fail-closed contract")
+def test_bounded_runner_fails_closed_before_macos_generation(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_macos_guard", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with pytest.raises(RuntimeError, match="unavailable on macOS"):
+        module.run_bounded([sys.executable, "-c", "raise SystemExit(99)"], timeout_seconds=5)
 
 
 def test_stale_head_and_unexpected_diff_contracts_block_push() -> None:

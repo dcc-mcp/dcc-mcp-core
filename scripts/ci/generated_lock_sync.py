@@ -177,6 +177,12 @@ def run_bounded(
     """Run a command in a process group/tree and kill descendants on timeout."""
     if os.name not in ("nt", "posix"):
         raise RuntimeError("process containment is unavailable on this platform")
+    # macOS has no child-subreaper or cgroup equivalent.  A detached setsid
+    # descendant can be reparented to launchd after its intermediate leader
+    # exits, making zero-residual containment unprovable.  Refuse to start
+    # generation there rather than risking credentials after an escape.
+    if sys.platform == "darwin":
+        raise RuntimeError("process containment is unavailable on macOS")
     _enable_child_subreaper()
     baseline = set(_descendant_pids(os.getpid()))
     creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
