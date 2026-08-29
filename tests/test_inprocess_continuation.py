@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import threading
 import time
 
 import pytest
@@ -33,7 +35,13 @@ def test_split_phase_releases_main_segment_before_continuation() -> None:
     bridge = HostExecutionBridge(dispatcher=MainDispatcher())
 
     def main_phase():
-        return SplitPhaseOutcome(lambda: (time.sleep(0.075), {"ok": True})[1])
+        def continuation(_probe):
+            deadline = time.perf_counter() + 0.075
+            while time.perf_counter() < deadline:
+                pass
+            return {"ok": True}
+
+        return SplitPhaseOutcome(continuation)
 
     started = time.perf_counter()
     result = bridge.dispatch_callable(main_phase, thread_affinity="main")
@@ -152,3 +160,32 @@ def test_split_phase_shutdown_during_continuation_blocks_commit() -> None:
     )
     assert result["success"] is False
     assert "cancel" in result["message"].lower()
+
+
+def test_running_cancellation_probe_blocks_durable_side_effect() -> None:
+    token = CancelToken()
+    started = threading.Event()
+    release = threading.Event()
+    published: list[bool] = []
+    bridge = HostExecutionBridge()
+
+    def continuation(probe):
+        started.set()
+        release.wait(1)
+        if not probe.cancelled:
+            published.append(True)
+        return {"published": True}
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        call = pool.submit(
+            bridge.dispatch_callable,
+            lambda: SplitPhaseOutcome(continuation),
+            thread_affinity="main",
+            cancel_token=token,
+        )
+        assert started.wait(1)
+        token.cancel()
+        release.set()
+        result = call.result(timeout=2)
+    assert result["success"] is False
+    assert published == []

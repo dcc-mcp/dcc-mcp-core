@@ -34,16 +34,36 @@ pub async fn resolve_output(
         return Err("split-phase continuation is missing or already consumed".to_string());
     };
     let timeout = registration.timeout;
-    let result = tokio::time::timeout(
+    let control = registration.control();
+    let worker = tokio::time::timeout(
         timeout,
         tokio::task::spawn_blocking({
             let callback = registration.callback.clone();
-            move || (callback)()
+            let control = control.clone();
+            move || (callback)(control)
         }),
-    )
-    .await
-    .map_err(|_| "split-phase continuation timed out".to_string())?
-    .map_err(|err| format!("split-phase continuation worker failed: {err}"))??;
+    );
+    tokio::pin!(worker);
+    let result = if let Some(token) = cancellation.as_ref() {
+        tokio::select! {
+            result = &mut worker => result,
+            _ = token.cancelled() => {
+                registration.cancel();
+                return Err("CANCELLED".to_string());
+            }
+        }
+    } else {
+        worker.await
+    };
+    let result = match result {
+        Err(_) => {
+            registration.cancel();
+            return Err("split-phase continuation timed out".to_string());
+        }
+        Ok(result) => {
+            result.map_err(|err| format!("split-phase continuation worker failed: {err}"))??
+        }
+    };
 
     if dcc_mcp_skills::catalog::execute::split_phase_marker(&result).is_some() {
         return Err("nested split-phase continuation rejected".to_string());
@@ -69,7 +89,7 @@ mod tests {
     async fn resolves_once_and_rejects_replay() {
         let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         let id = store.register(
-            Arc::new(|| Ok(serde_json::json!({"ok": true}))),
+            Arc::new(|_| Ok(serde_json::json!({"ok": true}))),
             std::time::Duration::from_secs(1),
         );
         let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
@@ -84,7 +104,7 @@ mod tests {
     async fn cancellation_is_checked_before_continuation_and_consumes_ownership() {
         let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         let id = store.register(
-            Arc::new(|| Ok(serde_json::json!({"published": true}))),
+            Arc::new(|_| Ok(serde_json::json!({"published": true}))),
             std::time::Duration::from_secs(1),
         );
         let marker = serde_json::json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
@@ -101,7 +121,7 @@ mod tests {
     async fn timeout_fails_closed() {
         let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         let id = store.register(
-            Arc::new(|| {
+            Arc::new(|_| {
                 std::thread::sleep(std::time::Duration::from_millis(30));
                 Ok(serde_json::json!({"ok": true}))
             }),
@@ -113,14 +133,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn timeout_control_blocks_late_durable_side_effect() {
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let published = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let published_callback = published.clone();
+        let id = store.register(
+            Arc::new(move |control| {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                if control.check().is_ok() {
+                    published_callback.store(true, std::sync::atomic::Ordering::Release);
+                }
+                Ok(serde_json::json!({"published": true}))
+            }),
+            std::time::Duration::from_millis(1),
+        );
+        let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
+        assert!(resolve_output(marker, None).await.is_err());
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        assert!(!published.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[tokio::test]
     async fn shutdown_invalidates_running_continuation_before_commit() {
         let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         let started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let started_callback = started.clone();
+        let published = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let published_callback = published.clone();
         let id = store.register(
-            Arc::new(move || {
+            Arc::new(move |control| {
                 started_callback.store(true, std::sync::atomic::Ordering::Release);
                 std::thread::sleep(std::time::Duration::from_millis(30));
+                if control.check().is_ok() {
+                    published_callback.store(true, std::sync::atomic::Ordering::Release);
+                }
                 Ok(serde_json::json!({"published": true}))
             }),
             std::time::Duration::from_secs(1),
@@ -133,6 +179,7 @@ mod tests {
         store.drain();
         let err = task.await.unwrap().unwrap_err();
         assert!(err.contains("invalidated"));
+        assert!(!published.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]
@@ -140,11 +187,11 @@ mod tests {
         let first = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         let second = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         let first_id = first.register(
-            Arc::new(|| Ok(serde_json::json!({"owner": "first"}))),
+            Arc::new(|_| Ok(serde_json::json!({"owner": "first"}))),
             std::time::Duration::from_secs(1),
         );
         let second_id = second.register(
-            Arc::new(|| Ok(serde_json::json!({"owner": "second"}))),
+            Arc::new(|_| Ok(serde_json::json!({"owner": "second"}))),
             std::time::Duration::from_secs(1),
         );
         let old_generation = first.generation();
@@ -170,7 +217,7 @@ mod tests {
     fn orphaned_marker_is_reaped_after_ttl_without_take() {
         let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
         let id = store.register(
-            Arc::new(|| Ok(serde_json::json!({"orphan": true}))),
+            Arc::new(|_| Ok(serde_json::json!({"orphan": true}))),
             std::time::Duration::from_millis(10),
         );
         std::thread::sleep(std::time::Duration::from_millis(1_100));

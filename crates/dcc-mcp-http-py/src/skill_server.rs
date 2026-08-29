@@ -472,13 +472,14 @@ impl PyMcpHttpServer {
                         let callback_context = continuation_context.clone();
                         let callback: std::sync::Arc<
                             dcc_mcp_skills::catalog::execute::SplitPhaseContinuation,
-                        > = std::sync::Arc::new(move || {
+                        > = std::sync::Arc::new(move |control| {
                             Python::attach(|py| {
                                 let value = if let Some(job_context) = callback_context.as_ref() {
                                     let probe =
                                         dcc_mcp_skills::catalog::execute::cancellation_probe(
                                             py,
                                             job_context.clone(),
+                                            control,
                                         )
                                         .map_err(|e| format!("cancellation probe: {e}"))?;
                                     continuation
