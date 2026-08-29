@@ -499,6 +499,56 @@ def test_windows_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPa
         module.process_exists(1234)
 
 
+def test_observer_failure_still_kills_timeout_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_observer_failure", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    child_pid = tmp_path / "child.pid"
+    probe = tmp_path / "sleeping.py"
+    probe.write_text(
+        "import os, sys, time\n"
+        "from pathlib import Path\n"
+        "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    calls = 0
+    killed = False
+
+    def fail_after_baseline(_pid: int) -> list[int]:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise RuntimeError("synthetic observer failure")
+        return []
+
+    monkeypatch.setattr(module, "_descendant_pids", fail_after_baseline)
+    if os.name == "nt":
+
+        def fake_kill(_pid: int) -> None:
+            nonlocal killed
+            killed = True
+
+        monkeypatch.setattr(module, "_kill_windows_tree", fake_kill)
+    else:
+
+        def fake_killpg(_pid: int, _signal: int) -> None:
+            nonlocal killed
+            killed = True
+
+        monkeypatch.setattr(module.os, "killpg", fake_killpg)
+    with pytest.raises(RuntimeError):
+        module.run_bounded([sys.executable, str(probe), str(child_pid)], timeout_seconds=0.2)
+    assert killed
+    if child_pid.exists():
+        if os.name == "nt":
+            subprocess.run(("taskkill", "/PID", child_pid.read_text(), "/T", "/F"), check=False, timeout=5)
+        else:
+            os.kill(int(child_pid.read_text()), 9)
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX process probe contract")
 def test_posix_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"

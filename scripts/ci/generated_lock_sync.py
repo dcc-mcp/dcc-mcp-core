@@ -195,7 +195,11 @@ def run_bounded(
         if observer is not None:
             observer.join()
         descendants = set(observed)
-        collect_descendants()
+        cleanup_error: RuntimeError | None = None
+        try:
+            collect_descendants()
+        except RuntimeError as exc:
+            cleanup_error = exc
         descendants.update(observed)
         if os.name == "nt":
             _kill_windows_tree(process.pid)
@@ -203,7 +207,11 @@ def run_bounded(
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
             for _ in range(10):
-                current = set(_descendant_pids(process.pid))
+                try:
+                    current = set(_descendant_pids(process.pid))
+                except RuntimeError as exc:
+                    cleanup_error = cleanup_error or exc
+                    current = set()
                 descendants.update(current)
                 for pid in descendants | current:
                     with suppress(ProcessLookupError):
@@ -218,12 +226,18 @@ def run_bounded(
         remaining = [pid for pid in descendants if process_exists(pid)]
         if remaining:
             raise RuntimeError(f"process containment failed; descendants survived timeout: {remaining}") from None
+        if cleanup_error is not None:
+            raise RuntimeError("process containment enumeration failed during timeout cleanup") from cleanup_error
         raise
     finally:
         if observer is not None:
             interval = 0.5 if os.name == "nt" else 0.02
             for _ in range(5):
-                collect_descendants()
+                try:
+                    collect_descendants()
+                except RuntimeError as exc:
+                    observer_errors.append(exc)
+                    break
                 time.sleep(interval)
             stop_observer.set()
             observer.join()
