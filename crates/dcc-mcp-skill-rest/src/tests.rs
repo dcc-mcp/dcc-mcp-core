@@ -142,6 +142,54 @@ async fn search_describe_call_round_trip() {
     assert_eq!(out["output"]["radius"], 2.5);
 }
 
+#[tokio::test]
+async fn rest_default_dispatcher_resolves_split_phase_marker() {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_action(ToolMeta {
+        name: "split_phase".into(),
+        dcc: "maya".into(),
+        description: "split phase test".into(),
+        skill_name: Some("split".into()),
+        enabled: true,
+        ..Default::default()
+    });
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+    let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+    let callback: Arc<dcc_mcp_skills::catalog::execute::SplitPhaseContinuation> =
+        Arc::new(|control| {
+            control.check()?;
+            Ok(json!({"resolved": true}))
+        });
+    let id = store.register(callback, std::time::Duration::from_secs(1));
+    let owner = store.owner().to_owned();
+    let generation = store.generation();
+    dispatcher.register_handler("split_phase", move |_| {
+        Ok(json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": owner, "generation": generation, "continuation_id": id}}))
+    });
+    let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+        registry,
+        dispatcher.clone(),
+    ));
+    catalog.add_skill(SkillMetadata {
+        name: "split".into(),
+        dcc: "maya".into(),
+        ..Default::default()
+    });
+    let _ = catalog.load_skill("split");
+    let server = build_server(SkillRestService::from_catalog_and_dispatcher(
+        catalog, dispatcher,
+    ))
+    .0;
+    let response = server
+        .post("/v1/call")
+        .json(&json!({"tool_slug": "maya.split.split_phase", "params": {}}))
+        .await;
+    response.assert_status_ok();
+    let body: Value = response.json();
+    assert_eq!(body["output"]["resolved"], true);
+    assert!(body.to_string().find("_dcc_mcp_split_phase").is_none());
+}
+
 struct ImmediatePendingInvoker {
     inner: DispatcherInvoker,
 }

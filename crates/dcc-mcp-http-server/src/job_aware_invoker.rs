@@ -112,7 +112,22 @@ impl ToolInvoker for JobAwareInvoker {
                         let _ = jobs.complete(&spawned_job_id, outcome.output);
                     }
                     Err(error) => {
-                        let _ = jobs.fail(&spawned_job_id, error.message);
+                        // Preserve the shared structured envelope for
+                        // split-phase failures so async readback matches MCP
+                        // and synchronous REST. Legacy errors remain plain
+                        // strings for wire compatibility.
+                        let persisted = if error
+                            .context
+                            .as_deref()
+                            .and_then(|ctx| ctx.get("code"))
+                            .and_then(Value::as_str)
+                            .is_some_and(|code| code.starts_with("SPLIT_PHASE_"))
+                        {
+                            serde_json::to_string(&error).unwrap_or(error.message.clone())
+                        } else {
+                            error.message
+                        };
+                        let _ = jobs.fail(&spawned_job_id, persisted);
                     }
                 }
             });

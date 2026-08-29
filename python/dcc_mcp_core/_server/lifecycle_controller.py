@@ -138,6 +138,13 @@ class LifecycleController:
         close_admission = getattr(bridge, "close_script_admission", None)
         if callable(close_admission):
             close_admission()
+        # Advance the Rust split-phase lifecycle at the same admission
+        # boundary.  This invalidates already-taken continuations before
+        # quit hooks or transport teardown can race with durable commits.
+        handle = getattr(owner, "_handle", None)
+        signal_shutdown = getattr(handle, "signal_shutdown", None)
+        if callable(signal_shutdown):
+            signal_shutdown()
         self._run_quit_hooks()
         self._runtime_ctrl().stop_gateway_guardian()
         self._runtime_ctrl().stop_gateway_election()

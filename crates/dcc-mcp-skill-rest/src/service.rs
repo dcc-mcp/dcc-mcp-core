@@ -978,6 +978,109 @@ pub struct DispatcherInvoker {
     standalone_main_thread_execution: bool,
 }
 
+fn split_phase_service_error(code: &str, message: impl Into<String>) -> ServiceError {
+    let message = message.into();
+    ServiceError::new(ServiceErrorKind::BackendError, message.clone()).with_context(
+        serde_json::json!({"layer": "instance", "code": format!("SPLIT_PHASE_{code}"), "message": message}),
+    )
+}
+
+async fn resolve_split_phase_output(
+    output: Value,
+    cancellation: Option<&InvocationCancellation>,
+) -> Result<Value, ServiceError> {
+    let marker = dcc_mcp_skills::catalog::execute::split_phase_marker(&output);
+    let Some((owner, id, generation)) = marker else {
+        if dcc_mcp_skills::catalog::execute::has_split_phase_marker(&output) {
+            return Err(split_phase_service_error(
+                "MALFORMED_MARKER",
+                "reserved split-phase marker is malformed",
+            ));
+        }
+        return Ok(output);
+    };
+    let owner = owner.to_owned();
+    let id = id.to_owned();
+    if cancellation.is_some_and(|c| c.cancel_token().is_cancelled()) {
+        let _ = dcc_mcp_skills::catalog::execute::take_split_phase_continuation(&owner, &id);
+        return Err(split_phase_service_error(
+            "CANCELLED",
+            "continuation cancelled",
+        ));
+    }
+    let registration =
+        dcc_mcp_skills::catalog::execute::take_split_phase_continuation_if_generation(
+            &owner, &id, generation,
+        )
+        .ok_or_else(|| {
+            split_phase_service_error("MISSING", "continuation is missing or already consumed")
+        })?;
+    if !registration.commit_allowed() {
+        registration.cancel();
+        return Err(split_phase_service_error(
+            "INVALIDATED",
+            "continuation invalidated before execution",
+        ));
+    }
+    let timeout = registration.timeout;
+    let control = registration.control();
+    let worker = tokio::time::timeout(
+        timeout,
+        tokio::task::spawn_blocking({
+            let callback = registration.callback.clone();
+            move || callback(control)
+        }),
+    );
+    tokio::pin!(worker);
+    let result = if let Some(cancellation) = cancellation {
+        tokio::select! {
+            result = &mut worker => result,
+            _ = cancellation.cancel_token().cancelled() => {
+                registration.cancel();
+                return Err(split_phase_service_error("CANCELLED", "continuation cancelled"));
+            }
+        }
+    } else {
+        worker.await
+    };
+    let result = match result {
+        Err(_) => {
+            registration.cancel();
+            return Err(split_phase_service_error(
+                "TIMEOUT",
+                "continuation timed out",
+            ));
+        }
+        Ok(joined) => joined
+            .map_err(|err| {
+                split_phase_service_error(
+                    "WORKER_FAILED",
+                    format!("continuation worker failed: {err}"),
+                )
+            })?
+            .map_err(|err| split_phase_service_error("CALLBACK_FAILED", err))?,
+    };
+    if dcc_mcp_skills::catalog::execute::has_split_phase_marker(&result) {
+        return Err(split_phase_service_error(
+            "NESTED",
+            "nested split-phase continuation rejected",
+        ));
+    }
+    if cancellation.is_some_and(|c| c.cancel_token().is_cancelled()) {
+        return Err(split_phase_service_error(
+            "CANCELLED",
+            "continuation cancelled",
+        ));
+    }
+    if !registration.commit_allowed() {
+        return Err(split_phase_service_error(
+            "SHUTDOWN",
+            "continuation invalidated by shutdown",
+        ));
+    }
+    Ok(result)
+}
+
 impl DispatcherInvoker {
     pub fn new(dispatcher: Arc<ToolDispatcher>) -> Self {
         Self {
@@ -993,7 +1096,7 @@ impl DispatcherInvoker {
         }
     }
 
-    fn invoke_inner(
+    async fn invoke_inner(
         &self,
         action_name: &str,
         params: Value,
@@ -1011,7 +1114,7 @@ impl DispatcherInvoker {
                 .registry()
                 .get_action(action_name, None)
                 .is_some_and(|meta| matches!(meta.thread_affinity, ThreadAffinity::Main));
-        with_execution_context(exec_ctx, || {
+        let outcome = with_execution_context(exec_ctx, || {
             let dispatch = || {
                 let dispatched = if standalone_main {
                     with_thread_affinity(ThreadAffinity::Main, || {
@@ -1030,7 +1133,7 @@ impl DispatcherInvoker {
                 }
             };
 
-            match cancellation {
+            match cancellation.as_ref() {
                 Some(cancellation) if cancellation.cancel_token().is_cancelled() => Err(
                     ServiceError::new(ServiceErrorKind::BackendError, "CANCELLED"),
                 ),
@@ -1039,7 +1142,10 @@ impl DispatcherInvoker {
                 }
                 None => dispatch(),
             }
-        })
+        })?;
+        let mut outcome = outcome;
+        outcome.output = resolve_split_phase_output(outcome.output, cancellation.as_ref()).await?;
+        Ok(outcome)
     }
 }
 
@@ -1144,7 +1250,7 @@ impl ToolInvoker for DispatcherInvoker {
         params: Value,
         meta: Option<Value>,
     ) -> Result<CallOutcome, ServiceError> {
-        self.invoke_inner(action_name, params, meta, None)
+        self.invoke_inner(action_name, params, meta, None).await
     }
 
     async fn invoke_with_cancellation(
@@ -1155,6 +1261,7 @@ impl ToolInvoker for DispatcherInvoker {
         cancellation: InvocationCancellation,
     ) -> Result<CallOutcome, ServiceError> {
         self.invoke_inner(action_name, params, meta, Some(cancellation))
+            .await
     }
 }
 

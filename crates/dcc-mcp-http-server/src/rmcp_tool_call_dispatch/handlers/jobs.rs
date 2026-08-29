@@ -104,7 +104,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
     envelope.insert(
         "error".into(),
         match &job.error {
-            Some(e) => Value::String(e.clone()),
+            Some(e) => serde_json::from_str(e).unwrap_or_else(|_| Value::String(e.clone())),
             None => Value::Null,
         },
     );

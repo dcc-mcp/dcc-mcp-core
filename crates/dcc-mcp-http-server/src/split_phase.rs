@@ -18,10 +18,16 @@ pub async fn resolve_output(
     output: Value,
     cancellation: Option<CancellationToken>,
 ) -> Result<Value, String> {
+    let marker = dcc_mcp_skills::catalog::execute::split_phase_marker(&output);
     let Some((owner, id, generation)) =
-        dcc_mcp_skills::catalog::execute::split_phase_marker(&output)
-            .map(|(owner, id, generation)| (owner.to_owned(), id.to_owned(), generation))
+        marker.map(|(owner, id, generation)| (owner.to_owned(), id.to_owned(), generation))
     else {
+        if dcc_mcp_skills::catalog::execute::has_split_phase_marker(&output) {
+            return Err(split_phase_error(
+                "MALFORMED_MARKER",
+                "reserved split-phase marker is malformed",
+            ));
+        }
         return Ok(output);
     };
 
@@ -79,12 +85,17 @@ pub async fn resolve_output(
             registration.cancel();
             return Err(split_phase_error("TIMEOUT", "continuation timed out"));
         }
-        Ok(result) => {
-            result.map_err(|err| format!("split-phase continuation worker failed: {err}"))??
-        }
+        Ok(result) => result
+            .map_err(|err| {
+                split_phase_error(
+                    "WORKER_FAILED",
+                    &format!("continuation worker failed: {err}"),
+                )
+            })?
+            .map_err(|err| split_phase_error("CALLBACK_FAILED", &err))?,
     };
 
-    if dcc_mcp_skills::catalog::execute::split_phase_marker(&result).is_some() {
+    if dcc_mcp_skills::catalog::execute::has_split_phase_marker(&result) {
         return Err(split_phase_error(
             "NESTED",
             "nested split-phase continuation rejected",
@@ -123,6 +134,12 @@ mod tests {
             json!({"ok": true})
         );
         assert!(resolve_output(marker, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_reserved_marker_fails_closed() {
+        let malformed = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1"}});
+        assert!(resolve_output(malformed, None).await.is_err());
     }
 
     #[tokio::test]

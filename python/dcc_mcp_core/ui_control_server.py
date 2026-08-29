@@ -72,6 +72,11 @@ def _shutdown(bridge, handle) -> None:
     """Close admission, stop HTTP, then always release owned Host state."""
     try:
         bridge.close_script_admission()
+        # Keep the Rust continuation store on the same shutdown boundary as
+        # the Python bridge admission gate.
+        signal_shutdown = getattr(handle, "signal_shutdown", None)
+        if callable(signal_shutdown):
+            signal_shutdown()
     finally:
         try:
             handle.shutdown()
