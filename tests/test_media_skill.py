@@ -45,10 +45,11 @@ def _write_stub_file(path: Path) -> None:
     path.write_bytes(b"stub")
 
 
-def _write_ppm(path: Path, color) -> None:
+def _write_ppm(path: Path, color, size: int = 16) -> None:
     r, g, b = color
+    row = " ".join(f"{channel}" for _ in range(size) for channel in (r, g, b))
     path.write_text(
-        f"P3\n2 2\n255\n{r} {g} {b}  {r} {g} {b}\n{r} {g} {b}  {r} {g} {b}\n",
+        f"P3\n{size} {size}\n255\n" + "\n".join(row for _ in range(size)) + "\n",
         encoding="ascii",
     )
 
@@ -408,6 +409,6 @@ def test_sequence_to_mp4_smoke_with_vx(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["success"] is True, payload
+    assert payload["success"] is True, json.dumps(payload, indent=2, sort_keys=True)
     assert output.is_file()
     assert output.stat().st_size > 0

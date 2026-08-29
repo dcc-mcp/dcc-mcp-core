@@ -438,7 +438,7 @@ class TestObservabilityQuery:
         assert len(captured_params) == 1
         assert captured_params[0] == {}
 
-    def test_repeated_scripts_emit_review_only_promotion_candidates(self) -> None:
+    def test_repeated_scripts_emit_human_review_candidates(self) -> None:
         captured: list[tuple[str, dict[str, Any]]] = []
 
         def mock_read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -467,11 +467,33 @@ class TestObservabilityQuery:
         assert response["query_type"] == "repeated_scripts"
         candidate = response["data"]["promotion_candidates"][0]
         assert candidate["decision"] == "manual_review"
-        assert candidate["recommended_action"] == "review_skill_improvement"
+        assert candidate["recommended_action"] == "human_review_only"
         assert candidate["evidence"]["execution_count"] == 4
         assert "source" not in repr(response).lower()
         assert captured[0][1]["min_repeats"] == 3
         assert captured[0][1]["since_ms"] == 500
+
+    def test_repeated_scripts_candidate_ids_include_grouping_dimensions(self) -> None:
+        rows = [
+            {
+                "sha256": "f" * 64,
+                "reuse_key": "same-script",
+                "dcc_type": "maya",
+                "tool_name": tool_name,
+                "execution_count": 3,
+                "session_count": 1,
+                "reused_count": 0,
+                "rematerialized_count": 3,
+                "first_seen_ms": 1,
+                "last_seen_ms": 3,
+            }
+            for tool_name in ("execute_python", "execute_mel")
+        ]
+
+        response = ObservabilityQuery(read_json_fn=lambda _sql, _params: rows).get_repeated_scripts(min_repeats=3)
+
+        ids = [candidate["candidate_id"] for candidate in response["data"]["promotion_candidates"]]
+        assert len(ids) == len(set(ids)) == 2
 
     def test_repeated_scripts_query_runs_against_audits_json(self) -> None:
         connection = sqlite3.connect(":memory:")

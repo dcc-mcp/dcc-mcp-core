@@ -411,6 +411,8 @@ def _materialized_script_context(
         return {} if context is None else context
     if isinstance(materialized_script, MaterializedScript):
         return {
+            "schema_version": 1,
+            "producer": "dcc-mcp-core.script_materialization",
             "path": materialized_script.file_path,
             "file_path": materialized_script.file_path,
             "file_ref": materialized_script.file_ref,
@@ -425,7 +427,10 @@ def _materialized_script_context(
             "reuse_key": materialized_script.reuse_key,
             "parameters_schema": materialized_script.parameters_schema,
         }
-    return dict(materialized_script)
+    context = dict(materialized_script)
+    context.setdefault("schema_version", 1)
+    context.setdefault("producer", "dcc-mcp-core.script_materialization")
+    return context
 
 
 def _file_ref_for_script_path(path: Path, *, sha256: str | None, bytes_: int | None) -> dict[str, Any]:

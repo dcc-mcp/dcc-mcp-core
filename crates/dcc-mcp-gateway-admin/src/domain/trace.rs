@@ -232,6 +232,9 @@ pub struct ScriptExecutionTelemetry {
 }
 
 impl ScriptExecutionTelemetry {
+    const MATERIALIZED_SCHEMA_VERSION: u64 = 1;
+    const MATERIALIZED_PRODUCER: &'static str = "dcc-mcp-core.script_materialization";
+
     /// Extract an allowlisted script identity from a call result, then input.
     /// Invalid hashes and source-only payloads are ignored.
     #[must_use]
@@ -243,40 +246,32 @@ impl ScriptExecutionTelemetry {
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Object(object) => {
-                if let Some(materialized) = object.get("materialized_script")
-                    && let Some(telemetry) = Self::from_descriptor(materialized)
-                {
-                    return Some(telemetry);
-                }
-                if let Some(telemetry) = Self::from_descriptor(value) {
-                    return Some(telemetry);
-                }
-                object.values().find_map(Self::from_value)
-            }
-            Value::Array(values) => values.iter().find_map(Self::from_value),
-            Value::String(text) if text.len() <= MAX_OUTPUT_BYTES => {
-                serde_json::from_str::<Value>(text)
-                    .ok()
-                    .and_then(|nested| Self::from_value(&nested))
-            }
-            _ => None,
+        let object = value.as_object()?;
+        if let Some(materialized) = object.get("materialized_script") {
+            return Self::from_descriptor(materialized);
         }
+        // Permit only protocol-owned wrapper keys. Do not recursively walk
+        // arbitrary objects, arrays, or JSON strings supplied by a caller.
+        for wrapper in ["context", "result"] {
+            if let Some(inner) = object.get(wrapper).and_then(Value::as_object)
+                && let Some(materialized) = inner.get("materialized_script")
+            {
+                return Self::from_descriptor(materialized);
+            }
+        }
+        None
     }
 
     fn from_descriptor(value: &Value) -> Option<Self> {
         let object = value.as_object()?;
-        let sha256 = object.get("sha256")?.as_str()?.trim().to_ascii_lowercase();
-        if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if object.get("schema_version").and_then(Value::as_u64)
+            != Some(Self::MATERIALIZED_SCHEMA_VERSION)
+            || object.get("producer").and_then(Value::as_str) != Some(Self::MATERIALIZED_PRODUCER)
+        {
             return None;
         }
-        let looks_materialized = object.contains_key("reused")
-            || object.contains_key("reuse_key")
-            || object.contains_key("file_ref")
-            || object.contains_key("file_path")
-            || object.contains_key("script_id");
-        if !looks_materialized {
+        let sha256 = object.get("sha256")?.as_str()?.trim().to_ascii_lowercase();
+        if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return None;
         }
         let reuse_key = object

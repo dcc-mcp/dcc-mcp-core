@@ -55,6 +55,8 @@ fn script_execution_telemetry_keeps_identity_without_source() {
     let output = serde_json::to_string(&json!({
         "context": {
             "materialized_script": {
+                "schema_version": 1,
+                "producer": "dcc-mcp-core.script_materialization",
                 "sha256": "a".repeat(64),
                 "reused": true,
                 "reuse_key": "asset-builder",
@@ -72,6 +74,32 @@ fn script_execution_telemetry_keeps_identity_without_source() {
     let persisted = serde_json::to_string(&telemetry).unwrap();
     assert!(!persisted.contains("must never be persisted"));
     assert!(!persisted.contains("source"));
+}
+
+#[test]
+fn script_execution_telemetry_rejects_untrusted_metadata_and_nested_json() {
+    let ordinary = json!({"checksum": {"sha256": "b".repeat(64), "path": "/tmp/x.py"}});
+    assert!(ScriptExecutionTelemetry::from_call(&ordinary, "").is_none());
+
+    let nested = json!({
+        "metadata": {
+            "materialized_script": {
+                "sha256": "c".repeat(64),
+                "schema_version": 1,
+                "producer": "dcc-mcp-core.script_materialization"
+            }
+        }
+    });
+    assert!(ScriptExecutionTelemetry::from_call(&nested, "").is_none());
+
+    let untrusted_envelope = json!({
+        "materialized_script": {
+            "sha256": "d".repeat(64),
+            "schema_version": 1,
+            "producer": "caller-controlled"
+        }
+    });
+    assert!(ScriptExecutionTelemetry::from_call(&untrusted_envelope, "").is_none());
 }
 
 #[test]

@@ -162,6 +162,8 @@ async fn test_audit_middleware_records_script_identity_without_source() {
     let response = json!({
         "context": {
             "materialized_script": {
+                "schema_version": 1,
+                "producer": "dcc-mcp-core.script_materialization",
                 "sha256": "e".repeat(64),
                 "reused": false,
                 "reuse_key": "layout-export",

@@ -221,7 +221,9 @@ impl FileRegistry {
     pub fn registry_dir(&self) -> &Path {
         &self.registry_dir
     }
-
+    pub fn owns_sentinel(&self, key: &ServiceKey) -> bool {
+        self.sentinel_handles.contains_key(key)
+    }
     fn new_with_lock_policy(
         registry_dir: impl Into<PathBuf>,
         write_lock_timeout: Duration,
@@ -249,11 +251,9 @@ impl FileRegistry {
         Ok(registry)
     }
 
-    /// Reload from disk when `services.json` changed in another process (e.g. a
-    /// DCC heartbeat flush). Call this before mutating pool metadata so the
-    /// in-memory view matches the file gateway and adapters share.
+    /// Reload from disk when `services.json` changed in another process.
     pub fn refresh_from_disk(&self) -> TransportResult<()> {
-        self.reload_if_stale()
+        self.force_reload_from_file().map(|_| ())
     }
 
     /// Reload from file if another process has written to it since our last read (hot-reload).
@@ -488,7 +488,7 @@ impl FileRegistry {
         }
     }
 
-    fn sentinel_path_for(&self, key: &ServiceKey) -> PathBuf {
+    pub fn sentinel_path_for(&self, key: &ServiceKey) -> PathBuf {
         self.locks_dir()
             .join(format!("{}-{}.lock", key.dcc_type, key.instance_id))
     }

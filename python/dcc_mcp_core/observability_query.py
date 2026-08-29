@@ -9,6 +9,7 @@ changes without breaking.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -31,6 +32,24 @@ __all__ = [
 def _now_ms() -> int:
     """Return current wall-clock time in milliseconds."""
     return int(time.time() * 1000)
+
+
+def _script_candidate_id(row: dict[str, Any]) -> str:
+    """Return a stable identity for one repeated-script grouping.
+
+    A content hash alone is not unique because the same materialized script
+    can be reused by multiple tools, DCCs, or reuse keys.  Canonical JSON
+    keeps the identity deterministic while the digest bounds its size.
+    """
+    identity = {
+        "sha256": str(row.get("sha256", "")),
+        "reuse_key": row.get("reuse_key"),
+        "dcc_type": row.get("dcc_type"),
+        "tool_name": row.get("tool_name"),
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"script:{digest}"
 
 
 def build_query_response(
@@ -82,9 +101,10 @@ class ObservabilityQuery:
     Provides methods to read aggregated metrics, session data, tool-call
     events, and statistics from the SQLite observability store.
 
-    This is the Python-level query API consumed by the Admin UI, CLI, and
-    automation.  The backing store is the gateway admin SQLite database
-    (shared across all DCC instances on a machine).
+    This is an internal, read-only query helper for the gateway admin SQLite
+    database.  No production REST/CLI route or automatic promotion workflow
+    is wired to this helper; returned candidates are advisory records for a
+    separately authorized human review.
 
     """
 
@@ -284,10 +304,12 @@ class ObservabilityQuery:
         tool_name: str | None = None,
         limit: int = 100,
     ) -> dict[str, Any]:
-        """Return repeated materialized scripts and review-only promotion candidates.
+        """Return repeated materialized scripts and human-review candidates.
 
         Script source is never selected. Evidence comes from the redaction-safe
-        ``script_execution`` identity stored in durable audit JSON rows.
+        ``script_execution`` identity stored in durable audit JSON rows. The
+        candidate payload is advisory only and never promotes or publishes a
+        skill automatically.
         """
         if isinstance(min_repeats, bool) or min_repeats < 2:
             raise ValueError("min_repeats must be an integer greater than or equal to 2")
@@ -373,9 +395,9 @@ class ObservabilityQuery:
         scripts = [_repeated_script_evidence(row) for row in rows]
         candidates = [
             {
-                "candidate_id": f"script:{row['sha256']}",
+                "candidate_id": _script_candidate_id(row),
                 "decision": "manual_review",
-                "recommended_action": "review_skill_improvement",
+                "recommended_action": "human_review_only",
                 "evidence": row,
             }
             for row in scripts

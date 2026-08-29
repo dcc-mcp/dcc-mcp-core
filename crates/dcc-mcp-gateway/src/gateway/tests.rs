@@ -492,6 +492,92 @@ async fn test_gateway_winner_stamps_human_readable_name_on_sentinel() {
 }
 
 #[tokio::test]
+async fn test_start_orders_winner_challenger_registry_barrier_and_promotion() {
+    let dir = tempfile::tempdir().unwrap();
+    let winner_port = ephemeral_port();
+    let winner_runner = GatewayRunner::new(GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: winner_port,
+        heartbeat_secs: 1,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    })
+    .unwrap();
+    let mut winner = winner_runner
+        .start(ServiceEntry::new("maya", "127.0.0.1", 0), None)
+        .await
+        .unwrap();
+    assert!(winner.is_gateway);
+    let winner_sentinel = winner
+        .registry()
+        .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+        .into_iter()
+        .find(|entry| entry.port == winner_port)
+        .expect("winner sentinel after startup readback and cleanup barrier");
+    assert_eq!(
+        winner_sentinel
+            .metadata
+            .get("gateway_role")
+            .map(String::as_str),
+        Some("active")
+    );
+
+    // A non-HTTP resident forces the challenger path. The challenger must
+    // complete its own durable reload before publishing the provisional
+    // sentinel, then promote after the resident releases the port.
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let challenger_port = occupied.local_addr().unwrap().port();
+    let challenger_runner = GatewayRunner::new(GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: challenger_port,
+        heartbeat_secs: 1,
+        challenger_poll_interval_secs: 1,
+        challenger_timeout_secs: 8,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    })
+    .unwrap();
+    let mut challenger = challenger_runner
+        .start(ServiceEntry::new("blender", "127.0.0.1", 0), None)
+        .await
+        .unwrap();
+    assert!(!challenger.is_gateway);
+    assert!(challenger.challenger_abort.is_some());
+    let challenger_registry = challenger.registry();
+    let challenger_entry = challenger_registry
+        .get(&challenger.service_key)
+        .expect("challenger instance survives startup durable readback");
+    assert_eq!(challenger_entry.host, "127.0.0.1");
+    assert!(
+        challenger_registry
+            .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+            .iter()
+            .all(|entry| entry.port != challenger_port),
+        "challenger sentinel must remain behind startup-ready barrier"
+    );
+
+    drop(occupied);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let promoted = challenger_registry
+            .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+            .into_iter()
+            .any(|entry| {
+                entry.port == challenger_port
+                    && entry.metadata.get("gateway_role").map(String::as_str) == Some("active")
+            });
+        if promoted {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    challenger.abort_and_wait().await;
+    winner.abort_and_wait().await;
+}
+
+#[tokio::test]
 async fn test_newer_gateway_does_not_preempt_healthy_local_and_remote_listeners() {
     let dir = tempfile::tempdir().unwrap();
     let gw_port = ephemeral_port();
@@ -610,6 +696,15 @@ async fn test_gateway_heartbeat_merges_live_instance_metadata() {
         ..LiveSnapshot::default()
     });
     let handle = runner.start(entry, Some(provider)).await.unwrap();
+
+    // Heartbeat's first Tokio tick is immediate; start() must still return
+    // only after its durable identity readback has completed.
+    let initial_row = runner
+        .registry
+        .get(&key)
+        .expect("registered row after start");
+    assert_eq!(initial_row.host, "127.0.0.1");
+    assert_eq!(initial_row.port, 0);
 
     let metadata_heartbeat = wait_for_metadata_heartbeat(
         &runner,

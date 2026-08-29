@@ -348,6 +348,15 @@ JSON plus bounded task and validation summaries. Treat `total_calls == 0` as
 missing evidence, not success. Never include hidden reasoning, raw prompts,
 credentials, or unredacted payloads.
 
+The Core `ObservabilityQuery.get_repeated_scripts()` helper is an internal,
+read-only evidence query. It is not an agent/gateway/CLI promotion entry point.
+Its `candidate_id` is a stable identity for the canonical tuple
+`sha256 + reuse_key + dcc_type + tool_name`; the result is always
+`decision=manual_review` and `recommended_action=human_review_only`. Candidate
+data must be reviewed and explicitly authorized by the task owner before any
+skill is edited, published, or otherwise promoted. Never infer authorization
+from a candidate or automate that transition.
+
 Prefer `no_change`, then improving an existing skill, and create a new skill
 only for a repeated, reusable workflow that no current skill owns. Validate any
 accepted change with `validate_skill_dir` or `dcc-mcp-cli lint` before loading

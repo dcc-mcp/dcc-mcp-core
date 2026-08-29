@@ -330,6 +330,8 @@ _ALL_LAZY: dict[str, str] = {
     "GatewayOptions": "dcc_mcp_core.server",
     "InlineExecution": "dcc_mcp_core.server",
     "ObservabilityOptions": "dcc_mcp_core.server",
+    "ObservabilityQuery": "dcc_mcp_core.observability_query",
+    "build_query_response": "dcc_mcp_core.observability_query",
     "StandaloneMainThreadExecution": "dcc_mcp_core.server",
     # Lifecycle hooks (issue #1337)
     "HookContext": "dcc_mcp_core.lifecycle_hooks",

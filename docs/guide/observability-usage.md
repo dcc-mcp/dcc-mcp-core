@@ -1,14 +1,17 @@
 # Observability Usage Guide
 
-How to consume observability data from each interface: AI agents, the CLI, and
-the Admin UI.
+How to inspect observability data through the currently supported internal
+Python helper and the existing gateway dashboards. The query helper is
+read-only; this document does not define a production REST/CLI entry point for
+script promotion.
 
 ---
 
-## 1. AI Agent Usage
+## 1. Internal Python Usage
 
-Agents can query observability data programmatically through the
-`ObservabilityQuery` Python API.
+Maintainers and explicitly authorized operators can query data through the
+`ObservabilityQuery` Python API. It is not wired into an agent or gateway
+handler, and its repeated-script candidates are advisory evidence only.
 
 ### Prerequisites
 
@@ -63,6 +66,15 @@ print(tool_stats["data"]["stats"])
 
 print(tool_stats["data"]["events"])  # list of individual call records
 ```
+
+### Repeated-script review candidates
+
+`get_repeated_scripts()` groups by the complete identity
+`sha256 + reuse_key + dcc_type + tool_name`. Each returned `candidate_id` is a
+stable hash of that canonical tuple. A candidate always has
+`decision="manual_review"` and `recommended_action="human_review_only"`.
+No API in this package promotes, publishes, or edits a skill automatically;
+the task owner must perform a separate human review and authorization step.
 
 ### Session tree
 
@@ -137,9 +149,11 @@ POST /v1/call
 
 ---
 
-## 2. CLI Usage
+## 2. Existing CLI Usage
 
-The `dcc-mcp-cli stats` command queries the gateway admin SQLite database.
+The existing `dcc-mcp-cli stats` command queries the gateway admin SQLite
+database. It does not expose `ObservabilityQuery.get_repeated_scripts()` or a
+promotion command.
 
 ### Quick start
 
