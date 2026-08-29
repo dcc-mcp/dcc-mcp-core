@@ -658,6 +658,14 @@ class TestRegisterRecipesTools:
         monkeypatch.setattr(_RecipeSchemaValidator, "_MAX_SCHEMA_SIZE", encoded_size - 1)
         assert validate_recipe_inputs({"inputs_schema": schema}, "界") == ["$: Recipe input schema is invalid"]
 
+    def test_instance_size_budget_counts_utf8_bytes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        instance = {"text": "界"}
+        encoded_size = len(json.dumps(instance, ensure_ascii=False).encode("utf-8"))
+        monkeypatch.setattr(_RecipeSchemaValidator, "_MAX_INSTANCE_SIZE", encoded_size - 1)
+        assert validate_recipe_inputs({"inputs_schema": {"type": "object"}}, instance) == [
+            "$: Recipe input schema is invalid"
+        ]
+
     def test_non_mapping_schema_is_not_coerced_to_empty_schema(self) -> None:
         for malformed in ([], "schema", None):
             assert validate_recipe_inputs({"inputs_schema": malformed}, {}) == ["$: Recipe input schema is invalid"]
