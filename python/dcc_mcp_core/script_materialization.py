@@ -53,6 +53,7 @@ class MaterializedScript:
     tool_call_id: str | None = None
     correlation_id: str | None = None
     reused: bool = False
+    reuse_key: str | None = None
     parameters_schema: dict[str, Any] | None = None
 
     @property
@@ -81,6 +82,7 @@ class MaterializedScript:
             "tool_call_id": self.tool_call_id,
             "correlation_id": self.correlation_id,
             "reused": self.reused,
+            "reuse_key": self.reuse_key,
             "parameters_schema": self.parameters_schema,
         }
         return {key: value for key, value in data.items() if value is not None}
@@ -251,6 +253,9 @@ def _descriptor_from_dict(data: Mapping[str, Any], *, reused: bool) -> Materiali
     parameters_schema = data.get("parameters_schema")
     if parameters_schema is not None and not isinstance(parameters_schema, dict):
         raise ValueError("materialized script parameters_schema must be an object")
+    reuse_key = data.get("reuse_key")
+    if reuse_key is not None and not isinstance(reuse_key, str):
+        raise ValueError("materialized script reuse_key must be a string")
     return MaterializedScript(
         file_ref=dict(file_ref),
         file_path=str(data["file_path"]),
@@ -269,6 +274,7 @@ def _descriptor_from_dict(data: Mapping[str, Any], *, reused: bool) -> Materiali
         tool_call_id=data.get("tool_call_id"),
         correlation_id=data.get("correlation_id"),
         reused=reused,
+        reuse_key=reuse_key,
         parameters_schema=dict(parameters_schema) if parameters_schema is not None else None,
     )
 
@@ -375,10 +381,11 @@ def materialize_script(
     safe_dcc = sanitize_materialization_segment(dcc_type)
     safe_instance = sanitize_materialization_segment(instance_id)
     safe_session = sanitize_materialization_segment(session_id)
+    safe_reuse_key = sanitize_materialization_segment(reuse_key, default="reuse") if reuse_key else None
     script_id = _script_id_for(
         sha256=sha256,
         reuse=reuse,
-        reuse_key=reuse_key,
+        reuse_key=safe_reuse_key,
         prefix=display_name or prefix,
     )
 
@@ -396,8 +403,14 @@ def materialize_script(
             existing_descriptor = None
         if existing_descriptor is not None and existing_descriptor.sha256 == sha256:
             existing = existing_descriptor.to_dict()
+            metadata_changed = False
             if existing.get("parameters_schema") != parameters_schema:
                 existing["parameters_schema"] = parameters_schema
+                metadata_changed = True
+            if safe_reuse_key is not None and existing.get("reuse_key") != safe_reuse_key:
+                existing["reuse_key"] = safe_reuse_key
+                metadata_changed = True
+            if metadata_changed:
                 _atomic_write(
                     metadata_path,
                     json.dumps(existing, sort_keys=True, separators=(",", ":")).encode("utf-8"),
@@ -423,6 +436,7 @@ def materialize_script(
         "tool_call_id": tool_call_id,
         "correlation_id": correlation_id,
         "reused": False,
+        "reuse_key": safe_reuse_key,
         "parameters_schema": parameters_schema,
     }
     descriptor["file_ref"] = _file_ref_from_descriptor(descriptor)

@@ -7,7 +7,8 @@ use super::context::{CallContext, CallResult};
 use super::governance::MiddlewareGovernanceControl;
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture};
 use crate::gateway::admin::trace::{
-    AgentContext, LlmUsage, TokenTelemetry, TraceContext, TracePayload, TraceSpan,
+    AgentContext, LlmUsage, ScriptExecutionTelemetry, TokenTelemetry, TraceContext, TracePayload,
+    TraceSpan,
 };
 
 /// A single audit record produced for each tool call.
@@ -65,6 +66,8 @@ pub struct AuditEntry {
     pub input_payload: Option<TracePayload>,
     /// Phase 2: captured output payload (bounded).
     pub output_payload: Option<TracePayload>,
+    /// Redaction-safe materialized script identity, never source or path.
+    pub script_execution: Option<ScriptExecutionTelemetry>,
     /// Token accounting for the client-visible response, when known.
     pub token_accounting: Option<TokenTelemetry>,
     /// Optional upstream LLM billing token counts, when supplied.
@@ -195,6 +198,7 @@ impl AfterCallMiddleware for AuditMiddleware {
             trace_spans: ctx.trace_spans.clone(),
             input_payload: ctx.input_payload.clone(),
             output_payload: ctx.output_payload.clone(),
+            script_execution: ScriptExecutionTelemetry::from_call(&ctx.args, &result.text),
             token_accounting: ctx.token_accounting.clone(),
             llm_usage: ctx.llm_usage.as_ref().and_then(|v| {
                 let prompt = v.get("prompt_tokens").and_then(|v| v.as_u64());

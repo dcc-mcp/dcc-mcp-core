@@ -91,6 +91,27 @@ class TestEscapeHatchPolicy:
         assert captured[0].reason_category == "debug"
         assert policy.observed() == tuple(captured)
 
+    def test_telemetry_records_only_valid_script_identity(self) -> None:
+        hooks = LifecycleHooks()
+        policy = EscapeHatchPolicy().install(hooks)
+        hooks.dispatch(
+            _context(
+                tool_name="execute_python",
+                tool_role="escape_hatch",
+                escape_hatch_reason="debug",
+                script_sha256="b" * 64,
+                script_reused=False,
+                script_reuse_key="layout-export",
+                code="print('must never enter telemetry')",
+            )
+        )
+
+        invocation = policy.observed()[0]
+        assert invocation.script_sha256 == "b" * 64
+        assert invocation.script_reused is False
+        assert invocation.script_reuse_key == "layout-export"
+        assert "must never enter telemetry" not in repr(invocation)
+
     def test_telemetry_sink_failure_does_not_crash_dispatch(self) -> None:
         def broken(_inv: EscapeHatchInvocation) -> None:
             raise RuntimeError("sink down")

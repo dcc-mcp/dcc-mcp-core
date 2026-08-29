@@ -1052,6 +1052,11 @@ mod tests {
             success: true,
             error: None,
             duration_ms: Some(5),
+            script_execution: Some(serde_json::json!({
+                "sha256": "a".repeat(64),
+                "reused": true,
+                "reuse_key": "asset-builder",
+            })),
             token_accounting: Some(serde_json::json!({
                 "response_format": "toon",
                 "saved_tokens": 12,
@@ -1071,6 +1076,7 @@ mod tests {
         assert_eq!(back.client_platform.as_deref(), Some("custom-http"));
         assert_eq!(back.source_ip.as_deref(), Some("192.0.2.44"));
         assert_eq!(back.attribution_trust.unwrap()["auth_subject"], "auth");
+        assert_eq!(back.script_execution.unwrap()["reuse_key"], "asset-builder");
         assert_eq!(back.token_accounting.unwrap()["saved_tokens"], 12);
     }
 

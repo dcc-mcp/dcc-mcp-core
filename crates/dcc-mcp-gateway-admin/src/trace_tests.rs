@@ -47,6 +47,62 @@ fn input_payload_redacts_script_source_fields() {
 }
 
 #[test]
+fn script_execution_telemetry_keeps_identity_without_source() {
+    let args = json!({
+        "code": "print('must never be persisted')",
+        "reuse_key": "asset-builder"
+    });
+    let output = serde_json::to_string(&json!({
+        "context": {
+            "materialized_script": {
+                "schema_version": 1,
+                "producer": "dcc-mcp-core.script_materialization",
+                "sha256": "a".repeat(64),
+                "reused": true,
+                "reuse_key": "asset-builder",
+                "source": "print('must never be persisted')"
+            }
+        }
+    }))
+    .unwrap();
+
+    let telemetry = ScriptExecutionTelemetry::from_call(&args, &output).unwrap();
+
+    assert_eq!(telemetry.sha256, "a".repeat(64));
+    assert_eq!(telemetry.reused, Some(true));
+    assert_eq!(telemetry.reuse_key.as_deref(), Some("asset-builder"));
+    let persisted = serde_json::to_string(&telemetry).unwrap();
+    assert!(!persisted.contains("must never be persisted"));
+    assert!(!persisted.contains("source"));
+}
+
+#[test]
+fn script_execution_telemetry_rejects_untrusted_metadata_and_nested_json() {
+    let ordinary = json!({"checksum": {"sha256": "b".repeat(64), "path": "/tmp/x.py"}});
+    assert!(ScriptExecutionTelemetry::from_call(&ordinary, "").is_none());
+
+    let nested = json!({
+        "metadata": {
+            "materialized_script": {
+                "sha256": "c".repeat(64),
+                "schema_version": 1,
+                "producer": "dcc-mcp-core.script_materialization"
+            }
+        }
+    });
+    assert!(ScriptExecutionTelemetry::from_call(&nested, "").is_none());
+
+    let untrusted_envelope = json!({
+        "materialized_script": {
+            "sha256": "d".repeat(64),
+            "schema_version": 1,
+            "producer": "caller-controlled"
+        }
+    });
+    assert!(ScriptExecutionTelemetry::from_call(&untrusted_envelope, "").is_none());
+}
+
+#[test]
 fn input_payload_deeply_redacts_ui_text_and_credentials() {
     let raw = json!({
         "calls": [{
@@ -498,6 +554,7 @@ fn trace_log_evicts_oldest_at_capacity() {
             spans: vec![],
             input: None,
             output: None,
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         });
@@ -533,6 +590,7 @@ fn trace_log_get_by_request_id() {
         spans: vec![],
         input: None,
         output: None,
+        script_execution: None,
         token_accounting: None,
         llm_usage: None,
     });
@@ -571,6 +629,7 @@ fn arb_trace(idx: u32) -> DispatchTrace {
         spans: vec![],
         input: None,
         output: None,
+        script_execution: None,
         token_accounting: None,
         llm_usage: None,
     }

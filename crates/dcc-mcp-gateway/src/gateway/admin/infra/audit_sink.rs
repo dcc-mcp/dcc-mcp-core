@@ -102,6 +102,7 @@ impl AuditSink for AdminAuditSink {
             success: !entry.is_error,
             error: entry.is_error.then(|| entry.result_preview.clone()),
             duration_ms: entry.duration_ms,
+            script_execution: entry.script_execution.clone(),
             token_accounting: entry.token_accounting.clone(),
             llm_usage: entry.llm_usage.clone(),
         };
@@ -141,6 +142,7 @@ impl AuditSink for AdminAuditSink {
                 spans: entry.trace_spans,
                 input: entry.input_payload,
                 output: entry.output_payload,
+                script_execution: entry.script_execution,
                 token_accounting: entry.token_accounting,
                 llm_usage: entry.llm_usage,
             };

@@ -60,9 +60,9 @@ pub use domain::agent_context::{
 };
 pub use domain::trace::{
     DispatchTrace, LlmUsage, MAX_AGENT_CONTEXT_LIST_ITEMS, MAX_AGENT_CONTEXT_METADATA_BYTES,
-    MAX_AGENT_CONTEXT_STRING_BYTES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TOKEN_ESTIMATOR,
-    TokenTelemetry, TraceContext, TraceContextHeader, TracePayload, TraceSpan, estimate_tokens,
-    parse_traceparent,
+    MAX_AGENT_CONTEXT_STRING_BYTES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, ScriptExecutionTelemetry,
+    TOKEN_ESTIMATOR, TokenTelemetry, TraceContext, TraceContextHeader, TracePayload, TraceSpan,
+    estimate_tokens, parse_traceparent,
 };
 pub use durable_store::DurableAuditStore;
 pub use experiments::{

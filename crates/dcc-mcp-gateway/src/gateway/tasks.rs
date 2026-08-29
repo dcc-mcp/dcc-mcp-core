@@ -431,6 +431,7 @@ pub(crate) async fn start_gateway_tasks(
     gateway_persist: bool,
     gateway_idle_timeout_secs: u64,
     semantic_search_enabled: bool,
+    startup_ready: Option<watch::Receiver<bool>>,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, yield_rx) = watch::channel(false);
@@ -508,6 +509,11 @@ pub(crate) async fn start_gateway_tasks(
     let cleanup_metrics = gateway_metrics.clone();
     let cleanup_own_version = server_version.clone();
     let cleanup_handle = tokio::spawn(async move {
+        if let Some(mut ready) = startup_ready
+            && !wait_for_startup_ready(&mut ready).await
+        {
+            return;
+        }
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
@@ -1322,6 +1328,15 @@ pub(crate) async fn start_gateway_tasks(
     })
 }
 
+async fn wait_for_startup_ready(ready: &mut watch::Receiver<bool>) -> bool {
+    while !*ready.borrow() {
+        if ready.changed().await.is_err() {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1395,5 +1410,16 @@ mod tests {
 
         assert_eq!(fingerprint.as_deref(), Some("current"));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_startup_barrier_waits_for_durable_readback() {
+        let (ready_tx, mut ready_rx) = watch::channel(false);
+        let waiter = tokio::spawn(async move { wait_for_startup_ready(&mut ready_rx).await });
+
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+        ready_tx.send(true).unwrap();
+        assert!(waiter.await.unwrap());
     }
 }

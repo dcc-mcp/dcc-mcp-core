@@ -218,6 +218,76 @@ pub const MAX_AGENT_CONTEXT_STRING_BYTES: usize = 2 * 1024; // 2 KB per field
 pub const MAX_AGENT_CONTEXT_METADATA_BYTES: usize = 8 * 1024; // 8 KB JSON preview
 pub const MAX_AGENT_CONTEXT_LIST_ITEMS: usize = 16;
 
+/// Redaction-safe identity for one materialized script execution.
+///
+/// The source body and materialized path are intentionally absent. This
+/// projection is safe to attach to audit and trace rows used for aggregation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptExecutionTelemetry {
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reused: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse_key: Option<String>,
+}
+
+impl ScriptExecutionTelemetry {
+    const MATERIALIZED_SCHEMA_VERSION: u64 = 1;
+    const MATERIALIZED_PRODUCER: &'static str = "dcc-mcp-core.script_materialization";
+
+    /// Extract an allowlisted script identity from a call result, then input.
+    /// Invalid hashes and source-only payloads are ignored.
+    #[must_use]
+    pub fn from_call(arguments: &Value, response_text: &str) -> Option<Self> {
+        serde_json::from_str::<Value>(response_text)
+            .ok()
+            .and_then(|value| Self::from_value(&value))
+            .or_else(|| Self::from_value(arguments))
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let object = value.as_object()?;
+        if let Some(materialized) = object.get("materialized_script") {
+            return Self::from_descriptor(materialized);
+        }
+        // Permit only protocol-owned wrapper keys. Do not recursively walk
+        // arbitrary objects, arrays, or JSON strings supplied by a caller.
+        for wrapper in ["context", "result"] {
+            if let Some(inner) = object.get(wrapper).and_then(Value::as_object)
+                && let Some(materialized) = inner.get("materialized_script")
+            {
+                return Self::from_descriptor(materialized);
+            }
+        }
+        None
+    }
+
+    fn from_descriptor(value: &Value) -> Option<Self> {
+        let object = value.as_object()?;
+        if object.get("schema_version").and_then(Value::as_u64)
+            != Some(Self::MATERIALIZED_SCHEMA_VERSION)
+            || object.get("producer").and_then(Value::as_str) != Some(Self::MATERIALIZED_PRODUCER)
+        {
+            return None;
+        }
+        let sha256 = object.get("sha256")?.as_str()?.trim().to_ascii_lowercase();
+        if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        let reuse_key = object
+            .get("reuse_key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.chars().take(128).collect());
+        Some(Self {
+            sha256,
+            reused: object.get("reused").and_then(Value::as_bool),
+            reuse_key,
+        })
+    }
+}
+
 /// Captured payload (input arguments or output content), optionally truncated.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TracePayload {
@@ -572,6 +642,9 @@ pub struct DispatchTrace {
     /// Captured response content (bounded to [`MAX_OUTPUT_BYTES`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TracePayload>,
+    /// Redaction-safe materialized script identity, when this call executed one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_execution: Option<ScriptExecutionTelemetry>,
     /// Token accounting for the client-visible response, if available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_accounting: Option<TokenTelemetry>,

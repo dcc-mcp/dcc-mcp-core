@@ -360,6 +360,7 @@ mod tests {
             success,
             error: error.map(str::to_string),
             duration_ms: Some(5),
+            script_execution: None,
             token_accounting: None,
             llm_usage: None,
         }

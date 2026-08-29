@@ -41,6 +41,22 @@ fn apply_live_snapshot(entry: &mut ServiceEntry, snapshot: &LiveSnapshot) {
     entry.touch();
 }
 
+fn same_registration_identity(
+    registry: &FileRegistry,
+    expected: &ServiceEntry,
+    observed: &ServiceEntry,
+) -> bool {
+    let canonical_sentinel = registry.sentinel_path_for(&expected.key());
+    expected.key() == observed.key()
+        && expected.host == observed.host
+        && expected.port == observed.port
+        && expected.transport_address == observed.transport_address
+        && expected.pid == observed.pid
+        && expected.host_pid == observed.host_pid
+        && observed.sentinel_path.as_deref() == Some(canonical_sentinel.as_path())
+        && registry.owns_sentinel(&expected.key())
+}
+
 async fn refresh_or_republish_registration(
     registry: Arc<FileRegistry>,
     key: ServiceKey,
@@ -189,25 +205,91 @@ impl GatewayRunner {
         let service_key = entry.key();
         let registration_template = entry.clone();
         let registration_active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (startup_ready_tx, startup_ready_rx) = tokio::sync::watch::channel(false);
 
         // ── Register in FileRegistry ─────────────────────────────────────
         self.registry.register_async(entry).await?;
         tracing::info!(instance = %service_key.instance_id, "Registered in FileRegistry");
 
-        // ── Heartbeat task ────────────────────────────────────────────────
-        //
-        // Besides touching the timestamp, every tick atomically applies the
-        // metadata provider's live snapshot. This keeps instance fields current
-        // without taking the cross-process registry lock more than once.
-        //
-        // The task is wrapped in a restart loop so that a panic does not silently
-        // abort heartbeats (issue #554).
+        // ── Gateway election ──────────────────────────────────────────────
+        let (
+            is_gateway,
+            gateway_abort,
+            challenger_abort,
+            gateway_supervisor,
+            gateway_thread,
+            sentinel_key,
+        ) = if self.config.gateway_port > 0 {
+            let outcome = self
+                .run_election_with_startup_ready(Some(startup_ready_rx))
+                .await?;
+            (
+                outcome.is_gateway,
+                outcome.gateway_abort,
+                outcome.challenger_abort,
+                outcome.gateway_supervisor,
+                outcome.gateway_thread,
+                outcome.sentinel_key,
+            )
+        } else {
+            (false, None, None, None, None, None)
+        };
+
+        // Startup hygiene runs inside the gateway task group and may race the
+        // initial registration. Force a durable readback before trusting the
+        // in-memory cache; mtime-based refresh is insufficient on coarse
+        // filesystems and after an external replacement.
+        let mut observed = self
+            .registry
+            .reload_from_disk_async()
+            .await?
+            .into_iter()
+            .find(|entry| entry.key() == service_key);
+        if let Some(entry) = observed.as_ref()
+            && !same_registration_identity(&self.registry, &registration_template, entry)
+        {
+            return Err(format!(
+                "FileRegistry identity for {} was replaced during startup",
+                service_key.instance_id
+            )
+            .into());
+        }
+        if observed.is_none() {
+            self.registry
+                .register_async(registration_template.clone())
+                .await?;
+            observed = self
+                .registry
+                .reload_from_disk_async()
+                .await?
+                .into_iter()
+                .find(|entry| entry.key() == service_key);
+            let Some(entry) = observed.as_ref() else {
+                return Err("FileRegistry registration disappeared during startup".into());
+            };
+            if !same_registration_identity(&self.registry, &registration_template, entry) {
+                return Err(format!(
+                    "FileRegistry identity for {} changed during registration",
+                    service_key.instance_id
+                )
+                .into());
+            }
+            tracing::warn!(
+                instance = %service_key.instance_id,
+                "FileRegistry row disappeared during gateway startup; restored registration"
+            );
+        }
+        let _ = startup_ready_tx.send(true);
+
+        // Start heartbeats only after the forced startup readback/repair has
+        // completed. The first Tokio tick is immediate; starting it earlier
+        // would allow a stale template to race this recovery transaction.
         let heartbeat_abort = if self.config.heartbeat_secs > 0 {
             let reg = self.registry.clone();
             let key = service_key.clone();
             let secs = self.config.heartbeat_secs;
             let provider = metadata_provider;
-            let template = registration_template;
+            let template = registration_template.clone();
             let active = registration_active.clone();
             let h = tokio::spawn(async move {
                 loop {
@@ -239,10 +321,7 @@ impl GatewayRunner {
 
                     let msg = match result {
                         Err(panic_info) => panic_message(&*panic_info),
-                        Ok(()) => {
-                            // Normal loop exit (should not happen)
-                            break;
-                        }
+                        Ok(()) => break,
                     };
                     tracing::error!(
                         instance = %key.instance_id,
@@ -255,28 +334,6 @@ impl GatewayRunner {
             Some(h.abort_handle())
         } else {
             None
-        };
-
-        // ── Gateway election ──────────────────────────────────────────────
-        let (
-            is_gateway,
-            gateway_abort,
-            challenger_abort,
-            gateway_supervisor,
-            gateway_thread,
-            sentinel_key,
-        ) = if self.config.gateway_port > 0 {
-            let outcome = self.run_election().await?;
-            (
-                outcome.is_gateway,
-                outcome.gateway_abort,
-                outcome.challenger_abort,
-                outcome.gateway_supervisor,
-                outcome.gateway_thread,
-                outcome.sentinel_key,
-            )
-        } else {
-            (false, None, None, None, None, None)
         };
 
         // Issue #718: on clean shutdown the `Drop` impl deregisters every
@@ -309,6 +366,13 @@ impl GatewayRunner {
     /// incumbent gateway dies without restarting the whole DCC host.
     pub async fn run_election(
         &self,
+    ) -> Result<ElectionOutcome, Box<dyn std::error::Error + Send + Sync>> {
+        self.run_election_with_startup_ready(None).await
+    }
+
+    async fn run_election_with_startup_ready(
+        &self,
+        startup_ready: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> Result<ElectionOutcome, Box<dyn std::error::Error + Send + Sync>> {
         let stale_timeout = Duration::from_secs(self.config.stale_timeout_secs);
         let backend_timeout = Duration::from_millis(self.config.backend_timeout_ms);
@@ -453,6 +517,7 @@ impl GatewayRunner {
                     self.config.gateway_persist,
                     self.config.gateway_idle_timeout_secs,
                     self.config.semantic_search_enabled,
+                    startup_ready.clone(),
                 )
                 .await
                 {
@@ -557,7 +622,11 @@ impl GatewayRunner {
                         "{}",
                         challenger_reason,
                     );
-                    let challenger_abort = self.spawn_challenger_loop(&own_version, &gw_version);
+                    let challenger_abort = self.spawn_challenger_loop(
+                        &own_version,
+                        &gw_version,
+                        startup_ready.clone(),
+                    );
                     // Return as non-gateway for now; challenger loop will promote us later.
                     Ok(ElectionOutcome {
                         is_gateway: false,
@@ -598,7 +667,12 @@ impl GatewayRunner {
     ///    nicely (works if it runs `≥ 0.12.29`; ignored otherwise).
     /// 2. Polls the port every 10 s until it becomes free or the timeout fires.
     /// 3. When the port frees up, calls [`start_gateway_tasks`] to fully take over.
-    fn spawn_challenger_loop(&self, own_version: &str, gw_version: &str) -> AbortHandle {
+    fn spawn_challenger_loop(
+        &self,
+        own_version: &str,
+        gw_version: &str,
+        startup_ready: Option<tokio::sync::watch::Receiver<bool>>,
+    ) -> AbortHandle {
         let host = self.config.host.clone();
         let port = self.config.gateway_port;
         let own_ver = own_version.to_owned();
@@ -637,8 +711,21 @@ impl GatewayRunner {
         let gateway_persist = self.config.gateway_persist;
         let gateway_idle_timeout_secs = self.config.gateway_idle_timeout_secs;
         let semantic_search_enabled = self.config.semantic_search_enabled;
+        let mut startup_ready_challenger = startup_ready;
 
         let handle = tokio::spawn(async move {
+            // Do not publish a challenger sentinel, request cooperative yield,
+            // or otherwise mutate the registry until the owning `start()` has
+            // completed its durable registration readback/repair.
+            if let Some(mut ready) = startup_ready_challenger.take() {
+                while !*ready.borrow() {
+                    if ready.changed().await.is_err() {
+                        return;
+                    }
+                }
+                startup_ready_challenger = Some(ready);
+            }
+
             // Publish a short-lived challenger sentinel before asking the
             // resident gateway to yield. This gives newer gateways a second
             // takeover path: the cooperative HTTP yield is the fast path,
@@ -771,6 +858,7 @@ impl GatewayRunner {
                         gateway_persist,
                         gateway_idle_timeout_secs,
                         semantic_search_enabled,
+                        startup_ready_challenger,
                     )
                     .await
                     {
@@ -1092,6 +1180,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn registration_identity_rejects_external_endpoint_replacement() {
+        let expected = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let mut replaced = expected.clone();
+        replaced.port = 18813;
+        let dir = tempfile::tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(expected.clone()).unwrap();
+        let observed = registry.get(&expected.key()).unwrap();
+        assert!(same_registration_identity(&registry, &expected, &observed));
+        assert!(!same_registration_identity(&registry, &expected, &replaced));
+        let mut wrong_sentinel = observed;
+        wrong_sentinel.sentinel_path = Some(dir.path().join("locks/other.sentinel"));
+        assert!(!same_registration_identity(
+            &registry,
+            &expected,
+            &wrong_sentinel
+        ));
+    }
+
+    #[test]
     fn cooperative_yield_fallback_reads_structured_optional_capability() {
         let detail = cooperative_yield_fallback_detail(
             reqwest::StatusCode::CONFLICT,
@@ -1147,6 +1255,49 @@ mod tests {
             challenger_reason(ResidentGatewayHealth::Unhealthy),
             Some("Resident gateway failed /health probe — entering challenger mode")
         );
+    }
+
+    #[tokio::test]
+    async fn challenger_waits_for_startup_readback_before_registry_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = occupied.local_addr().unwrap().port();
+        let runner = GatewayRunner::new(GatewayConfig {
+            host: "127.0.0.1".to_string(),
+            gateway_port: port,
+            registry_dir: Some(dir.path().to_path_buf()),
+            challenger_poll_interval_secs: 60,
+            challenger_timeout_secs: 120,
+            ..GatewayConfig::default()
+        })
+        .unwrap();
+        let (ready_tx, ready_rx) = tokio::sync::watch::channel(false);
+        let challenger = runner.spawn_challenger_loop("2.0.0", "1.0.0", Some(ready_rx));
+
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            runner
+                .registry
+                .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+                .is_empty(),
+            "challenger must not publish a sentinel before startup readback"
+        );
+
+        ready_tx.send(true).unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+        while runner
+            .registry
+            .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+            .is_empty()
+        {
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::task::yield_now().await;
+        }
+        challenger.abort();
+        drop(occupied);
     }
 
     #[test]

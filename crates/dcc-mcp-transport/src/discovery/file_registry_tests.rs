@@ -80,6 +80,26 @@ fn test_file_registry_register_and_list() {
 }
 
 #[test]
+fn force_reload_reads_external_identity_replacement_even_without_mtime_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let key = entry.key();
+    registry.register(entry.clone()).unwrap();
+
+    let mut replacement = entry;
+    replacement.host = "192.0.2.55".to_string();
+    let path = dir.path().join(REGISTRY_FILE);
+    std::fs::write(&path, serde_json::to_string(&[replacement]).unwrap()).unwrap();
+
+    registry.refresh_from_disk().unwrap();
+    let rows = registry.list_all();
+    let observed = rows.into_iter().find(|row| row.key() == key).unwrap();
+    assert_eq!(observed.host, "192.0.2.55");
+    assert_eq!(registry.get(&key).unwrap().host, "192.0.2.55");
+}
+
+#[test]
 fn test_file_registry_recreates_registry_dir_before_write() {
     let dir = tempfile::tempdir().unwrap();
     let registry_dir = dir.path().to_path_buf();

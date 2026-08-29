@@ -174,6 +174,7 @@ fn analytics_audit_record(
         success,
         error: (!success).then(|| "boom".to_string()),
         duration_ms: Some(42),
+        script_execution: None,
         token_accounting: Some(token_telemetry("json", 100, 40)),
         llm_usage: None,
     }

@@ -19,6 +19,16 @@ where
 }
 
 impl FileRegistry {
+    /// Force a durable readback of `services.json` on the blocking pool.
+    pub async fn reload_from_disk_async(self: &Arc<Self>) -> TransportResult<Vec<ServiceEntry>> {
+        let registry = Arc::clone(self);
+        run_registry_io(move || {
+            registry.refresh_from_disk()?;
+            Ok(registry.list_all())
+        })
+        .await
+    }
+
     /// Register a service without blocking the async runtime.
     pub async fn register_async(self: &Arc<Self>, entry: ServiceEntry) -> TransportResult<()> {
         let registry = Arc::clone(self);
