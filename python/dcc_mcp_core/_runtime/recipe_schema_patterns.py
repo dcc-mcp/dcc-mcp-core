@@ -464,9 +464,9 @@ def _has_adjacent_quantifiers(pattern: str) -> bool:
             atom_end = index + 1
             quantifier_end = _quantifier_end(pattern, atom_end)
             if quantifier_end > atom_end:
-                if alternation_ambiguous:
+                if nullable or alternation_ambiguous:
                     return True
-                nullable = nullable or _quantifier_allows_zero(pattern, atom_end)
+                nullable = _quantifier_allows_zero(pattern, atom_end)
                 leading_quantified = first_consumers.copy()
                 trailing_quantified = last_consumers.copy()
             elif alternation_ambiguous:
@@ -695,6 +695,8 @@ def _group_content_start(
         comment_end = pattern.find(")", start + 2)
         content_start = comment_end if comment_end >= 0 else start
         return content_start, True, parent_ignore_case, True
+    if pattern.startswith("?(", start):
+        return start, False, parent_ignore_case, False
     if start < len(pattern) and pattern[start] == "?":
         cursor = start + 1
         while cursor < len(pattern) and pattern[cursor] in "aiLmsux-":

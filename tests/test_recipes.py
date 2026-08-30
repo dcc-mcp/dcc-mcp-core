@@ -810,6 +810,52 @@ class TestRegisterRecipesTools:
             "$: Recipe input schema is invalid"
         ]
 
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^(a)(?(1)(a|aa)|x)+b$",
+            "^(?P<lead>a)(?(lead)b|c)$",
+        ],
+    )
+    def test_conditional_groups_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaab") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    def test_pattern_properties_conditional_groups_fail_closed(self) -> None:
+        schema = {
+            "type": "object",
+            "patternProperties": {"^(a)(?(1)(a|aa)|x)+b$": {"type": "string"}},
+        }
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"aaab": "value"}) == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^(a|)+$",
+            "^(a|(?=a))+$",
+            "^((a|))+$",
+            "^(a|(?:))+$",
+        ],
+    )
+    def test_nullable_quantified_groups_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "a") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        ("pattern", "instance"),
+        [
+            ("^(?:ab)+$", "abab"),
+            ("^(?P<chunk>ab)+$", "abab"),
+            ("^(?=a)a+$", "aaa"),
+        ],
+    )
+    def test_supported_group_forms_remain_admitted(self, pattern: str, instance: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance) == []
+
     def test_repeated_prefix_overlapping_alternation_chain_fails_closed(self) -> None:
         pattern = "^(a|aa)(a|aa)(a|aa)b$"
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaaaaab") == [
