@@ -146,7 +146,11 @@ the server from its exact target environment. Gateway Admin is check-only.
    Serialized digest evidence carries an opaque runtime integrity tag and a
    truncation marker; preserve both fields and never synthesize a replacement
    fingerprint when forwarding an envelope. The tag is a local trust signal,
-   not a portable authorization token.
+   not a portable authorization token. During script execution, the before
+   snapshot is retained only as immutable serialized bytes and rehydrated after
+   the script returns. Mapping values beyond the bounded observation budget use
+   a fixed sentinel, keeping equivalent provider mappings deterministic without
+   unbounded reads.
    Core does not auto-register or advertise an `execute_python` route. Gate
    adapter discovery and route registration on successful provider
    registration, and expose `unavailable/provider_missing` when

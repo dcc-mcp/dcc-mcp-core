@@ -36,6 +36,7 @@ from dcc_mcp_core.runtime.scene_digest import SceneDigestExecution
 from dcc_mcp_core.runtime.scene_digest import SceneDigestExecutionError
 from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
+from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
 from dcc_mcp_core.runtime.scene_digest_envelope import scene_digest_postcondition as _scene_digest_postcondition
 from dcc_mcp_core.runtime.scene_digest_envelope import script_execution_failure as _script_execution_failure
@@ -54,6 +55,59 @@ class ScriptExecutionSerializationError(DccMcpError, TypeError):
     """Raised when a strict script result cannot be JSON-encoded."""
 
     pass
+
+
+def _freeze_scene_digest(snapshot: SceneDigestSnapshot) -> bytes:
+    """Serialize one trusted snapshot before running untrusted script code.
+
+    A script executes in this interpreter and can inspect its caller frames.
+    Keeping the mutable SceneDigestSnapshot out of that frame means frame-local
+    mutation cannot rewrite the before-state evidence. The serialized bytes
+    are immutable and rehydrated only after the script returns (or raises).
+    """
+    try:
+        rendered = snapshot.to_dict()
+        return json.dumps(
+            rendered,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    except SceneDigestError:
+        raise
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise SceneDigestError(
+            "scene_digest_invalid",
+            "Scene digest evidence could not be serialized",
+        ) from exc
+
+
+def _restore_scene_digest_with(decoder, wire: bytes) -> SceneDigestSnapshot:
+    """Decode using a closure-bound validator without frame-local snapshots."""
+    try:
+        decoded = json.loads(wire.decode("utf-8"))
+    except (TypeError, UnicodeError, ValueError) as exc:
+        raise SceneDigestError(
+            "scene_digest_invalid",
+            "Serialized scene digest evidence is malformed",
+        ) from exc
+    if not isinstance(decoded, Mapping):
+        raise SceneDigestError(
+            "scene_digest_invalid",
+            "Serialized scene digest evidence must be a mapping",
+        )
+    return decoder(decoded)
+
+
+def _scene_digest_restorer(wire: bytes):
+    """Bind immutable evidence to a tiny closure with no mutable snapshot."""
+    decoder = normalize_scene_digest
+
+    def restore() -> SceneDigestSnapshot:
+        return _restore_scene_digest_with(decoder, wire)
+
+    return restore
 
 
 @dataclass(frozen=True)
@@ -871,10 +925,17 @@ class ScriptExecutionContext:
     ) -> SceneDigestExecution:
         """Capture host state immediately before and after one script."""
         with self._lock:
-            before = self.capture_state_digest()
+            # Do not retain the mutable before snapshot in this stack frame:
+            # scripts can inspect caller locals through sys._getframe.
+            # Keep only immutable serialized evidence while the script runs,
+            # then rehydrate a fresh snapshot after execution.
+            before_wire = _freeze_scene_digest(self.capture_state_digest())
+            restore_before = _scene_digest_restorer(before_wire)
+            del before_wire
             try:
                 value = self.execute(code, filename=filename)
             except Exception as exc:
+                before = restore_before()
                 try:
                     after = self.capture_state_digest()
                 except SceneDigestError as readback_error:
@@ -885,6 +946,7 @@ class ScriptExecutionContext:
                         readback_error=readback_error,
                     ) from None
                 raise SceneDigestExecutionError(exc, before, after) from None
+            before = restore_before()
             try:
                 after = self.capture_state_digest()
             except SceneDigestError as readback_error:

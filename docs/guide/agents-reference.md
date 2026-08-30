@@ -282,6 +282,10 @@ Bounded snapshots include an opaque runtime integrity tag in their serialized
 shape. It is verified before an evidence mapping is rehydrated, so callers must
 not remove the truncation marker or synthesize a replacement fingerprint. The
 tag is an adapter-runtime trust signal, not a portable authorization token.
+While a script is running, the before-state is held only as immutable
+serialized bytes and rehydrated after execution; a mapping that exceeds the
+bounded observation budget is represented by a fixed sentinel so equivalent
+provider mappings remain insertion-order independent without unbounded reads.
 This core contract remains host-neutral: Issue #2260 acceptance for Maya,
 Houdini, Blender, and 3ds Max requires each adapter to register its own
 host-owned provider and MCP/REST route tests; core's generic route smoke does
