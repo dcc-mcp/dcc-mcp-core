@@ -42,6 +42,14 @@ _SENSITIVE_KEY = re.compile(
 _ABSOLUTE_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|[/\\]{1,2})")
 
 
+def _integrity_matches(left: str, right: str) -> bool:
+    """Compare integrity text without leaking ``compare_digest`` type errors."""
+    try:
+        return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+    except (AttributeError, TypeError, UnicodeError):
+        return False
+
+
 class StateDigestProvider(Protocol):
     """Adapter callback that reads cheap host-owned scene statistics."""
 
@@ -156,7 +164,7 @@ class SceneDigestSnapshot:
         if (
             self.fingerprint != expected
             or self.payload != payload
-            or not hmac.compare_digest(self.integrity, expected_integrity)
+            or not _integrity_matches(self.integrity, expected_integrity)
         ):
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -257,7 +265,7 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
                 "Provider-supplied scene digest truncation flag does not match canonical state",
             )
         if supplied_integrity is not None and (
-            not isinstance(supplied_integrity, str) or not hmac.compare_digest(supplied_integrity, integrity)
+            not isinstance(supplied_integrity, str) or not _integrity_matches(supplied_integrity, integrity)
         ):
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -479,7 +487,7 @@ def _snapshot_from_dict(source: Mapping[str, Any]) -> SceneDigestSnapshot:
             payload=canonical,
             truncated=truncated,
         )
-        if not hmac.compare_digest(integrity, expected_integrity):
+        if not _integrity_matches(integrity, expected_integrity):
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
                 "Scene digest evidence integrity verification failed",

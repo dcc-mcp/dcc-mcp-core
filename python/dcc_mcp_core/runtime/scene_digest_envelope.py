@@ -13,6 +13,13 @@ from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 from dcc_mcp_core.verifier import SceneStats
 
+try:
+    from dcc_mcp_core._core import _SceneDigestEvidence as _NativeSceneDigestEvidence
+except ImportError:  # pragma: no cover - py37-lite has no native custody type
+    _NATIVE_SCENE_DIGEST_EVIDENCE_TYPES: tuple[type, ...] = ()
+else:
+    _NATIVE_SCENE_DIGEST_EVIDENCE_TYPES = (_NativeSceneDigestEvidence,)
+
 _ENVELOPE_KEYS = frozenset({"success", "message", "error", "prompt", "context", "postcondition", "_meta"})
 
 
@@ -124,6 +131,9 @@ def _coerce_scene_digest_snapshot(
     value: SceneDigestSnapshot | Mapping[str, Any] | SceneStats,
 ) -> SceneDigestSnapshot:
     """Normalize an envelope snapshot and preserve fail-closed semantics."""
+    if isinstance(value, _NATIVE_SCENE_DIGEST_EVIDENCE_TYPES):
+        value.validate()
+        return value
     if isinstance(value, SceneDigestSnapshot):
         value.validate()
         return value

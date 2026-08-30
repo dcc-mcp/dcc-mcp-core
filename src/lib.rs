@@ -4,6 +4,8 @@
 //! All logic lives in workspace sub-crates; this crate only re-exports and registers.
 
 #[cfg(feature = "python-bindings")]
+mod scene_digest_custody;
+#[cfg(feature = "python-bindings")]
 mod skill_http;
 
 #[cfg(feature = "python-bindings")]
@@ -85,6 +87,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_host(m)?;
     register_wire(m)?;
     register_naming(m)?;
+    scene_digest_custody::register(m)?;
     register_constants(m)?;
     #[cfg(feature = "workflow")]
     register_workflow(m)?;
