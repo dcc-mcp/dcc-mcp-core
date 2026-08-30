@@ -109,6 +109,47 @@ def test_scene_digest_is_redacted_bounded_and_deterministically_fingerprinted() 
     assert left_digest.truncated is True
 
 
+@pytest.mark.parametrize("path", [r"\\server\share\scene.ma", r"\scene.ma", r"C:\scene.ma", "/tmp/scene.ma"])
+def test_scene_digest_redacts_windows_and_posix_absolute_paths(path: str) -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: _stats(1, extra={"path": path}), context=context)
+
+    digest = capture_state_digest(context=context)
+
+    assert digest.payload["extra"]["path"] == "<redacted>"
+
+
+def test_scene_digest_snapshot_and_envelope_are_deeply_detached() -> None:
+    source = _stats(1, extra={"nested": {"labels": ["mesh"]}})
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: source, context=context)
+
+    snapshot = capture_state_digest(context=context)
+    rendered = snapshot.to_dict()
+    rendered["payload"]["extra"]["nested"]["labels"].append("mutated")
+    source["extra"]["nested"]["labels"].append("host mutation")
+
+    assert snapshot.payload["extra"]["nested"]["labels"] == ["mesh"]
+    snapshot.validate()
+
+    result = ScriptExecutionResult.from_value(
+        "ok",
+        scene_digest_before=snapshot,
+        scene_digest_after=snapshot,
+    )
+    result["postcondition"]["scene_digest_before"]["payload"]["extra"]["nested"]["labels"].append("wire mutation")
+    assert snapshot.payload["extra"]["nested"]["labels"] == ["mesh"]
+
+
+def test_state_digest_provider_can_be_unregistered() -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: _stats(1), context=context)
+    context.register_state_digest_provider(None)
+    with pytest.raises(SceneDigestError) as exc_info:
+        capture_state_digest(context=context)
+    assert exc_info.value.code == "scene_digest_provider_missing"
+
+
 def test_scene_digest_rejects_provider_fingerprint_mismatch() -> None:
     context = ScriptExecutionContext()
     register_state_digest_provider(
@@ -220,3 +261,21 @@ def test_script_result_fails_closed_for_missing_or_unchanged_verified_digest() -
     assert missing["error"] == "scene_digest_evidence_missing"
     assert unchanged["success"] is False
     assert unchanged["error"] == "scene_digest_postcondition_mismatch"
+
+
+def test_script_result_normalizes_mapping_snapshots_and_rejects_malformed_values() -> None:
+    result = ScriptExecutionResult.from_value(
+        1,
+        scene_digest_before=_stats(0),
+        scene_digest_after=_stats(1),
+    )
+    assert result["success"] is True
+    assert result["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 1
+
+    malformed = ScriptExecutionResult.from_value(
+        1,
+        scene_digest_before={"object_count": 1},
+        scene_digest_after=_stats(1),
+    )
+    assert malformed["success"] is False
+    assert malformed["error"] == "scene_digest_invalid"
