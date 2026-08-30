@@ -39,7 +39,8 @@ from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
 from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
 from dcc_mcp_core.runtime.scene_digest_envelope import scene_digest_postcondition as _scene_digest_postcondition
 from dcc_mcp_core.runtime.scene_digest_envelope import script_execution_failure as _script_execution_failure
-from dcc_mcp_core.runtime.scene_digest_execution import freeze_scene_digest as _freeze_scene_digest
+from dcc_mcp_core.runtime.scene_digest_execution import capture_scene_digest_wire as _capture_scene_digest_wire
+from dcc_mcp_core.runtime.scene_digest_execution import resolve_scene_digest_transaction as _resolve_digest_transaction
 from dcc_mcp_core.runtime.script_execution_helpers import file_ref_for_script_path as _file_ref_for_script_path
 from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.script_materialization import MaterializedScript
@@ -49,9 +50,9 @@ from dcc_mcp_core.script_materialization import materialize_script
 from dcc_mcp_core.script_materialization import resolve_materialized_script
 
 try:
-    from dcc_mcp_core._core import _run_with_scene_digest_custody
-except ImportError:  # pragma: no cover - py37-lite has no native trust boundary
-    _run_with_scene_digest_custody = None
+    from dcc_mcp_core._core import _run_with_scene_digest_transaction
+except ImportError:  # pragma: no cover - py37-lite has no native transaction boundary
+    _run_with_scene_digest_transaction = None
 
 ScriptMaterializationPolicy = str
 _SCRIPT_MATERIALIZATION_POLICIES = {"off", "auto", "require"}
@@ -849,50 +850,36 @@ class ScriptExecutionContext:
     ) -> SceneDigestExecution:
         """Capture host state immediately before and after one script."""
         with self._lock:
-            if _run_with_scene_digest_custody is None:
+            if _run_with_scene_digest_transaction is None:
                 raise SceneDigestError(
                     "scene_digest_custody_unavailable",
-                    "Verified in-process scene execution requires the native custody boundary",
+                    "Transactional in-process scene observations require the native custody boundary",
                 )
-            # The serialized before-state is passed inline so no Python local
-            # or closure owns it while arbitrary script code can inspect
-            # Python frames. The native extension parses and retains it on the
-            # Rust stack until ``_execute_digest_callback`` returns.
-            callback_result, before = _run_with_scene_digest_custody(
-                _freeze_scene_digest(self.capture_state_digest()),
-                self._execute_digest_callback,
-                code,
-                filename,
-            )
-            succeeded, value_or_error = callback_result
-            if not succeeded:
-                try:
-                    after = self.capture_state_digest()
-                except SceneDigestError as readback_error:
-                    raise SceneDigestExecutionError(
-                        value_or_error,
-                        before,
-                        None,
-                        readback_error=readback_error,
-                    ) from None
-                raise SceneDigestExecutionError(value_or_error, before, after) from None
+            provider = self._state_digest_provider
+            if provider is None:
+                raise SceneDigestError(
+                    "scene_digest_provider_missing",
+                    "No scene digest provider is registered for this script context",
+                )
             try:
-                after = self.capture_state_digest()
-            except SceneDigestError as readback_error:
-                raise SceneDigestExecutionError(
-                    readback_error,
-                    before,
-                    None,
-                    readback_error=readback_error,
-                ) from None
-            return SceneDigestExecution(value_or_error, before, after)
+                transaction = _run_with_scene_digest_transaction(
+                    provider,
+                    _capture_scene_digest_wire,
+                    self._execute_digest_callback,
+                    code,
+                    filename,
+                )
+            finally:
+                # A script may reach this context through frame inspection, but
+                # provider changes made by that script cannot escape the active
+                # transaction or poison the next one.
+                self._state_digest_provider = provider
 
-    def _execute_digest_callback(self, code: str, filename: str) -> tuple[bool, Any]:
+            return _resolve_digest_transaction(transaction)
+
+    def _execute_digest_callback(self, code: str, filename: str) -> Any:
         """Run one script while native code retains the before-state evidence."""
-        try:
-            return True, self.execute(code, filename=filename)
-        except Exception as exc:
-            return False, exc
+        return self.execute(code, filename=filename)
 
     def reset_for_tests(self) -> None:
         """Clear both DCC and persistent script namespaces."""

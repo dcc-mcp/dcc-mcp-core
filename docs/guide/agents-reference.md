@@ -250,16 +250,20 @@ omit the argument and exposes an explicit test reset seam.
 an explicit instance capability. Register a cheap host/main-thread callback with
 `register_state_digest_provider(provider, context=server.script_execution_context)`;
 the provider returns `SceneStats` or the equivalent mapping. Use
-`execute_with_state_digest(...)` to sample immediately before and after the
-script, then give both typed snapshots to `ScriptExecutionResult.from_value(...)`.
-Core validates the required counts/mesh flag, redacts sensitive keys and local
-paths, bounds the payload, and fingerprints canonical JSON. Missing, raised,
-malformed, fingerprint-mismatched, or one-sided evidence fails closed. A changed
+`execute_with_state_digest(...)` to run one native transaction that pins that
+exact provider for both the before and after observations, then give both public
+`SceneDigestSnapshot` values to `ScriptExecutionResult.from_value(...)`. A
+script cannot replace the provider used by its active transaction or poison the
+next transaction through `ScriptExecutionContext`. Core validates the required
+counts/mesh flag, redacts sensitive keys and local paths, bounds the payload,
+and fingerprints canonical JSON. Missing, raised, malformed,
+fingerprint-mismatched, or one-sided evidence fails closed. A changed
 fingerprint is state evidence, not proof that the requested semantic effect
 occurred: set `verified=True` only after an adapter-owned postcondition confirms
 the claim. Core rejects `verified=True` when the bounded scene digest is
-unchanged. A script exception is wrapped as `SceneDigestExecutionError`; pass
-its `cause`, snapshots, and `readback_error` to
+unchanged. Script `Exception` and `BaseException` failures are held until the
+same pinned provider completes after-state readback, then wrapped as
+`SceneDigestExecutionError`; pass its `cause`, snapshots, and `readback_error` to
 `ScriptExecutionResult.from_exception(...)`. If the after readback fails after
 a mutation, the exception carries the known before snapshot and the result is
 marked `indeterminate=true` with `verified=false`; never retry it as if no
@@ -278,17 +282,17 @@ explicit `feedback_persistence_failed` result even when the gateway accepted
 the report; adapters must not override this shared forwarder or add
 host-specific feedback actions.
 
-Bounded snapshots include an opaque runtime integrity tag in their serialized
-shape. It is verified before an evidence mapping is rehydrated, so callers must
-not remove the truncation marker or synthesize a replacement fingerprint. The
-tag is an adapter-runtime trust signal, not a portable authorization token.
-While a script is running, the before-state is parsed and held by the native
-Rust extension outside the script-observable Python frame stack, then released
-as an immutable evidence object after execution. A pure-Python runtime without
-that custody boundary fails closed with `scene_digest_custody_unavailable`
-instead of advertising verified in-process evidence. A mapping that exceeds the
-bounded observation budget is represented by a fixed sentinel so equivalent
-provider mappings remain insertion-order independent without unbounded reads.
+Scene-digest fingerprints and truncation markers are deterministic corruption
+checks, not authentication, authorization, or proof of host identity. Core does
+not ship a Python secret, signing oracle, signed wire tag, or native factory that
+promotes caller-supplied bytes into authenticated evidence. The adapter chooses
+the provider before the native transaction starts, but that does not establish
+cryptographic authenticity; semantic verification still belongs to
+adapter-owned readback. A pure-Python runtime without the transaction boundary
+fails closed with
+`scene_digest_custody_unavailable`. A mapping that exceeds the bounded
+observation budget is represented by a fixed sentinel so equivalent provider
+mappings remain insertion-order independent without unbounded reads.
 This core contract remains host-neutral: Issue #2260 acceptance for Maya,
 Houdini, Blender, and 3ds Max requires each adapter to register its own
 host-owned provider and MCP/REST route tests; core's generic route smoke does
