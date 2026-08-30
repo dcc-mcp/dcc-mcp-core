@@ -695,9 +695,45 @@ class TestRegisterRecipesTools:
         )
         assert errors == []
 
+    def test_unanchored_pattern_uses_draft_search_semantics(self) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": "foo"}}, "afoob") == []
+
+    def test_quantified_character_classes_are_bounded(self) -> None:
+        pattern = "^[a-z]*[a-y]*$"
+        started = time.perf_counter()
+        errors = validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "a" * 40000 + "!")
+        assert errors == ["$: Recipe input schema is invalid"]
+        assert time.perf_counter() - started < 1.0
+
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            {"type": "string", "format": "email"},
+            {"type": "string", "contentEncoding": "base64"},
+            {"$vocabulary": {"https://json-schema.org/draft/2020-12/vocab/format-assertion": True}},
+            {"type": "string", "unknownAssertion": True},
+        ],
+    )
+    def test_unsupported_assertion_vocabularies_fail_closed(self, schema: dict[str, object]) -> None:
+        assert validate_recipe_inputs({"inputs_schema": schema}, "not-an-email") == [
+            "$: Recipe input schema is invalid"
+        ]
+
     def test_unevaluated_true_annotations_propagate_through_all_of(self) -> None:
         object_schema = {"allOf": [{"unevaluatedProperties": True}], "unevaluatedProperties": False}
         array_schema = {"allOf": [{"unevaluatedItems": True}], "unevaluatedItems": False}
+        assert validate_recipe_inputs({"inputs_schema": object_schema}, {"x": 1}) == []
+        assert validate_recipe_inputs({"inputs_schema": array_schema}, [1]) == []
+
+    def test_unevaluated_schema_annotations_propagate_after_success(self) -> None:
+        object_schema = {
+            "allOf": [{"unevaluatedProperties": {"type": "integer"}}],
+            "unevaluatedProperties": False,
+        }
+        array_schema = {
+            "allOf": [{"unevaluatedItems": {"type": "integer"}}],
+            "unevaluatedItems": False,
+        }
         assert validate_recipe_inputs({"inputs_schema": object_schema}, {"x": 1}) == []
         assert validate_recipe_inputs({"inputs_schema": array_schema}, [1]) == []
 
