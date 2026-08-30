@@ -1024,13 +1024,12 @@ async fn resolve_split_phase_output(
     }
     let timeout = registration.timeout;
     let control = registration.control();
-    let worker = tokio::time::timeout(
-        timeout,
-        tokio::task::spawn_blocking({
-            let callback = registration.callback.clone();
-            move || callback(control)
-        }),
-    );
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let callback = registration.callback.clone();
+    std::thread::spawn(move || {
+        let _ = sender.send(callback(control));
+    });
+    let worker = tokio::time::timeout(timeout, receiver);
     tokio::pin!(worker);
     let result = if let Some(cancellation) = cancellation {
         tokio::select! {
@@ -1051,14 +1050,16 @@ async fn resolve_split_phase_output(
                 "continuation timed out",
             ));
         }
-        Ok(joined) => joined
-            .map_err(|err| {
-                split_phase_service_error(
-                    "WORKER_FAILED",
-                    format!("continuation worker failed: {err}"),
-                )
-            })?
-            .map_err(|err| split_phase_service_error("CALLBACK_FAILED", err))?,
+        Ok(Ok(result)) => {
+            result.map_err(|err| split_phase_service_error("CALLBACK_FAILED", err))?
+        }
+        Ok(Err(err)) => {
+            registration.cancel();
+            return Err(split_phase_service_error(
+                "WORKER_FAILED",
+                format!("continuation worker failed: {err}"),
+            ));
+        }
     };
     if dcc_mcp_skills::catalog::execute::has_split_phase_marker(&result) {
         return Err(split_phase_service_error(
