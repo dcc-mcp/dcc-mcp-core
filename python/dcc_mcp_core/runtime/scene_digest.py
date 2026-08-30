@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import hmac
 import json
 import math
 import re
+import secrets
 from typing import Any
 from typing import Mapping
 
@@ -21,6 +23,15 @@ _MAX_STRING_CHARS = 128
 _MAX_PAYLOAD_BYTES = 4_096
 _MAX_INTEGER_BITS = 512
 _TRUNCATION_MARKER = "_dcc_mcp_truncated"
+# The public fingerprint remains a deterministic, content-addressed SHA-256 so
+# equivalent host observations compare equal.  Completeness, however, is a
+# trust-boundary bit: a caller must not be able to remove the marker, recompute
+# the public hash, and turn an incomplete observation into verified evidence.
+# A process-local HMAC authenticates the complete canonical snapshot whenever
+# it crosses the ``to_dict``/envelope boundary.  The key is intentionally not
+# serialized or exported; snapshots are validated by the adapter process that
+# captured them, while the public SHA remains stable for diagnostics.
+_SNAPSHOT_INTEGRITY_KEY = secrets.token_bytes(32)
 _SENSITIVE_KEY = re.compile(
     r"(?:api[_-]?key|authorization|credential|password|secret|token|file[_-]?path|path)",
     re.IGNORECASE,
@@ -77,6 +88,7 @@ class SceneDigestSnapshot:
     fingerprint: str
     truncated: bool = False
     schema_version: str = SCENE_DIGEST_SCHEMA_VERSION
+    integrity: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Return the adapter-facing JSON-safe evidence shape."""
@@ -97,13 +109,35 @@ class SceneDigestSnapshot:
             "fingerprint": self.fingerprint,
             "payload": payload,
             "truncated": self.truncated,
+            "integrity": self.integrity,
         }
 
     def validate(self) -> None:
         """Reject corrupted or mismatched evidence before envelope attachment."""
         try:
-            normalized = normalize_scene_digest(self.payload)
-            expected = _fingerprint(self.payload, truncated=self.truncated)
+            if self.schema_version != SCENE_DIGEST_SCHEMA_VERSION:
+                raise SceneDigestError(
+                    "scene_digest_fingerprint_mismatch",
+                    "Scene digest evidence does not match its canonical fingerprint",
+                )
+            if not isinstance(self.truncated, bool):
+                raise SceneDigestError(
+                    "scene_digest_fingerprint_mismatch",
+                    "Scene digest evidence does not match its canonical fingerprint",
+                )
+            payload, inferred_truncated = _canonical_snapshot_payload(self.payload)
+            if inferred_truncated != self.truncated:
+                raise SceneDigestError(
+                    "scene_digest_fingerprint_mismatch",
+                    "Scene digest completeness does not match its canonical payload",
+                )
+            expected = _fingerprint(payload, truncated=self.truncated)
+            expected_integrity = _snapshot_integrity(
+                schema_version=self.schema_version,
+                fingerprint=self.fingerprint,
+                payload=payload,
+                truncated=self.truncated,
+            )
         except SceneDigestError:
             raise
         except Exception:
@@ -115,13 +149,9 @@ class SceneDigestSnapshot:
                 "Scene digest payload is corrupted or not JSON serializable",
             ) from None
         if (
-            self.schema_version != SCENE_DIGEST_SCHEMA_VERSION
-            or self.fingerprint != expected
-            or normalized.payload != self.payload
-            or not isinstance(self.truncated, bool)
-            # ``truncated`` is authenticated by the fingerprint.  The
-            # bounded payload no longer contains the omitted source items,
-            # so re-normalizing it cannot independently recover that bit.
+            self.fingerprint != expected
+            or self.payload != payload
+            or not hmac.compare_digest(self.integrity, expected_integrity)
         ):
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -163,8 +193,15 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
                 "Scene digest provider must return SceneStats or a mapping",
             )
 
+        # A serialized snapshot is a different contract from a raw provider
+        # mapping: preserve its canonical payload/completeness bit and verify
+        # the process-local integrity tag before accepting it as evidence.
+        if "payload" in source and "fingerprint" in source and "truncated" in source:
+            return _snapshot_from_dict(source)
+
         supplied_fingerprint = source.pop("fingerprint", None)
         supplied_truncated = source.pop("truncated", None)
+        supplied_integrity = source.pop("integrity", None)
         supplied_payload_truncated = source.pop(_TRUNCATION_MARKER, None)
         _validate_core_fields(source)
         extra = source.get("extra", {})
@@ -196,6 +233,12 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
                 "Scene digest payload truncation marker does not match canonical state",
             )
         fingerprint = _fingerprint(payload, truncated=truncated[0])
+        integrity = _snapshot_integrity(
+            schema_version=SCENE_DIGEST_SCHEMA_VERSION,
+            fingerprint=fingerprint,
+            payload=payload,
+            truncated=truncated[0],
+        )
         if supplied_fingerprint is not None and supplied_fingerprint != fingerprint:
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -208,7 +251,19 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
                 "scene_digest_fingerprint_mismatch",
                 "Provider-supplied scene digest truncation flag does not match canonical state",
             )
-        return SceneDigestSnapshot(payload=payload, fingerprint=fingerprint, truncated=truncated[0])
+        if supplied_integrity is not None and (
+            not isinstance(supplied_integrity, str) or not hmac.compare_digest(supplied_integrity, integrity)
+        ):
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Provider-supplied scene digest integrity does not match canonical state",
+            )
+        return SceneDigestSnapshot(
+            payload=payload,
+            fingerprint=fingerprint,
+            truncated=truncated[0],
+            integrity=integrity,
+        )
     except SceneDigestError:
         raise
     except Exception:
@@ -256,22 +311,35 @@ def _bounded_value(value: Any, *, depth: int, truncated: list[bool]) -> Any:
         return value
     if isinstance(value, Mapping):
         result: dict[str, Any] = {}
-        items = sorted(((str(key), item) for key, item in value.items()), key=lambda pair: pair[0])
-        if len(items) > _MAX_ITEMS:
-            truncated[0] = True
-        for key, item in items[:_MAX_ITEMS]:
+        # Read only one sentinel past the advertised bound.  Sorting a bounded
+        # prefix keeps the wire representation stable for ordered provider
+        # mappings without materialising attacker-sized dictionaries.
+        items: list[tuple[str, Any]] = []
+        for index, (key, item) in enumerate(value.items()):
+            if index >= _MAX_ITEMS:
+                truncated[0] = True
+                break
+            items.append((str(key), item))
+        items.sort(key=lambda pair: pair[0])
+        for key, item in items:
             if _SENSITIVE_KEY.search(key):
                 result[key] = "<redacted>"
             else:
                 result[key] = _bounded_value(item, depth=depth + 1, truncated=truncated)
         return result
     if isinstance(value, (list, tuple, set, frozenset)):
-        items = list(value)
+        # Lists and sets are sampled with a sentinel rather than copied in
+        # full.  Sets are sorted only after the bounded prefix is collected;
+        # provider output is explicitly incomplete once the sentinel appears.
+        items: list[Any] = []
+        for index, item in enumerate(value):
+            if index >= _MAX_ITEMS:
+                truncated[0] = True
+                break
+            items.append(item)
         if isinstance(value, (set, frozenset)):
             items.sort(key=repr)
-        if len(items) > _MAX_ITEMS:
-            truncated[0] = True
-        return [_bounded_value(item, depth=depth + 1, truncated=truncated) for item in items[:_MAX_ITEMS]]
+        return [_bounded_value(item, depth=depth + 1, truncated=truncated) for item in items]
     raise SceneDigestError(
         "scene_digest_invalid",
         f"Scene digest contains unsupported value type: {type(value).__name__}",
@@ -287,6 +355,138 @@ def _fingerprint(payload: Mapping[str, Any], *, truncated: bool = False) -> str:
     if truncated:
         canonical += "|truncated"
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _snapshot_integrity(
+    *,
+    schema_version: str,
+    fingerprint: str,
+    payload: Mapping[str, Any],
+    truncated: bool,
+) -> str:
+    """Authenticate a canonical snapshot without changing its public hash."""
+    message = "\x00".join(
+        (
+            schema_version,
+            fingerprint,
+            "1" if truncated else "0",
+            _canonical_json(payload),
+        )
+    ).encode("utf-8")
+    return "hmac-sha256:" + hmac.new(_SNAPSHOT_INTEGRITY_KEY, message, hashlib.sha256).hexdigest()
+
+
+def _canonical_snapshot_payload(payload: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Validate a bounded payload while preserving its authenticated marker.
+
+    Re-normalizing a bounded list cannot tell whether its source contained more
+    than ``_MAX_ITEMS`` entries.  The marker is therefore accepted only as a
+    boolean canonical field and is included in both the public fingerprint and
+    private integrity tag; callers cannot silently drop it and claim a complete
+    observation.
+    """
+    if not isinstance(payload, Mapping):
+        raise SceneDigestError("scene_digest_invalid", "Scene digest payload must be a mapping")
+    try:
+        source = dict(payload)
+        marker = source.pop(_TRUNCATION_MARKER, None)
+        _validate_core_fields(source)
+        extra = source.get("extra", {})
+        if not isinstance(extra, Mapping):
+            raise SceneDigestError("scene_digest_invalid", "Scene digest extra must be a mapping")
+        bounded_truncated = [False]
+        canonical = {
+            "object_count": source["object_count"],
+            "vertex_count": source["vertex_count"],
+            "has_mesh": source["has_mesh"],
+            "extra": _bounded_value(extra, depth=0, truncated=bounded_truncated),
+        }
+        if len(_canonical_json(canonical).encode("utf-8")) > _MAX_PAYLOAD_BYTES:
+            canonical["extra"] = {"_truncated": True}
+            bounded_truncated[0] = True
+        if marker is not None and not isinstance(marker, bool):
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Scene digest payload truncation marker must be boolean",
+            )
+        inferred = bool(marker) if marker is not None else bounded_truncated[0]
+        if marker is False and bounded_truncated[0]:
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Scene digest payload truncation marker does not match canonical state",
+            )
+        if inferred:
+            canonical[_TRUNCATION_MARKER] = True
+        if canonical != dict(payload):
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Scene digest evidence does not match its canonical payload",
+            )
+        return canonical, inferred
+    except SceneDigestError:
+        raise
+    except Exception:
+        raise SceneDigestError(
+            "scene_digest_invalid",
+            "Scene digest payload is corrupted or not JSON serializable",
+        ) from None
+
+
+def _snapshot_from_dict(source: Mapping[str, Any]) -> SceneDigestSnapshot:
+    """Rehydrate and authenticate the exact shape emitted by :meth:`to_dict`."""
+    try:
+        schema_version = source.get("schema_version")
+        fingerprint = source.get("fingerprint")
+        payload = source.get("payload")
+        truncated = source.get("truncated")
+        integrity = source.get("integrity")
+        if (
+            not isinstance(schema_version, str)
+            or not isinstance(fingerprint, str)
+            or not isinstance(truncated, bool)
+            or not isinstance(integrity, str)
+        ):
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Serialized scene digest evidence is missing integrity fields",
+            )
+        canonical, inferred_truncated = _canonical_snapshot_payload(payload)
+        if inferred_truncated != truncated:
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Scene digest completeness does not match its canonical payload",
+            )
+        expected_fingerprint = _fingerprint(canonical, truncated=truncated)
+        if fingerprint != expected_fingerprint:
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Scene digest evidence does not match its canonical fingerprint",
+            )
+        expected_integrity = _snapshot_integrity(
+            schema_version=schema_version,
+            fingerprint=fingerprint,
+            payload=canonical,
+            truncated=truncated,
+        )
+        if not hmac.compare_digest(integrity, expected_integrity):
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Scene digest evidence integrity verification failed",
+            )
+        return SceneDigestSnapshot(
+            payload=canonical,
+            fingerprint=fingerprint,
+            truncated=truncated,
+            schema_version=schema_version,
+            integrity=integrity,
+        )
+    except SceneDigestError:
+        raise
+    except Exception:
+        raise SceneDigestError(
+            "scene_digest_invalid",
+            "Serialized scene digest evidence is malformed",
+        ) from None
 
 
 def _canonical_json(payload: Mapping[str, Any]) -> str:
