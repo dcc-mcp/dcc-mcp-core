@@ -71,21 +71,39 @@ class SceneDigestSnapshot:
 
     def to_dict(self) -> dict[str, Any]:
         """Return the adapter-facing JSON-safe evidence shape."""
+        try:
+            payload = json.loads(_canonical_json(self.payload))
+        except Exception:
+            # ``payload`` is intentionally a plain dict for compatibility,
+            # but it can be contaminated by an adapter or a suffix that keeps
+            # a reference to the snapshot.  Never leak a raw JSON TypeError
+            # across the result boundary.
+            raise SceneDigestError(
+                "scene_digest_invalid",
+                "Scene digest payload is no longer JSON serializable",
+            ) from None
         return {
             "schema_version": self.schema_version,
             "fingerprint": self.fingerprint,
-            # Re-parse canonical JSON rather than returning a shallow copy.
-            # ``extra`` may contain nested mappings/lists; a shallow copy
-            # would let a caller mutate the snapshot that was used to compute
-            # ``fingerprint`` after it crossed the host trust boundary.
-            "payload": json.loads(_canonical_json(self.payload)),
+            "payload": payload,
             "truncated": self.truncated,
         }
 
     def validate(self) -> None:
         """Reject corrupted or mismatched evidence before envelope attachment."""
-        normalized = normalize_scene_digest(self.payload)
-        expected = _fingerprint(self.payload)
+        try:
+            normalized = normalize_scene_digest(self.payload)
+            expected = _fingerprint(self.payload)
+        except SceneDigestError:
+            raise
+        except Exception:
+            # A caller may have mutated a nested payload value after capture;
+            # convert serializer/type failures into the stable fail-closed
+            # contract error expected by envelope builders.
+            raise SceneDigestError(
+                "scene_digest_invalid",
+                "Scene digest payload is corrupted or not JSON serializable",
+            ) from None
         if (
             self.schema_version != SCENE_DIGEST_SCHEMA_VERSION
             or self.fingerprint != expected

@@ -50,8 +50,11 @@ def scene_digest_postcondition(
             error="scene_digest_postcondition_mismatch",
         ).to_dict()
     evidence.setdefault("verified", False)
-    evidence["scene_digest_before"] = before_snapshot.to_dict()
-    evidence["scene_digest_after"] = after_snapshot.to_dict()
+    try:
+        evidence["scene_digest_before"] = before_snapshot.to_dict()
+        evidence["scene_digest_after"] = after_snapshot.to_dict()
+    except SceneDigestError as exc:
+        return ToolResultEnvelope.fail(str(exc), error=exc.code).to_dict()
     return evidence
 
 
