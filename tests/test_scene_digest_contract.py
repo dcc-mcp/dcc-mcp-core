@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import urllib.request
 
 import pytest
 
+from conftest import McpClient
 import dcc_mcp_core
+from dcc_mcp_core import McpHttpConfig
+from dcc_mcp_core import McpHttpServer
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 from dcc_mcp_core.script_execution import SceneDigestError
@@ -286,6 +291,25 @@ def test_state_digest_provider_can_be_unregistered() -> None:
     assert exc_info.value.code == "scene_digest_provider_missing"
 
 
+def test_state_digest_capability_is_visible_for_adapter_discovery() -> None:
+    context = ScriptExecutionContext()
+    assert context.state_digest_capability() == {
+        "available": False,
+        "status": "unavailable",
+        "reason": "provider_missing",
+    }
+
+    register_state_digest_provider(lambda: _stats(0), context=context)
+    assert context.state_digest_capability() == {
+        "available": True,
+        "status": "ready",
+        "reason": "provider_registered",
+    }
+
+    context.register_state_digest_provider(None)
+    assert context.state_digest_capability()["available"] is False
+
+
 def test_scene_digest_rejects_provider_fingerprint_mismatch() -> None:
     context = ScriptExecutionContext()
     register_state_digest_provider(
@@ -439,8 +463,106 @@ def test_non_json_postcondition_fails_closed_with_digest_evidence() -> None:
     )
     assert result["success"] is False
     assert result["error"] == "invalid_scene_digest_postcondition"
-    assert isinstance(result["context"]["reserved_keys"], list)
+    assert result["postcondition"]["verified"] is False
     assert result["postcondition"]["scene_digest_before"]["fingerprint"] == before.fingerprint
+    assert result["postcondition"]["scene_digest_after"]["fingerprint"] == after.fingerprint
+
+
+@pytest.mark.parametrize("postcondition", [{"readback": object()}, {"readback": float("nan")}])
+def test_non_json_postcondition_without_digest_fails_closed(postcondition) -> None:
+    result = ScriptExecutionResult.from_value(1, postcondition=postcondition)
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_scene_digest_postcondition"
+    assert "postcondition" not in result
+
+
+def test_scene_digest_rejects_forged_snapshot_truncation_flag() -> None:
+    source = _stats(1, extra={"items": list(range(32))})
+    original = normalize_scene_digest(source)
+    forged = SceneDigestSnapshot(
+        payload=original.payload,
+        fingerprint=original.fingerprint,
+        truncated=False,
+    )
+
+    result = ScriptExecutionResult.from_value(
+        1,
+        scene_digest_before=forged,
+        scene_digest_after=original,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "scene_digest_fingerprint_mismatch"
+
+
+@pytest.mark.parametrize("dcc_name", ["maya", "blender"])
+def test_execute_python_digest_route_mcp_and_rest_contract(dcc_name: str) -> None:
+    """Exercise the real MCP + REST dispatch path with two DCC families."""
+    registry = ToolRegistry()
+    registry.register(
+        "execute_python",
+        description=f"Execute Python in the {dcc_name} host",
+        category="script",
+        dcc=dcc_name,
+        version="1.0.0",
+    )
+    context = ScriptExecutionContext()
+    state = {"objects": 0}
+    register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
+    context.register_dcc_namespace({"state": state})
+
+    def _handler(params: dict) -> dict:
+        outcome = context.execute_with_state_digest(params["code"])
+        return ScriptExecutionResult.from_outcome(outcome)
+
+    server = McpHttpServer(
+        registry,
+        McpHttpConfig(port=0, server_name=f"scene-digest-{dcc_name}"),
+    )
+    server.register_handler("execute_python", _handler)
+    handle = server.start()
+    try:
+        client = McpClient(handle.mcp_url())
+        _, response = client.post(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "execute_python",
+                    "arguments": {"code": "state['objects'] += 1; result = 'mcp'"},
+                },
+            }
+        )
+        assert response.get("error") is None, response
+        structured = response["result"].get("structuredContent")
+        if structured is None:
+            structured = json.loads(response["result"]["content"][0]["text"])
+        assert structured["success"] is True
+        assert structured["postcondition"]["scene_digest_before"]["payload"]["object_count"] == 0
+        assert structured["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 1
+
+        payload = json.dumps(
+            {
+                "tool_slug": "execute_python",
+                "params": {"code": "state['objects'] += 1; result = 'rest'"},
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{handle.mcp_url().rsplit('/mcp', 1)[0]}/v1/call",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as rest_response:
+            rest_body = json.loads(rest_response.read().decode("utf-8"))
+        output = rest_body["output"]
+        assert output["success"] is True
+        assert output["postcondition"]["scene_digest_before"]["payload"]["object_count"] == 1
+        assert output["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 2
+    finally:
+        handle.shutdown()
 
 
 def test_script_result_normalizes_mapping_snapshots_and_rejects_malformed_values() -> None:

@@ -30,12 +30,31 @@ def scene_digest_postcondition(
     still requires an adapter-owned semantic readback and is rejected when the
     digest is unchanged.
     """
-    evidence = dict(postcondition) if postcondition is not None else {}
+    try:
+        evidence = dict(postcondition) if postcondition is not None else {}
+    except (TypeError, ValueError):
+        return ToolResultEnvelope.fail(
+            "Scene digest postcondition must be a JSON-compatible mapping",
+            error="invalid_scene_digest_postcondition",
+        ).to_dict()
+    if verified is not None and not isinstance(verified, bool):
+        return ToolResultEnvelope.fail(
+            "Scene digest postcondition verification must be a boolean",
+            error="invalid_scene_digest_postcondition",
+        ).to_dict()
     if verified is not None:
         existing = evidence.get("verified")
-        if existing is not None and existing is not verified:
-            raise ValueError("'verified' conflicts with postcondition verification evidence")
+        if existing is not None and (not isinstance(existing, bool) or existing is not verified):
+            return ToolResultEnvelope.fail(
+                "Scene digest postcondition verification evidence conflicts with the requested value",
+                error="invalid_scene_digest_postcondition",
+            ).to_dict()
         evidence["verified"] = verified
+    elif "verified" in evidence and not isinstance(evidence["verified"], bool):
+        return ToolResultEnvelope.fail(
+            "Scene digest postcondition verification must be a boolean",
+            error="invalid_scene_digest_postcondition",
+        ).to_dict()
     collisions = sorted(_ENVELOPE_KEYS.intersection(evidence))
     if collisions:
         return ToolResultEnvelope.fail(
@@ -49,7 +68,11 @@ def scene_digest_postcondition(
                 "Verified scene execution requires both before and after digest observations",
                 error="scene_digest_evidence_missing",
             ).to_dict()
-        return evidence or None
+        if not evidence:
+            return None
+        if not _is_json_safe(evidence):
+            return _invalid_json_postcondition()
+        return evidence
     if before is None or after is None:
         return ToolResultEnvelope.fail(
             "Scene digest evidence requires both before and after observations",
@@ -71,13 +94,8 @@ def scene_digest_postcondition(
         evidence["scene_digest_after"] = after_snapshot.to_dict()
     except SceneDigestError as exc:
         return ToolResultEnvelope.fail(str(exc), error=exc.code).to_dict()
-    try:
-        json.dumps(evidence, allow_nan=False, separators=(",", ":"))
-    except (TypeError, ValueError):
-        failure = ToolResultEnvelope.fail(
-            "Scene digest postcondition is not JSON serializable",
-            error="invalid_scene_digest_postcondition",
-        ).to_dict()
+    if not _is_json_safe(evidence):
+        failure = _invalid_json_postcondition()
         failure["postcondition"] = {
             "verified": False,
             "scene_digest_before": before_snapshot.to_dict(),
@@ -85,6 +103,21 @@ def scene_digest_postcondition(
         }
         return failure
     return evidence
+
+
+def _is_json_safe(value: Any) -> bool:
+    try:
+        json.dumps(value, allow_nan=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _invalid_json_postcondition() -> dict[str, Any]:
+    return ToolResultEnvelope.fail(
+        "Scene digest postcondition is not JSON serializable",
+        error="invalid_scene_digest_postcondition",
+    ).to_dict()
 
 
 def _coerce_scene_digest_snapshot(

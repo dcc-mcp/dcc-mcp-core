@@ -264,6 +264,11 @@ its `cause`, snapshots, and `readback_error` to
 a mutation, the exception carries the known before snapshot and the result is
 marked `indeterminate=true` with `verified=false`; never retry it as if no
 side effect occurred. The base
+core does not auto-register or advertise an `execute_python` route: adapters
+must expose that route only when
+`server.script_execution_context.state_digest_capability()["available"]` is
+true, and should publish the `unavailable/provider_missing` state in their
+discovery metadata while no provider is registered. The base
 registration wires `dcc_feedback__report` to the
 configured gateway `/v1/feedback` endpoint, late-binds the current instance id,
 and mirrors only gateway-accepted receipts into a bounded, write-through JSONL

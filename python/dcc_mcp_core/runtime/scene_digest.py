@@ -20,6 +20,7 @@ _MAX_ITEMS = 16
 _MAX_STRING_CHARS = 128
 _MAX_PAYLOAD_BYTES = 4_096
 _MAX_INTEGER_BITS = 512
+_TRUNCATION_MARKER = "_dcc_mcp_truncated"
 _SENSITIVE_KEY = re.compile(
     r"(?:api[_-]?key|authorization|credential|password|secret|token|file[_-]?path|path)",
     re.IGNORECASE,
@@ -102,7 +103,7 @@ class SceneDigestSnapshot:
         """Reject corrupted or mismatched evidence before envelope attachment."""
         try:
             normalized = normalize_scene_digest(self.payload)
-            expected = _fingerprint(self.payload)
+            expected = _fingerprint(self.payload, truncated=self.truncated)
         except SceneDigestError:
             raise
         except Exception:
@@ -118,7 +119,9 @@ class SceneDigestSnapshot:
             or self.fingerprint != expected
             or normalized.payload != self.payload
             or not isinstance(self.truncated, bool)
-            or normalized.truncated != self.truncated
+            # ``truncated`` is authenticated by the fingerprint.  The
+            # bounded payload no longer contains the omitted source items,
+            # so re-normalizing it cannot independently recover that bit.
         ):
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -162,6 +165,7 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
 
         supplied_fingerprint = source.pop("fingerprint", None)
         supplied_truncated = source.pop("truncated", None)
+        supplied_payload_truncated = source.pop(_TRUNCATION_MARKER, None)
         _validate_core_fields(source)
         extra = source.get("extra", {})
         if not isinstance(extra, Mapping):
@@ -177,7 +181,21 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
         if len(_canonical_json(payload).encode("utf-8")) > _MAX_PAYLOAD_BYTES:
             payload["extra"] = {"_truncated": True}
             truncated[0] = True
-        fingerprint = _fingerprint(payload)
+        # Preserve a tamper-evident marker in the canonical payload.  Once
+        # bounded values have been reduced, re-normalization cannot infer
+        # whether source items were omitted from the remaining list/string;
+        # retaining this marker lets validation reject a forged flag even if
+        # a caller reuses the canonical payload and fingerprint.
+        if truncated[0]:
+            payload[_TRUNCATION_MARKER] = True
+        if supplied_payload_truncated is not None and (
+            not isinstance(supplied_payload_truncated, bool) or supplied_payload_truncated != truncated[0]
+        ):
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Scene digest payload truncation marker does not match canonical state",
+            )
+        fingerprint = _fingerprint(payload, truncated=truncated[0])
         if supplied_fingerprint is not None and supplied_fingerprint != fingerprint:
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -260,8 +278,14 @@ def _bounded_value(value: Any, *, depth: int, truncated: list[bool]) -> Any:
     )
 
 
-def _fingerprint(payload: Mapping[str, Any]) -> str:
+def _fingerprint(payload: Mapping[str, Any], *, truncated: bool = False) -> str:
     canonical = _canonical_json(payload)
+    # Preserve historical digest bytes for complete payloads while
+    # authenticating the truncation bit for bounded observations.  Without
+    # this suffix a caller could reuse a complete payload/fingerprint pair
+    # and simply flip ``truncated`` on the snapshot.
+    if truncated:
+        canonical += "|truncated"
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
