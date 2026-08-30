@@ -136,29 +136,35 @@ the server from its exact target environment. Gateway Admin is check-only.
    `register_state_digest_provider(..., context=server.script_execution_context)`.
    The callback returns `SceneStats` or its mapping shape (`object_count`,
    `vertex_count`, `has_mesh`, optional `extra`). Run scripts through
-   `execute_with_state_digest(...)`, then pass both snapshots to
-   `ScriptExecutionResult.from_value(...)`. Core bounds and redacts the payload,
-   computes a deterministic fingerprint, and fails closed when the provider is
-   absent, raises, returns malformed data, or supplies a mismatched fingerprint.
+   `execute_with_state_digest(...)`; its native transaction pins that exact
+   provider for both observations and returns public `SceneDigestSnapshot`
+   values. A script cannot replace the provider used by its active transaction
+   or poison the next transaction through `ScriptExecutionContext`. Pass both
+   snapshots to `ScriptExecutionResult.from_value(...)`. Core bounds and redacts
+   the payload, computes a deterministic fingerprint, and fails closed when the
+   provider is absent, raises, returns malformed data, or supplies a mismatched
+   fingerprint.
    Digest change proves only that observed state changed; leave `verified`
    omitted/false unless an adapter-owned postcondition verifies the claimed
    effect. Never turn contract-test evidence into a real-host success claim.
-   Serialized digest evidence carries an opaque runtime integrity tag and a
-   truncation marker; preserve both fields and never synthesize a replacement
-   fingerprint when forwarding an envelope. The tag is a local trust signal,
-   not a portable authorization token. During script execution, the native
-   Rust extension retains the before snapshot outside the Python frame stack
-   and releases an immutable evidence object only after the script returns.
-   Pure-Python runtimes without that boundary fail closed with
-   `scene_digest_custody_unavailable`. Mapping values beyond the bounded
-   observation budget use a fixed sentinel, keeping equivalent provider
-   mappings deterministic without unbounded reads.
+   The fingerprint and truncation marker detect deterministic corruption; they
+   are not authentication, authorization, or proof of host identity. Core does
+   not expose a Python secret, signing oracle, signed wire tag, or native factory
+   that turns caller-supplied bytes into authenticated evidence. The adapter
+   registers the provider before the native transaction starts, but that does
+   not establish cryptographic authenticity; semantic verification remains
+   adapter-owned. Pure-Python runtimes without that boundary fail closed with
+   `scene_digest_custody_unavailable`. Mapping
+   values beyond the bounded observation budget use a fixed sentinel, keeping
+   equivalent provider mappings deterministic without unbounded reads.
    Core does not auto-register or advertise an `execute_python` route. Gate
    adapter discovery and route registration on successful provider
    registration, and expose `unavailable/provider_missing` when
    `capture_state_digest(...)` reports no provider.
-   If the script raises, catch `SceneDigestExecutionError` and pass its `cause`,
-   snapshots, and `readback_error` to `ScriptExecutionResult.from_exception(...)`.
+   If the script raises `Exception` or `BaseException`, the transaction performs
+   after-state readback first. Catch `SceneDigestExecutionError` and pass its
+   `cause`, snapshots, and `readback_error` to
+   `ScriptExecutionResult.from_exception(...)`.
    A failed after-readback after a mutating script is explicitly
    `indeterminate=true` with `verified=false`; preserve the before snapshot and
    never retry it as if no side effect occurred.

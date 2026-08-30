@@ -1,126 +1,131 @@
-//! Native custody for before-state evidence during in-process Python execution.
+//! Native transaction custody for in-process Python scene observations.
 //!
-//! Arbitrary host scripts can inspect every Python frame in their interpreter.
-//! The before-state snapshot therefore cannot remain in a Python local or
-//! closure while the script runs.  This module parses and owns the serialized
-//! snapshot on the Rust stack, invokes the script callback, and only then
-//! materializes an immutable Python-facing evidence object.
+//! Arbitrary host scripts can inspect and mutate Python frames in their
+//! interpreter. The provider object selected by the adapter is therefore
+//! pinned by Rust for the whole before/script/after transaction. The extension
+//! never brands caller-supplied bytes as trusted evidence: it captures both
+//! wires itself and Python rehydrates them through the public
+//! `SceneDigestSnapshot` contract after the transaction completes.
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 
-/// Host-owned scene evidence released only after the script callback returns.
-#[pyclass(frozen, module = "dcc_mcp_core._core", name = "_SceneDigestEvidence")]
-pub(crate) struct PySceneDigestEvidence {
-    snapshot: serde_json::Value,
-    fingerprint: String,
-    payload: serde_json::Value,
-    truncated: bool,
-    schema_version: String,
-    integrity: String,
-}
-
-impl PySceneDigestEvidence {
-    fn from_wire(wire: &[u8]) -> PyResult<Self> {
-        let snapshot: serde_json::Value = serde_json::from_slice(wire)
-            .map_err(|_| PyValueError::new_err("serialized scene digest evidence is malformed"))?;
-        let object = snapshot.as_object().ok_or_else(|| {
-            PyValueError::new_err("serialized scene digest evidence must be an object")
-        })?;
-        let string_field = |name: &str| -> PyResult<String> {
-            object
-                .get(name)
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .ok_or_else(|| {
-                    PyValueError::new_err(format!(
-                        "serialized scene digest evidence is missing {name}"
-                    ))
-                })
-        };
-        let payload = object
-            .get("payload")
-            .filter(|value| value.is_object())
-            .cloned()
-            .ok_or_else(|| {
-                PyValueError::new_err("serialized scene digest evidence is missing payload")
-            })?;
-        let truncated = object
-            .get("truncated")
-            .and_then(serde_json::Value::as_bool)
-            .ok_or_else(|| {
-                PyValueError::new_err("serialized scene digest evidence is missing truncated")
-            })?;
-
-        Ok(Self {
-            fingerprint: string_field("fingerprint")?,
-            schema_version: string_field("schema_version")?,
-            integrity: string_field("integrity")?,
-            payload,
-            truncated,
-            snapshot,
-        })
-    }
-
-    fn value_to_pyobject(py: Python<'_>, value: &serde_json::Value) -> PyResult<Py<PyAny>> {
-        dcc_mcp_pybridge::py_json::json_value_to_pyobject(py, value)
-    }
-}
-
-#[pymethods]
-impl PySceneDigestEvidence {
-    #[getter]
-    fn fingerprint(&self) -> &str {
-        &self.fingerprint
-    }
-
-    #[getter]
-    fn payload(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        Self::value_to_pyobject(py, &self.payload)
-    }
-
-    #[getter]
-    fn truncated(&self) -> bool {
-        self.truncated
-    }
-
-    #[getter]
-    fn schema_version(&self) -> &str {
-        &self.schema_version
-    }
-
-    #[getter]
-    fn integrity(&self) -> &str {
-        &self.integrity
-    }
-
-    /// Return a fresh JSON-safe copy of the trusted snapshot.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        Self::value_to_pyobject(py, &self.snapshot)
-    }
-
-    /// Native custody is immutable; construction already validated the wire shape.
-    fn validate(&self) {}
-}
-
-/// Hold one before-state snapshot outside Python while invoking a script callback.
-#[pyfunction(name = "_run_with_scene_digest_custody")]
-pub(crate) fn py_run_with_scene_digest_custody(
+fn capture_wire(
     py: Python<'_>,
-    before_wire: &[u8],
-    callback: &Bound<'_, PyAny>,
+    provider: &Py<PyAny>,
+    capture_callback: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyBytes>> {
+    let rendered = capture_callback.call1((provider.clone_ref(py),))?;
+    let wire = rendered.extract::<Vec<u8>>()?;
+    Ok(PyBytes::new(py, &wire).unbind())
+}
+
+fn exception_value(py: Python<'_>, error: PyErr) -> Py<PyAny> {
+    error.value(py).clone().into_any().unbind()
+}
+
+/// Capture before and after through the same pinned provider around one script.
+///
+/// Callback failures, including Python `BaseException` subclasses, are held as
+/// values until after-state capture has completed. The Python caller then maps
+/// them into the stable `SceneDigestExecutionError` contract.
+#[pyfunction(name = "_run_with_scene_digest_transaction")]
+pub(crate) fn py_run_with_scene_digest_transaction(
+    py: Python<'_>,
+    provider: Py<PyAny>,
+    capture_callback: &Bound<'_, PyAny>,
+    script_callback: &Bound<'_, PyAny>,
     code: &str,
     filename: &str,
-) -> PyResult<(Py<PyAny>, Py<PySceneDigestEvidence>)> {
-    // Parse and move every trusted byte into Rust before entering arbitrary
-    // Python.  No Python frame or closure owns the evidence during callback.
-    let evidence = PySceneDigestEvidence::from_wire(before_wire)?;
-    let callback_result = callback.call1((code, filename))?.unbind();
-    Ok((callback_result, Py::new(py, evidence)?))
+) -> PyResult<(
+    bool,
+    Py<PyAny>,
+    Py<PyBytes>,
+    Option<Py<PyBytes>>,
+    Option<Py<PyAny>>,
+)> {
+    if !provider.bind(py).is_callable() {
+        return Err(PyTypeError::new_err(
+            "state digest provider must be callable",
+        ));
+    }
+    let before = capture_wire(py, &provider, capture_callback)?;
+    let (script_succeeded, value_or_error) = match script_callback.call1((code, filename)) {
+        Ok(value) => (true, value.unbind()),
+        Err(error) => (false, exception_value(py, error)),
+    };
+    let (after, readback_error) = match capture_wire(py, &provider, capture_callback) {
+        Ok(wire) => (Some(wire), None),
+        Err(error) => (None, Some(exception_value(py, error))),
+    };
+
+    Ok((
+        script_succeeded,
+        value_or_error,
+        before,
+        after,
+        readback_error,
+    ))
 }
 
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PySceneDigestEvidence>()?;
-    m.add_function(wrap_pyfunction!(py_run_with_scene_digest_custody, m)?)?;
+    m.add_function(wrap_pyfunction!(py_run_with_scene_digest_transaction, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Once;
+
+    use pyo3::exceptions::PyKeyboardInterrupt;
+    use pyo3::ffi::c_str;
+    use pyo3::types::PyDict;
+
+    use super::*;
+
+    static PYTHON_INIT: Once = Once::new();
+
+    #[test]
+    fn transaction_captures_after_before_returning_base_exception() {
+        PYTHON_INIT.call_once(Python::initialize);
+        Python::attach(|py| -> PyResult<()> {
+            let locals = PyDict::new(py);
+            py.run(
+                c_str!(
+                    r#"
+state = {"objects": 0, "reads": 0}
+def provider():
+    state["reads"] += 1
+    return state["objects"]
+def capture(provider_handle):
+    return str(provider_handle()).encode("ascii")
+def script(code, filename):
+    state["objects"] += 1
+    raise KeyboardInterrupt("operator stop")
+"#
+                ),
+                Some(&locals),
+                Some(&locals),
+            )?;
+            let provider = locals.get_item("provider")?.expect("provider").unbind();
+            let capture = locals.get_item("capture")?.expect("capture");
+            let script = locals.get_item("script")?.expect("script");
+
+            let (succeeded, error, before, after, readback_error) =
+                py_run_with_scene_digest_transaction(
+                    py, provider, &capture, &script, "ignored", "<test>",
+                )?;
+
+            assert!(!succeeded);
+            assert!(error.bind(py).is_instance_of::<PyKeyboardInterrupt>());
+            assert_eq!(before.bind(py).as_bytes(), b"0");
+            assert_eq!(after.expect("after").bind(py).as_bytes(), b"1");
+            assert!(readback_error.is_none());
+            let state = locals.get_item("state")?.expect("state");
+            assert_eq!(state.get_item("reads")?.extract::<usize>()?, 2);
+            Ok(())
+        })
+        .expect("native scene digest transaction");
+    }
 }

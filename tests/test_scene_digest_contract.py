@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import urllib.request
 
@@ -13,6 +12,8 @@ import dcc_mcp_core
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
+import dcc_mcp_core._core as native_core
+import dcc_mcp_core.runtime.scene_digest as scene_digest_module
 from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 import dcc_mcp_core.script_execution as script_execution_module
@@ -179,37 +180,6 @@ def test_scene_digest_snapshot_and_envelope_are_deeply_detached() -> None:
     )
     result["postcondition"]["scene_digest_before"]["payload"]["extra"]["nested"]["labels"].append("wire mutation")
     assert snapshot.payload["extra"]["nested"]["labels"] == ["mesh"]
-
-
-@pytest.mark.parametrize("integrity", [None, 7, b"bytes"])
-def test_scene_digest_validate_rejects_non_string_integrity_without_type_error(integrity) -> None:
-    context = ScriptExecutionContext()
-    register_state_digest_provider(lambda: _stats(1), context=context)
-    snapshot = capture_state_digest(context=context)
-    object.__setattr__(snapshot, "integrity", integrity)
-
-    with pytest.raises(SceneDigestError) as exc_info:
-        snapshot.validate()
-
-    assert exc_info.value.code == "scene_digest_fingerprint_mismatch"
-
-
-@pytest.mark.parametrize("integrity", ["café", "签名"])
-def test_non_ascii_scene_digest_integrity_returns_stable_failure_envelope(integrity: str) -> None:
-    context = ScriptExecutionContext()
-    register_state_digest_provider(lambda: _stats(1), context=context)
-    before = capture_state_digest(context=context)
-    after = capture_state_digest(context=context)
-    object.__setattr__(before, "integrity", integrity)
-
-    result = ScriptExecutionResult.from_value(
-        "ok",
-        scene_digest_before=before,
-        scene_digest_after=after,
-    )
-
-    assert result["success"] is False
-    assert result["error"] == "scene_digest_fingerprint_mismatch"
 
 
 def test_contaminated_snapshot_fails_closed_through_validate_and_result_path() -> None:
@@ -384,7 +354,7 @@ def test_execute_with_state_digest_captures_before_and_after() -> None:
     assert outcome.scene_digest_before.fingerprint != outcome.scene_digest_after.fingerprint
 
 
-def test_before_scene_digest_uses_native_immutable_custody() -> None:
+def test_execute_with_state_digest_returns_public_snapshot_contract() -> None:
     context = ScriptExecutionContext()
     state = {"objects": 0}
     register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
@@ -396,18 +366,34 @@ def test_before_scene_digest_uses_native_immutable_custody() -> None:
     )
 
     before = outcome.scene_digest_before
-    assert type(before).__module__ == "dcc_mcp_core._core"
-    with pytest.raises(TypeError):
-        type(before)()
-    contaminated_copy = before.payload
-    contaminated_copy["object_count"] = 999
+    after = outcome.scene_digest_after
+    assert type(before) is SceneDigestSnapshot
+    assert type(after) is SceneDigestSnapshot
     assert before.payload["object_count"] == 0
+    assert after.payload["object_count"] == 1
+
+
+def test_execute_with_state_digest_pins_provider_for_entire_transaction() -> None:
+    context = ScriptExecutionContext()
+    state = {"objects": 0}
+    register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
+    context.register_dcc_namespace({"state": state, "context": context})
+
+    outcome = context.execute_with_state_digest(
+        "context._state_digest_provider = lambda: "
+        "{'object_count': 999, 'vertex_count': 9990, 'has_mesh': True}; "
+        "state['objects'] += 1; result = 'created'"
+    )
+
+    assert outcome.scene_digest_before.payload["object_count"] == 0
+    assert outcome.scene_digest_after.payload["object_count"] == 1
+    assert capture_state_digest(context=context).payload["object_count"] == 1
 
 
 def test_execute_with_state_digest_fails_closed_without_native_custody(monkeypatch) -> None:
     context = ScriptExecutionContext()
     register_state_digest_provider(lambda: _stats(0), context=context)
-    monkeypatch.setattr(script_execution_module, "_run_with_scene_digest_custody", None)
+    monkeypatch.setattr(script_execution_module, "_run_with_scene_digest_transaction", None)
 
     with pytest.raises(SceneDigestError) as exc_info:
         context.execute_with_state_digest("result = 'untrusted'")
@@ -440,6 +426,22 @@ def test_execute_with_state_digest_preserves_evidence_when_script_raises() -> No
     assert result["success"] is False
     assert result["postcondition"]["verified"] is False
     assert result["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 1
+
+
+def test_execute_with_state_digest_reads_after_before_propagating_base_exception() -> None:
+    context = ScriptExecutionContext()
+    state = {"objects": 0}
+    register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
+    context.register_dcc_namespace({"state": state})
+
+    with pytest.raises(SceneDigestExecutionError) as exc_info:
+        context.execute_with_state_digest("state['objects'] += 1; raise KeyboardInterrupt('operator stop')")
+
+    failure = exc_info.value
+    assert isinstance(failure.cause, KeyboardInterrupt)
+    assert failure.scene_digest_before.payload["object_count"] == 0
+    assert failure.scene_digest_after is not None
+    assert failure.scene_digest_after.payload["object_count"] == 1
 
 
 def test_script_result_attaches_bounded_digest_evidence_without_inventing_verification() -> None:
@@ -588,22 +590,16 @@ def test_truncated_snapshot_wire_round_trip_preserves_verified_evidence() -> Non
     assert result["postcondition"]["scene_digest_before"]["truncated"] is True
 
 
-def test_snapshot_integrity_rejects_marker_removal_and_recomputed_hash() -> None:
-    original = normalize_scene_digest(_stats(1, extra={"items": list(range(32))})).to_dict()
-    original["payload"].pop("_dcc_mcp_truncated")
-    original["truncated"] = False
-    canonical = json.dumps(original["payload"], sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    original["fingerprint"] = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+def test_scene_digest_exposes_no_process_signing_oracle() -> None:
+    snapshot = normalize_scene_digest(_stats(1))
 
-    result = ScriptExecutionResult.from_value(
-        "ok",
-        scene_digest_before=original,
-        scene_digest_after=normalize_scene_digest(_stats(2)).to_dict(),
-        verified=True,
-    )
-
-    assert result["success"] is False
-    assert result["error"] == "scene_digest_fingerprint_mismatch"
+    assert not hasattr(scene_digest_module, "_SNAPSHOT_INTEGRITY_KEY")
+    assert not hasattr(scene_digest_module, "_snapshot_integrity")
+    assert not hasattr(native_core, "_SceneDigestEvidence")
+    assert not hasattr(native_core, "_run_with_scene_digest_custody")
+    assert not hasattr(native_core, "_PinnedSceneDigestProvider")
+    assert not hasattr(native_core, "_pin_scene_digest_provider")
+    assert "integrity" not in snapshot.to_dict()
 
 
 @pytest.mark.parametrize("dcc_name", ["maya", "houdini", "blender", "3dsmax"])
@@ -676,8 +672,8 @@ def test_execute_python_digest_route_mcp_and_rest_contract(dcc_name: str) -> Non
 
 
 @pytest.mark.parametrize("dcc_name", ["maya", "blender"])
-def test_execute_python_digest_routes_reject_frame_snapshot_tampering(dcc_name: str) -> None:
-    """MCP and REST must retain host-owned before evidence despite hostile code."""
+def test_execute_python_digest_routes_pin_provider_against_script_replacement(dcc_name: str) -> None:
+    """MCP and REST must keep one provider pinned across hostile scripts."""
     registry = ToolRegistry()
     registry.register(
         "execute_python",
@@ -689,80 +685,17 @@ def test_execute_python_digest_routes_reject_frame_snapshot_tampering(dcc_name: 
     context = ScriptExecutionContext()
     state = {"objects": 0}
     register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
-    context.register_dcc_namespace({"state": state})
+    context.register_dcc_namespace({"state": state, "context": context})
 
     def _handler(params: dict) -> dict:
         outcome = context.execute_with_state_digest(params["code"])
         return ScriptExecutionResult.from_outcome(outcome)
 
-    attack = """
-import ctypes
-import hashlib
-import json
-import sys
-
-import dcc_mcp_core.runtime.scene_digest as digest
-
-
-def replace_cell(cell, value):
-    try:
-        cell.cell_contents = value
-    except AttributeError:
-        setter = ctypes.pythonapi.PyCell_Set
-        setter.argtypes = (ctypes.py_object, ctypes.py_object)
-        setter.restype = ctypes.c_int
-        if setter(cell, value) != 0:
-            raise RuntimeError("could not replace closure cell")
-
-
-frame = sys._getframe()
-while frame is not None:
-    for candidate in tuple(frame.f_locals.values()):
-        closure = getattr(candidate, "__closure__", None)
-        if not closure:
-            continue
-        for cell in closure:
-            try:
-                wire = cell.cell_contents
-            except ValueError:
-                continue
-            if not isinstance(wire, bytes) or b'"schema_version":"dcc-mcp.scene-digest.v1"' not in wire:
-                continue
-            forged = json.loads(wire.decode("utf-8"))
-            forged["payload"]["object_count"] = 999
-            canonical = json.dumps(
-                forged["payload"],
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-            if forged["truncated"]:
-                canonical += "|truncated"
-            forged["fingerprint"] = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-            forged["integrity"] = digest._snapshot_integrity(
-                schema_version=forged["schema_version"],
-                fingerprint=forged["fingerprint"],
-                payload=forged["payload"],
-                truncated=forged["truncated"],
-            )
-            replace_cell(
-                cell,
-                json.dumps(
-                    forged,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                ).encode("utf-8"),
-            )
-            frame = None
-            break
-        if frame is None:
-            break
-    if frame is not None:
-        frame = frame.f_back
-state["objects"] += 1
-result = "tamper-attempt"
-"""
+    attack = (
+        "context._state_digest_provider = lambda: "
+        "{'object_count': 999, 'vertex_count': 9990, 'has_mesh': True}; "
+        "state['objects'] += 1; result = 'tamper-attempt'"
+    )
 
     server = McpHttpServer(
         registry,
