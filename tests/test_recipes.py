@@ -701,6 +701,65 @@ class TestRegisterRecipesTools:
                 "$: Recipe input schema is invalid"
             ]
 
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^a{,}a+$",
+            "^a{,2}a+$",
+            "^a{2,}a+$",
+            "^a{1,2}a+$",
+            "^a{,}?a+$",
+            "^a{,2}?a+$",
+            "^a{2,}?a+$",
+            "^a{1,2}?a+$",
+        ],
+    )
+    def test_braced_quantifier_forms_are_admitted_conservatively(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aa") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^a{,}b+$",
+            "^a{,2}b+$",
+            "^a{2,}b+$",
+            "^a{1,2}b+$",
+            "^a{,}?b+$",
+            "^a{,2}?b+$",
+            "^a{2,}?b+$",
+            "^a{1,2}?b+$",
+        ],
+    )
+    def test_braced_quantifier_forms_keep_disjoint_boundaries(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aab") == []
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^a+.+b$",
+            r"^\w+\d+z$",
+            r"^a+\Ba+z$",
+            "^a+[]a]+z$",
+        ],
+    )
+    def test_overlapping_consumers_and_zero_width_assertions_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaaz") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        ("pattern", "instance"),
+        [
+            ("^[a-z]+[0-9]+$", "abc123"),
+            ("^(ab)+c+$", "ababcc"),
+            ("^[]]+[a]+$", "]aaa"),
+        ],
+    )
+    def test_disjoint_quantified_boundaries_remain_supported(self, pattern: str, instance: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance) == []
+
     def test_unanchored_pattern_uses_draft_search_semantics(self) -> None:
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": "foo"}}, "afoob") == []
 
