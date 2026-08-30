@@ -143,9 +143,11 @@ the server from its exact target environment. Gateway Admin is check-only.
    Digest change proves only that observed state changed; leave `verified`
    omitted/false unless an adapter-owned postcondition verifies the claimed
    effect. Never turn contract-test evidence into a real-host success claim.
-   If the script raises, catch `SceneDigestExecutionError` and pass its `cause`
-   plus both snapshots to `ScriptExecutionResult.from_exception(...)`; this
-   preserves retry evidence while keeping the failed call `verified=false`.
+   If the script raises, catch `SceneDigestExecutionError` and pass its `cause`,
+   snapshots, and `readback_error` to `ScriptExecutionResult.from_exception(...)`.
+   A failed after-readback after a mutating script is explicitly
+   `indeterminate=true` with `verified=false`; preserve the before snapshot and
+   never retry it as if no side effect occurred.
    Core persists gateway-accepted feedback under
    `<registry_dir>/feedback/<dcc>-<pid>.jsonl` with bounded rotation and
    session-end syncing. Treat `feedback_persistence_failed` as a real degraded

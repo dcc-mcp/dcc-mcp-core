@@ -25,7 +25,6 @@ import json
 from pathlib import Path
 import sys
 import threading
-import traceback
 from typing import Any
 from typing import Sequence
 from typing import TextIO
@@ -39,6 +38,7 @@ from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
 from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
 from dcc_mcp_core.runtime.scene_digest_envelope import scene_digest_postcondition as _scene_digest_postcondition
+from dcc_mcp_core.runtime.scene_digest_envelope import script_execution_failure as _script_execution_failure
 from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
@@ -634,12 +634,15 @@ class ScriptExecutionResult:
                 repr_fallback=use_repr,
             )
         except ScriptExecutionSerializationError as exc:
-            return ToolResultEnvelope.fail(
+            serialization_failure = ToolResultEnvelope.fail(
                 str(exc),
                 error="non_serializable_result",
                 stdout=stdout,
                 stderr=stderr,
             ).to_dict()
+            if digest_evidence is not None:
+                serialization_failure["postcondition"] = digest_evidence
+            return serialization_failure
 
         context = {
             "result": normalized,
@@ -685,37 +688,18 @@ class ScriptExecutionResult:
         message: str | None = None,
         scene_digest_before: SceneDigestSnapshot | None = None,
         scene_digest_after: SceneDigestSnapshot | None = None,
+        readback_error: SceneDigestError | None = None,
     ) -> dict[str, Any]:
         """Return a structured failure envelope with traceback and captured output."""
-        error_type = type(exc).__name__
-        formatted_traceback = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        result = ToolResultEnvelope.fail(
-            message or f"Script execution failed: {exc}",
-            error="script_execution_error",
-            _meta={
-                "dcc.error": {
-                    "type": error_type,
-                    "message": str(exc),
-                    "traceback": formatted_traceback,
-                }
-            },
+        return _script_execution_failure(
+            exc,
             stdout=stdout,
             stderr=stderr,
-            exception_type=error_type,
-            exception_message=str(exc),
-            traceback=formatted_traceback,
-        ).to_dict()
-        digest_evidence = _scene_digest_postcondition(
-            scene_digest_before,
-            scene_digest_after,
-            postcondition={"verified": False},
-            verified=None,
+            message=message,
+            scene_digest_before=scene_digest_before,
+            scene_digest_after=scene_digest_after,
+            readback_error=readback_error,
         )
-        if isinstance(digest_evidence, dict) and digest_evidence.get("success") is False:
-            return digest_evidence
-        if digest_evidence is not None:
-            result["postcondition"] = digest_evidence
-        return result
 
 
 __all__ = [
@@ -891,9 +875,25 @@ class ScriptExecutionContext:
             try:
                 value = self.execute(code, filename=filename)
             except Exception as exc:
-                after = self.capture_state_digest()
+                try:
+                    after = self.capture_state_digest()
+                except SceneDigestError as readback_error:
+                    raise SceneDigestExecutionError(
+                        exc,
+                        before,
+                        None,
+                        readback_error=readback_error,
+                    ) from None
                 raise SceneDigestExecutionError(exc, before, after) from None
-            after = self.capture_state_digest()
+            try:
+                after = self.capture_state_digest()
+            except SceneDigestError as readback_error:
+                raise SceneDigestExecutionError(
+                    readback_error,
+                    before,
+                    None,
+                    readback_error=readback_error,
+                ) from None
             return SceneDigestExecution(value, before, after)
 
     def reset_for_tests(self) -> None:

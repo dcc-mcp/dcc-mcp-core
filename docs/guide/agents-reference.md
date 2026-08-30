@@ -259,8 +259,11 @@ fingerprint is state evidence, not proof that the requested semantic effect
 occurred: set `verified=True` only after an adapter-owned postcondition confirms
 the claim. Core rejects `verified=True` when the bounded scene digest is
 unchanged. A script exception is wrapped as `SceneDigestExecutionError`; pass
-its `cause` and both snapshots to `ScriptExecutionResult.from_exception(...)`
-so the failed result retains retry evidence with `verified=false`. The base
+its `cause`, snapshots, and `readback_error` to
+`ScriptExecutionResult.from_exception(...)`. If the after readback fails after
+a mutation, the exception carries the known before snapshot and the result is
+marked `indeterminate=true` with `verified=false`; never retry it as if no
+side effect occurred. The base
 registration wires `dcc_feedback__report` to the
 configured gateway `/v1/feedback` endpoint, late-binds the current instance id,
 and mirrors only gateway-accepted receipts into a bounded, write-through JSONL

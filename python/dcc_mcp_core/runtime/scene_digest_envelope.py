@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import traceback
 from typing import Any
 
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
@@ -82,4 +83,85 @@ def _coerce_scene_digest_snapshot(
     return normalize_scene_digest(value)
 
 
-__all__ = ["scene_digest_postcondition"]
+def partial_scene_digest_postcondition(
+    before: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
+    after: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
+    *,
+    readback_error: SceneDigestError | None = None,
+) -> dict[str, Any] | None:
+    """Build indeterminate evidence when only one side was observable."""
+    if before is None and after is None:
+        return None
+    evidence: dict[str, Any] = {
+        "verified": False,
+        "indeterminate": True,
+        "scene_digest_readback": "unavailable",
+    }
+    if readback_error is not None:
+        evidence["scene_digest_error"] = readback_error.code
+    try:
+        evidence["scene_digest_before"] = None if before is None else _coerce_scene_digest_snapshot(before).to_dict()
+        evidence["scene_digest_after"] = None if after is None else _coerce_scene_digest_snapshot(after).to_dict()
+    except SceneDigestError as exc:
+        return ToolResultEnvelope.fail(str(exc), error=exc.code).to_dict()
+    return evidence
+
+
+def script_execution_failure(
+    exc: BaseException,
+    *,
+    stdout: str,
+    stderr: str,
+    message: str | None,
+    scene_digest_before: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
+    scene_digest_after: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
+    readback_error: SceneDigestError | None = None,
+) -> dict[str, Any]:
+    """Build a failure envelope while retaining complete or partial evidence."""
+    error_type = type(exc).__name__
+    formatted_traceback = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    error_code = exc.code if isinstance(exc, SceneDigestError) else "script_execution_error"
+    result = ToolResultEnvelope.fail(
+        message or f"Script execution failed: {exc}",
+        error=error_code,
+        _meta={
+            "dcc.error": {
+                "type": error_type,
+                "message": str(exc),
+                "traceback": formatted_traceback,
+            }
+        },
+        stdout=stdout,
+        stderr=stderr,
+        exception_type=error_type,
+        exception_message=str(exc),
+        traceback=formatted_traceback,
+    ).to_dict()
+    if scene_digest_before is None and scene_digest_after is None:
+        evidence = scene_digest_postcondition(
+            None,
+            None,
+            postcondition={"verified": False},
+            verified=None,
+        )
+    elif scene_digest_before is None or scene_digest_after is None:
+        evidence = partial_scene_digest_postcondition(
+            scene_digest_before,
+            scene_digest_after,
+            readback_error=readback_error,
+        )
+    else:
+        evidence = scene_digest_postcondition(
+            scene_digest_before,
+            scene_digest_after,
+            postcondition={"verified": False},
+            verified=None,
+        )
+    if isinstance(evidence, dict) and evidence.get("success") is False:
+        return evidence
+    if evidence is not None:
+        result["postcondition"] = evidence
+    return result
+
+
+__all__ = ["partial_scene_digest_postcondition", "scene_digest_postcondition", "script_execution_failure"]
