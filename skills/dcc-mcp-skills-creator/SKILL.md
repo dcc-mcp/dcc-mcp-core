@@ -161,6 +161,11 @@ Generated `tools.yaml` entries follow the modern contract:
   the tool script or handler validation instead of `anyOf`, `oneOf`, `allOf`,
   `not`, `if`/`then`/`else`, or dependent-schema keywords. When a complex
   schema is unavoidable, discovery must route through `describe` before call.
+- Published recipe `inputs_schema` references stay within one schema resource:
+  use `#`, a local JSON Pointer such as `#/$defs/name`, or a local `$anchor`
+  such as `#name`. Recipe admission rejects `$id`, `$dynamicRef`, and
+  `$dynamicAnchor`; external and resource-relative `$ref` values are not
+  supported by the dependency-free validator.
 - `execution` is `sync` or `async`; use `async` for deferred/long-running work.
 - `job_strategy` is `monolithic` (default), `chunked`, or `isolated`. Agents
   use it to select a safe execution and recovery workflow.
