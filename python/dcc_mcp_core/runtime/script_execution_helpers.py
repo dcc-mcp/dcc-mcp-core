@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Any
 
 
-def file_ref_for_script_path(path: Path, *, sha256: str | None, bytes_: int | None) -> dict[str, Any]:
+def file_ref_for_script_path(
+    path: Path,
+    *,
+    sha256: str | None,
+    bytes_: int | None,
+) -> dict[str, Any]:
+    """Build the portable FileRef projection for one script path."""
     resolved = path.resolve()
     file_ref = {
         "uri": resolved.as_uri(),
@@ -23,6 +29,7 @@ def file_ref_for_script_path(path: Path, *, sha256: str | None, bytes_: int | No
 
 
 def mime_for_script_path(path: Path) -> str:
+    """Return the stable script MIME type inferred from a file suffix."""
     suffix = path.suffix.lower()
     if suffix == ".py":
         return "text/x-python"
