@@ -29,6 +29,9 @@ from typing import Any
 from typing import Sequence
 from typing import TextIO
 
+from dcc_mcp_core._scene_digest_execution import freeze_scene_digest as _freeze_scene_digest
+from dcc_mcp_core._scene_digest_execution import scene_digest_restorer as _scene_digest_restorer
+from dcc_mcp_core._script_execution_helpers import file_ref_for_script_path as _file_ref_for_script_path
 from dcc_mcp_core.errors import DccMcpError
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 from dcc_mcp_core.runtime.scene_digest import SceneDigestError
@@ -36,7 +39,6 @@ from dcc_mcp_core.runtime.scene_digest import SceneDigestExecution
 from dcc_mcp_core.runtime.scene_digest import SceneDigestExecutionError
 from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
-from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
 from dcc_mcp_core.runtime.scene_digest_envelope import scene_digest_postcondition as _scene_digest_postcondition
 from dcc_mcp_core.runtime.scene_digest_envelope import script_execution_failure as _script_execution_failure
@@ -55,59 +57,6 @@ class ScriptExecutionSerializationError(DccMcpError, TypeError):
     """Raised when a strict script result cannot be JSON-encoded."""
 
     pass
-
-
-def _freeze_scene_digest(snapshot: SceneDigestSnapshot) -> bytes:
-    """Serialize one trusted snapshot before running untrusted script code.
-
-    A script executes in this interpreter and can inspect its caller frames.
-    Keeping the mutable SceneDigestSnapshot out of that frame means frame-local
-    mutation cannot rewrite the before-state evidence. The serialized bytes
-    are immutable and rehydrated only after the script returns (or raises).
-    """
-    try:
-        rendered = snapshot.to_dict()
-        return json.dumps(
-            rendered,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    except SceneDigestError:
-        raise
-    except (TypeError, ValueError, UnicodeError) as exc:
-        raise SceneDigestError(
-            "scene_digest_invalid",
-            "Scene digest evidence could not be serialized",
-        ) from exc
-
-
-def _restore_scene_digest_with(decoder, wire: bytes) -> SceneDigestSnapshot:
-    """Decode using a closure-bound validator without frame-local snapshots."""
-    try:
-        decoded = json.loads(wire.decode("utf-8"))
-    except (TypeError, UnicodeError, ValueError) as exc:
-        raise SceneDigestError(
-            "scene_digest_invalid",
-            "Serialized scene digest evidence is malformed",
-        ) from exc
-    if not isinstance(decoded, Mapping):
-        raise SceneDigestError(
-            "scene_digest_invalid",
-            "Serialized scene digest evidence must be a mapping",
-        )
-    return decoder(decoded)
-
-
-def _scene_digest_restorer(wire: bytes):
-    """Bind immutable evidence to a tiny closure with no mutable snapshot."""
-    decoder = normalize_scene_digest
-
-    def restore() -> SceneDigestSnapshot:
-        return _restore_scene_digest_with(decoder, wire)
-
-    return restore
 
 
 @dataclass(frozen=True)
@@ -492,35 +441,6 @@ def _materialized_script_context(
     context.setdefault("schema_version", 1)
     context.setdefault("producer", "dcc-mcp-core.script_materialization")
     return context
-
-
-def _file_ref_for_script_path(path: Path, *, sha256: str | None, bytes_: int | None) -> dict[str, Any]:
-    resolved = path.resolve()
-    file_ref = {
-        "uri": resolved.as_uri(),
-        "mime": _mime_for_script_path(resolved),
-        "size_bytes": bytes_,
-        "display_name": resolved.name,
-        "digest": f"sha256:{sha256}" if sha256 else None,
-        "metadata": {
-            "materialization_kind": "script",
-            "source": "file_path",
-        },
-    }
-    return {key: value for key, value in file_ref.items() if value is not None}
-
-
-def _mime_for_script_path(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix == ".py":
-        return "text/x-python"
-    if suffix == ".mel":
-        return "text/x-mel"
-    if suffix == ".js":
-        return "text/javascript"
-    if suffix == ".ps1":
-        return "text/x-powershell"
-    return "text/plain"
 
 
 class _CaptureStream(io.TextIOBase):
